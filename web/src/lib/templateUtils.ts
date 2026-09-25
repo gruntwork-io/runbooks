@@ -186,6 +186,27 @@ export function filterUnmetOutputDeps(
 }
 
 /**
+ * A plain value action: `{{ .inputs.X }}` or `{{ .outputs.X.Y }}`, optionally
+ * piped through functions (`{{ .inputs.X | upper }}`). A reference inside
+ * template logic (`{{ if .inputs.X }}`, a function argument) doesn't match.
+ */
+const VALUE_REFERENCE_PATTERN =
+  /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g
+
+/**
+ * The distinct input paths `text` uses as plain value actions: exactly the
+ * `{{ .inputs.* }}` references resolveTemplateReferences substitutes. An input
+ * referenced only inside template logic is not included.
+ */
+export function extractInputValueReferences(text: string): InputName[] {
+  const names = new Set<InputName>()
+  for (const [, namespace, path] of text.matchAll(VALUE_REFERENCE_PATTERN)) {
+    if (namespace === 'inputs') names.add(path)
+  }
+  return [...names]
+}
+
+/**
  * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
  * Client-side string resolver for blocks that don't go through the Go template engine
  * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
@@ -196,10 +217,12 @@ export function resolveTemplateReferences(
 ): string {
   if (!text) return text
   return text.replace(
-    /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g,
+    VALUE_REFERENCE_PATTERN,
     (match, namespace, path) => {
       if (namespace === 'inputs') {
-        const value = ctx.inputs[path]
+        // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
+        // through nested objects, like computeUnmetInputDependencies.
+        const value = ctx.inputs[path] ?? resolveNestedValue(ctx.inputs, path)
         return value != null ? String(value) : `\`${match}\``
       }
       if (namespace === 'outputs') {

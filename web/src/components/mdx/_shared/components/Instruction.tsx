@@ -30,6 +30,12 @@ export interface InstructionProps {
   source?: InstructionSource
   /** Template context (Inputs-form values) used to resolve the command/source. */
   templateContext?: TemplateContext
+  /**
+   * An embedded form shown before the command — e.g. a Command's nested
+   * `<Inputs>`. Its values reach `templateContext`, so the command updates as
+   * the user fills it in.
+   */
+  inputs?: ReactNode
   /** Extra prose/notes shown after the command (e.g. sparse-checkout note). */
   note?: ReactNode
   /** Icon shown in the heading. Defaults to a checklist glyph. */
@@ -42,9 +48,10 @@ const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
 
 /**
  * Shared presentation primitive for instruction mode (spec §6.3). Renders a
- * flattened, copy-pasteable instruction: heading + prose + the resolved
- * command (or a source viewer for file-backed scripts) + any auto-detected
- * manual-input fields for `{{ .outputs.* }}` values the user must supply.
+ * flattened, copy-pasteable instruction: heading + prose + any embedded Inputs
+ * form + the resolved command (or a source viewer for file-backed scripts) +
+ * any auto-detected manual-input fields for `{{ .outputs.* }}` values the user
+ * must supply.
  *
  * Resolution lives here (via useInstructionResolution) so a block converts to
  * instruction mode with a single declarative early-return and no extra hooks of
@@ -56,6 +63,7 @@ export function Instruction({
   command,
   source,
   templateContext = EMPTY_CONTEXT,
+  inputs,
   note,
   icon: Icon = ListChecks,
   id,
@@ -108,6 +116,10 @@ export function Instruction({
               <InlineMarkdown>{description}</InlineMarkdown>
             </div>
           )}
+
+          {/* Embedded Inputs form, placed before the command (as in the
+              interactive layout) so the command updates as the user fills it. */}
+          {inputs && <div>{inputs}</div>}
 
           {/* Manual-input fields for output-derived values (§6.5.2). Placed
               before the command so the command updates as the user fills them. */}

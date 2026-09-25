@@ -3,6 +3,7 @@ import {
   buildRenderVariables,
   flattenBlockOutputs,
   computeUnmetInputDependencies,
+  extractInputValueReferences,
   resolveTemplateReferences,
 } from './templateUtils'
 import type { TemplateContext } from './templateUtils'
@@ -149,6 +150,16 @@ describe('resolveTemplateReferences', () => {
     expect(resolveTemplateReferences('{{ .inputs.region | upper }}', ctx)).toBe('us-west-2')
   })
 
+  it('should resolve dotted input paths through nested objects', () => {
+    const nestedCtx: TemplateContext = {
+      inputs: { tags: { env: 'prod' }, _module: { source: 'git::x' } },
+      outputs: {},
+    }
+    expect(resolveTemplateReferences('{{ .inputs.tags.env }}', nestedCtx)).toBe('prod')
+    expect(resolveTemplateReferences('{{ .inputs._module.source }}', nestedCtx)).toBe('git::x')
+    expect(resolveTemplateReferences('{{ .inputs.tags.team }}', nestedCtx)).toBe('`{{ .inputs.tags.team }}`')
+  })
+
   it('should wrap missing input values in backticks for inline-code rendering', () => {
     expect(resolveTemplateReferences('{{ .inputs.nonexistent }}', ctx)).toBe('`{{ .inputs.nonexistent }}`')
   })
@@ -193,6 +204,31 @@ describe('resolveTemplateReferences', () => {
       outputs: { block_only: { key: 'val' } },
     }
     expect(resolveTemplateReferences('{{ .outputs.block_only }}', outCtx)).toBe('`{{ .outputs.block_only }}`')
+  })
+})
+
+describe('extractInputValueReferences', () => {
+  it('returns each input used as a plain value action, once', () => {
+    expect(
+      extractInputValueReferences(
+        '{{ .inputs.a }} {{- .inputs.b -}} {{ .inputs.a }} {{ .inputs.tags.env | upper }} {{ .outputs.step.arn }}',
+      ),
+    ).toEqual(['a', 'b', 'tags.env'])
+  })
+
+  it('skips inputs referenced only inside template logic', () => {
+    expect(
+      extractInputValueReferences(
+        '{{ if .inputs.x }}-x{{ end }} {{ eq .inputs.y "a" }} {{ printf "%s" .inputs.z }}',
+      ),
+    ).toEqual([])
+  })
+
+  it('matches exactly what resolveTemplateReferences substitutes', () => {
+    const text = '{{ if .inputs.x }}{{ .inputs.y }}{{ end }} {{ .inputs.z | quote }}'
+    const ctx: TemplateContext = { inputs: { x: 'X', y: 'Y', z: 'Z' }, outputs: {} }
+    expect(extractInputValueReferences(text)).toEqual(['y', 'z'])
+    expect(resolveTemplateReferences(text, ctx)).toBe('{{ if .inputs.x }}Y{{ end }} Z')
   })
 })
 

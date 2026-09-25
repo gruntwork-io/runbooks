@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { TestWrapper } from '@/test/test-utils'
 import Check from '../Check'
 
@@ -66,6 +66,21 @@ describe('Check — instruction mode', () => {
     renderCheck()
     expect(screen.getByText('test -f /etc/hosts')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^check$/i })).toBeNull()
+  })
+
+  it('keeps a nested Inputs child, embedded, inside the instruction', () => {
+    const FakeInputs = ({ variant }: { variant?: string }) => (
+      <div data-testid="inline-inputs" data-variant={variant} />
+    )
+    render(
+      <TestWrapper>
+        <Check id="test-check" title="Verify hosts file" command="test -f /etc/hosts">
+          <FakeInputs />
+        </Check>
+      </TestWrapper>,
+    )
+    const child = within(screen.getByTestId('instruction-test-check')).getByTestId('inline-inputs')
+    expect(child).toHaveAttribute('data-variant', 'embedded')
   })
 
   it('renders the interactive Check button when the flag is off', () => {
