@@ -86,19 +86,13 @@ export const useFormState = (
     }
   }, [formData])
 
-  // Track if this is the initial load for auto-render purposes
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
-
-  // Trigger auto-rendering when form data changes (debounced, not on initial load)
+  // Trigger auto-rendering when form data is first populated and on every
+  // change after that (leading + trailing debounced). The initial fire is
+  // intentional: it is how consumers publish their initial values to context
+  // (e.g. Template fills its local values and registers its defaults from it).
   useEffect(() => {
-    // Mark that initial load is complete after first form data is set
-    if (Object.keys(formData).length > 0 && isInitialLoad) {
-      setIsInitialLoad(false)
-      return // Don't trigger auto-render on initial load
-    }
-    
-    // Only trigger auto-render if auto-rendering is enabled, we have form data, and it's not the initial load
-    if (enableAutoRender && onAutoRenderRef.current && Object.keys(formData).length > 0 && !isInitialLoad) {
+    // Only trigger auto-render if auto-rendering is enabled and we have form data
+    if (enableAutoRender && onAutoRenderRef.current && Object.keys(formData).length > 0) {
       // Leading + trailing debounce:
       //
       //   - When the user has been idle for at least AUTO_RENDER_DEBOUNCE_MS,
@@ -112,9 +106,10 @@ export const useFormState = (
       //     state. Any new keystroke before the trailing fires resets the
       //     timer.
       //
-      // Net behavior: typing "abc" with 50 ms between strokes →
-      //   "a" fires immediately (leading), "c" fires after a 50 ms quiet
-      //   period (trailing); "b" is collapsed.
+      // Net behavior: a lone keystroke after an idle period fires exactly
+      //   once (leading). Typing "abc" with <50 ms between strokes → "a"
+      //   fires immediately (leading), "c" fires after a 50 ms quiet period
+      //   (trailing); "b" is collapsed.
       const now = Date.now()
       const sinceLastFire = now - lastFireAtRef.current
       const fire = () => {
@@ -131,15 +126,9 @@ export const useFormState = (
       }
 
       if (sinceLastFire >= AUTO_RENDER_DEBOUNCE_MS) {
-        // Leading edge: idle long enough, fire now.
+        // Leading edge: idle long enough, fire now. A later keystroke inside
+        // the debounce window re-runs this effect and takes the branch below.
         fire()
-        // Still schedule a trailing fire to capture any final keystroke that
-        // arrives during this debounce window — without it, a single fast
-        // keystroke after the leading would never re-fire.
-        autoRenderTimerRef.current = setTimeout(() => {
-          autoRenderTimerRef.current = null
-          fire()
-        }, AUTO_RENDER_DEBOUNCE_MS)
       } else {
         // Inside the debounce window: trailing fire only.
         autoRenderTimerRef.current = setTimeout(() => {
@@ -148,7 +137,7 @@ export const useFormState = (
         }, AUTO_RENDER_DEBOUNCE_MS - sinceLastFire)
       }
     }
-  }, [formData, isInitialLoad, enableAutoRender])
+  }, [formData, enableAutoRender])
 
   /**
    * Updates multiple form fields at once

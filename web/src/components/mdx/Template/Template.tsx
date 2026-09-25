@@ -15,6 +15,7 @@ import { markStage } from '@/lib/renderPerf'
 import { XCircle } from 'lucide-react'
 import { useInstructionMode } from '@/contexts/useInstructionMode'
 import { TemplateInstruction } from './TemplateInstruction'
+import { useSharedTemplateVars } from './useSharedTemplateVars'
 
 /**
  * Template component - generates files from a boilerplate template directory.
@@ -77,7 +78,9 @@ function TemplateInteractive({
   
   const [shouldRender, setShouldRender] = useState(false);
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
-  
+  // Bumped on every Generate click so the auto-render effect re-runs (see handleGenerate)
+  const [generateNonce, setGenerateNonce] = useState(0);
+
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
   const hasEverGeneratedRef = useRef(false);
   
@@ -149,24 +152,11 @@ function TemplateInteractive({
     }
   }, [id, isDuplicate, validationError, apiError, reportError, clearError])
 
-  // Compute "shared" variables - those that exist in BOTH imported sources AND this template's boilerplate.yml
-  // These variables are read-only in the form and stay live-synced to imported values
-  const sharedVarNames = useMemo(() => {
-    if (!boilerplateConfig) return new Set<string>();
-    
-    const localVarNames = new Set(boilerplateConfig.variables.map(v => v.name));
-    const importedVarNames = new Set(Object.keys(inputValues));
-    
-    // Intersection: variables that exist in both
-    const shared = new Set<string>();
-    for (const name of localVarNames) {
-      if (importedVarNames.has(name)) {
-        shared.add(name);
-      }
-    }
-    return shared;
-  }, [boilerplateConfig, inputValues]);
-  
+  // Shared variables (in BOTH imported sources AND this template's boilerplate.yml),
+  // their live imported values, and the form's initial data.
+  // This must be before early returns to maintain hook order
+  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(boilerplateConfig, inputValues);
+
   // Compute unmet output dependencies - outputs from other blocks that this template needs
   // but which haven't been produced yet
   const unmetOutputDependencies = useMemo(
@@ -177,52 +167,18 @@ function TemplateInteractive({
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
 
-  // Compute initial data for the form
-  // - Local-only vars: use template defaults (stable, set once)
-  // - Shared vars: use imported values (live-synced)
-  // 
-  // IMPORTANT: This must NOT depend on any state that changes when the user types,
-  // otherwise useFormState will reset the form and cause an infinite loop.
-  const initialData = useMemo(() => {
-    if (!boilerplateConfig) return {};
-    
-    const data: Record<string, unknown> = {};
-    for (const variable of boilerplateConfig.variables) {
-      if (sharedVarNames.has(variable.name)) {
-        // Shared: use imported value (live-synced)
-        data[variable.name] = inputValues[variable.name];
-      } else {
-        // Local-only: use template default (stable)
-        data[variable.name] = variable.default;
-      }
-    }
-    return data;
-  }, [boilerplateConfig, sharedVarNames, inputValues]);
-
-  // Compute live values for shared variables (for real-time sync to form)
-  // This must be before early returns to maintain hook order
-  const liveVarValues = useMemo(() => {
-    const values: Record<string, unknown> = {}
-    for (const varName of sharedVarNames) {
-      if (inputValues[varName] !== undefined) {
-        values[varName] = inputValues[varName]
-      }
-    }
-    return values
-  }, [sharedVarNames, inputValues]);
-
   // Track the latest local form data for registration (without causing re-renders)
   const localVarValuesRef = useRef<Record<string, unknown>>({});
 
   // Register merged values when imported values or config changes
   useEffect(() => {
     if (boilerplateConfig && id) {
-      // Merge imported values with local form data (local wins for shared vars after user edits... 
-      // but shared vars are read-only, so imported always wins in practice)
-      const mergedData = { ...inputValues, ...localVarValuesRef.current };
+      // Shared vars are read-only and live-synced, so the imported (live) value
+      // overrides the local copy, which may not be synced yet when this effect runs.
+      const mergedData = { ...inputValues, ...localVarValuesRef.current, ...liveVarValues };
       registerInputs(id, mergedData, boilerplateConfig);
     }
-  }, [id, boilerplateConfig, inputValues, registerInputs]);
+  }, [id, boilerplateConfig, inputValues, liveVarValues, registerInputs]);
 
   // Render API call - only triggered when shouldRender is true
   // Pass the component id as templateId to enable smart file cleanup when outputs change
@@ -293,25 +249,31 @@ function TemplateInteractive({
   }, [id, boilerplateConfig, inputValues, registerInputs, shouldRender, hasAllOutputDependencies, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
 
   // Upstream-only auto-render: fires when imported values or other-block outputs
-  // change. Local form-input changes are handled inline by handleAutoRender above;
-  // the lastRenderedKeyRef dedupe guards against a redundant IPC if both fire for
-  // the same key.
+  // change, and on every Generate click (generateNonce). Local form-input changes
+  // are handled inline by handleAutoRender above; the lastRenderedKeyRef dedupe
+  // guards against a redundant IPC if both fire for the same key.
   useEffect(() => {
     if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return;
 
-    const key = computeChangeKey(inputValues, localVarValuesRef.current, flattenedOutputs);
+    // When an imported shared var changes, this effect runs before the form's
+    // live-sync has refreshed localVarValuesRef, so overlay the live values.
+    // Key, required-values check and render payload must all use this same
+    // object; a stale ref in any one of them renders the previous value or
+    // stores a key for a render that never happened.
+    const effectiveLocal = { ...localVarValuesRef.current, ...liveVarValues };
+    const key = computeChangeKey(inputValues, effectiveLocal, flattenedOutputs);
     if (key === lastRenderedKeyRef.current) return;
     lastRenderedKeyRef.current = key;
 
-    if (!hasAllRequiredValues(localVarValuesRef.current)) return;
+    if (!hasAllRequiredValues(effectiveLocal)) return;
 
     const mergedData = buildRenderVariables(
-      { ...inputValues, ...localVarValuesRef.current },
+      { ...inputValues, ...effectiveLocal },
       flattenedOutputs,
     );
     markStage('Template:effect-autoRender-call', { id });
     autoRender(path, mergedData);
-  }, [shouldRender, boilerplateConfig, hasAllOutputDependencies, inputValues, flattenedOutputs, hasAllRequiredValues, autoRender, path, id]);
+  }, [shouldRender, generateNonce, boilerplateConfig, hasAllOutputDependencies, inputValues, liveVarValues, flattenedOutputs, hasAllRequiredValues, autoRender, path, id]);
 
   // Handle form submission / generation
   const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
@@ -329,9 +291,13 @@ function TemplateInteractive({
       registerInputs(id, registrationData, boilerplateConfig);
     }
 
-    // Trigger the render with merged data
+    // Trigger the render with merged data. The effect above dispatches it;
+    // clearing the dedupe key and bumping the nonce makes every click dispatch,
+    // so Generate retries a render that failed with unchanged values.
     setRenderFormData(mergedData);
     setShouldRender(true);
+    lastRenderedKeyRef.current = null;
+    setGenerateNonce(n => n + 1);
   }, [id, path, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
 
   // Early return for duplicate ID error
@@ -393,6 +359,7 @@ function TemplateInteractive({
         isAutoRendering={isAutoRendering}
         enableAutoRender={true}
         hasGeneratedSuccessfully={hasEverGeneratedRef.current || Boolean(renderResult)}
+        hasRenderError={Boolean(renderError)}
         variant="standard"
         isInlineMode={false}
         sharedVarNames={sharedVarNames}
