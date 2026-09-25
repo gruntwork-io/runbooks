@@ -141,7 +141,14 @@ export function useIpc<T>(
   useEffect(() => {
     if (!channel || disabled) {
       // Cleared or disabled: drop any in-flight response and stale data so the
-      // previous file/config doesn't linger when nothing is selected.
+      // previous file/config doesn't linger when nothing is selected. A pending
+      // debounced request must be cancelled outright: its timer would call the
+      // performInvoke captured at scheduling time (still holding the old
+      // channel) and take a fresh seq, so bumping the seq can't stop it.
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
       requestSeqRef.current += 1
       setData(null)
       setError(null)
@@ -165,6 +172,18 @@ export function useIpc<T>(
       }
     }
   }, [channel, performInvoke, paramsKey, lazy, disabled])
+
+  // On unmount, in every mode: cancel a pending debounced request and
+  // invalidate any in-flight one so nothing is sent or committed afterwards.
+  // The effect above returns no cleanup in lazy mode, which is the mode the
+  // debouncedRequest consumers (TemplateInline, useApiBoilerplateRender) use.
+  useEffect(() => () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+    requestSeqRef.current += 1
+  }, [])
 
   return { data, isLoading, error, debouncedRequest, refetch, silentRefetch }
 }
