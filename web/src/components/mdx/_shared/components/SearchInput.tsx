@@ -10,8 +10,8 @@ interface SearchInputProps {
 
 /**
  * Search box with a leading magnifier and a clear (✕) button that appears once
- * there's a value. Shared by the GoogleAuth project and gcloud-configuration
- * selectors — the direct analogue of AwsAuth's SearchInput.
+ * there's a value. Used by the AwsAuth account/role/profile selectors and the
+ * GoogleAuth project and gcloud-configuration selectors.
  */
 export function SearchInput({ value, onChange, placeholder, disabled }: SearchInputProps) {
   return (
@@ -27,8 +27,10 @@ export function SearchInput({ value, onChange, placeholder, disabled }: SearchIn
       />
       {value && (
         <button
+          type="button"
           onClick={() => onChange('')}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          aria-label="Clear search"
         >
           <X className="size-4" />
         </button>

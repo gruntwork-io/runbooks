@@ -36,8 +36,10 @@ import type {
 import { GoogleAuthError, GoogleConfigError, GoogleOAuthError } from "../errors/index.ts"
 import {
   classifyGcloudConfig,
+  credentialTypeFromDocumentType,
   parseAdcDocument,
   parseGcloudConfiguration,
+  parseJsonObject,
   resolveActiveConfigName,
   resolveGcloudConfigPaths,
 } from "../domain/google/gcloud-config.ts"
@@ -86,41 +88,6 @@ interface CredentialDocument {
 }
 
 /**
- * `JSON.parse` with a content-free failure message. Node's parser quotes the
- * offending text, and for a credentials document that text IS the secret — the
- * message would then travel out through the error's `message` field.
- */
-function parseCredentialDocument(json: string, what: string): CredentialDocument {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(json)
-  } catch {
-    throw new Error(`${what} is not valid JSON`)
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${what} is not a JSON object`)
-  }
-  return parsed as CredentialDocument
-}
-
-/** Narrow a document's `type` string onto the service's credential-type union. */
-function credentialTypeFromDocument(type: string | undefined): GoogleCredentialType {
-  switch (type) {
-    case "service_account":
-    case "authorized_user":
-    case "external_account":
-    case "impersonated_service_account":
-      return type
-    // Workforce/workload pools hand out this variant; it authenticates exactly
-    // like an external account.
-    case "external_account_authorized_user":
-      return "external_account"
-    default:
-      throw new Error(`Unsupported Google credentials type: ${type ?? "(missing)"}`)
-  }
-}
-
-/**
  * A service-account key -> a JWT client. Constructed explicitly (never
  * `new GoogleAuth()` with no arguments) so ambient credentials can never be
  * validated in place of the caller's key.
@@ -147,7 +114,7 @@ interface DocumentClient {
 
 /** Build an auth client for any credentials document, branching on its `type`. */
 async function clientForDocument(doc: CredentialDocument, rawJson: string): Promise<DocumentClient> {
-  switch (credentialTypeFromDocument(doc.type)) {
+  switch (credentialTypeFromDocumentType(doc.type)) {
     case "service_account":
       return { client: jwtForKey(doc) }
     case "authorized_user": {
@@ -192,9 +159,9 @@ async function clientForDocument(doc: CredentialDocument, rawJson: string): Prom
 async function authClientFor(ref: GoogleCredentialRef): Promise<AuthClient> {
   switch (ref.kind) {
     case "service_account":
-      return jwtForKey(parseCredentialDocument(ref.keyJson, "The service account key"))
+      return jwtForKey(parseJsonObject(ref.keyJson, "The service account key") as CredentialDocument)
     case "authorized_user": {
-      const doc = parseCredentialDocument(ref.adcJson, "The credentials document")
+      const doc = parseJsonObject(ref.adcJson, "The credentials document") as CredentialDocument
       return (await clientForDocument(doc, ref.adcJson)).client
     }
     case "access_token": {
@@ -204,7 +171,7 @@ async function authClientFor(ref: GoogleCredentialRef): Promise<AuthClient> {
     }
     case "file": {
       const text = await fs.readFile(ref.path, "utf-8")
-      const doc = parseCredentialDocument(text, `${ref.path}`)
+      const doc = parseJsonObject(text, `${ref.path}`) as CredentialDocument
       return (await clientForDocument(doc, text)).client
     }
   }
@@ -606,16 +573,6 @@ function toGoogleProject(project: CrmProject): GoogleProject {
 }
 
 /**
- * `projects:search` over plain REST rather than `ProjectsClient`.
- *
- * The generated client's `authClient` option is typed against the
- * google-auth-library that google-gax bundles (v10), which structurally rejects
- * the v11 `AuthClient` we hold — the escape hatch the plan reserves for exactly
- * this. It also keeps `google-gax`/`@grpc/grpc-js`/`protobufjs` and their
- * runtime proto loading out of the auth path inside Electron. Same auth object,
- * same endpoint, identical result mapping.
- */
-/**
  * Whether a project should be offered in the picker.
  *
  * `projects:search` returns projects pending deletion (DELETE_REQUESTED)
@@ -629,6 +586,16 @@ export function isSelectableProject(project: GoogleProject): boolean {
   return !project.state || project.state === "ACTIVE"
 }
 
+/**
+ * `projects:search` over plain REST rather than `ProjectsClient`.
+ *
+ * The generated client's `authClient` option is typed against the
+ * google-auth-library that google-gax bundles (v10), which structurally rejects
+ * the v11 `AuthClient` we hold — the escape hatch the plan reserves for exactly
+ * this. It also keeps `google-gax`/`@grpc/grpc-js`/`protobufjs` and their
+ * runtime proto loading out of the auth path inside Electron. Same auth object,
+ * same endpoint, identical result mapping.
+ */
 async function searchProjects(
   authClient: AuthClient,
   query: string | undefined,
@@ -660,12 +627,15 @@ async function searchProjects(
 }
 
 /**
- * Google's own machine-readable failure reasons that mean "the API could not
- * answer", NOT "you cannot see this project". They arrive as 403s alongside
- * genuine permission denials, so the status code alone cannot separate them.
+ * google.rpc.Code names, read from a failed call's `error.status`, that mean
+ * "the API could not answer", NOT "you cannot see this project".
+ *
+ * Service-infrastructure refusals (SERVICE_DISABLED,
+ * ACCESS_TOKEN_SCOPE_INSUFFICIENT, USER_PROJECT_DENIED, ...) are never an
+ * `error.status`: Google sends them as a 403 PERMISSION_DENIED and names the
+ * reason in an ErrorInfo under `error.details`, so they are told apart there.
  */
-const INCONCLUSIVE_ERROR_STATUSES = new Set([
-  "SERVICE_DISABLED",
+const INCONCLUSIVE_RPC_CODES = new Set([
   "RESOURCE_EXHAUSTED",
   "UNAVAILABLE",
   "INTERNAL",
@@ -674,26 +644,28 @@ const INCONCLUSIVE_ERROR_STATUSES = new Set([
   "UNAUTHENTICATED",
 ])
 
+/** One entry of a google.rpc.Status `details` list; only an ErrorInfo carries a `reason`. */
+interface GoogleErrorDetail {
+  readonly "@type"?: string
+  readonly reason?: string
+}
+
 /** The shape a Gaxios/Google API error exposes, as far as we read it. */
 interface GoogleApiError {
   readonly status?: number
   readonly code?: number | string
   readonly response?: {
     readonly status?: number
-    readonly data?: { readonly error?: { readonly status?: string; readonly message?: string } }
+    readonly data?: {
+      readonly error?: {
+        readonly status?: string
+        readonly message?: string
+        readonly details?: readonly GoogleErrorDetail[]
+      }
+    }
   }
 }
 
-/**
- * Turn a failed `projects.get` into a verdict.
- *
- * Only an answer that names THIS project as missing or forbidden counts as
- * `denied`. Everything else — a Cloud Resource Manager API that was never
- * enabled (Google's default for new projects), a token minted without the
- * cloud-platform scope, a 5xx, a dropped connection — is `unknown`, because a
- * runbook full of working gcloud commands must not be told its project is
- * inaccessible.
- */
 /**
  * Turn a token-endpoint failure into copy a runbook user can act on.
  *
@@ -740,21 +712,48 @@ export function describeCredentialFailure(
   return undefined
 }
 
+/**
+ * Turn a failed `projects.get` into a verdict.
+ *
+ * Only an answer that names THIS project as missing or forbidden counts as
+ * `denied`. Everything else — a Cloud Resource Manager API that was never
+ * enabled (Google's default for new projects), a token minted without the
+ * cloud-platform scope, a 5xx, a dropped connection — is `unknown`, because a
+ * runbook full of working gcloud commands must not be told its project is
+ * inaccessible.
+ */
 export function classifyProjectAccessError(err: unknown): GoogleProjectAccess {
   const apiError = (err ?? {}) as GoogleApiError
   const httpStatus =
     apiError.status ??
     apiError.response?.status ??
     (typeof apiError.code === "number" ? apiError.code : undefined)
-  const reason = apiError.response?.data?.error?.status
+  const body = apiError.response?.data?.error
+  const rpcCode = body?.status
+  // Checked rather than trusted, down to each entry's fields: a proxy's error
+  // body must not turn this verdict into a throw, which the caller would report
+  // as a failure.
+  const details: readonly GoogleErrorDetail[] = Array.isArray(body?.details) ? body.details : []
+  const reasons = details
+    .filter((detail) => {
+      const type: unknown = detail?.["@type"]
+      return typeof type === "string" && type.endsWith("google.rpc.ErrorInfo")
+    })
+    .map((detail): unknown => detail.reason)
+    .filter((reason): reason is string => typeof reason === "string" && reason !== "")
 
-  if (reason && INCONCLUSIVE_ERROR_STATUSES.has(reason)) return "unknown"
+  if (rpcCode && INCONCLUSIVE_RPC_CODES.has(rpcCode)) return "unknown"
   if (httpStatus === 404) return "denied"
   if (httpStatus === 403) {
-    // A 403 with no machine-readable reason is overwhelmingly a permission
-    // denial on the project; the named inconclusive reasons were filtered out
-    // above.
-    return reason === undefined || reason === "PERMISSION_DENIED" ? "denied" : "unknown"
+    // A disabled API, a scope-limited token, and a refused quota project all
+    // arrive as this same 403 PERMISSION_DENIED, told apart only by their
+    // ErrorInfo reason — so list what IS a denial rather than what is not, and
+    // let every other reason fail open. A 403 with no reason at all, or one IAM
+    // names as a missing permission, is overwhelmingly a denial on the project.
+    const onlyIamDenials = reasons.every((reason) => reason === "IAM_PERMISSION_DENIED")
+    return (rpcCode === undefined || rpcCode === "PERMISSION_DENIED") && onlyIamDenials
+      ? "denied"
+      : "unknown"
   }
   return "unknown"
 }
@@ -767,7 +766,7 @@ const impl: GoogleClientShape = {
   validateServiceAccountKey: (keyJson: string, projectIdOverride?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GoogleIdentity> => {
-        const key = parseCredentialDocument(keyJson, "The service account key")
+        const key = parseJsonObject(keyJson, "The service account key") as CredentialDocument
         if (key.type !== "service_account" || !key.client_email || !key.private_key || !key.project_id) {
           throw new Error("Not a service account key (expected type: service_account)")
         }
@@ -813,8 +812,8 @@ const impl: GoogleClientShape = {
   validateAdcDocument: (adcJson: string, projectIdOverride?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GoogleIdentity> => {
-        const doc = parseCredentialDocument(adcJson, "The credentials document")
-        const credentialType = credentialTypeFromDocument(doc.type)
+        const doc = parseJsonObject(adcJson, "The credentials document") as CredentialDocument
+        const credentialType = credentialTypeFromDocumentType(doc.type)
         const { client, auth } = await clientForDocument(doc, adcJson)
 
         const { token } = await client.getAccessToken()
@@ -920,15 +919,13 @@ const impl: GoogleClientShape = {
 
   readApplicationDefaultCredentials: () =>
     Effect.tryPromise({
-      try: async (): Promise<AdcInfo | undefined> => {
+      try: (): Promise<AdcInfo | undefined> => {
+        // The well-known file ONLY — the same read `listGcloudConfigurations`
+        // does. GOOGLE_APPLICATION_CREDENTIALS belongs to the 'env' source,
+        // which honours the author's prefix; reading it here would offer an
+        // unprefixed credential under the 'adc' label.
         const paths = resolveGcloudConfigPaths(process.env, os.homedir(), process.platform)
-        const fromEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()
-        const candidates = fromEnv ? [fromEnv, paths.adcFile] : [paths.adcFile]
-        for (const candidate of candidates) {
-          const info = await readAdcMetadata(candidate)
-          if (info) return info
-        }
-        return undefined
+        return readAdcMetadata(paths.adcFile)
       },
       catch: (err) =>
         new GoogleConfigError({ message: `Failed to read application default credentials: ${err}` }),

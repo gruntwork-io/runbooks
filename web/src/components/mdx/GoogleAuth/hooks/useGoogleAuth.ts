@@ -73,10 +73,13 @@ interface EnvDetectionPayload {
 interface DetectionAttemptResult {
   success: boolean
   detected?: DetectedGoogleCredentials
-  /** Advisory copy main attached to a SUCCESSFUL detection. */
-  warning?: string
   /** A credential was present but did not validate — worth a warning chip. */
   foundButInvalid?: boolean
+  /**
+   * Why a found credential failed validation, as MAIN reported it (already
+   * redacted). Appended to the chip's per-source copy.
+   */
+  reason?: string
   error?: string
 }
 
@@ -145,15 +148,13 @@ export interface UseGoogleAuthReturn {
   /** Absolute path of a chosen key file — what MAIN reads and validates. */
   keyFilePath: string | null
   loadKeyFromFile: () => Promise<void>
-  /** Free-text project override for the SA tab. Seeded from the `project` prop. */
+  /** Free-text project override for the SA tab. Follows the `project` prop until edited. */
   projectIdInput: string
   setProjectIdInput: (v: string) => void
 
-  // ---- Region / zone (secondary) --------------------------------------------
+  // ---- Region (secondary) ---------------------------------------------------
   selectedRegion: string
   setSelectedRegion: (v: string) => void
-  selectedZone: string
-  setSelectedZone: (v: string) => void
 
   // ---- gcloud tab -----------------------------------------------------------
   gcloudConfigs: GcloudConfigInfo[]
@@ -207,6 +208,8 @@ export interface UseGoogleAuthReturn {
   handleRejectDetected: () => void
   handleRetryDetection: () => void
   handleManualAuth: () => void
+  /** Project picker Cancel: back to the success card after "Change project", otherwise start over. */
+  handleCancelProjectSelect: () => void
   /** Decline insufficient-scopes detection and start Google Sign-In with required scopes. */
   handleSignInWithRequiredScopes: () => Promise<void>
 }
@@ -280,11 +283,13 @@ export function useGoogleAuth({
   // never the contents — MAIN reads and validates the file itself (D12).
   const [keyFilePath, setKeyFilePath] = useState<string | null>(null)
   const [keyFileName, setKeyFileName] = useState<string | null>(null)
-  const [projectIdInput, setProjectIdInput] = useState(project ?? '')
+  // null until the user edits the field. Until then it follows the `project`
+  // prop, which can be a template that only resolves (or changes) after mount.
+  const [projectIdOverride, setProjectIdOverride] = useState<string | null>(null)
+  const projectIdInput = projectIdOverride ?? project ?? ''
 
-  // ---- Region / zone (secondary) --------------------------------------------
+  // ---- Region (secondary) ---------------------------------------------------
   const [selectedRegion, setSelectedRegion] = useState(defaultRegion ?? '')
-  const [selectedZone, setSelectedZone] = useState(defaultZone ?? '')
 
   // ---- gcloud tab -----------------------------------------------------------
   const [gcloudConfigs, setGcloudConfigs] = useState<GcloudConfigInfo[]>([])
@@ -305,7 +310,12 @@ export function useGoogleAuth({
   // the SA key picker). Author `oauthClientFile` wins when both are set.
   const [oauthClientFilePath, setOauthClientFilePath] = useState<string | null>(null)
   const [oauthClientFileName, setOauthClientFileName] = useState<string | null>(null)
-  const oauthPollCancelledRef = useRef(false)
+  // Generation of the live OAuth poll loop. Every sign-in start and every
+  // stopOAuthPolling bumps it, and a loop keeps going only while its own
+  // generation is current. A shared "cancelled" boolean that the next sign-in
+  // reset let a poll still in flight from a cancelled flow resume, and its
+  // failure then cancelled the NEW flow.
+  const oauthPollGenerationRef = useRef(0)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Mirrors oauthFlowId so the unmount cleanup can cancel MAIN's loopback
   // listener without taking the state value as an effect dependency.
@@ -329,6 +339,11 @@ export function useGoogleAuth({
   // configuration. Held across the `select_project` detour for the same reason
   // as the credentials path: the picker must not silently drop them.
   const pendingComputeRef = useRef<{ region?: string; zone?: string } | null>(null)
+
+  // True only while the picker was opened by "Change project" from a green card
+  // whose outputs are still live, so Cancel can return to that card instead of
+  // starting over. Cleared by any commit attempt and by any output withdrawal.
+  const changingProjectRef = useRef(false)
 
   // Auto-hide the "no credentials found" retry hint (mirrors AwsAuth).
   useEffect(() => {
@@ -355,7 +370,7 @@ export function useGoogleAuth({
    * otherwise holds a listening socket until its server-side TTL expires.
    */
   const stopOAuthPolling = useCallback((opts?: { cancelFlow?: boolean }) => {
-    oauthPollCancelledRef.current = true
+    oauthPollGenerationRef.current++
     if (oauthPollTimeoutRef.current) {
       clearTimeout(oauthPollTimeoutRef.current)
       oauthPollTimeoutRef.current = null
@@ -388,12 +403,6 @@ export function useGoogleAuth({
   }, [api, id, appendWarning])
 
   /**
-   * Publish this block's outputs in ONE call. `registerOutputs` REPLACES the
-   * whole values map, so a partial second write would wipe the rest (plan §7.2).
-   * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
-   * what makes multi-project `googleAuthId` routing work.
-   */
-  /**
    * Withdraw this block's authentication contract, and drop the credential path
    * with it. Called at the START of every flow that can make MAIN materialise a
    * new credential file.
@@ -408,11 +417,21 @@ export function useGoogleAuth({
    * `registerOutputs` REPLACES the whole values map, so the stale path goes with
    * the marker. `'false'` rather than an omitted key keeps the withdrawal
    * legible in the outputs inspector.
+   *
+   * With the outputs gone there is no green card left for the project picker's
+   * Cancel to return to, so the "Change project" detour ends here too.
    */
   const invalidateBlockOutputs = useCallback(() => {
+    changingProjectRef.current = false
     registerOutputs(id, { __AUTHENTICATED: 'false' })
   }, [id, registerOutputs])
 
+  /**
+   * Publish this block's outputs in ONE call. `registerOutputs` REPLACES the
+   * whole values map, so a partial second write would wipe the rest (plan §7.2).
+   * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
+   * what makes multi-project `googleAuthId` routing work.
+   */
   const registerBlockOutputs = useCallback((result: AuthCompletion) => {
     registerOutputs(id, {
       GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? '',
@@ -491,9 +510,13 @@ export function useGoogleAuth({
     await checkProjectStatus(result.projectId)
   }, [registerBlockOutputs, appendWarning, checkProjectStatus])
 
-  /** Region/zone actually in force: the tab's picker wins over the props. */
-  const effectiveRegion = selectedRegion || defaultRegion || ''
-  const effectiveZone = selectedZone || defaultZone || ''
+  /**
+   * Region/zone actually in force. The picker is seeded from `defaultRegion`,
+   * and its "No default region" row clears it to '' — no region, NOT a fallback
+   * to the prop. The zone has no picker, so it comes from `defaultZone` only.
+   */
+  const effectiveRegion = selectedRegion
+  const effectiveZone = defaultZone ?? ''
 
   /**
    * Pin a project (picker click, single-project auto-select, or the `project`
@@ -508,6 +531,9 @@ export function useGoogleAuth({
     const region = compute?.region ?? pendingComputeRef.current?.region ?? effectiveRegion
     const zone = compute?.zone ?? pendingComputeRef.current?.zone ?? effectiveZone
 
+    // Any commit attempt ends a "Change project" detour: success publishes new
+    // outputs, and failure closes the picker.
+    changingProjectRef.current = false
     setSelectedProject(projectInfo)
     setAuthStatus('authenticating')
     setErrorMessage(null)
@@ -538,8 +564,11 @@ export function useGoogleAuth({
         ...identity,
         projectId: projectInfo.projectId,
         projectName: data.projectName || projectInfo.displayName,
-        region,
-        zone,
+        // MAIN's answer, not the request: with nothing requested ("Change
+        // project" after the gcloud tab) it keeps the region/zone this block
+        // authenticated with, and the outputs must say the same.
+        region: data.region ?? region,
+        zone: data.zone ?? zone,
         ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
@@ -548,7 +577,11 @@ export function useGoogleAuth({
     }
   }, [api, id, effectiveRegion, effectiveZone, accountInfo, completeAuthentication])
 
-  /** Fetch the projects visible to the current credential. */
+  /**
+   * Fetch the projects visible to the current credential. A listing failure
+   * lands in `errorMessage`, which the picker renders inline — an empty list
+   * alone would read as "no projects are visible".
+   */
   const loadProjects = useCallback(async () => {
     setLoadingProjects(true)
     try {
@@ -563,8 +596,8 @@ export function useGoogleAuth({
         setErrorMessage(data.error)
       }
     } catch (error) {
-      console.error('Failed to load Google Cloud projects:', error)
       setProjects([])
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load Google Cloud projects')
     } finally {
       setLoadingProjects(false)
     }
@@ -675,13 +708,14 @@ export function useGoogleAuth({
       }
 
       if (!data.valid) {
-        return { success: false, foundButInvalid: true, ...(data.error ? { error: data.error } : {}) }
+        // MAIN sends the underlying failure as `warning` on this branch.
+        const reason = data.warning ?? data.error
+        return { success: false, foundButInvalid: true, ...(reason ? { reason } : {}) }
       }
 
       return {
         success: true,
         detected: toDetectedCredentials(data, source, options?.prefix),
-        ...(data.warning ? { warning: data.warning } : {}),
       }
     } catch (error) {
       return {
@@ -761,10 +795,13 @@ export function useGoogleAuth({
 
     const succeed = (result: DetectionAttemptResult) => {
       setDetectedCredentials(result.detected!)
-      if (result.warning) {
-        setDetectionWarning(result.warning)
-      }
       setDetectionStatus('detected')
+    }
+
+    // The block owns the per-source copy; MAIN's reason follows it, so a
+    // missing file and a revoked token do not read the same.
+    const pushInvalid = (copy: string, result: DetectionAttemptResult) => {
+      warnings.push(result.reason ? `${copy} (${result.reason})` : copy)
     }
 
     for (let i = 0; i < sources.length; i++) {
@@ -778,7 +815,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push('Google Cloud credentials in the environment are invalid or expired')
+          pushInvalid('Google Cloud credentials in the environment are invalid or expired', result)
         }
       }
       // 'adc' — the well-known application_default_credentials.json
@@ -789,7 +826,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push('Application Default Credentials are invalid or expired')
+          pushInvalid('Application Default Credentials are invalid or expired', result)
         }
       }
       // 'gcloud' — the ACTIVE gcloud configuration
@@ -800,7 +837,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push("The active gcloud configuration's credentials are invalid or expired")
+          pushInvalid("The active gcloud configuration's credentials are invalid or expired", result)
         }
       }
       // { env: { prefix: 'PREFIX_' } } — prefixed env vars
@@ -812,7 +849,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push(`${prefix ?? ''}Google Cloud credentials are invalid or expired`)
+          pushInvalid(`${prefix ?? ''}Google Cloud credentials are invalid or expired`, result)
         }
       }
       // { block: 'id' } — another block's outputs
@@ -952,8 +989,10 @@ export function useGoogleAuth({
           credentialType: data.credentialType ?? detectedCredentials.credentialType,
           ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
           ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
-          region: effectiveRegion,
-          zone: effectiveZone,
+          // The 'gcloud' and 'env' sources fall back to the configuration's or
+          // env's own region/zone in MAIN; publish what MAIN wrote.
+          region: data.region ?? effectiveRegion,
+          zone: data.zone ?? effectiveZone,
           ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         appendWarning(detectionWarning)
@@ -1135,9 +1174,9 @@ export function useGoogleAuth({
     setWarningMessage(null)
     invalidateBlockOutputs()
 
-    // The picker's value wins over the prop; the key's own project_id (resolved
-    // in MAIN) is the fallback when neither is set.
-    const requestedProject = projectIdInput.trim() || project || ''
+    // The field already shows the prop until the user edits it, so its value is
+    // the whole request. Cleared, MAIN falls back to the key's own project_id.
+    const requestedProject = projectIdInput.trim()
 
     try {
       const data = await api.invoke('google:validate-credentials', {
@@ -1168,7 +1207,9 @@ export function useGoogleAuth({
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
 
-      const resolvedProjectId = project || data.projectId || requestedProject || ''
+      // Publish the project MAIN actually registered (it echoes the one it wrote
+      // into the session env), so `googleAuthId` steps and bare steps agree.
+      const resolvedProjectId = data.projectId || requestedProject
 
       if (resolvedProjectId) {
         // MAIN already wrote the project into the session env during validate.
@@ -1220,7 +1261,6 @@ export function useGoogleAuth({
     serviceAccountKey,
     keyFilePath,
     projectIdInput,
-    project,
     effectiveRegion,
     effectiveZone,
     completeAuthentication,
@@ -1309,12 +1349,14 @@ export function useGoogleAuth({
   }, [project, effectiveRegion, effectiveZone, selectProject, completeAuthentication, appendWarning])
 
   /**
-   * Poll the loopback flow. Cancellation is checked before AND after every
-   * await, and the pending timeout is cleared on unmount, so a torn-down block
-   * never writes state or leaves MAIN's listener open.
+   * Poll the loopback flow. The loop's generation is checked before AND after
+   * every await, and the pending timeout is cleared on unmount, so a torn-down
+   * block never writes state or leaves MAIN's listener open, and a superseded
+   * loop can never fail or cancel the flow that replaced it.
    */
-  const pollOAuthCompletion = useCallback((flowId: string) => {
+  const pollOAuthCompletion = useCallback((flowId: string, generation: number) => {
     let attempts = 0
+    const superseded = () => generation !== oauthPollGenerationRef.current
 
     /**
      * Every terminal renderer path goes through `stopOAuthPolling`, which is
@@ -1323,6 +1365,9 @@ export function useGoogleAuth({
      * the user then finishes consent in the still-open browser tab, the
      * exchanged refresh token sits in main-process memory with nothing left to
      * collect or reap it.
+     *
+     * Only a current loop gets here (every caller checks `superseded()` after
+     * its last await), so the flow `stopOAuthPolling` cancels is this one.
      */
     const fail = (message: string) => {
       stopOAuthPolling()
@@ -1333,12 +1378,12 @@ export function useGoogleAuth({
     }
 
     const poll = async () => {
-      if (oauthPollCancelledRef.current) return
+      if (superseded()) return
 
       try {
         const data = await api.invoke('google:oauth-poll', { flowId, blockId: id })
 
-        if (oauthPollCancelledRef.current) return
+        if (superseded()) return
 
         if (data.status === 'pending') {
           if (attempts >= OAUTH_POLL_MAX_ATTEMPTS) {
@@ -1362,7 +1407,7 @@ export function useGoogleAuth({
 
         fail(data.error || 'Google sign-in failed')
       } catch (error) {
-        if (oauthPollCancelledRef.current) return
+        if (superseded()) return
         fail(error instanceof Error ? error.message : 'Failed to check the sign-in status')
       }
     }
@@ -1399,22 +1444,17 @@ export function useGoogleAuth({
   }, [api])
 
   const clearOAuthClientFile = useCallback(() => {
+    // Clearing the path re-runs the oauth-available probe effect below, which
+    // owns the author-prop short-circuit, the cancellation guard, and the
+    // failure policy.
     setOauthClientFilePath(null)
     setOauthClientFileName(null)
-    // Re-probe ambient config; without an author prop the tab may need a client
-    // again. Author props keep Sign-In available regardless.
-    if (oauthClientId || oauthClientFile) {
-      setOauthUnavailable(false)
-      return
-    }
-    void api
-      .invoke('google:oauth-available', {})
-      .then((data) => setOauthUnavailable(data?.available !== true))
-      .catch(() => setOauthUnavailable(true))
-  }, [api, oauthClientId, oauthClientFile])
+  }, [])
 
   const handleOAuthLogin = useCallback(async () => {
-    oauthPollCancelledRef.current = false
+    // Taken BEFORE oauth-start, so a stop while it is in flight (unmount,
+    // re-authenticate) still keeps this flow's poll loop from starting.
+    const generation = ++oauthPollGenerationRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1454,7 +1494,7 @@ export function useGoogleAuth({
         console.error('Failed to open the Google sign-in URL:', error)
       }
 
-      pollOAuthCompletion(data.flowId)
+      pollOAuthCompletion(data.flowId, generation)
     } catch (error) {
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
@@ -1494,11 +1534,12 @@ export function useGoogleAuth({
   }, [stopOAuthPolling])
 
   /**
-   * Ask MAIN once, on mount, whether an OAuth client is resolvable (build
-   * default or operator env). Author props/file and an in-session operator
-   * pick skip the probe — those are available by definition. When nothing is
-   * configured the Sign-In tab stays selectable and OAuthFlow offers a Desktop
-   * client JSON picker (plus the GOOGLE_OAUTH_CLIENT_CREDENTIALS env hint).
+   * Ask MAIN on mount, and again whenever an operator-picked client JSON is
+   * cleared, whether an OAuth client is resolvable (build default or operator
+   * env). Author props/file and an in-session operator pick skip the probe —
+   * those are available by definition. When nothing is configured the Sign-In
+   * tab stays selectable and OAuthFlow offers a Desktop client JSON picker
+   * (plus the GOOGLE_OAUTH_CLIENT_CREDENTIALS env hint).
    */
   useEffect(() => {
     if (oauthClientId || oauthClientFile || oauthClientFilePath) {
@@ -1542,13 +1583,17 @@ export function useGoogleAuth({
       const pinned = gcloudConfiguration ? list.find((c) => c.name === gcloudConfiguration) : undefined
       const active = list.find((c) => c.isActive && usable(c))
       const firstUsable = list.find(usable)
-      const choice = pinned ?? active ?? firstUsable
-      if (choice) {
-        setSelectedConfig(choice)
-      }
+      // "Refresh configurations" keeps the user's pick while it is still listed
+      // and usable, taking the FRESH entry (its ADC state may have changed).
+      // Otherwise the default choice applies, and when there is none the
+      // selection clears rather than keeping a configuration that is gone.
+      setSelectedConfig((prev) =>
+        (prev && list.find((c) => c.name === prev.name && usable(c))) ??
+        pinned ?? active ?? firstUsable ?? null)
     } catch (error) {
       console.error('Failed to load gcloud configurations:', error)
       setGcloudConfigs([])
+      setSelectedConfig(null)
     } finally {
       setLoadingConfigs(false)
     }
@@ -1692,6 +1737,7 @@ export function useGoogleAuth({
   const handleChangeProject = useCallback(async () => {
     setErrorMessage(null)
     setProjectSearch('')
+    changingProjectRef.current = true
     setAuthStatus('select_project')
     if (projects.length === 0) {
       await loadProjects()
@@ -1722,6 +1768,23 @@ export function useGoogleAuth({
     pendingComputeRef.current = null
   }, [stopOAuthPolling, invalidateBlockOutputs])
 
+  /**
+   * The project picker's Cancel. Backing out of "Change project" returns to the
+   * success card: the committed credential and its outputs were never touched.
+   * Cancelling the picker a fresh authentication routed into has nothing
+   * committed to return to, so that starts over.
+   */
+  const handleCancelProjectSelect = useCallback(() => {
+    if (changingProjectRef.current) {
+      changingProjectRef.current = false
+      setProjectSearch('')
+      setErrorMessage(null)
+      setAuthStatus('authenticated')
+      return
+    }
+    handleManualAuth()
+  }, [handleManualAuth])
+
   return {
     // Core state
     authMethod,
@@ -1748,13 +1811,11 @@ export function useGoogleAuth({
     keyFilePath,
     loadKeyFromFile,
     projectIdInput,
-    setProjectIdInput,
+    setProjectIdInput: setProjectIdOverride,
 
-    // Region / zone
+    // Region
     selectedRegion,
     setSelectedRegion,
-    selectedZone,
-    setSelectedZone,
 
     // gcloud tab
     gcloudConfigs,
@@ -1794,6 +1855,7 @@ export function useGoogleAuth({
     handleRejectDetected,
     handleRetryDetection,
     handleManualAuth,
+    handleCancelProjectSelect,
     handleSignInWithRequiredScopes,
   }
 }

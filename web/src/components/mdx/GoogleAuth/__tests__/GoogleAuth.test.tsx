@@ -275,6 +275,57 @@ describe('GoogleAuth — service account tab', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Change project
+// ---------------------------------------------------------------------------
+
+describe('GoogleAuth — change project', () => {
+  const LIST_ERROR = 'Cloud Resource Manager API has not been used in project 123'
+
+  it('shows a project-list failure in the picker, and Cancel keeps the authentication', async () => {
+    installApi((channel) => {
+      if (channel === 'google:env-credentials') return { found: false }
+      if (channel === 'google:validate-credentials') {
+        return {
+          valid: true,
+          account: {
+            principal: 'sa@key-project.iam.gserviceaccount.com',
+            accountType: 'service_account',
+          },
+          projectId: 'proj-x',
+          credentialType: 'service_account',
+          credentialsPath: '/tmp/runbooks-gcp-cp/adc.json',
+        }
+      }
+      if (channel === 'google:projects') return { projects: [], error: LIST_ERROR }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
+
+    const keyField = await screen.findByLabelText('Service account key JSON')
+    fireEvent.change(keyField, { target: { value: SA_KEY } })
+    fireEvent.click(screen.getByRole('button', { name: 'Authenticate' }))
+    expect(await screen.findByText('✓ Authenticated to Google Cloud')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change Project' }))
+
+    // The listing failed; the picker must say so rather than claim the
+    // credential can see no projects.
+    expect(await screen.findByText('Could not list projects:')).toBeInTheDocument()
+    expect(screen.getByText(LIST_ERROR)).toBeInTheDocument()
+    expect(screen.queryByText('No projects are visible to these credentials.')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // Backing out is not a re-authentication.
+    expect(await screen.findByText('✓ Authenticated to Google Cloud')).toBeInTheDocument()
+    expect(screen.getByText('sa@key-project.iam.gserviceaccount.com')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Service Account Key' })).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Tab 2 — Google sign-in
 // ---------------------------------------------------------------------------
 
@@ -546,6 +597,45 @@ describe('GoogleAuth — credential detection', () => {
       screen.getByText(/Google Cloud credentials in the environment are invalid or expired/),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Service Account Key' })).toBeInTheDocument()
+  })
+
+  it("adds MAIN's reason to the invalid-credentials warning", async () => {
+    installApi((channel, args) => {
+      if (channel !== 'google:env-credentials') return {}
+      if (args?.source === 'adc') {
+        return {
+          found: true,
+          valid: false,
+          source: 'adc',
+          path: '/home/u/.config/gcloud/application_default_credentials.json',
+          warning: 'ENOENT: no such file or directory',
+        }
+      }
+      return { found: false }
+    })
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={['adc']} />)
+
+    expect(await screen.findByText('Invalid credentials detected:')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Application Default Credentials are invalid or expired \(ENOENT: no such file or directory\)/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('names a prefixed env var once, exactly as MAIN read it', async () => {
+    installApi((channel) =>
+      channel === 'google:env-credentials'
+        ? { ...detected, envVar: 'PROD_GOOGLE_APPLICATION_CREDENTIALS' }
+        : {},
+    )
+
+    renderBlock(<GoogleAuth id="gcp" detectCredentials={[{ env: { prefix: 'PROD_' } }]} />)
+
+    expect(await screen.findByText('Google Cloud Credentials Detected')).toBeInTheDocument()
+    expect(screen.getByText('PROD_GOOGLE_APPLICATION_CREDENTIALS')).toBeInTheDocument()
+    expect(screen.queryByText(/PROD_PROD_/)).toBeNull()
   })
 
   it('offers a detection retry from the manual form', async () => {
