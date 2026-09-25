@@ -105,8 +105,8 @@ export function repoWebUrl(
  * Best-effort provider guess from a clone URL's host. Only the public SaaS
  * hosts (github.com / gitlab.com) are recognized; self-hosted/Enterprise hosts
  * return `undefined` (we can't tell GitHub Enterprise from GitLab self-managed
- * by hostname). Used ONLY as a last-resort default for the generic block's
- * displayed provider — NEVER to gate the wrong-auth-block error.
+ * by hostname). Used only for display (the generic block's default provider
+ * and the workspace repo icon) — NEVER to gate the wrong-auth-block error.
  */
 export function deriveProviderFromRepoUrl(
   repoUrl: string | undefined,
