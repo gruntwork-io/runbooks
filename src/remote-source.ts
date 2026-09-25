@@ -123,6 +123,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
     const pathname = yield* Effect.try(() => decodeURI(url.pathname)).pipe(
       Effect.orElseSucceed(() => url.pathname),
     )
+    // `new URL` only resolves `/`-delimited dot segments, but decodeURI turns
+    // `%5C` into a backslash, which Windows' path.join treats as a separator:
+    // `..%5C..%5Cetc` would climb out of the clone there. No repo, ref or
+    // path legitimately has a `..` segment, so reject one under either
+    // separator (on every platform, so the check is tested everywhere).
+    if (pathname.split(/[\\/]/).includes("..")) {
+      return yield* Effect.fail(unsupported)
+    }
 
     // 1) OpenTofu forms: git::https://host/owner/.../repo.git//path?ref=v1.0
     //    and the github.com / gitlab.com shorthand. The `//path` subdir is
@@ -134,8 +142,15 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
       const repoPath = sep >= 0 ? fullPath.slice(0, sep) : fullPath
       const path = sep >= 0 ? trimSlashes(fullPath.slice(sep + 2)) || undefined : undefined
       const { owner, repo } = splitOwnerRepo(repoPath)
-      // GitHub has no nested groups → exactly owner/repo.
-      if (!owner || !repo || (host === "github.com" && owner.includes("/"))) {
+      // GitHub has no nested groups → exactly owner/repo. GitLab reserves the
+      // `-` segment for its own routes, so a repo path containing one is a
+      // browser URL (`gitlab.com/g/p/-/tree/main/x`), not a nested group.
+      if (
+        !owner ||
+        !repo ||
+        (host === "github.com" && owner.includes("/")) ||
+        repoPath.split("/").includes("-")
+      ) {
         return yield* Effect.fail(unsupported)
       }
       return {

@@ -261,6 +261,19 @@ export const selectCloneToken = (
   })
 
 /**
+ * The directory `subpath` names inside the clone at `dest`, or undefined when
+ * it resolves outside it. `subpath` comes from the untrusted URL; the parser
+ * already rejects `..` segments, and this is the backstop where the path is
+ * used.
+ */
+export function runbookDirInClone(dest: string, subpath: string | undefined): string | undefined {
+  if (!subpath) return dest
+  const dir = path.join(dest, subpath)
+  const rel = path.relative(dest, dir)
+  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) ? undefined : dir
+}
+
+/**
  * Parse a remote URL, clone the repo (with sparse checkout if needed),
  * and resolve the runbook file path within the clone.
  */
@@ -312,6 +325,12 @@ export async function resolveRemoteRunbook(
       registerTempCloneDir(tempDir)
 
       const dest = path.join(tempDir, "repo")
+      const runbookDir = runbookDirInClone(dest, parsed.path)
+      if (runbookDir === undefined) {
+        return yield* Effect.fail(
+          new RemoteSourceError({ url: rawUrl, message: "runbook path is outside the repository" }),
+        )
+      }
       log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
 
       // Clone with sparse checkout if a subpath is specified.
@@ -326,7 +345,6 @@ export async function resolveRemoteRunbook(
       log.info("Clone complete")
 
       // Resolve the runbook file within the clone
-      const runbookDir = parsed.path ? path.join(dest, parsed.path) : dest
       log.info("Resolving runbook in:", runbookDir)
       const localPath = yield* resolveRunbookPath(runbookDir)
       log.info("Resolved runbook path:", localPath)

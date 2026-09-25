@@ -115,6 +115,14 @@ describe("parseRemoteSource", () => {
       expect(result.ref).toBe("v1")
       expect(result.cloneURL).toBe("https://gitlab.com/group/subgroup/project.git")
     })
+
+    it.each([
+      "gitlab.com/group/project/-/tree/main/x",
+      "git::https://gitlab.com/group/project/-/tree/main/x",
+    ])("rejects a browser URL rather than reading it as nested groups: %s", (url) => {
+      // `-` is reserved by GitLab, so it is never a group or project name.
+      expect(() => parse(url)).toThrow()
+    })
   })
 
   describe("GitHub browser URLs", () => {
@@ -152,11 +160,23 @@ describe("parseRemoteSource", () => {
       "https://github.com/owner/repo/tree/main/runbooks/%2e%2e/%2E%2E/%2e%2e/etc",
       "https://github.com/owner/repo/tree/main/..%2F..%2F..%2Fetc",
       "github.com/owner/repo//..%2F..%2Fetc",
+      "https://github.com/owner/repo/tree/main/..%5C..%5C..%5Cetc",
+      "github.com/owner/repo//..%5C..%5Cetc",
+      "git::https://gitlab.com/group/project.git//x/..%5C..%5Cetc?ref=v1",
     ])("never yields a `..` path segment: %s", (url) => {
       const result = Effect.runSync(Effect.either(parseRemoteSource(url)))
       if (result._tag === "Right") {
-        expect(result.right.path?.split("/") ?? []).not.toContain("..")
+        // Windows' path.join also splits on a backslash.
+        expect(result.right.path?.split(/[\\/]/) ?? []).not.toContain("..")
       }
+    })
+
+    it.each([
+      "https://github.com/owner/repo/tree/main/..%5C..%5C..%5Cetc",
+      "github.com/owner/repo//..%5C..%5Cetc",
+      "https://gitlab.com/group/project/-/tree/main/..%5Cetc",
+    ])("rejects a backslash-delimited `..` segment: %s", (url) => {
+      expect(() => parse(url)).toThrow()
     })
   })
 

@@ -12,6 +12,7 @@ import {
   registerTempCloneDir,
   failWithCloneHint,
   selectCloneToken,
+  runbookDirInClone,
 } from "./remote.ts"
 import { sessionManager } from "./ipc/runtime.ts"
 import { resolveRef } from "../../src/remote-source.ts"
@@ -368,6 +369,26 @@ describe("selectCloneToken", () => {
   it("falls back to VcsCredentials.tokenForHost when there is no session", async () => {
     const { token } = await select("github.com", { "github.com": "ambient-token" })
     expect(token).toBe("ambient-token")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// runbookDirInClone — the URL's subpath must stay inside the clone.
+// ---------------------------------------------------------------------------
+
+describe("runbookDirInClone", () => {
+  const dest = nodePath.join(os.tmpdir(), "runbooks-remote-abc", "repo")
+
+  it.each([
+    [undefined, dest],
+    ["runbooks/x", nodePath.join(dest, "runbooks", "x")],
+    ["..foo/x", nodePath.join(dest, "..foo", "x")], // a dot-prefixed name, not a `..` segment
+  ])("resolves %s inside the clone", (subpath, expected) => {
+    expect(runbookDirInClone(dest, subpath)).toBe(expected)
+  })
+
+  it.each(["..", "../../etc", "runbooks/../../etc"])("rejects %s, which escapes the clone", (subpath) => {
+    expect(runbookDirInClone(dest, subpath)).toBeUndefined()
   })
 })
 
