@@ -85,7 +85,6 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
 const makeStubGitLabClient = (overrides: Partial<GitLabClientShape> = {}): GitLabClientShape => ({
   validateToken: (_token) =>
     Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "validateToken") })),
-  detectTokenType: (_token) => "unknown" as const,
   createMergeRequest: (_token, _params) =>
     Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "createMergeRequest") })),
   listLabels: (_token, _owner, _repo) =>
@@ -114,8 +113,6 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
     Effect.fail(new GitError({ command: "status", stderr: notConfigured("GitClient", "status"), exitCode: 1 })),
   hasCommits: (_repoPath) =>
     Effect.fail(new GitError({ command: "log", stderr: notConfigured("GitClient", "hasCommits"), exitCode: 1 })),
-  hasChanges: (_repoPath) =>
-    Effect.fail(new GitError({ command: "status", stderr: notConfigured("GitClient", "hasChanges"), exitCode: 1 })),
   checkIgnored: (_repoPath, _paths) =>
     Effect.fail(new GitError({ command: "check-ignore", stderr: notConfigured("GitClient", "checkIgnored"), exitCode: 1 })),
   createBranch: (_repoPath, _branch) =>

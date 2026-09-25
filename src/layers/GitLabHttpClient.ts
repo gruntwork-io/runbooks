@@ -19,7 +19,6 @@ import { GitLabClient } from "../services/GitLabClient.ts"
 import type {
   GitLabClientShape,
   GitLabTokenValidation,
-  GitLabTokenType,
   CreateMRParams,
   MergeRequestResult,
 } from "../services/GitLabClient.ts"
@@ -191,9 +190,6 @@ const impl: GitLabClientShape = {
         validateUserToken(token, normalizeGitLabBaseUrl(baseUrl)),
       catch: toGitLabApiError,
     }),
-
-  detectTokenType: (token: string): GitLabTokenType =>
-    token.startsWith("glpat-") ? "pat" : "unknown",
 
   createMergeRequest: (token: string, params: CreateMRParams) =>
     Effect.tryPromise({

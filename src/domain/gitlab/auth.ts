@@ -8,17 +8,18 @@
  * CLI reads are PER HOST: `glab config get token --host <H>` —
  * glab has no `auth token` subcommand.
  */
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 import { normalizeGitLabHost, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
+import { ENV_PREFIX_PATTERN } from "../github/auth.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -38,6 +39,14 @@ const OAUTH_STALENESS_MARGIN_MS = 60_000
  * (OAUTH_TOKEN is a real, glab-honored legacy credential).
  */
 export const GITLAB_TOKEN_ENV_VARS = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"] as const
+
+/**
+ * The token vars read under the `{env:{prefix}}` variant, as
+ * `<PREFIX><name>`: the GitLab-specific names only. A prefixed OAUTH_TOKEN
+ * names no provider (glab never reads one), so it could just as well hold
+ * another service's token and is never read.
+ */
+const PREFIXED_GITLAB_TOKEN_ENV_VARS = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN"] as const
 
 /** glab treats an empty/blank env var as unset. */
 const isSetEnvVar = (value: string | undefined): value is string =>
@@ -124,8 +133,8 @@ export const detectTokenType = (token: string): GitLabTokenType =>
 
 export interface GitLabEnvCredential {
   readonly token: string
-  /** The variable the token came from (glab's documented precedence order). */
-  readonly envVar: (typeof GITLAB_TOKEN_ENV_VARS)[number]
+  /** The variable the token came from (e.g. GITLAB_TOKEN, CI_GITLAB_TOKEN). */
+  readonly envVar: string
 }
 
 /**
@@ -133,12 +142,26 @@ export interface GitLabEnvCredential {
  * precedence: GITLAB_TOKEN, then GITLAB_ACCESS_TOKEN, then OAUTH_TOKEN
  * (OAUTH_TOKEN is a real, glab-honored legacy credential). Returns
  * undefined when none is set.
+ *
+ * With a `prefix` (the `{env:{prefix}}` variant), looks up
+ * `<PREFIX>GITLAB_TOKEN` then `<PREFIX>GITLAB_ACCESS_TOKEN` instead, never
+ * falling back to the unprefixed names. The prefix MUST already be
+ * allowlist-validated (ENV_PREFIX_PATTERN) by the caller in main; an invalid
+ * prefix is treated as absent here as defense in depth.
  */
-export const detectEnvCredentials = () =>
+export const detectEnvCredentials = (prefix?: string) =>
   Effect.gen(function* () {
     const env = yield* Environment
 
-    for (const envVar of GITLAB_TOKEN_ENV_VARS) {
+    let envVars: readonly string[] = GITLAB_TOKEN_ENV_VARS
+    if (prefix !== undefined && prefix !== "") {
+      if (!ENV_PREFIX_PATTERN.test(prefix)) {
+        return undefined
+      }
+      envVars = PREFIXED_GITLAB_TOKEN_ENV_VARS.map((name) => `${prefix}${name}`)
+    }
+
+    for (const envVar of envVars) {
       const token = yield* env.get(envVar)
       if (token) {
         return { token, envVar } satisfies GitLabEnvCredential
@@ -190,23 +213,12 @@ const runGlab = (
       ...setEnv,
     }
     const proc = yield* spawner.spawn("glab", args, { env: childEnv })
-    const stdout: string[] = []
-    const stderr: string[] = []
-    const exitCode = yield* Effect.ensuring(
-      Effect.gen(function* () {
-        yield* proc.output.pipe(
-          Stream.runForEach((line) =>
-            Effect.sync(() => {
-              ;(line.source === "stdout" ? stdout : stderr).push(line.line)
-            }),
-          ),
-          Effect.timeout(timeoutMs),
-        )
-        return yield* proc.exitCode.pipe(Effect.timeout(timeoutMs))
-      }),
-      proc.kill.pipe(Effect.ignore),
-    )
-    return { exitCode, stdout, stderr }
+    const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
+    return {
+      exitCode,
+      stdout: lines.filter((line) => line.source === "stdout").map((line) => line.line),
+      stderr: lines.filter((line) => line.source === "stderr").map((line) => line.line),
+    }
   })
 
 export const isSpawnEnoent = (err: unknown): boolean => {
@@ -372,32 +384,44 @@ export const DEFAULT_GITLAB_HOST = "gitlab.com"
  * never transmitted anywhere else. Undefined (no binding at all) when a host
  * var is set but unparseable: falling back to gitlab.com would transmit a
  * corporate token cross-origin on a typo.
+ *
+ * A prefixed token (the `{env:{prefix}}` variant) is bound the same way by
+ * the prefixed host vars — `<PREFIX>GITLAB_HOST ?? <PREFIX>GITLAB_URI ??
+ * <PREFIX>GL_HOST ?? "gitlab.com"` — never by the unprefixed ones.
  */
 export const envTokenHost = (
   env: Record<string, string | undefined>,
+  prefix = "",
 ): string | undefined => {
-  const configured = configuredEnvHost(env)
+  const configured = configuredEnvHost(env, prefix)
   if (configured === undefined) return DEFAULT_GITLAB_HOST
   return tryNormalizeGitLabHost(configured)
 }
 
 /**
  * glab's host env-var precedence (GITLAB_HOST, then GITLAB_URI, then GL_HOST),
- * raw and unnormalized; a blank var counts as unset.
+ * each read as `<prefix><name>`, raw and unnormalized; a blank var counts as
+ * unset.
  */
 export const configuredEnvHost = (
   env: Record<string, string | undefined>,
-): string | undefined => [env.GITLAB_HOST, env.GITLAB_URI, env.GL_HOST].find(isSetEnvVar)
+  prefix = "",
+): string | undefined =>
+  [env[`${prefix}GITLAB_HOST`], env[`${prefix}GITLAB_URI`], env[`${prefix}GL_HOST`]].find(
+    isSetEnvVar,
+  )
 
 /**
- * Whether the env token may be auto-validated against (i.e. transmitted to)
- * `host`: exactly when `host` IS the env token's bound host.
+ * Whether the env token (read under `prefix`, if any) may be auto-validated
+ * against (i.e. transmitted to) `host`: exactly when `host` IS that token's
+ * bound host.
  */
 export const mayAutoSendEnvToken = (
   host: string,
   env: Record<string, string | undefined>,
+  prefix = "",
 ): boolean => {
-  const bound = envTokenHost(env)
+  const bound = envTokenHost(env, prefix)
   return bound !== undefined && normalizeGitLabHost(host) === bound
 }
 

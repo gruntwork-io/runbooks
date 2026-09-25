@@ -65,28 +65,27 @@ export interface VcsCliStatusInfo {
   readonly git?: { readonly sslBackend?: string }
 }
 
-/** Step 5 widens this to the annotated union (provenance + hasCredential). */
+/** Raw union; provenance and hasCredential annotation happen in electron/main/ipc/gitlab.ts. */
 export interface MergedGitLabHosts {
   readonly hosts: string[]
   readonly defaultHost: string
 }
 
 export interface VcsCredentialsShape {
-  // --- Per-source detection legs (validated direct-fetch; used by the
-  //     GitAuth IPC handlers, which orchestrate tri-state on top) -----------
+  // --- Per-source detection legs (validated direct-fetch). The GitAuth IPC
+  //     handlers call them one at a time; the source chain itself (the
+  //     author's detectCredentials order — `invalid` continues, `unreachable`
+  //     stops) runs in the renderer (useGitAuth.ts) ---------------------------
   // The GitLab `instance` parameters take the instance origin
   // (normalizeGitLabBaseUrl output — a manually-entered `http://` scheme must
   // survive through validation); the legs derive the bare host internally for
   // glab/config reads. A bare host normalizes to its https origin.
   readonly detectGitHubEnv: (prefix?: string) => Effect.Effect<DetectionResult>
   readonly detectGitHubCli: () => Effect.Effect<DetectionResult>
-  readonly detectGitLabEnv: (instance: string) => Effect.Effect<DetectionResult>
+  // `prefix` (the `{env:{prefix}}` variant) reads only <PREFIX>GITLAB_TOKEN /
+  // <PREFIX>GITLAB_ACCESS_TOKEN, host-bound by the prefixed host vars.
+  readonly detectGitLabEnv: (instance: string, prefix?: string) => Effect.Effect<DetectionResult>
   readonly detectGitLabCli: (instance: string) => Effect.Effect<DetectionResult>
-
-  // --- full chains: first-success-wins; `invalid` warns and continues;
-  //     `unreachable` stops without consuming later sources -----------------
-  readonly resolveGitHub: (prefix?: string) => Effect.Effect<DetectionResult>
-  readonly resolveGitLab: (instance: string) => Effect.Effect<DetectionResult>
 
   /** Direct (one-transport) validation of an arbitrary token — the PAT path.
    *  Tri-state outcome; no source (the caller knows it's manual). */
@@ -127,12 +126,9 @@ export interface VcsCredentialsShape {
    *  (invalidation: auth failures and renderer-initiated re-detection). */
   readonly invalidateCache: () => Effect.Effect<void>
 
-  // --- transport-degraded host bookkeeping ----------------------------
-  /** Records the degraded host + emits the structured field-canary log line. */
+  /** Emits the structured `transport degraded` field-canary log line when a
+   *  token validated only via the CLI probe (the direct transport failed). */
   readonly markTransportDegraded: (host: string, code: string) => Effect.Effect<void>
-  readonly isTransportDegraded: (host: string) => Effect.Effect<boolean>
-  /** Cleared by HostSelect Reload. */
-  readonly clearTransportDegraded: () => Effect.Effect<void>
 }
 
 export class VcsCredentials extends Context.Tag("VcsCredentials")<VcsCredentials, VcsCredentialsShape>() {}

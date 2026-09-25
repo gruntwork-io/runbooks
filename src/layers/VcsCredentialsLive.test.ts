@@ -1,4 +1,4 @@
-import { describe, it, expect, setSystemTime, afterEach } from "bun:test"
+import { describe, it, expect, setSystemTime, afterEach, spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { VcsCredentials } from "../services/VcsCredentials.ts"
 import { VcsCredentialsLive } from "./VcsCredentialsLive.ts"
@@ -57,66 +57,8 @@ const respondWith = (
   return handler ? handler(args) : "ENOENT"
 }
 
-describe("VcsCredentialsLive — chain precedence", () => {
-  it("resolveGitHub: env wins over CLI (first-success-wins)", async () => {
-    const harness = makeHarness({
-      env: { GITHUB_TOKEN: "ghp_env" },
-      github: {
-        validateToken: (token) =>
-          token === "ghp_env"
-            ? Effect.succeed({ user: OCTOCAT, scopes: ["repo"] })
-            : Effect.fail(new GitHubApiError({ status: 401, message: "401" })),
-      },
-    })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
-    expect(result.outcome).toBe("valid")
-    expect(result.source).toBe("env")
-    expect(result.envVar).toBe("GITHUB_TOKEN")
-    expect(result.token).toBe("ghp_env")
-    // The CLI source was never consulted.
-    expect(harness.calls.filter((c) => c.command === "gh" && c.args[0] === "auth")).toHaveLength(0)
-  })
-
-  it("resolveGitHub: an INVALID env token warns and CONTINUES to the CLI source", async () => {
-    const harness = makeHarness({
-      env: { GITHUB_TOKEN: "ghp_bad" },
-      respond: respondWith({
-        "gh auth": (args) =>
-          args[1] === "token"
-            ? { lines: [{ line: "gho_cli", source: "stdout" }], exitCode: 0 }
-            : { lines: [{ line: "  - Token scopes: 'repo'", source: "stdout" }], exitCode: 0 },
-        "gh version": () => ghVersion,
-      }),
-      github: {
-        validateToken: (token) =>
-          token === "gho_cli"
-            ? Effect.succeed({ user: OCTOCAT, scopes: ["repo"] })
-            : Effect.fail(new GitHubApiError({ status: 401, message: "401 Bad credentials" })),
-      },
-    })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
-    expect(result.outcome).toBe("valid")
-    expect(result.source).toBe("cli")
-    // chip copy carried along — never "expired".
-    expect(result.warnings).toEqual(["GITHUB_TOKEN is not valid for github.com"])
-  })
-
-  it("resolveGitHub: an UNREACHABLE outcome stops the chain without consuming the CLI source", async () => {
-    const harness = makeHarness({
-      env: { GITHUB_TOKEN: "ghp_env" },
-      github: {
-        validateToken: () =>
-          Effect.fail(new GitHubApiError({ status: 0, message: "fetch failed", kind: "tls" })),
-      },
-    })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
-    expect(result.outcome).toBe("unreachable")
-    expect(result.errorKind).toBe("tls")
-    expect(result.warnings).toEqual([]) // never a token warning for transport failures
-    expect(harness.calls.filter((c) => c.command === "gh")).toHaveLength(0)
-  })
-
-  it("resolveGitLab: server-cert unreachable carries its kind (handlers skip refresh+probe on it)", async () => {
+describe("VcsCredentialsLive — detection leg outcomes", () => {
+  it("detectGitLabEnv: server-cert unreachable carries its kind (handlers skip refresh+probe on it)", async () => {
     const harness = makeHarness({
       env: { GITLAB_TOKEN: "glpat-x" },
       gitlab: {
@@ -124,7 +66,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
           Effect.fail(new GitLabApiError({ status: 0, message: "cert expired", kind: "server-cert" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.resolveGitLab("gitlab.com"))
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com"))
     expect(result.outcome).toBe("unreachable")
     expect(result.errorKind).toBe("server-cert")
   })
@@ -158,14 +100,14 @@ describe("VcsCredentialsLive — chain precedence", () => {
     expect(result.errorKind).toBeUndefined()
   })
 
-  it("resolveGitHub: nothing found is absent — NOT an error (the repo may be public)", async () => {
+  it("detectGitHubCli: nothing found is absent — NOT an error (the repo may be public)", async () => {
     const harness = makeHarness({
       respond: respondWith({
         "gh auth": () => ({ lines: [], exitCode: 1 }),
         "gh version": () => ghVersion,
       }),
     })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
+    const result = await harness.use((vcs) => vcs.detectGitHubCli())
     expect(result.outcome).toBe("absent")
     expect(result.warnings).toEqual([])
   })
@@ -190,6 +132,82 @@ describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
 
     // Requested host === envHost → validated against exactly that host.
     const bound = await harness.use((vcs) => vcs.detectGitLabEnv("git.corp.example"))
+    expect(bound.outcome).toBe("valid")
+    expect(validatedAgainst).toBe("https://git.corp.example")
+  })
+
+  it("{env:{prefix}}: validates <PREFIX>GITLAB_TOKEN, never the unprefixed token", async () => {
+    const validated: string[] = []
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal", CI_GITLAB_TOKEN: "glpat-ci" },
+      gitlab: {
+        validateToken: (token) => {
+          validated.push(token)
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(result.outcome).toBe("valid")
+    expect(result.token).toBe("glpat-ci")
+    expect(result.envVar).toBe("CI_GITLAB_TOKEN")
+    expect(validated).toEqual(["glpat-ci"])
+  })
+
+  it("{env:{prefix}}: only the unprefixed token set is absent — no validation call", async () => {
+    let validateCalls = 0
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal" },
+      gitlab: {
+        validateToken: () => {
+          validateCalls++
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(result.outcome).toBe("absent")
+    expect(result.token).toBeUndefined()
+    expect(validateCalls).toBe(0)
+  })
+
+  it("{env:{prefix}}: an invalid prefix is absent — no validation call", async () => {
+    let validateCalls = 0
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal", "ci-GITLAB_TOKEN": "glpat-ci" },
+      gitlab: {
+        validateToken: () => {
+          validateCalls++
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "ci-"))
+    expect(result.outcome).toBe("absent")
+    expect(validateCalls).toBe(0)
+  })
+
+  it("{env:{prefix}}: the prefixed token is bound to <PREFIX>GITLAB_HOST only", async () => {
+    let validatedAgainst: string | undefined
+    const harness = makeHarness({
+      env: {
+        CI_GITLAB_TOKEN: "glpat-ci",
+        CI_GITLAB_HOST: "git.corp.example",
+        // The unprefixed host var never rebinds a prefixed token.
+        GITLAB_HOST: "gitlab.com",
+      },
+      gitlab: {
+        validateToken: (_token, baseUrl) => {
+          validatedAgainst = baseUrl
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const other = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(other.outcome).toBe("absent")
+    expect(validatedAgainst).toBeUndefined()
+
+    const bound = await harness.use((vcs) => vcs.detectGitLabEnv("git.corp.example", "CI_"))
     expect(bound.outcome).toBe("valid")
     expect(validatedAgainst).toBe("https://git.corp.example")
   })
@@ -332,6 +350,28 @@ describe("VcsCredentialsLive — probe gating", () => {
   })
 })
 
+describe("VcsCredentialsLive — cliStatus", () => {
+  it("runs the gh/glab version probes with the same hygiene env as every other CLI spawn", async () => {
+    const harness = makeHarness({
+      env: { GH_TOKEN: "ghp_ambient", GH_HOST: "ghes.corp.example", GITLAB_TOKEN: "glpat-ambient", NO_PROMPT: "1" },
+      respond: respondWith({ "gh version": () => ghVersion, "glab version": () => glabVersion }),
+    })
+    const status = await harness.use((vcs) => vcs.cliStatus())
+    expect(status.gh).toEqual({ installed: true, version: "2.40.1", meetsFloor: true })
+    expect(status.glab).toEqual({ installed: true, version: "1.101.0", meetsFloor: true })
+
+    const ghCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "version")
+    expect(ghCall?.env).toMatchObject({ GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" })
+    expect(ghCall?.env?.GH_TOKEN).toBeUndefined()
+    expect(ghCall?.env?.GH_HOST).toBeUndefined()
+
+    const glabCall = harness.calls.find((c) => c.command === "glab" && c.args[0] === "version")
+    expect(glabCall?.env).toMatchObject({ GLAB_CHECK_UPDATE: "false", GLAB_SEND_TELEMETRY: "false" })
+    expect(glabCall?.env?.GITLAB_TOKEN).toBeUndefined()
+    expect(glabCall?.env?.NO_PROMPT).toBeUndefined()
+  })
+})
+
 describe("VcsCredentialsLive — CLI read cache", () => {
   it("caches a successful gh read for 5 minutes and re-reads after TTL", async () => {
     setSystemTime(new Date("2030-01-01T00:00:00Z"))
@@ -466,13 +506,15 @@ describe("VcsCredentialsLive — tokenForHost classification (golang parity)", (
   })
 })
 
-describe("VcsCredentialsLive — transport-degraded host set", () => {
-  it("marks, reports, and clears degraded hosts", async () => {
-    const harness = makeHarness()
-    await harness.use((vcs) => vcs.markTransportDegraded("git.corp.example", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"))
-    expect(await harness.use((vcs) => vcs.isTransportDegraded("git.corp.example"))).toBe(true)
-    expect(await harness.use((vcs) => vcs.isTransportDegraded("gitlab.com"))).toBe(false)
-    await harness.use((vcs) => vcs.clearTransportDegraded())
-    expect(await harness.use((vcs) => vcs.isTransportDegraded("git.corp.example"))).toBe(false)
+describe("VcsCredentialsLive — transport degraded", () => {
+  it("emits the structured field-canary log line", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const harness = makeHarness()
+      await harness.use((vcs) => vcs.markTransportDegraded("git.corp.example", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"))
+      expect(warn).toHaveBeenCalledWith("transport degraded for git.corp.example: UNABLE_TO_GET_ISSUER_CERT_LOCALLY")
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

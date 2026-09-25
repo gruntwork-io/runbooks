@@ -4,13 +4,11 @@
  * This layer depends on ProcessSpawner, so it uses Layer.effect to pull
  * the spawner from context.
  */
-import * as path from "node:path"
 import { Effect, Layer, Stream, Chunk } from "effect"
 import { GitClient } from "../services/GitClient.ts"
 import type {
   GitClientShape,
   CloneOptions,
-  CloneResult,
   PushOptions,
   DiffEntry,
   StatusEntry,
@@ -127,18 +125,6 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
             )
           }
         }
-
-        // Count files in the destination
-        const lsProc = yield* spawner.spawn("find", [".", "-type", "f"], { cwd: dest })
-        const lsChunks = yield* Stream.runCollect(lsProc.output)
-        const fileCount = Chunk.toArray(lsChunks).filter((l) => l.source === "stdout").length
-        const absolutePath = path.resolve(dest)
-
-        return {
-          fileCount,
-          absolutePath,
-          relativePath: dest,
-        } satisfies CloneResult
       }),
 
     push: (repoPath: string, remote: string, branch: string, options?: PushOptions) =>
@@ -307,12 +293,6 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         Effect.map(() => true),
         Effect.catchAll(() => Effect.succeed(false)),
       ),
-
-    hasChanges: (repoPath: string) =>
-      Effect.gen(function* () {
-        const lines = yield* runGit(spawner, ["status", "--porcelain", "--untracked-files=all"], repoPath)
-        return lines.some((l) => l.trim().length > 0)
-      }),
 
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {

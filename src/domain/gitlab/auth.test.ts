@@ -86,6 +86,64 @@ describe("detectEnvCredentials", () => {
     )
     expect(result).toBeUndefined()
   })
+
+  it("with a prefix, reads <PREFIX>GITLAB_TOKEN and ignores the unprefixed token", async () => {
+    const layer = makeTestEnvironment({
+      GITLAB_TOKEN: "glpat-personal",
+      CI_GITLAB_TOKEN: "glpat-ci",
+    })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ token: "glpat-ci", envVar: "CI_GITLAB_TOKEN" })
+  })
+
+  it("with a prefix, falls back to <PREFIX>GITLAB_ACCESS_TOKEN only", async () => {
+    const layer = makeTestEnvironment({ CI_GITLAB_ACCESS_TOKEN: "glpat-ci-access" })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ token: "glpat-ci-access", envVar: "CI_GITLAB_ACCESS_TOKEN" })
+  })
+
+  it("with a prefix, never falls back to the unprefixed vars", async () => {
+    const layer = makeTestEnvironment({
+      GITLAB_TOKEN: "glpat-personal",
+      GITLAB_ACCESS_TOKEN: "glpat-personal-access",
+      OAUTH_TOKEN: "a".repeat(64),
+    })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("with a prefix, does not read <PREFIX>OAUTH_TOKEN (it names no provider)", async () => {
+    const layer = makeTestEnvironment({ CI_OAUTH_TOKEN: "a".repeat(64) })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("rejects a prefix that fails ENV_PREFIX_PATTERN (defense in depth)", async () => {
+    const layer = makeTestEnvironment({
+      GITLAB_TOKEN: "glpat-personal",
+      "ci-GITLAB_TOKEN": "glpat-ci",
+    })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("ci-").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("treats an empty prefix as no prefix", async () => {
+    const layer = makeTestEnvironment({ GITLAB_TOKEN: "glpat-test123" })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("").pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ token: "glpat-test123", envVar: "GITLAB_TOKEN" })
+  })
 })
 
 describe("envTokenHost — the binding rule", () => {
@@ -132,6 +190,28 @@ describe("envTokenHost — the binding rule", () => {
     expect(envTokenHost({ GITLAB_HOST: "", GITLAB_URI: "git.corp.example" })).toBe("git.corp.example")
     expect(envTokenHost({ GITLAB_HOST: "  ", GL_HOST: "git.corp.example" })).toBe("git.corp.example")
     expect(envTokenHost({ GITLAB_HOST: "" })).toBe("gitlab.com")
+  })
+
+  it("a prefixed token is bound by the prefixed host vars, in the same precedence", () => {
+    expect(
+      envTokenHost(
+        { CI_GITLAB_HOST: "one.example", CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" },
+        "CI_",
+      ),
+    ).toBe("one.example")
+    expect(envTokenHost({ CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" }, "CI_")).toBe("two.example")
+    expect(envTokenHost({ CI_GL_HOST: "three.example" }, "CI_")).toBe("three.example")
+
+    const env = { CI_GITLAB_HOST: "git.corp.example" }
+    expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(true)
+    expect(mayAutoSendEnvToken("gitlab.com", env, "CI_")).toBe(false)
+  })
+
+  it("a prefixed token ignores the unprefixed host vars (defaults to gitlab.com)", () => {
+    const env = { GITLAB_HOST: "git.corp.example" }
+    expect(envTokenHost(env, "CI_")).toBe("gitlab.com")
+    expect(mayAutoSendEnvToken("gitlab.com", env, "CI_")).toBe(true)
+    expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(false)
   })
 })
 
