@@ -63,8 +63,9 @@ Then in your editor:
 
 - Uses `chokidar` for efficient file system monitoring
 - Watches the directory containing your runbook file, so editors that save by replacing the file are still detected
+- Does not watch subdirectories, such as cloned repositories or generated output
 - Implements debouncing (300ms) to handle editors that save files multiple times
-- Only triggers on write and create events for your specific runbook file; other files in the directory, such as scripts and generated files, are ignored
+- Only triggers on write and create events for your specific runbook file; changes to other files in the directory, such as scripts, are ignored
 
 ### Auto-reload mechanism
 

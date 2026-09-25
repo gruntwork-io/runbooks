@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, afterAll, spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime, Stream } from "effect"
 import { makeRunbookWatcher, type RunbookWatcher } from "./runbook-watcher.ts"
 import { FileSystem, type FileChangeEvent } from "../../../src/services/FileSystem.ts"
@@ -54,6 +54,23 @@ beforeEach(() => {
 
 afterEach(async () => {
   await watcher.stop()
+})
+
+const failingRuntime = ManagedRuntime.make(
+  Layer.effect(
+    FileSystem,
+    Effect.map(FileSystem, (fs) => ({
+      ...fs,
+      watch: (paths: string[]) => {
+        opened.push(paths)
+        return Stream.fail(new FileWatchError({ cause: "watcher limit reached" }))
+      },
+    })),
+  ).pipe(Layer.provide(makeTestFileSystem())),
+)
+
+afterAll(async () => {
+  await Promise.all([watchRuntime.dispose(), failingRuntime.dispose()])
 })
 
 describe("makeRunbookWatcher", () => {
@@ -115,26 +132,22 @@ describe("makeRunbookWatcher", () => {
   })
 
   it("replaces a watcher that failed instead of treating it as still running", async () => {
-    const failingRuntime = ManagedRuntime.make(
-      Layer.effect(
-        FileSystem,
-        Effect.map(FileSystem, (fs) => ({
-          ...fs,
-          watch: (paths: string[]) => {
-            opened.push(paths)
-            return Stream.fail(new FileWatchError({ cause: "watcher limit reached" }))
-          },
-        })),
-      ).pipe(Layer.provide(makeTestFileSystem())),
-    )
+    // The failure is logged as a warning; keep it out of the test output.
+    const warn = spyOn(console, "warn").mockImplementation(() => {})
     const failing = makeRunbookWatcher(failingRuntime, () => {})
+    try {
+      failing.start("/work/a/runbook.mdx")
+      await waitFor(() => opened.length === 1 && warn.mock.calls.length === 1)
+      await settle()
 
-    failing.start("/work/a/runbook.mdx")
-    await waitFor(() => opened.length === 1)
-    await settle()
+      failing.start("/work/a/runbook.mdx")
+      await waitFor(() => opened.length === 2)
 
-    failing.start("/work/a/runbook.mdx")
-    await waitFor(() => opened.length === 2)
-    await failing.stop()
+      expect(opened).toEqual([["/work/a"], ["/work/a"]])
+      expect(String(warn.mock.calls[0][1])).toContain("stopped watching /work/a/runbook.mdx")
+    } finally {
+      await failing.stop()
+      warn.mockRestore()
+    }
   })
 })

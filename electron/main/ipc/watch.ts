@@ -28,9 +28,20 @@ export const startWatcher = runbookWatcher.start
 /** Stop the watch-mode watcher, if one is running. */
 export const stopWatcher = runbookWatcher.stop
 
+/**
+ * Close the open runbook: stop watching it and tell the renderer to close it.
+ * Every close path (native menu, in-app menu) goes through here so none of
+ * them leaves a watcher running on a runbook that is no longer open.
+ */
+export function closeRunbook(): void {
+  void stopWatcher()
+  getMainWindow()?.webContents.send("menu:close-runbook")
+}
+
 export function registerWatchHandlers(): void {
-  // runbook:get starts the watcher itself in --watch mode, so the renderer
-  // doesn't need this; it lets a renderer opt the open runbook into watching.
+  // Kept for the declared channel contract; nothing calls it. runbook:get
+  // owns starting the watcher (in --watch mode), and the renderer only
+  // listens for watch:file-change when runbook:get reports isWatchMode.
   ipcMain.handle(
     "watch:subscribe",
     async (_event, params?: { runbookPath?: string }) => {

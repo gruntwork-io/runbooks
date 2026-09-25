@@ -18,7 +18,7 @@ import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
-import { stopWatcher } from "./ipc/watch.ts"
+import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
@@ -340,8 +340,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
 // Routes through main so it uses the same channel as the native menu item —
 // renderers listen for "menu:close-runbook" regardless of origin.
 ipcMain.handle("native:close-runbook", () => {
-  void stopWatcher()
-  getMainWindow()?.webContents.send("menu:close-runbook")
+  closeRunbook()
   return { ok: true } as const
 })
 
