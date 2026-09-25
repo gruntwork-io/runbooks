@@ -156,6 +156,24 @@ describe("stripTemplateValues", () => {
   it("drops an all-template map entirely", () => {
     expect(stripTemplateValues({ a: "{{ .x }}" })).toBeUndefined()
   })
+
+  it("keeps a map that was already empty", () => {
+    // `{}` is an explicit user value (e.g. every MapInput entry removed), not
+    // an unresolved template, so it must not fall back to the default.
+    expect(stripTemplateValues({})).toEqual({})
+  })
+
+  it("keeps a nested empty map while stripping its template siblings", () => {
+    expect(stripTemplateValues({ a: {}, b: "{{ .x }}" })).toEqual({ a: {} })
+  })
+
+  it("keeps a structured-map entry with no fields", () => {
+    // StructuredMapInput stores `{}` for an entry whose schema fields are
+    // all unset; the entry (and so the parent map) must survive.
+    expect(stripTemplateValues({ Envs: { dev: {} } })).toEqual({
+      Envs: { dev: {} },
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -274,6 +292,23 @@ describe("resolveInputTemplates", () => {
     )
     // Neither can resolve — both stay as their original templates.
     expect(result).toEqual(original)
+  })
+
+  it("exposes an explicitly empty map input in the render context", async () => {
+    const contexts: Array<Record<string, unknown>> = []
+    await Effect.runPromise(
+      resolveInputTemplates(
+        { Tags: {}, Name: "n", Label: "{{ .inputs.Name }}" },
+        {},
+      ).pipe(
+        Effect.provide(
+          fakeWasmLayer({ onCall: (_t, varsJSON) => contexts.push(JSON.parse(varsJSON)) }),
+        ),
+      ),
+    )
+    expect(contexts.length).toBeGreaterThan(0)
+    expect(contexts[0]!.inputs).toEqual({ Tags: {}, Name: "n" })
+    expect(contexts[0]!.Tags).toEqual({})
   })
 
   it("treats every WASM call as a no-op when the runtime is failing", async () => {
@@ -420,6 +455,15 @@ describe("flattenVariables", () => {
     })
     expect(result.inputs).toEqual({ EmailUsername: "alice" })
     expect("LogsAccountEmail" in result).toBe(false)
+  })
+
+  it("keeps an explicitly empty map input instead of dropping it", async () => {
+    // A MapInput with every entry removed sends `{}`. Dropping it would make
+    // boilerplate apply the variable's `default:` (the old tags come back).
+    const result = await run({ inputs: { Tags: {}, Name: "x" } })
+    expect(result.inputs).toEqual({ Tags: {}, Name: "x" })
+    expect(result.Tags).toEqual({})
+    expect(result.Name).toBe("x")
   })
 
   it("preserves outputs verbatim and lets boilerplate-style output refs reach it", async () => {
