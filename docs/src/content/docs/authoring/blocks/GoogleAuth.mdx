@@ -85,8 +85,8 @@ These are set only when the corresponding value is known:
 
 | Variable | Source |
 |----------|--------|
-| `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | `defaultRegion`, the Default Region picker, or the gcloud configuration's `compute/region` |
-| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or the gcloud configuration's `compute/zone` |
+| `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | `defaultRegion`, the Default Region picker, or else the gcloud configuration's `compute/region` (or, for a credential detected in environment variables, their region) |
+| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or else the gcloud configuration's `compute/zone` (or the detected environment's zone) |
 | `CLOUDSDK_ACTIVE_CONFIG_NAME` | gcloud Config tab only — the name of the configuration you authenticated with |
 
 Because `GOOGLE_APPLICATION_CREDENTIALS` is set, Google client libraries and the OpenTofu/Terraform `google` provider both pick the credential up with no extra wiring. The `gcloud` CLI needs one more variable — `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` — which GoogleAuth sets automatically; see below.
@@ -121,14 +121,14 @@ The block also publishes its result as block outputs, so a specific GoogleAuth b
 | `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` | The same path, in the property the `gcloud` CLI reads — blank for an [access-token-only](#access-token-credentials) credential |
 | `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT` | The selected project ID |
 | `CLOUDSDK_CORE_ACCOUNT` | The authenticated principal |
-| `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | The selected region, if any |
-| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or the gcloud configuration's `compute/zone`, if any |
+| `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | The region the block wrote to the session (see [above](#environment-variables)), if any |
+| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | The zone the block wrote to the session, if any |
 | `GOOGLE_AUTH_TYPE` | How the credential was obtained: `service_account`, `authorized_user`, `external_account`, `impersonated_service_account`, or `access_token` |
 | `__AUTHENTICATED` | Always `true` once the block has authenticated |
 
 ## Using with Commands and Checks
 
-The [environment variables above](#environment-variables) are automatically available to all subsequent Command and Check blocks, so blocks use the most recently authenticated GoogleAuth block without any extra configuration. Any subsequent Google Cloud authentication updates those variables and becomes the new default.
+The [environment variables above](#environment-variables) are automatically available to all subsequent Command and Check blocks, so blocks use the most recently authenticated GoogleAuth block without any extra configuration. Any subsequent Google Cloud authentication updates those variables and becomes the new default, and so does picking a project with **Change project** on a block's success card.
 
 To bind a block to one *specific* GoogleAuth block, use the `googleAuthId` prop. The referenced block's outputs are injected into that execution only, and the **Run** button stays disabled until that block has authenticated:
 
@@ -196,7 +196,7 @@ You can include multiple GoogleAuth blocks in a single runbook to authenticate a
 ```
 
 <Aside type="caution">
-With multiple GoogleAuth blocks the session environment variables reflect the **most recently** authenticated block. Use `googleAuthId` on every command so each one runs against the project you intended. Each block keeps its own credentials file, so the two never collide.
+With multiple GoogleAuth blocks the session environment variables reflect the block that **most recently** authenticated or changed project. Use `googleAuthId` on every command so each one runs against the project you intended. Each block keeps its own credentials file, so the two never collide.
 </Aside>
 
 ## Service Account Key
@@ -356,7 +356,7 @@ Google Cloud's project is the analogue of an AWS account: it decides what your c
 - Otherwise, if the credential can see exactly one project, it is selected automatically.
 - Otherwise, a searchable project picker is shown before the block reports success.
 
-Once authenticated, the success card offers **Change project** to switch to another project the same credential can see, and **Re-authenticate** to start over. **Cancel** in a picker opened by **Change project** returns to the success card and keeps the current project; nothing is withdrawn. If the project list cannot be loaded, the picker shows why (*"Could not list projects: …"*) rather than an empty list.
+Once authenticated, the success card offers **Change project** to switch to another project the same credential can see, and **Re-authenticate** to start over. Picking a project makes the block the session default again: the session variables switch to its credential, account, and new project together, and the block keeps the region and zone it authenticated with. **Cancel** in a picker opened by **Change project** returns to the success card and keeps the current project; nothing is withdrawn. If the project list cannot be loaded, the picker shows why (*"Could not list projects: …"*) rather than an empty list.
 
 <Aside type="note">
 Listing projects requires the `resourcemanager.projects.list` permission on some resource the credential can see. A service account without it authenticates fine but shows an empty picker — set the `project` prop (or type the project ID on the Service Account Key tab) in that case.
@@ -583,7 +583,7 @@ If a federated configuration you rely on is refused, authenticate with a service
 | *Authenticated, but no Google Cloud project is set* | The credential is valid but nothing named a project: no `project` prop, no `core/project` in the gcloud configuration, and no project the principal can enumerate. Commands that need one will fail with *"The project property must be set"*. Set the `project` prop, run `gcloud config set project`, or use **Change project** |
 | *Authenticated, but the credential could not be saved to the session* | The credential is valid but the session write failed. Re-run the block; blocks that consume it may not see the credentials until you do |
 | A Command's **Run** button stays disabled | It has a `googleAuthId` pointing at a GoogleAuth block that has not authenticated yet — or at an ID that does not exist. Check the spelling |
-| Commands use the wrong project | The session variables reflect the most recent GoogleAuth block. Add `googleAuthId` to every command that must use a specific one |
+| Commands use the wrong project | The session variables reflect the GoogleAuth block that most recently authenticated or changed project. Add `googleAuthId` to every command that must use a specific one |
 | `gcloud` commands ignore the selected project | Some scripts pass `--project` explicitly. Runbooks sets `CLOUDSDK_CORE_PROJECT`, which only applies when the flag is absent |
 | Bare `gcloud` commands fail with *"UNAUTHENTICATED"* or use the wrong account | The machine has a pre-existing `gcloud auth login` session that the CLI prefers over ADC. GoogleAuth sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` automatically to prevent this — see [Bridging to the gcloud CLI](#bridging-to-the-gcloud-cli). This can still happen for an [access-token-only](#access-token-credentials) credential, which has no file to bridge with |
 

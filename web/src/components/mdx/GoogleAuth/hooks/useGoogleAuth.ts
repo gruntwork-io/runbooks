@@ -310,7 +310,12 @@ export function useGoogleAuth({
   // the SA key picker). Author `oauthClientFile` wins when both are set.
   const [oauthClientFilePath, setOauthClientFilePath] = useState<string | null>(null)
   const [oauthClientFileName, setOauthClientFileName] = useState<string | null>(null)
-  const oauthPollCancelledRef = useRef(false)
+  // Generation of the live OAuth poll loop. Every sign-in start and every
+  // stopOAuthPolling bumps it, and a loop keeps going only while its own
+  // generation is current. A shared "cancelled" boolean that the next sign-in
+  // reset let a poll still in flight from a cancelled flow resume, and its
+  // failure then cancelled the NEW flow.
+  const oauthPollGenerationRef = useRef(0)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Mirrors oauthFlowId so the unmount cleanup can cancel MAIN's loopback
   // listener without taking the state value as an effect dependency.
@@ -365,7 +370,7 @@ export function useGoogleAuth({
    * otherwise holds a listening socket until its server-side TTL expires.
    */
   const stopOAuthPolling = useCallback((opts?: { cancelFlow?: boolean }) => {
-    oauthPollCancelledRef.current = true
+    oauthPollGenerationRef.current++
     if (oauthPollTimeoutRef.current) {
       clearTimeout(oauthPollTimeoutRef.current)
       oauthPollTimeoutRef.current = null
@@ -559,8 +564,11 @@ export function useGoogleAuth({
         ...identity,
         projectId: projectInfo.projectId,
         projectName: data.projectName || projectInfo.displayName,
-        region,
-        zone,
+        // MAIN's answer, not the request: with nothing requested ("Change
+        // project" after the gcloud tab) it keeps the region/zone this block
+        // authenticated with, and the outputs must say the same.
+        region: data.region ?? region,
+        zone: data.zone ?? zone,
         ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
@@ -981,8 +989,10 @@ export function useGoogleAuth({
           credentialType: data.credentialType ?? detectedCredentials.credentialType,
           ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
           ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
-          region: effectiveRegion,
-          zone: effectiveZone,
+          // The 'gcloud' and 'env' sources fall back to the configuration's or
+          // env's own region/zone in MAIN; publish what MAIN wrote.
+          region: data.region ?? effectiveRegion,
+          zone: data.zone ?? effectiveZone,
           ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         appendWarning(detectionWarning)
@@ -1339,12 +1349,14 @@ export function useGoogleAuth({
   }, [project, effectiveRegion, effectiveZone, selectProject, completeAuthentication, appendWarning])
 
   /**
-   * Poll the loopback flow. Cancellation is checked before AND after every
-   * await, and the pending timeout is cleared on unmount, so a torn-down block
-   * never writes state or leaves MAIN's listener open.
+   * Poll the loopback flow. The loop's generation is checked before AND after
+   * every await, and the pending timeout is cleared on unmount, so a torn-down
+   * block never writes state or leaves MAIN's listener open, and a superseded
+   * loop can never fail or cancel the flow that replaced it.
    */
-  const pollOAuthCompletion = useCallback((flowId: string) => {
+  const pollOAuthCompletion = useCallback((flowId: string, generation: number) => {
     let attempts = 0
+    const superseded = () => generation !== oauthPollGenerationRef.current
 
     /**
      * Every terminal renderer path goes through `stopOAuthPolling`, which is
@@ -1353,6 +1365,9 @@ export function useGoogleAuth({
      * the user then finishes consent in the still-open browser tab, the
      * exchanged refresh token sits in main-process memory with nothing left to
      * collect or reap it.
+     *
+     * Only a current loop gets here (every caller checks `superseded()` after
+     * its last await), so the flow `stopOAuthPolling` cancels is this one.
      */
     const fail = (message: string) => {
       stopOAuthPolling()
@@ -1363,12 +1378,12 @@ export function useGoogleAuth({
     }
 
     const poll = async () => {
-      if (oauthPollCancelledRef.current) return
+      if (superseded()) return
 
       try {
         const data = await api.invoke('google:oauth-poll', { flowId, blockId: id })
 
-        if (oauthPollCancelledRef.current) return
+        if (superseded()) return
 
         if (data.status === 'pending') {
           if (attempts >= OAUTH_POLL_MAX_ATTEMPTS) {
@@ -1392,7 +1407,7 @@ export function useGoogleAuth({
 
         fail(data.error || 'Google sign-in failed')
       } catch (error) {
-        if (oauthPollCancelledRef.current) return
+        if (superseded()) return
         fail(error instanceof Error ? error.message : 'Failed to check the sign-in status')
       }
     }
@@ -1437,7 +1452,9 @@ export function useGoogleAuth({
   }, [])
 
   const handleOAuthLogin = useCallback(async () => {
-    oauthPollCancelledRef.current = false
+    // Taken BEFORE oauth-start, so a stop while it is in flight (unmount,
+    // re-authenticate) still keeps this flow's poll loop from starting.
+    const generation = ++oauthPollGenerationRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1477,7 +1494,7 @@ export function useGoogleAuth({
         console.error('Failed to open the Google sign-in URL:', error)
       }
 
-      pollOAuthCompletion(data.flowId)
+      pollOAuthCompletion(data.flowId, generation)
     } catch (error) {
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
@@ -1566,13 +1583,17 @@ export function useGoogleAuth({
       const pinned = gcloudConfiguration ? list.find((c) => c.name === gcloudConfiguration) : undefined
       const active = list.find((c) => c.isActive && usable(c))
       const firstUsable = list.find(usable)
-      const choice = pinned ?? active ?? firstUsable
-      if (choice) {
-        setSelectedConfig(choice)
-      }
+      // "Refresh configurations" keeps the user's pick while it is still listed
+      // and usable, taking the FRESH entry (its ADC state may have changed).
+      // Otherwise the default choice applies, and when there is none the
+      // selection clears rather than keeping a configuration that is gone.
+      setSelectedConfig((prev) =>
+        (prev && list.find((c) => c.name === prev.name && usable(c))) ??
+        pinned ?? active ?? firstUsable ?? null)
     } catch (error) {
       console.error('Failed to load gcloud configurations:', error)
       setGcloudConfigs([])
+      setSelectedConfig(null)
     } finally {
       setLoadingConfigs(false)
     }

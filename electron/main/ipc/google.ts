@@ -66,7 +66,13 @@ import {
   identityKeyFor,
   materializeForIdentity,
   setActiveCredential,
+  type ActiveGoogleCredential,
 } from "./google-credential-registry.ts"
+import {
+  commitBlockProject,
+  sessionEnvForCredential,
+  type GoogleSessionEnvChange,
+} from "./google-session-env.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 
 /** Which ambient location a detection request should read. */
@@ -184,71 +190,6 @@ const toAdcInfoIpc = (adc: AdcInfo): AdcInfoIpc => ({
 // Session environment
 // ---------------------------------------------------------------------------
 
-interface SessionEnvInput {
-  readonly credentialsPath?: string
-  /** §8.4 only: a bearer the environment ALREADY contained. We never mint one. */
-  readonly accessToken?: string
-  readonly projectId?: string
-  readonly principal?: string
-  readonly region?: string
-  readonly zone?: string
-  readonly configuration?: string
-}
-
-/**
- * The session env every successful Google authentication writes (§7.1).
- *
- * Nothing is ever written empty: an unset-but-present
- * GOOGLE_APPLICATION_CREDENTIALS pointing at a bogus path is a hard error in
- * every Google client library and would break every subsequent `<Command>`.
- * Inline key material (`GOOGLE_CREDENTIALS` and friends) is never written at
- * all — the credential reaches the child process as a 0600 file path.
- */
-function buildGoogleSessionEnv(input: SessionEnvInput): Record<string, string> {
-  const env: Record<string, string> = {}
-
-  if (input.credentialsPath) {
-    env.GOOGLE_APPLICATION_CREDENTIALS = input.credentialsPath
-    // Bridges to the `gcloud` CLI's OWN credential store, which is separate
-    // from ADC and — whenever any `gcloud auth login` account is already
-    // configured on the machine — takes precedence over it. Without this, a
-    // bare `gcloud` invocation silently ignores this block's credential and
-    // uses whatever CLI login already exists, failing non-interactively the
-    // moment that login is stale. Routing through this property keeps gcloud
-    // on its normal refreshable-credential code path; a static bearer token
-    // would look like the same fix but some legacy v1 APIs (e.g. Cloud
-    // Resource Manager's Organizations.SearchOrganizations) reject one
-    // outright with ACCESS_TOKEN_TYPE_UNSUPPORTED.
-    env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE = input.credentialsPath
-  } else if (input.accessToken) {
-    // The single documented exception to D6: an access token the user's
-    // environment already supplied, re-exported under its canonical names.
-    env.GOOGLE_OAUTH_ACCESS_TOKEN = input.accessToken
-    env.CLOUDSDK_AUTH_ACCESS_TOKEN = input.accessToken
-  }
-
-  if (input.projectId) {
-    env.GOOGLE_CLOUD_PROJECT = input.projectId
-    env.CLOUDSDK_CORE_PROJECT = input.projectId
-    // The Terraform/OpenTofu `google` provider's first-choice variable.
-    env.GOOGLE_PROJECT = input.projectId
-  }
-  if (input.principal) env.CLOUDSDK_CORE_ACCOUNT = input.principal
-  if (input.region) {
-    env.GOOGLE_CLOUD_REGION = input.region
-    env.CLOUDSDK_COMPUTE_REGION = input.region
-    env.GOOGLE_REGION = input.region
-  }
-  if (input.zone) {
-    env.CLOUDSDK_COMPUTE_ZONE = input.zone
-    env.GOOGLE_ZONE = input.zone
-  }
-  // The AWS_PROFILE analogue — gcloud tab only.
-  if (input.configuration) env.CLOUDSDK_ACTIVE_CONFIG_NAME = input.configuration
-
-  return env
-}
-
 /**
  * Append to the session env, reproducing appendSessionEnvAndRecord's failure
  * semantics without its GitProvider typing or its vcs:session-changed push: a
@@ -286,6 +227,19 @@ async function clearGoogleSessionEnv(keys: string[]): Promise<string | undefined
   } catch (err) {
     return `Authenticated, but a stale gcloud CLI credential override could not be cleared from the session (${toErrorMessage(err)}). Bare gcloud commands may keep using a previous credential until this block re-authenticates.`
   }
+}
+
+/**
+ * Apply a change `./google-session-env.ts` worked out: set, then delete.
+ * Returns the success-card warning, if any.
+ */
+async function applyGoogleSessionEnv(change: GoogleSessionEnvChange): Promise<string | undefined> {
+  const warning = await appendGoogleSessionEnv(change.set)
+  // The delete is skipped once the append already warned: that means the
+  // session write failed wholesale, so a second attempt against the same
+  // broken session would only duplicate the warning for one root cause.
+  if (warning) return warning
+  return clearGoogleSessionEnv([...change.clear])
 }
 
 // ---------------------------------------------------------------------------
@@ -358,31 +312,7 @@ async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise
     ? { kind: "file", path: credentialsPath }
     : { kind: "access_token", accessToken: input.accessToken ?? "" }
 
-  const sessionEnvWarning = await appendGoogleSessionEnv(
-    buildGoogleSessionEnv({
-      credentialsPath,
-      accessToken: input.accessToken,
-      projectId,
-      principal: input.identity.email,
-      region: input.region,
-      zone: input.zone,
-      configuration: input.configuration,
-    }),
-  )
-
-  // A bare access token has no file to bridge with. Without this, the SAME
-  // block re-authenticating from a file-backed credential to an access token
-  // (or a later block in the same session doing so) would leave gcloud
-  // routed through the previous credential's file via a now-stale override.
-  // Skipped once the append above already warned: that means the session
-  // write failed wholesale, so a second attempt against the same broken
-  // session would only duplicate the warning for one root cause.
-  const clearWarning =
-    !credentialsPath && !sessionEnvWarning
-      ? await clearGoogleSessionEnv(["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"])
-      : undefined
-
-  setActiveCredential(input.blockId, {
+  const active: ActiveGoogleCredential = {
     ref,
     credentialsPath,
     principal: input.identity.email,
@@ -391,13 +321,15 @@ async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise
     region: input.region,
     zone: input.zone,
     configuration: input.configuration,
-  })
+  }
+  setActiveCredential(input.blockId, active)
+  const sessionEnvWarning = await applyGoogleSessionEnv(sessionEnvForCredential(active))
 
   return {
     ref,
     ...(credentialsPath ? { credentialsPath } : {}),
     ...(projectId ? { projectId } : {}),
-    ...(sessionEnvWarning ?? clearWarning ? { sessionEnvWarning: sessionEnvWarning ?? clearWarning } : {}),
+    ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
   }
 }
 
@@ -1122,6 +1054,11 @@ export function registerGoogleHandlers(): void {
           ...(success.projectId ? { projectId: success.projectId } : {}),
           ...(success.credentialsPath ? { credentialsPath: success.credentialsPath } : {}),
           credentialType: identity.credentialType,
+          // What was actually written, so the block publishes it: the 'gcloud'
+          // and 'env' sources fill these from the configuration or env when
+          // the renderer sent none, and the renderer cannot know that.
+          ...(region ? { region } : {}),
+          ...(zone ? { zone } : {}),
           ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
         }
       } catch (err) {
@@ -1164,27 +1101,19 @@ export function registerGoogleHandlers(): void {
     ) => {
       if (!params.projectId) return { ok: false, error: "No project selected" }
       try {
-        const sessionEnvWarning = await appendGoogleSessionEnv(
-          buildGoogleSessionEnv({
-            projectId: params.projectId,
-            ...(params.region ? { region: params.region } : {}),
-            ...(params.zone ? { zone: params.zone } : {}),
-          }),
-        )
-
-        // Only the CALLING block's credential is repointed — picking a project
-        // in one GoogleAuth block must not rewrite another block's.
-        const active = activeCredentialFor(params.blockId)
-        if (active) {
-          active.projectId = params.projectId
-          if (params.region) active.region = params.region
-          if (params.zone) active.zone = params.zone
-        }
+        // Re-points the whole session at the CALLING block's credential with
+        // the new project; see commitBlockProject.
+        const { env, region, zone } = commitBlockProject(params)
+        const sessionEnvWarning = await applyGoogleSessionEnv(env)
 
         const projectName = projectDisplayNames.get(params.projectId)
         return {
           ok: true,
           ...(projectName ? { projectName } : {}),
+          // What was actually written, so the block publishes it rather than
+          // only what it asked for.
+          ...(region ? { region } : {}),
+          ...(zone ? { zone } : {}),
           ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       } catch (err) {

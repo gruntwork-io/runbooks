@@ -308,6 +308,69 @@ describe('useGoogleAuth — detection', () => {
     expect(invoke).not.toHaveBeenCalledWith('session:set-env', expect.anything())
   })
 
+  it("confirming a gcloud detection publishes the region/zone MAIN took from the configuration", async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:env-credentials') {
+        return {
+          found: true,
+          valid: true,
+          source: 'gcloud',
+          projectId: 'proj-a',
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          credentialType: 'authorized_user',
+          path: '/home/u/.config/gcloud/application_default_credentials.json',
+          configuration: 'default',
+        }
+      }
+      if (channel === 'google:env-credentials-confirm') {
+        // Nothing requested, so MAIN wrote the configuration's compute defaults.
+        return {
+          valid: true,
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          projectId: 'proj-a',
+          credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          credentialType: 'authorized_user',
+          region: 'europe-west1',
+          zone: 'europe-west1-b',
+        }
+      }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: ['gcloud'] })
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+
+    await act(async () => {
+      await result.current.handleConfirmDetected()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('google:env-credentials-confirm', {
+      blockId: 'gcp',
+      source: 'gcloud',
+      configuration: 'default',
+      projectId: 'proj-a',
+    })
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      outputs({
+        GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
+        GOOGLE_CLOUD_PROJECT: 'proj-a',
+        CLOUDSDK_CORE_PROJECT: 'proj-a',
+        GOOGLE_PROJECT: 'proj-a',
+        CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
+        GOOGLE_CLOUD_REGION: 'europe-west1',
+        CLOUDSDK_COMPUTE_REGION: 'europe-west1',
+        GOOGLE_REGION: 'europe-west1',
+        CLOUDSDK_COMPUTE_ZONE: 'europe-west1-b',
+        GOOGLE_ZONE: 'europe-west1-b',
+        GOOGLE_AUTH_TYPE: 'authorized_user',
+      }),
+    )
+  })
+
   it('a failed confirm renders inline and publishes nothing', async () => {
     installApi((channel) => {
       if (channel === 'google:env-credentials') {
@@ -997,6 +1060,43 @@ describe('useGoogleAuth — OAuth tab', () => {
     expect(result.current.oauthFlowId).toBeNull()
   })
 
+  it('a poll still in flight from a cancelled sign-in cannot fail the next one', async () => {
+    let settleStalePoll: (value: unknown) => void = () => {}
+    let started = 0
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:oauth-start') {
+        started++
+        return { flowId: `flow-${started}`, authUrl: 'https://accounts.google.com/o/oauth2/v2/auth' }
+      }
+      if (channel === 'google:oauth-poll') {
+        if (args?.flowId === 'flow-1') return new Promise((resolve) => { settleStalePoll = resolve })
+        return { status: 'pending' }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+    act(() => result.current.handleCancelOAuth())
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+    expect(result.current.oauthFlowId).toBe('flow-2')
+
+    // flow-1's poll comes back only now, after the user has moved on.
+    await act(async () => {
+      settleStalePoll({ status: 'failed', error: 'Sign-in was denied' })
+    })
+
+    expect(result.current.authStatus).toBe('authenticating')
+    expect(result.current.errorMessage).toBeNull()
+    expect(result.current.oauthFlowId).toBe('flow-2')
+    expect(invoke).not.toHaveBeenCalledWith('google:oauth-cancel', { flowId: 'flow-2' })
+  })
+
   it('marks OAuth unavailable ON MOUNT from the capability probe', async () => {
     const invoke = installApi((channel) =>
       channel === 'google:oauth-available' ? { available: false } : {},
@@ -1297,6 +1397,54 @@ describe('useGoogleAuth — gcloud tab', () => {
     expect(result.current.adcInfo?.clientEmail).toBe('dev@example.com')
   })
 
+  it("refreshing keeps the user's pick, as the fresh entry, while it is still usable", async () => {
+    const prod = { name: 'prod', isActive: false, project: 'proj-p', authType: 'adc-service-account' }
+    let listing = { ...GCLOUD_LISTING, configurations: [...GCLOUD_LISTING.configurations, prod] }
+    installApi((channel) => (channel === 'google:gcloud-configurations' ? listing : {}))
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    expect(result.current.selectedConfig?.name).toBe('default')
+
+    act(() => result.current.setSelectedConfig(result.current.gcloudConfigs.find((c) => c.name === 'prod')!))
+    listing = {
+      ...listing,
+      configurations: [...GCLOUD_LISTING.configurations, { ...prod, project: 'proj-p2' }],
+    }
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+
+    expect(result.current.selectedConfig).toEqual({ ...prod, project: 'proj-p2' })
+  })
+
+  it('refreshing clears the selection once no usable configuration is left', async () => {
+    let listing = GCLOUD_LISTING
+    installApi((channel) => (channel === 'google:gcloud-configurations' ? listing : {}))
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    expect(result.current.selectedConfig?.name).toBe('default')
+
+    // `gcloud auth application-default revoke`: every configuration is config-only.
+    listing = {
+      ...GCLOUD_LISTING,
+      configurations: GCLOUD_LISTING.configurations.map((c) => ({ ...c, authType: 'config-only' })),
+    }
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+
+    // Not the stale 'default', which would keep "Use Selected Configuration" enabled.
+    expect(result.current.selectedConfig).toBeNull()
+  })
+
   it('honours the gcloudConfiguration prop and authenticates against the existing ADC', async () => {
     const invoke = installApi((channel) => {
       if (channel === 'google:gcloud-configurations') {
@@ -1575,6 +1723,71 @@ describe('useGoogleAuth — gcloud tab', () => {
       projectId: 'proj-a',
       region: 'us-east1',
     })
+  })
+
+  it('"Change project" keeps publishing the configuration\'s compute/region', async () => {
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:gcloud-configurations') return GCLOUD_LISTING
+      if (channel === 'google:gcloud-auth') {
+        return {
+          valid: true,
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          projectId: 'proj-a',
+          credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          projects: [
+            { projectId: 'proj-a', displayName: 'Project A' },
+            { projectId: 'proj-b', displayName: 'Project B' },
+          ],
+        }
+      }
+      if (channel === 'google:set-project') {
+        // MAIN keeps the block's own region when none is requested, and says so.
+        return { ok: true, projectName: 'Project B', region: (args?.region as string | undefined) ?? 'us-east1' }
+      }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    await act(async () => {
+      await result.current.handleGcloudAuth()
+    })
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      expect.objectContaining({ GOOGLE_CLOUD_PROJECT: 'proj-a', GOOGLE_CLOUD_REGION: 'us-east1' }),
+    )
+
+    await act(async () => {
+      await result.current.handleChangeProject()
+    })
+    await act(async () => {
+      await result.current.handleProjectSelect({ projectId: 'proj-b', displayName: 'Project B' })
+    })
+
+    // The renderer no longer knows the configuration's region; MAIN does.
+    expect(callsTo(invoke, 'google:set-project')).toEqual([
+      ['google:set-project', { blockId: 'gcp', projectId: 'proj-b' }],
+    ])
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      outputs({
+        GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
+        GOOGLE_CLOUD_PROJECT: 'proj-b',
+        CLOUDSDK_CORE_PROJECT: 'proj-b',
+        GOOGLE_PROJECT: 'proj-b',
+        CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
+        GOOGLE_CLOUD_REGION: 'us-east1',
+        CLOUDSDK_COMPUTE_REGION: 'us-east1',
+        GOOGLE_REGION: 'us-east1',
+        GOOGLE_AUTH_TYPE: 'authorized_user',
+      }),
+    )
   })
 })
 

@@ -321,6 +321,12 @@ export interface IpcChannelMap {
       projectId?: string
       credentialsPath?: string
       credentialType?: GoogleCredentialTypeIpc
+      /**
+       * Region/zone MAIN wrote: the requested ones, else the gcloud
+       * configuration's or env's own. What the block publishes.
+       */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
       insufficientScopes?: boolean
@@ -336,10 +342,22 @@ export interface IpcChannelMap {
     params: { blockId?: string; flowId?: string; query?: string; pageSize?: number }
     result: { projects: GoogleProjectIpc[]; error?: string }
   }
-  // Project selection happens after auth; MAIN owns the session-env write.
+  // Project selection happens after auth; MAIN owns the session-env write,
+  // which re-points the whole session at the CALLING block's credential.
   "google:set-project": {
     params: { blockId?: string; projectId: string; region?: string; zone?: string }
-    result: { ok: boolean; projectName?: string; error?: string; sessionEnvWarning?: string }
+    result: {
+      ok: boolean
+      projectName?: string
+      /**
+       * Region/zone MAIN wrote: the requested ones, else those the block
+       * authenticated with. What the block publishes.
+       */
+      region?: string
+      zone?: string
+      error?: string
+      sessionEnvWarning?: string
+    }
   }
   // <- aws:check-region, and it fails OPEN like one: `enabled: false` only for
   // a project the credential definitively cannot read. An inconclusive answer
