@@ -35,12 +35,21 @@ const MARKER = "__RUNBOOKS_SHELL_ENV_MARKER__"
 /**
  * Whether the app was launched from a terminal, whose env it has inherited.
  * Every terminal emulator (and ssh session) sets TERM; GUI launches via
- * launchd (macOS) or a .desktop entry (Linux) do not. TERM_PROGRAM stays in
- * the check: the e2e suite sets it (electron/e2e/vcs-auth.spec.ts) to skip
- * this capture.
+ * launchd (macOS) or a display manager's desktop session (Linux) do not.
+ *
+ * TERM=linux is the exception. It is the Linux virtual console's value, and
+ * no Electron window opens on a bare console, so seeing it means a desktop
+ * session started from a TTY login (startx, `exec sway` in ~/.zprofile)
+ * handed it down to the apps its launcher starts. That login shell may have
+ * exec'd the desktop before reading ~/.zshrc or ~/.bashrc, so the capture
+ * still has to run.
+ *
+ * TERM_PROGRAM stays in the check: the e2e suite sets it
+ * (electron/e2e/vcs-auth.spec.ts) to skip this capture.
  */
 export function isTerminalLaunch(env: NodeJS.ProcessEnv): boolean {
-  return Boolean(env.TERM || env.TERM_PROGRAM || env.ITERM_SESSION_ID)
+  const term = env.TERM === "linux" ? undefined : env.TERM
+  return Boolean(term || env.TERM_PROGRAM || env.ITERM_SESSION_ID)
 }
 
 /**
@@ -105,9 +114,14 @@ export function populateShellEnv(): void {
     return
   }
 
-  const entries = parseEnvDump(result.stdout ?? "")
-  if (entries.length === 0) {
+  const stdout = result.stdout ?? ""
+  if (!stdout.includes(MARKER)) {
     log.warn("Could not locate marker in shell env output")
+    return
+  }
+  const entries = parseEnvDump(stdout)
+  if (entries.length === 0) {
+    log.warn("Shell env output had the marker but no env entries (env -0 failed?)")
     return
   }
 

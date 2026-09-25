@@ -22,6 +22,11 @@ describe("isTerminalLaunch", () => {
   it("treats a launchd / desktop-entry env as a GUI launch", () => {
     expect(isTerminalLaunch({ PATH: "/usr/bin:/bin", HOME: "/Users/me", SHELL: "/bin/zsh" })).toBe(false)
   })
+
+  it("treats TERM=linux as a GUI launch from a desktop session started on a TTY", () => {
+    expect(isTerminalLaunch({ TERM: "linux", SHELL: "/bin/zsh" })).toBe(false)
+    expect(isTerminalLaunch({ TERM: "linux", TERM_PROGRAM: "runbooks-e2e" })).toBe(true)
+  })
 })
 
 describe("parseEnvDump", () => {
