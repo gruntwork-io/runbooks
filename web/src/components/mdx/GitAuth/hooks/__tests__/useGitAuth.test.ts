@@ -1227,6 +1227,26 @@ describe('useGitAuth — {block} detection sources', () => {
     expect(invoke).not.toHaveBeenCalledWith('github:env-credentials', expect.anything())
   })
 
+  it('keeps the warnings collected before it paused on a block', async () => {
+    const WARNING = 'GITHUB_TOKEN is not valid for github.com'
+    installApi(async (channel) => {
+      if (channel === 'github:env-credentials') {
+        return { found: true, valid: false, outcome: 'invalid', envVar: 'GITHUB_TOKEN', warning: WARNING }
+      }
+      return { found: false }
+    })
+
+    const { result, rerender } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: ['env', { block: 'mint' }] })
+    await waitFor(() => expect(result.current.waitingForBlockId).toBe('mint'))
+
+    // The block finishes without outputs, which ends the walk.
+    blockOutputs = { mint: { values: {} } }
+    rerender()
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.detectionWarning).toBe(WARNING)
+  })
+
   it('warns about a block token that lacks the repo scope', async () => {
     blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
     installApi(async (channel) => {
@@ -1244,6 +1264,105 @@ describe('useGitAuth — {block} detection sources', () => {
     expect(result.current.detectedTokenType).toBe('classic_pat')
     expect(result.current.successMeta).toEqual({ validatedVia: 'direct' })
     expect(result.current.missingScope).toBe(true)
+  })
+})
+
+// A GitHub → GitLab switch while a GitHub token is still being validated. The
+// stale validation must not sign the GitLab card in or publish GitHub outputs
+// over the GIT_PROVIDER the switch wrote: an `*AuthId` step would run with
+// the GitHub token.
+describe('useGitAuth — provider switch mid-validation', () => {
+  const GITHUB_USER = { valid: true, user: { login: 'octocat' }, tokenType: 'classic_pat', scopes: ['repo'] }
+
+  function renderSwitchable(options: Options) {
+    return renderHook((props: Options) => useGitAuth(props), { wrapper, initialProps: options })
+  }
+
+  /** GitAuth.tsx's handleSelectProvider, at the hook level. */
+  function switchToGitLab(
+    { result, rerender }: ReturnType<typeof renderSwitchable>,
+    options: Options,
+  ) {
+    act(() => {
+      result.current.cancelOAuth()
+      result.current.clearRegisteredOutputs('gitlab')
+      result.current.resetAuth()
+      result.current.resetDetectionState()
+    })
+    rerender({ ...options, provider: PROVIDERS.gitlab })
+  }
+
+  function installDeferredValidate() {
+    const pending: { resolve: (value: unknown) => void } = { resolve: () => {} }
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:validate') return new Promise((resolve) => { pending.resolve = resolve })
+      return { found: false }
+    })
+    return { invoke, pending }
+  }
+
+  const expectSignedOutOnGitLab = (result: ReturnType<typeof renderSwitchable>['result']) => {
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.userInfo).toBeNull()
+    expect(result.current.detectionSource).toBeNull()
+    // The switch's GIT_PROVIDER is the only output ever published.
+    expect(registerOutputs.mock.calls).toEqual([['gh', { GIT_PROVIDER: 'gitlab' }]])
+  }
+
+  it('drops a {block} token validated by the detection walk', async () => {
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
+    const { invoke, pending } = installDeferredValidate()
+    const options: Options = { id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] }
+    const hook = renderSwitchable(options)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('github:validate', expect.anything()))
+
+    switchToGitLab(hook, options)
+    await waitFor(() => expect(hook.result.current.detectionStatus).toBe('done'))
+    await act(async () => {
+      pending.resolve(GITHUB_USER)
+    })
+
+    expectSignedOutOnGitLab(hook.result)
+  })
+
+  it('drops a {block} token validated after the walk resumed', async () => {
+    const { invoke, pending } = installDeferredValidate()
+    const options: Options = { id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] }
+    const hook = renderSwitchable(options)
+    await waitFor(() => expect(hook.result.current.waitingForBlockId).toBe('mint'))
+
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
+    hook.rerender(options)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('github:validate', expect.anything()))
+
+    switchToGitLab(hook, options)
+    await waitFor(() => expect(hook.result.current.detectionStatus).toBe('done'))
+    await act(async () => {
+      pending.resolve(GITHUB_USER)
+    })
+
+    expectSignedOutOnGitLab(hook.result)
+  })
+
+  it('drops a PAT validated after the switch', async () => {
+    const { invoke, pending } = installDeferredValidate()
+    const options: Options = { id: 'gh', provider: PROVIDERS.github, detectCredentials: false }
+    const hook = renderSwitchable(options)
+
+    act(() => hook.result.current.setPatToken('ghp_abc'))
+    let submitted: Promise<void> = Promise.resolve()
+    act(() => {
+      submitted = hook.result.current.handlePatSubmit()
+    })
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('github:validate', expect.anything()))
+
+    switchToGitLab(hook, options)
+    await act(async () => {
+      pending.resolve(GITHUB_USER)
+      await submitted
+    })
+
+    expectSignedOutOnGitLab(hook.result)
   })
 })
 

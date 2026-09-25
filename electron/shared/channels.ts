@@ -401,7 +401,7 @@ export interface IpcChannelMap {
   // detection results are METADATA-ONLY (outcome/source/user/scopes/
   // tokenType — never the raw token).
   "github:env-credentials": {
-    params: { prefix?: string; host?: string }
+    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -460,10 +460,10 @@ export interface IpcChannelMap {
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
-    // call either channel with one payload shape. `host` (picker) or
-    // `instanceUrl` (manual field, overrides `host`) selects the instance to
-    // validate against.
-    params: { prefix?: string; host?: string; instanceUrl?: string }
+    // call either channel with one payload shape; the gitlab handler ignores
+    // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
+    // overrides `host`) selects the instance to validate against.
+    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string; instanceUrl?: string }
     result: {
       found: boolean
       valid?: boolean

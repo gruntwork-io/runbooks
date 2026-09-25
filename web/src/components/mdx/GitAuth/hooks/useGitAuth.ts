@@ -180,13 +180,19 @@ export function useGitAuth({
 
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
-  // Sources after the {block} source detection paused on, resumed once that
-  // block has run (a block that ran without a usable token falls through).
-  const remainingSourcesRef = useRef<GitCredentialSource[]>([])
+  // The rest of a detection walk paused on a {block} source that has not run:
+  // the sources after it and the warnings collected before it. The block
+  // watcher resumes the walk once that block has run.
+  const pausedWalkRef = useRef<{ sources: GitCredentialSource[]; warnings: string[] } | null>(null)
 
   // PAT form state
   const [patToken, setPatToken] = useState('')
   const [showPatToken, setShowPatToken] = useState(false)
+  // The current PAT submission. Each submit takes the next number and
+  // resetAuth (a provider switch, Re-authenticate) bumps it, so a validation
+  // still in flight when the card was reset neither signs the card in nor
+  // publishes the old provider's outputs.
+  const patSubmitRef = useRef(0)
 
   // GitLab self-hosted instance URL, seeded from the prop and editable in the
   // PAT form. Only meaningful for the GitLab provider; sent with the token so
@@ -345,26 +351,29 @@ export function useGitAuth({
   }, [shouldWarnMissingScope])
 
   // Shared success epilogue — every detection source ends a successful
-  // detection the same way. Outputs are metadata-only, but WITH the user var:
+  // detection the same way, and it is the only place detection publishes
+  // outputs, so a caller that has checked its run is still current can't
+  // publish for a stale one. Outputs are metadata-only, but WITH the user var:
   // downstream blocks read GITHUB_USER/GITLAB_USER regardless of credential
-  // source. Pass `registerOutputs: false` when the path already registered the
-  // full outputs map (user/token vars included) — re-registering the bare
-  // metadata here would REPLACE it and wipe those values.
+  // source. `token` is for a {block} source whose block output a raw token:
+  // the renderer already holds it, so it is published like a PAT.
   const finishAuthenticated = useCallback((
     src: GitDetectionSource,
     user: GitUserInfo,
     details: CredentialDetails,
-    opts?: { registerOutputs?: boolean },
+    opts?: { token?: string },
   ) => {
     setDetectionSource(src)
     setAuthStatus('authenticated')
     setUserInfo(user)
     applyCredentialDetails(details)
     setDetectionStatus('done')
-    if (opts?.registerOutputs !== false) {
+    if (opts?.token) {
+      registerCredentials(opts.token, user)
+    } else {
       registerMetadataOutputs(user)
     }
-  }, [applyCredentialDetails, registerMetadataOutputs])
+  }, [applyCredentialDetails, registerCredentials, registerMetadataOutputs])
 
   // Validate a token via the provider's API. `registerSession` makes MAIN
   // write the session env on success (the PAT and block paths);
@@ -495,7 +504,9 @@ export function useGitAuth({
   // a referenced GitAuth block resolves against the SESSION env in main
   // (useSessionToken mode — no token crosses IPC); any other block's
   // renderer-held output value flows as today, with main writing the session.
-  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; validatedVia?: 'direct' | 'cli'; error?: string; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean } }> => {
+  // Publishes nothing: the caller does, via finishAuthenticated, once it has
+  // checked the detection run survived the validation await.
+  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitUserInfo; token?: string; scopes?: string[]; tokenType?: GitTokenType; validatedVia?: 'direct' | 'cli'; error?: string; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean } }> => {
     const result = getBlockCredentials(blockId)
 
     if (!result.found) {
@@ -519,23 +530,17 @@ export function useGitAuth({
       return { success: false, error: validation.error || 'Block token is invalid' }
     }
 
-    // Register outputs: the session-chained path stays metadata-only
-    // (useSessionToken implies an absent token).
-    if (!result.token) {
-      registerMetadataOutputs(validation.user)
-    } else {
-      registerCredentials(result.token, validation.user)
-    }
-
     return {
       success: true,
       user: validation.user,
+      // Absent on the session-chained path, whose outputs stay metadata-only.
+      token: result.token,
       scopes: validation.scopes,
       tokenType: validation.tokenType,
       validatedVia: validation.validatedVia,
       sessionEnvWarning: validation.sessionEnvWarning,
     }
-  }, [getBlockCredentials, validateToken, registerCredentials, registerMetadataOutputs])
+  }, [getBlockCredentials, validateToken])
 
   // Discover which GitLab hosts the user is logged into via glab, to drive the
   // host picker. Skipped for GitHub and when the author pinned a `host`. Re-runs
@@ -585,13 +590,14 @@ export function useGitAuth({
 
   // Walk the detection sources in order, stopping at the first success. A
   // {block} source whose block has not run yet pauses the walk (the author's
-  // order is the priority order) and stashes the rest for the block watcher
-  // to resume; one that ran without a usable token falls through to the next
-  // source. `runId` is the detection run the walk belongs to: every await
-  // re-checks it, so a provider switch, host change or reload drops the walk.
-  const trySourcesInOrder = useCallback(async (sources: GitCredentialSource[], runId: number) => {
+  // order is the priority order) and stashes the rest, with the warnings so
+  // far, for the block watcher to resume; one that ran without a usable token
+  // falls through to the next source. `runId` is the detection run the walk
+  // belongs to: every await re-checks it before touching state or outputs, so
+  // a provider switch, host change or reload drops the walk.
+  const trySourcesInOrder = useCallback(async (sources: GitCredentialSource[], runId: number, priorWarnings: string[] = []) => {
     const cancelled = () => detectionRunRef.current !== runId
-    const warnings: string[] = []
+    const warnings = [...priorWarnings]
 
     // 'unreachable': stop the chain WITHOUT consuming later sources —
     // every one of them would hit the same wall. Detection still ends
@@ -677,14 +683,13 @@ export function useGitAuth({
           return
         }
         if (result.success && result.user) {
-          // tryBlockCredentials already registered the full outputs map.
-          finishAuthenticated('block', result.user, blockCredentialDetails(result), { registerOutputs: false })
+          finishAuthenticated('block', result.user, blockCredentialDetails(result), { token: result.token })
           return
         }
         // If the block hasn't run yet, wait for it before trying the
         // lower-priority sources after it.
         if (blockPending(source.block)) {
-          remainingSourcesRef.current = sources.slice(i + 1)
+          pausedWalkRef.current = { sources: sources.slice(i + 1), warnings }
           setWaitingForBlockId(source.block)
           // Don't set detectionStatus to 'done' yet - wait for block
           return
@@ -746,9 +751,9 @@ export function useGitAuth({
     }
   }, [api, detectionStatus])
 
-  // Resume detection once the block it paused on has run. A block that ran
-  // but left no usable token falls through to the sources after it, exactly
-  // as it would have in the walk.
+  // Resume detection once the block it paused on has run: the walk picks up
+  // at that block's source, so its token (or its lack of one, which falls
+  // through to the sources after it) is handled exactly as in the walk.
   useEffect(() => {
     if (!waitingForBlockId || authStatus === 'authenticated') {
       return
@@ -758,39 +763,19 @@ export function useGitAuth({
       return // Still waiting
     }
 
-    // Take the paused walk before the first await: blockOutputs changes
+    // Take the paused walk and clear the wait now: blockOutputs changes
     // whenever any block registers outputs, and a re-run of this effect while
     // the block's token is being validated must not resume it a second time.
-    const blockId = waitingForBlockId
-    const remaining = remainingSourcesRef.current
-    remainingSourcesRef.current = []
+    const paused = pausedWalkRef.current
+    pausedWalkRef.current = null
     setWaitingForBlockId(null)
 
-    const resume = async () => {
-      const runId = detectionRunRef.current
-      const authResult = await tryBlockCredentials(blockId)
-      // Context changed mid-flight (provider switch / host change / reload).
-      if (detectionRunRef.current !== runId) return
-      if (authResult.success && authResult.user) {
-        // tryBlockCredentials already registered the full outputs map.
-        finishAuthenticated('block', authResult.user, blockCredentialDetails(authResult), { registerOutputs: false })
-        return
-      }
-      if (authResult.unreachable) {
-        // Same rule as the walk: the remaining sources would hit the same wall.
-        markUnreachable(authResult.unreachable.errorKind, undefined, authResult.unreachable.coldReadOk)
-        setDetectionStatus('done')
-        return
-      }
-      if (remaining.length > 0) {
-        await trySourcesInOrder(remaining, runId)
-      } else {
-        setDetectionStatus('done')
-      }
-    }
-
-    void resume()
-  }, [waitingForBlockId, authStatus, blockPending, tryBlockCredentials, trySourcesInOrder, finishAuthenticated, markUnreachable])
+    void trySourcesInOrder(
+      [{ block: waitingForBlockId }, ...(paused?.sources ?? [])],
+      detectionRunRef.current,
+      paused?.warnings,
+    )
+  }, [waitingForBlockId, authStatus, blockPending, trySourcesInOrder])
 
   // Handle PAT submission
   const handlePatSubmit = useCallback(async () => {
@@ -799,6 +784,7 @@ export function useGitAuth({
       return
     }
 
+    const submit = ++patSubmitRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setUnreachableInfo(null)
@@ -806,6 +792,9 @@ export function useGitAuth({
     // registerSession makes MAIN write the session env; the PAT transits
     // renderer→main once.
     const validation = await validateToken(patToken, { registerSession: true })
+
+    // The card was reset (e.g. a provider switch) while main validated.
+    if (patSubmitRef.current !== submit) return
 
     if (!validation.valid || !validation.user) {
       // Transport failure: never report the token as invalid — render
@@ -978,8 +967,10 @@ export function useGitAuth({
   // a provider switch writes the new GIT_PROVIDER before calling this, and
   // reAuthenticate withdraws the old credential itself.
   const resetAuth = useCallback(() => {
-    // End any device flow, including a poll still in flight.
+    // End any device flow, including a poll still in flight, and drop a PAT
+    // validation still in flight.
     stopOAuthPolling()
+    patSubmitRef.current += 1
     clearDetectionState()
     setErrorMessage(null)
     setPatToken('')
@@ -1010,7 +1001,7 @@ export function useGitAuth({
   const resetDetectionState = useCallback(() => {
     detectionRunRef.current += 1 // invalidate any in-flight detection loop
     detectionAttemptedRef.current = false
-    remainingSourcesRef.current = []
+    pausedWalkRef.current = null
     setWaitingForBlockId(null)
     setRedetectSuppressed(false)
     setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
