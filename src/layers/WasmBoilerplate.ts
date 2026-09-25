@@ -3,21 +3,29 @@
  *
  * Two concerns live here:
  *
- *  - `renderFile`: in-process Go text/template rendering via the boilerplate
- *    WASM runtime's `boilerplateRenderTemplate` export. Backs
- *    `<TemplateInline>` for per-keystroke previews of inline template
- *    snippets. The WASM bridge is already warm in the main process, so each
- *    call is a cheap JS→Go bounce with no subprocess startup.
+ *  - `renderFile` / `renderFileStrict`: in-process Go text/template rendering
+ *    via the boilerplate WASM runtime's `boilerplateRenderTemplate` export.
+ *    The WASM bridge is already warm in the main process, so each call is a
+ *    cheap JS→Go bounce with no subprocess startup.
  *
  *  - `renderTemplate`: shells out to the `boilerplate` CLI. This covers the
  *    full boilerplate feature surface (dependencies, skip_files, hooks,
  *    partials, all built-in functions) for the cold-render path.
  *
- * The WASM render hard-codes `OnMissingKey=ExitWithError`. To preserve the
- * permissive UX the hand-rolled engine used to provide (a typo like
- * `{{ .typoo }}` renders as `""` rather than blanking the whole preview),
- * we catch `WasmError(kind="internal")` and surface a single-line error
- * marker as the rendered output. Structural / load failures still propagate.
+ * The WASM render hard-codes `OnMissingKey=ExitWithError`, and every
+ * template-level failure (missing key, parse error, unknown function) comes
+ * back as `WasmError(kind="internal")`. The two single-string renders differ
+ * only in how they treat that:
+ *
+ *  - `renderFile` is lenient. It surfaces a single-line
+ *    `[template error: ...]` marker as the rendered output, so a typo in a
+ *    `<TemplateInline>` / View Source / instruction-mode preview shows the
+ *    error rather than blanking the whole preview. Structural / load
+ *    failures still propagate.
+ *
+ *  - `renderFileStrict` fails with `RenderError` on every failure. Command /
+ *    Check execution uses it, so a broken template fails the block with the
+ *    real error instead of the marker text being run as the script.
  */
 import path from "node:path"
 import { Effect, Layer, Stream } from "effect"
@@ -177,9 +185,10 @@ function runBoilerplate(
 // ---------------------------------------------------------------------------
 
 /**
- * `renderFile` routes through the WASM `boilerplateRenderTemplate` export so
- * inline previews share the same template engine (and helper-function surface)
- * as the bundle-backed renders.
+ * `renderFile` and `renderFileStrict` route through the WASM
+ * `boilerplateRenderTemplate` export so inline previews and Command/Check
+ * scripts share the same template engine (and helper-function surface) as the
+ * bundle-backed renders. See the file header for the lenient/strict split.
  *
  * `renderTemplate` shells out to the real `boilerplate` binary for full
  * feature parity (dependencies, skip_files, hooks, partials, etc).
@@ -199,13 +208,25 @@ export const WasmBoilerplateLive = Layer.effect(
             // The WASM build hard-codes `OnMissingKey=ExitWithError`. Surface
             // missing-key / parse-time failures inline rather than blanking
             // the whole preview — matches the permissive UX the hand-rolled
-            // engine used to provide for `<TemplateInline>`.
+            // engine used to provide for previews. Never use this for
+            // content that runs: see renderFileStrict.
             Effect.catchTag("WasmError", (err) =>
               err.kind === "internal"
                 ? Effect.succeed(`[template error: ${err.message}]`)
                 : Effect.fail(
                     new RenderError({ message: err.message, cause: err }),
                   ),
+            ),
+          ),
+
+      renderFileStrict: (templateContent: string, variables: Record<string, unknown>) =>
+        wasm
+          .renderTemplate(templateContent, JSON.stringify(variables ?? {}))
+          .pipe(
+            // No inline fallback: the caller executes the result, so a
+            // template error must fail rather than become the script text.
+            Effect.mapError(
+              (err) => new RenderError({ message: err.message, cause: err }),
             ),
           ),
 

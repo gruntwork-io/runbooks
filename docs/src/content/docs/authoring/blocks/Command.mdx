@@ -288,6 +288,16 @@ variables:
 
 In this example, the command has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
 
+#### How Values Are Inserted
+
+Variable values are inserted into the script verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
+
+:::caution
+Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run: double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, have the upstream block `export` an environment variable and read that instead.
+:::
+
+If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
+
 ### Execution Context
 
 Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your runbook like a workflow where earlier steps set up the environment for later steps.
