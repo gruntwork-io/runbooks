@@ -28,9 +28,11 @@ export function isContainedIn(filePath: string, container: string): boolean {
 // forever. Mirrors the spirit of the kernel's SYMLOOP_MAX.
 const SYMLINK_RESOLVE_LIMIT = 64
 
+const WIN32_PATHS = path.sep === "\\"
+
 // Only win32 treats `\` as a separator; on POSIX it is a legal filename
 // character, and splitting on it would disagree with the kernel.
-const SEGMENT_SEPARATOR = path.sep === "\\" ? /[\\/]+/ : /\/+/
+const SEGMENT_SEPARATOR = WIN32_PATHS ? /[\\/]+/ : /\/+/
 
 function splitSegments(p: string): string[] {
   return p.slice(path.parse(p).root.length).split(SEGMENT_SEPARATOR)
@@ -45,7 +47,8 @@ function splitSegments(p: string): string[] {
  * components still to walk (a relative target therefore resolves against the
  * link's *real* parent), and `..` is applied to the already-dereferenced
  * prefix. Nothing is collapsed lexically first, because `<symlink>/..` is the
- * symlink target's parent, not the symlink's.
+ * symlink target's parent, not the symlink's. The exception is `..` inside a
+ * link target on Windows, which collapses lexically (see the walk).
  *
  * Containment checks must also cover write targets that don't exist yet, so
  * components past the deepest existing prefix are kept as a literal tail. A
@@ -88,7 +91,13 @@ async function canonicalizePath(inputPath: string): Promise<string> {
       if (++links > SYMLINK_RESOLVE_LIMIT) {
         throw new Error(`path canonicalization exceeded symlink limit: ${inputPath}`)
       }
-      const target = await fs.readlink(next)
+      const raw = await fs.readlink(next)
+      // NT paths have no `..`, so Windows collapses a link target lexically
+      // against the link's (already dereferenced) parent: there
+      // `<symlink>/..` inside a target is the symlink's own parent. Leading
+      // `..` segments survive normalization and are applied to the real
+      // parent `resolved` below, as Windows does. POSIX dereferences first.
+      const target = WIN32_PATHS ? path.normalize(raw) : raw
       const targetRoot = path.parse(target).root
       if (targetRoot) resolved = path.resolve(resolved, targetRoot)
       pending.push(...splitSegments(target).reverse())
@@ -113,15 +122,23 @@ async function canonicalizePath(inputPath: string): Promise<string> {
  * lexically first (`path.join`/`path.resolve`, where `<link>/..` is the
  * link's own parent) and read that instead. The two can land in different
  * places, so `filePath` must be contained under both readings.
+ *
+ * When `filePath` already exists, the OS's own `realpath` must agree too. It
+ * backstops the platform semantics the walk models by hand, such as Windows'
+ * handling of `..` in link targets.
  */
 export async function isContainedInReal(filePath: string, container: string): Promise<boolean> {
   try {
-    const [asKernel, asLexical, resolvedContainer] = await Promise.all([
-      canonicalizePath(filePath),
-      canonicalizePath(path.resolve(filePath)),
+    const lexical = path.resolve(filePath)
+    const [resolvedContainer, ...candidates] = await Promise.all([
       canonicalizePath(container),
+      canonicalizePath(filePath),
+      // An already-normalized absolute path (the common case) reads the same
+      // both ways, so the second walk would repeat the first.
+      lexical === filePath ? null : canonicalizePath(lexical),
+      fs.realpath(filePath).catch(() => null),
     ])
-    return isContainedIn(asKernel, resolvedContainer) && isContainedIn(asLexical, resolvedContainer)
+    return candidates.every((p) => p === null || isContainedIn(p, resolvedContainer))
   } catch {
     return false
   }

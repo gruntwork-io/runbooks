@@ -135,6 +135,10 @@ describe("isContainedInReal", () => {
     // the container's parent once `..` is collapsed lexically.
     mkdirSync(path.join(container, "a", "b", "c"), { recursive: true })
     symlinkSync("a/b/c", path.join(container, "down-link"))
+    // Dangling, relative, with `..` after a symlink in the target. POSIX
+    // dereferences down-link before each `..` (<container>/future.txt);
+    // Windows collapses the target lexically first (<root>/../future.txt).
+    symlinkSync("down-link/../../../future.txt", path.join(container, "dangling-via-down-link"))
   })
 
   afterAll(() => {
@@ -173,7 +177,7 @@ describe("isContainedInReal", () => {
   })
 
   it("rejects a relative dangling symlink reached through a directory symlink", async () => {
-    // Lexically the link sits in deep/a/b/, so ../../escaped-up.txt would be
+    // Lexically the link sits in deep/a/b/up/, so ../../escaped-up.txt would be
     // deep/a/escaped-up.txt; a write actually lands in <root>/.
     const viaUp = path.join(container, "deep", "a", "b", "up", "escape-up")
     expect(await isContainedInReal(viaUp, container)).toBe(false)
@@ -192,8 +196,13 @@ describe("isContainedInReal", () => {
   })
 
   it("rejects a symlink reached after `..` pops a not-yet-existing segment", async () => {
-    // mkdir -p creates not-yet/, after which escape-dir is followed outside.
-    const input = `${container}${path.sep}not-yet${path.sep}..${path.sep}escape-dir${path.sep}new.txt`
+    // mkdir -p creates not-yet/, after which s is followed to <root>/outside/deep,
+    // so s/.. is <root>/outside and the write lands in <root>/outside/x/.
+    // Lexically this is <container>/x/new.txt, so only a walk that resumes
+    // dereferencing once `..` empties the missing tail rejects it.
+    const sep = path.sep
+    const input = `${container}${sep}not-yet${sep}..${sep}s${sep}..${sep}x${sep}new.txt`
+    expect(isContainedIn(input, container)).toBe(true)
     expect(await isContainedInReal(input, container)).toBe(false)
   })
 
@@ -214,6 +223,11 @@ describe("isContainedInReal", () => {
     expect(await isContainedInReal(path.join(container, "deep", "inside-dangling"), container)).toBe(true)
     const viaUp = path.join(container, "deep", "a", "b", "up", "inside-dangling")
     expect(await isContainedInReal(viaUp, container)).toBe(true)
+  })
+
+  it("applies `..` in a relative link target the way the host OS does", async () => {
+    const link = path.join(container, "dangling-via-down-link")
+    expect(await isContainedInReal(link, container)).toBe(process.platform !== "win32")
   })
 
   it("fails closed on a symlink cycle", async () => {
