@@ -1,7 +1,8 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, afterEach } from "bun:test"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
+import { Effect, Layer } from "effect"
 import {
   isRemoteURL,
   isAuthError,
@@ -9,7 +10,16 @@ import {
   classifyCloneError,
   cleanupTempClones,
   registerTempCloneDir,
+  failWithCloneHint,
+  selectCloneToken,
+  runbookDirInClone,
 } from "./remote.ts"
+import { sessionManager } from "./ipc/runtime.ts"
+import { resolveRef } from "../../src/remote-source.ts"
+import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
+import type { VcsCredentialsShape } from "../../src/services/VcsCredentials.ts"
+import { makeTestSpawner } from "../../src/test-utils/TestSpawner.ts"
+import { makeTestEnvironment } from "../../src/test-utils/TestEnvironment.ts"
 
 describe("isRemoteURL", () => {
   it("detects HTTPS GitHub URLs", () => {
@@ -70,6 +80,8 @@ describe("isAuthError (golang parity)", () => {
     "fatal: unable to access 'https://...': The requested URL returned error: 401",
     "remote: Invalid credentials",
     "fatal: Permission denied (publickey)",
+    "error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403",
+    "git@github.com: Permission denied (publickey,password).",
   ])("classifies %s as auth", (stderr) => {
     expect(isAuthError(stderr)).toBe(true)
   })
@@ -79,6 +91,11 @@ describe("isAuthError (golang parity)", () => {
     "fatal: not a git repository", // normal git error
     "fatal: unable to access: connection timed out", // timeout error
     "fatal: unable to find a suitable file for index pack",
+    // 401/403 outside an HTTP status: --progress counters, temp path, repo name
+    "Cloning into '/tmp/runbooks-remote-ab403c/repo'...\nReceiving objects:  89% (403/452)\nfatal: early EOF",
+    "fatal: unable to access 'https://github.com/acme/svc-4013.git/': Could not resolve host: github.com",
+    // a filesystem permission error, not SSH's "Permission denied (<methods>)"
+    "fatal: could not create work tree dir '/tmp/x/repo': Permission denied",
   ])("returns false for non-auth stderr: %s", (stderr) => {
     expect(isAuthError(stderr)).toBe(false)
   })
@@ -207,6 +224,17 @@ describe("classifyCloneError (golang parity)", () => {
     expect(result.kind).toBe("network")
   })
 
+  it("classifies a DNS error as network even when the repo name contains 401/403", () => {
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "acme",
+      repo: "svc-4013",
+      stderr: "fatal: unable to access 'https://github.com/acme/svc-4013.git/': Could not resolve host: github.com",
+      hadToken: false,
+    })
+    expect(result.kind).toBe("network")
+  })
+
   it("classifies connection refused as network", () => {
     const result = classifyCloneError({
       host: "github.com",
@@ -228,6 +256,139 @@ describe("classifyCloneError (golang parity)", () => {
     })
     expect(result.kind).toBe("unknown")
     expect(result.hint).toBe("failed to download runbook: fatal: index-pack failed")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// failWithCloneHint — a failed ref-resolving ls-remote gets the same hint as
+// a failed clone, not a guessed ref or raw git output.
+// ---------------------------------------------------------------------------
+
+describe("failWithCloneHint", () => {
+  it.each([
+    [
+      "auth",
+      "remote: Repository not found.\nfatal: repository 'https://github.com/o/r.git/' not found",
+      "authentication required for github.com/o/r: set GITHUB_TOKEN, or run 'gh auth login'",
+    ],
+    [
+      "network",
+      "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com",
+      "Could not reach github.com. Check your internet connection.",
+    ],
+  ])("maps a failed ls-remote to the %s hint", async (_kind, stderr, hint) => {
+    const spawner = makeTestSpawner([
+      {
+        command: "git",
+        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        outputLines: stderr.split("\n"),
+        source: "stderr",
+        exitCode: 128,
+      },
+    ])
+
+    const result = await Effect.runPromise(
+      resolveRef("https://github.com/o/r.git", "main/runbooks/x").pipe(
+        Effect.catchAll(
+          failWithCloneHint({
+            url: "https://github.com/o/r/tree/main/runbooks/x",
+            host: "github.com",
+            owner: "o",
+            repo: "r",
+            hadToken: false,
+          }),
+        ),
+        Effect.provide(spawner),
+        Effect.either,
+      ),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("RemoteSourceError")
+      expect(result.left.message).toBe(hint)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// selectCloneToken — the clone token for an (untrusted) remote URL host.
+// ---------------------------------------------------------------------------
+
+describe("selectCloneToken", () => {
+  afterEach(() => {
+    sessionManager.deleteSession()
+  })
+
+  const seedSession = (vars: Record<string, string>) =>
+    Effect.runPromise(sessionManager.createSession("/tmp").pipe(Effect.provide(makeTestEnvironment(vars))))
+
+  /** VcsCredentials stub: only tokenForHost is reached; records its hosts. */
+  const select = (host: string, tokens: Record<string, string> = {}) => {
+    const asked: string[] = []
+    const vcs = Layer.succeed(VcsCredentials, {
+      tokenForHost: (h: string) =>
+        Effect.sync(() => {
+          asked.push(h)
+          return tokens[h]
+        }),
+    } as unknown as VcsCredentialsShape)
+    return Effect.runPromise(selectCloneToken(host).pipe(Effect.provide(vcs))).then((token) => ({
+      token,
+      asked,
+    }))
+  }
+
+  it("never gives a gitlab.com-bound session token to a lookalike GitLab host", async () => {
+    await seedSession({ GITLAB_TOKEN: "session-gitlab-token" })
+    const { token, asked } = await select("gitlab.evil.example")
+    expect(token).toBeUndefined()
+    expect(asked).toEqual(["gitlab.evil.example"])
+  })
+
+  it("uses the session GitHub token for github.com", async () => {
+    await seedSession({ GITHUB_TOKEN: "session-github-token" })
+    const { token, asked } = await select("github.com", { "github.com": "ambient-token" })
+    expect(token).toBe("session-github-token")
+    expect(asked).toEqual([])
+  })
+
+  it("uses the session GitLab token for the self-hosted host it is bound to", async () => {
+    await seedSession({ GITLAB_TOKEN: "session-gitlab-token", GITLAB_HOST: "gitlab.corp.example" })
+    const { token } = await select("gitlab.corp.example")
+    expect(token).toBe("session-gitlab-token")
+  })
+
+  it("sends an unknown host straight to VcsCredentials.tokenForHost", async () => {
+    await seedSession({ GITHUB_TOKEN: "session-github-token", GITLAB_TOKEN: "session-gitlab-token" })
+    const { token, asked } = await select("bitbucket.org", { "bitbucket.org": "bb-token" })
+    expect(token).toBe("bb-token")
+    expect(asked).toEqual(["bitbucket.org"])
+  })
+
+  it("falls back to VcsCredentials.tokenForHost when there is no session", async () => {
+    const { token } = await select("github.com", { "github.com": "ambient-token" })
+    expect(token).toBe("ambient-token")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// runbookDirInClone — the URL's subpath must stay inside the clone.
+// ---------------------------------------------------------------------------
+
+describe("runbookDirInClone", () => {
+  const dest = nodePath.join(os.tmpdir(), "runbooks-remote-abc", "repo")
+
+  it.each([
+    [undefined, dest],
+    ["runbooks/x", nodePath.join(dest, "runbooks", "x")],
+    ["..foo/x", nodePath.join(dest, "..foo", "x")], // a dot-prefixed name, not a `..` segment
+  ])("resolves %s inside the clone", (subpath, expected) => {
+    expect(runbookDirInClone(dest, subpath)).toBe(expected)
+  })
+
+  it.each(["..", "../../etc", "runbooks/../../etc"])("rejects %s, which escapes the clone", (subpath) => {
+    expect(runbookDirInClone(dest, subpath)).toBeUndefined()
   })
 })
 
