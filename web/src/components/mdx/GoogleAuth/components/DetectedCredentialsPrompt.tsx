@@ -50,11 +50,11 @@ export function DetectedCredentialsPrompt({
   onReject,
 }: DetectedCredentialsPromptProps) {
   // Where it came from, precisely enough to spot the wrong project before use.
+  // MAIN reports envVar already prefixed, so it is shown as-is.
   const provenance = credentials.envVar
-    ? `${credentials.envPrefix ?? ''}${credentials.envVar}`
-    : credentials.configuration
+    ?? (credentials.configuration
       ? `gcloud configuration "${credentials.configuration}"`
-      : credentials.path
+      : credentials.path)
 
   return (
     <div className="mb-4">

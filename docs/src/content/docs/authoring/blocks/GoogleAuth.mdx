@@ -356,7 +356,7 @@ Google Cloud's project is the analogue of an AWS account: it decides what your c
 - Otherwise, if the credential can see exactly one project, it is selected automatically.
 - Otherwise, a searchable project picker is shown before the block reports success.
 
-Once authenticated, the success card offers **Change project** to switch to another project the same credential can see, and **Re-authenticate** to start over.
+Once authenticated, the success card offers **Change project** to switch to another project the same credential can see, and **Re-authenticate** to start over. **Cancel** in a picker opened by **Change project** returns to the success card and keeps the current project; nothing is withdrawn. If the project list cannot be loaded, the picker shows why (*"Could not list projects: …"*) rather than an empty list.
 
 <Aside type="note">
 Listing projects requires the `resourcemanager.projects.list` permission on some resource the credential can see. A service account without it authenticates fine but shows an empty picker — set the `project` prop (or type the project ID on the Service Account Key tab) in that case.
@@ -517,7 +517,7 @@ Detected credentials are **never registered as this block's credentials until th
 
 A **← Try auto-detection again** link re-runs detection at any time; if nothing is found, a brief *No credentials found* hint appears.
 
-If a credential is found but does not validate, the block says so — *"Invalid credentials detected: Application Default Credentials are invalid or expired"* — and falls through to manual authentication.
+If a credential is found but does not validate, the block says so — *"Invalid credentials detected: Application Default Credentials are invalid or expired"*, followed by the underlying reason in parentheses (for example, a file that does not exist) — and falls through to manual authentication.
 
 ## Instruction Mode
 
@@ -574,10 +574,11 @@ If a federated configuration you rely on is refused, authenticate with a service
 | A configuration shows **No ADC** and cannot be selected | The configuration has no Application Default Credentials. Run `gcloud auth application-default login` |
 | *Not a service account key (expected type: service_account)* | The pasted JSON is user credentials or an OAuth client file, not a service account key. Use the file that Google Cloud produced from **IAM & Admin → Service Accounts → Keys** |
 | *…which Runbooks does not accept* / *…is not a Google API endpoint* | The credentials document is a workload identity federation config that fetches its subject token from a file, a URL, or a command, or that points at a host outside `*.googleapis.com`. Runbooks does not run those instructions. Use a service account key, **Sign in with Google**, or `gcloud auth application-default login` |
-| *Invalid credentials detected: … are invalid or expired* | The detected credential no longer authenticates. Refresh it (`gcloud auth application-default login`) or authenticate manually |
+| *Invalid credentials detected: … are invalid or expired (…)* | The detected credential does not authenticate; the text in parentheses says why. For a missing or unreadable file, fix the path the variable points at. For an expired or revoked credential, refresh it (`gcloud auth application-default login`). Or authenticate manually |
 | *Credentials missing required scopes* | The block's `scopes` prop lists scopes the detected user ADC does not grant (for example Admin SDK scopes). Use **Sign in with required scopes**, or run the shown `gcloud auth application-default login --client-id-file="$GOOGLE_OAUTH_CLIENT_CREDENTIALS" --scopes=…` command and try auto-detection again |
 | gcloud Config / confirm fails with *missing required OAuth scopes* | Same check as detection: the selected ADC is too narrow for this block. Re-authenticate with the required scopes via Sign-In or `gcloud auth application-default login --client-id-file=… --scopes=…` |
 | The project picker is empty | The credential cannot list projects. Grant `resourcemanager.projects.list`, or set the `project` prop / type the project ID directly |
+| *Could not list projects: …* | Google refused or failed the project listing (for example, the Cloud Resource Manager API is disabled). The current authentication is untouched: **Cancel** returns to the success card. Fix the cause shown, or set the `project` prop |
 | *Project … is not accessible with these credentials* | Advisory warning: the credential authenticated, but Google definitively refused (404/permission denied) on that project. Check the project ID and the principal's IAM roles. An inconclusive answer — a disabled Cloud Resource Manager API, a network blip — deliberately produces **no** warning, because it says nothing about whether your commands will work |
 | *Authenticated, but no Google Cloud project is set* | The credential is valid but nothing named a project: no `project` prop, no `core/project` in the gcloud configuration, and no project the principal can enumerate. Commands that need one will fail with *"The project property must be set"*. Set the `project` prop, run `gcloud config set project`, or use **Change project** |
 | *Authenticated, but the credential could not be saved to the session* | The credential is valid but the session write failed. Re-run the block; blocks that consume it may not see the credentials until you do |

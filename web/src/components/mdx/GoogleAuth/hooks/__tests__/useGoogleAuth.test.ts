@@ -205,6 +205,28 @@ describe('useGoogleAuth — detection', () => {
     expect(result.current.detectedCredentials).toBeNull()
   })
 
+  it("appends MAIN's reason to the per-source copy for a found-but-invalid credential", async () => {
+    installApi((channel, args) => {
+      if (channel !== 'google:env-credentials') return {}
+      if (args?.source === 'adc') {
+        return {
+          found: true,
+          valid: false,
+          source: 'adc',
+          warning: "ENOENT: no such file or directory, open '/home/u/adc.json'",
+        }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp' })
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.detectionWarning).toBe(
+      "Application Default Credentials are invalid or expired (ENOENT: no such file or directory, open '/home/u/adc.json')",
+    )
+  })
+
   it('passes the prefix through for a { env: { prefix } } source', async () => {
     const invoke = installApi(() => ({ found: false }))
 
@@ -1092,6 +1114,61 @@ describe('useGoogleAuth — OAuth tab', () => {
     })
   })
 
+  it('clearing a picked client JSON re-probes exactly once, through the probe effect', async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:oauth-available') return { available: false }
+      if (channel === 'native:show-open-dialog') {
+        return { filePaths: ['/tmp/client_secret_example.apps.googleusercontent.com.json'] }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+    await waitFor(() => expect(result.current.oauthUnavailable).toBe(true))
+
+    await act(async () => {
+      await result.current.loadOAuthClientFromFile()
+    })
+    expect(result.current.oauthUnavailable).toBe(false)
+    const probesBeforeClear = callsTo(invoke, 'google:oauth-available').length
+
+    await act(async () => {
+      result.current.clearOAuthClientFile()
+    })
+
+    // One probe, not a second hand-rolled one racing the effect's.
+    await waitFor(() => expect(result.current.oauthUnavailable).toBe(true))
+    expect(callsTo(invoke, 'google:oauth-available')).toHaveLength(probesBeforeClear + 1)
+    expect(result.current.oauthClientFilePath).toBeNull()
+    expect(result.current.oauthClientFileName).toBeNull()
+  })
+
+  it('a failing re-probe after clearing leaves Sign-In selectable', async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:oauth-available') throw new Error('IPC unavailable')
+      if (channel === 'native:show-open-dialog') {
+        return { filePaths: ['/tmp/client_secret_example.apps.googleusercontent.com.json'] }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+    await act(async () => {
+      await result.current.loadOAuthClientFromFile()
+    })
+    const probesBeforeClear = callsTo(invoke, 'google:oauth-available').length
+
+    await act(async () => {
+      result.current.clearOAuthClientFile()
+    })
+    await act(async () => {})
+
+    // The probe effect's policy: an unanswerable probe leaves oauth-start (or
+    // the Desktop client picker) the last word, rather than disabling Sign-In.
+    expect(callsTo(invoke, 'google:oauth-available')).toHaveLength(probesBeforeClear + 1)
+    expect(result.current.oauthUnavailable).toBe(false)
+  })
+
   it('releases the loopback listener when the poll loop gives up', async () => {
     const invoke = installApi((channel) => {
       if (channel === 'google:oauth-start') {
@@ -1551,6 +1628,178 @@ describe('useGoogleAuth — post-authentication', () => {
     expect(result.current.authStatus).toBe('select_project')
     expect(invoke).toHaveBeenCalledWith('google:projects', { blockId: 'gcp' })
     expect(result.current.projects).toHaveLength(1)
+  })
+
+  it('"Change project" surfaces a project-list failure instead of swallowing it', async () => {
+    installApi((channel) => {
+      if (channel === 'google:projects') throw new Error('Cloud Resource Manager API has not been used')
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.handleChangeProject()
+    })
+
+    expect(result.current.authStatus).toBe('select_project')
+    expect(result.current.projects).toEqual([])
+    expect(result.current.errorMessage).toBe('Cloud Resource Manager API has not been used')
+  })
+
+  it('cancelling "Change project" returns to the success card and keeps the outputs', async () => {
+    installApi((channel) => {
+      if (channel === 'google:validate-credentials') {
+        return {
+          valid: true,
+          account: { principal: 'sa@key-project.iam.gserviceaccount.com', accountType: 'service_account' },
+          projectId: 'proj-x',
+          credentialType: 'service_account',
+          credentialsPath: '/tmp/runbooks-gcp-cp/adc.json',
+        }
+      }
+      if (channel === 'google:projects') return { projects: [], error: 'Cloud Resource Manager API has not been used' }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', project: 'proj-x', detectCredentials: false })
+
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    const accountBefore = result.current.accountInfo
+    const publishedOutputs = outputs({
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-cp/adc.json',
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-cp/adc.json',
+      GOOGLE_CLOUD_PROJECT: 'proj-x',
+      CLOUDSDK_CORE_PROJECT: 'proj-x',
+      GOOGLE_PROJECT: 'proj-x',
+      CLOUDSDK_CORE_ACCOUNT: 'sa@key-project.iam.gserviceaccount.com',
+      GOOGLE_AUTH_TYPE: 'service_account',
+    })
+    expect(registerOutputs).toHaveBeenLastCalledWith('gcp', publishedOutputs)
+
+    await act(async () => {
+      await result.current.handleChangeProject()
+    })
+    act(() => result.current.setProjectSearch('proj'))
+    expect(result.current.authStatus).toBe('select_project')
+    expect(result.current.errorMessage).toBe('Cloud Resource Manager API has not been used')
+
+    act(() => result.current.handleCancelProjectSelect())
+
+    // Backing out of the picker is not a re-authentication: the credential and
+    // the outputs a `<Command googleAuthId>` injects are exactly as they were.
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(result.current.accountInfo).toEqual(accountBefore)
+    expect(result.current.errorMessage).toBeNull()
+    expect(result.current.projectSearch).toBe('')
+    expect(registerOutputs).toHaveBeenLastCalledWith('gcp', publishedOutputs)
+  })
+
+  it('cancelling the picker a fresh sign-in routed into still starts over', async () => {
+    installApi((channel) => {
+      if (channel === 'google:oauth-start') {
+        return { flowId: 'flow-cancel', authUrl: 'https://accounts.google.com/o/oauth2/v2/auth' }
+      }
+      if (channel === 'google:oauth-poll') {
+        return {
+          status: 'complete',
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          credentialsPath: '/tmp/runbooks-gcp-fresh/adc.json',
+          projects: [
+            { projectId: 'proj-one', displayName: 'Project One' },
+            { projectId: 'proj-two', displayName: 'Project Two' },
+          ],
+        }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('select_project'))
+
+    act(() => result.current.handleCancelProjectSelect())
+
+    // Nothing was committed, so there is no success card to return to.
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.accountInfo).toBeNull()
+    expect(registerOutputs).toHaveBeenLastCalledWith('gcp', { __AUTHENTICATED: 'false' })
+  })
+
+  it('a failed "Change project" commit does not let a later picker Cancel restore the old card', async () => {
+    let projectsListed = false
+    installApi((channel) => {
+      if (channel === 'google:validate-credentials') {
+        return {
+          valid: true,
+          account: { principal: 'sa@key-project.iam.gserviceaccount.com', accountType: 'service_account' },
+          projectId: 'proj-x',
+          credentialType: 'service_account',
+          credentialsPath: '/tmp/runbooks-gcp-sa/adc.json',
+        }
+      }
+      if (channel === 'google:projects') {
+        projectsListed = true
+        return {
+          projects: [
+            { projectId: 'proj-x', displayName: 'Project X' },
+            { projectId: 'proj-y', displayName: 'Project Y' },
+          ],
+        }
+      }
+      if (channel === 'google:set-project') return { ok: false, error: 'Permission denied on proj-y' }
+      if (channel === 'google:oauth-start') {
+        return { flowId: 'flow-after', authUrl: 'https://accounts.google.com/o/oauth2/v2/auth' }
+      }
+      if (channel === 'google:oauth-poll') {
+        return {
+          status: 'complete',
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          credentialsPath: '/tmp/runbooks-gcp-after/adc.json',
+          projects: [
+            { projectId: 'proj-one', displayName: 'Project One' },
+            { projectId: 'proj-two', displayName: 'Project Two' },
+          ],
+        }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+
+    await act(async () => {
+      await result.current.handleChangeProject()
+    })
+    expect(projectsListed).toBe(true)
+    await act(async () => {
+      await result.current.handleProjectSelect({ projectId: 'proj-y', displayName: 'Project Y' })
+    })
+    expect(result.current.authStatus).toBe('failed')
+
+    // The user signs in again, and that flow lands on the picker.
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('select_project'))
+
+    act(() => result.current.handleCancelProjectSelect())
+
+    // The new flow withdrew the old outputs, so a green card here would be a lie.
+    expect(result.current.authStatus).toBe('pending')
+    expect(registerOutputs).toHaveBeenLastCalledWith('gcp', { __AUTHENTICATED: 'false' })
   })
 
   it('re-authenticating clears the account, the projects, and the detection state', async () => {

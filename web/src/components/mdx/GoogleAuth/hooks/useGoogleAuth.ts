@@ -73,10 +73,13 @@ interface EnvDetectionPayload {
 interface DetectionAttemptResult {
   success: boolean
   detected?: DetectedGoogleCredentials
-  /** Advisory copy main attached to a SUCCESSFUL detection. */
-  warning?: string
   /** A credential was present but did not validate — worth a warning chip. */
   foundButInvalid?: boolean
+  /**
+   * Why a found credential failed validation, as MAIN reported it (already
+   * redacted). Appended to the chip's per-source copy.
+   */
+  reason?: string
   error?: string
 }
 
@@ -205,6 +208,8 @@ export interface UseGoogleAuthReturn {
   handleRejectDetected: () => void
   handleRetryDetection: () => void
   handleManualAuth: () => void
+  /** Project picker Cancel: back to the success card after "Change project", otherwise start over. */
+  handleCancelProjectSelect: () => void
   /** Decline insufficient-scopes detection and start Google Sign-In with required scopes. */
   handleSignInWithRequiredScopes: () => Promise<void>
 }
@@ -330,6 +335,11 @@ export function useGoogleAuth({
   // as the credentials path: the picker must not silently drop them.
   const pendingComputeRef = useRef<{ region?: string; zone?: string } | null>(null)
 
+  // True only while the picker was opened by "Change project" from a green card
+  // whose outputs are still live, so Cancel can return to that card instead of
+  // starting over. Cleared by any commit attempt and by any output withdrawal.
+  const changingProjectRef = useRef(false)
+
   // Auto-hide the "no credentials found" retry hint (mirrors AwsAuth).
   useEffect(() => {
     if (!retryFoundNothing) return
@@ -402,8 +412,12 @@ export function useGoogleAuth({
    * `registerOutputs` REPLACES the whole values map, so the stale path goes with
    * the marker. `'false'` rather than an omitted key keeps the withdrawal
    * legible in the outputs inspector.
+   *
+   * With the outputs gone there is no green card left for the project picker's
+   * Cancel to return to, so the "Change project" detour ends here too.
    */
   const invalidateBlockOutputs = useCallback(() => {
+    changingProjectRef.current = false
     registerOutputs(id, { __AUTHENTICATED: 'false' })
   }, [id, registerOutputs])
 
@@ -512,6 +526,9 @@ export function useGoogleAuth({
     const region = compute?.region ?? pendingComputeRef.current?.region ?? effectiveRegion
     const zone = compute?.zone ?? pendingComputeRef.current?.zone ?? effectiveZone
 
+    // Any commit attempt ends a "Change project" detour: success publishes new
+    // outputs, and failure closes the picker.
+    changingProjectRef.current = false
     setSelectedProject(projectInfo)
     setAuthStatus('authenticating')
     setErrorMessage(null)
@@ -552,7 +569,11 @@ export function useGoogleAuth({
     }
   }, [api, id, effectiveRegion, effectiveZone, accountInfo, completeAuthentication])
 
-  /** Fetch the projects visible to the current credential. */
+  /**
+   * Fetch the projects visible to the current credential. A listing failure
+   * lands in `errorMessage`, which the picker renders inline — an empty list
+   * alone would read as "no projects are visible".
+   */
   const loadProjects = useCallback(async () => {
     setLoadingProjects(true)
     try {
@@ -567,8 +588,8 @@ export function useGoogleAuth({
         setErrorMessage(data.error)
       }
     } catch (error) {
-      console.error('Failed to load Google Cloud projects:', error)
       setProjects([])
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to load Google Cloud projects')
     } finally {
       setLoadingProjects(false)
     }
@@ -679,13 +700,14 @@ export function useGoogleAuth({
       }
 
       if (!data.valid) {
-        return { success: false, foundButInvalid: true, ...(data.error ? { error: data.error } : {}) }
+        // MAIN sends the underlying failure as `warning` on this branch.
+        const reason = data.warning ?? data.error
+        return { success: false, foundButInvalid: true, ...(reason ? { reason } : {}) }
       }
 
       return {
         success: true,
         detected: toDetectedCredentials(data, source, options?.prefix),
-        ...(data.warning ? { warning: data.warning } : {}),
       }
     } catch (error) {
       return {
@@ -765,10 +787,13 @@ export function useGoogleAuth({
 
     const succeed = (result: DetectionAttemptResult) => {
       setDetectedCredentials(result.detected!)
-      if (result.warning) {
-        setDetectionWarning(result.warning)
-      }
       setDetectionStatus('detected')
+    }
+
+    // The block owns the per-source copy; MAIN's reason follows it, so a
+    // missing file and a revoked token do not read the same.
+    const pushInvalid = (copy: string, result: DetectionAttemptResult) => {
+      warnings.push(result.reason ? `${copy} (${result.reason})` : copy)
     }
 
     for (let i = 0; i < sources.length; i++) {
@@ -782,7 +807,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push('Google Cloud credentials in the environment are invalid or expired')
+          pushInvalid('Google Cloud credentials in the environment are invalid or expired', result)
         }
       }
       // 'adc' — the well-known application_default_credentials.json
@@ -793,7 +818,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push('Application Default Credentials are invalid or expired')
+          pushInvalid('Application Default Credentials are invalid or expired', result)
         }
       }
       // 'gcloud' — the ACTIVE gcloud configuration
@@ -804,7 +829,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push("The active gcloud configuration's credentials are invalid or expired")
+          pushInvalid("The active gcloud configuration's credentials are invalid or expired", result)
         }
       }
       // { env: { prefix: 'PREFIX_' } } — prefixed env vars
@@ -816,7 +841,7 @@ export function useGoogleAuth({
           return
         }
         if (result.foundButInvalid) {
-          warnings.push(`${prefix ?? ''}Google Cloud credentials are invalid or expired`)
+          pushInvalid(`${prefix ?? ''}Google Cloud credentials are invalid or expired`, result)
         }
       }
       // { block: 'id' } — another block's outputs
@@ -1404,19 +1429,12 @@ export function useGoogleAuth({
   }, [api])
 
   const clearOAuthClientFile = useCallback(() => {
+    // Clearing the path re-runs the oauth-available probe effect below, which
+    // owns the author-prop short-circuit, the cancellation guard, and the
+    // failure policy.
     setOauthClientFilePath(null)
     setOauthClientFileName(null)
-    // Re-probe ambient config; without an author prop the tab may need a client
-    // again. Author props keep Sign-In available regardless.
-    if (oauthClientId || oauthClientFile) {
-      setOauthUnavailable(false)
-      return
-    }
-    void api
-      .invoke('google:oauth-available', {})
-      .then((data) => setOauthUnavailable(data?.available !== true))
-      .catch(() => setOauthUnavailable(true))
-  }, [api, oauthClientId, oauthClientFile])
+  }, [])
 
   const handleOAuthLogin = useCallback(async () => {
     oauthPollCancelledRef.current = false
@@ -1499,11 +1517,12 @@ export function useGoogleAuth({
   }, [stopOAuthPolling])
 
   /**
-   * Ask MAIN once, on mount, whether an OAuth client is resolvable (build
-   * default or operator env). Author props/file and an in-session operator
-   * pick skip the probe — those are available by definition. When nothing is
-   * configured the Sign-In tab stays selectable and OAuthFlow offers a Desktop
-   * client JSON picker (plus the GOOGLE_OAUTH_CLIENT_CREDENTIALS env hint).
+   * Ask MAIN on mount, and again whenever an operator-picked client JSON is
+   * cleared, whether an OAuth client is resolvable (build default or operator
+   * env). Author props/file and an in-session operator pick skip the probe —
+   * those are available by definition. When nothing is configured the Sign-In
+   * tab stays selectable and OAuthFlow offers a Desktop client JSON picker
+   * (plus the GOOGLE_OAUTH_CLIENT_CREDENTIALS env hint).
    */
   useEffect(() => {
     if (oauthClientId || oauthClientFile || oauthClientFilePath) {
@@ -1697,6 +1716,7 @@ export function useGoogleAuth({
   const handleChangeProject = useCallback(async () => {
     setErrorMessage(null)
     setProjectSearch('')
+    changingProjectRef.current = true
     setAuthStatus('select_project')
     if (projects.length === 0) {
       await loadProjects()
@@ -1726,6 +1746,23 @@ export function useGoogleAuth({
     pendingCredentialsPathRef.current = null
     pendingComputeRef.current = null
   }, [stopOAuthPolling, invalidateBlockOutputs])
+
+  /**
+   * The project picker's Cancel. Backing out of "Change project" returns to the
+   * success card: the committed credential and its outputs were never touched.
+   * Cancelling the picker a fresh authentication routed into has nothing
+   * committed to return to, so that starts over.
+   */
+  const handleCancelProjectSelect = useCallback(() => {
+    if (changingProjectRef.current) {
+      changingProjectRef.current = false
+      setProjectSearch('')
+      setErrorMessage(null)
+      setAuthStatus('authenticated')
+      return
+    }
+    handleManualAuth()
+  }, [handleManualAuth])
 
   return {
     // Core state
@@ -1797,6 +1834,7 @@ export function useGoogleAuth({
     handleRejectDetected,
     handleRetryDetection,
     handleManualAuth,
+    handleCancelProjectSelect,
     handleSignInWithRequiredScopes,
   }
 }

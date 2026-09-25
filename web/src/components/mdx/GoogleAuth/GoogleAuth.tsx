@@ -375,10 +375,11 @@ function GoogleAuthInteractive({
                   projects={auth.projects}
                   selectedProject={auth.selectedProject}
                   loadingProjects={auth.loadingProjects}
+                  error={auth.errorMessage}
                   searchValue={auth.projectSearch}
                   setSearchValue={auth.setProjectSearch}
                   onProjectSelect={auth.handleProjectSelect}
-                  onCancel={auth.handleManualAuth}
+                  onCancel={auth.handleCancelProjectSelect}
                 />
               )}
 
