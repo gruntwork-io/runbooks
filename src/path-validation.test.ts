@@ -230,6 +230,17 @@ describe("isContainedInReal", () => {
     expect(await isContainedInReal(link, container)).toBe(process.platform !== "win32")
   })
 
+  // On POSIX `\` is an ordinary filename character, so `x\..` is one
+  // component, not `x` followed by `..`. Splitting on `\` there would pop the
+  // missing `x` and judge <container>/new.txt, while a write follows the
+  // `x\..` symlink outside.
+  const itPosix = process.platform === "win32" ? it.skip : it
+  itPosix("treats `\\` as a filename character on POSIX", async () => {
+    symlinkSync(outside, path.join(container, "x\\.."))
+    const input = `${container}/x\\../new.txt`
+    expect(await isContainedInReal(input, container)).toBe(false)
+  })
+
   it("fails closed on a symlink cycle", async () => {
     expect(await isContainedInReal(path.join(container, "loop", "x.txt"), container)).toBe(false)
   })
