@@ -439,7 +439,7 @@ function GitCloneInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${cloneStatus === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {/* Title and description */}
           <div className="text-md font-bold text-foreground">
             <InlineMarkdown>{resolvedTitle}</InlineMarkdown>

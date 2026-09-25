@@ -211,4 +211,12 @@
   .runbook-block input {
     background-color: var(--card);
   }
+
+  /* Paths and URLs are one long word. Without a break opportunity they set
+     the min-content width of the flex column they sit in and push the whole
+     block past its border. `anywhere` (unlike `break-word`) also shrinks
+     min-content, so the column can fit the card and the word wraps inside it. */
+  .runbook-block code {
+    overflow-wrap: anywhere;
+  }
 }

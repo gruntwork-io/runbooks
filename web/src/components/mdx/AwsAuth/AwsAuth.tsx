@@ -168,7 +168,7 @@ function AwsAuthInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Title row with AWS logo */}
           <div className="flex items-center gap-3 mb-2">
             <img src={resolvedTheme === 'dark' ? awsLogoLight : awsLogo} alt="AWS" className="h-6" />

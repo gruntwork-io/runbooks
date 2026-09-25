@@ -353,7 +353,7 @@ function GitPullRequestInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {/* Title and description */}
           <div className="flex items-center gap-1 text-md font-bold text-foreground">
             <cfg.Logo className="size-6 text-foreground" />
