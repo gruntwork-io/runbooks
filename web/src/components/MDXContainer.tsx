@@ -290,6 +290,9 @@ function rehypeTaskListIds() {
 //   title: My Runbook
 //   ---
 //   # Content here
+// The block is replaced with one blank line per line it spanned, so line
+// numbers in compile errors (e.g. remarkLiteralOnly's "Line N: ...") still
+// match the runbook file.
 const stripFrontMatter = (content: string): string => {
   // Front matter must start at the beginning of the file with ---
   if (!content.startsWith('---')) {
@@ -302,8 +305,9 @@ const stripFrontMatter = (content: string): string => {
     return content
   }
   
-  // Remove the front matter block
-  return content.slice(endMatch[0].length)
+  // Replace the front matter block with the same number of line breaks
+  const lineBreaks = endMatch[0].split('\n').length - 1
+  return '\n'.repeat(lineBreaks) + content.slice(endMatch[0].length)
 }
 
 /**

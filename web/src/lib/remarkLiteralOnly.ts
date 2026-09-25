@@ -46,6 +46,13 @@ const LITERALS_HINT =
  * template string without `${...}`; a number with a leading `-` or `+`; or an
  * array or object made only of literal values. That covers every documented
  * block prop, e.g. `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}`.
+ *
+ * The ESM and expression checks are an allowlist and fail closed: anything
+ * not known to be a literal is rejected. The element and prop checks are a
+ * denylist of the known routes from literal markup to script, so an element or
+ * prop that is not listed is allowed. They are defense in depth on top of the
+ * renderer's sandbox, context isolation, production CSP and will-navigate
+ * guard, not a complete HTML sanitizer.
  */
 export function remarkLiteralOnly() {
   return (tree: MdxNode) => {
