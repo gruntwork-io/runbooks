@@ -48,6 +48,15 @@ This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks
 If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error instead of silently using the wrong credentials.
 </Aside>
 
+### GitLab Instance
+
+A merge request is opened on the GitLab instance that the repository's `origin` remote points at, whether that is gitlab.com or a self-managed host:
+
+- An `https://` or `http://` remote keeps its scheme and port.
+- An SSH remote (`git@gitlab.example.com:group/repo.git` or `ssh://git@gitlab.example.com:2222/group/repo.git`) maps to `https://gitlab.example.com`. The port in an SSH URL belongs to the SSH server, not the web server.
+
+The block never falls back to gitlab.com. If the checkout has no `origin` remote, or its URL has no host, the block fails before your GitLab token is sent anywhere.
+
 ### Pre-filled Values
 
 You can pre-populate the PR/MR title, description, labels, branch name, and commit message. Users can still edit these values before creating it.

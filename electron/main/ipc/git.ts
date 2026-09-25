@@ -303,7 +303,8 @@ export function registerGitHandlers(): void {
             ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
             : params.url
 
-          cloneArgs.push(effectiveUrl, paths.absolutePath)
+          // `--` backs up isValidGitURL: the URL is never read as a git option.
+          cloneArgs.push("--", effectiveUrl, paths.absolutePath)
 
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host

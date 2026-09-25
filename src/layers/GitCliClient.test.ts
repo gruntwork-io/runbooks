@@ -284,3 +284,41 @@ describe("GitCliClientLive.commit (real repo)", () => {
     }
   })
 })
+
+describe("GitCliClientLive.cloneSimple (real git)", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitclone-"))
+    fs.mkdirSync(path.join(tmp, "src"))
+    fs.mkdirSync(path.join(tmp, "work"))
+    git(path.join(tmp, "src"), "init")
+    git(path.join(tmp, "src"), "commit", "--allow-empty", "-m", "initial")
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it.each([
+    ["full", {}],
+    ["sparse", { sparse: "sub" }],
+  ])("never lets a %s clone's URL act as a git option", async (_kind, extra) => {
+    // Were the URL parsed as an option, git would take `dest` as the
+    // repository and run this upload-pack command against it.
+    const marker = path.join(tmp, "upload-pack-ran")
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        return yield* git.cloneSimple(
+          `--upload-pack=touch ${marker};`,
+          `file://${path.join(tmp, "src")}`,
+          { repoPath: path.join(tmp, "work"), ...extra },
+        )
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
+
+    expect(result._tag).toBe("Left")
+    expect(fs.existsSync(marker)).toBe(false)
+  })
+})

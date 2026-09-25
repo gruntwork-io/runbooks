@@ -95,7 +95,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           if (options.ref) {
             cloneArgs.push("--branch", options.ref)
           }
-          cloneArgs.push(effectiveUrl, dest)
+          // `--` so a URL can never be read as a git option (--upload-pack=…).
+          cloneArgs.push("--", effectiveUrl, dest)
           yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".")
 
           yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
@@ -107,7 +108,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           if (options?.ref) {
             args.push("--branch", options.ref)
           }
-          args.push(effectiveUrl, dest)
+          args.push("--", effectiveUrl, dest)
 
           const proc = yield* spawner.spawn("git", args, {
             cwd: options?.repoPath,

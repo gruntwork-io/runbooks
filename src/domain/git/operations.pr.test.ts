@@ -149,6 +149,7 @@ describe("runGitSteps", () => {
 
     const layer = makeTestLayer({
       git: {
+        getRemoteUrl: () => Effect.succeed("https://gitlab.com/acme/infra.git"),
         getCurrentBranch: () => Effect.succeed("runbook/123"),
         status: () => Effect.succeed([]),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),

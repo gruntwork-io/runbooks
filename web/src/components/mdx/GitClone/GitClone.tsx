@@ -35,9 +35,11 @@ import type { GitCloneProps, GitCloneSource, LocalRepoInfo } from "./types"
  * where the owner is the full group path (e.g. `group/subgroup`).
  */
 function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | null {
-  // Extract the path after the host for both SSH (git@host:path) and HTTPS forms.
+  // Extract the path after the host for both SSH (user@host:path) and HTTPS
+  // forms. The SSH pattern is the backend's parseScpRemote grammar
+  // (src/domain/git/gitlab-host.ts); keep the two in sync.
   let path: string
-  const sshMatch = url.trim().match(/^git@[^:]+:(.+)$/)
+  const sshMatch = url.trim().match(/^[A-Za-z0-9_][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*:(.+)$/)
   if (sshMatch) {
     path = sshMatch[1]
   } else {
