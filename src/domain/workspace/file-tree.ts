@@ -107,7 +107,8 @@ const buildRecursive = (
           )
         }
 
-        // Beyond the file limit: still count but skip reading content
+        // Beyond the file limit: count the file (for totalFiles/heavyDirs) but
+        // omit it from the tree
         if (stats.totalFiles > MAX_FILE_TREE_FILES) {
           continue
         }
@@ -167,12 +168,15 @@ const buildRecursive = (
  * metadata.
  *
  * Behaviour:
- * - Maximum 500 files are included with inline content.
+ * - At most 500 files (MAX_FILE_TREE_FILES) appear in the tree; later files
+ *   are counted in `meta.totalFiles` but omitted, and `meta.truncatedTree` is
+ *   set.
  * - Files larger than 512 KB or with binary extensions are marked as truncated.
  * - VCS directories (.git, .svn, .hg) are skipped entirely.
  * - Entries are sorted alphabetically with directories before files.
- * - Heavy directories (>=300 files in a top-level subdirectory) are reported
- *   in the metadata so the frontend can surface warnings.
+ * - When the tree is truncated, heavy directories (>=300 files in a top-level
+ *   subdirectory) are reported in the metadata so the frontend can surface
+ *   warnings.
  */
 export const buildFileTree = (
   rootPath: string,
