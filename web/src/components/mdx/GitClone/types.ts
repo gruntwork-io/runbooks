@@ -73,13 +73,11 @@ export interface CloneResult {
   hasCommits?: boolean
 }
 
-/** A GitHub organization or user account */
+/** A GitHub organization the token's user belongs to */
 export interface GitHubOrg {
   /** GitHub numeric database ID — stable across renames. */
   id: number
   login: string
-  avatarUrl: string
-  type: 'Organization' | 'User'
 }
 
 /** A GitHub repository */
@@ -91,12 +89,11 @@ export interface GitHubRepo {
   name: string
   fullName: string
   private: boolean
-  description: string
+  defaultBranch: string
 }
 
 /** A GitHub ref (branch or tag) */
 export interface GitHubRef {
   name: string
   type: 'branch' | 'tag'
-  isDefaultBranch: boolean
 }

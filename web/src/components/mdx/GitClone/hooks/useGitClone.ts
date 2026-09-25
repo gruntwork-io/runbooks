@@ -125,36 +125,19 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     }
   }, [api, fetchWorkingDir])
 
+  // The GitHub browser fetchers reject on failure so the browser can show why
+  // a list is empty, rather than an expired token or a 403 reading as "none".
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
-    try {
-      const orgs = await api.invoke('github:orgs')
-      return (orgs as unknown as GitHubOrg[]) ?? []
-    } catch {
-      return []
-    }
+    return api.invoke('github:orgs')
   }, [api])
 
-  const fetchRepos = useCallback(async (owner: string, _query?: string): Promise<GitHubRepo[]> => {
-    try {
-      const repos = await api.invoke('github:repos', { org: owner })
-      return (repos as unknown as GitHubRepo[]) ?? []
-    } catch {
-      return []
-    }
+  const fetchRepos = useCallback(async (owner: string): Promise<GitHubRepo[]> => {
+    return api.invoke('github:repos', { org: owner })
   }, [api])
 
-  const fetchRefs = useCallback(async (owner: string, repo: string, _query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
-    try {
-      const refs = await api.invoke('github:refs', { owner, repo })
-      const typedRefs = (refs as unknown as GitHubRef[]) ?? []
-      return {
-        refs: typedRefs,
-        totalCount: typedRefs.length,
-        hasMore: false,
-      }
-    } catch {
-      return { refs: [], totalCount: 0, hasMore: false }
-    }
+  const fetchRefs = useCallback(async (owner: string, repo: string): Promise<GitHubRef[]> => {
+    const refs = await api.invoke('github:refs', { owner, repo })
+    return refs.map((r) => ({ name: r.ref, type: r.type }))
   }, [api])
 
   // Execute the clone operation. Returns 'directory_exists' if the destination

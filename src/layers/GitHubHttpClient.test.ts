@@ -119,3 +119,64 @@ describe("GitHubHttpClient immutable IDs", () => {
     })
   })
 })
+
+describe("GitHubHttpClient listRepos owner resolution", () => {
+  const repo = (id: number, owner: string, name: string) => ({
+    id,
+    name,
+    full_name: `${owner}/${name}`,
+    private: false,
+    default_branch: "main",
+    owner: { id: id * 10, login: owner },
+  })
+
+  const listRepos = (owner: string) =>
+    withClient(
+      Effect.gen(function* () {
+        const client = yield* GitHubClient
+        return yield* client.listRepos("ghp_test", owner)
+      }),
+    )
+
+  it("lists only a user owner's repos, not every repo the token can reach", async () => {
+    mockFetch((url) => {
+      if (url.endsWith("/orgs/alice")) return new Response("not found", { status: 404 })
+      if (url.includes("/user/repos")) {
+        return json([repo(1, "Alice", "dotfiles"), repo(2, "acme", "infra")])
+      }
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(listRepos("alice"))
+
+    expect(result.map((r) => r.fullName)).toEqual(["Alice/dotfiles"])
+  })
+
+  it("falls back to the user's public repos when the token owns none of theirs", async () => {
+    mockFetch((url) => {
+      if (url.endsWith("/orgs/bob")) return new Response("not found", { status: 404 })
+      if (url.includes("/user/repos")) return json([repo(2, "acme", "infra")])
+      if (url.includes("/users/bob/repos")) return json([repo(3, "bob", "site")])
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(listRepos("bob"))
+
+    expect(result.map((r) => r.fullName)).toEqual(["bob/site"])
+  })
+
+  it("reports a failed org check instead of listing the token's repos", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      if (url.endsWith("/orgs/acme")) return new Response("server error", { status: 500 })
+      if (url.includes("/user/repos")) return json([repo(2, "acme", "infra")])
+      return new Response("not found", { status: 404 })
+    })
+
+    const err = await Effect.runPromise(Effect.flip(listRepos("acme")))
+
+    expect(err).toMatchObject({ _tag: "GitHubApiError", status: 500 })
+    expect(urls.some((u) => u.includes("/user/repos"))).toBe(false)
+  })
+})
