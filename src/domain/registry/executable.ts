@@ -48,25 +48,25 @@ export function getComponentRegex(componentType: string): RegExp {
 }
 
 /**
+ * Matches one `name=value` prop. Each match consumes the whole value, so text
+ * inside a value (e.g. `--external-id="..."` in a command) is never read as a
+ * prop name. Values in other forms (`timeout={300}`, bare `usePty`) are skipped.
+ */
+const PROP_REGEX =
+  /(?:^|\s)([A-Za-z_$][\w$-]*)=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\}|\{(true|false)\})/g
+
+/**
  * Extract a prop value from an MDX component props string.
  *
  * Handles formats:
  *   prop="value"  prop='value'  prop={`value`}  prop={"value"}  prop={'value'}
+ *   prop={true}  prop={false}
  */
 export function extractProp(props: string, propName: string): string {
-  const patterns = [
-    new RegExp(`${propName}="([^"]*)"`, ""),
-    new RegExp(`${propName}='([^']*)'`, ""),
-    new RegExp(`${propName}=\\{\`([^\`]*)\`\\}`, ""),
-    new RegExp(`${propName}=\\{"([^"]*)"\\}`, ""),
-    new RegExp(`${propName}=\\{'([^']*)'\\}`, ""),
-    new RegExp(`${propName}=\\{(true|false)\\}`, ""),
-  ]
-
-  for (const re of patterns) {
-    const match = re.exec(props)
-    if (match && match[1] !== undefined) {
-      return match[1]
+  for (const match of props.matchAll(PROP_REGEX)) {
+    if (match[1] !== propName) continue
+    for (let i = 2; i < match.length; i++) {
+      if (match[i] !== undefined) return match[i]!
     }
   }
 
@@ -148,6 +148,8 @@ export interface ParsedComponent {
   props: string
   content: string
   hasExplicitId: boolean
+  /** Offset of the component's opening tag in the MDX source. */
+  index: number
 }
 
 /**
@@ -186,6 +188,7 @@ export function parseComponents(
       props,
       content: componentContent,
       hasExplicitId: explicitId !== "",
+      index: match.index,
     })
   }
 

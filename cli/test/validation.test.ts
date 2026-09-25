@@ -247,4 +247,37 @@ variables:
     const ok = v.validateInputValues({ "i1.env": "dev" })
     expect(ok).toHaveLength(0)
   })
+
+  it("lists components in document order, not grouped by type", () => {
+    const p = writeRunbook(`
+# Order
+
+\`\`\`mdx
+<Command id="example" command="echo example" />
+\`\`\`
+
+<Check id="check-first" command="echo first" />
+
+<TemplateInline id="inline-tpl" outputPath="out.txt">
+\`\`\`
+hello
+\`\`\`
+</TemplateInline>
+
+<Command id="setup" command="echo setup" />
+
+<Template id="tpl" path="templates/tpl" />
+
+<Check id="verify-setup" command="echo verify" />
+`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.getComponents().map((c) => c.id)).toEqual([
+      "check-first",
+      "inline-tpl",
+      "setup",
+      "tpl",
+      "verify-setup",
+    ])
+  })
 })

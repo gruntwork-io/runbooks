@@ -132,12 +132,8 @@ export class InputValidator {
     components.push(...this.parseAuthBlocks(content, "GitLabAuth"))
     components.push(...this.parseAuthBlocks(content, "GitClone"))
 
-    // Sort by document position (use the order found in content via indexOf)
-    components.sort((a, b) => {
-      const posA = content.indexOf(`<${a.type}`)
-      const posB = content.indexOf(`<${b.type}`)
-      return posA - posB
-    })
+    // Sort by document position (each component's own offset in the source)
+    components.sort((a, b) => a.index - b.index)
 
     this.allComponents = components
   }
