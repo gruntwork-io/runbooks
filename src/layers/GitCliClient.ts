@@ -20,7 +20,7 @@ import type {
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
 import { injectTokenIntoUrl } from "../domain/git/url.ts"
-import { gitSpawnEnv } from "../domain/git/env.ts"
+import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
 
 /**
  * Run a git command, collect all output, and return stdout lines.
@@ -67,6 +67,18 @@ function runGit(
 }
 
 /**
+ * Spawn environment for a git command that may start ssh (clone, push): the
+ * no-prompt guards wrapped around the user's core.sshCommand as seen from
+ * `cwd`. See gitSpawnEnv.
+ */
+function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
+  return resolveSshCommand(cwd).pipe(
+    Effect.provideService(ProcessSpawner, spawner),
+    Effect.map((sshCommand) => gitSpawnEnv(sshCommand)),
+  )
+}
+
+/**
  * Whether the repo can resolve a committer identity from git config in *any*
  * scope (local, global, or system). `git config <key>` exits non-zero when the
  * key is unset, which `runGit` surfaces as a GitError — caught here as "not
@@ -88,6 +100,13 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
         const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
+        // No repo exists yet, so core.sshCommand comes from dest's parent. The
+        // sparse steps below reuse the env: `checkout` in a blobless clone
+        // fetches the missing blobs from the remote.
+        const env = yield* sshSpawnEnv(
+          spawner,
+          path.dirname(path.resolve(options?.repoPath ?? "", dest)),
+        )
 
         if (options?.sparse) {
           // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
@@ -97,11 +116,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
           // `--` so a URL can never be read as a git option (--upload-pack=…).
           cloneArgs.push("--", effectiveUrl, dest)
-          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".")
+          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
 
-          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
-          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
-          yield* runGit(spawner, ["checkout"], dest)
+          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
+          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest, undefined, env)
+          yield* runGit(spawner, ["checkout"], dest, undefined, env)
         } else {
           // Standard full clone
           const args = ["clone", "--progress"]
@@ -112,7 +131,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
           const proc = yield* spawner.spawn("git", args, {
             cwd: options?.repoPath,
-            env: gitSpawnEnv(),
+            env,
           })
           const chunks = yield* Stream.runCollect(proc.output)
           const code = yield* proc.exitCode
@@ -149,6 +168,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           args.push("-u")
         }
         args.push(remote, branch)
+        const env = yield* sshSpawnEnv(spawner, repoPath)
 
         // If a token is provided, temporarily set the remote URL with credentials
         if (options?.token) {
@@ -156,7 +176,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           const originalUrl = urlLines[0] ?? ""
           const authedUrl = injectTokenIntoUrl(originalUrl, options.token)
           yield* runGit(spawner, ["remote", "set-url", remote, authedUrl], repoPath)
-          yield* runGit(spawner, args, repoPath).pipe(
+          yield* runGit(spawner, args, repoPath, undefined, env).pipe(
             Effect.ensuring(
               runGit(spawner, ["remote", "set-url", remote, originalUrl], repoPath).pipe(
                 Effect.catchAll(() => Effect.void),
@@ -166,7 +186,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           return undefined as void
         }
 
-        yield* runGit(spawner, args, repoPath)
+        yield* runGit(spawner, args, repoPath, undefined, env)
       }),
 
     deleteBranch: (repoPath: string, branch: string) =>

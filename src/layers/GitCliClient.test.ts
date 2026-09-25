@@ -322,3 +322,88 @@ describe("GitCliClientLive.cloneSimple (real git)", () => {
     expect(fs.existsSync(marker)).toBe(false)
   })
 })
+
+describe("GitCliClientLive ssh command (real git)", () => {
+  // Push and clone must run the ssh the user's git would (core.sshCommand),
+  // wrapped in the no-prompt flags, rather than replacing it with plain ssh.
+  const ENV_KEYS = ["GIT_SSH_COMMAND", "GIT_SSH", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"]
+  const BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
+  const saved = new Map<string, string | undefined>()
+  let tmp: string
+  let sshLog: string
+  let fakeSsh: string
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      saved.set(key, process.env[key])
+      delete process.env[key]
+    }
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitssh-"))
+    // Only the config each test writes decides which ssh git runs. Write this
+    // file directly, never with `git config --global` through the git()
+    // helper: its execFileSync doesn't see process.env changes under bun, so
+    // that would edit the developer's real ~/.gitconfig.
+    process.env.GIT_CONFIG_GLOBAL = path.join(tmp, "gitconfig")
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+    // A stand-in ssh that records its arguments and fails like an unreachable
+    // host. Named `ssh` so git treats it as OpenSSH.
+    sshLog = path.join(tmp, "ssh-args.log")
+    fakeSsh = path.join(tmp, "ssh")
+    fs.writeFileSync(fakeSsh, `#!/bin/sh\necho "$*" >> '${sshLog}'\nexit 255\n`, { mode: 0o755 })
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+    for (const key of ENV_KEYS) restoreEnv(key, saved.get(key))
+  })
+
+  it("pushes with the repo's own core.sshCommand, in batch mode", async () => {
+    // The multi-account setup: a per-repo key set inside the checkout.
+    const repoPath = path.join(tmp, "repo")
+    fs.mkdirSync(repoPath)
+    git(repoPath, "init")
+    git(repoPath, "commit", "--allow-empty", "-m", "initial")
+    git(repoPath, "remote", "add", "origin", "git@example.invalid:o/r.git")
+    git(repoPath, "config", "core.sshCommand", `'${fakeSsh}' -i /keys/id_work`)
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        return yield* git.push(repoPath, "origin", "main")
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
+
+    expect(result._tag).toBe("Left")
+    const args = fs.readFileSync(sshLog, "utf8")
+    expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
+    expect(args).toContain("git-receive-pack")
+  })
+
+  it.each([
+    ["full", {}],
+    ["sparse", { sparse: "sub" }],
+  ])("clones a %s checkout with the global core.sshCommand, in batch mode", async (_kind, extra) => {
+    // No repo exists before a clone, so the user's global config applies.
+    fs.writeFileSync(
+      process.env.GIT_CONFIG_GLOBAL!,
+      `[core]\n\tsshCommand = '${fakeSsh}' -i /keys/id_work\n`,
+    )
+    const work = path.join(tmp, "work")
+    fs.mkdirSync(work)
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        return yield* git.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
+          repoPath: work,
+          ...extra,
+        })
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
+
+    expect(result._tag).toBe("Left")
+    const args = fs.readFileSync(sshLog, "utf8")
+    expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
+    expect(args).toContain("git-upload-pack")
+  })
+})

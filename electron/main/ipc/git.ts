@@ -26,7 +26,7 @@ import {
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
 import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
-import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
+import { gitSpawnEnv, resolveSshCommand } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
@@ -309,8 +309,11 @@ export function registerGitHandlers(): void {
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
-          // host-key verification prompt.
-          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
+          // host-key verification prompt. The repo doesn't exist yet (nor may a
+          // nested localPath's parent), so the user's core.sshCommand is looked
+          // up from the working dir the clone lands in.
+          const sshCommand = yield* resolveSshCommand(session.workingDir)
+          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv(sshCommand) })
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
