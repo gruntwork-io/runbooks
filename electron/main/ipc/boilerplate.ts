@@ -4,7 +4,7 @@
  * Provides config parsing, template rendering, and inline template rendering.
  */
 import * as path from "path"
-import { Cause, Effect, Either, Exit, Fiber } from "effect"
+import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
@@ -641,18 +641,11 @@ export function registerBoilerplateHandlers(): void {
           const key = params.blockId ? inlineWriteKey(params.blockId) : undefined
           yield* inlineWriteLock.withPermits(1)(
             Effect.gen(function* () {
-              // Clean up after the block's previous render only inside a
-              // directory this session may still write to: the worktree it
-              // wrote into may have been replaced.
+              // The helper cleans up after the previous render only when it
+              // wrote into this same outputDir (already validated above), so
+              // a file left in an earlier worktree is never touched.
               const previous = key ? inlineWrites.get(key) : undefined
-              const cleanUp =
-                previous &&
-                Either.isRight(yield* Effect.either(validateSessionPath(previous.outputDir)))
-              const written = yield* writeInlineRenderedFiles(
-                contents,
-                outputDir,
-                cleanUp ? previous : undefined,
-              )
+              const written = yield* writeInlineRenderedFiles(contents, outputDir, previous)
               if (key) inlineWrites.set(key, written)
             }),
           )

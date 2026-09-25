@@ -199,14 +199,18 @@ describe("writeInlineRenderedFiles", () => {
       expect(nodeFs.readFileSync(at("b.txt"), "utf-8")).toBe("x")
     })
 
-    it("removes the old file from the directory it was written in when the base dir changed", async () => {
-      const worktree = nodePath.join(tmp, "worktree")
-      const first = await write({ "out.txt": "x" })
+    it("leaves the old file in place when the base dir changed", async () => {
+      // e.g. target="worktree" after a second <GitClone> became the active
+      // worktree: repo A's file must survive, since A may still be opened as a PR.
+      const repoA = nodePath.join(tmp, "repo-a")
+      const repoB = nodePath.join(tmp, "repo-b")
+      const first = await write({ "docs/account.hcl": "x" }, undefined, repoA)
 
-      await write({ "out.txt": "x" }, first, worktree)
+      const second = await write({ "docs/account.hcl": "x" }, first, repoB)
 
-      expect(nodeFs.existsSync(at("out.txt"))).toBe(false)
-      expect(nodeFs.readFileSync(at("out.txt", worktree), "utf-8")).toBe("x")
+      expect(nodeFs.readFileSync(at("docs/account.hcl", repoA), "utf-8")).toBe("x")
+      expect(nodeFs.readFileSync(at("docs/account.hcl", repoB), "utf-8")).toBe("x")
+      expect(second.outputDir).toBe(repoB)
     })
 
     it("can turn a file path into a directory path", async () => {

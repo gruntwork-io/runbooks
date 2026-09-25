@@ -49,7 +49,8 @@ interface TemplateInlineProps {
  * It displays the rendered output as code blocks. With generateFile, it also
  * saves the rendered file under outputPath in $GENERATED_FILES, or in the
  * active git worktree when target is "worktree". When outputPath changes,
- * main removes the file the block wrote at the old path.
+ * main cleans up the file the block wrote at the old path (see
+ * writeInlineRenderedFiles in src/domain/boilerplate/).
  *
  * Variables are sourced from Inputs components referenced by inputsId.
  * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).

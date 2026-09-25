@@ -14,6 +14,12 @@
  * file the block created is removed. A file that was already there when the
  * block first wrote to it (e.g. an existing unit's `terragrunt.hcl` in a
  * cloned repo) is put back the way it was, never removed.
+ *
+ * Cleanup only happens inside the directory this render writes to, as
+ * Template's manifest diff only touches its current output dir. When the
+ * previous render wrote somewhere else (e.g. `target="worktree"` and another
+ * `<GitClone>` has since become the active worktree), its file is left where
+ * it is: that repo may still be opened as a pull request.
  */
 
 import path from "node:path"
@@ -58,8 +64,9 @@ export const writeInlineRenderedFiles = (
 
     // Clean up stale files first, as Template's manifest diff does, so a
     // path that turns from a file into a directory (or back) can be written.
+    // A previous render into another directory is not ours to clean up.
     const previousByPath = new Map<string, InlineWrittenFile>()
-    if (previous) {
+    if (previous && path.resolve(previous.outputDir) === path.resolve(baseDir)) {
       for (const entry of previous.files) {
         previousByPath.set(path.resolve(previous.outputDir, entry.path), entry)
       }

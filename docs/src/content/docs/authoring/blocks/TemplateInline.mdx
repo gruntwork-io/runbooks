@@ -251,6 +251,8 @@ If `outputPath` changes between renders, for example because it uses a [`<DirPic
 - If a file was already at the old path before the block wrote to it, the block puts back its earlier content. The block never deletes a file it did not create.
 - If the old file no longer holds what the block wrote, for example because you edited it, it is left as it is.
 
+Cleanup only happens inside the directory the block is writing to now. With `target="worktree"`, a file the block wrote into an earlier repo stays there after another `<GitClone>` makes a different repo the active worktree.
+
 ## Block IDs
 
 Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the runbook and is used for dependency resolution between blocks.
