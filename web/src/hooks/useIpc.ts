@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { createAppError, type AppError } from '@/types/error'
 import { useApi } from '@/contexts/ApiContext'
 import { markStage, getPerfPayload } from '@/lib/renderPerf'
+import { cleanIpcErrorMessage } from '@/lib/ipcError'
 
 export interface UseIpcOptions {
   /** When true, skip the initial auto-fetch. Requests are only made via refetch. */
@@ -19,21 +20,6 @@ export interface UseIpcReturn<T> {
   debouncedRequest?: (newParams?: unknown) => void
   refetch: () => void
   silentRefetch: () => void
-}
-
-/**
- * Strip Electron's IPC wrapper from a rejected invoke message so the renderer
- * can show the handler's actual message. Electron rejects with
- * "Error invoking remote method 'channel': Error: <message>"; we want just
- * "<message>".
- */
-function cleanIpcErrorMessage(raw: string): string {
-  let msg = raw.replace(/^Error invoking remote method '[^']*':\s*/, '')
-  // Serialization can leave one or more leading "Error: " prefixes.
-  while (/^Error:\s*/.test(msg)) {
-    msg = msg.replace(/^Error:\s*/, '')
-  }
-  return msg.trim()
 }
 
 /**

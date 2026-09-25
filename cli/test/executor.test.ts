@@ -131,3 +131,85 @@ describe("TestExecutor — GitClone local checkout", () => {
     expect(result.stepResults[0]?.error).toMatch(/Not a git repository/)
   })
 })
+
+// ---------------------------------------------------------------------------
+// GitClone with prefilledRepoPath: a sparse clone, built by the same
+// buildCloneSteps the app's git:clone handler uses.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — GitClone sparse checkout", () => {
+  let tmp: string
+  let origin: string
+
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd,
+      stdio: "pipe",
+    })
+
+  const runGitClone = async (props: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Sparse clone\n\n<GitClone id="repo" prefilledUrl="file://${origin}" ${props} />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor.runTest({
+      name: "sparse",
+      steps: [{ block: "repo", expect: "success" }],
+    })
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sparse-"))
+    // A small monorepo whose `release` branch has a file `main` lacks.
+    origin = path.join(tmp, "origin")
+    fs.mkdirSync(path.join(origin, "modules", "vpc"), { recursive: true })
+    fs.mkdirSync(path.join(origin, "modules", "eks"), { recursive: true })
+    fs.writeFileSync(path.join(origin, "README.md"), "# mono\n")
+    fs.writeFileSync(path.join(origin, "modules", "vpc", "main.tf"), "# vpc\n")
+    fs.writeFileSync(path.join(origin, "modules", "eks", "main.tf"), "# eks\n")
+    git(origin, "init", "-q", "-b", "main")
+    git(origin, "add", ".")
+    git(origin, "commit", "-q", "-m", "init")
+    git(origin, "checkout", "-q", "-b", "release")
+    fs.writeFileSync(path.join(origin, "modules", "vpc", "release.tf"), "# release\n")
+    git(origin, "add", ".")
+    git(origin, "commit", "-q", "-m", "release")
+    git(origin, "checkout", "-q", "main")
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("checks out only the repo path, at the requested ref", async () => {
+    const result = await runGitClone(
+      `prefilledRef="release" prefilledRepoPath="modules/vpc" prefilledLocalPath="mono"`,
+    )
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    const clone = path.join(tmp, "mono")
+    // The ref is honored: this file exists only on `release`.
+    expect(fs.existsSync(path.join(clone, "modules", "vpc", "release.tf"))).toBe(true)
+    // Sibling directories stay out; cone mode keeps the root's own files.
+    expect(fs.existsSync(path.join(clone, "modules", "eks"))).toBe(false)
+    expect(fs.existsSync(path.join(clone, "README.md"))).toBe(true)
+  })
+
+  it("clones a repository with no commits, skipping the checkout", async () => {
+    // A repository that was created but never pushed to.
+    origin = path.join(tmp, "empty.git")
+    git(tmp, "init", "-q", "--bare", "-b", "main", origin)
+
+    const result = await runGitClone(`prefilledRepoPath="modules/vpc" prefilledLocalPath="empty"`)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    expect(fs.existsSync(path.join(tmp, "empty", ".git"))).toBe(true)
+  })
+
+  it("fails a repo path outside the repository without cloning", async () => {
+    const result = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("fail")
+    expect(result.stepResults[0]?.error).toMatch(/invalid repo path/)
+    expect(fs.existsSync(path.join(tmp, "mono"))).toBe(false)
+  })
+})

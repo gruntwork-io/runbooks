@@ -16,6 +16,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { GitHubIcon } from "@/components/icons/GitHubIcon"
+import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { GitHubOrg, GitHubRepo, GitHubRef } from "../types"
 
 interface GitHubBrowserProps {
@@ -26,9 +27,9 @@ interface GitHubBrowserProps {
   /** Function to fetch orgs */
   fetchOrgs: () => Promise<GitHubOrg[]>
   /** Function to fetch repos for an owner */
-  fetchRepos: (owner: string, query?: string) => Promise<GitHubRepo[]>
+  fetchRepos: (owner: string) => Promise<GitHubRepo[]>
   /** Function to fetch refs (branches + tags) for a repo */
-  fetchRefs: (owner: string, repo: string, query?: string) => Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }>
+  fetchRefs: (owner: string, repo: string) => Promise<GitHubRef[]>
   /** Whether the browser is disabled */
   disabled?: boolean
   /** Initial org to pre-select (parsed from URL) */
@@ -54,10 +55,12 @@ export function GitHubBrowser({
   const [orgs, setOrgs] = useState<GitHubOrg[]>([])
   const [repos, setRepos] = useState<GitHubRepo[]>([])
   const [refs, setRefs] = useState<GitHubRef[]>([])
-  const [refTotalCount, setRefTotalCount] = useState(0)
-  const [refHasMore, setRefHasMore] = useState(false)
   const [selectedOrg, setSelectedOrg] = useState(initialOrg || "")
   const [selectedRepo, setSelectedRepo] = useState(initialRepo || "")
+  // Default branch of the repo the user picked in the browser, selected once
+  // that repo's refs load. The repo seeded from the block's URL has none, so
+  // loading its refs leaves the block's prefilled ref alone.
+  const [pickedDefaultBranch, setPickedDefaultBranch] = useState("")
   const [selectedRef, setSelectedRef] = useState("")
   const [orgOpen, setOrgOpen] = useState(false)
   const [repoOpen, setRepoOpen] = useState(false)
@@ -79,6 +82,7 @@ export function GitHubBrowser({
   // Split refs into branches and tags for grouped display
   const branchRefs = useMemo(() => refs.filter(r => r.type === 'branch'), [refs])
   const tagRefs = useMemo(() => refs.filter(r => r.type === 'tag'), [refs])
+  const defaultBranch = useMemo(() => repos.find(r => r.name === selectedRepo)?.defaultBranch, [repos, selectedRepo])
 
   // Load orgs when browser opens
   useEffect(() => {
@@ -89,67 +93,70 @@ export function GitHubBrowser({
         hasLoadedOrgs.current = true
         setOrgs(result)
       }).catch(err => {
-        setOrgsError(err instanceof Error ? err.message : "Failed to load organizations")
+        setOrgsError(err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load organizations")
       }).finally(() => {
         setLoadingOrgs(false)
       })
     }
   }, [isOpen, fetchOrgs])
 
-  // Load repos when org changes
-  const loadRepos = useCallback(async (org: string) => {
+  // Load repos when org changes. `isCurrent` turns false once the selection
+  // moves on, so a slow response for an earlier org is dropped instead of
+  // overwriting the newer one's list, error or loading state.
+  const loadRepos = useCallback(async (org: string, isCurrent: () => boolean) => {
     if (!org) return
     setLoadingRepos(true)
     setRepos([])
     setReposError(null)
     try {
       const result = await fetchRepos(org)
-      setRepos(result)
+      if (isCurrent()) setRepos(result)
     } catch (err) {
-      setReposError(err instanceof Error ? err.message : "Failed to load repositories")
+      if (isCurrent()) setReposError(err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load repositories")
     } finally {
-      setLoadingRepos(false)
+      if (isCurrent()) setLoadingRepos(false)
     }
   }, [fetchRepos])
 
   useEffect(() => {
-    if (selectedOrg) {
-      loadRepos(selectedOrg)
-    }
+    if (!selectedOrg) return
+    let current = true
+    loadRepos(selectedOrg, () => current)
+    return () => { current = false }
   }, [selectedOrg, loadRepos])
 
-  // Load refs when repo changes
-  const loadRefs = useCallback(async (org: string, repo: string) => {
+  // Load refs when repo changes, guarded like loadRepos
+  const loadRefs = useCallback(async (org: string, repo: string, autoSelectBranch: string, isCurrent: () => boolean) => {
     if (!org || !repo) return
     setLoadingRefs(true)
     setRefs([])
-    setRefTotalCount(0)
-    setRefHasMore(false)
     setRefsError(null)
     try {
       const result = await fetchRefs(org, repo)
-      setRefs(result.refs)
-      setRefTotalCount(result.totalCount)
-      setRefHasMore(result.hasMore)
+      if (!isCurrent()) return
+      setRefs(result)
 
-      // Auto-select the default branch
-      const defaultBranch = result.refs.find(r => r.isDefaultBranch)
-      if (defaultBranch) {
-        setSelectedRef(defaultBranch.name)
-        onRefSelected(defaultBranch.name)
+      // Auto-select the default branch, if the repo has it (an empty repo
+      // has no branches yet)
+      if (autoSelectBranch && result.some(r => r.type === 'branch' && r.name === autoSelectBranch)) {
+        setSelectedRef(autoSelectBranch)
+        onRefSelected(autoSelectBranch)
       }
     } catch (err) {
-      setRefsError(err instanceof Error ? err.message : "Failed to load refs")
+      if (isCurrent()) setRefsError(err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load refs")
     } finally {
-      setLoadingRefs(false)
+      if (isCurrent()) setLoadingRefs(false)
     }
   }, [fetchRefs, onRefSelected])
 
+  // Depends on the org too: switching org clears the repo, and this cleanup
+  // is what drops the old repo's in-flight refs.
   useEffect(() => {
-    if (selectedOrg && selectedRepo) {
-      loadRefs(selectedOrg, selectedRepo)
-    }
-  }, [selectedOrg, selectedRepo, loadRefs])
+    if (!selectedOrg || !selectedRepo) return
+    let current = true
+    loadRefs(selectedOrg, selectedRepo, pickedDefaultBranch, () => current)
+    return () => { current = false }
+  }, [selectedOrg, selectedRepo, pickedDefaultBranch, loadRefs])
 
   // Scroll to top on search change
   useEffect(() => {
@@ -173,19 +180,26 @@ export function GitHubBrowser({
   const handleOrgSelect = (org: string) => {
     setSelectedOrg(org)
     setSelectedRepo("")
+    setPickedDefaultBranch("")
     setSelectedRef("")
     setRefs([])
     setOrgOpen(false)
     setOrgSearch("")
   }
 
-  const handleRepoSelect = (repo: string) => {
-    setSelectedRepo(repo)
-    setSelectedRef("")
+  const handleRepoSelect = (repo: GitHubRepo) => {
     setRepoOpen(false)
     setRepoSearch("")
     // Auto-fill the URL
-    onRepoSelected(`https://github.com/${selectedOrg}/${repo}`)
+    onRepoSelected(`https://github.com/${selectedOrg}/${repo.name}`)
+    // Re-picking the current repo keeps its ref
+    if (repo.name === selectedRepo) return
+    setSelectedRepo(repo.name)
+    setPickedDefaultBranch(repo.defaultBranch)
+    setSelectedRef("")
+    // Drop the previous repo's ref: it names a branch or tag of that repo,
+    // not this one
+    onRefSelected("")
   }
 
   const handleRefSelect = (ref: string) => {
@@ -197,6 +211,7 @@ export function GitHubBrowser({
 
   // Determine the icon for the currently selected ref
   const selectedRefObj = useMemo(() => refs.find(r => r.name === selectedRef), [refs, selectedRef])
+  const isDefaultBranch = (ref: GitHubRef | undefined) => ref?.type === 'branch' && ref.name === defaultBranch
 
   return (
     <div className="mt-1.5">
@@ -240,13 +255,7 @@ export function GitHubBrowser({
                   {loadingOrgs ? (
                     <span className="text-muted-foreground">Loading organizations...</span>
                   ) : selectedOrg ? (
-                    <span className="flex items-center gap-2 truncate">
-                      {(() => {
-                        const avatarUrl = orgs.find(o => o.login === selectedOrg)?.avatarUrl
-                        return avatarUrl ? <img src={avatarUrl} alt="" className="size-4 rounded-full" /> : null
-                      })()}
-                      <span className="text-foreground">{selectedOrg}</span>
-                    </span>
+                    <span className="text-foreground truncate">{selectedOrg}</span>
                   ) : (
                     <span className="text-muted-foreground">Select organization...</span>
                   )}
@@ -276,13 +285,7 @@ export function GitHubBrowser({
                               selectedOrg === org.login ? "opacity-100" : "opacity-0"
                             )}
                           />
-                          {org.avatarUrl && (
-                            <img src={org.avatarUrl} alt="" className="size-4 rounded-full" />
-                          )}
                           <span className="text-foreground">{org.login}</span>
-                          <span className="text-xs text-muted-foreground ml-auto">
-                            {org.type === 'User' ? 'Personal' : 'Org'}
-                          </span>
                         </CommandItem>
                       ))}
                     </CommandGroup>
@@ -342,8 +345,8 @@ export function GitHubBrowser({
                       {repos.map((repo) => (
                         <CommandItem
                           key={repo.id}
-                          value={`${repo.name} ${repo.description || ''}`}
-                          onSelect={() => handleRepoSelect(repo.name)}
+                          value={repo.name}
+                          onSelect={() => handleRepoSelect(repo)}
                           className="flex items-center gap-2"
                         >
                           <Check
@@ -355,12 +358,7 @@ export function GitHubBrowser({
                           {repo.private && (
                             <Lock className="size-3 text-muted-foreground shrink-0" />
                           )}
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-foreground truncate">{repo.name}</span>
-                            {repo.description && (
-                              <span className="text-xs text-muted-foreground truncate">{repo.description}</span>
-                            )}
-                          </div>
+                          <span className="text-foreground truncate">{repo.name}</span>
                         </CommandItem>
                       ))}
                     </CommandGroup>
@@ -401,7 +399,7 @@ export function GitHubBrowser({
                           <GitBranch className="size-3 text-muted-foreground" />
                         )}
                         <span className="text-foreground">{selectedRef}</span>
-                        {selectedRefObj?.isDefaultBranch && (
+                        {isDefaultBranch(selectedRefObj) && (
                           <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none">default</span>
                         )}
                       </span>
@@ -439,7 +437,7 @@ export function GitHubBrowser({
                               />
                               <GitBranch className="size-3 text-muted-foreground shrink-0" />
                               <span className="text-foreground truncate">{ref.name}</span>
-                              {ref.isDefaultBranch && (
+                              {isDefaultBranch(ref) && (
                                 <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
                               )}
                             </CommandItem>
@@ -468,12 +466,6 @@ export function GitHubBrowser({
                             </CommandItem>
                           ))}
                         </CommandGroup>
-                      )}
-
-                      {refHasMore && (
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                          Showing {refs.length} of {refTotalCount} refs — type to filter
-                        </div>
                       )}
                     </CommandList>
                   </Command>

@@ -20,8 +20,6 @@ export interface GitCloneProps {
   prefilledRepoPath?: string
   /** Pre-fill the local path (relative to CWD) where files will be cloned (supports template expressions) */
   prefilledLocalPath?: string
-  /** Whether to use PTY (pseudo-terminal) for git clone execution. Defaults to true. Set to false to use pipes instead, which may be needed for environments that don't support PTY. */
-  usePty?: boolean
   /** Whether to show the file tree in the workspace panel after cloning. Defaults to true. */
   showFileTree?: boolean
   /**
@@ -75,13 +73,11 @@ export interface CloneResult {
   hasCommits?: boolean
 }
 
-/** A GitHub organization or user account */
+/** A GitHub organization the token's user belongs to */
 export interface GitHubOrg {
   /** GitHub numeric database ID — stable across renames. */
   id: number
   login: string
-  avatarUrl: string
-  type: 'Organization' | 'User'
 }
 
 /** A GitHub repository */
@@ -93,12 +89,11 @@ export interface GitHubRepo {
   name: string
   fullName: string
   private: boolean
-  description: string
+  defaultBranch: string
 }
 
 /** A GitHub ref (branch or tag) */
 export interface GitHubRef {
   name: string
   type: 'branch' | 'tag'
-  isDefaultBranch: boolean
 }

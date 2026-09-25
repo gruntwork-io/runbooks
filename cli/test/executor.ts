@@ -8,11 +8,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { ManagedRuntime } from "effect"
+import { Either, ManagedRuntime } from "effect"
 
 import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
 import {
   detectInterpreter,
   isBashInterpreter,
@@ -125,6 +126,14 @@ function makeStepResult(
     duration: 0,
     assertionResults: [],
   }
+}
+
+/** Whether the repository at `repoDir` has any commits (its HEAD resolves). */
+function hasCommits(repoDir: string): boolean {
+  const proc = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "-q", "HEAD"], {
+    stdio: "ignore",
+  })
+  return proc.status === 0
 }
 
 // ---------------------------------------------------------------------------
@@ -1330,35 +1339,23 @@ export class TestExecutor {
       console.log(`  Destination: ${destPath}`)
     }
 
+    // The same git commands the app runs, so a sparse clone (with or without
+    // a ref) behaves identically here.
+    const cloneSteps = buildCloneSteps(effectiveURL, destPath, { ref, repoPath })
+    if (Either.isLeft(cloneSteps)) {
+      result.passed = false; result.actualStatus = "fail"
+      result.error = cloneSteps.left.stderr
+      result.duration = Date.now() - start
+      return result
+    }
+
     try {
-      const cloneArgs = ["clone", "--progress"]
-      if (repoPath) {
-        // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", effectiveURL, destPath)
-      } else {
-        cloneArgs.push(effectiveURL, destPath)
-      }
-
-      execFileSync("git", cloneArgs, {
-        timeout: this.options.timeout,
-        stdio: "pipe",
-      })
-
-      if (repoPath) {
-        execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-        execFileSync("git", ["sparse-checkout", "set", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-        execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-      }
-
-      if (ref && !repoPath) {
-        execFileSync("git", ["checkout", ref], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+      for (const step of cloneSteps.right) {
+        // A repository with no commits has nothing to check out, as in the app.
+        if (step.skipIfNoCommits && !hasCommits(destPath)) continue
+        execFileSync("git", step.args, {
+          timeout: this.options.timeout,
+          stdio: "pipe",
         })
       }
     } catch (e: unknown) {
