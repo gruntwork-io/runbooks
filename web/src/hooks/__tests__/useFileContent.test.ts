@@ -82,6 +82,26 @@ describe('useFileContent', () => {
     expect(invoke).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps the spinner while the file clicked last is still loading', async () => {
+    const { result, pendingRead } = setup()
+
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+      void result.current.fetchFileContent('/repo/y.tf')
+    })
+    await act(async () => {
+      pendingRead('/repo/x.tf').resolve(content('/repo/x.tf', 'x'))
+    })
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.fileContent).toBeNull()
+
+    await act(async () => {
+      pendingRead('/repo/y.tf').resolve(content('/repo/y.tf', 'y'))
+    })
+    expect(result.current.isLoading).toBe(false)
+    expect(result.current.fileContent?.content).toBe('y')
+  })
+
   it("does not show an error from a read the user has already moved on from", async () => {
     const { result, pendingRead } = setup()
 

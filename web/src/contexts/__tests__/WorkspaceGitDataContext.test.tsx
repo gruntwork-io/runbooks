@@ -17,14 +17,15 @@ interface PendingCall {
   channel: string
   params: { worktreePath: string; singleFile?: string }
   resolve: (value: unknown) => void
+  reject: (err: unknown) => void
 }
 
 function createApi() {
   const calls: PendingCall[] = []
   const invoke = vi.fn((channel: string, params: PendingCall['params']) => {
     if (channel === 'workspace:changes' || channel === 'workspace:tree') {
-      return new Promise(resolve => {
-        calls.push({ channel, params, resolve })
+      return new Promise((resolve, reject) => {
+        calls.push({ channel, params, resolve, reject })
       })
     }
     return Promise.resolve({ ok: true })
@@ -161,6 +162,31 @@ describe('WorkspaceGitDataProvider', () => {
     expect(result.current.tree.isLoading).toBe(false)
   })
 
+  it("does not show an error from the previous worktree's failed tree walk", async () => {
+    const { api, callsTo } = createApi()
+    const { result } = renderWorkspaceData(api)
+
+    await act(async () => {
+      result.current.workTrees.registerWorkTree(worktree('a'))
+    })
+    await act(async () => {
+      result.current.workTrees.registerWorkTree(worktree('b'))
+    })
+    await act(async () => {
+      result.current.workTrees.setActiveWorkTree('b')
+    })
+
+    await act(async () => {
+      for (const call of callsTo('workspace:tree', '/repos/a')) call.reject(new Error('EACCES'))
+    })
+    expect(result.current.tree.error).toBeNull()
+    expect(result.current.tree.isLoading).toBe(true)
+
+    await settle(callsTo('workspace:tree', '/repos/b'), { tree: [file('b-file')], totalFiles: 1 })
+    expect(result.current.tree.error).toBeNull()
+    expect(result.current.tree.tree?.map(n => n.id)).toEqual(['b-file'])
+  })
+
   it('refetches changes immediately when the tree is invalidated mid-poll, and drops the older response', async () => {
     const { api, callsTo } = createApi()
     const { result } = renderWorkspaceData(api)
@@ -180,6 +206,48 @@ describe('WorkspaceGitDataProvider', () => {
     await settle([beforeWrite], { changes: [], totalChanges: 0 })
     expect(result.current.changes.changes.map(c => c.path)).toEqual(['written-by-script.tf'])
     expect(result.current.changes.totalChanges).toBe(1)
+    expect(result.current.changes.isLoading).toBe(false)
+  })
+
+  it('skips an interval tick while the previous poll is still running', async () => {
+    const { api, callsTo } = createApi()
+    const { result } = renderWorkspaceData(api)
+
+    await act(async () => {
+      result.current.workTrees.registerWorkTree(worktree('a'))
+    })
+    expect(callsTo('workspace:changes')).toHaveLength(1)
+
+    // A slow repo: git status outlasts two poll intervals
+    await act(async () => {
+      vi.advanceTimersByTime(6000)
+    })
+    expect(callsTo('workspace:changes')).toHaveLength(1)
+
+    await settle(callsTo('workspace:changes'), { changes: [], totalChanges: 0 })
+    await act(async () => {
+      vi.advanceTimersByTime(3000)
+    })
+    expect(callsTo('workspace:changes')).toHaveLength(2)
+  })
+
+  it('keeps the changes spinner until the current poll lands, not a superseded one', async () => {
+    const { api, callsTo } = createApi()
+    const { result } = renderWorkspaceData(api)
+
+    await act(async () => {
+      result.current.workTrees.registerWorkTree(worktree('a'))
+    })
+    const [beforeWrite] = callsTo('workspace:changes')
+    await act(async () => {
+      result.current.workTrees.invalidateGitFileTree()
+    })
+    const [, current] = callsTo('workspace:changes')
+
+    await settle([beforeWrite], { changes: [], totalChanges: 0 })
+    expect(result.current.changes.isLoading).toBe(true)
+
+    await settle([current], { changes: [modified('written-by-script.tf')], totalChanges: 1 })
     expect(result.current.changes.isLoading).toBe(false)
   })
 
