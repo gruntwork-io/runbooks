@@ -85,6 +85,64 @@ export function getManifestStore(): FileManifestStore {
 }
 
 // ---------------------------------------------------------------------------
+// Stale-manifest detection
+// ---------------------------------------------------------------------------
+
+/** Why a stored manifest no longer describes the render's output directory. */
+export type StaleManifestReason =
+  | { readonly kind: "output-dir-changed"; readonly previousOutputDir: string }
+  | { readonly kind: "missing-file"; readonly path: string }
+
+/**
+ * Check whether a template's stored manifest still describes what's on disk
+ * in `outputDir`, the directory this render writes to. Returns `null` when
+ * it does, otherwise why not:
+ *  - `output-dir-changed`: the output now goes somewhere else (e.g. another
+ *    active worktree). The manifest describes the old directory, so none of
+ *    its entries say anything about this one.
+ *  - `missing-file`: a file it lists is gone (e.g. a `GitClone` re-cloned
+ *    over the worktree, `git reset --hard`, `rm -rf`).
+ *
+ * Diffing against a stale manifest classifies files as "unchanged" that
+ * this directory doesn't actually hold, so they're never written. The
+ * caller should drop the manifest (and the warm dispatcher's cached vars)
+ * and render everything from scratch.
+ */
+export function findStaleManifestReason(
+  manifest: TemplateManifest | undefined,
+  outputDir: string,
+) {
+  return Effect.gen(function* () {
+    if (!manifest) return null
+    if (manifest.outputDir !== outputDir) {
+      return {
+        kind: "output-dir-changed",
+        previousOutputDir: manifest.outputDir,
+      } satisfies StaleManifestReason
+    }
+
+    // Stat the manifest concurrently. This runs on every render's hot
+    // path, and in the common case (no external wipe) every stat hits,
+    // so we can't rely on an early bail — issuing the stats in parallel
+    // keeps the check cheap even for a template producing a few hundred
+    // files. A hot-cache stat is sub-millisecond, so bounded
+    // concurrency is plenty to hide the latency.
+    const fs = yield* FileSystem
+    const presence = yield* Effect.forEach(
+      manifest.files,
+      (entry) =>
+        fs
+          .exists(path.join(outputDir, entry.path))
+          .pipe(Effect.map((exists) => ({ path: entry.path, exists }))),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+    const missing = presence.find((p) => !p.exists)
+    if (!missing) return null
+    return { kind: "missing-file", path: missing.path } satisfies StaleManifestReason
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Build manifest from directory
 // ---------------------------------------------------------------------------
 

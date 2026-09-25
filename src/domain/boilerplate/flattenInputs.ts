@@ -57,8 +57,10 @@ function liftInputsToRoot(
 
 /**
  * Recursively drop any value that's still a Go-template expression. A map
- * whose resulting keys are all stripped is dropped entirely so the
- * dependency's own defaults apply instead.
+ * that had entries, all of which were stripped, is dropped entirely so the
+ * dependency's own defaults apply instead. A map that was already empty is
+ * kept as-is — it's an explicit user value (e.g. every MapInput entry
+ * removed), not an unresolved template.
  */
 export function stripTemplateValues(value: unknown): unknown {
   if (isTemplateString(value)) return undefined
@@ -66,8 +68,10 @@ export function stripTemplateValues(value: unknown): unknown {
     return value.map(stripTemplateValues).filter((v) => v !== undefined)
   }
   if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+    if (entries.length === 0) return value
     const cleaned: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    for (const [k, v] of entries) {
       const stripped = stripTemplateValues(v)
       if (stripped !== undefined) cleaned[k] = stripped
     }

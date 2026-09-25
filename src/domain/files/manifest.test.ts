@@ -8,6 +8,7 @@ import {
   FileManifestStore,
   computeDiff,
   applyDiffFromContent,
+  findStaleManifestReason,
 } from "./manifest.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -128,6 +129,71 @@ describe("computeDiff", () => {
     expect(result.modified).toEqual(["change.txt"])
     expect(result.orphaned).toEqual(["remove.txt"])
     expect(result.created).toEqual(["add.txt"])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// findStaleManifestReason — decides whether a template's previous manifest
+// can be diffed against for this render's output directory.
+// ---------------------------------------------------------------------------
+
+describe("findStaleManifestReason", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "manifest-stale-"))
+  })
+
+  afterEach(() => {
+    nodeFs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  const check = (manifest: TemplateManifest | undefined, outputDir: string) =>
+    Effect.runPromise(
+      findStaleManifestReason(manifest, outputDir).pipe(Effect.provide(NodeFileSystemLive)),
+    )
+
+  const manifestFor = (outputDir: string, paths: string[]): TemplateManifest => ({
+    templateId: "tpl",
+    outputDir,
+    files: paths.map((p) => ({ path: p, contentHash: hashFileContent(p) })),
+  })
+
+  it("returns null when there is no previous manifest", async () => {
+    expect(await check(undefined, tmp)).toBeNull()
+  })
+
+  it("returns null when every file is still in the same output dir", async () => {
+    nodeFs.mkdirSync(nodePath.join(tmp, "sub"))
+    nodeFs.writeFileSync(nodePath.join(tmp, "a.txt"), "a")
+    nodeFs.writeFileSync(nodePath.join(tmp, "sub", "b.txt"), "b")
+
+    expect(await check(manifestFor(tmp, ["a.txt", "sub/b.txt"]), tmp)).toBeNull()
+  })
+
+  it("reports a file that was removed from the output dir", async () => {
+    nodeFs.writeFileSync(nodePath.join(tmp, "a.txt"), "a")
+
+    expect(await check(manifestFor(tmp, ["a.txt", "gone.txt"]), tmp)).toEqual({
+      kind: "missing-file",
+      path: "gone.txt",
+    })
+  })
+
+  it("reports a different output dir even when the old dir still has every file", async () => {
+    // e.g. the active worktree switched: worktree A still holds the files
+    // the manifest lists, but they say nothing about worktree B.
+    const worktreeA = nodePath.join(tmp, "worktree-a")
+    const worktreeB = nodePath.join(tmp, "worktree-b")
+    nodeFs.mkdirSync(worktreeA)
+    nodeFs.mkdirSync(worktreeB)
+    nodeFs.writeFileSync(nodePath.join(worktreeA, "a.txt"), "a")
+    nodeFs.writeFileSync(nodePath.join(worktreeB, "a.txt"), "different")
+
+    expect(await check(manifestFor(worktreeA, ["a.txt"]), worktreeB)).toEqual({
+      kind: "output-dir-changed",
+      previousOutputDir: worktreeA,
+    })
   })
 })
 
