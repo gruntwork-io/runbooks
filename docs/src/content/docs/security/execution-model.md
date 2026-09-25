@@ -15,6 +15,19 @@ Runbooks implements specific techniques to make sure that you only execute "appr
 
 When Runbooks loads, it immediately shows a warning to users to confirm that they trust the Runbook they just opened. This warning will show on every Runbook you open until permanently hide it.
 
+### Opening a Runbook never runs code
+
+A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runbooks only accepts MDX that is purely declarative. If a Runbook contains any of the following, Runbooks shows an error instead of rendering it:
+
+- `import` or `export` statements
+- JavaScript expressions, such as `{new Date().toString()}` or `command={buildCommand()}`
+- Spread props, such as `<Command {...props} />`
+- `<script>` elements
+
+You can still use `{...}` for literal values: strings, numbers, booleans, `null`, template strings without `${...}` substitutions, and arrays or objects made only of those. For example, `usePty={false}`, `detectCredentials={['env']}` and `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}` are all allowed, and so are `{/* comments */}`.
+
+This means that opening a Runbook, whether from your machine or from a remote URL, cannot run anything by itself. The scripts in `<Command>` and `<Check>` blocks only run when you click to run them.
+
 ### Executable Registry
 
 By default, Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the main process will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).

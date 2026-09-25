@@ -164,11 +164,17 @@ Regular markdown text here.
 More markdown text.
 ```
 
-### Use JavaScript Expressions
+### Use Literal Values in Props
+
+Use `{...}` to pass a prop value that isn't a plain string, such as a boolean, a number, an array or an object:
 
 ```mdx
-Today's date: {new Date().toLocaleDateString()}
+<Command id="build" command="make build" usePty={false} />
+
+<AwsAuth id="prod-auth" detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']} />
 ```
+
+Runbooks never runs JavaScript from your `runbook.mdx`. The value inside `{...}` must be a literal: a string, number, boolean or `null`, a template string without `${...}` substitutions, or an array or object made only of those. You can also write `{/* comments */}`. `import` and `export` statements, JavaScript expressions such as `{new Date().toLocaleDateString()}`, and spread props such as `{...props}` are rejected with an error when the runbook opens. See [Execution Security Model](/security/execution-model/) for why.
 
 ### HTML
 

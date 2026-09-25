@@ -3,6 +3,7 @@ import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
 import remarkGfm from 'remark-gfm'
 import type { AppError } from '@/types/error'
+import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly'
 
 // Support MDX components
 import { Inputs } from '@/components/mdx/Inputs'
@@ -339,16 +340,20 @@ export const MDX_COMPONENTS = {
 } as const
 
 // Compiles MDX content into a custom React component that can render the MDX content.
-const compileMDX = async (content: string): Promise<React.ComponentType> => {
+// Exported so tests can compile runbooks with the exact production options.
+export const compileMDX = async (content: string): Promise<React.ComponentType> => {
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
 
-  // Compile and evaluate the MDX content
+  // Compile and evaluate the MDX content. No `baseUrl`: runbooks cannot import
+  // modules (remarkLiteralOnly rejects import/export before it would matter).
   const compiledMDX = await evaluate(mdxContent, {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
-    baseUrl: import.meta.url,
-    remarkPlugins: [remarkGfm], // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
+    remarkPlugins: [
+      remarkGfm, // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
+      remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
+    ],
     rehypePlugins: [rehypeTransformAssetPaths, rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })
