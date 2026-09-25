@@ -282,6 +282,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
     })
 
     it('keeps a failed push inline when its events arrive after the invoke resolves', async () => {
+      vi.useFakeTimers()
       const { fake, state, push } = await renderCreated()
       const message = 'token expired'
 
@@ -290,7 +291,8 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         fake.resolve(1, { error: message })
         await done
       })
-      // Still inside the 500 ms listener window.
+      // Still inside the 500 ms listener window, so the late events are heard.
+      expect(fake.listenerCount()).toBe(5)
       act(() => {
         fake.emit('git:error', { message })
         fake.emit('git:status', { status: 'fail', exitCode: 1 })
@@ -412,6 +414,30 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       await act(async () => {
         await vi.advanceTimersByTimeAsync(500)
       })
+      act(() => state().cancel())
+      expect(fake.listenerCount()).toBe(0)
+
+      await act(async () => {
+        fake.createSucceeds(1, testPR(2, CREATE_PARAMS.headBranch))
+        await second
+      })
+      expect(state().status).toBe('ready')
+      expect(state().prResult).toBeNull()
+    })
+
+    it("still unsubscribes a retry after the canceled run's invoke rejects", async () => {
+      const { fake, state, create } = renderPR(cfg)
+
+      const first = create()
+      act(() => state().cancel())
+      const second = create()
+      await act(async () => {
+        fake.reject(0, new Error('canceled run crashed'))
+        await first
+      })
+      // The retry subscribed before the canceled run's catch cleaned up.
+      expect(fake.listenerCount()).toBe(5)
+
       act(() => state().cancel())
       expect(fake.listenerCount()).toBe(0)
 
