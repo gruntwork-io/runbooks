@@ -68,6 +68,57 @@ export const makeRecordingSpawner = (
   return { layer, calls, maxConcurrent: () => maxConcurrent }
 }
 
+// ---------------------------------------------------------------------------
+// Controlled spawner — every spawned process keeps running until the test
+// finishes it or something kills it, so tests can interrupt, supersede or
+// abandon work while a subprocess is live. Records each spawn and counts
+// kills.
+// ---------------------------------------------------------------------------
+
+export interface ControlledProcess {
+  readonly command: string
+  readonly args: string[]
+  /** Emit `lines`, then exit with `exitCode`. */
+  readonly finish: (exitCode: number, lines?: OutputLine[]) => void
+  readonly killed: () => boolean
+}
+
+export const makeControlledSpawner = () => {
+  const processes: ControlledProcess[] = []
+  let kills = 0
+
+  const layer = Layer.succeed(ProcessSpawner, {
+    spawn: (command, args) =>
+      Effect.sync(() => {
+        let killed = false
+        let finish!: (result: { exitCode: number; lines: OutputLine[] }) => void
+        const exited = new Promise<{ exitCode: number; lines: OutputLine[] }>((resolve) => {
+          finish = resolve
+        })
+        processes.push({
+          command,
+          args,
+          finish: (exitCode, lines = []) => finish({ exitCode, lines }),
+          killed: () => killed,
+        })
+        const result = Effect.promise(() => exited)
+        return {
+          output: Stream.unwrap(Effect.map(result, (r) => Stream.fromIterable(r.lines))),
+          exitCode: Effect.map(result, (r) => r.exitCode),
+          // A killed process exits the way ChildProcessSpawner reports a
+          // signal death: no output left, exit code 1.
+          kill: Effect.sync(() => {
+            kills++
+            killed = true
+            finish({ exitCode: 1, lines: [] })
+          }),
+        }
+      }),
+  })
+
+  return { layer, processes, kills: () => kills }
+}
+
 export const makeTestSpawner = (expectations: SpawnExpectation[] = []) =>
   Layer.succeed(ProcessSpawner, {
     spawn: (command, args, _options?) => {

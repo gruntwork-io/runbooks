@@ -70,7 +70,6 @@ function writeVarFile(
     const fs = yield* FileSystem
     const YAML = yield* Effect.promise(() => import("yaml"))
     const yamlText = YAML.stringify(variables ?? {})
-    console.log("[boilerplate] var-file YAML (first 1200 chars):\n" + yamlText.slice(0, 1200))
     const tmpDir = yield* fs.mkdtemp("boilerplate-vars-").pipe(
       Effect.mapError(
         (err) =>
@@ -95,28 +94,24 @@ function writeVarFile(
 }
 
 /**
- * Shell out to the boilerplate CLI to render a template tree.
+ * Run the vendored boilerplate CLI with `args` and collect its output.
  *
  * Streams stdout/stderr into buffers so that, on non-zero exit, the `stderr`
  * text can be surfaced through the resulting `RenderError` (makes
  * configuration mistakes in templates readable in the UI rather than a bare
- * "exit code 1").
+ * "exit code 1"). `label` names the command in that error and in the timing
+ * log.
+ *
+ * Every boilerplate subprocess goes through here: the cold render below and
+ * the bundle build in NodeBundleProducer.
  */
-function runBoilerplate(
-  templateDir: string,
-  outputDir: string,
-  varFilePath: string,
-) {
+export function runBoilerplateCli(
+  args: string[],
+  label: string,
+): Effect.Effect<{ stdout: string[]; stderr: string[] }, RenderError, ProcessSpawner> {
   return Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
     const binary = yield* resolveBoilerplateBinary()
-    const args = [
-      "--template-url", templateDir,
-      "--output-folder", outputDir,
-      "--var-file", varFilePath,
-      "--non-interactive",
-      "--disable-dependency-prompt",
-    ]
 
     const tSpawn = Date.now()
     const proc = yield* spawner.spawn(binary, args).pipe(
@@ -131,9 +126,10 @@ function runBoilerplate(
     const dSpawn = Date.now() - tSpawn
 
     // Wait for the subprocess to finish, but if our fiber is interrupted
-    // (e.g. a newer render superseded this one), kill the subprocess so we
-    // stop paying for CPU/network we no longer want. Without this, a stale
-    // boilerplate CLI run would keep running in the background.
+    // (e.g. a newer render superseded this one, or the bundle producer
+    // dropped a build), kill the subprocess so we stop paying for
+    // CPU/network we no longer want. Without this, a stale boilerplate CLI
+    // run would keep running in the background.
     return yield* Effect.gen(function* () {
       const tExec = Date.now()
       // Drain output (the spawner collects lines and emits them once the
@@ -143,9 +139,11 @@ function runBoilerplate(
           Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
         ),
       )
-      const stderrLines: string[] = []
+      const stdout: string[] = []
+      const stderr: string[] = []
       for (const l of lines) {
-        if (l.source === "stderr") stderrLines.push(l.line)
+        if (l.source === "stdout") stdout.push(l.line)
+        else stderr.push(l.line)
       }
 
       const code = yield* proc.exitCode.pipe(
@@ -153,23 +151,45 @@ function runBoilerplate(
       )
       const dExec = Date.now() - tExec
       console.log("[boilerplate subprocess] timing(ms)", {
+        command: label,
         binary,
         spawn: dSpawn,
         exec: dExec,
         exitCode: code,
       })
       if (code !== 0) {
-        const stderrText = stderrLines.join("\n").trim()
+        const stderrText = stderr.join("\n").trim()
         return yield* Effect.fail(
           new RenderError({
             message: stderrText.length > 0
-              ? `boilerplate exited with code ${code}: ${stderrText}`
-              : `boilerplate exited with code ${code}`,
+              ? `${label} exited with code ${code}: ${stderrText}`
+              : `${label} exited with code ${code}`,
           }),
         )
       }
+      return { stdout, stderr }
     }).pipe(Effect.onInterrupt(() => proc.kill))
   })
+}
+
+/**
+ * Shell out to the boilerplate CLI to render a template tree.
+ */
+function runBoilerplate(
+  templateDir: string,
+  outputDir: string,
+  varFilePath: string,
+) {
+  return runBoilerplateCli(
+    [
+      "--template-url", templateDir,
+      "--output-folder", outputDir,
+      "--var-file", varFilePath,
+      "--non-interactive",
+      "--disable-dependency-prompt",
+    ],
+    "boilerplate",
+  )
 }
 
 // ---------------------------------------------------------------------------

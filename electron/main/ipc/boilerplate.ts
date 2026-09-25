@@ -39,9 +39,14 @@ import { validateSessionPath } from "./path-guard.ts"
  *
  * What "interrupt" actually does depends on which path the prior fiber took:
  *
- *  - **Cold path** (subprocess): `Effect.onInterrupt` in `runBoilerplate`
- *    SIGKILLs the boilerplate child process and removes its tempdir,
- *    reclaiming real CPU. This was the original supersession design.
+ *  - **Cold path** (subprocess): `Effect.onInterrupt` in `runBoilerplateCli`
+ *    kills the boilerplate child's process group (SIGTERM, then SIGKILL
+ *    after 5s) and removes its tempdir, reclaiming real CPU. This was the
+ *    original supersession design.
+ *  - **Bundle build** (subprocess, first warm render of a template): the
+ *    `inputs map --include-bundle` run lives in BundleProducer's own fiber,
+ *    not the render's. The newer render needs the same bundle, so it joins
+ *    that build instead of killing and restarting it.
  *  - **Warm path** (in-process WASM): the WASM bridge has no
  *    cancellation hook, so the in-flight `boilerplateRenderFiles` call
  *    continues on the Go runtime's goroutine until it returns. The
@@ -50,7 +55,7 @@ import { validateSessionPath } from "./path-guard.ts"
  *    fiber's post-render work (manifest diff / write / file-tree walk)
  *    is skipped — that's the savings on this path, on the order of
  *    tens of ms per superseded render rather than the hundreds of ms
- *    a SIGKILL'd subprocess reclaims.
+ *    a killed subprocess reclaims.
  *
  * Either way, the interrupted call resolves to a `superseded` sentinel that
  * the renderer-side `useApi` ignores, so the latest call drives the UI.

@@ -39,8 +39,10 @@ export interface BundleArtifact {
 export interface BundleProducerShape {
   /**
    * Resolve a bundle for the given templateId. Returns the cached artifact
-   * if one exists; otherwise shells out to the boilerplate CLI to build a
-   * fresh one and caches it.
+   * if one exists; otherwise joins the build already running for this
+   * templateId, or shells out to the boilerplate CLI to start one. The
+   * build outlives its caller: interrupting `get` only stops waiting, so a
+   * superseding render picks up the same build instead of starting over.
    */
   readonly get: (
     templateId: string,
@@ -48,14 +50,16 @@ export interface BundleProducerShape {
   ) => Effect.Effect<BundleArtifact, RenderError | WasmError>
 
   /**
-   * Clear all cached bundles. Called via `WarmRenderDispatcher.reset` when
-   * the user opens a different runbook.
+   * Clear all cached bundles and interrupt every running build, killing its
+   * subprocess. Called via `WarmRenderDispatcher.reset` when the user opens
+   * a different runbook.
    */
   readonly clear: Effect.Effect<void>
 
   /**
-   * Remove a single template's cache entry. The warm dispatcher calls this
-   * when a templateId is rendered from a different template path.
+   * Remove a single template's cache entry and interrupt its running build,
+   * if any. The warm dispatcher calls this when a templateId is rendered
+   * from a different template path.
    */
   readonly invalidate: (templateId: string) => Effect.Effect<void>
 }
