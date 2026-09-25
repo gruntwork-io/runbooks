@@ -87,17 +87,22 @@ function generateString(config: FuzzConfig): string {
   return (config.prefix ?? "") + result + (config.suffix ?? "")
 }
 
+// min defaults to 0 (max - 100 when only a negative max is set) and max to
+// min + 100, so a lone bound is honored. min == max yields that exact value.
+function numericRange(config: FuzzConfig): [number, number] {
+  const min = config.min ?? (config.max !== undefined && config.max < 0 ? config.max - 100 : 0)
+  const max = config.max ?? min + 100
+  if (max < min) throw new Error(`fuzz ${config.type}: max (${max}) is less than min (${min})`)
+  return [min, max]
+}
+
 function generateInt(config: FuzzConfig): number {
-  let min = config.min ?? 0
-  let max = config.max ?? 0
-  if (max <= min) { min = 0; max = 100 }
+  const [min, max] = numericRange(config)
   return randomInt(min, max)
 }
 
 function generateFloat(config: FuzzConfig): number {
-  let min = config.min ?? 0
-  let max = config.max ?? 0
-  if (max <= min) { min = 0; max = 100 }
+  const [min, max] = numericRange(config)
   return randomFloat(min, max)
 }
 
@@ -156,10 +161,7 @@ function randomTimeInRange(minDate?: string, maxDate?: string, dayPrecision = fa
 
 function generateDate(config: FuzzConfig): string {
   const date = randomTimeInRange(config.minDate, config.maxDate, true)
-  if (config.format) {
-    // Simple format support for YYYY-MM-DD
-    return formatDate(date, config.format)
-  }
+  if (config.format) return formatDate(date, config.format)
   return date.toISOString().slice(0, 10)
 }
 
@@ -169,15 +171,23 @@ function generateTimestamp(config: FuzzConfig): string {
   return date.toISOString()
 }
 
+const pad = (n: number) => String(n).padStart(2, "0")
+
 function formatDate(d: Date, fmt: string): string {
-  // Support Go-style reference date format: 2006-01-02T15:04:05Z07:00
-  return fmt
-    .replace("2006", String(d.getFullYear()))
-    .replace("01", String(d.getMonth() + 1).padStart(2, "0"))
-    .replace("02", String(d.getDate()).padStart(2, "0"))
-    .replace("15", String(d.getHours()).padStart(2, "0"))
-    .replace("04", String(d.getMinutes()).padStart(2, "0"))
-    .replace("05", String(d.getSeconds()).padStart(2, "0"))
+  // Go reference-layout tokens: 2006 (year), 01 (month), 02 (day), 15 (hour),
+  // 04 (minute), 05 (second) and Z07:00 (zone, always "Z"). One pass, so an
+  // already-substituted value is never re-matched, and UTC fields, like the
+  // default toISOString() output.
+  const parts: Record<string, string> = {
+    "Z07:00": "Z",
+    "2006": String(d.getUTCFullYear()),
+    "01": pad(d.getUTCMonth() + 1),
+    "02": pad(d.getUTCDate()),
+    "15": pad(d.getUTCHours()),
+    "04": pad(d.getUTCMinutes()),
+    "05": pad(d.getUTCSeconds()),
+  }
+  return fmt.replace(/Z07:00|2006|01|02|15|04|05/g, (token) => parts[token])
 }
 
 function generateWords(config: FuzzConfig): string {

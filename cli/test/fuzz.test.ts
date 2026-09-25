@@ -1,4 +1,6 @@
 import { describe, it, expect } from "bun:test"
+import { spawnSync } from "node:child_process"
+import * as path from "node:path"
 import { generateFuzzValue, resolveTestInputs } from "./fuzz.ts"
 import type { FuzzConfig, InputValue } from "./config.ts"
 
@@ -54,6 +56,43 @@ describe("generateFuzzValue", () => {
       expect(v).toBeGreaterThanOrEqual(0)
       expect(v).toBeLessThanOrEqual(1)
     }
+  })
+
+  it("int/float: a lone min is honored (max defaults to min + 100)", () => {
+    for (const type of ["int", "float"] as const) {
+      for (let i = 0; i < SAMPLES; i++) {
+        const v = generateFuzzValue({ type, min: 200 }) as number
+        expect(v).toBeGreaterThanOrEqual(200)
+        expect(v).toBeLessThanOrEqual(300)
+      }
+    }
+  })
+
+  it("int: a lone max keeps min at 0, or max - 100 when max is negative", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      const pos = generateFuzzValue({ type: "int", max: 50 }) as number
+      expect(pos).toBeGreaterThanOrEqual(0)
+      expect(pos).toBeLessThanOrEqual(50)
+      const neg = generateFuzzValue({ type: "int", max: -5 }) as number
+      expect(neg).toBeGreaterThanOrEqual(-105)
+      expect(neg).toBeLessThanOrEqual(-5)
+    }
+  })
+
+  it("int/float: min == max yields exactly that value", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      expect(generateFuzzValue({ type: "int", min: 7, max: 7 })).toBe(7)
+      expect(generateFuzzValue({ type: "float", min: 2.5, max: 2.5 })).toBe(2.5)
+    }
+  })
+
+  it("int/float: throw when max is less than min", () => {
+    expect(() => generateFuzzValue({ type: "int", min: 10, max: 5 })).toThrow(
+      /max \(5\) is less than min \(10\)/,
+    )
+    expect(() => generateFuzzValue({ type: "float", min: 10, max: 5 })).toThrow(
+      /max \(5\) is less than min \(10\)/,
+    )
   })
 
   it("bool: returns a boolean", () => {
@@ -118,9 +157,47 @@ describe("generateFuzzValue", () => {
     }
   })
 
+  it("date: format substitutes each token once, never inside the year", () => {
+    const range = { minDate: "2026-03-10", maxDate: "2026-03-10" }
+    expect(generateFuzzValue({ type: "date", ...range, format: "2006-01-02" })).toBe("2026-03-10")
+    expect(generateFuzzValue({ type: "date", ...range, format: "01/02/2006" })).toBe("03/10/2026")
+  })
+
   it("timestamp: returns ISO 8601 with time", () => {
     const v = generateFuzzValue({ type: "timestamp" }) as string
     expect(v).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+  })
+
+  it("timestamp: format supports the RFC3339 layout, including Z07:00", () => {
+    const ts = "2019-07-18T09:30:45Z"
+    expect(
+      generateFuzzValue({
+        type: "timestamp",
+        minDate: ts,
+        maxDate: ts,
+        format: "2006-01-02T15:04:05Z07:00",
+      }),
+    ).toBe(ts)
+  })
+
+  it("date/timestamp: format uses UTC, not the local time zone", () => {
+    // The time zone is fixed when the process starts, so run the generator in
+    // a child process west of UTC, where local getters would put a UTC-midnight
+    // date on the previous day.
+    const fuzzModule = path.join(import.meta.dirname, "fuzz.ts")
+    const script = `
+      import { generateFuzzValue } from ${JSON.stringify(fuzzModule)}
+      console.log(JSON.stringify([
+        generateFuzzValue({ type: "date", minDate: "2026-03-10", maxDate: "2026-03-10", format: "01/02/2006" }),
+        generateFuzzValue({ type: "timestamp", minDate: "2019-07-18T02:30:45Z", maxDate: "2019-07-18T02:30:45Z", format: "02 15:04" }),
+      ]))
+    `
+    const res = spawnSync(process.execPath, ["-e", script], {
+      encoding: "utf8",
+      env: { ...process.env, TZ: "America/Los_Angeles" },
+    })
+    expect({ status: res.status, stderr: res.stderr }).toMatchObject({ status: 0 })
+    expect(JSON.parse(res.stdout)).toEqual(["03/10/2026", "18 02:30"])
   })
 
   it("words: returns the requested number of words", () => {
@@ -182,10 +259,7 @@ describe("resolveTestInputs", () => {
     })
     expect(typeof out.name).toBe("string")
     expect((out.name as string).length).toBe(5)
-    // generateInt treats max <= min as a default range, so 7..7 may not
-    // yield exactly 7 — confirm it's a finite integer either way.
-    expect(typeof out.age).toBe("number")
-    expect(Number.isInteger(out.age)).toBe(true)
+    expect(out.age).toBe(7)
   })
 
   it("returns an empty object when inputs is undefined", () => {
