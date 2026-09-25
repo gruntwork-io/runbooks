@@ -42,6 +42,10 @@ export interface StatusEntry {
 }
 
 export interface GitInfo {
+  /**
+   * The checked-out ref: the branch name, the tag name when `refType` is
+   * "tag", or "HEAD" when `refType` is "detached".
+   */
   readonly branch: string
   readonly refType: "branch" | "tag" | "detached"
   readonly remoteUrl?: string
@@ -84,6 +88,10 @@ export interface GitClientShape {
    */
   readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
   readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
+  /**
+   * Whether HEAD resolves to a commit. False only for an unborn HEAD (a fresh
+   * `git init` or an empty clone); fails when the repo can't be queried.
+   */
   readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>

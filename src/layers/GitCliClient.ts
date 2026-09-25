@@ -224,19 +224,23 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     getInfo: (repoPath: string) =>
       Effect.gen(function* () {
         const branchLines = yield* runGit(spawner, ["rev-parse", "--abbrev-ref", "HEAD"], repoPath)
-        const branch = branchLines[0] ?? ""
+        let branch = branchLines[0] ?? ""
 
-        // Determine ref type
+        // Determine ref type. A named branch is a branch even when its tip is
+        // tagged. Checking out a tag always detaches HEAD (abbrev-ref prints
+        // "HEAD"), so only then ask whether HEAD sits exactly on a tag, and
+        // report the tag name as the ref.
         let refType: GitInfo["refType"] = "branch"
         if (branch === "HEAD") {
-          refType = "detached"
-        } else {
-          // Check if it's a tag
           const tagResult = yield* runGit(spawner, ["describe", "--tags", "--exact-match", "HEAD"], repoPath).pipe(
             Effect.catchAll(() => Effect.succeed([] as string[])),
           )
-          if (tagResult.length > 0) {
+          const tag = tagResult[0]?.trim()
+          if (tag) {
+            branch = tag
             refType = "tag"
+          } else {
+            refType = "detached"
           }
         }
 
@@ -340,9 +344,12 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       }),
 
     hasCommits: (repoPath: string) =>
-      runGit(spawner, ["rev-parse", "HEAD"], repoPath).pipe(
-        Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
+      // `--verify --quiet` exits 1 (no output) only when HEAD resolves to nothing,
+      // i.e. an unborn branch. Anything else (not a repo, dubious ownership, spawn
+      // failure) is a real error and propagates, so callers' best-effort fallbacks apply.
+      runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
+        Effect.as(true),
+        Effect.catchTag("GitError", (e) => (e.exitCode === 1 ? Effect.succeed(false) : Effect.fail(e))),
       ),
 
     hasChanges: (repoPath: string) =>

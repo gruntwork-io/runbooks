@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Layer } from "effect"
+import { Effect, Either, Layer } from "effect"
 import { GitClient } from "../services/GitClient.ts"
 import { GitError } from "../errors/index.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
@@ -52,6 +52,22 @@ const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
       const git = yield* GitClient
       return yield* git.stageAll(repoPath, excludePaths)
     }).pipe(Effect.provide(layer)),
+  )
+
+const runInfo = (repoPath: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.getInfo(repoPath)
+    }).pipe(Effect.provide(layer)),
+  )
+
+const runHasCommitsEither = (repoPath: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.hasCommits(repoPath)
+    }).pipe(Effect.provide(layer), Effect.either),
   )
 
 const runCommitEither = (
@@ -272,6 +288,92 @@ describe("GitCliClientLive.status (real repo)", () => {
     git(sub, "commit", "-m", "sub initial")
 
     expect(await runStatus(repoPath)).toEqual([{ path: "my repo/", status: "??" }])
+  })
+})
+
+describe("GitCliClientLive.getInfo (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitinfo-"))
+    git(repoPath, "init")
+    git(repoPath, "commit", "--allow-empty", "-m", "first")
+    git(repoPath, "commit", "--allow-empty", "-m", "second")
+    git(repoPath, "tag", "v1.0.0")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("reports a branch whose tip is tagged as a branch", async () => {
+    // Right after a release is tagged, main's tip carries the tag too.
+    expect(await runInfo(repoPath)).toMatchObject({ branch: "main", refType: "branch" })
+  })
+
+  it("reports a checked-out tag as that tag", async () => {
+    // Checking out a tag detaches HEAD, so abbrev-ref alone only says "HEAD".
+    git(repoPath, "checkout", "-q", "v1.0.0")
+    const sha = gitOut(repoPath, "rev-parse", "HEAD").trim()
+
+    expect(await runInfo(repoPath)).toMatchObject({ branch: "v1.0.0", refType: "tag", commitSha: sha })
+  })
+
+  it("reports a checked-out untagged commit as detached", async () => {
+    const sha = gitOut(repoPath, "rev-parse", "HEAD~1").trim()
+    git(repoPath, "checkout", "-q", sha)
+
+    expect(await runInfo(repoPath)).toMatchObject({ branch: "HEAD", refType: "detached", commitSha: sha })
+  })
+})
+
+describe("GitCliClientLive.hasCommits (real repo)", () => {
+  let dir: string
+  let savedCeiling: string | undefined
+
+  beforeEach(() => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githascommits-")))
+    // Stop git's repo discovery at the temp root, so a non-repo dir can't
+    // resolve to some enclosing repository on the test machine.
+    savedCeiling = process.env.GIT_CEILING_DIRECTORIES
+    process.env.GIT_CEILING_DIRECTORIES = path.dirname(dir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+    restoreEnv("GIT_CEILING_DIRECTORIES", savedCeiling)
+  })
+
+  it("returns false for a repo with no commits yet", async () => {
+    git(dir, "init")
+
+    expect(await runHasCommitsEither(dir)).toEqual(Either.right(false))
+  })
+
+  it("returns true once HEAD has a commit", async () => {
+    git(dir, "init")
+    git(dir, "commit", "--allow-empty", "-m", "first")
+
+    expect(await runHasCommitsEither(dir)).toEqual(Either.right(true))
+  })
+
+  it("fails instead of returning false for a directory that isn't a repo", async () => {
+    // Callers treat a failure as "has history" so an unreadable repo is never
+    // offered a seeded branch; answering false here would defeat that.
+    const result = await runHasCommitsEither(dir)
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("GitError")
+      expect((result.left as GitError).exitCode).toBe(128)
+    }
+  })
+
+  it("fails with a SpawnError when git can't run in the path", async () => {
+    const result = await runHasCommitsEither(path.join(dir, "missing"))
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") expect(result.left._tag).toBe("SpawnError")
   })
 })
 
