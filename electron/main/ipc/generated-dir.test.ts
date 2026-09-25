@@ -119,8 +119,9 @@ describe("generated-files directory", () => {
     expect(sent.some((e) => e.channel === "exec:files-captured")).toBe(true)
 
     // The script's cd moved the session; the capture still landed next to
-    // the runbook, and a Template render (boilerplate:render resolves its
-    // output through resolveGeneratedDir) would still write there too.
+    // the runbook, and the helper still resolves there. boilerplate:render
+    // uses the same helper but is not driven here: it needs the vendored
+    // boilerplate binary, which the backend test run does not fetch.
     expect((await runtime.runPromise(sessionManager.getSession())).workingDir).toBe(elsewhereDir)
     expect(fs.readFileSync(path.join(generatedDir, "from-script.txt"), "utf8").trim()).toBe(
       "captured",
