@@ -185,9 +185,11 @@ export function registerExtraCaPems(pems: string[]): void {
   // Missing artifacts mean a broken checkout, package, or override — not a
   // reason to go hunting on PATH. Say so loudly; the render layers will fail
   // with the same path in their error so the cause is obvious.
-  const missing = [bin, path.join(wasmDir, "boilerplate-full.wasm.br")].filter(
-    (f) => !fs.existsSync(f),
-  )
+  const missing = [
+    bin,
+    path.join(wasmDir, "boilerplate-full.wasm.br"),
+    path.join(wasmDir, "wasm_exec.js"),
+  ].filter((f) => !fs.existsSync(f))
   if (missing.length > 0) {
     const hint =
       overrideBin || overrideWasmDir
