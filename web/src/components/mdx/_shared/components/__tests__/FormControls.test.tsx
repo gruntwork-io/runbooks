@@ -31,6 +31,16 @@ describe('FormControls selects match form state', () => {
     expect(screen.queryByRole('option', { name: 'Select…' })).toBeNull()
   })
 
+  it('shows an enum value that is not one of the options instead of the first option', () => {
+    const variable: BoilerplateVariable = {
+      name: 'Env', type: 'enum', description: '', options: ['dev', 'prod'],
+    }
+    render(<FormControl id="f" variable={variable} value="staging" onChange={vi.fn()} />)
+
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('staging')
+    expect(screen.getByRole('option', { name: 'staging' })).toBeInTheDocument()
+  })
+
   it("saves an untouched bool field of a map entry as 'false'", () => {
     const variable: BoilerplateVariable = {
       name: 'Users', type: 'map', description: '', schema: { email: 'string', admin: 'bool' },
@@ -54,6 +64,19 @@ describe('FormControls selects match form state', () => {
     }
     const onChange = vi.fn()
     render(<FormControl id="f" variable={variable} value={undefined} onChange={onChange} />)
+
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('false')
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } })
+
+    expect(onChange).toHaveBeenCalledWith(['x', false])
+  })
+
+  it('fills a missing bool element of a short tuple array with the displayed false', () => {
+    const variable: BoilerplateVariable = {
+      name: 'Pair', type: 'list', description: '', schema: { '0': 'string', '1': 'bool' },
+    }
+    const onChange = vi.fn()
+    render(<FormControl id="f" variable={variable} value={[]} onChange={onChange} />)
 
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('false')
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } })

@@ -176,12 +176,16 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
 /**
  * Select dropdown component for enum variables
  * Renders a dropdown with predefined options from the variable configuration.
- * With no value (an enum with no default), a disabled placeholder is shown
- * instead of letting the browser display the first option, so the display
- * matches form state and picking any option fires onChange.
+ * The display always matches form state instead of letting the browser fall
+ * back to the first option:
+ *   - With no value (an enum with no default), a disabled placeholder is shown,
+ *     so picking any option, including the first, fires onChange.
+ *   - A value that is not one of the options (e.g. imported from an upstream
+ *     string field) is shown as its own disabled option.
  */
 export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const current = value == null ? '' : String(value)
+  const isUnlistedValue = current !== '' && !variable.options?.includes(current)
   return (
     <select
       id={`${id}-${variable.name}`}
@@ -194,6 +198,11 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
       {current === '' && (
         <option value="" disabled>
           Select…
+        </option>
+      )}
+      {isUnlistedValue && (
+        <option value={current} disabled>
+          {current}
         </option>
       )}
       {variable.options?.map(option => (
@@ -673,8 +682,11 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
   const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
-  // Bool elements start as false (what the select displays), matching the boolean updateElement stores
-  const currentTuple = Array.isArray(value) ? value : elementKeys.map(k => (schema[k] === 'bool' ? false : ''))
+  // Missing elements (no value, or a short array) start as '' or, for bool
+  // elements, false (what the select displays), matching the boolean updateElement stores
+  const currentTuple = elementKeys.map((k, i) =>
+    (Array.isArray(value) ? value[i] : undefined) ?? (schema[k] === 'bool' ? false : '')
+  )
 
   const updateElement = (index: number, newValue: unknown) => {
     const updated = [...currentTuple]
