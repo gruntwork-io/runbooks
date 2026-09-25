@@ -375,7 +375,9 @@ export interface IpcChannelMap {
     // clientId/scopes are optional — main owns the defaults (the
     // custom-clientId author prop keeps sending an explicit clientId).
     params: { clientId?: string; scopes?: string[] }
-    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; error?: string }
+    // expiresIn: seconds until the device code expires; the renderer polls
+    // until then.
+    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn?: number; error?: string }
   }
   "github:oauth-poll": {
     // the completion result is METADATA-ONLY — no access token crosses
@@ -387,7 +389,10 @@ export interface IpcChannelMap {
       user?: GitHubUser
       scopes?: string[]
       tokenType?: string
+      /** GitHub answered slow_down: back off before the next poll. */
       slowDown?: boolean
+      /** With slowDown: the minimum interval GitHub now requires, in seconds. */
+      interval?: number
       error?: string
       /** The session-env write failed AFTER the token validated. */
       sessionEnvWarning?: string
@@ -396,7 +401,7 @@ export interface IpcChannelMap {
   // detection results are METADATA-ONLY (outcome/source/user/scopes/
   // tokenType — never the raw token).
   "github:env-credentials": {
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string }
+    params: { prefix?: string; host?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -455,10 +460,10 @@ export interface IpcChannelMap {
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
-    // call either channel with one payload shape; the gitlab handler ignores
-    // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
-    // overrides `host`) selects the instance to validate against.
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string; instanceUrl?: string }
+    // call either channel with one payload shape. `host` (picker) or
+    // `instanceUrl` (manual field, overrides `host`) selects the instance to
+    // validate against.
+    params: { prefix?: string; host?: string; instanceUrl?: string }
     result: {
       found: boolean
       valid?: boolean

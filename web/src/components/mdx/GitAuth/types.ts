@@ -61,11 +61,6 @@ export interface GitUserInfo {
   email?: string
 }
 
-export interface GitCredentials {
-  token: string
-  user: GitUserInfo
-}
-
 export interface GitAuthProps {
   id: string
   title?: string
@@ -108,12 +103,11 @@ export interface GitAuthProps {
 export interface GitCliCredentialsResponse {
   found?: boolean
   valid?: boolean
-  token?: string
   user?: GitUserInfo
   scopes?: string[]
   tokenType?: GitTokenType
   error?: string
-  /** HTTP status when validation failed (e.g. 401/403) — used to flag found-but-invalid. */
+  /** HTTP status when validation failed (e.g. 401/403). Informational only: found-but-invalid is decided by `outcome`. */
   status?: number
   /** The GitLab host this credential was detected/validated against. */
   host?: string

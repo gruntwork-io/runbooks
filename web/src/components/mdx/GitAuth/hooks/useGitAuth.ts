@@ -37,6 +37,13 @@ interface UseGitAuthOptions {
 
 const DEFAULT_GITLAB_HOST = 'gitlab.com'
 
+/** GitHub's device-code lifetime in seconds when oauth-start reports none. */
+const DEFAULT_OAUTH_EXPIRES_IN = 900
+
+// Shown both when GitHub answers `expired_token` and when the polling deadline
+// passes first, so a timeout never reads as a denial.
+const OAUTH_CODE_EXPIRED_MESSAGE = 'Authorization request expired. Please try again.'
+
 /**
  * What a validated credential reports beyond its user: the token's scopes and
  * type, where it came from, and main's advisory copy. Every success path (each
@@ -390,9 +397,7 @@ export function useGitAuth({
   const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean; warning?: string; envVar?: string; divergenceHint?: string; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean } }> => {
     try {
       const data = await window.api.invoke(provider.channels.envCredentials, {
-        envVar: '',
         prefix: options?.prefix || '',
-        githubAuthId: id,
         ...(instanceUrlForIpc
           ? { instanceUrl: instanceUrlForIpc }
           : { host: effectiveHostRef.current }),
@@ -429,7 +434,7 @@ export function useGitAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [id, provider, instanceUrlForIpc])
+  }, [provider, instanceUrlForIpc])
 
   // Try to detect credentials from the provider's CLI
   const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean; warning?: string; hint?: string; host?: string; source?: 'env' | 'cli' | 'config'; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean } }> => {
@@ -818,10 +823,10 @@ export function useGitAuth({
     })
   }, [patToken, applyCredentialDetails, validateToken, registerCredentials, markUnreachable])
 
-  // Poll for OAuth completion
-  const pollOAuthCompletion = useCallback(async (deviceCode: string, interval: number = 5) => {
-    const maxAttempts = 24 // ~2 minutes with 5s interval
-    let attempts = 0
+  // Poll for OAuth completion until the device code expires. GitHub reports
+  // `expired_token` itself once it lapses; the deadline is only a backstop.
+  const pollOAuthCompletion = useCallback(async (deviceCode: string, interval: number = 5, expiresIn: number = DEFAULT_OAUTH_EXPIRES_IN) => {
+    const deadline = Date.now() + expiresIn * 1000
     let currentInterval = Math.max(interval, 5) * 1000 // GitHub requires at least 5 seconds
 
     const poll = async () => {
@@ -835,11 +840,16 @@ export function useGitAuth({
 
         if (oauthPollingCancelledRef.current) return
 
-        if (data.status === 'pending' && attempts < maxAttempts) {
-          attempts++
-          // If we got slow_down, increase interval by 5 seconds
+        if (data.status === 'pending') {
+          if (Date.now() >= deadline) {
+            setAuthStatus('failed')
+            setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
+            return
+          }
+          // slow_down (RFC 8628 §3.5): add 5 seconds, or wait GitHub's new
+          // interval if that is longer, for this and every later poll.
           if (data.slowDown) {
-            currentInterval += 5000
+            currentInterval = Math.max(currentInterval + 5000, (data.interval ?? 0) * 1000)
           }
           oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
         } else if (data.status === 'complete') {
@@ -858,9 +868,9 @@ export function useGitAuth({
         } else if (data.status === 'expired') {
           if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
-          setErrorMessage('Authorization request expired. Please try again.')
+          setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
         } else {
-          // Error or max attempts reached
+          // Denied, or another error main reported
           if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
           setErrorMessage(data.error || 'Authorization failed')
@@ -897,10 +907,11 @@ export function useGitAuth({
       setOauthUserCode(data.userCode)
       setOauthVerificationUri(data.verificationUri)
 
-      // Start polling for completion (use interval from GitHub, default 5s)
+      // Start polling for completion (use interval and expiry from GitHub,
+      // default 5s and 15 minutes)
       // Note: We don't auto-open the browser - let user see the code first
       const pollInterval = data.interval || 5
-      pollOAuthCompletion(data.deviceCode, pollInterval)
+      pollOAuthCompletion(data.deviceCode, pollInterval, data.expiresIn || DEFAULT_OAUTH_EXPIRES_IN)
     } catch (error) {
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start OAuth flow')
@@ -979,13 +990,9 @@ export function useGitAuth({
   // Clear transient auth/detection state and arm the detection effect to fire
   // again. Shared by host switching and the manual config reload.
   const beginRedetect = useCallback(() => {
-    detectionRunRef.current += 1 // invalidate any in-flight detection loop
-    detectionAttemptedRef.current = false
-    remainingSourcesRef.current = []
     clearDetectionState()
-    setWaitingForBlockId(null)
-    setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
-  }, [detectCredentials, clearDetectionState])
+    resetDetectionState()
+  }, [clearDetectionState, resetDetectionState])
 
   // Flush main's per-(binary,host) CLI read cache (invalidation) so an
   // explicit re-detection observes a terminal `gh auth switch`/`glab auth

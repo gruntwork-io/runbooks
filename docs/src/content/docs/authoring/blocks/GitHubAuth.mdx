@@ -311,7 +311,7 @@ Each authentication method keeps your credentials on your machine:
 When you authenticate via OAuth:
 
 1. Runbooks (running on your machine) requests a device code from GitHub
-2. You open github.com/login/device and enter the code
+2. You open github.com/login/device and enter the code. GitHub keeps the code valid for 15 minutes by default, and Runbooks keeps checking for your approval until it expires. If it expires before you approve, start the sign-in again.
 3. You see "Gruntwork Runbooks wants to access your account" and approve
 4. GitHub sends the token directly to your local Runbooks instance
 

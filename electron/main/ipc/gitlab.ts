@@ -227,9 +227,7 @@ export function registerGitLabHandlers(): void {
     async (
       _event,
       params: {
-        envVar?: string
         prefix?: string
-        githubAuthId?: string
         host?: string
         instanceUrl?: string
       } = {},

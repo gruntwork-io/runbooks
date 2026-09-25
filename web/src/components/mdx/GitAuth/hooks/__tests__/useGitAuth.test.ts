@@ -924,6 +924,97 @@ describe('useGitAuth — custody', () => {
   })
 })
 
+describe('useGitAuth — OAuth device-code polling', () => {
+  const DEVICE_CODE = { deviceCode: 'dev123', userCode: 'ABCD-1234', verificationUri: 'https://github.com/login/device', interval: 5 }
+
+  function installOAuthApi(start: Record<string, unknown>, nextPoll: () => unknown) {
+    return installApi(async (channel) => {
+      if (channel === 'github:oauth-start') return start
+      if (channel === 'github:oauth-poll') return nextPoll()
+      return { found: false }
+    })
+  }
+
+  const pollCount = (invoke: ReturnType<typeof installApi>) =>
+    invoke.mock.calls.filter((c) => c[0] === 'github:oauth-poll').length
+
+  const renderOAuthHook = () =>
+    renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false }))
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('keeps polling past 2 minutes while the device code is still valid', async () => {
+    const invoke = installOAuthApi({ ...DEVICE_CODE, expiresIn: 900 }, () => ({ status: 'pending' }))
+    const { result } = renderOAuthHook()
+
+    await act(async () => {
+      await result.current.startOAuth()
+      await vi.advanceTimersByTimeAsync(3 * 60_000)
+    })
+
+    expect(result.current.authStatus).toBe('authenticating')
+    expect(result.current.errorMessage).toBeNull()
+    expect(pollCount(invoke)).toBeGreaterThan(24)
+  })
+
+  it('reports an expired code, not "Authorization failed", once the code outlives its expiry', async () => {
+    const invoke = installOAuthApi({ ...DEVICE_CODE, expiresIn: 60 }, () => ({ status: 'pending' }))
+    const { result } = renderOAuthHook()
+
+    await act(async () => {
+      await result.current.startOAuth()
+      await vi.advanceTimersByTimeAsync(65_000)
+    })
+
+    expect(result.current.authStatus).toBe('failed')
+    expect(result.current.errorMessage).toBe('Authorization request expired. Please try again.')
+    // Polling stopped at the deadline.
+    const polls = pollCount(invoke)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000)
+    })
+    expect(pollCount(invoke)).toBe(polls)
+  })
+
+  it('backs off to the interval GitHub sends with slow_down, for every later poll', async () => {
+    let polls = 0
+    const invoke = installOAuthApi({ ...DEVICE_CODE, expiresIn: 900 }, () =>
+      ++polls === 1 ? { status: 'pending', slowDown: true, interval: 15 } : { status: 'pending' },
+    )
+    const { result } = renderOAuthHook()
+
+    await act(async () => {
+      await result.current.startOAuth()
+    })
+    expect(pollCount(invoke)).toBe(1)
+
+    // GitHub's 15s beats the 5s + 5s increment.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_999)
+    })
+    expect(pollCount(invoke)).toBe(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(pollCount(invoke)).toBe(2)
+
+    // The slower interval sticks after GitHub stops sending slow_down.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_999)
+    })
+    expect(pollCount(invoke)).toBe(2)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(pollCount(invoke)).toBe(3)
+  })
+})
+
 describe('useGitAuth — {block} detection sources', () => {
   it('falls through to the next source when the block ran without a token', async () => {
     // The block ran and registered outputs, just none this provider reads.
