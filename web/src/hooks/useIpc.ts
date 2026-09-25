@@ -53,8 +53,10 @@ export function useIpc<T>(
   const [error, setError] = useState<AppError | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // False once the hook unmounts, so a pending debounced request is dropped
-  // when its timer fires. See the unmount effect below.
-  const mountedRef = useRef(false)
+  // when its timer fires. See the unmount effect below. It starts true so a
+  // request scheduled before passive effects run (from a layout effect, say)
+  // isn't dropped if its timer fires first.
+  const mountedRef = useRef(true)
 
   // Use a ref for params so changing object identity doesn't trigger re-fetches.
   // Content changes are detected via paramsKey below.
