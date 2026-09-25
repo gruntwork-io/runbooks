@@ -65,11 +65,8 @@ describe("generated files", () => {
     })
 
     it("rejects an empty path", async () => {
-      const exit = await Effect.runPromiseExit(resolve(workingDir, ""))
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-        expect(exit.cause.error).toBeInstanceOf(PathValidationError)
-      }
+      const error = await run(resolve(workingDir, "").pipe(Effect.flip))
+      expect(error).toBeInstanceOf(PathValidationError)
     })
   })
 
@@ -97,12 +94,9 @@ describe("generated files", () => {
     })
 
     it("check fails with PathValidationError", async () => {
-      const exit = await Effect.runPromiseExit(check())
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit) && exit.cause._tag === "Fail") {
-        expect(exit.cause.error).toBeInstanceOf(PathValidationError)
-        expect((exit.cause.error as PathValidationError).message).toContain("not a directory")
-      }
+      const error = await run(check().pipe(Effect.flip))
+      expect(error).toBeInstanceOf(PathValidationError)
+      expect(error.message).toContain("not a directory")
     })
 
     it("delete fails and leaves the file in place", async () => {

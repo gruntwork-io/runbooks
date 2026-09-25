@@ -23,9 +23,8 @@ mock.module("electron", () => ({
 const { registerFileHandlers } = await import("./files.ts")
 const { registerExecHandlers } = await import("./exec.ts")
 const { resolveGeneratedDir } = await import("./path-guard.ts")
-const { runtime, sessionManager, setRunbookConfig, setExecutableRegistry } = await import(
-  "./runtime.ts"
-)
+const runtimeModule = await import("./runtime.ts")
+const { runtime, sessionManager, setRunbookConfig, setExecutableRegistry } = runtimeModule
 const { ExecutableRegistry } = await import("../../../src/domain/registry/executable.ts")
 const { DEFAULT_GENERATED_DIR } = await import("../../../src/domain/files/generated.ts")
 
@@ -51,8 +50,12 @@ describe("generated-files directory", () => {
   let elsewhereDir: string
   let generatedDir: string
   let executableId: string
+  // runbookConfig is module-global and bun runs every test file in one
+  // process: restore it so later files don't inherit the deleted temp runbook.
+  let originalRunbookConfig: typeof runtimeModule.runbookConfig
 
   beforeEach(async () => {
+    originalRunbookConfig = runtimeModule.runbookConfig
     tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "generated-dir-ipc-")))
     runbookDir = path.join(tmp, "runbook")
     elsewhereDir = path.join(tmp, "elsewhere")
@@ -91,6 +94,7 @@ describe("generated-files directory", () => {
   afterEach(() => {
     sessionManager.deleteSession()
     setExecutableRegistry(null)
+    setRunbookConfig(originalRunbookConfig)
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
