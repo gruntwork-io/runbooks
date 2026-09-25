@@ -19,6 +19,8 @@
  * package and keeps the per-call cost down to a boolean check.
  */
 
+import { inspect } from "node:util"
+import { Cause, Runtime } from "effect"
 import { redactSecrets } from "./domain/vcs/redact.ts"
 
 interface CompiledPattern {
@@ -78,16 +80,54 @@ export interface Logger {
   readonly error: (...args: unknown[]) => void
 }
 
+/** How many nested errors (cause links and FiberFailure unwraps) are printed. */
+const MAX_ERROR_DEPTH = 4
+const INSPECT_OPTIONS = { depth: 4 } as const
+/** Own properties already covered by the stack line or the cause chain. */
+const HEAD_KEYS = new Set(["name", "message", "stack", "cause"])
+
+function formatUnknown(value: unknown, depth: number): string {
+  return value instanceof Error ? formatError(value, depth) : inspect(value, INSPECT_OPTIONS)
+}
+
+/**
+ * Render an Error as text for the redaction pass. The stack alone is not
+ * enough: a Data.TaggedError keeps its payload (stderr, exitCode, status, ...)
+ * in own fields and usually has an empty message, and a FiberFailure from
+ * runPromise wraps the real error in a Cause. util.inspect can't be used on
+ * the error itself: Effect's inspect hooks print only Cause.pretty for a
+ * FiberFailure, and for every TaggedError under Bun. So unwrap FiberFailures,
+ * then print the stack, the own fields and the cause chain explicitly.
+ */
+function formatError(err: Error, depth = 0): string {
+  const canNest = depth < MAX_ERROR_DEPTH
+  if (canNest && Runtime.isFiberFailure(err)) {
+    const cause = err[Runtime.FiberFailureCauseId]
+    const inner = [...Cause.failures(cause), ...Cause.defects(cause)]
+    // An interruption-only cause has no error to show; Cause.pretty says so.
+    if (inner.length === 0) return Cause.pretty(cause)
+    return inner.map((e) => formatUnknown(e, depth + 1)).join("\n")
+  }
+  const head = err.stack ?? `${err.name}: ${err.message}`
+  const fields = Object.fromEntries(Object.entries(err).filter(([key]) => !HEAD_KEYS.has(key)))
+  const extra = Object.keys(fields).length > 0 ? ` ${inspect(fields, INSPECT_OPTIONS)}` : ""
+  const cause =
+    canNest && err.cause !== undefined ? `\n[cause] ${formatUnknown(err.cause, depth + 1)}` : ""
+  return head + extra + cause
+}
+
 /**
  * Redaction pass: every string argument is scrubbed
  * of registered token values and token-shaped substrings before it reaches the
- * console. Error objects are stringified through the same scrubber so a token
- * embedded in a message (e.g. an authenticated clone URL) never hits a log.
+ * console. Error objects are formatted (stack, own fields such as a
+ * TaggedError's stderr, and cause chain; FiberFailures are unwrapped first)
+ * and the whole text goes through the same scrubber, so a token embedded in a
+ * message or field (e.g. an authenticated clone URL) never hits a log.
  */
 function sanitizeArgs(args: unknown[]): unknown[] {
   return args.map((arg) => {
     if (typeof arg === "string") return redactSecrets(arg)
-    if (arg instanceof Error) return redactSecrets(arg.stack ?? arg.message)
+    if (arg instanceof Error) return redactSecrets(formatError(arg))
     return arg
   })
 }
