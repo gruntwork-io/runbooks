@@ -96,8 +96,8 @@ settings:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `use_temp_working_dir` | boolean | `true` | Use an isolated temporary directory for test execution. Overrides `working_dir` when `true`. The temp directory is automatically cleaned up after the test. |
-| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. |
+| `use_temp_working_dir` | boolean | `true` | Run each test case in its own fresh temporary directory, which is removed when that test case ends. Overrides `working_dir` when `true`. |
+| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. All test cases share this directory, so files one test case generates or clones are still there for the next. |
 | `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
 | `timeout` | string | `"5m"` | Maximum time for each test case. Uses duration format (e.g., `30s`, `5m`, `1h`). |
 | `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. |
@@ -124,6 +124,8 @@ tests:
 | `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, all blocks run in document order. |
 | `assertions` | array | No | Validations to run after all steps complete. |
 | `cleanup` | array | No | Actions to run after the test completes (even on failure). |
+
+Each test case starts clean, from the environment the `test` command was started with plus the test case's `env`. With `use_temp_working_dir`, it also gets its own empty working directory. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app. None of that carries over into the next test case, and neither do auth block credentials.
 
 ### Step Object
 

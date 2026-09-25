@@ -319,3 +319,156 @@ describe("TestExecutor — explicit steps", () => {
     expect(skipped.stepResults[1]?.actualStatus).toBe("blocked")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Session env and cwd: a bash block's exports and final cwd carry into later
+// blocks, as they do in the app, but nothing carries into the next test case.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — session env and cwd", () => {
+  let tmp: string
+
+  // `report` records what it sees as outputs, so a test can check which
+  // exports, credentials and cwd reached it.
+  const report = [
+    "foo=${ISO_FOO:-unset}",
+    "tc_env=${ISO_TC_ENV:-unset}",
+    "token=${GITHUB_TOKEN:-unset}",
+    "cwd=$(pwd -P)",
+  ].map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`).join("; ")
+  const RUNBOOK = [
+    "# Session",
+    "",
+    `<GitHubAuth id="gh" />`,
+    "",
+    `<Command id="set-env" command='export ISO_FOO=bar; mkdir -p sub; cd sub' />`,
+    "",
+    `<Check id="report" command='${report}' />`,
+    "",
+  ].join("\n")
+
+  const makeExecutor = async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, RUNBOOK)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const reported = (result: ReturnType<TestExecutor["runTest"]>) =>
+    result.stepResults.find((s) => s.block === "check:report")?.outputs ?? {}
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-session-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("carries a bash block's exports and cd into the next block", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "persist",
+      steps: [
+        { block: "set-env", expect: "success" },
+        { block: "report", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(reported(result).foo).toBe("bar")
+    expect(reported(result).cwd).toBe(fs.realpathSync(path.join(tmp, "sub")))
+  })
+
+  it("doesn't carry exports, cwd, tc.env or auth credentials into the next test case", async () => {
+    const executor = await makeExecutor()
+
+    const first = executor.runTest({
+      name: "first",
+      env: { ISO_TC_ENV: "from-first", RUNBOOKS_GITHUB_TOKEN: "first-test-token" },
+      steps: [
+        { block: "gh", expect: "success" },
+        { block: "set-env", expect: "success" },
+        { block: "report", expect: "success" },
+      ],
+    })
+    expect(first.error).toBeUndefined()
+    expect(reported(first)).toMatchObject({
+      foo: "bar",
+      tc_env: "from-first",
+      token: "first-test-token",
+    })
+
+    const second = executor.runTest({
+      name: "second",
+      steps: [{ block: "report", expect: "success" }],
+    })
+
+    expect(second.error).toBeUndefined()
+    expect(reported(second).foo).toBe("unset")
+    expect(reported(second).tc_env).toBe("unset")
+    expect(reported(second).token).not.toBe("first-test-token")
+    expect(reported(second).cwd).toBe(fs.realpathSync(tmp))
+  })
+
+  it("runs each test case in the working dir it is given", async () => {
+    const executor = await makeExecutor()
+    const other = path.join(tmp, "other")
+    fs.mkdirSync(other)
+
+    const result = executor.runTest({ name: "other-dir", steps: [{ block: "report", expect: "success" }] }, other)
+
+    expect(reported(result).cwd).toBe(fs.realpathSync(other))
+  })
+
+  it("filters shell internals and per-block vars out of the capture, as the app does", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    const shlvl = `<Command id="ID" command='echo "shlvl=$SHLVL" >> "$RUNBOOK_OUTPUT"' />`
+    fs.writeFileSync(rb, ["# Filter", ...["a", "b", "c"].map((id) => `\n${shlvl.replace("ID", id)}`), ""].join("\n"))
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({
+      name: "filter",
+      // Script assertions run with the session env, so a captured
+      // RUNBOOK_OUTPUT would point at a block's deleted output file.
+      assertions: [{ type: "script", command: 'test -z "${RUNBOOK_OUTPUT:-}"' }],
+    })
+
+    expect(result.error).toBeUndefined()
+    // bash bumps SHLVL on start; if the capture kept it, it would climb by
+    // one per block. (Block a starts from the process env, so compare b, c.)
+    const [, b, c] = result.stepResults
+    expect(b?.outputs.shlvl).toBeDefined()
+    expect(c?.outputs.shlvl).toBe(b?.outputs.shlvl)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// RUNBOOK_OUTPUT is parsed by the app's parser, so outputs match the app's.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — block outputs", () => {
+  let tmp: string
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-outputs-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("keeps value whitespace and skips lines without a valid key", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      `# Outputs\n\n<Command id="out" command='printf "MSG= hi\\n=no-key\\nbad-key=x\\nOK=1\\n" >> "$RUNBOOK_OUTPUT"' />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({ name: "outputs" })
+
+    expect(result.stepResults[0]?.outputs).toEqual({ MSG: " hi", OK: "1" })
+  })
+})

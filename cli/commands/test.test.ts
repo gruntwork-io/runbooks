@@ -29,8 +29,13 @@ function writeRunbook(name: string, mdx: string, yml: string): string {
 }
 
 function runCli(...args: string[]) {
+  return runCliWithEnv(process.env, ...args)
+}
+
+function runCliWithEnv(env: NodeJS.ProcessEnv, ...args: string[]) {
   const proc = spawnSync(process.execPath, [CLI_ENTRY, "test", ...args], {
     cwd: tmp,
+    env,
     encoding: "utf-8",
     timeout: CLI_TIMEOUT,
   })
@@ -131,5 +136,78 @@ describe("runbooks-cli test — unexpected errors", () => {
     expect(stdout).toContain("ENOENT")
     expect(stdout).toContain("happy")
     expect(stdout).toContain("1 passed, 1 failed")
+  }, CLI_TIMEOUT)
+})
+
+describe("runbooks-cli test — test case isolation", () => {
+  it("runs each test case in a fresh working dir", () => {
+    const dir = writeRunbook(
+      "isolated",
+      `# Isolated\n\n<Command id="gen" command='touch "$GENERATED_FILES/made.txt"' />\n\n<Command id="noop" command="true" />\n`,
+      [
+        "version: 1",
+        "tests:",
+        "  - name: first",
+        "    steps:",
+        "      - block: gen",
+        "        expect: success",
+        "    assertions:",
+        "      - type: file_exists",
+        "        path: made.txt",
+        "  - name: second",
+        "    steps:",
+        "      - block: noop",
+        "        expect: success",
+        "    assertions:",
+        "      - type: file_not_exists",
+        "        path: made.txt",
+        "",
+      ].join("\n"),
+    )
+
+    const { status, stdout } = runCli(dir)
+
+    expect(stdout).toContain("2 passed, 0 failed")
+    expect(status).toBe(0)
+  }, CLI_TIMEOUT)
+
+  it("lets every test case clone the same repo", () => {
+    const repo = path.join(tmp, "upstream")
+    fs.mkdirSync(repo)
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf-8" })
+    git("init", "-q")
+    fs.writeFileSync(path.join(repo, "main.tf"), "# tf\n")
+    git("add", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init")
+
+    const clone = "      - block: clone\n        expect: success\n"
+    const dir = writeRunbook(
+      "clones",
+      `# Clones\n\n<GitClone id="clone" prefilledUrl="file://${repo}" />\n`,
+      `version: 1\ntests:\n  - name: first\n    steps:\n${clone}  - name: second\n    steps:\n${clone}`,
+    )
+
+    const { status, stdout } = runCli(dir)
+
+    expect(stdout).toContain("2 passed, 0 failed")
+    expect(status).toBe(0)
+  }, CLI_TIMEOUT)
+
+  it("removes every temp dir it makes", () => {
+    // Per block: output, files, script, and the bash env/pwd capture dirs;
+    // per test case: the working dir.
+    const dir = writeRunbook(
+      "temp-dirs",
+      `# Temp dirs\n\n<Command id="export" command="export FOO=bar" />\n\n<Command id="gen" command='touch "$GENERATED_FILES/made.txt"' />\n`,
+      `version: 1\ntests:\n  - name: one\n  - name: two\n`,
+    )
+    const tmpdir = path.join(tmp, "tmpdir")
+    fs.mkdirSync(tmpdir)
+
+    const { status, stdout } = runCliWithEnv({ ...process.env, TMPDIR: tmpdir }, dir)
+
+    expect(stdout).toContain("2 passed, 0 failed")
+    expect(status).toBe(0)
+    expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith("runbook-"))).toEqual([])
   }, CLI_TIMEOUT)
 })

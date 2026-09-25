@@ -17,8 +17,11 @@ import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import {
   detectInterpreter,
   isBashInterpreter,
+  parseBlockOutputsContent,
+  parseEnvCaptureContent,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
+import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import type { Executable } from "../../src/types.ts"
 
 import type {
@@ -211,11 +214,13 @@ export class TestExecutor {
   private templates!: Map<string, TemplateBlock>
   private authDeps!: Map<string, AuthDependency>
 
-  // Per-session state
-  private sessionEnv: string[] = []
-  private sessionWorkDir: string
+  // process.env as captured by init(); every test starts from a copy
+  private initialSessionEnv: string[] = []
 
   // Per-test state (reset each test)
+  private workingDir: string
+  private sessionEnv: string[] = []
+  private sessionWorkDir: string
   private blockOutputs = new Map<string, Map<string, string>>()
   private testInputs: Record<string, unknown> = {}
   private testEnv: Record<string, string> = {}
@@ -223,13 +228,18 @@ export class TestExecutor {
   private authBlockCredentials = new Map<string, Record<string, string>>()
   private activeWorkTreePath = ""
 
+  /**
+   * `defaultWorkingDir` is where a test case runs when runTest isn't given a
+   * working directory of its own.
+   */
   constructor(
     private runbookPath: string,
-    private workingDir: string,
+    private defaultWorkingDir: string,
     private outputPath: string,
     private options: ExecutorOptions,
   ) {
-    this.sessionWorkDir = workingDir
+    this.workingDir = defaultWorkingDir
+    this.sessionWorkDir = defaultWorkingDir
   }
 
   /** Initialize the executor: parse runbook, build registry, validate config. */
@@ -256,7 +266,7 @@ export class TestExecutor {
     this.authDeps = parseAuthDependencies(this.runbookPath)
 
     // Capture initial environment
-    this.sessionEnv = Object.entries(process.env)
+    this.initialSessionEnv = Object.entries(process.env)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}=${v}`)
   }
@@ -310,7 +320,14 @@ export class TestExecutor {
   // Run a test case
   // -----------------------------------------------------------------------
 
-  runTest(tc: TestCase): TestResult {
+  /**
+   * Run one test case. Each test case starts clean: block outputs, the session
+   * env and the cwd start over, so nothing an earlier test case exported,
+   * cd'd into or authenticated carries into this one. With
+   * use_temp_working_dir, runTestSuite also passes a fresh `workingDir` per
+   * test case, so files and clones don't carry over either.
+   */
+  runTest(tc: TestCase, workingDir = this.defaultWorkingDir): TestResult {
     const start = Date.now()
     const result: TestResult = {
       testCase: tc.name,
@@ -373,6 +390,9 @@ export class TestExecutor {
 
     this.testInputs = resolvedInputs
     this.testEnv = tc.env ?? {}
+    this.workingDir = workingDir
+    this.sessionEnv = [...this.initialSessionEnv]
+    this.sessionWorkDir = workingDir
     this.blockOutputs = new Map()
     this.blockStates = new Map()
     this.authBlockCredentials = new Map()
@@ -722,6 +742,10 @@ export class TestExecutor {
     const outputFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")), "output.txt")
     fs.writeFileSync(outputFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
+    // Made below; declared here so the finally can remove them
+    let envDir = ""
+    let pwdDir = ""
+    let scriptDir = ""
 
     try {
       // Prepare the script
@@ -733,16 +757,16 @@ export class TestExecutor {
       let pwdCapturePath = ""
 
       if (isBash) {
-        const envDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-env-"))
+        envDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-env-"))
         envCapturePath = path.join(envDir, "env.txt")
         fs.writeFileSync(envCapturePath, "")
-        const pwdDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-pwd-"))
+        pwdDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-pwd-"))
         pwdCapturePath = path.join(pwdDir, "pwd.txt")
         fs.writeFileSync(pwdCapturePath, "")
         scriptToWrite = wrapBashScript(scriptContent, envCapturePath, pwdCapturePath)
       }
 
-      const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-script-"))
+      scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-script-"))
       const scriptPath = path.join(scriptDir, "script.sh")
       fs.writeFileSync(scriptPath, scriptToWrite, { mode: 0o700 })
 
@@ -800,16 +824,11 @@ export class TestExecutor {
       // Parse outputs
       if (status === "success" || status === "warn") {
         try {
-          const outputContent = fs.readFileSync(outputFile, "utf-8")
-          const outputs: Record<string, string> = {}
-          for (const line of outputContent.split("\n")) {
-            const idx = line.indexOf("=")
-            if (idx >= 0) {
-              outputs[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-            }
-          }
-          result.outputs = outputs
+          result.outputs = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
         } catch { /* no outputs */ }
+
+        // Carry the script's exports and final cwd into later blocks
+        if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath)
 
         // Copy captured files to output directory
         this.captureFiles(filesDir, this.resolveOutputPath())
@@ -831,10 +850,34 @@ export class TestExecutor {
       return result
 
     } finally {
-      // Cleanup temp files
-      try { fs.rmSync(path.dirname(outputFile), { recursive: true, force: true }) } catch {}
-      try { fs.rmSync(filesDir, { recursive: true, force: true }) } catch {}
+      // Cleanup temp files. The env capture holds every variable the script
+      // saw, credentials included, so it must not outlive the block.
+      for (const dir of [path.dirname(outputFile), filesDir, envDir, pwdDir, scriptDir]) {
+        if (dir) try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+      }
     }
+  }
+
+  /**
+   * Apply a bash block's env/pwd capture the way the app's session does after
+   * a successful run: the captured env, minus shell internals and per-block
+   * vars like RUNBOOK_OUTPUT, replaces the session env, and a non-empty pwd
+   * becomes the cwd for later blocks.
+   */
+  private applyEnvCapture(envCapturePath: string, pwdCapturePath: string): void {
+    let env: Record<string, string> | undefined
+    try {
+      env = parseEnvCaptureContent(fs.readFileSync(envCapturePath, "utf-8"))
+    } catch { /* nothing captured */ }
+    if (!env) return
+
+    this.sessionEnv = Object.entries(filterCapturedEnv(env)).map(([k, v]) => `${k}=${v}`)
+
+    let pwd = ""
+    try {
+      pwd = fs.readFileSync(pwdCapturePath, "utf-8").trim()
+    } catch { /* keep the current cwd */ }
+    if (pwd) this.sessionWorkDir = pwd
   }
 
   // -----------------------------------------------------------------------

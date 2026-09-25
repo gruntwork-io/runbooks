@@ -228,15 +228,15 @@ async function runTestSuite(
     return suite
   }
 
-  // Resolve working directory
-  let workDir: string
-  let cleanupWorkDir: (() => void) | null = null
+  // Resolve the configured working directory, or the cwd. With
+  // use_temp_working_dir (the default), each test case runs in its own fresh
+  // temp dir instead, made and removed around it below, so no test case sees
+  // files or clones an earlier one left behind.
+  const useTempWorkDir = shouldUseTempWorkingDir(config.settings)
+  let workDir = process.cwd()
 
   try {
-    if (shouldUseTempWorkingDir(config.settings)) {
-      workDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-workdir-"))
-      cleanupWorkDir = () => { try { fs.rmSync(workDir, { recursive: true, force: true }) } catch {} }
-    } else if (config.settings.working_dir) {
+    if (!useTempWorkDir && config.settings.working_dir) {
       if (config.settings.working_dir === ".") {
         workDir = path.dirname(runbookPath)
       } else if (path.isAbsolute(config.settings.working_dir)) {
@@ -244,8 +244,6 @@ async function runTestSuite(
       } else {
         workDir = path.join(path.dirname(runbookPath), config.settings.working_dir)
       }
-    } else {
-      workDir = process.cwd()
     }
   } catch (e: unknown) {
     suite.results.push({
@@ -283,43 +281,46 @@ async function runTestSuite(
     })
     suite.failed = 1
     suite.duration = Date.now() - start
-    cleanupWorkDir?.()
     return suite
   }
 
   runner.printRunbookHeader()
 
   // Run each test case
-  try {
-    for (const tc of config.tests) {
-      if (opts.test && tc.name !== opts.test) continue
+  for (const tc of config.tests) {
+    if (opts.test && tc.name !== opts.test) continue
 
-      runner.printTestHeader(tc.name)
-      let result: TestResult
-      try {
-        result = runner.runTest(tc)
-      } catch (e: unknown) {
-        // An unexpected throw fails this test case only; the remaining test
-        // cases and runbooks still run and are reported.
-        result = {
-          testCase: tc.name,
-          status: "failed",
-          error: `${e}`,
-          duration: 0,
-          stepResults: [],
-          assertions: [],
-        }
+    runner.printTestHeader(tc.name)
+    let tempWorkDir: string | null = null
+    let result: TestResult
+    try {
+      if (useTempWorkDir) {
+        tempWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-workdir-"))
       }
-      suite.results.push(result)
-
-      switch (result.status) {
-        case "passed": suite.passed++; break
-        case "failed": suite.failed++; break
-        case "skipped": suite.skipped++; break
+      result = runner.runTest(tc, tempWorkDir ?? workDir)
+    } catch (e: unknown) {
+      // An unexpected throw fails this test case only; the remaining test
+      // cases and runbooks still run and are reported.
+      result = {
+        testCase: tc.name,
+        status: "failed",
+        error: `${e}`,
+        duration: 0,
+        stepResults: [],
+        assertions: [],
+      }
+    } finally {
+      if (tempWorkDir) {
+        try { fs.rmSync(tempWorkDir, { recursive: true, force: true }) } catch {}
       }
     }
-  } finally {
-    cleanupWorkDir?.()
+    suite.results.push(result)
+
+    switch (result.status) {
+      case "passed": suite.passed++; break
+      case "failed": suite.failed++; break
+      case "skipped": suite.skipped++; break
+    }
   }
 
   suite.duration = Date.now() - start

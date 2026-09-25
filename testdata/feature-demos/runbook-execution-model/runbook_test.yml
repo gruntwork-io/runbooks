@@ -1,0 +1,44 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+
+tests:
+  - name: env-and-cwd-persist
+    description: |
+      Exports, modified values, multiline values and the working directory
+      carry from one bash block to the next. Python can read what bash
+      exported, but its own os.environ changes don't persist, so
+      verify-python-env fails as the runbook explains.
+    steps:
+      - block: set-initial-env
+        expect: success
+      - block: python-test
+        expect: success
+      - block: python-set-env
+        expect: success
+      - block: verify-python-env
+        expect: fail
+      - block: verify-env-vars
+        expect: success
+      - block: modify-env
+        expect: success
+      - block: verify-modified-env
+        expect: success
+      - block: set-multiline-env
+        expect: success
+      - block: verify-multiline-env
+        expect: success
+      - block: change-workdir
+        expect: success
+      - block: verify-workdir
+        expect: success
+
+  - name: nothing-carries-between-tests
+    description: |
+      Each test case starts from a clean environment, so the exports from
+      env-and-cwd-persist are gone.
+    steps:
+      - block: verify-env-vars
+        expect: fail

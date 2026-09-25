@@ -350,9 +350,56 @@ export function isValidEnvVarName(name: string): boolean {
 }
 
 /**
- * Parse the captured environment from temp files written by the bash wrapper.
- * The env file uses NUL-terminated entries (from `env -0`) to handle multiline values.
+ * Parse the contents of an env capture file written by the bash wrapper.
+ * Entries are NUL-terminated (from `env -0`) to handle multiline values.
  * Falls back to newline-delimited parsing if no NUL characters found.
+ *
+ * Pure, so the test CLI (which runs scripts synchronously) shares this parser
+ * with the app. Returns undefined when the capture holds no variables.
+ */
+export function parseEnvCaptureContent(data: string): Record<string, string> | undefined {
+  const parsed: Record<string, string> = {}
+
+  if (data.includes("\0")) {
+    // NUL-delimited: each entry is a complete KEY=VALUE pair
+    for (const entry of data.split("\0")) {
+      if (entry === "") continue
+      const idx = entry.indexOf("=")
+      if (idx !== -1) {
+        parsed[entry.slice(0, idx)] = entry.slice(idx + 1)
+      }
+    }
+  } else {
+    // Newline-delimited fallback: handle multiline values by detecting
+    // continuation lines (lines that don't start a new KEY=VALUE pair)
+    let currentKey = ""
+    let valueLines: string[] = []
+
+    for (const line of data.split("\n")) {
+      const idx = line.indexOf("=")
+      if (idx > 0 && isValidEnvVarName(line.slice(0, idx))) {
+        // Save previous key-value if any
+        if (currentKey) {
+          parsed[currentKey] = valueLines.join("\n")
+        }
+        currentKey = line.slice(0, idx)
+        valueLines = [line.slice(idx + 1)]
+      } else if (currentKey && line !== "") {
+        valueLines.push(line)
+      }
+    }
+    // Don't forget the last key
+    if (currentKey) {
+      parsed[currentKey] = valueLines.join("\n")
+    }
+  }
+
+  return Object.keys(parsed).length > 0 ? parsed : undefined
+}
+
+/**
+ * Parse the captured environment from temp files written by the bash wrapper.
+ * See parseEnvCaptureContent for the env file format.
  *
  * Returns { env, pwd } where env may be undefined if the file was empty/missing.
  */
@@ -373,46 +420,7 @@ export const parseEnvCapture = (
       .readFile(envCapturePath)
       .pipe(Effect.option)
     if (envResult._tag === "Some") {
-      const data = envResult.value
-      const parsed: Record<string, string> = {}
-
-      if (data.includes("\0")) {
-        // NUL-delimited: each entry is a complete KEY=VALUE pair
-        for (const entry of data.split("\0")) {
-          if (entry === "") continue
-          const idx = entry.indexOf("=")
-          if (idx !== -1) {
-            parsed[entry.slice(0, idx)] = entry.slice(idx + 1)
-          }
-        }
-      } else {
-        // Newline-delimited fallback: handle multiline values by detecting
-        // continuation lines (lines that don't start a new KEY=VALUE pair)
-        let currentKey = ""
-        let valueLines: string[] = []
-
-        for (const line of data.split("\n")) {
-          const idx = line.indexOf("=")
-          if (idx > 0 && isValidEnvVarName(line.slice(0, idx))) {
-            // Save previous key-value if any
-            if (currentKey) {
-              parsed[currentKey] = valueLines.join("\n")
-            }
-            currentKey = line.slice(0, idx)
-            valueLines = [line.slice(idx + 1)]
-          } else if (currentKey && line !== "") {
-            valueLines.push(line)
-          }
-        }
-        // Don't forget the last key
-        if (currentKey) {
-          parsed[currentKey] = valueLines.join("\n")
-        }
-      }
-
-      if (Object.keys(parsed).length > 0) {
-        env = parsed
-      }
+      env = parseEnvCaptureContent(envResult.value)
     }
 
     // Read working directory capture
@@ -432,6 +440,38 @@ export const parseEnvCapture = (
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse the contents of a RUNBOOK_OUTPUT file into key=value pairs. Pure, so
+ * the test CLI shares this parser with the app.
+ */
+export function parseBlockOutputsContent(content: string): Record<string, string> {
+  const outputs: Record<string, string> = {}
+
+  const lines = content.split("\n")
+  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+    const line = lines[lineNum].trim()
+    if (line === "") continue
+
+    const eqIdx = line.indexOf("=")
+    if (eqIdx === -1) {
+      // Invalid output line (no = sign), skip
+      continue
+    }
+
+    const key = line.slice(0, eqIdx).trim()
+    const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
+
+    if (!IDENT_RE.test(key)) {
+      // Invalid output key, skip
+      continue
+    }
+
+    outputs[key] = value
+  }
+
+  return outputs
+}
+
+/**
  * Read the RUNBOOK_OUTPUT file and parse key=value pairs.
  * Returns a map of outputs, or an empty record if the file is empty/missing.
  */
@@ -444,37 +484,13 @@ export const parseBlockOutputs = (
 > =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-    const outputs: Record<string, string> = {}
 
     const result = yield* fs.readFile(filePath).pipe(Effect.option)
     if (result._tag !== "Some") {
-      return outputs
+      return {}
     }
 
-    const content = result.value
-    const lines = content.split("\n")
-    for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-      const line = lines[lineNum].trim()
-      if (line === "") continue
-
-      const eqIdx = line.indexOf("=")
-      if (eqIdx === -1) {
-        // Invalid output line (no = sign), skip
-        continue
-      }
-
-      const key = line.slice(0, eqIdx).trim()
-      const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
-
-      if (!IDENT_RE.test(key)) {
-        // Invalid output key, skip
-        continue
-      }
-
-      outputs[key] = value
-    }
-
-    return outputs
+    return parseBlockOutputsContent(result.value)
   })
 
 // ---------------------------------------------------------------------------
