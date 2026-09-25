@@ -969,9 +969,9 @@ export function useGitAuth({
   // immediately against the *pre-reload* host and then lock detectionAttemptedRef,
   // so a changed glab default would never be re-detected.
   const reloadDetection = useCallback(() => {
-    // Reload re-enumerates, flushes the CLI token cache, clears
-    // the transport-degraded flags (both via vcs:invalidate-cache), resets
-    // the key-icon downgrades, and re-runs trust install + detection.
+    // Reload re-enumerates, flushes the CLI token cache (via
+    // vcs:invalidate-cache), resets the key-icon downgrades, and re-runs
+    // trust install + detection.
     invalidateMainCache()
     setDowngradedHosts(new Set())
     beginRedetect()

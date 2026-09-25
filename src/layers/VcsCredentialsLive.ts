@@ -2,12 +2,11 @@
  * Live implementation of the VcsCredentials service.
  *
  * Owns: the per-(binary,host) 5-minute CLI read cache + its invalidation
- * rules, the CLI version-probe cache, the validation probe (both
- * token shapes), and the transport-degraded host set. Per-host glab spawn
- * serialization and child-env hygiene live in the domain modules this layer
- * composes.
+ * rules, the CLI version-probe cache, and the validation probe (both
+ * token shapes). Per-host glab spawn serialization and child-env hygiene live
+ * in the domain modules this layer composes.
  */
-import { Context, Effect, Layer, Stream } from "effect"
+import { Context, Effect, Layer } from "effect"
 import { VcsCredentials } from "../services/VcsCredentials.ts"
 import type {
   CliValidation,
@@ -21,7 +20,7 @@ import type {
 } from "../services/VcsCredentials.ts"
 import { Environment } from "../services/Environment.ts"
 import { FileSystem } from "../services/FileSystem.ts"
-import { ProcessSpawner } from "../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput } from "../services/ProcessSpawner.ts"
 import { GitHubClient } from "../services/GitHubClient.ts"
 import { GitLabClient } from "../services/GitLabClient.ts"
 import { GitHubApiError, GitLabApiError, VcsCliError } from "../errors/index.ts"
@@ -44,6 +43,7 @@ import {
   mayAutoSendEnvToken,
   envTokenHost,
   DEFAULT_GITLAB_HOST,
+  GLAB_ENV_OVERRIDES,
 } from "../domain/gitlab/auth.ts"
 import type { GlabCliRead } from "../domain/gitlab/auth.ts"
 import { probeGhStatus, probeGlabStatus, probeGitSslBackend } from "../domain/vcs/cli-status.ts"
@@ -168,11 +168,10 @@ export const VcsCredentialsLive = Layer.effect(
       effect: Effect.Effect<A, E, Environment | ProcessSpawner | FileSystem>,
     ): Effect.Effect<A, E> => Effect.provide(effect, domainContext)
 
-    // --- Caches + degraded-host set (closure state) ------------------------
+    // --- Caches (closure state) ---------------------------------------------
 
     const cliReadCache = new Map<string, CacheEntry<unknown>>()
     let cliStatusCache: CacheEntry<VcsCliStatusInfo> | undefined
-    const degradedHosts = new Map<string, string>()
 
     const cachedRead = <T>(key: string, compute: Effect.Effect<T>, cacheable: (value: T) => boolean) =>
       Effect.gen(function* () {
@@ -204,7 +203,11 @@ export const VcsCredentialsLive = Layer.effect(
     const cliStatus = (): Effect.Effect<VcsCliStatusInfo> =>
       Effect.gen(function* () {
         if (cliStatusCache && cliStatusCache.expiresAt > Date.now()) return cliStatusCache.value
-        const probes = { gh: run(probeGhStatus()), glab: run(probeGlabStatus()) }
+        const allEnv = yield* environment.getAll()
+        const probes = {
+          gh: run(probeGhStatus(buildCliEnv(allEnv, GH_ENV_OVERRIDES))),
+          glab: run(probeGlabStatus(buildCliEnv(allEnv, GLAB_ENV_OVERRIDES))),
+        }
         const status: VcsCliStatusInfo =
           process.platform === "win32"
             ? yield* Effect.all(
@@ -345,30 +348,6 @@ export const VcsCredentialsLive = Layer.effect(
         return toDetection(validation, { token, source }, [warning])
       })
 
-    // --- Full chains: invalid continues, unreachable stops -------------
-
-    const chain = (
-      legs: Array<Effect.Effect<DetectionResult>>,
-    ): Effect.Effect<DetectionResult> =>
-      Effect.gen(function* () {
-        const warnings: string[] = []
-        let hint: string | undefined
-        for (const leg of legs) {
-          const result = yield* leg
-          if (result.outcome === "valid" || result.outcome === "unreachable") {
-            return { ...result, warnings: [...warnings, ...result.warnings] }
-          }
-          warnings.push(...result.warnings)
-          hint = result.hint ?? hint
-        }
-        // An empty final result is NOT an error — the repo may be public.
-        return absent({ warnings, hint })
-      })
-
-    const resolveGitHub = (prefix?: string) => chain([detectGitHubEnv(prefix), detectGitHubCli()])
-    const resolveGitLab = (instance: string) =>
-      chain([detectGitLabEnv(instance), detectGitLabCli(instance)])
-
     const validateDirect = (
       provider: VcsProvider,
       host: string,
@@ -442,23 +421,14 @@ export const VcsCredentialsLive = Layer.effect(
               }),
           ),
         )
-        const stdout: string[] = []
-        const stderr: string[] = []
-        const exitCode = yield* Effect.ensuring(
-          Effect.gen(function* () {
-            yield* proc.output.pipe(
-              Stream.runForEach((line) =>
-                Effect.sync(() => {
-                  ;(line.source === "stdout" ? stdout : stderr).push(line.line)
-                }),
-              ),
-              Effect.timeout(PROBE_TIMEOUT_MS),
-            )
-            return yield* proc.exitCode.pipe(Effect.timeout(PROBE_TIMEOUT_MS))
-          }),
-          proc.kill.pipe(Effect.ignore),
-        ).pipe(Effect.mapError(() => new VcsCliError({ kind: "timeout", stderr: "" })))
-        return { exitCode, stdout, stderr }
+        const { exitCode, lines } = yield* collectOutput(proc, PROBE_TIMEOUT_MS).pipe(
+          Effect.mapError(() => new VcsCliError({ kind: "timeout", stderr: "" })),
+        )
+        return {
+          exitCode,
+          stdout: lines.filter((line) => line.source === "stdout").map((line) => line.line),
+          stderr: lines.filter((line) => line.source === "stderr").map((line) => line.line),
+        }
       })
 
     /** Parse `gh api user -i` output: status line + headers + JSON body. */
@@ -608,8 +578,6 @@ export const VcsCredentialsLive = Layer.effect(
       detectGitHubCli,
       detectGitLabEnv,
       detectGitLabCli,
-      resolveGitHub,
-      resolveGitLab,
       validateDirect,
       tokenForHost,
       enumerateGitLabHosts: (): Effect.Effect<MergedGitLabHosts> => run(detectConfigHosts()),
@@ -622,13 +590,10 @@ export const VcsCredentialsLive = Layer.effect(
         }),
       markTransportDegraded: (host, code) =>
         Effect.sync(() => {
-          degradedHosts.set(host, code)
           // Structured support signal + field canary for Node system-store
           // reader regressions.
           console.warn(`transport degraded for ${host}: ${code}`)
         }),
-      isTransportDegraded: (host) => Effect.sync(() => degradedHosts.has(host)),
-      clearTransportDegraded: () => Effect.sync(() => degradedHosts.clear()),
     }
 
     return shape

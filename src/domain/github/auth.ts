@@ -1,14 +1,14 @@
 /**
  * GitHub authentication logic.
  */
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
 import { GitHubClient } from "../../services/GitHubClient.ts"
 import type { GitHubTokenType } from "../../services/GitHubClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { detectCliToken, buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 
@@ -221,18 +221,8 @@ export const cliScopes = () =>
           ["auth", "status", "--hostname", "github.com"],
           { env: childEnv },
         )
-        const lines: string[] = []
-        yield* Effect.ensuring(
-          Effect.gen(function* () {
-            yield* proc.output.pipe(
-              Stream.runForEach((line) => Effect.sync(() => lines.push(line.line))),
-              Effect.timeout(GH_STATUS_TIMEOUT_MS),
-            )
-            yield* proc.exitCode.pipe(Effect.timeout(GH_STATUS_TIMEOUT_MS))
-          }),
-          proc.kill.pipe(Effect.ignore),
-        )
-        return parseGhCliScopes(lines.join("\n"))
+        const { lines } = yield* collectOutput(proc, GH_STATUS_TIMEOUT_MS)
+        return parseGhCliScopes(lines.map((line) => line.line).join("\n"))
       }),
     )
 

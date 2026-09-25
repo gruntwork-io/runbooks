@@ -8,14 +8,14 @@
  * CLI reads are PER HOST: `glab config get token --host <H>` —
  * glab has no `auth token` subcommand.
  */
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 import { normalizeGitLabHost, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
@@ -213,23 +213,12 @@ const runGlab = (
       ...setEnv,
     }
     const proc = yield* spawner.spawn("glab", args, { env: childEnv })
-    const stdout: string[] = []
-    const stderr: string[] = []
-    const exitCode = yield* Effect.ensuring(
-      Effect.gen(function* () {
-        yield* proc.output.pipe(
-          Stream.runForEach((line) =>
-            Effect.sync(() => {
-              ;(line.source === "stdout" ? stdout : stderr).push(line.line)
-            }),
-          ),
-          Effect.timeout(timeoutMs),
-        )
-        return yield* proc.exitCode.pipe(Effect.timeout(timeoutMs))
-      }),
-      proc.kill.pipe(Effect.ignore),
-    )
-    return { exitCode, stdout, stderr }
+    const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
+    return {
+      exitCode,
+      stdout: lines.filter((line) => line.source === "stdout").map((line) => line.line),
+      stderr: lines.filter((line) => line.source === "stderr").map((line) => line.line),
+    }
   })
 
 export const isSpawnEnoent = (err: unknown): boolean => {

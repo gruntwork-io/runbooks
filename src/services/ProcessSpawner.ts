@@ -1,4 +1,5 @@
 import { Context, Effect, Stream } from "effect"
+import type { Cause } from "effect"
 import type { SpawnError } from "../errors/index.ts"
 
 export interface SpawnOptions {
@@ -34,3 +35,30 @@ export interface ProcessSpawnerShape {
 }
 
 export class ProcessSpawner extends Context.Tag("ProcessSpawner")<ProcessSpawner, ProcessSpawnerShape>() {}
+
+/** Everything a short-lived process wrote, in arrival order, plus its exit code. */
+export interface CollectedOutput {
+  readonly exitCode: number
+  readonly lines: OutputLine[]
+}
+
+/**
+ * Drain a spawned process's combined output, then await its exit code, each
+ * bounded by `timeoutMs`. The process is killed however this ends (success,
+ * timeout, or interruption), so a hung CLI can never outlive its reader.
+ * Callers keep their own spawn (argv, env) and error mapping; filter `lines`
+ * by `source` to split stdout from stderr.
+ */
+export const collectOutput = (
+  proc: SpawnedProcess,
+  timeoutMs: number,
+): Effect.Effect<CollectedOutput, Cause.TimeoutException> =>
+  Effect.gen(function* () {
+    const lines: OutputLine[] = []
+    yield* proc.output.pipe(
+      Stream.runForEach((line) => Effect.sync(() => lines.push(line))),
+      Effect.timeout(timeoutMs),
+    )
+    const exitCode = yield* proc.exitCode.pipe(Effect.timeout(timeoutMs))
+    return { exitCode, lines }
+  }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))

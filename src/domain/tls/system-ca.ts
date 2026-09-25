@@ -21,8 +21,8 @@
  * injectable `CaSources`, which keeps it pure, Bun-test-safe (Bun 1.3.x has
  * no tls.setDefaultCACertificates), and trivially fakeable.
  */
-import { Effect, Stream } from "effect"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { Effect } from "effect"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { VCS_TOKEN_ENV_VARS } from "../vcs/redact.ts"
 import type { VcsTransportErrorKind } from "../../errors/index.ts"
 
@@ -115,21 +115,11 @@ export const coldReadSystemPems = (
       ["-p", "JSON.stringify(require('node:tls').getCACertificates('system'))"],
       { env: coldReadChildEnv() },
     )
-    const stdout: string[] = []
-    const exitCode = yield* Effect.ensuring(
-      Effect.gen(function* () {
-        yield* proc.output.pipe(
-          Stream.filter((line) => line.source === "stdout"),
-          Stream.runForEach((line) => Effect.sync(() => stdout.push(line.line))),
-          Effect.timeout(timeoutMs),
-        )
-        return yield* proc.exitCode.pipe(Effect.timeout(timeoutMs))
-      }),
-      proc.kill.pipe(Effect.ignore),
-    )
+    const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
     if (exitCode !== 0) {
       return yield* Effect.fail(new Error(`cold system-CA read exited with code ${exitCode}`))
     }
+    const stdout = lines.filter((line) => line.source === "stdout").map((line) => line.line)
     const parsed = yield* Effect.try({
       try: (): unknown => JSON.parse(stdout.join("\n")),
       catch: (err) => new Error(`cold system-CA read produced unparseable stdout: ${err}`),

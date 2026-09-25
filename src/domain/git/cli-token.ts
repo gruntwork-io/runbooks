@@ -3,8 +3,8 @@
  * (`gh auth token`, `glab config get token`). Spawns the command, takes the
  * first stdout line with a timeout, and returns undefined on any failure.
  */
-import { Effect, Stream } from "effect"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { Effect } from "effect"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
 
 /**
@@ -54,33 +54,14 @@ export const detectCliToken = (
           ? buildCliEnv(yield* environment.getAll(), envOverrides)
           : undefined
         const proc = yield* spawner.spawn(command, args, childEnv ? { env: childEnv } : undefined)
+        const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
 
-        // Collect stdout lines with a timeout, ensuring the process is
-        // killed when we're done (success, failure, or timeout).
-        const lines: string[] = []
-        const exitCode = yield* Effect.ensuring(
-          Effect.gen(function* () {
-            yield* proc.output.pipe(
-              Stream.filter((line) => line.source === "stdout"),
-              Stream.take(1),
-              Stream.runForEach((line) =>
-                Effect.sync(() => {
-                  lines.push(line.line.trim())
-                }),
-              ),
-              Effect.timeout(timeoutMs),
-            )
-
-            return yield* proc.exitCode.pipe(Effect.timeout(timeoutMs))
-          }),
-          proc.kill.pipe(Effect.ignore),
-        )
-
-        if (exitCode !== 0 || lines.length === 0) {
+        const firstStdout = lines.find((line) => line.source === "stdout")
+        if (exitCode !== 0 || !firstStdout) {
           return undefined
         }
 
-        const token = lines[0]
+        const token = firstStdout.line.trim()
         return token.length > 0 ? token : undefined
       }),
     )
