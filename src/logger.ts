@@ -133,7 +133,16 @@ function formatError(err: Error, depth = 0): string {
 function sanitizeArgs(args: unknown[]): unknown[] {
   return args.map((arg) => {
     if (typeof arg === "string") return redactSecrets(arg)
-    if (arg instanceof Error) return redactSecrets(formatError(arg))
+    if (arg instanceof Error) {
+      try {
+        return redactSecrets(formatError(arg))
+      } catch {
+        // formatError reads every own enumerable property, so a throwing
+        // getter would make the log call itself throw, often inside a catch
+        // block, replacing the error being logged. Fall back to the stack.
+        return redactSecrets(arg.stack ?? arg.message)
+      }
+    }
     return arg
   })
 }

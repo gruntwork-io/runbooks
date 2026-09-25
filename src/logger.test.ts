@@ -187,6 +187,23 @@ describe("makeLogger error formatting", () => {
     expect(out).toContain("EACCES")
   })
 
+  it("falls back to the stack instead of throwing when a field getter throws", () => {
+    registerSecret(SECRET)
+    const err = new Error(`clone failed for ${SECRET}`)
+    Object.defineProperty(err, "detail", {
+      enumerable: true,
+      get() {
+        throw new Error("getter threw")
+      },
+    })
+    let out = ""
+    expect(() => {
+      out = logged(err)
+    }).not.toThrow()
+    expect(out).toContain("clone failed for [REDACTED]")
+    expect(out).not.toContain(SECRET)
+  })
+
   it("stops following a cyclic cause chain", () => {
     const a = new Error("first")
     const b = new Error("second", { cause: a })
