@@ -195,6 +195,8 @@ This uses `git sparse-checkout` under the hood, which is efficient even for larg
 
 The `prefilledLocalPath` prop (or the "Local Path" input field) controls where files are cloned, relative to the current working directory. If not set, the repository name is used.
 
+The local path must be a subdirectory of the working directory, because "Delete & Clone" removes an existing directory there before cloning. The block shows an error instead of cloning when the path is the working directory itself (for example `.`), when it leads outside the working directory (including through a symlink), or when it contains the runbook.
+
 ### Environment Variables
 
 When a `<GitClone>` block successfully clones a repository, it sets the `$REPO_FILES` environment variable for all subsequent Command and Check blocks. This variable points to the local path of the most recently cloned repository.

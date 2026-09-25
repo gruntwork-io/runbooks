@@ -29,9 +29,8 @@ import { gitCredentialUsername, withGitHttpAuth } from "../../../src/domain/git/
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
-import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitLocalRepoResponse } from "../../shared/channels.ts"
 
@@ -224,21 +223,19 @@ export function registerGitHandlers(): void {
             session.workingDir,
           )
 
-          // Validate clone destination is within the session working dir
-          if (!isContainedIn(paths.absolutePath, session.workingDir)) {
-            return yield* Effect.fail(
-              new PathTraversalError({
-                path: paths.absolutePath,
-                message: "clone destination is outside session working directory",
-              }),
-            )
-          }
+          // Validate the clone destination before the existence check, so a
+          // bad localPath is an inline error, never a "Delete & Clone" prompt.
+          yield* validateCloneDestination(
+            paths.absolutePath,
+            session.workingDir,
+            session.runbookPath,
+          )
 
           // If the destination already exists, either surface directory_exists
           // so the renderer can prompt the user, or delete it when force=true
-          // (from "Delete & Clone"). The isContainedIn check above gates the
-          // rm so a malformed localPath cannot wipe anything outside the
-          // session working dir.
+          // (from "Delete & Clone"). validateCloneDestination above gates the
+          // rm: the destination is a strict subdirectory of the session working
+          // dir once symlinks are resolved, and doesn't contain the runbook.
           if (existsSync(paths.absolutePath)) {
             if (!params.force) {
               return { error: "directory_exists" as const }
@@ -702,8 +699,8 @@ export function registerGitHandlers(): void {
     async (_event, params: { worktreePath: string; branch: string }) => {
       return runAndUnwrap(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
-          return yield* deleteBranch(params.worktreePath, params.branch)
+          const repoPath = yield* validateSessionPath(params.worktreePath)
+          return yield* deleteBranch(repoPath, params.branch)
         }),
       )
     },
