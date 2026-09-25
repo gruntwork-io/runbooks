@@ -131,6 +131,15 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   )
 }
 
+// Attribute on an MDX JSX node. Literal attributes (`src="./a.png"`) have a
+// string `value`; `src={expr}` has an expression object instead, and spread
+// attributes (`{...props}`) have type 'mdxJsxExpressionAttribute'.
+interface MdxJsxAttribute {
+  type: string
+  name?: string
+  value?: unknown
+}
+
 // Type for rehype tree nodes
 interface RehypeNode {
   type?: string
@@ -139,18 +148,36 @@ interface RehypeNode {
     src?: string
     [key: string]: unknown
   }
+  // Set on mdxJsxFlowElement / mdxJsxTextElement nodes (JSX written in the MDX)
+  name?: string | null
+  attributes?: MdxJsxAttribute[]
   children?: RehypeNode[]
   [key: string]: unknown
 }
 
+// The URL attributes, per HTML tag, that may reference a runbook asset. Shared
+// by markdown-generated elements and HTML tags written directly in the MDX so
+// the two can't drift apart. Only lowercase HTML tags are listed, so props on
+// capitalized block components (<Command>, <Template>, ...) are never touched.
+const ASSET_ATTRS = new Map<string, readonly string[]>([
+  ['img', ['src']], // <img src="./assets/image.png">
+  ['video', ['src', 'poster']], // <video src="./assets/video.mp4" poster="./assets/poster.png">
+  ['audio', ['src']], // <audio src="./assets/audio.mp3">
+  ['source', ['src']], // <source src="./assets/video.webm"> (child of video/audio)
+  ['a', ['href']], // <a href="./assets/document.pdf">
+  ['embed', ['src']], // <embed src="./assets/document.pdf">
+  ['object', ['data']], // <object data="./assets/document.pdf">
+])
+
 // Custom rehype plugin to transform asset paths for all media types.
 // Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
 // Electron's custom protocol handler can serve them from the local filesystem.
-function rehypeTransformAssetPaths() {
+// Exported for tests.
+export function rehypeTransformAssetPaths() {
   return (tree: RehypeNode) => {
     // Helper function to transform a path if it starts with ./assets/
-    const transformPath = (path: string | undefined): string | undefined => {
-      if (!path || !path.startsWith('./assets/')) {
+    const transformPath = (path: string): string => {
+      if (!path.startsWith('./assets/')) {
         return path
       }
       // Remove the ./ prefix and use the runbook-asset:// protocol
@@ -158,70 +185,43 @@ function rehypeTransformAssetPaths() {
       return `runbook-asset://${assetPath}`
     }
 
-    // Walk through the tree and transform asset nodes
+    // Walk through the tree and transform asset references. Markdown syntax
+    // (![alt](./assets/a.png), [text](./assets/a.pdf)) produces hast `element`
+    // nodes with a `properties` object. HTML written directly in the MDX
+    // (<img>, <video>, <source>, ...) arrives instead as mdxJsxFlowElement
+    // (block) or mdxJsxTextElement (inline) nodes with an `attributes` array.
     const visit = (node: RehypeNode) => {
-      if (node.type !== 'element') {
-        // Recursively visit children first
-        if (node.children) {
-          node.children.forEach(visit)
+      if (node.type === 'element' && node.tagName && node.properties) {
+        for (const attr of ASSET_ATTRS.get(node.tagName) ?? []) {
+          const value = node.properties[attr]
+          if (typeof value === 'string') {
+            node.properties[attr] = transformPath(value)
+          }
         }
-        return
+      } else if (
+        (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') &&
+        typeof node.name === 'string'
+      ) {
+        const attrs = ASSET_ATTRS.get(node.name) ?? []
+        // Only string literals are rewritten; `src={expr}` is left as written.
+        for (const attribute of node.attributes ?? []) {
+          if (
+            attribute.type === 'mdxJsxAttribute' &&
+            attribute.name !== undefined &&
+            attrs.includes(attribute.name) &&
+            typeof attribute.value === 'string'
+          ) {
+            attribute.value = transformPath(attribute.value)
+          }
+        }
       }
 
-      // Handle different element types that can reference assets
-      switch (node.tagName) {
-        case 'img':
-          // Image: <img src="./assets/image.png">
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          break
-
-        case 'video':
-        case 'audio':
-          // Video/Audio: <video src="./assets/video.mp4">
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          // Also check poster attribute for video
-          if (node.tagName === 'video' && node.properties?.poster) {
-            node.properties.poster = transformPath(node.properties.poster as string)
-          }
-          break
-
-        case 'source':
-          // Source: <source src="./assets/video.mp4"> (child of video/audio)
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          break
-
-        case 'a':
-          // Links: <a href="./assets/document.pdf">
-          if (node.properties?.href) {
-            node.properties.href = transformPath(node.properties.href as string)
-          }
-          break
-
-        case 'embed':
-        case 'object':
-          // Embedded content: <embed src="./assets/document.pdf">
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          // Object elements use 'data' attribute
-          if (node.tagName === 'object' && node.properties?.data) {
-            node.properties.data = transformPath(node.properties.data as string)
-          }
-          break
-      }
-      
       // Recursively visit children
       if (node.children) {
         node.children.forEach(visit)
       }
     }
-    
+
     visit(tree)
   }
 }
