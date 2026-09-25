@@ -3,7 +3,12 @@
  * list-item marker before the run (`- ```bash`, `1. ```bash`), the run, and
  * the rest of the line. Any indent is allowed because MDX turns off indented
  * code; `[ \t]*` (not `\s*`) keeps a match from starting on an earlier line.
- * Other container prefixes (`> ````) are not recognised.
+ *
+ * Known limits, where this line scanner and the MDX parser can disagree about
+ * which blocks are live: other container prefixes (`> ````) and nested list
+ * markers (`- - ````) are not recognised as openers; a fence in a list item
+ * that MDX closes at the end of the item stays open here until a closer or
+ * EOF; and a fence line inside an MDX comment (`{/* ... *\/}`) still counts.
  */
 const FENCE_LINE_REGEX = /^[ \t]*((?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/gm
 
