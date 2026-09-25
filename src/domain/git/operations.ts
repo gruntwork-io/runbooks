@@ -217,7 +217,10 @@ const makeReport =
  * API call) leaves HEAD on the head branch. Running again with the same branch
  * name picks up there instead of failing on "a branch named … already exists":
  * it skips the branch creation, commits only if there is something new, and
- * pushes.
+ * pushes. A resumed branch with no commits of its own (the first attempt
+ * stopped at "nothing to commit") is still pushed, and the provider then
+ * rejects the PR/MR as having no changes; the pushed branch is reused by the
+ * next attempt.
  */
 const runGitSteps = (
   token: string,
@@ -275,7 +278,9 @@ const runGitSteps = (
     // On a fresh branch "nothing to commit" is the clearest error, so always
     // commit. On a resumed branch an earlier attempt may already have committed
     // everything; commit only what is staged now. (Not hasChanges: the embedded
-    // repos left out of staging still show as untracked.)
+    // repos left out of staging still show as untracked.) status() trims the XY
+    // code, so a worktree-only change (a tracked submodule with modified
+    // content) also counts here, and the commit then fails as on a fresh branch.
     const hasStaged = resuming
       ? (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
       : true
