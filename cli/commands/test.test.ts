@@ -234,12 +234,25 @@ describe("runbooks-cli test — test case isolation", () => {
 
 describe("runbooks-cli test — GitClone authentication", () => {
   /**
-   * Serve a local repo at https://127.0.0.1:1/group/<repo>.git, but only to a
-   * clone URL carrying `userinfo`: git rewrites those URLs to the local repo,
-   * and any other URL goes to port 1, which refuses the connection. So the
-   * clone succeeds only if the runner put exactly that user and token in it.
+   * Serve a local repo at https://<host>/group/<repo>.git, but only to a clone
+   * URL carrying `userinfo`, or no userinfo when it is "": git rewrites those
+   * URLs to the local repo. Any other URL on 127.0.0.1:1, and any URL prefix in
+   * `refuse`, goes to port 1, which refuses the connection. So the clone
+   * succeeds only if the runner put exactly that user and token in the URL.
    */
-  function runCloneWithAuth(opts: { repo: string; userinfo: string; authBlock: string; cloneProps: string; env: string }) {
+  function runCloneWithAuth(opts: {
+    repo: string
+    host?: string
+    userinfo: string
+    refuse?: string[]
+    authBlock?: string
+    cloneProps?: string
+    /** Lines for the test case's `env:`. */
+    env: string[]
+    /** Env for the CLI itself; an undefined value unsets the variable. */
+    cliEnv?: Record<string, string | undefined>
+  }) {
+    const host = opts.host ?? "127.0.0.1:1"
     const upstream = path.join(tmp, "upstream")
     fs.mkdirSync(upstream)
     const git = (...args: string[]) => spawnSync("git", args, { cwd: upstream, encoding: "utf-8" })
@@ -250,13 +263,13 @@ describe("runbooks-cli test — GitClone authentication", () => {
     const remote = path.join(tmp, "remote")
     git("clone", "-q", "--bare", upstream, path.join(remote, "group", `${opts.repo}.git`))
 
-    const url = `https://127.0.0.1:1/group/${opts.repo}.git`
+    const url = `https://${host}/group/${opts.repo}.git`
     const dir = writeRunbook(
       "clone-auth",
       [
         "# Clone",
-        opts.authBlock,
-        `<GitClone id="clone" ${opts.cloneProps} prefilledUrl="${url}" />`,
+        ...(opts.authBlock ? [opts.authBlock] : []),
+        `<GitClone id="clone" ${opts.cloneProps ?? ""} prefilledUrl="${url}" />`,
         // REPO_FILES is the clone's destination
         `<Check id="dest" command='test "$(basename "$REPO_FILES")" = "${opts.repo}"' />`,
         "",
@@ -269,20 +282,31 @@ describe("runbooks-cli test — GitClone authentication", () => {
         '      GITLAB_HOST: ""',
         '      GITLAB_URI: ""',
         '      GL_HOST: ""',
-        `      ${opts.env}`,
+        ...opts.env.map((line) => `      ${line}`),
         "",
       ].join("\n"),
     )
 
-    return runCliWithEnv(
-      {
-        ...process.env,
-        GIT_CONFIG_COUNT: "1",
-        GIT_CONFIG_KEY_0: `url.file://${remote}/.insteadOf`,
-        GIT_CONFIG_VALUE_0: `https://${opts.userinfo}@127.0.0.1:1/`,
-      },
-      dir,
-    )
+    const rules: [string, string][] = [
+      [`url.file://${remote}/.insteadOf`, `https://${opts.userinfo ? `${opts.userinfo}@` : ""}${host}/`],
+      ...(opts.refuse ?? []).map((prefix): [string, string] => ["url.https://127.0.0.1:1/.insteadOf", prefix]),
+    ]
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      // Only these rules, not the machine's own git config, decide where a URL goes
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_CONFIG_COUNT: String(rules.length),
+      ...Object.fromEntries(rules.flatMap(([key, value], i) => [
+        [`GIT_CONFIG_KEY_${i}`, key],
+        [`GIT_CONFIG_VALUE_${i}`, value],
+      ])),
+      ...opts.cliEnv,
+    }
+    for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key]
+
+    return runCliWithEnv(env, dir)
   }
 
   it("clones as oauth2 with the token of the GitLab auth block it references", () => {
@@ -291,7 +315,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
       userinfo: "oauth2:fake-gitlab-token",
       authBlock: `<GitLabAuth id="auth" />`,
       cloneProps: `gitAuthId="auth"`,
-      env: "GITLAB_TOKEN: fake-gitlab-token",
+      env: ["GITLAB_TOKEN: fake-gitlab-token"],
     })
 
     expect(stdout).toContain("1 passed, 0 failed")
@@ -305,7 +329,35 @@ describe("runbooks-cli test — GitClone authentication", () => {
       userinfo: "x-access-token:fake-github-token",
       authBlock: `<GitAuth id="auth" provider="github" />`,
       cloneProps: `gitAuthId="auth"`,
-      env: "RUNBOOKS_GITHUB_TOKEN: fake-github-token",
+      env: ["RUNBOOKS_GITHUB_TOKEN: fake-github-token"],
+    })
+
+    expect(stdout).toContain("1 passed, 0 failed")
+    expect(status).toBe(0)
+  }, CLI_TIMEOUT)
+
+  it("clones a github.com URL with no auth reference using the CLI's own GITHUB_TOKEN", () => {
+    const { status, stdout } = runCloneWithAuth({
+      repo: "app",
+      host: "github.com",
+      userinfo: "x-access-token:ambient-secret",
+      refuse: ["https://github.com/"],
+      env: [],
+      cliEnv: { GITHUB_TOKEN: "ambient-secret", GH_TOKEN: undefined },
+    })
+
+    expect(stdout).toContain("1 passed, 0 failed")
+    expect(status).toBe(0)
+  }, CLI_TIMEOUT)
+
+  it("clones with no token when the test's env blanks the CLI's own GITHUB_TOKEN and GH_TOKEN", () => {
+    const { status, stdout } = runCloneWithAuth({
+      repo: "app",
+      host: "github.com",
+      userinfo: "",
+      refuse: ["https://x-access-token:ambient-secret@github.com/"],
+      env: ['GITHUB_TOKEN: ""', 'GH_TOKEN: ""'],
+      cliEnv: { GITHUB_TOKEN: "ambient-secret", GH_TOKEN: "ambient-secret" },
     })
 
     expect(stdout).toContain("1 passed, 0 failed")

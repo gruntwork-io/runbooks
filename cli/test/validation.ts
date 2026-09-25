@@ -121,11 +121,9 @@ export class InputValidator {
     components.push(...this.parseRunBlocks(content, "Command"))
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
-    components.push(...this.parseAuthBlocks(content, "AwsAuth"))
-    components.push(...this.parseAuthBlocks(content, "GoogleAuth"))
-    components.push(...this.parseAuthBlocks(content, "GitAuth"))
-    components.push(...this.parseAuthBlocks(content, "GitHubAuth"))
-    components.push(...this.parseAuthBlocks(content, "GitLabAuth"))
+    for (const authType of AUTH_BLOCK_TYPES) {
+      components.push(...this.parseAuthBlocks(content, authType))
+    }
     components.push(...this.parseAuthBlocks(content, "GitClone"))
     for (const prType of PR_BLOCK_TYPES) {
       components.push(...this.parseAuthBlocks(content, prType))

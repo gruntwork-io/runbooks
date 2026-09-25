@@ -412,6 +412,21 @@ describe("TestExecutor — session env and cwd", () => {
     expect(reported(second).cwd).toBe(fs.realpathSync(tmp))
   })
 
+  it("gives script assertions the test case's env before any bash block has run", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "assert-env",
+      env: { ISO_TC_ENV: "from-test" },
+      // Nothing runs, so nothing has captured the test's env into the session
+      steps: [{ block: "set-env", expect: "skip" }],
+      assertions: [{ type: "script", command: 'test "${ISO_TC_ENV:-unset}" = from-test' }],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.assertions[0]?.passed).toBe(true)
+  })
+
   it("runs each test case in the working dir it is given", async () => {
     const executor = await makeExecutor()
     const other = path.join(tmp, "other")

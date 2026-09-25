@@ -17,8 +17,8 @@ export interface AssertionContext {
   blockOutputs: Map<string, Map<string, string>>
   /** Number of files each block has generated this test case, by block ID. */
   generatedFiles: Map<string, number>
-  /** Session env vars (as KEY=VALUE strings). */
-  sessionEnv: string[]
+  /** Env for script assertions: the session env with the test's `env` on top. */
+  env: Record<string, string>
   /** Timeout in ms for script assertions. */
   timeout: number
 }
@@ -280,7 +280,7 @@ function assertScript(command: string, ctx: AssertionContext): AssertionResult {
     fs.mkdirSync(ctx.outputDir, { recursive: true })
     execFileSync("/bin/bash", ["-c", command], {
       cwd: ctx.outputDir,
-      env: envListToRecord(ctx.sessionEnv),
+      env: ctx.env,
       timeout: Math.min(ctx.timeout, 30000),
       stdio: "pipe",
     })

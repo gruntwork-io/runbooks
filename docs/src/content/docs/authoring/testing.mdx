@@ -122,7 +122,7 @@ tests:
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier for the test case. |
 | `description` | string | No | Human-readable description of what the test validates. |
-| `env` | map | No | Environment variables to set for all blocks in this test. Keys and values are strings. |
+| `env` | map | No | Environment variables to set for all blocks and `script` assertions in this test. Keys and values are strings. |
 | `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
 | `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, every block runs once in document order and is expected to succeed, except [pull request blocks](#testing-pull-request-blocks), which are expected to skip. |
 | `assertions` | array | No | Validations to run after all steps complete. |
@@ -600,7 +600,15 @@ A `<GitAuth>` block is tested like `<GitHubAuth>` or `<GitLabAuth>`, depending o
 
 ### Cloning with a Token
 
-A `<GitClone>` that references an auth block with `gitAuthId` or `githubAuthId` clones an `https` URL with that block's token, whatever the host: as user `oauth2` for GitLab, and `x-access-token` for GitHub. Without a reference, a `github.com` or `gitlab.com` URL uses that provider's token from the session environment, if an earlier block put one there.
+A `<GitClone>` that references an auth block with `gitAuthId` or `githubAuthId` clones an `https` URL with that block's token, whatever the host: as user `oauth2` for GitLab, and `x-access-token` for GitHub. Without a reference, a `github.com` or `gitlab.com` URL uses that provider's token (`GITHUB_TOKEN` or `GH_TOKEN` for GitHub, `GITLAB_TOKEN` for GitLab) from the session environment: the environment the `test` command was started with, plus anything earlier blocks exported or authenticated, with the test case's `env` on top. A token already set where the tests run counts too, so to clone without one, blank it in the test case's `env`:
+
+```yaml
+tests:
+  - name: anonymous-clone
+    env:
+      GITHUB_TOKEN: ""
+      GH_TOKEN: ""
+```
 
 ## Testing Pull Request Blocks
 
@@ -698,6 +706,8 @@ tests:
 
 ## Example Workflow
 
+These jobs run in your own repository, which has no copy of the test runner. So each one checks out the Runbooks repository into `.runbooks`, builds the runner there, and then runs it against the runbooks in your repository's `runbooks` directory. Point the runner at that directory rather than `./...`, which would also find the test runbooks in `.runbooks`.
+
 <Tabs>
   <TabItem label="GitHub Actions">
 ```yaml
@@ -715,28 +725,38 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
+
+      # The test runner is built from the Runbooks repository.
+      # Set `ref` to a release tag to pin the version.
+      - uses: actions/checkout@v4
+        with:
+          repository: gruntwork-io/runbooks
+          path: .runbooks
+
       - uses: jdx/mise-action@v2
+        with:
+          working_directory: .runbooks
 
       - name: Build the test runner
+        working-directory: .runbooks
         run: |
           bun install --frozen-lockfile
           just compile-test-cli
-      
+
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      
+
       - name: Run runbook tests
-        run: resources/bin/runbooks-test test ./runbooks/... --output junit --output-file results.xml
+        run: .runbooks/resources/bin/runbooks-test test ./runbooks/... --output junit --output-file results.xml
         env:
           RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
           RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
           RUNBOOKS_TEST_AWS_SESSION_TOKEN: ${{ env.AWS_SESSION_TOKEN }}
           RUNBOOKS_TEST_AWS_REGION: ${{ vars.AWS_REGION }}
-      
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         with:
@@ -754,13 +774,18 @@ test-runbooks:
     RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
     RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
   before_script:
+    # The test runner is built from the Runbooks repository.
+    # Add `--branch <release tag>` to pin the version.
+    - git clone --depth 1 https://github.com/gruntwork-io/runbooks.git .runbooks
     - curl -fsSL https://mise.jdx.dev/install.sh | sh
     - export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+    - cd .runbooks
     - mise install
     - bun install --frozen-lockfile
     - just compile-test-cli
+    - cd "$CI_PROJECT_DIR"
   script:
-    - resources/bin/runbooks-test test ./runbooks/... --output junit --output-file results.xml
+    - .runbooks/resources/bin/runbooks-test test ./runbooks/... --output junit --output-file results.xml
   artifacts:
     reports:
       junit: results.xml

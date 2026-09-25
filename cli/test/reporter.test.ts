@@ -7,7 +7,7 @@ import type { RunbookTestSuite, TestResult } from "./config.ts"
 
 // Characters XML 1.0 forbids anywhere in a document, escaped or not.
 // eslint-disable-next-line no-control-regex
-const XML_INVALID = /[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]/
+const XML_INVALID = /[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/
 
 function makeSuite(results: Partial<TestResult>[]): RunbookTestSuite {
   const full: TestResult[] = results.map((r, i) => ({

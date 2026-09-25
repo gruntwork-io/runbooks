@@ -321,6 +321,15 @@ export class TestExecutor {
     return path.join(this.workingDir, this.outputPath)
   }
 
+  /**
+   * The session env with the test case's `env` on top, as every block and
+   * script assertion sees it. The test's `env` always wins, so it can blank a
+   * variable whether or not an earlier bash block has captured it yet.
+   */
+  private sessionEnvWithTestEnv(): Record<string, string> {
+    return { ...envListToRecord(this.sessionEnv), ...this.testEnv }
+  }
+
   private getenv(key: string): string {
     if (this.testEnv[key] !== undefined) return this.testEnv[key]
     return process.env[key] ?? ""
@@ -809,16 +818,11 @@ export class TestExecutor {
       const scriptPath = path.join(scriptDir, "script.sh")
       fs.writeFileSync(scriptPath, scriptToWrite, { mode: 0o700 })
 
-      // Build environment
-      const env = envListToRecord(this.sessionEnv)
+      // Build environment. The per-block vars go on last, as in the app.
+      const env = this.sessionEnvWithTestEnv()
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
-
-      // Add test env vars
-      for (const [k, v] of Object.entries(this.testEnv)) {
-        env[k] = v
-      }
 
       // Inject auth block credentials if this block has an auth dependency
       if (this.authDeps.has(foundExec.componentId)) {
@@ -1513,8 +1517,10 @@ export class TestExecutor {
    * main's clone handler does. The token and provider come from the auth block
    * the GitClone references with `gitAuthId` or `githubAuthId`. With no
    * reference, a github.com or gitlab.com URL uses that provider's token from
-   * the session env. GitLab takes the token as user `oauth2`, GitHub as
-   * `x-access-token`. Only https URLs get a token; SSH authenticates itself.
+   * the session env, with the test's `env` on top as for any Command, so the
+   * test can blank an ambient token. GitLab takes the token as user `oauth2`,
+   * GitHub as `x-access-token`. Only https URLs get a token; SSH authenticates
+   * itself.
    */
   private authenticatedCloneURL(block: ParsedComponent, cloneURL: string): string {
     let url: URL
@@ -1527,7 +1533,7 @@ export class TestExecutor {
       auth = this.gitAuthTokens.get(authId)
     } else {
       const host = url.hostname
-      const session = envListToRecord(this.sessionEnv)
+      const session = this.sessionEnvWithTestEnv()
       if (host === "github.com") {
         auth = { provider: "github", token: session["GITHUB_TOKEN"] || session["GH_TOKEN"] || "" }
       } else if (host === "gitlab.com") {
@@ -1672,7 +1678,7 @@ export class TestExecutor {
       outputDir: this.resolveOutputPath(),
       blockOutputs: this.blockOutputs,
       generatedFiles: this.generatedFileCounts,
-      sessionEnv: this.sessionEnv,
+      env: this.sessionEnvWithTestEnv(),
       timeout: this.options.timeout,
     }
   }

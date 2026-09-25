@@ -9,7 +9,7 @@ function makeCtx(outputDir: string, overrides: Partial<AssertionContext> = {}): 
     outputDir,
     blockOutputs: new Map(),
     generatedFiles: new Map(),
-    sessionEnv: [],
+    env: {},
     timeout: 5_000,
     ...overrides,
   }
