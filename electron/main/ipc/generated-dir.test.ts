@@ -1,24 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // The IPC modules register handlers on electron's `ipcMain`. Capture them so
 // the real handlers can be invoked without an Electron runtime.
-//
-// bun's mock.module is process-wide and the first mock of a module fixes the
-// export names later importers link against, so every electron mock in the
-// suite exports the same names (`app` and `ipcMain`; see theme-store.test.ts).
 type Handler = (event: unknown, params?: unknown) => Promise<unknown>
 const handlers = new Map<string, Handler>()
-mock.module("electron", () => ({
-  app: {},
+mockElectron({
   ipcMain: {
     handle: (channel: string, fn: Handler) => {
       handlers.set(channel, fn)
     },
   },
-}))
+})
 
 const { registerFileHandlers } = await import("./files.ts")
 const { registerExecHandlers } = await import("./exec.ts")

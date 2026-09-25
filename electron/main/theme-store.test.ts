@@ -1,26 +1,22 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
+import { mockElectron } from "./test-utils/mock-electron.ts"
 
 // theme-store.ts imports electron's `app` only for `app.getPath("userData")`.
 // Mock it to point at a per-test temp dir so the module is testable without an
 // Electron runtime. The mock reads `tmpDir` lazily, so reassigning it in
 // beforeEach takes effect for each test.
-//
-// bun's mock.module is process-wide and the first mock of a module fixes the
-// export names later importers link against, so every electron mock in the
-// suite exports the same names (`ipcMain` is for ipc/generated-dir.test.ts).
 let tmpDir = ""
-mock.module("electron", () => ({
+mockElectron({
   app: {
     getPath: (name: string) => {
       if (name === "userData") return tmpDir
       throw new Error(`unexpected app.getPath(${name})`)
     },
   },
-  ipcMain: {},
-}))
+})
 
 const { getStoredTheme, setStoredTheme } = await import("./theme-store.ts")
 
