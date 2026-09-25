@@ -4,9 +4,11 @@ import { useGitAuth } from '../useGitAuth'
 import { PROVIDERS } from '../../providers'
 
 // The hook depends on the runbook + session contexts; mock them so the test
-// can focus on the provider-aware IPC behavior.
+// can focus on the provider-aware IPC behavior. Reassign `blockOutputs` (and
+// rerender) to simulate another block registering outputs: the hook watches
+// the map by identity, as it does the real context's state.
 const registerOutputs = vi.fn()
-const blockOutputs: Record<string, { values: Record<string, string> }> = {}
+let blockOutputs: Record<string, { values: Record<string, string> }> = {}
 
 vi.mock('@/contexts/useRunbook', () => ({
   useRunbookContext: () => ({ registerOutputs, blockOutputs }),
@@ -31,6 +33,7 @@ const originalApi = window.api
 
 afterEach(() => {
   window.api = originalApi
+  blockOutputs = {}
   vi.clearAllMocks()
 })
 
@@ -841,5 +844,172 @@ describe('useGitAuth — custody', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('useGitAuth — {block} detection sources', () => {
+  it('falls through to the next source when the block ran without a token', async () => {
+    // The block ran and registered outputs, just none this provider reads.
+    blockOutputs = { mint: { values: { GH_PAT: 'ghp_abc' } } }
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:env-credentials') {
+        return { found: true, valid: true, user: { login: 'octocat' }, envVar: 'GITHUB_TOKEN' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] }),
+    )
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('env')
+    expect(result.current.waitingForBlockId).toBeNull()
+    expect(invoke).not.toHaveBeenCalledWith('github:validate', expect.anything())
+  })
+
+  it('pauses on a block that has not run, then resumes the later sources once it runs empty', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:env-credentials') {
+        return { found: true, valid: true, user: { login: 'octocat' }, envVar: 'GITHUB_TOKEN' }
+      }
+      return { found: false }
+    })
+
+    const { result, rerender } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] }),
+    )
+
+    await waitFor(() => expect(result.current.waitingForBlockId).toBe('mint'))
+    expect(result.current.detectionStatus).toBe('pending')
+    // The author's order is the priority order: env waits behind the block.
+    expect(invoke).not.toHaveBeenCalledWith('github:env-credentials', expect.anything())
+
+    // The block finishes without outputs (e.g. its script failed).
+    blockOutputs = { mint: { values: {} } }
+    rerender()
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('env')
+    expect(invoke.mock.calls.filter((c) => c[0] === 'github:env-credentials')).toHaveLength(1)
+  })
+
+  it("keeps waiting on a GitAuth block's pre-auth placeholder, then chains its auth", async () => {
+    // What an upstream <GitAuth> registers when its provider is switched
+    // before it authenticates: GIT_PROVIDER only.
+    blockOutputs = { git_auth: { values: { GIT_PROVIDER: 'github' } } }
+    const invoke = installApi(async (channel, args) => {
+      if (channel === 'github:validate' && (args as { useSessionToken?: boolean }).useSessionToken) {
+        return { valid: true, user: { login: 'octocat' }, tokenType: 'oauth' }
+      }
+      if (channel === 'github:env-credentials') {
+        return { found: true, valid: true, user: { login: 'ambient' }, envVar: 'GITHUB_TOKEN' }
+      }
+      return { found: false }
+    })
+
+    const { result, rerender } = renderHook(() =>
+      useGitAuth({ id: 'gh2', provider: PROVIDERS.github, detectCredentials: [{ block: 'git-auth' }, 'env'] }),
+    )
+
+    await waitFor(() => expect(result.current.waitingForBlockId).toBe('git-auth'))
+    expect(invoke).not.toHaveBeenCalledWith('github:env-credentials', expect.anything())
+
+    blockOutputs = { git_auth: { values: { GITHUB_USER: 'octocat', GIT_PROVIDER: 'github', __AUTHENTICATED: 'true' } } }
+    rerender()
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('block')
+    expect(result.current.userInfo?.login).toBe('octocat')
+    expect(invoke).not.toHaveBeenCalledWith('github:env-credentials', expect.anything())
+  })
+
+  it('shows the unreachable card when the awaited block\'s token hits a TLS wall', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:validate') {
+        return { valid: false, outcome: 'unreachable', errorKind: 'tls', coldReadOk: true, error: 'TypeError: fetch failed' }
+      }
+      return { found: false }
+    })
+
+    const { result, rerender } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] }),
+    )
+    await waitFor(() => expect(result.current.waitingForBlockId).toBe('mint'))
+
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
+    rerender()
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.unreachableInfo).toEqual({ errorKind: 'tls', host: 'github.com', coldReadOk: true })
+    expect(result.current.authStatus).toBe('pending')
+    // Every later source would hit the same wall, so the chain stops.
+    expect(invoke).not.toHaveBeenCalledWith('github:env-credentials', expect.anything())
+  })
+
+  it('warns about a block token that lacks the repo scope', async () => {
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
+    installApi(async (channel) => {
+      if (channel === 'github:validate') {
+        return { valid: true, user: { login: 'octocat' }, tokenType: 'classic_pat', scopes: ['read:org'], validatedVia: 'direct' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] }),
+    )
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('block')
+    expect(result.current.detectedScopes).toEqual(['read:org'])
+    expect(result.current.detectedTokenType).toBe('classic_pat')
+    expect(result.current.successMeta).toEqual({ validatedVia: 'direct' })
+    expect(result.current.scopeWarning).toContain('repo')
+  })
+})
+
+describe('useGitAuth — success details', () => {
+  it('keeps the token type of a CLI-detected token', async () => {
+    installApi(async (channel) => {
+      if (channel === 'github:cli-credentials') {
+        return { found: true, user: { login: 'my-app[bot]' }, tokenType: 'github_app' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('cli')
+    expect(result.current.detectedTokenType).toBe('github_app')
+  })
+
+  it('names the variable and the transport of a prefixed env token', async () => {
+    const DIVERGENCE = 'PROD_GH_TOKEN is also set and differs; Runbooks used PROD_GITHUB_TOKEN.'
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:env-credentials') {
+        return {
+          found: true,
+          valid: true,
+          user: { login: 'octocat' },
+          tokenType: 'fine_grained_pat',
+          envVar: 'PROD_GITHUB_TOKEN',
+          validatedVia: 'cli',
+          divergenceHint: DIVERGENCE,
+        }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ env: { prefix: 'PROD_' } }] }),
+    )
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(invoke).toHaveBeenCalledWith('github:env-credentials', expect.objectContaining({ prefix: 'PROD_' }))
+    expect(result.current.successMeta).toEqual({ source: 'env', envVar: 'PROD_GITHUB_TOKEN', validatedVia: 'cli' })
+    expect(result.current.divergenceHint).toBe(DIVERGENCE)
+    expect(result.current.detectedTokenType).toBe('fine_grained_pat')
   })
 })

@@ -80,3 +80,12 @@ export const PROVIDERS: Record<GitProvider, ProviderConfig> = {
   github: githubProviderConfig,
   gitlab: gitlabProviderConfig,
 }
+
+/**
+ * Whether `value` names a known provider. The `provider` prop arrives from MDX
+ * unchecked, so a typo like "GitLab" must be caught before PROVIDERS is
+ * indexed with it (own keys only — "toString" is not a provider).
+ */
+export function isGitProvider(value: unknown): value is GitProvider {
+  return typeof value === 'string' && Object.hasOwn(PROVIDERS, value)
+}

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { TestWrapper } from '@/test/test-utils'
+import { useErrorReporting } from '@/contexts/useErrorReporting'
 
 // Integration test that exercises the REAL useGitAuth hook (not mocked) across a
 // runtime provider switch. detectCredentials={false} disables auto-detection so
@@ -100,6 +101,61 @@ describe('GitAuth — provider switch (real hook)', () => {
     expect(invoke).toHaveBeenCalledWith('gitlab:cli-credentials', { host: 'gitlab.gruntwork.io' })
   })
 
+  it('GitHub→GitLab switch detects only once the GitLab hosts are known', async () => {
+    // The glab default (or the persisted pick) is a self-managed host. Nothing
+    // may be detected against the gitlab.com default before the enumeration
+    // says so — a gitlab.com env hit would authenticate the wrong instance.
+    let resolveHosts: (value: unknown) => void = () => {}
+    const invoke = vi.fn(async (channel: string, args?: { host?: string }) => {
+      if (channel === 'gitlab:enumerate-hosts') {
+        return new Promise((resolve) => {
+          resolveHosts = resolve
+        })
+      }
+      if (channel === 'gitlab:env-credentials') {
+        return args?.host === 'gitlab.com'
+          ? { found: true, valid: true, user: { login: 'tanuki' }, envVar: 'GITLAB_TOKEN', host: 'gitlab.com' }
+          : { found: false }
+      }
+      if (channel.endsWith('-credentials')) return { found: false }
+      return {}
+    })
+    window.api = {
+      invoke,
+      on: vi.fn(() => () => {}),
+      once: vi.fn(),
+    } as unknown as typeof window.api
+
+    render(
+      <TestWrapper>
+        <GitAuth id="git" />
+      </TestWrapper>,
+    )
+
+    // GitHub detection finds nothing, so the manual UI renders.
+    await waitFor(() => {
+      expect(screen.getByText(/redirected to authorize/i)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /GitLab/ }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('gitlab:enumerate-hosts', {}))
+    const gitlabDetectionCalls = () =>
+      invoke.mock.calls.filter((c) => c[0] === 'gitlab:env-credentials' || c[0] === 'gitlab:cli-credentials')
+    expect(gitlabDetectionCalls()).toEqual([])
+
+    await act(async () => {
+      resolveHosts({
+        hosts: [{ host: 'gitlab.corp', sources: ['glab'], hasCredential: true }],
+        defaultHost: 'gitlab.corp',
+      })
+    })
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('gitlab:cli-credentials', { host: 'gitlab.corp' }))
+    expect(invoke).toHaveBeenCalledWith('gitlab:env-credentials', expect.objectContaining({ host: 'gitlab.corp' }))
+    expect(gitlabDetectionCalls().every((c) => (c[1] as { host?: string }).host === 'gitlab.corp')).toBe(true)
+    expect(screen.queryByText(/Authenticated to GitLab/i)).toBeNull()
+  })
+
   it('GitLab→GitHub switch restores the GitHub OAuth flow', async () => {
     render(
       <TestWrapper>
@@ -156,5 +212,60 @@ describe('GitAuth — defaultTab (real hook)', () => {
     )
 
     expect(screen.getByPlaceholderText(/GitLab access token/i)).toBeInTheDocument()
+  })
+})
+
+describe('GitAuth — configuration errors (real hook)', () => {
+  function ReportedErrors() {
+    const { errors } = useErrorReporting()
+    return <div data-testid="reported-errors">{errors.map((e) => e.message).join('|')}</div>
+  }
+
+  it('reports an unknown provider instead of crashing the runbook, and detects nothing', async () => {
+    const invoke = vi.fn(async () => ({ found: false }))
+    window.api = {
+      invoke,
+      on: vi.fn(() => () => {}),
+      once: vi.fn(),
+    } as unknown as typeof window.api
+
+    render(
+      <TestWrapper>
+        {/* A case typo an author can easily make in MDX. */}
+        <GitAuth id="git" provider={'GitLab' as never} />
+        <p>The next step</p>
+        <ReportedErrors />
+      </TestWrapper>,
+    )
+
+    expect(screen.getByTestId('component-error')).toHaveTextContent(`invalid 'provider' prop: "GitLab"`)
+    // The rest of the runbook still renders.
+    expect(screen.getByText('The next step')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('reported-errors').textContent).toContain("invalid 'provider' prop")
+    })
+    const channels = invoke.mock.calls.map((c) => (c as unknown[])[0] as string)
+    expect(channels.filter((c) => c.endsWith('-credentials') || c.endsWith(':validate'))).toEqual([])
+  })
+
+  it('skips an unrecognized detectCredentials entry and still tries the rest', async () => {
+    const invoke = vi.fn(async () => ({ found: false }))
+    window.api = {
+      invoke,
+      on: vi.fn(() => () => {}),
+      once: vi.fn(),
+    } as unknown as typeof window.api
+
+    render(
+      <TestWrapper>
+        <GitAuth id="git" detectCredentials={['gh' as never, 'env']} />
+      </TestWrapper>,
+    )
+
+    // Detection finishes (no hung "Checking…" spinner) and the sign-in form renders.
+    await waitFor(() => {
+      expect(screen.getByText(/redirected to authorize/i)).toBeInTheDocument()
+    })
+    expect(invoke).toHaveBeenCalledWith('github:env-credentials', expect.anything())
   })
 })

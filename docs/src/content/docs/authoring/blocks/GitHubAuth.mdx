@@ -229,6 +229,8 @@ TOKEN=$(vault read -field=token secret/github)
 echo "GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
+If the referenced block has not run yet, GitHubAuth shows *Waiting for "fetch-token" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order. If the block ran without writing a usable `GITHUB_TOKEN` (for example, the script failed), detection moves on to the next source, and the manual sign-in form appears if none of them finds a credential.
+
 ## Permissions
 
 Once authenticated to GitHub, Runbooks will update the environment variables `GITHUB_TOKEN` and `GITHUB_USER` with the authenticated user's token and username. GitHub tokens have permissions that control what actions they can perform. The way permissions are configured depends on the authentication method:

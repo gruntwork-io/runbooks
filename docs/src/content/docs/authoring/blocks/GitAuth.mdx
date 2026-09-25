@@ -41,6 +41,8 @@ By default, Runbooks automatically detects and uses credentials from, in order:
 
 If no credentials are detected, users authenticate manually.
 
+`detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. If that block has not run yet, the block shows *Waiting for "block-id" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order. If the block ran without leaving a usable token, detection moves on to the next source.
+
 ### Providers
 
 | Provider | Methods | CLI | Token env var | OAuth |

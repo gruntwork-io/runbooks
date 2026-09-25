@@ -15,7 +15,7 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
-import { PROVIDERS } from "./providers"
+import { PROVIDERS, isGitProvider } from "./providers"
 import { useGitAuth } from "./hooks/useGitAuth"
 import { getStatusClasses, getStatusIcon, getStatusIconClasses, resolveDefaultAuthMethod } from "./utils"
 import { ProviderSelect } from "./components/ProviderSelect"
@@ -52,8 +52,14 @@ function GitAuthInteractive({
         details: "Please provide a unique 'id' for this component instance."
       }
     }
+    if (!isGitProvider(initialProvider)) {
+      return {
+        message: `The <${__registryType}> component has an invalid 'provider' prop: "${initialProvider}".`,
+        details: "Valid values are 'github' and 'gitlab' (lowercase)."
+      }
+    }
     return null
-  }, [id, __registryType])
+  }, [id, initialProvider, __registryType])
 
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
@@ -70,7 +76,9 @@ function GitAuthInteractive({
 
   // Selected provider (GitHub | GitLab)
   const [provider, setProvider] = useState<GitProvider>(initialProvider)
-  const providerConfig = PROVIDERS[provider]
+  // An invalid `provider` prop renders the validation error below, but the
+  // hooks still run first — give them a real config instead of undefined.
+  const providerConfig = isGitProvider(provider) ? PROVIDERS[provider] : PROVIDERS.github
 
   // State for custom OAuth warning
   const [customOAuthDismissed, setCustomOAuthDismissed] = useState(false)
@@ -86,7 +94,9 @@ function GitAuthInteractive({
     instanceUrl,
     oauthClientId: useDefaultOAuth ? undefined : oauthClientId,
     oauthScopes: effectiveOAuthScopes,
-    detectCredentials,
+    // No detection behind a configuration error: it would authenticate (and
+    // publish outputs for) a block the user can't see.
+    detectCredentials: validationError ? false : detectCredentials,
     host,
     defaultTab,
   })
@@ -132,10 +142,17 @@ function GitAuthInteractive({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
+    } else if (validationError) {
+      reportError({
+        componentId: id,
+        componentType: __registryType,
+        severity: 'error',
+        message: validationError.message
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, reportError, clearError, __registryType])
+  }, [id, isDuplicate, validationError, reportError, clearError, __registryType])
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
