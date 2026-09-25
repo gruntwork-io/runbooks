@@ -25,6 +25,7 @@ import type {
   SsoRole,
 } from "../services/AwsClient.ts"
 import { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
+import { partitionHomeRegion } from "../domain/aws/partition.ts"
 
 function makeCredentialsProvider(creds: AwsCredentials) {
   return {
@@ -177,7 +178,7 @@ const impl: AwsClientShape = {
   pollSsoToken: (params: SsoPollParams) =>
     Effect.tryPromise({
       try: async (): Promise<SsoTokenResult> => {
-        const oidcClient = new SSOOIDCClient({})
+        const oidcClient = new SSOOIDCClient({ region: params.region })
 
         try {
           const tokenResp = await oidcClient.send(
@@ -223,10 +224,10 @@ const impl: AwsClientShape = {
       catch: (err) => new AwsSsoError({ message: `Failed to complete SSO auth: ${err}`, cause: err }),
     }),
 
-  listSsoAccounts: (accessToken: string) =>
+  listSsoAccounts: (accessToken: string, region: string) =>
     Effect.tryPromise({
       try: async (): Promise<SsoAccount[]> => {
-        const ssoClient = new SSOClient({})
+        const ssoClient = new SSOClient({ region })
         const resp = await ssoClient.send(
           new ListAccountsCommand({ accessToken }),
         )
@@ -239,10 +240,10 @@ const impl: AwsClientShape = {
       catch: (err) => new AwsSsoError({ message: `Failed to list SSO accounts: ${err}`, cause: err }),
     }),
 
-  listSsoRoles: (accessToken: string, accountId: string) =>
+  listSsoRoles: (accessToken: string, accountId: string, region: string) =>
     Effect.tryPromise({
       try: async (): Promise<SsoRole[]> => {
-        const ssoClient = new SSOClient({})
+        const ssoClient = new SSOClient({ region })
         const resp = await ssoClient.send(
           new ListAccountRolesCommand({ accessToken, accountId }),
         )
@@ -258,7 +259,7 @@ const impl: AwsClientShape = {
     Effect.tryPromise({
       try: async (): Promise<boolean> => {
         const client = new AccountClient({
-          region: "us-east-1",
+          region: partitionHomeRegion(region),
           credentials: makeCredentialsProvider(creds),
         })
         const resp = await client.send(

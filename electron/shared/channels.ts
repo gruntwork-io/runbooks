@@ -63,11 +63,11 @@ export interface IpcChannelMap {
     result: { verificationUri: string; userCode: string; deviceCode: string; clientId: string; clientSecret: string; error?: string }
   }
   "aws:sso-roles": {
-    params: { accessToken: string; accountId: string; region?: string }
+    params: { accessToken: string; accountId: string; region: string }
     result: { roles: SsoRole[]; error?: string }
   }
   "aws:sso-poll": {
-    params: { clientId: string; clientSecret: string; deviceCode: string; region?: string; accountId?: string; roleName?: string }
+    params: { clientId: string; clientSecret: string; deviceCode: string; region: string; accountId?: string; roleName?: string }
     result: {
       status?: string
       accessToken?: string

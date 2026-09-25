@@ -100,9 +100,9 @@ export function registerAwsHandlers(): void {
 
   ipcMain.handle(
     "aws:sso-roles",
-    async (_event, params: { accessToken: string; accountId: string }) => {
+    async (_event, params: { accessToken: string; accountId: string; region: string }) => {
       return runtime.runPromise(
-        listSsoRoles(params.accessToken, params.accountId),
+        listSsoRoles(params.accessToken, params.accountId, params.region),
       )
     },
   )

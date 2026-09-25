@@ -49,9 +49,9 @@ const makeStubAwsClient = (overrides: Partial<AwsClientShape> = {}): AwsClientSh
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "pollSsoToken") })),
   completeSsoAuth: (_params) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "completeSsoAuth") })),
-  listSsoAccounts: (_accessToken) =>
+  listSsoAccounts: (_accessToken, _region) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoAccounts") })),
-  listSsoRoles: (_accessToken, _accountId) =>
+  listSsoRoles: (_accessToken, _accountId, _region) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoRoles") })),
   checkRegion: (_region, _creds) =>
     Effect.fail(new AwsAuthError({ message: notConfigured("AwsClient", "checkRegion") })),

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Exit, Layer } from "effect"
-import { detectEnvCredentials, confirmEnvCredentials } from "./auth.ts"
+import { detectEnvCredentials, confirmEnvCredentials, validateCredentials } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestAwsClient } from "../../test-utils/TestLayer.ts"
 
@@ -101,5 +101,58 @@ describe("confirmEnvCredentials", () => {
     )
     expect(validated).toBe(true)
     expect(result.accessKeyId).toBe("AKID")
+  })
+
+  it("validates GovCloud credentials against GovCloud STS", async () => {
+    let stsRegion: string | undefined
+    const layer = Layer.merge(
+      makeTestEnvironment({
+        AWS_ACCESS_KEY_ID: "AKID",
+        AWS_SECRET_ACCESS_KEY: "SECRET",
+        AWS_DEFAULT_REGION: "us-gov-east-1",
+      }),
+      makeTestAwsClient({
+        validateCredentials: (_creds, region) => {
+          stsRegion = region
+          return Effect.succeed({
+            accountId: "123456789012",
+            arn: "arn:aws-us-gov:iam::123456789012:user/test",
+          })
+        },
+      }),
+    )
+    const result = await Effect.runPromise(
+      confirmEnvCredentials().pipe(Effect.provide(layer)),
+    )
+    expect(stsRegion).toBe("us-gov-west-1")
+    expect(result.region).toBe("us-gov-east-1")
+  })
+})
+
+describe("validateCredentials", () => {
+  const creds = { accessKeyId: "AKID", secretAccessKey: "SECRET", region: "us-gov-west-1" }
+
+  it("sends GovCloud credentials to GovCloud STS", async () => {
+    let stsRegion: string | undefined
+    const layer = makeTestAwsClient({
+      validateCredentials: (_creds, region) => {
+        stsRegion = region
+        return Effect.succeed({ accountId: "123456789012", arn: "arn:aws-us-gov:iam::123456789012:user/test" })
+      },
+    })
+    await Effect.runPromise(validateCredentials(creds, "us-gov-west-1").pipe(Effect.provide(layer)))
+    expect(stsRegion).toBe("us-gov-west-1")
+  })
+
+  it("sends commercial credentials to us-east-1 STS whatever region was picked", async () => {
+    let stsRegion: string | undefined
+    const layer = makeTestAwsClient({
+      validateCredentials: (_creds, region) => {
+        stsRegion = region
+        return Effect.succeed({ accountId: "123456789012", arn: "arn:aws:iam::123456789012:user/test" })
+      },
+    })
+    await Effect.runPromise(validateCredentials({ ...creds, region: "eu-west-2" }, "eu-west-2").pipe(Effect.provide(layer)))
+    expect(stsRegion).toBe("us-east-1")
   })
 })

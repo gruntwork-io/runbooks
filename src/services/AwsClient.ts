@@ -34,6 +34,8 @@ export interface SsoPollParams {
   readonly clientId: string
   readonly clientSecret: string
   readonly deviceCode: string
+  /** Region of the IAM Identity Center instance that issued the device code. */
+  readonly region: string
 }
 
 export interface SsoTokenResult {
@@ -66,8 +68,8 @@ export interface AwsClientShape {
   readonly startSsoDeviceAuth: (startUrl: string, region: string) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
   readonly pollSsoToken: (params: SsoPollParams) => Effect.Effect<SsoTokenResult, AwsSsoError>
   readonly completeSsoAuth: (params: SsoCompleteParams) => Effect.Effect<AwsCredentials, AwsSsoError>
-  readonly listSsoAccounts: (accessToken: string) => Effect.Effect<SsoAccount[], AwsSsoError>
-  readonly listSsoRoles: (accessToken: string, accountId: string) => Effect.Effect<SsoRole[], AwsSsoError>
+  readonly listSsoAccounts: (accessToken: string, region: string) => Effect.Effect<SsoAccount[], AwsSsoError>
+  readonly listSsoRoles: (accessToken: string, accountId: string, region: string) => Effect.Effect<SsoRole[], AwsSsoError>
   readonly checkRegion: (region: string, creds: AwsCredentials) => Effect.Effect<boolean, AwsAuthError>
 }
 

@@ -50,11 +50,11 @@ The user can still switch tabs — `defaultTab` only chooses the starting one.
 | `id` | string | required | Unique identifier for this component |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
-| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable |
+| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
 | `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
-| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured |
+| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. For a GovCloud Identity Center this is `us-gov-east-1` or `us-gov-west-1` |
 | `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication |
 | `ssoRoleName` | string | - | Pre-select a specific IAM role to assume |
 
