@@ -131,6 +131,10 @@ describe("isContainedInReal", () => {
     symlinkSync("s/../escaped-dotdot.txt", path.join(container, "dangling-dotdot"))
     // A self-referencing symlink cycle.
     symlinkSync("loop", path.join(container, "loop"))
+    // down-link really is a/b/c, so down-link/../.. is a/ for the kernel but
+    // the container's parent once `..` is collapsed lexically.
+    mkdirSync(path.join(container, "a", "b", "c"), { recursive: true })
+    symlinkSync("a/b/c", path.join(container, "down-link"))
   })
 
   afterAll(() => {
@@ -191,6 +195,19 @@ describe("isContainedInReal", () => {
     // mkdir -p creates not-yet/, after which escape-dir is followed outside.
     const input = `${container}${path.sep}not-yet${path.sep}..${path.sep}escape-dir${path.sep}new.txt`
     expect(await isContainedInReal(input, container)).toBe(false)
+  })
+
+  it("rejects an input path whose `..` escapes only once collapsed lexically", async () => {
+    // The kernel reads this as <container>/a/secret.txt, but callers that
+    // path.join/path.resolve before reading land on <root>/secret.txt.
+    const input = `${container}${path.sep}down-link${path.sep}..${path.sep}..${path.sep}secret.txt`
+    expect(await isContainedInReal(input, container)).toBe(false)
+  })
+
+  it("allows `..` after a directory symlink when both readings stay inside", async () => {
+    // Kernel: <container>/a/b/new.txt. Lexical: <container>/new.txt.
+    const input = `${container}${path.sep}down-link${path.sep}..${path.sep}new.txt`
+    expect(await isContainedInReal(input, container)).toBe(true)
   })
 
   it("allows a relative dangling symlink that stays inside the container", async () => {

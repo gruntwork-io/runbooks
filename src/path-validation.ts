@@ -106,14 +106,22 @@ async function canonicalizePath(inputPath: string): Promise<string> {
  * therefore fails the check, closing the lexical-vs-realpath gap that lets
  * renderer-supplied paths escape the session root via symlink-following fs
  * ops. Fails closed (returns `false`) if either path can't be canonicalized.
+ *
+ * A `..` in `filePath` has two readings, and callers use both: some hand the
+ * raw path to fs, where the kernel applies `..` after dereferencing the prefix
+ * (`<link>/..` is the link target's parent), while others normalize it
+ * lexically first (`path.join`/`path.resolve`, where `<link>/..` is the
+ * link's own parent) and read that instead. The two can land in different
+ * places, so `filePath` must be contained under both readings.
  */
 export async function isContainedInReal(filePath: string, container: string): Promise<boolean> {
   try {
-    const [resolvedFile, resolvedContainer] = await Promise.all([
+    const [asKernel, asLexical, resolvedContainer] = await Promise.all([
       canonicalizePath(filePath),
+      canonicalizePath(path.resolve(filePath)),
       canonicalizePath(container),
     ])
-    return isContainedIn(resolvedFile, resolvedContainer)
+    return isContainedIn(asKernel, resolvedContainer) && isContainedIn(asLexical, resolvedContainer)
   } catch {
     return false
   }
