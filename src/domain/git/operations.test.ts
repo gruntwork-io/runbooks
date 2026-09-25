@@ -83,6 +83,15 @@ describe("parseOwnerRepoFromURL", () => {
     expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
   })
 
+  it("parses an SSH URL whose user is not git (self-managed GitLab)", () => {
+    const result = parseOwnerRepoFromURL("gitlab@gitlab.corp.net:group/proj.git")
+    expect(result).toEqual({ owner: "group", repo: "proj" })
+  })
+
+  it("does not parse an option-like string as an SSH URL", () => {
+    expect(parseOwnerRepoFromURL("--upload-pack=x@h:a/b")).toBeUndefined()
+  })
+
   it("strips .git suffix from HTTPS URL with trailing slash absent", () => {
     const result = parseOwnerRepoFromURL("https://github.com/owner/repo.git")
     expect(result).toEqual({ owner: "owner", repo: "repo" })
@@ -113,6 +122,7 @@ describe("isValidGitURL", () => {
     "git@github.com:owner/repo.git",
     "git@github.com:owner/repo",
     "git@gitlab.com:group/project",
+    "gitlab@gitlab.corp.net:group/proj.git",
   ])("returns true for %s", (url) => {
     expect(isValidGitURL(url)).toBe(true)
   })
@@ -123,6 +133,11 @@ describe("isValidGitURL", () => {
     "https://github.com",
     "https://github.com/owner",
     "ftp://github.com/owner/repo",
+    "gitlab@gitlab.corp.net:proj.git",
+    // Option-like and remote-helper strings must never reach `git clone`.
+    "--upload-pack=x@h:a/b",
+    "-oProxyCommand=x@h:a/b",
+    "ext::sh@h:a/b",
   ])("returns false for %s", (url) => {
     expect(isValidGitURL(url)).toBe(false)
   })
@@ -171,6 +186,28 @@ describe("deleteBranch", () => {
       ),
     )
     expect(result._tag).toBe("Right")
+  })
+
+  it("refuses to delete the checked-out branch with a clear message", async () => {
+    let deleted = false
+    const layer = makeTestLayer({
+      git: {
+        getCurrentBranch: () => Effect.succeed("runbook/123"),
+        deleteBranch: () => Effect.sync(() => void (deleted = true)),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      deleteBranch("/repo", "runbook/123").pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        stderr: "Cannot delete branch runbook/123 because it is currently checked out",
+      })
+    }
+    expect(deleted).toBe(false)
   })
 })
 
@@ -268,6 +305,7 @@ describe("createMergeRequest", () => {
     labels: ["enhancement"],
     repoPath: "/repo",
   }
+  const origin = () => Effect.succeed("https://gitlab.com/group/subgroup/project.git")
 
   it("runs the git steps then opens the MR with labels inline (no separate add-labels call)", async () => {
     const steps: string[] = []
@@ -275,6 +313,7 @@ describe("createMergeRequest", () => {
 
     const layer = makeTestLayer({
       git: {
+        getRemoteUrl: origin,
         status: () => Effect.succeed([]),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
@@ -329,13 +368,12 @@ describe("createMergeRequest", () => {
     expect(mrBaseUrl).toBe("https://gitlab.acme.com")
   })
 
-  it("falls back to gitlab.com when the repo remote can't be read", async () => {
-    let mrBaseUrl: string | undefined
+  it("keeps an http remote's scheme for the author lookup and the MR", async () => {
+    const baseUrls: (string | undefined)[] = []
 
-    // getRemoteUrl is left at the test layer's default (which fails), exercising
-    // the orElseSucceed fallback.
     const layer = makeTestLayer({
       git: {
+        getRemoteUrl: () => Effect.succeed("http://gitlab.internal/group/subgroup/project.git"),
         status: () => Effect.succeed([]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
@@ -343,22 +381,69 @@ describe("createMergeRequest", () => {
         push: () => Effect.void,
       },
       gitlab: {
+        validateToken: (_token, baseUrl) =>
+          Effect.sync(() => {
+            baseUrls.push(baseUrl)
+            return { user: { login: "u" } }
+          }),
         createMergeRequest: (_token, p) =>
           Effect.sync(() => {
-            mrBaseUrl = p.baseUrl
-            return { url: "https://gitlab.com/g/p/-/merge_requests/1", number: 1, branch: p.headBranch }
+            baseUrls.push(p.baseUrl)
+            return { url: "http://gitlab.internal/g/p/-/merge_requests/7", number: 7, branch: p.headBranch }
           }),
       },
     })
 
     await Effect.runPromise(createMergeRequest("tok", params).pipe(Effect.provide(layer)))
 
-    expect(mrBaseUrl).toBe("https://gitlab.com")
+    expect(baseUrls).toEqual(["http://gitlab.internal", "http://gitlab.internal"])
+  })
+
+  it("fails before sending the token anywhere when the repo has no origin remote", async () => {
+    const calls: string[] = []
+
+    // getRemoteUrl is left at the test layer's default, which fails the way
+    // `git remote get-url origin` does for a checkout without an origin.
+    const layer = makeTestLayer({
+      git: {
+        status: () => Effect.succeed([]),
+        createBranch: () => Effect.sync(() => void calls.push("createBranch")),
+        stageAll: () => Effect.sync(() => void calls.push("stageAll")),
+        commit: () => Effect.sync(() => void calls.push("commit")),
+        push: () => Effect.sync(() => void calls.push("push")),
+      },
+      gitlab: {
+        validateToken: () =>
+          Effect.sync(() => {
+            calls.push("validateToken")
+            return { user: { login: "u" } }
+          }),
+        createMergeRequest: (_token, p) =>
+          Effect.sync(() => {
+            calls.push("createMergeRequest")
+            return { url: "https://gitlab.com/g/p/-/merge_requests/1", number: 1, branch: p.headBranch }
+          }),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        stderr: expect.stringContaining("no 'origin' remote"),
+      })
+    }
+    // No gitlab.com fallback: nothing was validated, pushed, or opened.
+    expect(calls).toEqual([])
   })
 
   it("propagates a non-empty message when GitLab rejects with a 409", async () => {
     const layer = makeTestLayer({
       git: {
+        getRemoteUrl: origin,
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -390,6 +475,7 @@ describe("createMergeRequest", () => {
       // The nested .git makes detectEmbeddedRepos flag `sub/` as an embedded repo.
       files: { "/repo/sub/.git": "gitdir: ..." },
       git: {
+        getRemoteUrl: origin,
         status: () =>
           Effect.succeed([
             { path: "file.txt", status: "??" },
@@ -536,5 +622,68 @@ describe("seedDefaultBranch", () => {
     )
 
     expect(pushToken).toBe("ghp_secret")
+  })
+
+  it("validates a GitLab token against the instance origin points at", async () => {
+    let validatedAt: string | undefined
+
+    const layer = makeTestLayer({
+      git: {
+        getRemoteUrl: () => Effect.succeed("gitlab@gitlab.corp.net:group/project.git"),
+        hasCommits: () => Effect.succeed(false),
+        createBranch: () => Effect.void,
+        commit: () => Effect.void,
+        push: () => Effect.void,
+      },
+      gitlab: {
+        validateToken: (_token, baseUrl) =>
+          Effect.sync(() => {
+            validatedAt = baseUrl
+            return { user: { login: "u" } }
+          }),
+      },
+    })
+
+    await Effect.runPromise(
+      seedDefaultBranch("glpat", { ...params, provider: "gitlab" }).pipe(Effect.provide(layer)),
+    )
+
+    expect(validatedAt).toBe("https://gitlab.corp.net")
+  })
+
+  it("fails before sending a GitLab token anywhere when the repo has no origin remote", async () => {
+    const calls: string[] = []
+
+    // getRemoteUrl is left at the test layer's default, which fails.
+    const layer = makeTestLayer({
+      git: {
+        hasCommits: () => Effect.succeed(false),
+        createBranch: () => Effect.sync(() => void calls.push("createBranch")),
+        commit: () => Effect.sync(() => void calls.push("commit")),
+        push: () => Effect.sync(() => void calls.push("push")),
+      },
+      gitlab: {
+        validateToken: () =>
+          Effect.sync(() => {
+            calls.push("validateToken")
+            return { user: { login: "u" } }
+          }),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      seedDefaultBranch("glpat", { ...params, provider: "gitlab" }).pipe(
+        Effect.either,
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        stderr: expect.stringContaining("no 'origin' remote"),
+      })
+    }
+    expect(calls).toEqual([])
   })
 })

@@ -48,6 +48,15 @@ This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks
 If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error instead of silently using the wrong credentials.
 </Aside>
 
+### GitLab Instance
+
+A merge request is opened on the GitLab instance that the repository's `origin` remote points at, whether that is gitlab.com or a self-managed host:
+
+- An `https://` or `http://` remote keeps its scheme and port.
+- An SSH remote (`git@gitlab.example.com:group/repo.git` or `ssh://git@gitlab.example.com:2222/group/repo.git`) maps to `https://gitlab.example.com`. The port in an SSH URL belongs to the SSH server, not the web server.
+
+The block never falls back to gitlab.com. If the checkout has no `origin` remote, or its URL has no host, the block fails before your GitLab token is sent anywhere.
+
 ### Pre-filled Values
 
 You can pre-populate the PR/MR title, description, labels, branch name, and commit message. Users can still edit these values before creating it.
@@ -127,6 +136,14 @@ Reference outputs in downstream blocks using template variables:
 
 After creating a PR/MR, the block displays a "Git Push" button. This allows you to push additional changes made after it was created (for example, by running more Command or Template blocks). Each push stages all changes, commits them with the message "Additional changes", and pushes to the same branch.
 
+### Retrying After a Failure
+
+If creation fails after the branch was created (for example, the push is rejected or the API call fails), fix the cause and create again with the same branch name. The block picks up on the existing branch: it commits any new changes and pushes, then opens the PR/MR.
+
+If a local branch with that name already exists but isn't checked out (for example, one left over from an earlier run), the block offers to delete it and retry. The delete is refused if the branch has commits that haven't been pushed or merged; choose a new branch name instead.
+
+The branch name can't be the base branch or a protected name (`main`, `master`, `develop`, `dev`, `staging`, `release`, `prod`, `production`).
+
 ### Prerequisites
 
 The block requires two prerequisites:
@@ -142,6 +159,8 @@ Both prerequisites are checked automatically, and the block shows amber warnings
 ### Labels
 
 The block fetches available labels from the repository and presents them in a searchable multi-select dropdown. Labels can also be pre-selected using the `prefilledPullRequestLabels` prop.
+
+On GitHub, labels are applied after the pull request opens. If applying them fails, the pull request is still created and the logs show a warning.
 
 ## Provider-locked aliases
 

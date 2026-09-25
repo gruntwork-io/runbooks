@@ -3,9 +3,9 @@ import {
   DEFAULT_GITLAB_BASE_URL,
   normalizeGitLabBaseUrl,
   gitlabApiBase,
-  hostToBaseUrl,
+  parseScpRemote,
   gitHostFromRemoteUrl,
-  gitlabBaseUrlFromRemoteUrl,
+  tryGitlabBaseUrlFromRemoteUrl,
   isGitLabHost,
 } from "./gitlab-host.ts"
 
@@ -47,9 +47,33 @@ describe("gitlabApiBase", () => {
   })
 })
 
-describe("hostToBaseUrl", () => {
-  it("wraps a host in an https origin", () => {
-    expect(hostToBaseUrl("gitlab.example.com")).toBe("https://gitlab.example.com")
+describe("parseScpRemote", () => {
+  it("splits user@host:path, for any SSH user", () => {
+    expect(parseScpRemote("git@github.com:owner/repo.git")).toEqual({
+      user: "git",
+      host: "github.com",
+      path: "owner/repo.git",
+    })
+    expect(parseScpRemote("gitlab@gitlab.corp.net:group/sub/proj.git")).toEqual({
+      user: "gitlab",
+      host: "gitlab.corp.net",
+      path: "group/sub/proj.git",
+    })
+  })
+
+  it.each([
+    // Option-like users and hosts: the clone URL goes into git's argv.
+    "--upload-pack=touch /tmp/pwned@h:a/b",
+    "-oProxyCommand=x@h:a/b",
+    "git@-oProxyCommand=x:a/b",
+    // Remote-helper syntax
+    "ext::sh -c id@h:a/b",
+    // Not SCP at all
+    "https://gitlab.example.com/group/project.git",
+    "ssh://git@gitlab.example.com:2222/group/project.git",
+    "gitlab.example.com:group/project.git",
+  ])("rejects %s", (url) => {
+    expect(parseScpRemote(url)).toBeUndefined()
   })
 })
 
@@ -67,6 +91,13 @@ describe("gitHostFromRemoteUrl", () => {
     expect(gitHostFromRemoteUrl("git@gitlab.example.com:group/project.git")).toBe(
       "gitlab.example.com",
     )
+    expect(gitHostFromRemoteUrl("gitlab@gitlab.corp.net:group/project.git")).toBe(
+      "gitlab.corp.net",
+    )
+  })
+
+  it("does not read a host out of an option-like string", () => {
+    expect(gitHostFromRemoteUrl("--upload-pack=x@h:a/b")).toBeUndefined()
   })
 
   it("returns undefined for empty or unparseable input", () => {
@@ -75,19 +106,49 @@ describe("gitHostFromRemoteUrl", () => {
   })
 })
 
-describe("gitlabBaseUrlFromRemoteUrl", () => {
+describe("tryGitlabBaseUrlFromRemoteUrl", () => {
   it("derives a self-hosted origin from the repo's remote", () => {
-    expect(gitlabBaseUrlFromRemoteUrl("https://gitlab.example.com/group/project.git")).toBe(
+    expect(tryGitlabBaseUrlFromRemoteUrl("https://gitlab.example.com/group/project.git")).toBe(
       "https://gitlab.example.com",
     )
-    expect(gitlabBaseUrlFromRemoteUrl("git@gitlab.example.com:group/project.git")).toBe(
+    expect(tryGitlabBaseUrlFromRemoteUrl("git@gitlab.example.com:group/project.git")).toBe(
+      "https://gitlab.example.com",
+    )
+    expect(tryGitlabBaseUrlFromRemoteUrl("gitlab@gitlab.corp.net:group/project.git")).toBe(
+      "https://gitlab.corp.net",
+    )
+  })
+
+  it("keeps an http remote's scheme and an https remote's port", () => {
+    expect(tryGitlabBaseUrlFromRemoteUrl("http://gitlab.internal/group/project.git")).toBe(
+      "http://gitlab.internal",
+    )
+    expect(tryGitlabBaseUrlFromRemoteUrl("https://gitlab.example.com:8443/group/project.git")).toBe(
+      "https://gitlab.example.com:8443",
+    )
+  })
+
+  it("drops credentials embedded in the remote", () => {
+    expect(
+      tryGitlabBaseUrlFromRemoteUrl("https://oauth2:glpat-secret@gitlab.example.com/group/project.git"),
+    ).toBe("https://gitlab.example.com")
+  })
+
+  it("maps an ssh:// remote to https on the default port, not the SSH port", () => {
+    expect(tryGitlabBaseUrlFromRemoteUrl("ssh://git@gitlab.example.com:2222/group/project.git")).toBe(
+      "https://gitlab.example.com",
+    )
+    expect(tryGitlabBaseUrlFromRemoteUrl("ssh://gitlab.example.com/group/project.git")).toBe(
       "https://gitlab.example.com",
     )
   })
 
-  it("falls back to gitlab.com when the host can't be determined", () => {
-    expect(gitlabBaseUrlFromRemoteUrl("")).toBe(DEFAULT_GITLAB_BASE_URL)
-  })
+  it.each(["", "   ", "/srv/git/project.git", "file:///srv/git/project.git", "not a url"])(
+    "returns undefined, never gitlab.com, for a remote with no host: %p",
+    (url) => {
+      expect(tryGitlabBaseUrlFromRemoteUrl(url)).toBeUndefined()
+    },
+  )
 })
 
 describe("isGitLabHost", () => {

@@ -77,22 +77,37 @@ export function gitlabApiBase(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/api/v4`
 }
 
-/** Turn a host (`gitlab.example.com`) into an origin (`https://gitlab.example.com`). */
-export function hostToBaseUrl(host: string): string {
-  return `https://${host}`
+/**
+ * Split an SCP-style SSH remote (`user@host:path`) into its parts, or return
+ * undefined when `url` isn't one. Any SSH user is accepted, not just `git`:
+ * self-managed GitLab can run its SSH server under another name
+ * (`gitlab@gitlab.corp.net:group/project.git`).
+ *
+ * This is the one SCP grammar every remote parser shares (host lookup,
+ * owner/repo, clone URL validation). It is deliberately narrow because a clone
+ * URL goes into git's argv: the user can't start with `-` or contain `:`, and
+ * the host can't start with `-`, so option-like strings
+ * (`--upload-pack=…@h:x`, `-oProxyCommand=…@h:x`) and remote-helper syntax
+ * (`ext::…`) never pass as a remote. The renderer's GitClone block keeps a
+ * copy of this pattern; keep the two in sync.
+ */
+export function parseScpRemote(
+  url: string,
+): { user: string; host: string; path: string } | undefined {
+  const m = url.match(/^([A-Za-z0-9_][A-Za-z0-9._-]*)@([A-Za-z0-9][A-Za-z0-9._-]*):(.+)$/)
+  return m ? { user: m[1], host: m[2], path: m[3] } : undefined
 }
 
 /**
  * Extract the host (including any port) from a git remote URL in either HTTPS
- * (`https://host/owner/repo.git`) or SSH/SCP (`git@host:owner/repo.git`) form.
+ * (`https://host/owner/repo.git`) or SSH/SCP (`user@host:owner/repo.git`) form.
  * Returns undefined for input that has no recognizable host.
  */
 export function gitHostFromRemoteUrl(url: string): string | undefined {
   const trimmed = url.trim()
   if (!trimmed) return undefined
-  // SSH/SCP form: [user@]host:owner/repo(.git)
-  const ssh = trimmed.match(/^[^/@]+@([^:/]+):/)
-  if (ssh) return ssh[1]
+  const scp = parseScpRemote(trimmed)
+  if (scp) return scp.host
   try {
     const host = new URL(trimmed).host
     return host || undefined
@@ -102,14 +117,34 @@ export function gitHostFromRemoteUrl(url: string): string | undefined {
 }
 
 /**
- * Derive the GitLab API origin for a repo from its own remote URL, defaulting
- * to gitlab.com when the host can't be determined. Used by operations that act
- * on a cloned repo (merge requests, labels), where the instance is whatever the
- * repo actually lives on rather than something the user typed.
+ * Derive the GitLab API origin for a repo from its own remote URL. Used by
+ * operations that act on a cloned repo (merge requests, seeding a default
+ * branch), where the instance is whatever the repo actually lives on rather
+ * than something the user typed.
+ *
+ * - An http(s) remote keeps its scheme and port, like tryNormalizeGitLabBaseUrl
+ *   (plain-http instances exist).
+ * - An SSH remote (`ssh://` or SCP form) or a `git://` one maps to
+ *   `https://<hostname>`: its port is the SSH server's (or git daemon's), not
+ *   the web server's.
+ * - Anything else (no remote, a local path, `file://`) returns undefined, never
+ *   gitlab.com: the caller's token belongs to one instance and must not be sent
+ *   to another.
  */
-export function gitlabBaseUrlFromRemoteUrl(url: string): string {
-  const host = gitHostFromRemoteUrl(url)
-  return host ? hostToBaseUrl(host) : DEFAULT_GITLAB_BASE_URL
+export function tryGitlabBaseUrlFromRemoteUrl(url: string): string | undefined {
+  const trimmed = url.trim()
+  if (!trimmed) return undefined
+  const scp = parseScpRemote(trimmed)
+  if (scp) return `https://${scp.host}`
+  try {
+    const u = new URL(trimmed)
+    if (!u.hostname) return undefined
+    if (u.protocol === "http:" || u.protocol === "https:") return `${u.protocol}//${u.host}`
+    if (/^(ssh|git\+ssh|ssh\+git|git):$/.test(u.protocol)) return `https://${u.hostname}`
+    return undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**

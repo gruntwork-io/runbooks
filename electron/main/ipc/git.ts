@@ -26,12 +26,13 @@ import {
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
 import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
-import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
+import { gitSpawnEnv, resolveSshCommand } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
 import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
 import { validateSessionPath } from "./path-guard.ts"
+import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitLocalRepoResponse } from "../../shared/channels.ts"
 
@@ -143,14 +144,12 @@ function buildPrParams(params: GitPrParams, repoPath: string): CreatePullRequest
  * Shared response handling for git:pull-request and git:merge-request. On
  * success, emit git:pr-result + git:outputs + git:status and return the PR/MR
  * summary; on failure, emit a git:error (tagging the recoverable branch_exists
- * code) + git:status. `extraBranchExists` injects the MR-only HTTP-409 check;
- * the local-branch "already exists" case is handled generically for both.
+ * code only for a local branch-name collision) + git:status.
  */
 function respondToGitPrExit<A extends { url: string; number: number; branch: string }>(
   event: IpcMainInvokeEvent,
   exit: Exit.Exit<A, unknown>,
   headBranch: string,
-  extraBranchExists?: (failureValue: unknown) => boolean,
 ): { url: string; number: number } | { error: string } {
   if (Exit.isSuccess(exit)) {
     const pr = exit.value
@@ -159,13 +158,7 @@ function respondToGitPrExit<A extends { url: string; number: number; branch: str
       prNumber: pr.number,
       branchName: pr.branch,
     })
-    event.sender.send("git:outputs", {
-      outputs: {
-        pr_url: pr.url,
-        pr_number: String(pr.number),
-        pr_branch: pr.branch,
-      },
-    })
+    event.sender.send("git:outputs", { outputs: prBlockOutputs(pr) })
     event.sender.send("git:status", { status: "success", exitCode: 0 })
     return { url: pr.url, number: pr.number }
   }
@@ -174,10 +167,7 @@ function respondToGitPrExit<A extends { url: string; number: number; branch: str
   const failureValue = failure._tag === "Some" ? failure.value : undefined
   const message =
     failureValue !== undefined ? errorMessage(failureValue) : Cause.pretty(exit.cause)
-  const code =
-    extraBranchExists?.(failureValue) || /already exists/i.test(message)
-      ? "branch_exists"
-      : undefined
+  const code = isLocalBranchConflict(message) ? "branch_exists" : undefined
 
   event.sender.send("git:error", {
     message,
@@ -313,13 +303,17 @@ export function registerGitHandlers(): void {
             ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
             : params.url
 
-          cloneArgs.push(effectiveUrl, paths.absolutePath)
+          // `--` backs up isValidGitURL: the URL is never read as a git option.
+          cloneArgs.push("--", effectiveUrl, paths.absolutePath)
 
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
-          // host-key verification prompt.
-          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
+          // host-key verification prompt. The repo doesn't exist yet (nor may a
+          // nested localPath's parent), so the user's core.sshCommand is looked
+          // up from the working dir the clone lands in.
+          const sshCommand = yield* resolveSshCommand(session.workingDir)
+          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv(sshCommand) })
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
@@ -675,22 +669,7 @@ export function registerGitHandlers(): void {
       return yield* createMergeRequest(token, buildPrParams(params, repoPath), sendLog)
     })
 
-    // GitLab rejects the create with HTTP 409 when an MR already exists for the
-    // source branch; its message is unreliable, so match the status, not the
-    // text. (The local-branch "already exists" case is handled generically.)
-    const isExistingMr = (failureValue: unknown) =>
-      !!failureValue &&
-      typeof failureValue === "object" &&
-      "_tag" in failureValue &&
-      (failureValue as { _tag: string })._tag === "GitLabApiError" &&
-      (failureValue as GitLabApiError).status === 409
-
-    return respondToGitPrExit(
-      event,
-      await runtime.runPromiseExit(program),
-      params.headBranch,
-      isExistingMr,
-    )
+    return respondToGitPrExit(event, await runtime.runPromiseExit(program), params.headBranch)
   })
 
   ipcMain.handle(

@@ -331,19 +331,6 @@ const impl: GitHubClientShape = {
           }),
         })
 
-        // Add labels if provided
-        if (params.labels && params.labels.length > 0) {
-          await githubJson(
-            `${API_BASE}/repos/${params.owner}/${params.repo}/issues/${data.number}/labels`,
-            {
-              method: "POST",
-              token,
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ labels: params.labels }),
-            },
-          )
-        }
-
         return {
           url: data.html_url,
           number: data.number,

@@ -7,7 +7,7 @@ import { Effect, Stream } from "effect"
 import { ProcessSpawner } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
 import { RemoteSourceError } from "./errors/index.ts"
-import { gitSpawnEnv } from "./domain/git/env.ts"
+import { gitSpawnEnv, resolveSshCommand } from "./domain/git/env.ts"
 import { isGitLabHost } from "./domain/git/gitlab-host.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
@@ -253,9 +253,9 @@ export const resolveRef = (
 
     // Fetch all remote refs. gitSpawnEnv keeps ssh non-interactive so an
     // ls-remote against an unknown SSH host fails fast instead of hanging on
-    // the host-key prompt.
+    // the host-key prompt, while still running the user's core.sshCommand.
     const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", cloneURL], {
-      env: gitSpawnEnv(),
+      env: gitSpawnEnv(yield* resolveSshCommand()),
     })
     const lines: string[] = []
     yield* Stream.runForEach(proc.output, (line) => {
