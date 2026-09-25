@@ -6,8 +6,9 @@
 import { Effect, Stream } from "effect"
 import { ProcessSpawner } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
-import { RemoteSourceError } from "./errors/index.ts"
+import { GitError, RemoteSourceError } from "./errors/index.ts"
 import { gitSpawnEnv } from "./domain/git/env.ts"
+import { redactSecrets } from "./domain/vcs/redact.ts"
 import { isGitLabHost } from "./domain/git/gitlab-host.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
@@ -20,12 +21,14 @@ import type { ParsedRemoteSource } from "./types.ts"
  * The owner/repo portion (everything between the host and the `//` path
  * delimiter) may be a nested group path on GitLab.
  */
-const GIT_PREFIX_REGEX =
-  /^git::https?:\/\/([^/]+)\/(.+?)\/\/(.+?)(?:\?ref=(.+))?$/
+const GIT_PREFIX_REGEX = /^git::/i
 
-/** OpenTofu GitHub shorthand: github.com/owner/repo//path?ref=v1.0 */
-const GITHUB_SHORTHAND_REGEX =
-  /^github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/\/(.+?)(?:\?ref=(.+))?$/
+/**
+ * OpenTofu shorthand: github.com/owner/repo//path?ref=v1.0 (or gitlab.com,
+ * where the owner may be a nested group path). Scheme-less, so it is given
+ * an https:// scheme before parsing.
+ */
+const SHORTHAND_REGEX = /^(?:github|gitlab)\.com\//i
 
 /** GitHub browser tree URL: https://github.com/owner/repo/tree/ref/path */
 const GITHUB_TREE_REGEX =
@@ -47,9 +50,12 @@ const GITLAB_TREE_REGEX =
 const GITLAB_BLOB_REGEX =
   /^https?:\/\/([^/]+)\/(.+?)\/-\/blob\/(.+)$/
 
-/** Plain GitHub repo URL: https://github.com/owner/repo (no nested groups) */
+/**
+ * Plain GitHub repo URL: https://github.com/owner/repo (no nested groups).
+ * The repo name may contain dots (e.g. `docs.example.io`).
+ */
 const PLAIN_GITHUB_REPO_REGEX =
-  /^https?:\/\/github\.com\/([^/]+)\/([^/.]+?)(?:\.git)?$/
+  /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/
 
 /**
  * Plain GitLab repo URL: https://<host>/group/.../repo
@@ -72,10 +78,13 @@ const splitOwnerRepo = (
   ownerRepoPath: string,
 ): { owner: string; repo: string } => {
   const segments = ownerRepoPath.split("/").filter(Boolean)
-  const repo = segments[segments.length - 1].replace(/\.git$/, "")
-  const owner = segments.slice(0, -1).join("/")
+  const repo = (segments.pop() ?? "").replace(/\.git$/, "")
+  const owner = segments.join("/")
   return { owner, repo }
 }
+
+/** Remove leading and trailing slashes. */
+const trimSlashes = (s: string): string => s.replace(/^\/+|\/+$/g, "")
 
 // ---------------------------------------------------------------------------
 // parseRemoteSource
@@ -87,40 +96,65 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
     if (!trimmed) {
       return yield* Effect.fail(new RemoteSourceError({ url: raw, message: "empty URL" }))
     }
+    const unsupported = new RemoteSourceError({ url: raw, message: "unsupported URL format" })
 
-    // 1) git::https://host/owner/.../repo.git//path?ref=v1.0
-    let match = trimmed.match(GIT_PREFIX_REGEX)
-    if (match) {
-      const [, host, ownerRepoPath, path, ref] = match
-      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
+    // Normalize once, as the golang parser did with url.Parse: strip the
+    // OpenTofu `git::` prefix, give the scheme-less shorthand a scheme, then
+    // parse. Every form below reads only the lowercased host, the decoded
+    // path and (OpenTofu forms) the `ref` query parameter, so a ?query or
+    // #fragment never leaks into the repo, ref or path.
+    const isGitPrefixed = GIT_PREFIX_REGEX.test(trimmed)
+    const isShorthand = !isGitPrefixed && SHORTHAND_REGEX.test(trimmed)
+    const input = isGitPrefixed
+      ? trimmed.replace(GIT_PREFIX_REGEX, "")
+      : isShorthand
+        ? `https://${trimmed}`
+        : trimmed
+    const url = yield* Effect.try({ try: () => new URL(input), catch: () => unsupported })
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      return yield* Effect.fail(unsupported)
+    }
+    // `host` keeps a non-default port (a self-hosted instance on :8443).
+    const host = url.host
+    // `new URL` percent-encodes the path (spaces, non-ASCII); decode it back
+    // so it names the directory in the repo. decodeURI leaves `%2F` encoded:
+    // `new URL` has already resolved `.`/`..` segments, and decoding a slash
+    // would let `..%2F..` rebuild one that escapes the clone directory.
+    const pathname = yield* Effect.try(() => decodeURI(url.pathname)).pipe(
+      Effect.orElseSucceed(() => url.pathname),
+    )
+
+    // 1) OpenTofu forms: git::https://host/owner/.../repo.git//path?ref=v1.0
+    //    and the github.com / gitlab.com shorthand. The `//path` subdir is
+    //    optional (the runbook is then at the repo root), and only `ref` is
+    //    read from the query — OpenTofu sources may carry others (`depth`).
+    if (isGitPrefixed || isShorthand) {
+      const fullPath = trimSlashes(pathname)
+      const sep = fullPath.indexOf("//")
+      const repoPath = sep >= 0 ? fullPath.slice(0, sep) : fullPath
+      const path = sep >= 0 ? trimSlashes(fullPath.slice(sep + 2)) || undefined : undefined
+      const { owner, repo } = splitOwnerRepo(repoPath)
+      // GitHub has no nested groups → exactly owner/repo.
+      if (!owner || !repo || (host === "github.com" && owner.includes("/"))) {
+        return yield* Effect.fail(unsupported)
+      }
       return {
         host,
         owner,
         repo,
-        ref,
+        ref: url.searchParams.get("ref") || undefined,
         path,
         cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: false,
       }
     }
 
-    // 2) github.com/owner/repo//path?ref=v1.0
-    match = trimmed.match(GITHUB_SHORTHAND_REGEX)
-    if (match) {
-      const [, owner, repo, path, ref] = match
-      return {
-        host: "github.com",
-        owner,
-        repo,
-        ref,
-        path,
-        cloneURL: `https://github.com/${owner}/${repo}.git`,
-        isBlobURL: false,
-      }
-    }
+    // Browser and plain repo URLs are matched on host + path alone, without
+    // a trailing slash.
+    const normalized = `https://${host}${pathname.replace(/\/+$/, "")}`
 
-    // 3) GitHub tree URL
-    match = trimmed.match(GITHUB_TREE_REGEX)
+    // 2) GitHub tree URL
+    let match = normalized.match(GITHUB_TREE_REGEX)
     if (match) {
       const [, owner, repo, refAndPath] = match
       return {
@@ -129,13 +163,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
         repo,
         // ref/path split is ambiguous; set path as combined and resolve later
         path: refAndPath,
+        refInPath: true,
         cloneURL: `https://github.com/${owner}/${repo}.git`,
         isBlobURL: false,
       }
     }
 
-    // 4) GitHub blob URL
-    match = trimmed.match(GITHUB_BLOB_REGEX)
+    // 3) GitHub blob URL
+    match = normalized.match(GITHUB_BLOB_REGEX)
     if (match) {
       const [, owner, repo, refAndPath] = match
       return {
@@ -143,13 +178,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
         owner,
         repo,
         path: refAndPath,
+        refInPath: true,
         cloneURL: `https://github.com/${owner}/${repo}.git`,
         isBlobURL: true,
       }
     }
 
-    // 5) GitLab tree URL
-    match = trimmed.match(GITLAB_TREE_REGEX)
+    // 4) GitLab tree URL
+    match = normalized.match(GITLAB_TREE_REGEX)
     if (match) {
       const [, host, ownerRepoPath, refAndPath] = match
       const { owner, repo } = splitOwnerRepo(ownerRepoPath)
@@ -158,13 +194,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
         owner,
         repo,
         path: refAndPath,
+        refInPath: true,
         cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: false,
       }
     }
 
-    // 6) GitLab blob URL
-    match = trimmed.match(GITLAB_BLOB_REGEX)
+    // 5) GitLab blob URL
+    match = normalized.match(GITLAB_BLOB_REGEX)
     if (match) {
       const [, host, ownerRepoPath, refAndPath] = match
       const { owner, repo } = splitOwnerRepo(ownerRepoPath)
@@ -173,13 +210,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
         owner,
         repo,
         path: refAndPath,
+        refInPath: true,
         cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: true,
       }
     }
 
-    // 7) Plain GitHub repo URL (GitHub has no nested groups → exactly owner/repo)
-    match = trimmed.match(PLAIN_GITHUB_REPO_REGEX)
+    // 6) Plain GitHub repo URL (GitHub has no nested groups → exactly owner/repo)
+    match = normalized.match(PLAIN_GITHUB_REPO_REGEX)
     if (match) {
       const [, owner, repo] = match
       return {
@@ -191,10 +229,10 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
       }
     }
 
-    // 8) Plain GitLab repo URL (supports nested groups → last segment is the
+    // 7) Plain GitLab repo URL (supports nested groups → last segment is the
     //    repo). Accepts gitlab.com and self-hosted GitLab hosts recognizable by
     //    name; other hosts (e.g. bitbucket.org) fall through to "unsupported".
-    match = trimmed.match(PLAIN_GITLAB_REPO_REGEX)
+    match = normalized.match(PLAIN_GITLAB_REPO_REGEX)
     if (match) {
       const [, host, ownerRepoPath] = match
       if (isGitLabHost(host)) {
@@ -213,9 +251,7 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
       }
     }
 
-    return yield* Effect.fail(
-      new RemoteSourceError({ url: raw, message: "unsupported URL format" }),
-    )
+    return yield* Effect.fail(unsupported)
   })
 
 // ---------------------------------------------------------------------------
@@ -228,8 +264,9 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
  */
 export function needsRefResolution(parsed: ParsedRemoteSource): boolean {
   // Browser URLs store the combined ref+path in `path` without a separate `ref`.
-  // OpenTofu-style URLs always have an explicit `ref` query parameter.
-  return parsed.ref === undefined && parsed.path !== undefined
+  // An OpenTofu-style URL's `//path` is only ever a path, with or without an
+  // explicit `?ref` (no ref means the default branch).
+  return parsed.refInPath === true && parsed.ref === undefined && parsed.path !== undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -239,13 +276,18 @@ export function needsRefResolution(parsed: ParsedRemoteSource): boolean {
 /**
  * Uses `git ls-remote` to determine the correct ref from a combined ref/path string.
  * Tries longest match first so that a ref like "feature/foo" beats "feature".
+ *
+ * A failed ls-remote (auth, network, missing repo) fails with a GitError
+ * rather than guessing a ref, so the caller can classify it like a failed
+ * clone. A segment that matches no ref falls back to being the ref itself,
+ * which is how a commit SHA (a permalink) resolves.
  */
 export const resolveRef = (
   cloneURL: string,
   rawRefAndPath: string,
 ): Effect.Effect<
   { ref: string; path: string | undefined },
-  RemoteSourceError | SpawnError,
+  GitError | SpawnError,
   ProcessSpawner
 > =>
   Effect.gen(function* () {
@@ -258,13 +300,26 @@ export const resolveRef = (
       env: gitSpawnEnv(),
     })
     const lines: string[] = []
+    const stderrLines: string[] = []
     yield* Stream.runForEach(proc.output, (line) => {
-      if (line.source === "stdout" && line.line.trim()) {
+      if (line.source === "stderr") {
+        stderrLines.push(line.line)
+      } else if (line.line.trim()) {
         lines.push(line.line)
       }
       return Effect.void
     })
-    yield* proc.exitCode
+    const code = yield* proc.exitCode
+    if (code !== 0) {
+      // The URL carries the token, so scrub it from git's output.
+      return yield* Effect.fail(
+        new GitError({
+          command: "git ls-remote",
+          stderr: redactSecrets(stderrLines.join("\n")),
+          exitCode: code,
+        }),
+      )
+    }
 
     // Build set of known ref names (strip refs/heads/ and refs/tags/)
     const knownRefs = new Set<string>()

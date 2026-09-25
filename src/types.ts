@@ -299,6 +299,11 @@ export interface ParsedRemoteSource {
   repo: string
   ref?: string
   path?: string
+  /**
+   * Browser tree/blob URLs: `path` holds the combined `<ref>/<path>` until
+   * resolveRef splits it. OpenTofu forms never embed the ref in the path.
+   */
+  refInPath?: boolean
   cloneURL: string
   isBlobURL: boolean
 }

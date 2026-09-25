@@ -17,6 +17,7 @@ import { GitClient } from "../services/GitClient.ts"
 import { GitError } from "../errors/index.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "./ChildProcessSpawner.ts"
+import { makeRecordingSpawner } from "../test-utils/TestSpawner.ts"
 
 const layer = GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive))
 
@@ -282,5 +283,114 @@ describe("GitCliClientLive.commit (real repo)", () => {
     if (result._tag === "Left") {
       expect((result.left as GitError).stderr.toLowerCase()).toContain("author identity unknown")
     }
+  })
+})
+
+describe("GitCliClientLive.cloneSimple commit-SHA refs (real repo)", () => {
+  // A permalink or OpenTofu `?ref=<sha>` names a commit, which `git clone
+  // --branch` rejects ("Remote branch <sha> not found in upstream origin").
+  let tmp: string
+  let srcURL: string
+  let firstSha: string
+
+  const runClone = (dest: string, options: { ref?: string; sparse?: string }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        return yield* git.cloneSimple(srcURL, dest, options)
+      }).pipe(Effect.provide(layer)),
+    )
+
+  const read = (...parts: string[]) => fs.readFileSync(path.join(...parts), "utf8")
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitclone-"))
+    const src = path.join(tmp, "src")
+    fs.mkdirSync(src)
+    git(src, "init")
+    // file:// goes through upload-pack, so the sparse path's --filter applies.
+    git(src, "config", "uploadpack.allowFilter", "true")
+    fs.mkdirSync(path.join(src, "runbooks", "x"), { recursive: true })
+    fs.mkdirSync(path.join(src, "other"))
+    fs.writeFileSync(path.join(src, "runbooks", "x", "runbook.mdx"), "v1\n")
+    fs.writeFileSync(path.join(src, "other", "file.txt"), "other\n")
+    git(src, "add", "-A")
+    git(src, "commit", "-m", "first")
+    firstSha = gitOut(src, "rev-parse", "HEAD").trim()
+    fs.writeFileSync(path.join(src, "runbooks", "x", "runbook.mdx"), "v2\n")
+    git(src, "commit", "-am", "second")
+    srcURL = `file://${src}`
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("sparse clone checks out a full commit SHA", async () => {
+    const dest = path.join(tmp, "sparse")
+    await runClone(dest, { ref: firstSha, sparse: "runbooks/x" })
+
+    expect(gitOut(dest, "rev-parse", "HEAD").trim()).toBe(firstSha)
+    expect(read(dest, "runbooks", "x", "runbook.mdx")).toBe("v1\n")
+    expect(fs.existsSync(path.join(dest, "other"))).toBe(false)
+  })
+
+  it("sparse clone checks out an abbreviated commit SHA", async () => {
+    const dest = path.join(tmp, "sparse-short")
+    await runClone(dest, { ref: firstSha.slice(0, 7), sparse: "runbooks/x" })
+
+    expect(gitOut(dest, "rev-parse", "HEAD").trim()).toBe(firstSha)
+    expect(read(dest, "runbooks", "x", "runbook.mdx")).toBe("v1\n")
+  })
+
+  it("full clone checks out a commit SHA", async () => {
+    const dest = path.join(tmp, "full")
+    await runClone(dest, { ref: firstSha })
+
+    expect(gitOut(dest, "rev-parse", "HEAD").trim()).toBe(firstSha)
+    expect(read(dest, "runbooks", "x", "runbook.mdx")).toBe("v1\n")
+    expect(read(dest, "other", "file.txt")).toBe("other\n")
+  })
+
+  it("still clones a branch ref (control)", async () => {
+    const dest = path.join(tmp, "branch")
+    await runClone(dest, { ref: "main", sparse: "runbooks/x" })
+
+    expect(read(dest, "runbooks", "x", "runbook.mdx")).toBe("v2\n")
+  })
+})
+
+describe("GitCliClientLive.cloneSimple ref arguments", () => {
+  const sha = "0123456789abcdef0123456789abcdef01234567"
+
+  const cloneArgs = async (options: { ref?: string; sparse?: string }) => {
+    const spawner = makeRecordingSpawner(() => ({ lines: [], exitCode: 0 }))
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        return yield* git.cloneSimple("https://github.com/o/r.git", "/tmp/dest", options)
+      }).pipe(Effect.provide(GitCliClientLive.pipe(Layer.provide(spawner.layer)))),
+    )
+    return spawner.calls.filter((c) => c.command === "git").map((c) => c.args)
+  }
+
+  it.each([
+    ["full", undefined],
+    ["sparse", "runbooks/x"],
+  ])("%s clone passes a branch ref as --branch", async (_kind, sparse) => {
+    const calls = await cloneArgs({ ref: "release/v1.2", sparse })
+    expect(calls[0]).toContain("--branch")
+    expect(calls[0]).toContain("release/v1.2")
+    expect(calls.some((args) => args[0] === "checkout" && args.length > 1)).toBe(false)
+  })
+
+  it.each([
+    ["full", undefined],
+    ["sparse", "runbooks/x"],
+  ])("%s clone takes a SHA ref without --branch, then checks it out", async (_kind, sparse) => {
+    const calls = await cloneArgs({ ref: sha, sparse })
+    expect(calls[0]).not.toContain("--branch")
+    expect(calls[0]).toContain("--no-checkout")
+    expect(calls[calls.length - 1]).toEqual(["checkout", sha])
   })
 })

@@ -83,16 +83,24 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/** A full or abbreviated commit SHA, as opposed to a branch or tag name. */
+const COMMIT_SHA_REGEX = /^[0-9a-f]{7,40}$/i
+
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
         const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
+        // `--branch` takes only branch and tag names, so a commit SHA (a
+        // GitHub/GitLab permalink, or OpenTofu `?ref=<sha>`) is cloned without
+        // it and checked out afterwards.
+        const commitRef =
+          options?.ref !== undefined && COMMIT_SHA_REGEX.test(options.ref) ? options.ref : undefined
 
         if (options?.sparse) {
           // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
           const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
-          if (options.ref) {
+          if (options.ref && !commitRef) {
             cloneArgs.push("--branch", options.ref)
           }
           cloneArgs.push(effectiveUrl, dest)
@@ -100,11 +108,13 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
           yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
           yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
-          yield* runGit(spawner, ["checkout"], dest)
+          yield* runGit(spawner, commitRef ? ["checkout", commitRef] : ["checkout"], dest)
         } else {
           // Standard full clone
           const args = ["clone", "--progress"]
-          if (options?.ref) {
+          if (commitRef) {
+            args.push("--no-checkout")
+          } else if (options?.ref) {
             args.push("--branch", options.ref)
           }
           args.push(effectiveUrl, dest)
@@ -125,6 +135,9 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
             return yield* Effect.fail(
               new GitError({ command: `git clone`, stderr, exitCode: code }),
             )
+          }
+          if (commitRef) {
+            yield* runGit(spawner, ["checkout", commitRef], dest)
           }
         }
 
