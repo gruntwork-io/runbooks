@@ -74,8 +74,8 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     }
   })
 
-  function makeRenderer(files: Record<string, string> = {}) {
-    const spawner = makeControlledSpawner()
+  function makeRenderer(files: Record<string, string> = {}, opts: { deferSpawn?: boolean } = {}) {
+    const spawner = makeControlledSpawner(opts)
     const layer = Layer.provide(
       WasmBoilerplateLive,
       Layer.mergeAll(
@@ -94,6 +94,20 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     const render = Effect.runFork(renderer.renderTemplate("/tpl", "/out", { Name: "a" }))
     await until(() => spawner.processes.length === 1)
     await Effect.runPromise(Fiber.interrupt(render))
+
+    expect(spawner.processes[0].killed()).toBe(true)
+  })
+
+  it("kills the subprocess when the render is interrupted while the spawn is completing", async () => {
+    const { spawner, renderer } = makeRenderer({}, { deferSpawn: true })
+
+    // The child already exists, but `spawn` has not handed it back yet. The
+    // interrupt must wait for it and then kill it, not abandon it.
+    const render = Effect.runFork(renderer.renderTemplate("/tpl", "/out", { Name: "a" }))
+    await until(() => spawner.processes.length === 1)
+    const interrupted = Effect.runPromise(Fiber.interrupt(render))
+    spawner.processes[0].completeSpawn()
+    await interrupted
 
     expect(spawner.processes[0].killed()).toBe(true)
   })

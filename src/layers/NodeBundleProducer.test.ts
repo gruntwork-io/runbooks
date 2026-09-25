@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { Cause, Effect, Either, Exit, Fiber, Layer } from "effect"
+import { Cause, Effect, Either, Exit, Fiber, Layer, TestClock, TestContext } from "effect"
 import { BundleProducer } from "../services/BundleProducer.ts"
 import type { OutputLine } from "../services/ProcessSpawner.ts"
 import { makeControlledSpawner } from "../test-utils/TestSpawner.ts"
-import { NodeBundleProducerLive } from "./NodeBundleProducer.ts"
+import { BUNDLE_BUILD_TIMEOUT, NodeBundleProducerLive } from "./NodeBundleProducer.ts"
 
 const VPC = "/runbook/templates/vpc"
 const DB = "/runbook/templates/db"
@@ -116,6 +116,39 @@ describe("NodeBundleProducer", () => {
 
     await Effect.runPromise(producer.clear)
     expect(spawner.processes.map((p) => p.killed())).toEqual([true, true])
+  })
+
+  it("kills a build that outlives the timeout, and the next get starts a fresh one", async () => {
+    const { spawner, producer } = ctx
+
+    // Every render of a template waits on the one shared build, so a build
+    // that never finishes must not block the template for the rest of the
+    // session. The waiting render gets a RenderError (so boilerplate:render
+    // falls back to cold) and the hung subprocess is killed.
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const hung = yield* Effect.fork(Effect.either(producer.get("vpc", VPC)))
+        yield* Effect.promise(() => until(() => spawner.processes.length === 1))
+        // Let the daemon's timeout register its sleep with the TestClock.
+        yield* Effect.promise(settle)
+        expect(spawner.kills()).toBe(0)
+
+        yield* TestClock.adjust(BUNDLE_BUILD_TIMEOUT)
+        return yield* Fiber.join(hung)
+      }).pipe(Effect.provide(TestContext.TestContext)),
+    )
+
+    expect(Either.isLeft(result)).toBe(true)
+    if (Either.isLeft(result)) {
+      expect(result.left.message).toBe("boilerplate inputs map timed out after 3m")
+    }
+    expect(spawner.processes[0].killed()).toBe(true)
+
+    const retry = Effect.runFork(producer.get("vpc", VPC))
+    await until(() => spawner.processes.length === 2)
+    spawner.processes[1].finish(0, inputsMapOutput(VPC))
+    const artifact = await Effect.runPromise(Fiber.join(retry))
+    expect(artifact.templatePath).toBe(VPC)
   })
 
   it("does not cache a failed build, so the next get retries", async () => {

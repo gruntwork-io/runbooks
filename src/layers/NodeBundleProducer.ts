@@ -10,7 +10,7 @@
  * the WASM side. We split this from WasmBoilerplateLive so the cold renderer
  * can keep working unchanged.
  */
-import { Effect, Exit, Fiber, Layer } from "effect"
+import { Duration, Effect, Exit, Fiber, Layer } from "effect"
 import { BundleProducer } from "../services/BundleProducer.ts"
 import type { BundleProducerShape, BundleArtifact } from "../services/BundleProducer.ts"
 import type { InputsMapResult } from "../services/WasmRuntime.ts"
@@ -30,10 +30,23 @@ const cache = new Map<string, BundleArtifact>()
  * a newer keystroke supersedes it, but the bundle depends only on the
  * template, so the newer render needs the very same build. An interrupted
  * caller just stops waiting and the next `get` joins the running
- * subprocess. Only `clear`/`invalidate` interrupt a build, which kills its
- * subprocess.
+ * subprocess. A build is interrupted, which kills its subprocess, only by
+ * `clear`/`invalidate` or by BUNDLE_BUILD_TIMEOUT.
  */
 const inFlight = new Map<string, Fiber.RuntimeFiber<BundleArtifact, RenderError>>()
+
+/**
+ * Upper bound on one bundle build. Every render of a template waits on the
+ * same shared build, so a build that never finishes (say, a remote
+ * dependency fetch that hangs after a network change) would otherwise block
+ * that template's warm path for the rest of the session: reopening the same
+ * runbook does not reset it. On timeout the build is interrupted, which
+ * kills the subprocess, and it fails. The failure drops it from `inFlight`,
+ * so the waiting render falls back to cold and the next render starts a
+ * fresh build. Generous, because a first fetch of remote dependencies can
+ * legitimately take a while.
+ */
+export const BUNDLE_BUILD_TIMEOUT = Duration.minutes(3)
 
 /**
  * Run `boilerplate inputs map --include-bundle` for one template and parse
@@ -106,14 +119,21 @@ export const NodeBundleProducerLive = Layer.effect(
      * Fork a build into a daemon fiber and register it in `inFlight`. The
      * fork and the registration run uninterruptibly, or an interrupt between
      * them would leave a build that nothing can join, cache or kill. The
-     * build itself is made interruptible again so `clear`/`invalidate` can
-     * stop it.
+     * build itself is made interruptible again so `clear`/`invalidate` and
+     * the timeout can stop it.
      */
     const startBuild = (templateId: string, templatePath: string) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
           const fiber = yield* Effect.forkDaemon(
             buildBundle(templateId, templatePath).pipe(
+              Effect.timeoutFail({
+                duration: BUNDLE_BUILD_TIMEOUT,
+                onTimeout: () =>
+                  new RenderError({
+                    message: `boilerplate inputs map timed out after ${Duration.format(BUNDLE_BUILD_TIMEOUT)}`,
+                  }),
+              }),
               Effect.provideService(ProcessSpawner, spawner),
               Effect.interruptible,
             ),

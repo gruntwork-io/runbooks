@@ -25,6 +25,7 @@ import { BoilerplateRenderer } from "../services/BoilerplateRenderer.ts"
 import type { BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
+import type { SpawnedProcess } from "../services/ProcessSpawner.ts"
 import { WasmRuntime } from "../services/WasmRuntime.ts"
 import { RenderError } from "../errors/index.ts"
 
@@ -113,62 +114,76 @@ export function runBoilerplateCli(
     const spawner = yield* ProcessSpawner
     const binary = yield* resolveBoilerplateBinary()
 
+    // Wait for the subprocess to finish and map its exit code.
+    const awaitExit = (proc: SpawnedProcess, dSpawn: number) =>
+      Effect.gen(function* () {
+        const tExec = Date.now()
+        // Drain output (the spawner collects lines and emits them once the
+        // process exits; stderr lines carry user-facing error detail).
+        const lines = yield* Stream.runCollect(proc.output).pipe(
+          Effect.catchAll(() =>
+            Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
+          ),
+        )
+        const stdout: string[] = []
+        const stderr: string[] = []
+        for (const l of lines) {
+          if (l.source === "stdout") stdout.push(l.line)
+          else stderr.push(l.line)
+        }
+
+        const code = yield* proc.exitCode.pipe(
+          Effect.catchAll(() => Effect.succeed(1)),
+        )
+        const dExec = Date.now() - tExec
+        console.log("[boilerplate subprocess] timing(ms)", {
+          command: label,
+          binary,
+          spawn: dSpawn,
+          exec: dExec,
+          exitCode: code,
+        })
+        if (code !== 0) {
+          const stderrText = stderr.join("\n").trim()
+          return yield* Effect.fail(
+            new RenderError({
+              message: stderrText.length > 0
+                ? `${label} exited with code ${code}: ${stderrText}`
+                : `${label} exited with code ${code}`,
+            }),
+          )
+        }
+        return { stdout, stderr }
+      })
+
+    // If our fiber is interrupted (e.g. a newer render superseded this one,
+    // or the bundle producer dropped a build), kill the subprocess so we
+    // stop paying for CPU/network we no longer want. Without this, a stale
+    // boilerplate CLI run would keep running in the background.
+    //
+    // Spawning and installing that kill are one uninterruptible step: the
+    // child exists once `spawn` resolves, so an interrupt landing during the
+    // spawn, or before `onInterrupt` is in place, would leave it running.
+    // Spawning only waits for the child's "spawn" event, so holding off an
+    // interrupt that long costs nothing. The interrupt then reaches the
+    // wait, which kills the child.
     const tSpawn = Date.now()
-    const proc = yield* spawner.spawn(binary, args).pipe(
-      Effect.mapError(
-        (err) =>
-          new RenderError({
-            message: `Failed to spawn vendored boilerplate binary "${binary}". The bundled copy is missing or not executable; run \`just fetch-boilerplate\`.`,
-            cause: err,
-          }),
+    return yield* Effect.uninterruptibleMask((restore) =>
+      spawner.spawn(binary, args).pipe(
+        Effect.mapError(
+          (err) =>
+            new RenderError({
+              message: `Failed to spawn vendored boilerplate binary "${binary}". The bundled copy is missing or not executable; run \`just fetch-boilerplate\`.`,
+              cause: err,
+            }),
+        ),
+        Effect.flatMap((proc) =>
+          restore(awaitExit(proc, Date.now() - tSpawn)).pipe(
+            Effect.onInterrupt(() => proc.kill),
+          ),
+        ),
       ),
     )
-    const dSpawn = Date.now() - tSpawn
-
-    // Wait for the subprocess to finish, but if our fiber is interrupted
-    // (e.g. a newer render superseded this one, or the bundle producer
-    // dropped a build), kill the subprocess so we stop paying for
-    // CPU/network we no longer want. Without this, a stale boilerplate CLI
-    // run would keep running in the background.
-    return yield* Effect.gen(function* () {
-      const tExec = Date.now()
-      // Drain output (the spawner collects lines and emits them once the
-      // process exits; stderr lines carry user-facing error detail).
-      const lines = yield* Stream.runCollect(proc.output).pipe(
-        Effect.catchAll(() =>
-          Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
-        ),
-      )
-      const stdout: string[] = []
-      const stderr: string[] = []
-      for (const l of lines) {
-        if (l.source === "stdout") stdout.push(l.line)
-        else stderr.push(l.line)
-      }
-
-      const code = yield* proc.exitCode.pipe(
-        Effect.catchAll(() => Effect.succeed(1)),
-      )
-      const dExec = Date.now() - tExec
-      console.log("[boilerplate subprocess] timing(ms)", {
-        command: label,
-        binary,
-        spawn: dSpawn,
-        exec: dExec,
-        exitCode: code,
-      })
-      if (code !== 0) {
-        const stderrText = stderr.join("\n").trim()
-        return yield* Effect.fail(
-          new RenderError({
-            message: stderrText.length > 0
-              ? `${label} exited with code ${code}: ${stderrText}`
-              : `${label} exited with code ${code}`,
-          }),
-        )
-      }
-      return { stdout, stderr }
-    }).pipe(Effect.onInterrupt(() => proc.kill))
   })
 }
 

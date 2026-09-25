@@ -1,6 +1,6 @@
 import { Effect, Layer, Stream } from "effect"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
-import type { OutputLine } from "../services/ProcessSpawner.ts"
+import type { OutputLine, SpawnedProcess } from "../services/ProcessSpawner.ts"
 import { SpawnError } from "../errors/index.ts"
 
 export interface SpawnExpectation {
@@ -80,29 +80,30 @@ export interface ControlledProcess {
   readonly args: string[]
   /** Emit `lines`, then exit with `exitCode`. */
   readonly finish: (exitCode: number, lines?: OutputLine[]) => void
+  /**
+   * With `deferSpawn`, resolve the pending `spawn` effect. Until then the
+   * child exists but its caller has not got hold of it yet.
+   */
+  readonly completeSpawn: () => void
   readonly killed: () => boolean
 }
 
-export const makeControlledSpawner = () => {
+export const makeControlledSpawner = (opts: { deferSpawn?: boolean } = {}) => {
   const processes: ControlledProcess[] = []
   let kills = 0
 
   const layer = Layer.succeed(ProcessSpawner, {
     spawn: (command, args) =>
-      Effect.sync(() => {
+      // Like ChildProcessSpawner, the spawn effect has no canceler: an
+      // interrupted caller stops waiting, but the child is already running.
+      Effect.async<SpawnedProcess>((resume) => {
         let killed = false
         let finish!: (result: { exitCode: number; lines: OutputLine[] }) => void
         const exited = new Promise<{ exitCode: number; lines: OutputLine[] }>((resolve) => {
           finish = resolve
         })
-        processes.push({
-          command,
-          args,
-          finish: (exitCode, lines = []) => finish({ exitCode, lines }),
-          killed: () => killed,
-        })
         const result = Effect.promise(() => exited)
-        return {
+        const spawned: SpawnedProcess = {
           output: Stream.unwrap(Effect.map(result, (r) => Stream.fromIterable(r.lines))),
           exitCode: Effect.map(result, (r) => r.exitCode),
           // A killed process exits the way ChildProcessSpawner reports a
@@ -113,6 +114,15 @@ export const makeControlledSpawner = () => {
             finish({ exitCode: 1, lines: [] })
           }),
         }
+        const completeSpawn = () => resume(Effect.succeed(spawned))
+        processes.push({
+          command,
+          args,
+          finish: (exitCode, lines = []) => finish({ exitCode, lines }),
+          completeSpawn,
+          killed: () => killed,
+        })
+        if (!opts.deferSpawn) completeSpawn()
       }),
   })
 

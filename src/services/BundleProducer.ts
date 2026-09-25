@@ -43,6 +43,8 @@ export interface BundleProducerShape {
    * templateId, or shells out to the boilerplate CLI to start one. The
    * build outlives its caller: interrupting `get` only stops waiting, so a
    * superseding render picks up the same build instead of starting over.
+   * A build that hangs is killed after a timeout and fails, so the waiting
+   * render can fall back to cold and the next `get` starts a fresh build.
    */
   readonly get: (
     templateId: string,
