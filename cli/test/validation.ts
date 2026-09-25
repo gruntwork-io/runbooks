@@ -17,6 +17,7 @@ import {
   findFencedCodeBlockRanges,
   isInsideFencedCodeBlock,
 } from "../../src/mdx.ts"
+import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,18 +67,13 @@ interface BoilerplateConfig {
 // Known block types
 // ---------------------------------------------------------------------------
 
-const KNOWN_BLOCK_TYPES = new Set([
-  "Check", "Command", "Inputs", "Template", "TemplateInline",
-  "AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth", "GitClone",
-  "GitHubPullRequest", "DirPicker", "Admonition",
-])
+const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
 
 // ---------------------------------------------------------------------------
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-export const AUTH_BLOCK_TYPES = ["AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", "GitHubPullRequest"] as const
+const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", ...PR_BLOCK_TYPES] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
   GitHubAuth: "githubAuthId",
@@ -131,6 +127,9 @@ export class InputValidator {
     components.push(...this.parseAuthBlocks(content, "GitHubAuth"))
     components.push(...this.parseAuthBlocks(content, "GitLabAuth"))
     components.push(...this.parseAuthBlocks(content, "GitClone"))
+    for (const prType of PR_BLOCK_TYPES) {
+      components.push(...this.parseAuthBlocks(content, prType))
+    }
 
     // Sort by document position (use the order found in content via indexOf)
     components.sort((a, b) => {

@@ -211,3 +211,84 @@ describe("runbooks-cli test — test case isolation", () => {
     expect(fs.readdirSync(tmpdir).filter((name) => name.startsWith("runbook-"))).toEqual([])
   }, CLI_TIMEOUT)
 })
+
+describe("runbooks-cli test — GitClone authentication", () => {
+  /**
+   * Serve a local repo at https://127.0.0.1:1/group/<repo>.git, but only to a
+   * clone URL carrying `userinfo`: git rewrites those URLs to the local repo,
+   * and any other URL goes to port 1, which refuses the connection. So the
+   * clone succeeds only if the runner put exactly that user and token in it.
+   */
+  function runCloneWithAuth(opts: { repo: string; userinfo: string; authBlock: string; cloneProps: string; env: string }) {
+    const upstream = path.join(tmp, "upstream")
+    fs.mkdirSync(upstream)
+    const git = (...args: string[]) => spawnSync("git", args, { cwd: upstream, encoding: "utf-8" })
+    git("init", "-q")
+    fs.writeFileSync(path.join(upstream, "main.tf"), "# tf\n")
+    git("add", ".")
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init")
+    const remote = path.join(tmp, "remote")
+    git("clone", "-q", "--bare", upstream, path.join(remote, "group", `${opts.repo}.git`))
+
+    const url = `https://127.0.0.1:1/group/${opts.repo}.git`
+    const dir = writeRunbook(
+      "clone-auth",
+      [
+        "# Clone",
+        opts.authBlock,
+        `<GitClone id="clone" ${opts.cloneProps} prefilledUrl="${url}" />`,
+        // REPO_FILES is the clone's destination
+        `<Check id="dest" command='test "$(basename "$REPO_FILES")" = "${opts.repo}"' />`,
+        "",
+      ].join("\n\n"),
+      [
+        "version: 1",
+        "tests:",
+        "  - name: clone",
+        "    env:",
+        '      GITLAB_HOST: ""',
+        '      GITLAB_URI: ""',
+        '      GL_HOST: ""',
+        `      ${opts.env}`,
+        "",
+      ].join("\n"),
+    )
+
+    return runCliWithEnv(
+      {
+        ...process.env,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: `url.file://${remote}/.insteadOf`,
+        GIT_CONFIG_VALUE_0: `https://${opts.userinfo}@127.0.0.1:1/`,
+      },
+      dir,
+    )
+  }
+
+  it("clones as oauth2 with the token of the GitLab auth block it references", () => {
+    const { status, stdout } = runCloneWithAuth({
+      repo: "infra",
+      userinfo: "oauth2:fake-gitlab-token",
+      authBlock: `<GitLabAuth id="auth" />`,
+      cloneProps: `gitAuthId="auth"`,
+      env: "GITLAB_TOKEN: fake-gitlab-token",
+    })
+
+    expect(stdout).toContain("1 passed, 0 failed")
+    expect(status).toBe(0)
+  }, CLI_TIMEOUT)
+
+  it("clones as x-access-token for a GitHub auth block and names the dir after the repo", () => {
+    const { status, stdout } = runCloneWithAuth({
+      // Only the trailing .git comes off the directory name
+      repo: "app.gitops",
+      userinfo: "x-access-token:fake-github-token",
+      authBlock: `<GitAuth id="auth" provider="github" />`,
+      cloneProps: `gitAuthId="auth"`,
+      env: "RUNBOOKS_GITHUB_TOKEN: fake-github-token",
+    })
+
+    expect(stdout).toContain("1 passed, 0 failed")
+    expect(status).toBe(0)
+  }, CLI_TIMEOUT)
+})

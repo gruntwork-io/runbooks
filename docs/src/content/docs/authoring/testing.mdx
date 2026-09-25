@@ -121,7 +121,7 @@ tests:
 | `description` | string | No | Human-readable description of what the test validates. |
 | `env` | map | No | Environment variables to set for all blocks in this test. Keys and values are strings. |
 | `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
-| `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, all blocks run in document order. |
+| `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, every block runs once in document order and is expected to succeed, except [pull request blocks](#testing-pull-request-blocks), which are expected to skip. |
 | `assertions` | array | No | Validations to run after all steps complete. |
 | `cleanup` | array | No | Actions to run after the test completes (even on failure). |
 
@@ -156,7 +156,7 @@ steps:
 | `fail` | Block failed (exit code 1+). |
 | `warn` | Block completed with warning (exit code 2). |
 | `blocked` | Block should be blocked: an auth block it depends on hasn't run or was skipped, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
-| `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). |
+| `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). [Pull request blocks](#testing-pull-request-blocks) can only be tested with `skip` or `blocked`. |
 | `config_error` | Block has a configuration error (missing props, invalid config, etc.). |
 
 #### Block IDs
@@ -171,8 +171,11 @@ Each step references a block by its ID. How a block gets its ID depends on the b
 | `<TemplateInline>` | Explicit `id` prop | `<TemplateInline id="settings-preview" ...>` → `settings-preview` |
 | `<AwsAuth>` | Explicit `id` prop | `<AwsAuth id="aws-auth" ...>` → `aws-auth` |
 | `<GoogleAuth>` | Explicit `id` prop | `<GoogleAuth id="google-auth" ...>` → `google-auth` |
+| `<GitAuth>` | Explicit `id` prop | `<GitAuth id="git-auth" ...>` → `git-auth` |
 | `<GitHubAuth>` | Explicit `id` prop | `<GitHubAuth id="github-auth" ...>` → `github-auth` |
+| `<GitLabAuth>` | Explicit `id` prop | `<GitLabAuth id="gitlab-auth" ...>` → `gitlab-auth` |
 | `<GitClone>` | Explicit `id` prop | `<GitClone id="clone-repo" ...>` → `clone-repo` |
+| `<GitPullRequest>`, `<GitHubPullRequest>`, `<GitLabMergeRequest>` | Explicit `id` prop | `<GitPullRequest id="create-pr" ...>` → `create-pr` |
 
 All block types use the explicit `id` prop for identification in test steps.
 
@@ -486,7 +489,7 @@ It also reads (but never treats as a credential — a bare project authenticates
 
 When none of those is set, the block's own `project`, `defaultRegion`, and `defaultZone` props are used.
 
-On success the executor writes the same variables the app's session environment writes, so scripts see every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`.
+On success the executor writes the same variables the app's session environment writes, so scripts see every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`. A credentials file also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, so `gcloud` uses that file rather than an account from `gcloud auth login`; an access token clears it.
 
 ### Using a Test Prefix
 
@@ -564,6 +567,52 @@ This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
   run: runbooks-cli test ./runbooks/...
   env:
     RUNBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Testing GitLabAuth and GitAuth Blocks
+
+For runbooks with `<GitLabAuth>` blocks, the test framework checks for a GitLab token in these environment variables, in this order:
+
+1. `GITLAB_TOKEN`
+2. `GITLAB_ACCESS_TOKEN`
+3. `OAUTH_TOKEN`
+
+With `env_prefix` on the step, it checks the prefixed names instead (`CI_GITLAB_TOKEN`, `CI_GITLAB_ACCESS_TOKEN`, `CI_OAUTH_TOKEN`).
+
+On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too.
+
+The test framework never sends the token anywhere, so a fake one is enough to test that the block authenticates:
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: detects-env-token
+    env:
+      GITLAB_TOKEN: fake-token
+    steps:
+      - block: gitlab-auth
+        expect: success
+```
+
+A `<GitAuth>` block is tested like `<GitHubAuth>` or `<GitLabAuth>`, depending on its `provider` prop (`github` by default).
+
+### Cloning with a Token
+
+A `<GitClone>` that references an auth block with `gitAuthId` or `githubAuthId` clones an `https` URL with that block's token, whatever the host: as user `oauth2` for GitLab, and `x-access-token` for GitHub. Without a reference, a `github.com` or `gitlab.com` URL uses that provider's token from the session environment, if an earlier block put one there.
+
+## Testing Pull Request Blocks
+
+`<GitPullRequest>`, `<GitHubPullRequest>`, and `<GitLabMergeRequest>` blocks never run in tests, since they would push a branch and open a real pull request. A step that names one must use `expect: skip`, or `expect: blocked` when the auth block it references hasn't run or was skipped. A test with no `steps` expects them to skip.
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: skip-without-credentials
+    steps:
+      - block: gh-auth
+        expect: skip
+      - block: create-pr
+        expect: skip
 ```
 
 ## Running Tests

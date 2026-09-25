@@ -22,6 +22,15 @@ import {
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
+import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
+import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
+import { normalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
+import {
+  GITLAB_TOKEN_ENV_VARS,
+  envTokenHost,
+  mayAutoSendEnvToken,
+} from "../../src/domain/gitlab/auth.ts"
+import { redactSecrets } from "../../src/domain/vcs/redact.ts"
 import type { Executable } from "../../src/types.ts"
 
 import type {
@@ -44,11 +53,11 @@ import {
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
   lowercaseFirst,
-  AUTH_BLOCK_TYPES,
   type TemplateInlineBlock,
   type TemplateBlock,
   type AuthDependency,
 } from "./validation.ts"
+import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 
 // ---------------------------------------------------------------------------
@@ -57,7 +66,10 @@ import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 
 type BlockState = "success" | "skipped"
 
+type GitProvider = "github" | "gitlab"
+
 const AUTH_BLOCK_SET = new Set<string>(AUTH_BLOCK_TYPES)
+const PR_BLOCK_SET = new Set<string>(PR_BLOCK_TYPES)
 
 function isAuthBlock(blockType: string): boolean {
   return AUTH_BLOCK_SET.has(blockType)
@@ -113,6 +125,14 @@ const GOOGLE_REGION_WRITE_VARS = [
   "GOOGLE_REGION",
 ] as const
 const GOOGLE_ZONE_WRITE_VARS = ["CLOUDSDK_COMPUTE_ZONE", "GOOGLE_ZONE"] as const
+
+/**
+ * A git auth block's env lookup: the token and the session vars to write, or
+ * why the block skips.
+ */
+type GitAuthLookup =
+  | { token: string; vars: Record<string, string> }
+  | { skipReason: string }
 
 /** Build a StepResult with its mutable fields freshly initialized per call. */
 function makeStepResult(
@@ -226,6 +246,8 @@ export class TestExecutor {
   private testEnv: Record<string, string> = {}
   private blockStates = new Map<string, BlockState>()
   private authBlockCredentials = new Map<string, Record<string, string>>()
+  // The token each git auth block found, and for which provider, for GitClone
+  private gitAuthTokens = new Map<string, { provider: GitProvider; token: string }>()
   private activeWorkTreePath = ""
 
   /**
@@ -396,6 +418,7 @@ export class TestExecutor {
     this.blockOutputs = new Map()
     this.blockStates = new Map()
     this.authBlockCredentials = new Map()
+    this.gitAuthTokens = new Map()
     this.activeWorkTreePath = ""
 
     // 3. Get all blocks in document order
@@ -403,7 +426,8 @@ export class TestExecutor {
 
     // 4. Pair each block to run with its step. Explicit steps run in the order
     // listed, so a block can run more than once with a different expectation
-    // each time; without steps, every block runs once in document order.
+    // each time; without steps, every block runs once in document order,
+    // expected to succeed, except PR blocks, which never run in test mode.
     const plan: Array<{ block: ParsedComponent; step: TestStep }> = []
     if (tc.steps && tc.steps.length > 0) {
       for (const [i, step] of tc.steps.entries()) {
@@ -418,7 +442,8 @@ export class TestExecutor {
       }
     } else {
       for (const block of allBlocks) {
-        plan.push({ block, step: { block: block.id, expect: "success" } })
+        const expect = PR_BLOCK_SET.has(block.type) ? "skip" : "success"
+        plan.push({ block, step: { block: block.id, expect } })
       }
     }
 
@@ -667,7 +692,21 @@ export class TestExecutor {
         return this.runCheckOrCommand(block, step, start)
 
       case "GitHubAuth":
-        return this.runGitHubAuth(block, step, start)
+        return this.runGitAuth(block, step, start, "github")
+
+      case "GitLabAuth":
+        return this.runGitAuth(block, step, start, "gitlab")
+
+      case "GitAuth": {
+        const provider = extractProp(block.props, "provider") || "github"
+        if (provider !== "github" && provider !== "gitlab") {
+          result.passed = false; result.actualStatus = "error"
+          result.error = `Unsupported provider "${provider}" (expected "github" or "gitlab")`
+          result.duration = Date.now() - start
+          return result
+        }
+        return this.runGitAuth(block, step, start, provider)
+      }
 
       case "AwsAuth":
         return this.runAwsAuth(block, step, start)
@@ -678,17 +717,14 @@ export class TestExecutor {
       case "GitClone":
         return this.runGitClone(block, step, start)
 
+      // `expect: skip` returned above, so any expectation that gets here would
+      // need the block to push a branch and open a real pull request.
+      case "GitPullRequest":
       case "GitHubPullRequest":
-        result.passed = (step.expect as string) === "skip"
-        result.actualStatus = "skipped"
+      case "GitLabMergeRequest":
+        result.passed = false; result.actualStatus = "error"
+        result.error = "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
         result.duration = Date.now() - start
-        if (this.options.verbose) console.log("  (GitHubPullRequest blocks are skipped in test mode)")
-        return result
-
-      case "Admonition":
-        result.passed = true; result.actualStatus = "success"
-        result.duration = Date.now() - start
-        if (this.options.verbose) console.log("  (decorative block - no run)")
         return result
 
       default:
@@ -1029,43 +1065,91 @@ export class TestExecutor {
   }
 
   // -----------------------------------------------------------------------
-  // GitHubAuth block
+  // GitHubAuth / GitLabAuth / GitAuth blocks
   // -----------------------------------------------------------------------
 
-  private runGitHubAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result = makeStepResult(`gitHubAuth:${block.id}`, step.expect)
+  /**
+   * Git auth in headless test mode, for either provider: find a token in the
+   * provider's env vars and write the session vars main writes on a
+   * successful auth (GITHUB_TOKEN, or GITLAB_TOKEN and GITLAB_HOST). Like the
+   * other auth runners this never reaches the network, so the token is taken
+   * at face value.
+   */
+  private runGitAuth(
+    block: ParsedComponent,
+    step: TestStep,
+    start: number,
+    provider: GitProvider,
+  ): StepResult {
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
+    const providerName = provider === "gitlab" ? "GitLab" : "GitHub"
 
     const prefix = step.env_prefix ?? ""
-    let token = ""
+    const lookup = provider === "gitlab"
+      ? this.findGitLabAuthEnv(block, prefix)
+      : this.findGitHubAuthEnv(prefix)
 
-    if (prefix) {
-      token = this.getenv(`${prefix}GITHUB_TOKEN`) || this.getenv(`${prefix}GH_TOKEN`)
-    } else {
-      token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || this.getenv("GITHUB_TOKEN") || this.getenv("GH_TOKEN")
-    }
-
-    if (!token) {
+    if ("skipReason" in lookup) {
       this.blockStates.set(block.id, "skipped")
       result.actualStatus = "skipped"
       result.passed = this.matchesExpectedStatus(step.expect, "skipped")
       result.duration = Date.now() - start
-      if (this.options.verbose) console.log("--- No GitHub credentials found ---")
+      if (this.options.verbose) console.log(`--- ${lookup.skipReason} ---`)
       return result
     }
 
-    const envVars: Record<string, string> = { GITHUB_TOKEN: token }
+    const envVars = lookup.vars
     this.authBlockCredentials.set(block.id, envVars)
+    this.gitAuthTokens.set(block.id, { provider, token: lookup.token })
 
     // Inject into session env
-    this.sessionEnv = this.sessionEnv.filter((e) => !e.startsWith("GITHUB_TOKEN="))
-    this.sessionEnv.push(`GITHUB_TOKEN=${token}`)
+    const written = new Set(Object.keys(envVars))
+    this.sessionEnv = this.sessionEnv.filter((entry) => {
+      const eq = entry.indexOf("=")
+      return eq === -1 || !written.has(entry.slice(0, eq))
+    })
+    for (const [k, v] of Object.entries(envVars)) {
+      this.sessionEnv.push(`${k}=${v}`)
+    }
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
-    if (this.options.verbose) console.log("--- GitHub credentials found, injected ---")
+    if (this.options.verbose) console.log(`--- ${providerName} credentials found, injected ---`)
     return result
+  }
+
+  private findGitHubAuthEnv(prefix: string): GitAuthLookup {
+    const token = prefix
+      ? this.getenv(`${prefix}GITHUB_TOKEN`) || this.getenv(`${prefix}GH_TOKEN`)
+      : this.getenv("RUNBOOKS_GITHUB_TOKEN") || this.getenv("GITHUB_TOKEN") || this.getenv("GH_TOKEN")
+    if (!token) return { skipReason: "No GitHub credentials found" }
+    return { token, vars: { GITHUB_TOKEN: token } }
+  }
+
+  /**
+   * GitLab token lookup, with the app's env-token host binding: an env token
+   * belongs to the one host GITLAB_HOST (or GITLAB_URI, GL_HOST) names,
+   * gitlab.com by default, so a block pinned to another host with
+   * `instanceUrl` or `host` doesn't get it.
+   */
+  private findGitLabAuthEnv(block: ParsedComponent, prefix: string): GitAuthLookup {
+    const token = this.firstEnv(prefix, GITLAB_TOKEN_ENV_VARS)
+    if (!token) return { skipReason: "No GitLab credentials found" }
+
+    const env: Record<string, string | undefined> = { ...process.env, ...this.testEnv }
+    const pinned = extractProp(block.props, "instanceUrl") || extractProp(block.props, "host")
+    const host = pinned ? normalizeGitLabHost(pinned) : envTokenHost(env)
+    if (!host || !mayAutoSendEnvToken(host, env)) {
+      const bound = envTokenHost(env)
+      return {
+        skipReason: bound
+          ? `GitLab token is for ${bound}, not ${host}; set GITLAB_HOST to use it there`
+          : "GitLab token has no usable host: GITLAB_HOST (or GITLAB_URI, GL_HOST) isn't a valid URL or host",
+      }
+    }
+    return { token, vars: { GITLAB_TOKEN: token, GITLAB_HOST: host } }
   }
 
   // -----------------------------------------------------------------------
@@ -1245,6 +1329,13 @@ export class TestExecutor {
 
     blockCreds[credential.name] = credential.value
 
+    // Point the gcloud CLI at the same file. gcloud keeps its own credential
+    // store, which otherwise wins over ADC whenever the machine has a
+    // `gcloud auth login` account, so a bare `gcloud` would ignore this block.
+    if (credential.name === "GOOGLE_APPLICATION_CREDENTIALS") {
+      blockCreds["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] = credential.value
+    }
+
     // A bare access token is exported under both canonical names: gcloud reads
     // CLOUDSDK_AUTH_ACCESS_TOKEN, client libraries read GOOGLE_OAUTH_ACCESS_TOKEN.
     if (
@@ -1279,8 +1370,12 @@ export class TestExecutor {
 
     // Clear EVERY credential-bearing var, not just the one being written, so an
     // ambient GOOGLE_APPLICATION_CREDENTIALS cannot shadow a token the prefix
-    // selected.
-    const stale = new Set<string>([...GOOGLE_CREDENTIAL_ENV_VARS, ...Object.keys(blockCreds)])
+    // selected, and an earlier override cannot keep gcloud on another file.
+    const stale = new Set<string>([
+      ...GOOGLE_CREDENTIAL_ENV_VARS,
+      "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+      ...Object.keys(blockCreds),
+    ])
     this.sessionEnv = this.sessionEnv.filter((entry) => {
       const eq = entry.indexOf("=")
       return eq === -1 || !stale.has(entry.slice(0, eq))
@@ -1331,31 +1426,12 @@ export class TestExecutor {
     if (localPath) {
       destPath = path.isAbsolute(localPath) ? localPath : path.join(this.workingDir, localPath)
     } else {
-      // Extract repo name from URL
-      const repoName = cloneURL.split("/").pop()?.replace(".git", "") ?? "repo"
-      destPath = path.join(this.workingDir, repoName)
+      // Name the directory after the repo, as the app does
+      destPath = path.join(this.workingDir, parseOwnerRepoFromURL(cloneURL)?.repo ?? "repo")
     }
 
-    // Inject token for GitHub URLs
-    let effectiveURL = cloneURL
-    if (cloneURL.includes("github.com")) {
-      const githubAuthId = extractProp(block.props, "githubAuthId")
-      let token = ""
-      if (githubAuthId) {
-        const creds = this.authBlockCredentials.get(githubAuthId)
-        if (creds) token = creds["GITHUB_TOKEN"] ?? ""
-      }
-      if (!token) {
-        // Check session env
-        for (const entry of this.sessionEnv) {
-          if (entry.startsWith("GITHUB_TOKEN=")) token = entry.slice(13)
-          else if (entry.startsWith("GH_TOKEN=")) token = entry.slice(9)
-        }
-      }
-      if (token) {
-        effectiveURL = cloneURL.replace("https://github.com/", `https://x-access-token:${token}@github.com/`)
-      }
-    }
+    // Inject a token into the URL
+    const effectiveURL = this.authenticatedCloneURL(block, cloneURL)
 
     if (this.options.verbose) {
       console.log(`--- Cloning ${cloneURL} ---`)
@@ -1397,7 +1473,7 @@ export class TestExecutor {
     } catch (e: unknown) {
       result.passed = false; result.actualStatus = "fail"
       // Sanitize error to not leak tokens
-      result.error = String(e).replace(/x-access-token:[^@]+@/g, "x-access-token:***@")
+      result.error = redactSecrets(String(e))
       result.duration = Date.now() - start
       return result
     }
@@ -1422,6 +1498,37 @@ export class TestExecutor {
     }
 
     return result
+  }
+
+  /**
+   * The clone URL with a token in it, chosen by provider, never by host, as
+   * main's clone handler does. The token and provider come from the auth block
+   * the GitClone references with `gitAuthId` or `githubAuthId`. With no
+   * reference, a github.com or gitlab.com URL uses that provider's token from
+   * the session env. GitLab takes the token as user `oauth2`, GitHub as
+   * `x-access-token`. Only https URLs get a token; SSH authenticates itself.
+   */
+  private authenticatedCloneURL(block: ParsedComponent, cloneURL: string): string {
+    let url: URL
+    try { url = new URL(cloneURL) } catch { return cloneURL }
+    if (url.protocol !== "https:") return cloneURL
+
+    const authId = extractProp(block.props, "gitAuthId") || extractProp(block.props, "githubAuthId")
+    let auth: { provider: GitProvider; token: string } | undefined
+    if (authId) {
+      auth = this.gitAuthTokens.get(authId)
+    } else {
+      const host = url.hostname
+      const session = envListToRecord(this.sessionEnv)
+      if (host === "github.com") {
+        auth = { provider: "github", token: session["GITHUB_TOKEN"] || session["GH_TOKEN"] || "" }
+      } else if (host === "gitlab.com") {
+        auth = { provider: "gitlab", token: session["GITLAB_TOKEN"] || "" }
+      }
+    }
+
+    if (!auth?.token) return cloneURL
+    return injectTokenIntoUrl(cloneURL, auth.token, auth.provider === "gitlab" ? "oauth2" : "x-access-token")
   }
 
   /**

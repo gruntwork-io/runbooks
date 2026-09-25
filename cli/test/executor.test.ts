@@ -472,3 +472,335 @@ describe("TestExecutor — block outputs", () => {
     expect(result.stepResults[0]?.outputs).toEqual({ MSG: " hi", OK: "1" })
   })
 })
+
+// ---------------------------------------------------------------------------
+// PR blocks: recognized and parsed, so a runbook with one can be tested, and
+// a step that names one can only expect `skip` (or `blocked`).
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — PR blocks", () => {
+  let tmp: string
+
+  const RUNBOOK = [
+    "# PR blocks",
+    "",
+    `<GitAuth id="git-auth" provider="gitlab" />`,
+    "",
+    `<Command id="hello" command="echo hello" />`,
+    "",
+    `<GitPullRequest id="pr" gitAuthId="git-auth" />`,
+    "",
+    `<GitHubPullRequest id="gh-pr" />`,
+    "",
+    `<GitLabMergeRequest id="mr" gitAuthId="git-auth" />`,
+    "",
+  ].join("\n")
+
+  const makeExecutor = async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, RUNBOOK)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-pr-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("runs a test of a runbook that contains PR blocks", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({ name: "command-only", steps: [{ block: "hello", expect: "success" }] })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+  })
+
+  it("skips every PR block type when a step expects skip", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "skip-prs",
+      env: { GITLAB_TOKEN: "fake-gitlab-token", GITLAB_HOST: "" },
+      steps: [
+        { block: "git-auth", expect: "success" },
+        { block: "pr", expect: "skip" },
+        { block: "gh-pr", expect: "skip" },
+        { block: "mr", expect: "skip" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["gitAuth:git-auth", "success"],
+      ["gitPullRequest:pr", "skipped"],
+      ["gitHubPullRequest:gh-pr", "skipped"],
+      ["gitLabMergeRequest:mr", "skipped"],
+    ])
+  })
+
+  it("fails a PR step that expects anything but skip", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({ name: "run-pr", steps: [{ block: "gh-pr", expect: "success" }] })
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toContain("PR blocks can only be tested with expect: skip")
+  })
+
+  it("blocks a PR block on the auth block it references", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "pr-blocked",
+      env: { GITLAB_TOKEN: "", GITLAB_ACCESS_TOKEN: "", OAUTH_TOKEN: "" },
+      steps: [
+        { block: "git-auth", expect: "skip" },
+        { block: "mr", expect: "blocked" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[1]?.actualStatus).toBe("blocked")
+  })
+
+  it("expects PR blocks to skip when the test lists no steps", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# PR\n\n<Command id="hello" command="echo hello" />\n\n<GitHubPullRequest id="gh-pr" />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({ name: "all-blocks" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:hello", "success"],
+      ["gitHubPullRequest:gh-pr", "skipped"],
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Git auth: GitHubAuth, GitLabAuth and GitAuth (either provider) find a token
+// in the provider's env vars and write the session vars the app writes.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — git auth blocks", () => {
+  let tmp: string
+
+  // Blank every GitLab token and host var, so the developer's own env can't
+  // leak into a test.
+  const NO_GITLAB_ENV = {
+    GITLAB_TOKEN: "",
+    GITLAB_ACCESS_TOKEN: "",
+    OAUTH_TOKEN: "",
+    GITLAB_HOST: "",
+    GITLAB_URI: "",
+    GL_HOST: "",
+  }
+
+  const report = [
+    "gitlab_token=${GITLAB_TOKEN:-unset}",
+    "gitlab_host=${GITLAB_HOST:-unset}",
+    "github_token=${GITHUB_TOKEN:-unset}",
+  ].map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`).join("; ")
+
+  /** A runbook with `authBlock` and a Command that reports what it sees. */
+  const makeExecutor = async (authBlock: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      `# Git auth\n\n${authBlock}\n\n<Command id="report" gitAuthId="auth" command='${report}' />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const runAuthThenReport = (
+    executor: TestExecutor,
+    env: Record<string, string>,
+    authStep: { env_prefix?: string } = {},
+  ) =>
+    executor.runTest({
+      name: "auth",
+      env: { ...NO_GITLAB_ENV, ...env },
+      steps: [
+        { block: "auth", expect: "success", ...authStep },
+        { block: "report", expect: "success" },
+      ],
+    })
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-gitauth-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it.each([
+    ["GitLabAuth", `<GitLabAuth id="auth" />`],
+    ["GitAuth provider=gitlab", `<GitAuth id="auth" provider="gitlab" />`],
+  ])("%s injects GITLAB_TOKEN and GITLAB_HOST", async (_name, authBlock) => {
+    const executor = await makeExecutor(authBlock)
+
+    const result = runAuthThenReport(executor, { GITLAB_ACCESS_TOKEN: "fake-gitlab-token" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[1]?.outputs).toMatchObject({
+      gitlab_token: "fake-gitlab-token",
+      gitlab_host: "gitlab.com",
+    })
+  })
+
+  it("GitAuth defaults to GitHub and injects GITHUB_TOKEN", async () => {
+    const executor = await makeExecutor(`<GitAuth id="auth" />`)
+
+    const result = runAuthThenReport(executor, { RUNBOOKS_GITHUB_TOKEN: "fake-github-token" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[1]?.outputs?.github_token).toBe("fake-github-token")
+  })
+
+  it("reads GitLab tokens under the step's env_prefix", async () => {
+    const executor = await makeExecutor(`<GitLabAuth id="auth" />`)
+
+    const result = runAuthThenReport(executor, { CI_OAUTH_TOKEN: "prefixed-token" }, { env_prefix: "CI_" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[1]?.outputs?.gitlab_token).toBe("prefixed-token")
+  })
+
+  it("skips GitLab auth when no token is set", async () => {
+    const executor = await makeExecutor(`<GitLabAuth id="auth" />`)
+
+    // (`expect: skip` would skip the block without looking for a token.)
+    const result = executor.runTest({ name: "no-token", env: NO_GITLAB_ENV, steps: [{ block: "auth", expect: "success" }] })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]?.actualStatus).toBe("skipped")
+  })
+
+  it("uses a pinned GitLab host only when the env token is bound to it", async () => {
+    const executor = await makeExecutor(
+      `<GitAuth id="auth" provider="gitlab" instanceUrl="https://gitlab.example.com/" />`,
+    )
+
+    const unbound = runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
+    expect(unbound.stepResults[0]?.actualStatus).toBe("skipped")
+
+    const bound = runAuthThenReport(executor, {
+      GITLAB_TOKEN: "fake-gitlab-token",
+      GITLAB_HOST: "https://gitlab.example.com",
+    })
+    expect(bound.error).toBeUndefined()
+    expect(bound.stepResults[1]?.outputs?.gitlab_host).toBe("gitlab.example.com")
+  })
+
+  it("fails a GitAuth block with an unknown provider", async () => {
+    const executor = await makeExecutor(`<GitAuth id="auth" provider="bitbucket" />`)
+
+    const result = runAuthThenReport(executor, {})
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toContain('Unsupported provider "bitbucket"')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GitClone: a token from a GitLab auth block goes into the URL on any host and
+// never into the error. (cli/commands/test.test.ts clones with the token.)
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — GitClone authentication", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-clone-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("keeps a GitLab token out of a failed clone's error", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      // Port 1 refuses the connection, so the clone fails fast.
+      `# Clone\n\n<GitLabAuth id="auth" />\n\n<GitClone id="clone" gitAuthId="auth" prefilledUrl="https://127.0.0.1:1/group/infra.git" />\n`,
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({
+      name: "clone",
+      env: { GITLAB_TOKEN: "fake-gitlab-token", GITLAB_HOST: "", GITLAB_URI: "", GL_HOST: "" },
+      steps: [
+        { block: "auth", expect: "success" },
+        { block: "clone", expect: "success" },
+      ],
+    })
+
+    expect(result.stepResults[1]?.actualStatus).toBe("fail")
+    // The token was in the URL git was given...
+    expect(result.error).toContain("https://[REDACTED]@127.0.0.1:1/group/infra.git")
+    // ...and nowhere in what's reported.
+    expect(result.error).not.toContain("fake-gitlab-token")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GoogleAuth: a credentials file also points the gcloud CLI at itself.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — GoogleAuth gcloud credential override", () => {
+  let tmp: string
+
+  const report = `echo "override=\${CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE:-unset}" >> "$RUNBOOK_OUTPUT"`
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-google-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("sets the override for a credentials file and clears it for an access token", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Google",
+        `<GoogleAuth id="file-auth" />`,
+        `<Command id="after-file" command='${report}' />`,
+        `<GoogleAuth id="token-auth" />`,
+        `<Command id="after-token" command='${report}' />`,
+        "",
+      ].join("\n\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({
+      name: "google",
+      env: {
+        FILE_GOOGLE_APPLICATION_CREDENTIALS: "/secrets/key.json",
+        TOKEN_GOOGLE_OAUTH_ACCESS_TOKEN: "ya29.fake",
+      },
+      steps: [
+        { block: "file-auth", expect: "success", env_prefix: "FILE_" },
+        { block: "after-file", expect: "success" },
+        { block: "token-auth", expect: "success", env_prefix: "TOKEN_" },
+        { block: "after-token", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[1]?.outputs?.override).toBe("/secrets/key.json")
+    expect(result.stepResults[3]?.outputs?.override).toBe("unset")
+  })
+})

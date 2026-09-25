@@ -6,7 +6,7 @@ settings:
 
 tests:
   - name: skip-without-credentials
-    description: Auth block skips when no credentials; dependent clone block also skips
+    description: Auth block skips when no credentials; dependent clone and PR blocks also skip
     env:
       GITHUB_TOKEN: ""
       GH_TOKEN: ""
@@ -16,5 +16,5 @@ tests:
         expect: skip
       - block: clone-repo
         expect: skip
-      # create-pr isn't listed: the test runner doesn't parse PR blocks yet, and
-      # a step naming a block it can't find fails the test.
+      - block: create-pr
+        expect: skip
