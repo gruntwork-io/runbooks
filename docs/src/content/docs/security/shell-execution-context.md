@@ -79,22 +79,21 @@ This means you can write scripts with proper cleanup logic and still have enviro
 
 The Runbooks app uses a single window and a single session. All scripts within a runbook share the same environment state.
 
-### Concurrent Script Execution
+### How Script Changes Are Applied
 
-:::caution[Environment changes may be lost when scripts run concurrently]
-If you run multiple scripts at the same time (for example, clicking "Run" on two different blocks before the first completes), environment changes from one script may silently overwrite changes from the other.
-:::
+When a script finishes, Runbooks applies only what that script changed to the session:
 
-**Why this happens:** When a script starts, it captures the current environment as a snapshot. When it finishes, it replaces the session environment with whatever the script ended with. If two scripts run concurrently:
+- Variables the script exported or changed are set to their new values.
+- Variables the script unset are removed from the session.
+- The working directory changes only if the script changed directory.
 
-1. Script A and Script B both start with environment `{X=1}`
-2. Script A sets `X=2`
-3. Script B sets `Y=3`
-4. Whichever finishes last overwrites the other's changes
+Everything else in the session is left as it is. If the session changed while the script was running — for example, an auth block authenticated and added credentials, or you reset the session — those changes are kept, and the script's own changes are applied on top of them. If the script and something else both changed the same variable, the script's value wins, because it is applied last.
 
-For example, if Script B finishes last, the session ends up with `{X=1, Y=3}` — losing Script A's change to `X`.
+If you open a different runbook while a script is running, the finished script's changes are discarded instead of being applied to the new runbook's session.
 
-**Recommendation:** If your scripts depend on environment changes from previous scripts, wait for each script to complete before running the next one. The environment model is designed for sequential, step-by-step execution, similar to typing commands in a terminal one at a time.
+### One Script at a Time
+
+Only one script runs at a time. Starting a script (for example, clicking "Run" on another block before the first one finishes) cancels the script that is already running, and the cancelled script's environment changes are discarded. If your scripts depend on environment changes from earlier scripts, wait for each script to complete before running the next one. The environment model is designed for sequential, step-by-step execution, similar to typing commands in a terminal one at a time.
 
 ### Implementation Notes
 

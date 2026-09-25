@@ -277,6 +277,15 @@ export interface SessionExecContext {
   workDir: string
 }
 
+/**
+ * A SessionExecContext tagged with the session it was taken from. Anything
+ * applied back to the session later (a script's captured env) carries the
+ * generation so it can be dropped if the session was replaced in between.
+ */
+export interface SessionExecSnapshot extends SessionExecContext {
+  generation: number
+}
+
 // ---------------------------------------------------------------------------
 // Runbook config
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { SessionError, SessionNotFoundError } from "../../errors/index.js"
 import {
   type SessionMetadata,
   type SessionExecContext,
+  type SessionExecSnapshot,
   MAX_TOKENS_PER_SESSION,
 } from "../../types.js"
 
@@ -111,6 +112,23 @@ export function filterCapturedEnv(
   return filtered
 }
 
+/**
+ * What a script changed in its environment, relative to the env it started
+ * with: keys it added or re-assigned (`set`) and keys it removed (`unset`).
+ */
+export function diffEnv(
+  before: Record<string, string>,
+  after: Record<string, string>,
+): { set: Record<string, string>; unset: string[] } {
+  const set = Object.fromEntries(
+    Object.entries(after).filter(
+      ([k, v]) => !Object.hasOwn(before, k) || before[k] !== v,
+    ),
+  )
+  const unset = Object.keys(before).filter((k) => !Object.hasOwn(after, k))
+  return { set, unset }
+}
+
 // ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
@@ -118,6 +136,8 @@ export function filterCapturedEnv(
 export class SessionManager {
   private session: Session | null = null
   private protectedEnvVars: string[] = []
+  /** Bumped by every createSession, so a snapshot can tell its session was replaced. */
+  private generation = 0
 
   // -------------------------------------------------------------------------
   // Configuration
@@ -126,7 +146,8 @@ export class SessionManager {
   /**
    * Configure environment variables that should be stripped from the session at
    * creation time (e.g. AWS credentials that require explicit auth).
-   * Must be called before `createSession`.
+   * Must be called before every `createSession` — including with `[]` — so a
+   * previous runbook's list never applies to the next one.
    */
   setProtectedEnvVars(vars: string[]): void {
     this.protectedEnvVars = vars
@@ -171,6 +192,7 @@ export class SessionManager {
       }
 
       this.session = session
+      this.generation++
 
       return { token }
     })
@@ -294,7 +316,7 @@ export class SessionManager {
    * Get the current execution context without token validation.
    * Used by IPC handlers where authentication is unnecessary (process-local).
    */
-  getExecContext(): Effect.Effect<SessionExecContext, SessionNotFoundError, never> {
+  getExecContext(): Effect.Effect<SessionExecSnapshot, SessionNotFoundError, never> {
     return Effect.gen(this, function* () {
       if (this.session === null) {
         return yield* new SessionNotFoundError()
@@ -302,6 +324,7 @@ export class SessionManager {
       return {
         env: mapToRecord(this.session.env),
         workDir: this.session.workingDir,
+        generation: this.generation,
       }
     })
   }
@@ -328,17 +351,44 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Replace the session's environment and working directory after script
-   * execution, incrementing the execution counter.
+   * Apply a script's captured environment and working directory to the
+   * session after execution, incrementing the execution counter.
+   *
+   * The capture is applied as a delta against `before`, the env snapshot the
+   * script started from (getExecContext): only keys the script exported,
+   * re-assigned or unset are written, and every other key in the live env is
+   * left alone. Auth blocks write to the session while a script runs
+   * (appendToEnv, removeFromEnv, session:set-env), and replacing the env with
+   * the script's start-time view would silently undo those writes. Likewise
+   * the working dir only moves if the script itself changed directory. An
+   * empty `pwd` means the capture failed (e.g. the script removed its own cwd)
+   * and leaves the working dir as it is.
+   *
+   * No-op when the session was replaced (a different runbook opened) since the
+   * snapshot was taken, so one runbook's env can't leak into the next.
    */
-  updateSessionEnv(env: Record<string, string>, workDir: string) {
-    return Effect.gen(this, function* () {
-      if (this.session === null) {
-        return yield* new SessionError({ message: "no active session" })
+  applyCapturedEnv(params: {
+    before: Record<string, string>
+    after: Record<string, string>
+    startWorkDir: string
+    pwd: string
+    generation: number
+  }): Effect.Effect<void> {
+    return Effect.sync(() => {
+      if (this.session === null || params.generation !== this.generation) {
+        return
       }
 
-      this.session.env = recordToMap(env)
-      this.session.workingDir = workDir
+      const { set, unset } = diffEnv(params.before, params.after)
+      for (const [key, value] of Object.entries(set)) {
+        this.session.env.set(key, value)
+      }
+      for (const key of unset) {
+        this.session.env.delete(key)
+      }
+      if (params.pwd !== "" && params.pwd !== params.startWorkDir) {
+        this.session.workingDir = params.pwd
+      }
       this.session.executionCount++
       this.session.lastActivity = new Date()
     })
