@@ -149,6 +149,16 @@ describe('resolveTemplateReferences', () => {
     expect(resolveTemplateReferences('{{ .inputs.region | upper }}', ctx)).toBe('us-west-2')
   })
 
+  it('should resolve dotted input paths through nested objects', () => {
+    const nestedCtx: TemplateContext = {
+      inputs: { tags: { env: 'prod' }, _module: { source: 'git::x' } },
+      outputs: {},
+    }
+    expect(resolveTemplateReferences('{{ .inputs.tags.env }}', nestedCtx)).toBe('prod')
+    expect(resolveTemplateReferences('{{ .inputs._module.source }}', nestedCtx)).toBe('git::x')
+    expect(resolveTemplateReferences('{{ .inputs.tags.team }}', nestedCtx)).toBe('`{{ .inputs.tags.team }}`')
+  })
+
   it('should wrap missing input values in backticks for inline-code rendering', () => {
     expect(resolveTemplateReferences('{{ .inputs.nonexistent }}', ctx)).toBe('`{{ .inputs.nonexistent }}`')
   })

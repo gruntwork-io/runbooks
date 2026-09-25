@@ -44,7 +44,7 @@ automatically.
 
 | Block | Interactive | Instruction mode |
 |---|---|---|
-| **Command / Check** | Run button; the app executes the script | "Run this:" with the resolved command in a copy block. File-backed scripts keep the source viewer. |
+| **Command / Check** | Run button; the app executes the script | "Run this:" with the resolved command in a copy block. A nested `<Inputs>` stays a form above the command. File-backed scripts keep the source viewer. |
 | **AwsAuth** | SSO / profile / key UI; captures credentials | "Log into AWS in the `<account>` account" (with the configured SSO details). No capture. |
 | **GoogleAuth** | Service account key / Google sign-in / gcloud config UI; captures credentials | "Log into Google Cloud in the `<project>` project", noting the region, gcloud configuration, scopes, and the `gcloud auth application-default login` command. No capture. |
 | **GitHubAuth** | OAuth / PAT entry; holds a token | "Log into GitHub" noting the scopes the block needs. No capture. |
@@ -58,10 +58,13 @@ automatically.
 
 ## Filling in values
 
-Runbooks substitutes every value you supply into the displayed commands, so you
-never see an unresolved `{{ … }}` template:
+Runbooks substitutes every value you supply into the displayed commands. Each
+`{{ .inputs.* }}` or `{{ .outputs.* }}` reference in a command shows either its
+value or, until you supply one, a placeholder such as `<bucket>`:
 
-- **`Inputs` form values** are substituted directly into the commands shown.
+- **`Inputs` form values** are substituted directly into the commands shown,
+  including those from an `<Inputs>` nested inside a Command or Check. An input
+  you haven't filled in yet shows as a `<name>` placeholder.
 - **Values produced by an earlier step** (a script's outputs) can't be known by
   the app, because it runs nothing. When a command needs one, instruction mode
   shows a small field labeled with the value it stands in for (for example,
@@ -78,7 +81,10 @@ even if you toggle instruction mode off and back on.
 ## Notes
 
 - **Fidelity.** Commands are resolved with the same template engine the
-  interactive UI uses to preview them. If that engine is unavailable, a simpler
-  client-side resolver is used and a small note is shown.
+  interactive UI uses to preview them. If that engine is unavailable or can't
+  render a command, a simpler client-side resolver is used for it and a small
+  note is shown. That resolver fills in value references only; template logic
+  such as conditionals and functions is only evaluated by the engine, so it may
+  be shown as written.
 - Instruction mode is a *rendering* mode for a human reading the app — it is not
   a headless CLI or CI runner.

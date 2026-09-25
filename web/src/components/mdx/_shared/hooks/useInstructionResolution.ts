@@ -17,13 +17,20 @@ export interface ManualField extends ManualFieldSpec {
 }
 
 export interface UseInstructionResolutionResult {
-  /** The resolved command(s), in input order, never containing a raw `{{ … }}`. */
+  /**
+   * The resolved command(s), in input order. Every `{{ .inputs.* }}` /
+   * `{{ .outputs.* }}` value reference is replaced by its value or a `<name>`
+   * placeholder.
+   */
   resolvedCommands: string[]
   /** Auto-detected prompts for `{{ .outputs.* }}` values the user must supply. */
   manualFields: ManualField[]
   /** True while the full engine render is in flight. */
   isResolving: boolean
-  /** True when the lower-fidelity client-side resolver was used (engine errored). */
+  /**
+   * True when the lower-fidelity client-side resolver was used for any command
+   * (engine unavailable, errored, or returned a broken result).
+   */
   usedFallback: boolean
 }
 
@@ -37,10 +44,12 @@ interface UseInstructionResolutionOptions {
 /**
  * Resolve a runbook command into a flattened instruction for instruction mode
  * (spec §5/§6.5): auto-detect `{{ .outputs.* }}` references as manual fields,
- * merge the user's entries with the Inputs-form values, and resolve the whole
- * command via the side-effect-free full engine (`boilerplate:render-inline`),
- * falling back to the client-side resolver if the engine errors or is
- * unavailable. Never returns a command containing a raw `{{ … }}`.
+ * merge the user's entries with the Inputs-form values (with a `<name>`
+ * placeholder for any input not set yet), and resolve the whole command via the
+ * side-effect-free full engine (`boilerplate:render-inline`), falling back to
+ * the client-side resolver if the engine errors or is unavailable. Every value
+ * reference resolves to a value or a placeholder; template logic (conditionals,
+ * functions) is only fully evaluated by the engine.
  *
  * Inputs (`command`, `templateContext`) are commonly fresh object references on
  * every render, so every derived value is keyed on a serialized string rather
@@ -88,8 +97,9 @@ export function useInstructionResolution({
         JSON.parse(contextKey) as TemplateContext,
         fieldSpecs,
         manualValues,
+        commands,
       ),
-    [contextKey, fieldSpecs, manualValues],
+    [contextKey, fieldSpecs, manualValues, commands],
   )
 
   // Client-side resolution is synchronous and always available — use it as the
@@ -146,13 +156,14 @@ export function useInstructionResolution({
         if (cancelled || !isMountedRef.current) return
         const rendered = response?.renderedFiles
         const out = commands.map((c, i) => rendered?.[`cmd-${i}`]?.content ?? c)
-        // Defend the hard rule: if the engine left any raw template behind,
-        // fall back to the client-side resolver for those entries.
-        const safe = out.map((text, i) =>
-          text.includes('{{') ? clientResolved[i] : text,
-        )
+        // If the engine left a raw template behind, or returned its inline
+        // `[template error: …]` marker in place of the command, fall back to
+        // the client-side resolver for that entry and flag it.
+        const isBroken = (text: string) =>
+          text.includes('{{') || text.startsWith('[template error:')
+        const safe = out.map((text, i) => (isBroken(text) ? clientResolved[i] : text))
         setResolvedCommands(safe)
-        setUsedFallback(false)
+        setUsedFallback(out.some(isBroken))
         setIsResolving(false)
       })
       .catch(() => {

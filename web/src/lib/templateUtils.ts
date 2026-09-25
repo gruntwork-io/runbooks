@@ -199,7 +199,9 @@ export function resolveTemplateReferences(
     /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g,
     (match, namespace, path) => {
       if (namespace === 'inputs') {
-        const value = ctx.inputs[path]
+        // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
+        // through nested objects, like computeUnmetInputDependencies.
+        const value = ctx.inputs[path] ?? resolveNestedValue(ctx.inputs, path)
         return value != null ? String(value) : `\`${match}\``
       }
       if (namespace === 'outputs') {

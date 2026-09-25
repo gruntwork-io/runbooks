@@ -16,8 +16,10 @@ import {
   splitDependencies,
 } from '@/lib/extractTemplateDependencies'
 import {
+  computeUnmetInputDependencies,
   resolveTemplateReferences,
   type TemplateContext,
+  type TemplateInputs,
   type TemplateOutputs,
 } from '@/lib/templateUtils'
 import { normalizeBlockId } from '@/lib/utils'
@@ -101,6 +103,47 @@ export function buildManualOutputs(
 }
 
 /**
+ * The inputs counterpart of buildManualOutputs: give every `{{ .inputs.* }}`
+ * reference in the commands that has no value yet (unset or empty) a `<name>`
+ * placeholder. The engine renders a missing input as a `[template error: …]` in
+ * place of the whole command, so filling the gap first keeps the rest of the
+ * command intact and reads as a clear "fill me in" slot. A dotted reference
+ * (`{{ .inputs.tags.env }}`) gets a nested placeholder named after its last
+ * segment (`<env>`). The given inputs are not mutated.
+ */
+export function buildInputPlaceholders(
+  commands: string[],
+  inputs: TemplateInputs,
+): TemplateInputs {
+  const referenced = splitDependencies(
+    commands.flatMap((c) => extractTemplateDependenciesFromString(c)),
+  ).inputs
+  const missing = computeUnmetInputDependencies(referenced, inputs)
+  if (missing.length === 0) return inputs
+
+  const filled: TemplateInputs = { ...inputs }
+  for (const name of missing) {
+    const segments = name.split('.')
+    const key = segments.pop() as string
+    let target: Record<string, unknown> | null = filled
+    for (const segment of segments) {
+      const current: unknown = target[segment]
+      // Don't clobber a set scalar that the reference treats as an object.
+      if (current != null && (typeof current !== 'object' || Array.isArray(current))) {
+        target = null
+        break
+      }
+      const copy = { ...(current as Record<string, unknown> | null) }
+      target[segment] = copy
+      target = copy
+    }
+    if (target) target[key] = `<${key}>`
+  }
+
+  return filled
+}
+
+/**
  * Whether the template context already resolves a given output reference — e.g.
  * a DirPicker that published its chosen path as `{{ .outputs.<id>.PATH }}`.
  * Such references resolve from context and don't need a manual prompt.
@@ -130,12 +173,14 @@ export function fieldsNeedingPrompt(
 /**
  * Merge form inputs and manually-supplied output values into a single template
  * context (§5 step 2). Existing context outputs are kept (e.g. a DirPicker's
- * published path), with the prompted manual values layered on top.
+ * published path), with the prompted manual values layered on top. Inputs the
+ * `commands` reference but no form has set get a `<name>` placeholder.
  */
 export function buildMergedContext(
   baseContext: TemplateContext,
   fields: ManualFieldSpec[],
   values: Record<string, string>,
+  commands: string[],
 ): TemplateContext {
   const manualOutputs = buildManualOutputs(fields, values)
 
@@ -147,7 +192,7 @@ export function buildMergedContext(
   }
 
   return {
-    inputs: baseContext.inputs,
+    inputs: buildInputPlaceholders(commands, baseContext.inputs),
     outputs: mergedOutputs,
   }
 }
@@ -155,8 +200,10 @@ export function buildMergedContext(
 /**
  * Client-side fallback resolver (§5 step 3 fallback). Lower fidelity than the Go
  * engine — it does no conditionals/functions — but it fills `{{ .inputs.* }}` /
- * `{{ .outputs.*.* }}` references and is the backstop guaranteeing no raw `{{ }}`
- * survives in the displayed command.
+ * `{{ .outputs.*.* }}` value references. Given a buildMergedContext context,
+ * every such reference resolves to a value or a `<name>` placeholder; template
+ * logic (`{{ if … }}`, functions) is left as written, since only the engine can
+ * evaluate it.
  */
 export function resolveCommandClientSide(
   command: string,

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   detectManualFields,
   buildManualOutputs,
+  buildInputPlaceholders,
   buildMergedContext,
   resolveCommandClientSide,
   normalizeCommandList,
@@ -58,6 +59,52 @@ describe('buildManualOutputs', () => {
   })
 })
 
+describe('buildInputPlaceholders', () => {
+  it('fills a <name> placeholder for an input no form has set', () => {
+    const inputs = buildInputPlaceholders(
+      ['aws s3 cp {{ .inputs.src }} s3://{{ .inputs.bucket }}'],
+      { src: './dist' },
+    )
+    expect(inputs).toEqual({ src: './dist', bucket: '<bucket>' })
+  })
+
+  it('treats undefined, null, and empty values as unset', () => {
+    const inputs = buildInputPlaceholders(
+      ['{{ .inputs.a }} {{ .inputs.b }} {{ .inputs.c }} {{ .inputs.d }}'],
+      { a: undefined, b: null, c: '', d: false },
+    )
+    expect(inputs).toEqual({ a: '<a>', b: '<b>', c: '<c>', d: false })
+  })
+
+  it('fills references inside template logic too', () => {
+    const inputs = buildInputPlaceholders(['{{ if .inputs.verbose }}-v{{ end }}'], {})
+    expect(inputs).toEqual({ verbose: '<verbose>' })
+  })
+
+  it('nests the placeholder for a dotted reference without mutating the input', () => {
+    const base = { tags: { team: 'infra' } }
+    const inputs = buildInputPlaceholders(
+      ['{{ .inputs.tags.env }} {{ .inputs._module.source }}'],
+      base,
+    )
+    expect(inputs).toEqual({
+      tags: { team: 'infra', env: '<env>' },
+      _module: { source: '<source>' },
+    })
+    expect(base).toEqual({ tags: { team: 'infra' } })
+  })
+
+  it('leaves a set nested value alone', () => {
+    const base = { _module: { source: 'git::x' } }
+    expect(buildInputPlaceholders(['{{ .inputs._module.source }}'], base)).toBe(base)
+  })
+
+  it('does not replace a scalar that a dotted reference treats as an object', () => {
+    const inputs = buildInputPlaceholders(['{{ .inputs.tags.env }}'], { tags: 'infra' })
+    expect(inputs).toEqual({ tags: 'infra' })
+  })
+})
+
 describe('resolveCommandClientSide + buildMergedContext', () => {
   const base: TemplateContext = {
     inputs: { bucket: 'my-bucket' },
@@ -76,7 +123,7 @@ describe('resolveCommandClientSide + buildMergedContext', () => {
     const fields = detectManualFields('echo {{ .outputs.step.arn }}')
     const merged = buildMergedContext(base, fields, {
       'outputs.step.arn': 'arn:aws:s3',
-    })
+    }, ['echo {{ .outputs.step.arn }}'])
     const resolved = resolveCommandClientSide('echo {{ .outputs.step.arn }}', merged)
     expect(resolved).toBe('echo arn:aws:s3')
     expect(resolved).not.toContain('{{')
@@ -84,10 +131,21 @@ describe('resolveCommandClientSide + buildMergedContext', () => {
 
   it('never leaves a raw {{ }} when an output value is still empty', () => {
     const fields = detectManualFields('echo {{ .outputs.step.arn }}')
-    const merged = buildMergedContext(base, fields, {})
+    const merged = buildMergedContext(base, fields, {}, ['echo {{ .outputs.step.arn }}'])
     const resolved = resolveCommandClientSide('echo {{ .outputs.step.arn }}', merged)
     expect(resolved).not.toContain('{{')
     expect(resolved).toBe('echo <arn>')
+  })
+
+  it('never leaves a raw {{ }} for an input no form has set', () => {
+    const command = 'aws s3 ls s3://{{ .inputs.bucket }}/{{ .inputs.prefix }}'
+    const merged = buildMergedContext({ inputs: { prefix: 'logs' }, outputs: {} }, [], {}, [command])
+    expect(resolveCommandClientSide(command, merged)).toBe('aws s3 ls s3://<bucket>/logs')
+  })
+
+  it('resolves a nested input reference', () => {
+    const ctx: TemplateContext = { inputs: { _module: { source: 'git::x' } }, outputs: {} }
+    expect(resolveCommandClientSide('echo {{ .inputs._module.source }}', ctx)).toBe('echo git::x')
   })
 
   it('preserves a block\'s other output keys when layering a manual value', () => {
@@ -98,7 +156,9 @@ describe('resolveCommandClientSide + buildMergedContext', () => {
       outputs: { step: { path: '/tmp/work' } },
     }
     const fields = detectManualFields('echo {{ .outputs.step.arn }}')
-    const merged = buildMergedContext(ctx, fields, { 'outputs.step.arn': 'arn:aws:s3' })
+    const merged = buildMergedContext(ctx, fields, { 'outputs.step.arn': 'arn:aws:s3' }, [
+      'echo {{ .outputs.step.arn }}',
+    ])
     expect(merged.outputs.step).toEqual({ path: '/tmp/work', arn: 'arn:aws:s3' })
   })
 })
