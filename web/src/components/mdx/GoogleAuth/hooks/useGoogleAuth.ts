@@ -388,12 +388,6 @@ export function useGoogleAuth({
   }, [api, id, appendWarning])
 
   /**
-   * Publish this block's outputs in ONE call. `registerOutputs` REPLACES the
-   * whole values map, so a partial second write would wipe the rest (plan §7.2).
-   * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
-   * what makes multi-project `googleAuthId` routing work.
-   */
-  /**
    * Withdraw this block's authentication contract, and drop the credential path
    * with it. Called at the START of every flow that can make MAIN materialise a
    * new credential file.
@@ -413,6 +407,12 @@ export function useGoogleAuth({
     registerOutputs(id, { __AUTHENTICATED: 'false' })
   }, [id, registerOutputs])
 
+  /**
+   * Publish this block's outputs in ONE call. `registerOutputs` REPLACES the
+   * whole values map, so a partial second write would wipe the rest (plan §7.2).
+   * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
+   * what makes multi-project `googleAuthId` routing work.
+   */
   const registerBlockOutputs = useCallback((result: AuthCompletion) => {
     registerOutputs(id, {
       GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? '',

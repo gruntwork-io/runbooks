@@ -41,6 +41,7 @@ import {
   isOAuthClientConfigured,
   resolveOAuthClient,
 } from "../../../src/domain/google/auth.ts"
+import { credentialTypeFromDocumentType } from "../../../src/domain/google/gcloud-config.ts"
 import {
   evaluateRequiredGoogleScopes,
   insufficientScopesErrorMessage,
@@ -132,25 +133,16 @@ function readRawCredentialType(json: string): string | undefined {
 }
 
 /**
- * Narrow a credentials document's `type` onto the IPC union.
- * Mirrors `credentialTypeFromDocumentType` in gcloud-config: workforce/workload
- * pools write `external_account_authorized_user`, which authenticates like an
- * external account.
+ * Narrow a credentials document's `type` onto the IPC union, through the same
+ * list the layer validates against. Undefined when the type is missing or
+ * unsupported.
  */
 function readCredentialTypeSafe(json: string): GoogleCredentialTypeIpc | undefined {
-  const type = readRawCredentialType(json)
-  switch (type) {
-    case "service_account":
-    case "authorized_user":
-    case "external_account":
-    case "impersonated_service_account":
-    case "access_token":
-    case "gce_metadata":
-      return type
-    case "external_account_authorized_user":
-      return "external_account"
-    default:
-      return undefined
+  try {
+    return credentialTypeFromDocumentType(readRawCredentialType(json))
+  } catch {
+    // Missing or unsupported type: report none rather than guess.
+    return undefined
   }
 }
 
@@ -311,18 +303,12 @@ async function validateCredentialDocument(
   projectIdOverride?: string,
 ): Promise<GoogleIdentity> {
   registerCredentialSecrets(json)
-  // Route on the raw document type — `external_account_authorized_user` is a
-  // real Google ADC shape that maps to `external_account` for IPC metadata, but
-  // must still take the ADC validation path here.
-  const type = readRawCredentialType(json)
-  const isAdcDocument =
-    type === "authorized_user" ||
-    type === "external_account" ||
-    // A workforce-pool `gcloud auth application-default login` writes exactly
-    // this type. Omitting it routed that document to validateServiceAccountKey,
-    // which rejected the user's perfectly good ADC as "Not a service account key".
-    type === "external_account_authorized_user" ||
-    type === "impersonated_service_account"
+  // Every supported type except a service-account key takes the ADC path. A
+  // hand-kept list here once omitted `external_account_authorized_user` (what a
+  // workforce-pool `gcloud auth application-default login` writes) and rejected
+  // that perfectly good ADC as "Not a service account key".
+  const type = readCredentialTypeSafe(json)
+  const isAdcDocument = type !== undefined && type !== "service_account"
   return isAdcDocument
     ? runtime.runPromise(validateAdcDocument(json, projectIdOverride))
     : runtime.runPromise(validateServiceAccountKey(json, projectIdOverride))
