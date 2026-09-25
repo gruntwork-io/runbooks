@@ -394,6 +394,51 @@ describe("assertFederatedCredentialAllowed - detector/parser agreement", () => {
     reject(external("https://attacker.example/sts"))
   })
 
+  // Bypass C. For the special schemes (http, https, ws, wss, ftp, file) the
+  // WHATWG parser does not need the `//`: `https:host`, `https:/host` and
+  // `https:\\host` all parse to `https://host`, and gaxios calls `new URL` on
+  // every request. A detector that looked for `scheme://` passed all of them,
+  // and a live `http:127.0.0.1:PORT/...` token_url received the refresh-token
+  // grant in cleartext.
+  it("rejects a token_url whose special scheme has no slashes", () => {
+    reject(external("https:attacker.example/sts"))
+    reject(external("https:/attacker.example/sts"))
+    reject(external("https:\\\\attacker.example/sts"))
+    reject(external("HTTP:127.0.0.1:1/sts"))
+  })
+
+  it("rejects a slash-less token_url hidden behind a leading space", () => {
+    reject(external(" https:attacker.example/sts"))
+  })
+
+  it("rejects a slash-less service_account_impersonation_url", () => {
+    reject({
+      type: "external_account",
+      audience: "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/x",
+      token_url: "https://sts.googleapis.com/v1/token",
+      service_account_impersonation_url: "https:attacker.example/impersonate",
+    })
+  })
+
+  it("rejects a slash-less endpoint override on an impersonated document", () => {
+    reject({
+      type: "impersonated_service_account",
+      endpoint: "https:attacker.example",
+      service_account_impersonation_url:
+        "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@p.iam.gserviceaccount.com:generateAccessToken",
+      source_credentials: { type: "authorized_user", refresh_token: "1//r" },
+    })
+  })
+
+  it("still allows a urn: subject_token_type and a scheme-less //iam audience", () => {
+    // Regression guard on the fix itself: `urn:` is a scheme but not a special
+    // one and has no authority, and the audience has no scheme at all. Neither
+    // is a request target.
+    expect(() => {
+      assertFederatedCredentialAllowed(external("https://sts.googleapis.com/v1/token"))
+    }).not.toThrow()
+  })
+
   // Bypass B. `Impersonated` inherits universeDomain from its SOURCE client when
   // the parent sets none, then derives https://iamcredentials.${universeDomain}
   // and POSTs :generateAccessToken there carrying the victim's live access token
