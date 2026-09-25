@@ -388,9 +388,12 @@ function App() {
         )}
       </div>
       
-      {/* Generated Files Alert Dialog */}
+      {/* Generated Files Alert Dialog. Keyed by the runbook's file path so
+          the delete result (success or failure) from the previous runbook
+          doesn't replace the next runbook's Keep/Delete prompt. */}
       {generatedFilesCheck.data && (
         <GeneratedFilesAlert
+          key={getRunbookResult.data?.path}
           isOpen={showGeneratedFilesAlert}
           fileCount={generatedFilesCheck.data.fileCount}
           absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}

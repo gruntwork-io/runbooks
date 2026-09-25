@@ -39,6 +39,10 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   const [remoteSource, setRemoteSource] = useState<string | undefined>(undefined)
   // Bumped on every open so a repeat open of the current path still changes
   // the useIpc params (and so fetches again). runbook:get ignores the field.
+  // A same-path open is therefore a reload: main resets the session's working
+  // dir to the runbook's directory (block state here is kept). On a CLI launch
+  // with a local path, main's file:open-runbook for the path we already took
+  // from native:get-cli-config can also trigger a second, harmless fetch.
   const [openNonce, setOpenNonce] = useState(0)
   const [isClosed, setIsClosed] = useState(false)
 

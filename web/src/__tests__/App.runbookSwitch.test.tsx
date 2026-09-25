@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { ThemeProvider } from '@/contexts/ThemeContext'
@@ -34,13 +34,20 @@ const RUNBOOKS: Record<string, RunbookFixture> = {
 const NO_RUNBOOK_MESSAGE = (dir: string) =>
   `This folder doesn't contain a runbook.mdx file:\n\n${dir}\n\nChoose a folder that contains a runbook.mdx file, or select a runbook file directly.`
 
+interface ApiOptions {
+  /** Existing generated file count per runbook file path. */
+  generatedFiles?: Record<string, number>
+  /** Make `generated-files:delete` reject, as a permissions error would. */
+  deleteFails?: boolean
+}
+
 /**
  * Mock preload api. `runbook:get` serves RUNBOOKS (and rejects like the real
- * handler for anything else); `generated-files:check` answers for whichever
- * runbook was loaded last, like the real session-scoped handler, with the
- * file count from `generatedFiles` (keyed by runbook file path).
+ * handler for anything else); `generated-files:check` and
+ * `generated-files:delete` act on whichever runbook was loaded last, like the
+ * real session-scoped handlers, with the file count from `generatedFiles`.
  */
-function makeApi(generatedFiles: Record<string, number> = {}) {
+function makeApi({ generatedFiles = {}, deleteFails = false }: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
 
@@ -70,6 +77,16 @@ function makeApi(generatedFiles: Record<string, number> = {}) {
           fileCount,
           absoluteOutputPath: `${current?.path ?? ''}/generated`,
           relativeOutputPath: 'generated',
+        }
+      }
+      case 'generated-files:delete': {
+        if (deleteFails) throw new Error('EACCES: permission denied')
+        const deletedCount = current ? generatedFiles[current.path] ?? 0 : 0
+        return {
+          ok: true,
+          success: true,
+          deletedCount,
+          message: `Successfully deleted ${deletedCount} file(s) from ${current?.path ?? ''}/generated`,
         }
       }
       default:
@@ -103,8 +120,13 @@ function LogSeeder() {
   )
 }
 
-function renderApp(generatedFiles?: Record<string, number>) {
-  const mock = makeApi(generatedFiles)
+const originalApi = window.api
+
+function renderApp(options?: ApiOptions) {
+  const mock = makeApi(options)
+  // useApiGeneratedFilesDelete still calls window.api directly; point it at
+  // the same mock the ApiProvider serves.
+  window.api = mock.api
   render(
     <ApiProvider api={mock.api}>
       <ThemeProvider>
@@ -142,13 +164,22 @@ async function openRunbook(emit: ReturnType<typeof makeApi>['emit'], dir: string
   expect(await screen.findByRole('heading', { name: heading, hidden: true })).toBeInTheDocument()
 }
 
-/** Confirm the "trust this runbook" banner and wait for it to fade out. */
+const TRUST_BUTTON = { name: /I trust this Runbook/ }
+
+/**
+ * Confirm the "trust this runbook" banner. Its button disables at once; the
+ * banner then fades out on real timers, which the tests don't wait for.
+ */
 async function trustRunbook() {
-  fireEvent.click(await screen.findByRole('button', { name: /I trust this Runbook/ }))
-  await waitFor(
-    () => expect(screen.queryByText('Make sure you trust this Runbook!')).not.toBeInTheDocument(),
-    { timeout: 3000 },
-  )
+  const button = await screen.findByRole('button', TRUST_BUTTON)
+  fireEvent.click(button)
+  expect(button).toBeDisabled()
+}
+
+/** Whether the open runbook's trust banner still asks to be confirmed. */
+function isTrustPending() {
+  const button = screen.queryByRole('button', TRUST_BUTTON)
+  return button !== null && !(button as HTMLButtonElement).disabled
 }
 
 /** Open the header menu (as Cmd+, does) and report whether log download is enabled. */
@@ -163,6 +194,9 @@ async function isLogDownloadEnabled(emit: ReturnType<typeof makeApi>['emit']) {
 
 describe('App runbook switching', () => {
   beforeEach(() => localStorage.clear())
+  afterEach(() => {
+    window.api = originalApi
+  })
 
   it('resets per-runbook state when a different runbook is opened without closing the first', async () => {
     const { invoke, emit } = renderApp()
@@ -174,8 +208,8 @@ describe('App runbook switching', () => {
 
     await openRunbook(emit, '/work/b', 'Runbook B')
 
-    // B starts from a fresh RunbookContext, so its trust banner shows again.
-    expect(screen.getByText('Make sure you trust this Runbook!')).toBeInTheDocument()
+    // B starts from a fresh RunbookContext, so its trust banner asks again.
+    expect(isTrustPending()).toBe(true)
     // A's logs no longer count toward the download.
     expect(await isLogDownloadEnabled(emit)).toBe(false)
     // The generated-files check runs again for B's session.
@@ -200,13 +234,13 @@ describe('App runbook switching', () => {
     await waitFor(() => expect(runbookGetCallsFor(invoke, '/work/a')).toBe(2))
     expect(screen.getByRole('heading', { name: 'Runbook A' })).toBeInTheDocument()
     // ...but it is the same runbook, so its state survives.
-    expect(screen.queryByText('Make sure you trust this Runbook!')).not.toBeInTheDocument()
+    expect(isTrustPending()).toBe(false)
     expect(await isLogDownloadEnabled(emit)).toBe(true)
     expect(callsTo(invoke, 'generated-files:check').length).toBe(checksBefore)
   })
 
   it('checks generated files for each runbook, even after the alert was dismissed in the previous one', async () => {
-    const { emit } = renderApp({ '/work/a/runbook.mdx': 3, '/work/b/runbook.mdx': 1 })
+    const { emit } = renderApp({ generatedFiles: { '/work/a/runbook.mdx': 3, '/work/b/runbook.mdx': 1 } })
 
     await openRunbook(emit, '/work/a', 'Runbook A')
     expect(await screen.findByText('Existing Generated Files Detected')).toBeInTheDocument()
@@ -225,10 +259,44 @@ describe('App runbook switching', () => {
       expect(screen.queryByText('Existing Generated Files Detected')).not.toBeInTheDocument(),
     )
   })
+
+  it.each([
+    { outcome: 'succeeded', deleteFails: false, resultTitle: 'Files Deleted Successfully' },
+    { outcome: 'failed', deleteFails: true, resultTitle: 'Failed to Delete Files' },
+  ])(
+    'prompts for the next runbook after a delete that $outcome in the previous one',
+    async ({ deleteFails, resultTitle }) => {
+      const { invoke, emit } = renderApp({
+        generatedFiles: { '/work/a/runbook.mdx': 3, '/work/b/runbook.mdx': 1 },
+        deleteFails,
+      })
+
+      await openRunbook(emit, '/work/a', 'Runbook A')
+      expect(await screen.findByText(/There are 3 files/)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Files' }))
+      await waitFor(() => expect(callsTo(invoke, 'generated-files:delete')).toHaveLength(1))
+      if (deleteFails) {
+        // A failed delete keeps the dialog open on its error until closed.
+        expect(await screen.findByText(resultTitle)).toBeInTheDocument()
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      }
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+
+      await openRunbook(emit, '/work/b', 'Runbook B')
+
+      // B gets its own Keep/Delete prompt, not A's delete result.
+      expect(await screen.findByText('Existing Generated Files Detected')).toBeInTheDocument()
+      expect(screen.getByText(/There is 1 file/)).toBeInTheDocument()
+      expect(screen.queryByText(resultTitle)).not.toBeInTheDocument()
+    },
+  )
 })
 
 describe('App failed runbook opens', () => {
   beforeEach(() => localStorage.clear())
+  afterEach(() => {
+    window.api = originalApi
+  })
 
   it('reports a failed open over the runbook that is still showing', async () => {
     const { emit } = renderApp()
