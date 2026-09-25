@@ -13,17 +13,20 @@
  *     multi-project pattern puts `<GoogleAuth id="source"/>` next to
  *     `<GoogleAuth id="target"/>`; a single global "most recent" credential
  *     means "Change project" on one lists the projects of the other.
- *  2. A block's materialised credentials file is released only by that block
- *     re-authenticating with another credentials FILE, whatever identity it is
- *     for: a different project, principal or credential type — or a file that
- *     is not ours at all (the user's own ADC file, a detected
- *     `GOOGLE_APPLICATION_CREDENTIALS` path) — leaves the old file as
- *     unreachable as a rotated key does. A bare access token does not: it
- *     leaves the session env's `GOOGLE_APPLICATION_CREDENTIALS` naming the old
- *     file (see `setActiveCredential`). Two blocks handed the SAME key and
- *     project produce a byte-identical identity, so keying on identity alone
- *     would have the second block zero and delete the file the first already
- *     published as its `GOOGLE_APPLICATION_CREDENTIALS` output.
+ *  2. A block's materialised credentials file is released only when the same
+ *     block later registers another credentials file. The new file's identity
+ *     does not matter. A different project, principal or credential type, or a
+ *     file that is not ours at all (the user's own ADC file, a detected
+ *     `GOOGLE_APPLICATION_CREDENTIALS` path), leaves the old file as
+ *     unreachable as a rotated key does. A bare access token does not release
+ *     it, because the session env's `GOOGLE_APPLICATION_CREDENTIALS` still
+ *     names the old file (see `setActiveCredential`). A file that ANOTHER block
+ *     has registered as its own credential is never released; the will-quit
+ *     sweep removes it (see `commitCredential`). Release is keyed on the block,
+ *     not the identity: two blocks handed the SAME key and project produce a
+ *     byte-identical identity, so keying on identity alone would have the
+ *     second block zero and delete the file the first already published as its
+ *     `GOOGLE_APPLICATION_CREDENTIALS` output.
  *  3. That release happens when the RENDERER commits the replacement, not when
  *     main writes it. Main materialises during the IPC call; the renderer keeps
  *     publishing the old path until `completeAuthentication` runs, which can be
