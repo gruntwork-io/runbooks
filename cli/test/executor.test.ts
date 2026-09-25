@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { TestExecutor } from "./executor.ts"
-import { loadConfig } from "./config.ts"
+import { loadConfig, type CleanupAction } from "./config.ts"
 
 // Resolve relative to the test file so this works regardless of cwd.
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..")
@@ -129,5 +129,80 @@ describe("TestExecutor — GitClone local checkout", () => {
 
     expect(result.stepResults[0]?.actualStatus).toBe("fail")
     expect(result.stepResults[0]?.error).toMatch(/Not a git repository/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Cleanup: runs from the output dir even when no block generated files, a
+// failing action never aborts the run, and it still runs when block
+// processing throws.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — cleanup", () => {
+  let tmp: string
+  let marker: string
+  let warn: ReturnType<typeof spyOn>
+
+  const runWithCleanup = async (command: string, cleanup: CleanupAction[]) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Cleanup\n\n<Command id="run" command='${command}' />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return () => executor.runTest({ name: "cleanup", cleanup })
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-cleanup-"))
+    marker = path.join(tmp, "marker")
+    warn = spyOn(console, "warn").mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("runs in the output dir even when no block generated files", async () => {
+    const runTest = await runWithCleanup("echo hi", [{ command: `pwd -P > "${marker}"` }])
+
+    const result = runTest()
+
+    expect(result.status).toBe("passed")
+    expect(fs.readFileSync(marker, "utf-8").trim()).toBe(
+      fs.realpathSync(path.join(tmp, "generated")),
+    )
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it("warns about a missing cleanup script and runs the remaining actions", async () => {
+    const runTest = await runWithCleanup("echo hi", [
+      { path: "cleanup/missing.sh" },
+      { command: `touch "${marker}"` },
+    ])
+
+    const result = runTest()
+
+    expect(result.status).toBe("passed")
+    expect(fs.existsSync(marker)).toBe(true)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/cleanup "cleanup\/missing\.sh" failed: ENOENT/)
+  })
+
+  it("warns with the exit code and stderr of a failing cleanup command", async () => {
+    const runTest = await runWithCleanup("echo hi", [{ command: "echo teardown broke >&2; exit 3" }])
+
+    expect(runTest().status).toBe("passed")
+    expect(String(warn.mock.calls[0]?.[0])).toContain("failed: exit code 3: teardown broke")
+  })
+
+  it("still runs when block processing throws", async () => {
+    // A dangling symlink in $GENERATED_FILES makes file capture throw ENOENT
+    // out of runTest.
+    const runTest = await runWithCleanup(
+      'ln -s /nonexistent/target "$GENERATED_FILES/dangling"',
+      [{ command: `touch "${marker}"` }],
+    )
+
+    expect(runTest).toThrow(/ENOENT/)
+    expect(fs.existsSync(marker)).toBe(true)
   })
 })

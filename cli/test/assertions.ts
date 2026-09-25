@@ -274,6 +274,9 @@ export function countFiles(dir: string): number {
  */
 function assertScript(command: string, ctx: AssertionContext): AssertionResult {
   try {
+    // Scripts run from the output dir, the same base every path assertion
+    // uses. It only exists once a block has generated files, so create it.
+    fs.mkdirSync(ctx.outputDir, { recursive: true })
     execFileSync("/bin/bash", ["-c", command], {
       cwd: ctx.outputDir,
       env: envListToRecord(ctx.sessionEnv),

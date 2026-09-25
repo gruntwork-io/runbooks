@@ -255,4 +255,14 @@ describe("script", () => {
     expect(r.passed).toBe(false)
     expect(r.message).toContain("Script assertion failed")
   })
+  it("runs in the output dir even before any block has generated files", () => {
+    const outputDir = path.join(tmp, "generated")
+    const marker = path.join(tmp, "cwd.txt")
+    const r = runAssertion(
+      { type: "script", command: `pwd -P > "${marker}"` },
+      makeCtx(outputDir),
+    )
+    expect(r.passed).toBe(true)
+    expect(fs.readFileSync(marker, "utf-8").trim()).toBe(fs.realpathSync(outputDir))
+  })
 })

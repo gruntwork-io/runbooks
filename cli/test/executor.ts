@@ -392,55 +392,58 @@ export class TestExecutor {
 
     const registryWarnings = this.registry.getWarnings()
 
-    // 5. Process each block in document order
-    for (const block of allBlocks) {
-      const stepResult = this.processBlock(
-        block, stepsToRun, expectsConfigError, registryWarnings, hasExplicitSteps,
-      )
-      result.stepResults.push(stepResult)
+    // Cleanup runs however the test ends (a failed block or assertion, or an
+    // unexpected throw) so teardown is never skipped.
+    try {
+      // 5. Process each block in document order
+      for (const block of allBlocks) {
+        const stepResult = this.processBlock(
+          block, stepsToRun, expectsConfigError, registryWarnings, hasExplicitSteps,
+        )
+        result.stepResults.push(stepResult)
 
-      if (!stepResult.passed) {
-        const isRequested = stepsToRun.has(block.id) || !hasExplicitSteps
-        if (isRequested) {
-          result.status = "failed"
-          result.error = this.formatBlockError(block, stepResult)
-          break
-        }
-      }
-
-      // Per-step assertions
-      const step = stepsToRun.get(block.id)
-      if (step?.assertions && stepResult.passed) {
-        for (const assertion of step.assertions) {
-          const ar = runAssertion(assertion, this.makeAssertionCtx())
-          stepResult.assertionResults.push(ar)
-          if (!ar.passed) {
+        if (!stepResult.passed) {
+          const isRequested = stepsToRun.has(block.id) || !hasExplicitSteps
+          if (isRequested) {
             result.status = "failed"
-            result.error = `${block.type} block "${block.id}" assertion failed: ${ar.message}`
+            result.error = this.formatBlockError(block, stepResult)
             break
           }
         }
-        if (result.status === "failed") break
-      }
-    }
 
-    // Post-test assertions
-    if (result.status !== "failed" && tc.assertions) {
-      for (const assertion of tc.assertions) {
-        const ar = runAssertion(assertion, this.makeAssertionCtx())
-        result.assertions.push(ar)
-        if (!ar.passed) {
-          result.status = "failed"
-          result.error = `Assertion failed: ${ar.message}`
-          break
+        // Per-step assertions
+        const step = stepsToRun.get(block.id)
+        if (step?.assertions && stepResult.passed) {
+          for (const assertion of step.assertions) {
+            const ar = runAssertion(assertion, this.makeAssertionCtx())
+            stepResult.assertionResults.push(ar)
+            if (!ar.passed) {
+              result.status = "failed"
+              result.error = `${block.type} block "${block.id}" assertion failed: ${ar.message}`
+              break
+            }
+          }
+          if (result.status === "failed") break
         }
       }
-    }
 
-    // Cleanup
-    if (tc.cleanup) {
-      for (const cleanup of tc.cleanup) {
-        this.runCleanup(cleanup)
+      // Post-test assertions
+      if (result.status !== "failed" && tc.assertions) {
+        for (const assertion of tc.assertions) {
+          const ar = runAssertion(assertion, this.makeAssertionCtx())
+          result.assertions.push(ar)
+          if (!ar.passed) {
+            result.status = "failed"
+            result.error = `Assertion failed: ${ar.message}`
+            break
+          }
+        }
+      }
+    } finally {
+      if (tc.cleanup) {
+        for (const cleanup of tc.cleanup) {
+          this.runCleanup(cleanup)
+        }
       }
     }
 
@@ -1589,25 +1592,38 @@ export class TestExecutor {
     }
   }
 
+  /**
+   * Run one cleanup action. A `path` script is read relative to the runbook's
+   * directory; both forms run with the output directory as cwd, which is
+   * created first because nothing else does unless a block generated files.
+   */
   private runCleanup(action: { command?: string; path?: string }): void {
-    let script: string
-    if (action.command) {
-      script = action.command
-    } else if (action.path) {
-      const scriptPath = path.join(path.dirname(this.runbookPath), action.path)
-      script = fs.readFileSync(scriptPath, "utf-8")
-    } else {
-      return
-    }
+    const label = action.command || action.path
+    if (!label) return
 
     try {
+      const script = action.command
+        || fs.readFileSync(path.join(path.dirname(this.runbookPath), action.path!), "utf-8")
+      const cwd = this.resolveOutputPath()
+      fs.mkdirSync(cwd, { recursive: true })
       execFileSync("/bin/bash", ["-c", script], {
-        cwd: this.resolveOutputPath(),
+        cwd,
         timeout: 30000,
         stdio: "pipe",
       })
-    } catch {
-      // Cleanup failures are non-fatal
+    } catch (e: unknown) {
+      // Non-fatal, but never silent: a skipped teardown can leak real resources.
+      console.warn(`  ⚠ cleanup "${label}" failed: ${describeCleanupError(e)}`)
     }
   }
+}
+
+/** A short reason for a failed cleanup that doesn't echo the whole script back. */
+function describeCleanupError(e: unknown): string {
+  const { status, stderr } = (e ?? {}) as { status?: number | null; stderr?: Buffer | string }
+  if (typeof status === "number") {
+    const detail = stderr?.toString().trim()
+    return detail ? `exit code ${status}: ${detail}` : `exit code ${status}`
+  }
+  return e instanceof Error ? e.message : String(e)
 }

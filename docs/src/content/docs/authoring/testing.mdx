@@ -229,7 +229,7 @@ cleanup:
 | Field | Type | Description |
 |-------|------|-------------|
 | `command` | string | Inline shell command to execute. |
-| `path` | string | Path to a script file to execute. |
+| `path` | string | Path to a script file to execute, relative to the runbook's directory. |
 
 Provide either `command` or `path`, not both.
 
@@ -402,6 +402,8 @@ cleanup:
   - path: cleanup/teardown.sh
 ```
 
+Both kinds of action run in bash from the output directory (`<working_dir>/<output_path>`), which is created first if no block has generated files yet. A `path` script is read relative to the runbook's directory. A failing cleanup action doesn't fail the test and doesn't stop the remaining actions, but it is printed as a warning.
+
 ## Testing AwsAuth Blocks
 
 For runbooks with `<AwsAuth>` blocks, the test framework checks for AWS credentials in environment variables and injects them into the session for dependent blocks to use.
@@ -568,7 +570,7 @@ When you run a runbook test, the test framework will:
 - Run the runbook in a temporary directory
 - Capture the output of any scripts or generated files
 - Validate the output of the runbook against the assertions in your test configuration file, if any
-- Return a status code of 0 if the test passed, 1 if the test failed, and 2 if the test was skipped
+- Exit with status 0 if every test passed, or 1 if any test failed, a `runbook_test.yml` couldn't be loaded, or no runbook has the test case named with `--test`
 
 :::note[Script output differences]
 When scripts run in tests, they execute without a PTY (pseudo-terminal), so you may see less output than when running the runbook interactively. For example, `git clone` shows progress messages ("Receiving objects: 47%...") only when connected to a terminal. In runbook tests, you'll see just the essential output. If you do need verbose output for debugging, many commands have flags to force it (e.g., `git clone --progress`), or just open the runbook and manually run the script.
@@ -610,6 +612,8 @@ Generate JUnit XML for CI integration:
 ```bash
 runbooks-cli test ./runbooks/... --output junit --output-file results.xml
 ```
+
+The file is written before the command exits, including when tests fail. If it can't be written, the CLI prints the error and writes the report to stdout instead.
 
 ## Out-of-Order Testing
 
@@ -802,7 +806,7 @@ tests:
         expect: success
     
     cleanup:
-      - command: ./scripts/cleanup-test-resources.sh
+      - path: scripts/cleanup-test-resources.sh
 ```
 
 ## Best Practices
