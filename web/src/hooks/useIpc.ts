@@ -52,6 +52,9 @@ export function useIpc<T>(
   const [isLoading, setIsLoading] = useState(!lazy && !disabled)
   const [error, setError] = useState<AppError | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // False once the hook unmounts, so a pending debounced request is dropped
+  // when its timer fires. See the unmount effect below.
+  const mountedRef = useRef(false)
 
   // Use a ref for params so changing object identity doesn't trigger re-fetches.
   // Content changes are detected via paramsKey below.
@@ -119,6 +122,8 @@ export function useIpc<T>(
     }
 
     timeoutRef.current = setTimeout(async () => {
+      timeoutRef.current = null
+      if (!mountedRef.current) return
       setIsLoading(true)
       setError(null)
       await performInvoke(newParams)
@@ -173,16 +178,22 @@ export function useIpc<T>(
     }
   }, [channel, performInvoke, paramsKey, lazy, disabled])
 
-  // On unmount, in every mode: cancel a pending debounced request and
-  // invalidate any in-flight one so nothing is sent or committed afterwards.
-  // The effect above returns no cleanup in lazy mode, which is the mode the
-  // debouncedRequest consumers (TemplateInline, useApiBoilerplateRender) use.
-  useEffect(() => () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
+  // Stop a pending debounced request from being sent after unmount, in every
+  // mode. The effect above has no cleanup in lazy mode, which is the mode
+  // that schedules debounced requests.
+  //
+  // The cleanup only flips a flag that the timer checks. It doesn't clear the
+  // timer or bump requestSeqRef, because StrictMode (in dev) and Fast Refresh
+  // run this cleanup and then the setup again on a live component. The setup
+  // restores the flag, but it can't reschedule a timer or re-send a request
+  // that a consumer issued once from its own mount effect. A real unmount
+  // needs no invalidation, since React ignores setState on an unmounted
+  // component.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
     }
-    requestSeqRef.current += 1
   }, [])
 
   return { data, isLoading, error, debouncedRequest, refetch, silentRefetch }

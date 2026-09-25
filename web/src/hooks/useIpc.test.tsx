@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createElement, type ReactNode } from 'react'
+import { createElement, useEffect, useRef, type ReactNode } from 'react'
 import { renderHook, act } from '@testing-library/react'
 import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
-import { useIpc, type UseIpcOptions } from './useIpc'
+import { useIpc, type UseIpcOptions, type UseIpcReturn } from './useIpc'
 
 // =============================================================================
 // useIpc request sequencing, lazy/debounce and disabled transitions
@@ -226,6 +226,66 @@ describe('useIpc', () => {
 
       expect(invoke).toHaveBeenCalledTimes(1)
       expect(result.current.data).toBe('rendered')
+    })
+  })
+
+  // StrictMode (main.tsx wraps the app in it) and Fast Refresh run every effect
+  // cleanup and then every setup again on a live component. A consumer that
+  // issues its first request from a mount effect, guarded by a ref so the
+  // re-run doesn't repeat it, must still see that request go out and land.
+  describe('StrictMode effect re-run', () => {
+    function renderStrict(api: RunbooksAPI, useConsumer: () => UseIpcReturn<unknown>) {
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(ApiProvider, { api, children })
+      return renderHook(useConsumer, { wrapper, reactStrictMode: true })
+    }
+
+    it('still sends a debounced request scheduled from a mount effect', async () => {
+      vi.useFakeTimers()
+      const { api, invoke, pending } = createControllableApi()
+      const { result } = renderStrict(api, () => {
+        const ipc = useIpc<unknown>('boilerplate:render-inline', undefined, {
+          lazy: true,
+          debounceMs: 300,
+        })
+        const sentRef = useRef(false)
+        const { debouncedRequest } = ipc
+        useEffect(() => {
+          if (sentRef.current) return
+          sentRef.current = true
+          debouncedRequest!({ v: 1 })
+        }, [debouncedRequest])
+        return ipc
+      })
+
+      act(() => vi.advanceTimersByTime(300))
+      expect(invoke).toHaveBeenCalledTimes(1)
+      expect(invoke).toHaveBeenCalledWith('boilerplate:render-inline', { v: 1 })
+
+      await settle(() => pending[0].resolve('rendered'))
+      expect(result.current.data).toBe('rendered')
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    it('still commits a request started from a mount effect', async () => {
+      const { api, invoke, pending } = createControllableApi()
+      const { result } = renderStrict(api, () => {
+        const ipc = useIpc<unknown>('boilerplate:render-inline', { v: 1 }, { lazy: true })
+        const sentRef = useRef(false)
+        const { refetch } = ipc
+        useEffect(() => {
+          if (sentRef.current) return
+          sentRef.current = true
+          refetch()
+        }, [refetch])
+        return ipc
+      })
+
+      expect(invoke).toHaveBeenCalledTimes(1)
+      await settle(() => pending[0].resolve('rendered'))
+
+      expect(result.current.data).toBe('rendered')
+      expect(result.current.isLoading).toBe(false)
     })
   })
 
