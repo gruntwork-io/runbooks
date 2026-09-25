@@ -1,23 +1,20 @@
-import { describe, it, expect, beforeAll, afterAll, mock } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
+import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // workspace.ts imports electron's `ipcMain` only to register handlers. Capture
 // them so the test can call a handler the way the renderer's invoke would.
-// `app` is stubbed because bun shares module mocks across test files and the
-// first mock.module("electron") call fixes the export names; theme-store.test.ts
-// needs `app`.
 type Handler = (event: unknown, params: unknown) => Promise<unknown>
 const handlers = new Map<string, Handler>()
-mock.module("electron", () => ({
-  app: {},
+mockElectron({
   ipcMain: {
     handle: (channel: string, handler: Handler) => {
       handlers.set(channel, handler)
     },
   },
-}))
+})
 
 const { registerWorkspaceHandlers } = await import("./workspace.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
