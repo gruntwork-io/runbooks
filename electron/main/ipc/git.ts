@@ -25,7 +25,7 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
-import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../../src/domain/git/url.ts"
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
@@ -304,22 +304,22 @@ export function registerGitHandlers(): void {
           const spawner = yield* ProcessSpawner
           const cloneArgs = ["clone", "--progress"]
           if (options.ref) cloneArgs.push("--branch", options.ref)
-
-          // GitLab wants username `oauth2` with the PAT as the password;
-          // GitHub accepts the default `x-access-token`. Keyed on provider so a
-          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
-          const cloneUsername = cloneProvider === "gitlab" ? "oauth2" : "x-access-token"
-          const effectiveUrl = options.token
-            ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
-            : params.url
-
-          cloneArgs.push(effectiveUrl, paths.absolutePath)
+          cloneArgs.push(params.url, paths.absolutePath)
 
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
-          // host-key verification prompt.
-          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
+          // host-key verification prompt. The token goes in the environment,
+          // not the URL, so it is never saved as the checkout's origin URL in
+          // .git/config. The credential username is keyed on provider so a
+          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
+          const env = withGitHttpAuth(
+            gitSpawnEnv(),
+            params.url,
+            options.token,
+            gitCredentialUsername(cloneProvider),
+          )
+          const proc = yield* spawner.spawn("git", cloneArgs, { env })
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
@@ -556,7 +556,11 @@ export function registerGitHandlers(): void {
             }),
         )
 
-        const options: PushOptions = { token, setUpstream: true }
+        const options: PushOptions = {
+          token,
+          username: gitCredentialUsername(provider),
+          setUpstream: true,
+        }
 
         sendLog(`Pushing ${params.branchName} to origin…`)
         yield* gitClient.push(repoPath, "origin", params.branchName, options)

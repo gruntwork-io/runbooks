@@ -239,10 +239,14 @@ export function needsRefResolution(parsed: ParsedRemoteSource): boolean {
 /**
  * Uses `git ls-remote` to determine the correct ref from a combined ref/path string.
  * Tries longest match first so that a ref like "feature/foo" beats "feature".
+ *
+ * `env` overrides the spawn environment (defaults to `gitSpawnEnv()`), e.g. to
+ * authenticate a private repo with withGitHttpAuth.
  */
 export const resolveRef = (
   cloneURL: string,
   rawRefAndPath: string,
+  env?: Record<string, string | undefined>,
 ): Effect.Effect<
   { ref: string; path: string | undefined },
   RemoteSourceError | SpawnError,
@@ -255,7 +259,7 @@ export const resolveRef = (
     // ls-remote against an unknown SSH host fails fast instead of hanging on
     // the host-key prompt.
     const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", cloneURL], {
-      env: gitSpawnEnv(),
+      env: env ?? gitSpawnEnv(),
     })
     const lines: string[] = []
     yield* Stream.runForEach(proc.output, (line) => {

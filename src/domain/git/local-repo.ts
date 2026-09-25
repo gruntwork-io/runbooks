@@ -17,6 +17,7 @@ import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 import { gitSpawnEnv } from "./env.ts"
 import { countFiles, parseOwnerRepoFromURL } from "./operations.ts"
+import { stripUrlCredentials } from "./url.ts"
 
 /** Metadata describing a local checkout selected by the user. */
 export interface LocalRepoInfo {
@@ -130,7 +131,9 @@ export const inspectLocalRepo = (
     // a repo re-pointed after `git init` — and without a remote there is no
     // repo_owner/repo_name (nor the GitHub ids derived from them) for
     // downstream blocks to consume. Fall back to whatever remote does exist.
-    const remoteUrl = info.remoteUrl ?? (yield* firstRemoteUrl(absolutePath))
+    // Either way, drop any token embedded in the URL: it goes to the renderer.
+    const rawRemoteUrl = info.remoteUrl ?? (yield* firstRemoteUrl(absolutePath))
+    const remoteUrl = rawRemoteUrl && stripUrlCredentials(rawRemoteUrl)
 
     const fileCount = yield* countFiles(absolutePath)
     const parsed = remoteUrl ? parseOwnerRepoFromURL(remoteUrl) : undefined

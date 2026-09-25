@@ -7,13 +7,17 @@
  * pass even when the real implementation never populates it. Only a test that
  * drives the actual `GitCliClientLive` layer against real git catches that.
  */
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { execFileSync } from "node:child_process"
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test"
+import { execFileSync, spawn } from "node:child_process"
 import * as fs from "node:fs"
+import * as http from "node:http"
+import type { AddressInfo } from "node:net"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Layer } from "effect"
 import { GitClient } from "../services/GitClient.ts"
+import { ProcessSpawner } from "../services/ProcessSpawner.ts"
+import type { SpawnOptions } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "./ChildProcessSpawner.ts"
@@ -283,4 +287,298 @@ describe("GitCliClientLive.commit (real repo)", () => {
       expect((result.left as GitError).stderr.toLowerCase()).toContain("author identity unknown")
     }
   })
+})
+
+/**
+ * A private git host on localhost: `git http-backend` (git's own smart-HTTP
+ * CGI) behind a server that demands one exact basic-auth header, and records
+ * every Authorization header it receives.
+ */
+function startGitHttpServer(projectRoot: string, expectedAuthorization: string) {
+  const seenAuthorization: Array<string | undefined> = []
+  const server = http.createServer((req, res) => {
+    seenAuthorization.push(req.headers.authorization)
+    if (req.headers.authorization !== expectedAuthorization) {
+      res.writeHead(401, { "WWW-Authenticate": 'Basic realm="test"' }).end()
+      return
+    }
+    const body: Buffer[] = []
+    req.on("data", (chunk: Buffer) => body.push(chunk))
+    req.on("end", () => {
+      const url = new URL(req.url ?? "/", "http://localhost")
+      const input = Buffer.concat(body)
+      const cgi = spawn("git", ["http-backend"], {
+        env: {
+          PATH: process.env.PATH,
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_CONFIG_SYSTEM: "/dev/null",
+          GIT_PROJECT_ROOT: projectRoot,
+          GIT_HTTP_EXPORT_ALL: "1",
+          GIT_PROTOCOL: req.headers["git-protocol"] as string | undefined,
+          PATH_INFO: url.pathname,
+          QUERY_STRING: url.search.slice(1),
+          REQUEST_METHOD: req.method,
+          CONTENT_TYPE: req.headers["content-type"] ?? "",
+          CONTENT_LENGTH: String(input.length),
+          HTTP_CONTENT_ENCODING: req.headers["content-encoding"],
+          // receive-pack (push) is only served to an authenticated user.
+          REMOTE_USER: "tester",
+          REMOTE_ADDR: "127.0.0.1",
+        },
+      })
+      const out: Buffer[] = []
+      cgi.stdout.on("data", (chunk: Buffer) => out.push(chunk))
+      cgi.on("close", () => {
+        // CGI response: headers, a blank line, then the body.
+        const raw = Buffer.concat(out)
+        const split = raw.indexOf("\r\n\r\n")
+        let status = 200
+        const headers: Record<string, string> = {}
+        for (const line of raw.subarray(0, split).toString().split("\r\n")) {
+          const colon = line.indexOf(":")
+          const name = line.slice(0, colon).trim()
+          const value = line.slice(colon + 1).trim()
+          if (name.toLowerCase() === "status") status = Number.parseInt(value, 10)
+          else if (name) headers[name] = value
+        }
+        res.writeHead(status, headers).end(raw.subarray(split + 4))
+      })
+      cgi.stdin.end(input)
+    })
+  })
+  return {
+    seenAuthorization,
+    listen: () =>
+      new Promise<string>((resolve) =>
+        server.listen(0, "127.0.0.1", () =>
+          resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`),
+        ),
+      ),
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
+/** Every `git` spawn the layer makes, captured before it runs. */
+interface GitSpawn {
+  readonly args: string[]
+  readonly env?: Record<string, string | undefined>
+}
+
+/** GitCliClientLive over the real spawner, recording each git invocation. */
+const recordingLayer = (spawns: GitSpawn[]) =>
+  GitCliClientLive.pipe(
+    Layer.provide(
+      Layer.effect(
+        ProcessSpawner,
+        Effect.map(ProcessSpawner, (live) => ({
+          spawn: (command: string, args: string[], options?: SpawnOptions) => {
+            if (command === "git") spawns.push({ args, env: options?.env })
+            return live.spawn(command, args, options)
+          },
+        })),
+      ).pipe(Layer.provide(ChildProcessSpawnerLive)),
+    ),
+  )
+
+describe("GitCliClientLive token auth (real git over HTTP)", () => {
+  const TOKEN = "glpat-SECRET-TOKEN-0123456789"
+  const basic = (user: string, token: string) => `Basic ${btoa(`${user}:${token}`)}`
+
+  let root: string
+  let helperLog: string
+  let server: ReturnType<typeof startGitHttpServer>
+  let repoUrl: string
+  let savedConfigGlobal: string | undefined
+  let savedConfigSystem: string | undefined
+  let spawns: GitSpawn[]
+
+  const run = <A, E>(program: Effect.Effect<A, E, GitClient>) =>
+    Effect.runPromise(program.pipe(Effect.provide(recordingLayer(spawns)), Effect.either))
+
+  beforeAll(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githttp-"))
+
+    // The remote: a bare repo that allows partial clones and pushes over HTTP.
+    const bare = path.join(root, "server", "repo.git")
+    fs.mkdirSync(bare, { recursive: true })
+    git(bare, "init", "--bare")
+    git(bare, "config", "uploadpack.allowFilter", "true")
+    git(bare, "config", "http.receivepack", "true")
+    const seed = path.join(root, "seed")
+    fs.mkdirSync(path.join(seed, "docs"), { recursive: true })
+    git(seed, "init")
+    fs.writeFileSync(path.join(seed, "docs", "guide.md"), "# guide\n")
+    fs.writeFileSync(path.join(seed, "README.md"), "readme\n")
+    git(seed, "add", ".")
+    git(seed, "commit", "-m", "initial")
+    git(seed, "push", bare, "main")
+
+    // Stand-in for the user's own git config: a credential helper that logs
+    // every call. It must never be consulted (or told to erase anything) when
+    // the layer authenticates with a token.
+    helperLog = path.join(root, "helper.log")
+    const globalConfig = path.join(root, "gitconfig")
+    fs.writeFileSync(
+      globalConfig,
+      `[credential]\n\thelper = "!f() { echo \\"$1\\" >> '${helperLog}'; echo username=someone; echo password=saved; }; f"\n`,
+    )
+    savedConfigGlobal = process.env.GIT_CONFIG_GLOBAL
+    savedConfigSystem = process.env.GIT_CONFIG_SYSTEM
+    process.env.GIT_CONFIG_GLOBAL = globalConfig
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+
+    server = startGitHttpServer(path.join(root, "server"), basic("oauth2", TOKEN))
+    repoUrl = `${await server.listen()}/repo.git`
+  })
+
+  afterAll(async () => {
+    await server.close()
+    restoreEnv("GIT_CONFIG_GLOBAL", savedConfigGlobal)
+    restoreEnv("GIT_CONFIG_SYSTEM", savedConfigSystem)
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  beforeEach(() => {
+    spawns = []
+    server.seenAuthorization.length = 0
+    fs.rmSync(helperLog, { force: true })
+  })
+
+  const tokenInAnyArg = () => spawns.some((s) => s.args.some((a) => a.includes(TOKEN)))
+
+  it("clones with the token without writing it into the checkout's origin URL", async () => {
+    const dest = path.join(root, "clone-full")
+
+    const result = await run(
+      Effect.flatMap(GitClient, (g) => g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2" })),
+    )
+
+    expect(result._tag).toBe("Right")
+    expect(fs.readFileSync(path.join(dest, "README.md"), "utf8")).toBe("readme\n")
+    expect(server.seenAuthorization).toContain(basic("oauth2", TOKEN))
+    // git saves the clone URL as remote.origin.url: it must be the plain one.
+    expect(gitOut(dest, "remote", "get-url", "origin").trim()).toBe(repoUrl)
+    expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
+    expect(tokenInAnyArg()).toBe(false)
+  }, 30_000)
+
+  it("authenticates a sparse clone's lazy blob fetch during checkout, too", async () => {
+    // A blobless clone downloads file contents from origin at checkout time,
+    // so the post-clone commands need the token just as much as the clone.
+    const dest = path.join(root, "clone-sparse")
+
+    const result = await run(
+      Effect.flatMap(GitClient, (g) =>
+        g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", sparse: "docs" }),
+      ),
+    )
+
+    expect(result._tag).toBe("Right")
+    expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide\n")
+    expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
+    expect(tokenInAnyArg()).toBe(false)
+  }, 30_000)
+
+  it("pushes with the given username and never rewrites the remote URL", async () => {
+    const work = path.join(root, "push-work")
+    git(root, "clone", path.join(root, "server", "repo.git"), work)
+    git(work, "remote", "set-url", "origin", repoUrl)
+    git(work, "checkout", "-b", "feature")
+    fs.writeFileSync(path.join(work, "new.txt"), "new\n")
+    git(work, "add", "new.txt")
+    git(work, "commit", "-m", "add new")
+    const configBefore = fs.readFileSync(path.join(work, ".git", "config"), "utf8")
+    spawns.length = 0
+
+    const result = await run(
+      Effect.flatMap(GitClient, (g) =>
+        g.push(work, "origin", "feature", { token: TOKEN, username: "oauth2", setUpstream: true }),
+      ),
+    )
+
+    expect(result._tag).toBe("Right")
+    expect(gitOut(path.join(root, "server", "repo.git"), "branch", "--list", "feature")).toContain("feature")
+    expect(server.seenAuthorization).toContain(basic("oauth2", TOKEN))
+    expect(spawns.some((s) => s.args.includes("set-url"))).toBe(false)
+    expect(tokenInAnyArg()).toBe(false)
+    // Only the upstream tracking section is new; the remote URL is untouched.
+    const configAfter = fs.readFileSync(path.join(work, ".git", "config"), "utf8")
+    expect(configAfter).not.toContain(TOKEN)
+    expect(configAfter.startsWith(configBefore)).toBe(true)
+  }, 30_000)
+
+  it("pushes with the fresh token when the remote URL still carries an old one", async () => {
+    // Checkouts cloned before tokens stopped going into the URL keep a stale
+    // one in .git/config; the push must authenticate with the current token.
+    const work = path.join(root, "push-stale")
+    git(root, "clone", path.join(root, "server", "repo.git"), work)
+    git(work, "remote", "set-url", "origin", repoUrl.replace("http://", "http://x-access-token:STALE@"))
+    git(work, "checkout", "-b", "stale-feature")
+    git(work, "commit", "--allow-empty", "-m", "empty")
+
+    const result = await run(
+      Effect.flatMap(GitClient, (g) =>
+        g.push(work, "origin", "stale-feature", { token: TOKEN, username: "oauth2" }),
+      ),
+    )
+
+    expect(result._tag).toBe("Right")
+    expect(server.seenAuthorization).toContain(basic("oauth2", TOKEN))
+    expect(server.seenAuthorization).not.toContain(basic("x-access-token", "STALE"))
+  }, 30_000)
+
+  it("never hands a rejected token's fallback to the user's credential helper", async () => {
+    // Without resetting credential.helper, a 401 makes git ask the user's
+    // helper for a login and then tell it to erase that login when it fails.
+    const dest = path.join(root, "clone-rejected")
+
+    const result = await run(
+      Effect.flatMap(GitClient, (g) => g.cloneSimple(repoUrl, dest, { token: "wrong-token", username: "oauth2" })),
+    )
+
+    expect(result._tag).toBe("Left")
+    expect(server.seenAuthorization).toContain(basic("oauth2", "wrong-token"))
+    expect(fs.existsSync(helperLog)).toBe(false)
+  }, 30_000)
+
+  it("pushes to an SSH remote without rewriting its URL or passing the token", async () => {
+    // Rewriting ssh://git@host:2222/... as ssh://x-access-token:<token>@host:2222/...
+    // swaps the SSH user (publickey auth fails) and leaks the token into ssh's argv.
+    const work = path.join(root, "push-ssh")
+    git(root, "clone", path.join(root, "server", "repo.git"), work)
+    const sshUrl = "ssh://git@127.0.0.1:1/group/proj.git"
+    git(work, "remote", "set-url", "origin", sshUrl)
+    spawns.length = 0
+
+    // Nothing listens on port 1, so the push itself fails; what matters is how
+    // it was attempted.
+    await run(Effect.flatMap(GitClient, (g) => g.push(work, "origin", "main", { token: TOKEN })))
+
+    expect(spawns.some((s) => s.args.includes("set-url"))).toBe(false)
+    expect(tokenInAnyArg()).toBe(false)
+    const push = spawns.find((s) => s.args[0] === "push")
+    expect(push?.env?.GIT_CONFIG_COUNT).toBeUndefined()
+    expect(gitOut(work, "remote", "get-url", "origin").trim()).toBe(sshUrl)
+  }, 30_000)
+
+  it("strips a token embedded in the origin URL from getInfo and getRemoteUrl", async () => {
+    // A checkout cloned elsewhere with the token in its URL; what the layer
+    // returns reaches the renderer (git:local-repo, workspace:tree).
+    const work = path.join(root, "polluted")
+    git(root, "clone", path.join(root, "server", "repo.git"), work)
+    git(work, "remote", "set-url", "origin", `https://x-access-token:${TOKEN}@github.com/acme/infra.git`)
+
+    const result = await run(
+      Effect.flatMap(GitClient, (g) =>
+        Effect.all([g.getInfo(work), g.getRemoteUrl(work)]),
+      ),
+    )
+
+    expect(result._tag).toBe("Right")
+    if (result._tag === "Right") {
+      const [info, remoteUrl] = result.right
+      expect(info.remoteUrl).toBe("https://github.com/acme/infra.git")
+      expect(remoteUrl).toBe("https://github.com/acme/infra.git")
+    }
+  }, 30_000)
 })

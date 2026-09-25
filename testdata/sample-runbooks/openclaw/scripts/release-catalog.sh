@@ -25,9 +25,14 @@ fi
 
 cd "${CATALOG_DIR}"
 
-# Pull the latest main (PR was already merged)
+# Pull the latest main (PR was already merged). GitClone keeps the token out of
+# the checkout's git config, so authenticate this pull with the GITHUB_TOKEN the
+# GitHub Auth block exported. The helper reads it when git asks, which keeps the
+# token off the command line.
 git checkout main
-git pull
+git -c credential.helper= \
+  -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${GITHUB_TOKEN}"; }; f' \
+  pull
 
 echo "🏷️  Creating release ${RELEASE_TAG} on infra-catalog..."
 echo ""

@@ -167,6 +167,14 @@ The GitClone block resolves GitHub credentials in the following order:
 
 When a GitHub token is available and the user enters a `github.com` HTTPS URL, the token is automatically injected on the server side for authentication. The token is never exposed in the browser.
 
+The token is passed to git only for the clone itself (through the environment, which requires git 2.31 or later), so it is never saved in the checkout's `.git/config` or shown as part of its remote URL. A script that later runs `git pull`, `git fetch`, or `git push` in the checkout needs its own git credentials, such as a configured credential helper (`gh auth setup-git`), an SSH remote, or a one-off helper that reads the token from the environment:
+
+```bash
+git -c credential.helper= \
+  -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${GITHUB_TOKEN}"; }; f' \
+  pull
+```
+
 ### Sparse Checkout
 
 Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to clone only a specific subdirectory:

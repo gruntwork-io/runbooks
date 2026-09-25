@@ -19,7 +19,8 @@ import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
 import { GitClient } from "../../src/services/GitClient.ts"
 import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
-import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
+import { gitSpawnEnv } from "../../src/domain/git/env.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import { makeLogger } from "./logger.ts"
 
@@ -233,14 +234,22 @@ export async function resolveRemoteRunbook(
       const vcs = yield* VcsCredentials
       const token = sessionToken ?? (yield* vcs.tokenForHost(parsed.host))
       log.info("Token:", token ? "found" : "none")
-      const authedCloneURL = token
-        ? injectTokenIntoUrl(parsed.cloneURL, token)
-        : parsed.cloneURL
+      // Both token sources above return a GitHub token only for github.com, so
+      // any other host's token is a GitLab one and gets GitLab's `oauth2`
+      // username — including self-managed hosts the name heuristic (`provider`)
+      // doesn't recognize.
+      const username = gitCredentialUsername(
+        parsed.host.toLowerCase() === "github.com" ? "github" : "gitlab",
+      )
 
       // Resolve ambiguous ref/path for browser-style URLs
       if (needsRefResolution(parsed) && parsed.path) {
         log.info("Resolving ref from:", parsed.path)
-        const resolved = yield* resolveRef(authedCloneURL, parsed.path)
+        const resolved = yield* resolveRef(
+          parsed.cloneURL,
+          parsed.path,
+          withGitHttpAuth(gitSpawnEnv(), parsed.cloneURL, token, username),
+        )
         parsed = { ...parsed, ref: resolved.ref, path: resolved.path }
         log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
       }
@@ -264,6 +273,7 @@ export async function resolveRemoteRunbook(
         .cloneSimple(parsed.cloneURL, dest, {
           ref: parsed.ref,
           token: token ?? undefined,
+          username,
           sparse: parsed.path,
         })
         .pipe(
