@@ -241,9 +241,6 @@ export const Workspace = ({
               data={generatedFiles}
               className="h-full"
               hideContent={hideContent}
-              absoluteOutputPath={absoluteOutputPath}
-              relativeOutputPath={relativeOutputPath}
-              hideHeader={true}
               truncationInfo={truncationInfo}
             />
           </div>
