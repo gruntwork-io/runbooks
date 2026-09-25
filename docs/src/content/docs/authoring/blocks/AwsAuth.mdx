@@ -199,6 +199,8 @@ If credentials are found and valid, the user sees a confirmation prompt showing:
 - Default Region
 - Whether credentials are temporary or static
 
+The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`. It is the value set as `AWS_REGION` once the user confirms.
+
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
 
 ### Credential Sources
@@ -227,7 +229,7 @@ Check for the standard AWS environment variables, but with a custom prefix. For 
 - `PROD_AWS_ACCESS_KEY_ID`
 - `PROD_AWS_SECRET_ACCESS_KEY`
 - `PROD_AWS_SESSION_TOKEN`
-- `PROD_AWS_REGION`
+- `PROD_AWS_REGION` (or `PROD_AWS_DEFAULT_REGION`)
 
 ```mdx
 <AwsAuth
@@ -235,6 +237,8 @@ Check for the standard AWS environment variables, but with a custom prefix. For 
   detectCredentials={[{ env: { prefix: 'PROD_' } }]}
 />
 ```
+
+A prefixed source reads only the prefixed variables. It never falls back to the unprefixed `AWS_*` credentials, so a `PROD_` block can't pick up your development keys by accident. When you confirm, the credentials are set in the session under the standard names (`AWS_ACCESS_KEY_ID`, `AWS_REGION`, and so on).
 
 Prefixes must follow these rules:
 

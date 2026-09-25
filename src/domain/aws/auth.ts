@@ -6,6 +6,7 @@ import { AwsClient } from "../../services/AwsClient.ts"
 import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../services/AwsClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { AwsAuthError } from "../../errors/index.ts"
+import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -13,6 +14,13 @@ import { AwsAuthError } from "../../errors/index.ts"
 
 /** STS calls always use us-east-1 regardless of the user's configured region. */
 const STS_REGION = "us-east-1"
+
+/**
+ * Working region for env credentials when neither the environment nor the
+ * block's defaultRegion names one. Kept apart from STS_REGION: that is only
+ * the endpoint GetCallerIdentity is sent to, not a region to hand the user.
+ */
+const FALLBACK_REGION = "us-east-1"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,27 +52,36 @@ export const validateCredentials = (creds: AwsCredentials, _region: string) =>
 // ---------------------------------------------------------------------------
 
 /**
- * Detect AWS credentials from environment variables.
- * Checks AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, and
- * AWS_DEFAULT_REGION. Returns undefined if the required key ID and secret are
- * not both present.
+ * Detect AWS credentials from environment variables: AWS_ACCESS_KEY_ID and
+ * AWS_SECRET_ACCESS_KEY (both required), the optional AWS_SESSION_TOKEN, and
+ * a region from AWS_REGION, then AWS_DEFAULT_REGION. Returns undefined if the
+ * key ID and secret are not both present.
  *
- * An optional `envVarName` can be provided to check for a custom env var name
- * that holds the access key ID.
+ * With a `prefix` (the `{env:{prefix}}` variant) every name is looked up with
+ * the prefix prepended (PROD_AWS_ACCESS_KEY_ID, ...). The prefix MUST already
+ * be allowlist-validated (ENV_PREFIX_PATTERN) by the caller in main; an
+ * invalid prefix yields undefined here as defense in depth, and never falls
+ * back to the unprefixed names — that would hand over a credential the author
+ * did not ask for.
  */
-export const detectEnvCredentials = (envVarName?: string) =>
+export const detectEnvCredentials = (prefix?: string) =>
   Effect.gen(function* () {
     const env = yield* Environment
 
-    const accessKeyId = yield* env.get(envVarName ?? "AWS_ACCESS_KEY_ID")
-    const secretAccessKey = yield* env.get("AWS_SECRET_ACCESS_KEY")
+    if (prefix !== undefined && prefix !== "" && !ENV_PREFIX_PATTERN.test(prefix)) {
+      return undefined
+    }
+    const p = prefix ?? ""
+
+    const accessKeyId = yield* env.get(`${p}AWS_ACCESS_KEY_ID`)
+    const secretAccessKey = yield* env.get(`${p}AWS_SECRET_ACCESS_KEY`)
 
     if (!accessKeyId || !secretAccessKey) {
       return undefined
     }
 
-    const sessionToken = yield* env.get("AWS_SESSION_TOKEN")
-    const region = yield* env.get("AWS_DEFAULT_REGION")
+    const sessionToken = yield* env.get(`${p}AWS_SESSION_TOKEN`)
+    const region = (yield* env.get(`${p}AWS_REGION`)) || (yield* env.get(`${p}AWS_DEFAULT_REGION`))
 
     const result: EnvCredentials = {
       accessKeyId,
@@ -77,32 +94,44 @@ export const detectEnvCredentials = (envVarName?: string) =>
   })
 
 /**
- * Validate credentials detected from environment variables and return them
- * as full AwsCredentials. Fails with AwsAuthError if no env credentials are
- * found.
+ * Validate detected env credentials via STS and return them as full
+ * AwsCredentials together with the identity they belong to. The working
+ * region is the environment's, then the block's `defaultRegion`, then
+ * FALLBACK_REGION.
  */
-export const confirmEnvCredentials = () =>
+export const validateEnvCredentials = (envCreds: EnvCredentials, defaultRegion?: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
 
-    const envCreds = yield* detectEnvCredentials()
-
-    if (!envCreds) {
-      return yield* new AwsAuthError({
-        message: "No AWS credentials found in environment variables",
-      })
-    }
-
-    const creds: AwsCredentials = {
+    const credentials: AwsCredentials = {
       accessKeyId: envCreds.accessKeyId,
       secretAccessKey: envCreds.secretAccessKey,
       sessionToken: envCreds.sessionToken,
-      region: envCreds.region ?? STS_REGION,
+      region: envCreds.region || defaultRegion || FALLBACK_REGION,
     }
 
-    yield* awsClient.validateCredentials(creds, STS_REGION)
+    const identity = yield* awsClient.validateCredentials(credentials, STS_REGION)
 
-    return creds
+    return { credentials, identity }
+  })
+
+/**
+ * Re-detect the env credentials for `prefix` at confirm time and validate
+ * them (see validateEnvCredentials). Fails with AwsAuthError if no env
+ * credentials are found.
+ */
+export const confirmEnvCredentials = (prefix?: string, defaultRegion?: string) =>
+  Effect.gen(function* () {
+    const envCreds = yield* detectEnvCredentials(prefix)
+
+    if (!envCreds) {
+      const p = prefix ?? ""
+      return yield* new AwsAuthError({
+        message: `No AWS credentials found in ${p}AWS_ACCESS_KEY_ID / ${p}AWS_SECRET_ACCESS_KEY`,
+      })
+    }
+
+    return yield* validateEnvCredentials(envCreds, defaultRegion)
   })
 
 // ---------------------------------------------------------------------------

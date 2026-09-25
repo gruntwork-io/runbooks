@@ -2,14 +2,13 @@
  * IPC handlers for AWS authentication.
  *
  * Bridges Electron ipcMain to the AWS auth domain module, providing credential
- * validation, profile-based auth, SSO device flow, and region checking.
+ * validation, env credential detection (aws-env.ts), profile-based auth, SSO
+ * device flow, and region checking.
  */
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime } from "./runtime.ts"
 import {
   validateCredentials,
-  detectEnvCredentials,
-  confirmEnvCredentials,
   listProfiles,
   authenticateProfile,
   startSsoFlow,
@@ -19,6 +18,8 @@ import {
   checkRegion,
 } from "../../../src/domain/aws/auth.ts"
 import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
+import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
+import type { EnvCredentialsParams } from "./aws-env.ts"
 
 type ValidatePayload = Partial<AwsCredentials> & { credentials?: AwsCredentials; region?: string }
 
@@ -130,27 +131,15 @@ export function registerAwsHandlers(): void {
     },
   )
 
-  ipcMain.handle("aws:env-credentials", async () => {
-    return runtime.runPromise(detectEnvCredentials())
-  })
+  ipcMain.handle(
+    "aws:env-credentials",
+    async (_event, params: EnvCredentialsParams = {}) => handleEnvCredentials(params),
+  )
 
-  ipcMain.handle("aws:env-credentials-confirm", async () => {
-    const credentials = await runtime.runPromise(confirmEnvCredentials())
-
-    // Inject the validated credentials into the session environment
-    const envVars: Record<string, string> = {
-      AWS_ACCESS_KEY_ID: credentials.accessKeyId,
-      AWS_SECRET_ACCESS_KEY: credentials.secretAccessKey,
-      AWS_DEFAULT_REGION: credentials.region,
-    }
-    if (credentials.sessionToken) {
-      envVars.AWS_SESSION_TOKEN = credentials.sessionToken
-    }
-
-    await runtime.runPromise(sessionManager.appendToEnv(envVars))
-
-    return credentials
-  })
+  ipcMain.handle(
+    "aws:env-credentials-confirm",
+    async (_event, params: EnvCredentialsParams = {}) => handleEnvCredentialsConfirm(params),
+  )
 
   ipcMain.handle(
     "aws:check-region",

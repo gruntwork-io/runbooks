@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { useAwsAuth } from '../useAwsAuth'
 
@@ -14,12 +14,6 @@ vi.mock('@/contexts/useRunbook', () => ({
 vi.mock('@/contexts/useSession', () => ({
   useSession: () => ({ isReady: true }),
 }))
-
-const originalApi = window.api
-
-afterEach(() => {
-  window.api = originalApi
-})
 
 const renderAwsAuth = (defaultTab?: string) =>
   renderHook(() =>

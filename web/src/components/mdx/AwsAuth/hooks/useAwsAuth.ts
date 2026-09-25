@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react"
+import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
@@ -38,6 +39,7 @@ export function useAwsAuth({
   detectCredentials = ['env'],  // Default: auto-detect from env vars
   defaultTab,
 }: UseAwsAuthOptions) {
+  const api = useApi()
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
@@ -134,7 +136,7 @@ export function useAwsAuth({
   // Check if a region is enabled for the AWS account
   const checkRegionStatus = useCallback(async (creds: AwsCredentials) => {
     try {
-      const data = await window.api.invoke('aws:check-region', {
+      const data = await api.invoke('aws:check-region', {
         accessKeyId: creds.accessKeyId,
         secretAccessKey: creds.secretAccessKey,
         sessionToken: creds.sessionToken,
@@ -146,7 +148,7 @@ export function useAwsAuth({
     } catch (error) {
       console.error('Failed to check region status:', error)
     }
-  }, [])
+  }, [api])
 
   // Register credentials as outputs and set session environment
   const registerCredentials = useCallback(async (creds: AwsCredentials) => {
@@ -161,13 +163,13 @@ export function useAwsAuth({
     
     // Also set in session environment for blocks that don't specify awsAuthId
     try {
-      await window.api.invoke('session:set-env', { env: outputs })
+      await api.invoke('session:set-env', { env: outputs })
     } catch (error) {
       console.error('Failed to set session environment variables:', error)
     }
 
     await checkRegionStatus(creds)
-  }, [id, registerOutputs, checkRegionStatus])
+  }, [api, id, registerOutputs, checkRegionStatus])
 
   // Try to detect credentials from environment variables
   // Returns metadata only - does NOT register credentials (user must confirm first)
@@ -185,7 +187,7 @@ export function useAwsAuth({
     try {
       // Read-only detection - credentials are NOT registered to session until
       // user confirms via handleConfirmDetected
-      const data = await window.api.invoke('aws:env-credentials', {
+      const data = await api.invoke('aws:env-credentials', {
         prefix: options?.prefix || '',
         defaultRegion: defaultRegion || '',
       })
@@ -210,7 +212,7 @@ export function useAwsAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [defaultRegion])
+  }, [api, defaultRegion])
 
   // Try to detect credentials from block outputs
   const tryBlockCredentials = useCallback(async (blockId: string): Promise<{
@@ -230,7 +232,7 @@ export function useAwsAuth({
 
     // Validate the credentials via backend (but don't register them yet)
     try {
-      const data = await window.api.invoke('aws:validate', {
+      const data = await api.invoke('aws:validate', {
         accessKeyId: result.creds.accessKeyId,
         secretAccessKey: result.creds.secretAccessKey,
         sessionToken: result.creds.sessionToken,
@@ -252,7 +254,7 @@ export function useAwsAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to validate credentials' }
     }
-  }, [getBlockCredentials, defaultRegion])
+  }, [api, getBlockCredentials, defaultRegion])
 
   // Try credential sources in priority order. Stops at the first success or
   // at an unexecuted block source (waiting for it before trying lower-priority
@@ -431,7 +433,7 @@ export function useAwsAuth({
     // For env-detected credentials, call the confirm endpoint to register them to session
     if (detectedCredentials.source === 'env') {
       try {
-        const data = await window.api.invoke('aws:env-credentials-confirm', {
+        const data = await api.invoke('aws:env-credentials-confirm', {
           prefix: detectedCredentials.envPrefix || '',
           defaultRegion: defaultRegion || '',
         })
@@ -510,7 +512,7 @@ export function useAwsAuth({
     // Fallback - shouldn't reach here normally
     setAuthStatus('failed')
     setErrorMessage('Failed to confirm detected credentials')
-  }, [detectedCredentials, detectionWarning, detectCredentials, getBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id])
+  }, [api, detectedCredentials, detectionWarning, detectCredentials, getBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id])
 
   // User rejects detected credentials - show manual auth
   // Note: credentials are not in session until confirmed, so no need to clear them
@@ -543,7 +545,7 @@ export function useAwsAuth({
   const loadAwsProfiles = useCallback(async () => {
     setLoadingProfiles(true)
     try {
-      const data = await window.api.invoke('aws:profiles', {} as Record<string, never>)
+      const data = await api.invoke('aws:profiles', {} as Record<string, never>)
       const profileList: ProfileInfo[] = (data.profiles as unknown as ProfileInfo[]) || []
       setProfiles(profileList)
       const firstUsable = profileList.find(p => p.authType === 'static' || p.authType === 'assume_role')
@@ -556,7 +558,7 @@ export function useAwsAuth({
     } finally {
       setLoadingProfiles(false)
     }
-  }, [])
+  }, [api])
 
   // Validate credentials by calling STS GetCallerIdentity
   const validateCredentials = useCallback(async (creds: AwsCredentials) => {
@@ -565,7 +567,7 @@ export function useAwsAuth({
     setWarningMessage(null)
 
     try {
-      const data = await window.api.invoke('aws:validate', creds)
+      const data = await api.invoke('aws:validate', creds)
 
       if (data.valid) {
         setAuthStatus('authenticated')
@@ -579,7 +581,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [registerCredentials])
+  }, [api, registerCredentials])
 
   // Handle static credentials submission
   const handleCredentialsSubmit = useCallback(() => {
@@ -604,7 +606,7 @@ export function useAwsAuth({
       if (ssoPollingCancelledRef.current) return
 
       try {
-        const data = await window.api.invoke('aws:sso-poll', {
+        const data = await api.invoke('aws:sso-poll', {
           deviceCode,
           clientId,
           clientSecret,
@@ -643,7 +645,7 @@ export function useAwsAuth({
     }
 
     poll()
-  }, [ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials])
+  }, [api, ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials])
 
   // Handle SSO authentication
   const handleSsoAuth = useCallback(async () => {
@@ -657,7 +659,7 @@ export function useAwsAuth({
     setErrorMessage(null)
 
     try {
-      const data = await window.api.invoke('aws:sso-start', {
+      const data = await api.invoke('aws:sso-start', {
         startUrl: ssoStartUrl,
         region: ssoRegion,
         accountId: ssoAccountId,
@@ -675,7 +677,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, pollSsoCompletion])
+  }, [api, ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, pollSsoCompletion])
 
   // Handle SSO account selection - load roles for selected account
   const handleSsoAccountSelect = useCallback(async (account: SSOAccount) => {
@@ -685,7 +687,7 @@ export function useAwsAuth({
     setSsoRoles([])
 
     try {
-      const data = await window.api.invoke('aws:sso-roles', {
+      const data = await api.invoke('aws:sso-roles', {
         accessToken: ssoAccessToken!,
         accountId: account.accountId,
         region: ssoRegion,
@@ -707,7 +709,7 @@ export function useAwsAuth({
     } finally {
       setLoadingRoles(false)
     }
-  }, [ssoAccessToken, ssoRegion])
+  }, [api, ssoAccessToken, ssoRegion])
 
   // Complete SSO authentication with selected account and role
   const handleSsoComplete = useCallback(async () => {
@@ -719,7 +721,7 @@ export function useAwsAuth({
     setAuthStatus('authenticating')
 
     try {
-      const data = await window.api.invoke('aws:sso-complete', {
+      const data = await api.invoke('aws:sso-complete', {
         accessToken: ssoAccessToken!,
         accountId: selectedSsoAccount.accountId,
         roleName: selectedSsoRole,
@@ -743,7 +745,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
     }
-  }, [selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials])
+  }, [api, selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials])
 
   // Go back to account selection
   const handleBackToAccountSelection = useCallback(() => {
@@ -770,7 +772,7 @@ export function useAwsAuth({
     setErrorMessage(null)
 
     try {
-      const data = await window.api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name })
+      const data = await api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name })
 
       if (data.valid) {
         setAuthStatus('authenticated')
@@ -789,7 +791,7 @@ export function useAwsAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [selectedProfile, selectedDefaultRegion, registerCredentials])
+  }, [api, selectedProfile, selectedDefaultRegion, registerCredentials])
 
   // Reset to manual authentication (show auth tabs)
   const handleManualAuth = useCallback(() => {
