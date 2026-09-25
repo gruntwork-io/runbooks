@@ -8,20 +8,36 @@ default:
 
 # --- Development ---
 
+# Fail fast if web/ or cli/ holds packages from an old per-directory install.
+# Neither directory has a package.json any more; all dependencies come from the
+# root node_modules. A leftover web/node_modules or cli/node_modules would still
+# shadow the root tree for imports from that directory, silently giving stale
+# versions or two copies of react/effect. The `*` glob skips dot-directories
+# (.vite, .tmp), which are tool caches, not packages. Plain sh builtins only, so
+# it runs wherever `just build` does, Windows included.
+_no-nested-node-modules:
+    @for pkg in web/node_modules/* cli/node_modules/*; do \
+        if [ -e "$pkg" ]; then \
+            echo "error: ${pkg%/*} contains packages from an old per-directory install." >&2; \
+            echo "All dependencies now come from the root node_modules. Remove it: rm -rf ${pkg%/*}" >&2; \
+            exit 1; \
+        fi; \
+    done
+
 # Start Electron app in dev mode with HMR. Depends on fetch-boilerplate so
 # the app always renders with the vendored boilerplate under resources/ —
 # the main process never falls back to a boilerplate on PATH.
-dev: fetch-boilerplate
+dev: _no-nested-node-modules fetch-boilerplate
     mise x node -- npx electron-vite dev
 
 # Start Electron app pointing at a specific runbook
-dev-runbook path="testdata/my-first-runbook": fetch-boilerplate
+dev-runbook path="testdata/my-first-runbook": _no-nested-node-modules fetch-boilerplate
     mise x node -- npx electron-vite dev -- --runbook {{path}}
 
 # --- Build ---
 
 # Build the Electron app (main + preload + renderer)
-build:
+build: _no-nested-node-modules
     mise x node -- npx electron-vite build
 
 # Compile the test CLI as a standalone binary (no Node.js required)
@@ -240,9 +256,13 @@ test: test-unit test-e2e test-runbooks test-docs
 test-backend:
     mise x bun -- bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**' --path-ignore-patterns='test/**'
 
+# web/ has no package.json of its own: the renderer's dependencies live in the
+# root package.json/bun.lock, so the tests resolve the same node_modules tree
+# that electron-vite bundles.
+
 # Run web unit tests (Vitest — jsdom)
-test-web:
-    cd web && mise x bun -- bun install --frozen-lockfile && mise x bun -- bun run vitest run
+test-web: _no-nested-node-modules
+    cd web && mise x bun -- bun run vitest run
 
 # Run TLS integration tests (Vitest — Node environment; needs APIs Bun lacks)
 test-integration:
@@ -284,7 +304,7 @@ fmt-check:
     @echo "oxfmt not yet available — skipping"
 
 # Type check with TypeScript compiler
-typecheck:
+typecheck: _no-nested-node-modules
     mise x bun -- bunx tsc --noEmit
 
 # Run all checks (lint + format check + typecheck)

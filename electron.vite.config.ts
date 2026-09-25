@@ -50,7 +50,7 @@ export default defineConfig({
         output: {
           manualChunks: {
             "react-vendor": ["react", "react-dom"],
-            "mdx-vendor": ["@mdx-js/mdx", "@mdx-js/react", "react-markdown", "remark-gfm"],
+            "mdx-vendor": ["@mdx-js/mdx", "react-markdown", "remark-gfm"],
             "ui-vendor": [
               "@radix-ui/react-alert-dialog",
               "@radix-ui/react-tooltip",

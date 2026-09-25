@@ -3,11 +3,10 @@ import { useCollapsibleFileList } from '@/hooks/useCollapsibleFileList'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { FileTree, type FileTreeNode } from './FileTree'
-import { FolderOpen, ChevronLeft, Info, Copy, Check, FileCode, AlertTriangle } from 'lucide-react'
+import { FolderOpen, FileCode, AlertTriangle } from 'lucide-react'
 import { cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
 import { SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
 import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles'
@@ -17,22 +16,15 @@ import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHea
 interface CodeFileCollectionProps {
   data: FileTreeNode[];
   className?: string;
-  onHide?: () => void;
   hideContent?: boolean;
-  absoluteOutputPath?: string;
-  relativeOutputPath?: string;
-  /** When true, hides the header (used when embedded in Workspace) */
-  hideHeader?: boolean;
   /** Backend truncation metadata (heavy dir recommendation) */
   truncationInfo?: TruncationInfo | null;
 }
 
-export const CodeFileCollection = ({ data, className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath, hideHeader = false, truncationInfo }: CodeFileCollectionProps) => {
+export const CodeFileCollection = ({ data, className = "", hideContent = false, truncationInfo }: CodeFileCollectionProps) => {
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel();
   const [focusedFileId, setFocusedFileId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [isPathVisible, setIsPathVisible] = useState(false);
-  const { didCopy: didCopyPath, copy: copyPath } = useCopyToClipboard();
 
   // Extract only file items (with content) from FileTreeNode
   const fileItems = useMemo(() => {
@@ -82,81 +74,8 @@ export const CodeFileCollection = ({ data, className = "", onHide, hideContent =
     }
   };
 
-  const generatedFilesAbsolutePath = absoluteOutputPath;
-  const generatedFilesRelativePath = useMemo(() => {
-    const raw = (relativeOutputPath || '').trim();
-    return raw.replaceAll('\\', '/');
-  }, [relativeOutputPath])
-
-
   return (
     <div className={`w-full h-full flex flex-col ${className}`}>
-      {/* Header - only shown when not embedded in Workspace */}
-      {!hideHeader && (
-        <div className="flex items-start justify-between py-2 mb-3 border-b border-border bg-transparent">
-          <div className="min-w-0 pl-4 lg:pl-0">
-            <h2 className="text-lg font-semibold text-foreground">Generated Files</h2>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground italic">
-              <span>
-                The files below are located in <code className="px-1 py-0.5 bg-muted border border-border rounded text-[11px] text-muted-foreground not-italic">{generatedFilesRelativePath}</code> relative to where you ran the runbook
-              </span>
-
-              <button
-                type="button"
-                className={`inline-flex items-center justify-center rounded-md border border-border bg-card px-2 py-1 hover:bg-accent ${
-                  !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                }`}
-                aria-label="Show generated files absolute path"
-                title={generatedFilesAbsolutePath ? 'Show absolute path' : 'Absolute path unavailable'}
-                disabled={!generatedFilesAbsolutePath}
-                onClick={() => setIsPathVisible((prev) => !prev)}
-              >
-                <Info className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-
-              <button
-                type="button"
-                className={`inline-flex items-center justify-center rounded-md border border-border bg-card px-2 py-1 hover:bg-accent ${
-                  !generatedFilesAbsolutePath ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                }`}
-                aria-label="Copy generated files absolute path"
-                title={generatedFilesAbsolutePath ? 'Copy absolute path' : 'Absolute path unavailable'}
-                disabled={!generatedFilesAbsolutePath}
-                onClick={() => {
-                  if (!generatedFilesAbsolutePath) return;
-                  void copyPath(generatedFilesAbsolutePath);
-                }}
-              >
-                {didCopyPath ? (
-                  <Check className="h-3.5 w-3.5 text-success" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5 text-muted-foreground" />
-                )}
-              </button>
-            </div>
-
-            {isPathVisible && generatedFilesAbsolutePath && (
-              <div className="mt-1 mb-1 text-xs text-muted-foreground">
-                <span className="mr-1 text-muted-foreground italic">Absolute path:</span>
-                <code className="break-all rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground border border-border">
-                  {generatedFilesAbsolutePath}
-                </code>
-              </div>
-            )}
-          </div>
-
-          {onHide && (
-            <button
-              onClick={onHide}
-              className="hidden lg:block p-3 border border-border rounded-lg hover:bg-accent transition-all duration-200 cursor-pointer"
-              title="Hide generated files"
-            >
-              <ChevronLeft className="w-5 h-5 text-muted-foreground" />
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Content - shows empty state or file tree with files */}
       {data.length === 0 ? (
         <div className="flex-1 flex items-center justify-center p-1">

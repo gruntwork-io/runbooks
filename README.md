@@ -115,8 +115,10 @@ just check           # lint + typecheck
 
 ### Adding shadcn/ui components
 
-This project uses [shadcn/ui](https://ui.shadcn.com/) for unstyled components to make use of battle-tested, accessible components. To add a new component:
+This project uses [shadcn/ui](https://ui.shadcn.com/) for unstyled components to make use of battle-tested, accessible components. To add a new component, run this from the repo root:
 
 ```bash
 bunx shadcn@latest add <component_name>
 ```
+
+The CLI adds any packages the component needs to `dependencies` in the root `package.json`. Move them to `devDependencies`, because only the renderer uses them.
