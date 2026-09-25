@@ -53,6 +53,8 @@ With a prefix, Runbooks reads only `CI_GITLAB_TOKEN`, then `CI_GITLAB_ACCESS_TOK
 
 An environment token is only ever sent to one GitLab host. For a prefixed token, that host comes from the prefixed host variables: `CI_GITLAB_HOST`, then `CI_GITLAB_URI`, then `CI_GL_HOST`. If none is set, the host is `gitlab.com`. The unprefixed `GITLAB_HOST` does not apply. If the block authenticates to any other host, the prefixed token is skipped.
 
+The prefixed host variables only limit where the token may be sent. They do not choose the host the block authenticates to, which still comes from the host picker or the `host` prop. For a self-managed instance, set `host` to the same host as `CI_GITLAB_HOST` so the prefixed token is used.
+
 On success the token is saved to the session as `GITLAB_TOKEN`, as with any other source, so downstream blocks don't need to know the prefix.
 
 ## Props
