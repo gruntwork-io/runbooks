@@ -17,6 +17,7 @@ import {
   setRunbookConfig,
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
+import { startWatcher } from "./watch.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
@@ -51,14 +52,9 @@ export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
     async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
-      // If no path provided, return current config without loading a runbook
+      // An empty path would resolve against the app's cwd below.
       if (!params?.path) {
-        return {
-          content: "",
-          contentHash: "",
-          config: runbookConfig,
-          warnings: [],
-        }
+        throw new Error("runbook path is required")
       }
 
       // Reject filesystem roots to prevent overly broad trust anchors
@@ -81,11 +77,12 @@ export function registerRunbookHandlers(): void {
       const config: RunbookConfig = {
         localPath: runbookPath,
         remoteSourceURL: params.remoteSource,
-        isWatchMode: params.watchMode ?? false,
-        useExecutableRegistry: true,
+        // The renderer doesn't send watchMode; keep what --watch set at launch.
+        isWatchMode: params.watchMode ?? runbookConfig.isWatchMode,
         disableLiveFileReload: runbookConfig.disableLiveFileReload,
       }
       setRunbookConfig(config)
+      const isSameRunbook = sessionManager.getRunbookPath() === runbookPath
 
       // The session's working dir is always the runbook's parent directory.
       // realpath'ing keeps macOS /var and /private/var paths aligned with
@@ -106,7 +103,7 @@ export function registerRunbookHandlers(): void {
       // templates resolve to a stale, possibly already-deleted, checkout.
       // Reloading the SAME runbook (watch mode, re-opening the same file)
       // must NOT do this — it would wipe env vars a script exported mid-run.
-      if (sessionManager.getRunbookPath() !== runbookPath) {
+      if (!isSameRunbook) {
         await runtime.runPromise(sessionManager.createSession(sessionDir, runbookPath))
         // These mirror the same "most recent wins across the whole process"
         // pattern as the worktree state above — reset them at the same
@@ -114,23 +111,37 @@ export function registerRunbookHandlers(): void {
         // previous runbook can't leak into this one.
         resetGoogleCredentialRegistry()
         vcsSessionMeta.clear()
+        // The previous runbook's executables must not stay runnable (or be
+        // kept as this runbook's frozen registry below) if building this
+        // runbook's registry fails.
+        setExecutableRegistry(null)
       } else {
         sessionManager.setWorkingDir(sessionDir)
+      }
+
+      // Watch mode: reload the renderer when this runbook changes. A no-op if
+      // it's already watched; a watcher on a previous runbook is stopped.
+      if (config.isWatchMode) {
+        startWatcher(runbookPath)
       }
 
       // Read the runbook file content
       const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
 
-      // Build the executable registry from the runbook
-      const registry = await runtime.runPromise(
-        ExecutableRegistry.create(runbookPath),
-      )
-      setExecutableRegistry(registry)
+      // --disable-live-file-reload freezes the registry built when this
+      // runbook was opened: reloading it (watch mode, re-opening the same
+      // file) keeps executing the scripts that were approved then. Otherwise
+      // build the executable registry from the runbook.
+      let registry = isSameRunbook && config.disableLiveFileReload ? executableRegistry : null
+      if (!registry) {
+        registry = await runtime.runPromise(ExecutableRegistry.create(runbookPath))
+        setExecutableRegistry(registry)
 
-      // Notify the renderer that the registry has been rebuilt
-      const win = getMainWindow()
-      if (win) {
-        win.webContents.send("registry:updated")
+        // Notify the renderer that the registry has been rebuilt
+        const win = getMainWindow()
+        if (win) {
+          win.webContents.send("registry:updated")
+        }
       }
 
       const ext = path.extname(runbookPath).replace(/^\./, "")

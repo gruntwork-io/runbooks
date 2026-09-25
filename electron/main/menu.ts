@@ -9,6 +9,7 @@ import { app, Menu, dialog, shell, type MenuItemConstructorOptions } from "elect
 import { getMainWindow } from "./window.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runbookConfig } from "./ipc/runtime.ts"
+import { stopWatcher } from "./ipc/watch.ts"
 
 const isMac = process.platform === "darwin"
 
@@ -146,6 +147,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
         label: "Close Runbook",
         accelerator: "CmdOrCtrl+Shift+W",
         click: () => {
+          void stopWatcher()
           getMainWindow()?.webContents.send("menu:close-runbook")
         },
       },

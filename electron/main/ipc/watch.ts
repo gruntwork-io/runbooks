@@ -1,25 +1,43 @@
 /**
- * IPC handler for watch mode.
+ * Watch mode: tells the renderer to reload when the open runbook changes.
  *
- * Starts a file watcher on the runbook directory and streams file change
- * events to the renderer. When a new subscription is requested, any existing
- * watcher is replaced.
+ * The main process owns the watcher. `runbook:get` starts it for the loaded
+ * runbook when the app was launched with --watch; closing the runbook or
+ * quitting stops it. Watching a different runbook replaces the previous
+ * watcher (see runbook-watcher.ts).
+ *
+ * The watcher only signals "reload". The renderer's reload goes back through
+ * `runbook:get`, which is the one place the executable registry is rebuilt
+ * (or kept frozen under --disable-live-file-reload).
  */
-import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
-import { runtime, runbookConfig, setExecutableRegistry } from "./runtime.ts"
-import { createWatcher } from "../../../src/watcher.ts"
-import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
+import { runtime, runbookConfig } from "./runtime.ts"
+import { makeRunbookWatcher } from "./runbook-watcher.ts"
 import { validateSessionPath } from "./path-guard.ts"
+import { getMainWindow } from "../window.ts"
+
+const runbookWatcher = makeRunbookWatcher(runtime, () => {
+  const win = getMainWindow()
+  if (!win || win.isDestroyed()) return
+  win.webContents.send("watch:file-change", { type: "reload" })
+})
+
+/** Watch the runbook at `runbookPath` (a no-op if it's already watched). */
+export const startWatcher = runbookWatcher.start
+
+/** Stop the watch-mode watcher, if one is running. */
+export const stopWatcher = runbookWatcher.stop
 
 export function registerWatchHandlers(): void {
+  // runbook:get starts the watcher itself in --watch mode, so the renderer
+  // doesn't need this; it lets a renderer opt the open runbook into watching.
   ipcMain.handle(
     "watch:subscribe",
-    async (event, params: { runbookPath: string }) => {
+    async (_event, params?: { runbookPath?: string }) => {
       // Prefer the already-trusted runbookConfig.localPath; only use the
       // renderer-supplied path if it passes validation.
       let runbookPath = runbookConfig.localPath
-      if (params.runbookPath && params.runbookPath !== runbookPath) {
+      if (params?.runbookPath && params.runbookPath !== runbookPath) {
         runbookPath = await runtime.runPromise(validateSessionPath(params.runbookPath))
       }
 
@@ -27,41 +45,7 @@ export function registerWatchHandlers(): void {
         throw new Error("No runbook path provided and none configured")
       }
 
-      // Create the watcher stream, then fork stream consumption into a
-      // background fiber so the handler can return immediately.
-      await runtime.runPromise(
-        Effect.gen(function* () {
-          const watcherStream = yield* createWatcher(runbookPath)
-
-          yield* Effect.forkDaemon(
-            Stream.runForEach(watcherStream, (changeEvent) =>
-              Effect.gen(function* () {
-                // Re-parse the executable registry on file changes unless
-              // --disable-live-file-reload was passed (keeps the registry
-              // frozen at startup so only pre-validated scripts can run).
-                if (
-                  !runbookConfig.disableLiveFileReload &&
-                  (changeEvent.path === runbookPath ||
-                  changeEvent.path.endsWith(".mdx"))
-                ) {
-                  const registry = yield* Effect.either(
-                    ExecutableRegistry.create(runbookPath),
-                  )
-                  if (registry._tag === "Right") {
-                    setExecutableRegistry(registry.right)
-                  }
-                }
-
-                event.sender.send("watch:file-change", {
-                  type: changeEvent.type,
-                  path: changeEvent.path,
-                })
-              }),
-            ).pipe(Effect.ignore),
-          )
-        }),
-      )
-
+      startWatcher(runbookPath)
       return { ok: true as const }
     },
   )

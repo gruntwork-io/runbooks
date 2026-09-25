@@ -60,19 +60,9 @@ function App() {
     }
   }, [getRunbookResult.data?.content, clearAllErrors])
   
-  // Enable watch mode - refetch runbook when file changes
-  const handleFileChange = useCallback(() => {
-    console.log('[App] Runbook file changed, reloading...');
-    
-    // Use silent refetch for watch mode, regular refetch for open mode
-    if (getRunbookResult.data?.isWatchMode) {
-      getRunbookResult.silentRefetch();
-    } else {
-      getRunbookResult.refetch();
-    }
-  }, [getRunbookResult]);
-  
-  useIpcWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
+  // Watch mode: reload the runbook, without a loading flash, when the main
+  // process reports that the runbook file changed
+  useIpcWatchMode(getRunbookResult.silentRefetch, getRunbookResult.data?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
