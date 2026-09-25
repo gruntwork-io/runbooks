@@ -13,7 +13,7 @@ This feature is intended for **authors** of runbooks.
 <Aside type="caution">
 Each reload rebuilds the [executable registry](/security/execution-model/#executable-registry) from the files on disk, so after a reload the app executes the current version of your commands and scripts. Pass `--disable-live-file-reload` to keep executing the versions that were present when the runbook was first opened.
 
-Only changes to `runbook.mdx` itself trigger a reload. After you change a script, template, or other file the runbook uses, edit `runbook.mdx` or close and reopen the runbook to load it.
+Only changes to `runbook.mdx` itself trigger a reload. After you change a script, template, or other file the runbook uses, change something in `runbook.mdx` or close and reopen the runbook to load it. Saving `runbook.mdx` without changing it rebuilds the registry but does not refresh the blocks on the page.
 </Aside>
 
 ## Activating watch mode
@@ -25,6 +25,8 @@ runbooks --watch RUNBOOK_SOURCE
 ```
 
 Watch mode then stays on for every runbook you open until you quit the app.
+
+`--watch` and `--disable-live-file-reload` only take effect when they start the app. If Runbooks is already running, the command opens the runbook in the existing window without watch mode, so quit Runbooks first.
 
 ## Arguments
 
