@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
-import { mockElectron } from "./test-utils/mockElectron.ts"
+import { mockElectron } from "./test-utils/mock-electron.ts"
 
 // theme-store.ts imports electron's `app` only for `app.getPath("userData")`.
 // Mock it to point at a per-test temp dir so the module is testable without an
