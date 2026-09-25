@@ -13,7 +13,8 @@ import type { TemplateContext } from '@/lib/templateUtils'
  *  - every `{{ .inputs.* }}` / `{{ .outputs.* }}` value reference in a
  *    displayed command resolves to a value or a `<name>` placeholder, whether or
  *    not the engine is available;
- *  - template logic is never evaluated against a placeholder.
+ *  - an input referenced only inside template logic is never given a
+ *    placeholder, so that logic is never evaluated against one.
  */
 
 const FORBIDDEN_CHANNELS = [
@@ -166,7 +167,7 @@ describe('instruction mode — no unresolved template references', () => {
     expect(document.body.textContent).not.toContain('{{')
   })
 
-  it('never evaluates a conditional against a placeholder for an unset input', async () => {
+  it('gives no placeholder to an unset input used only in a conditional', async () => {
     // A stand-in for the engine: `if` on a missing key is an error (the WASM
     // engine renders with OnMissingKey=ExitWithError); any set value is truthy.
     const invoke = vi.fn().mockImplementation(async (_channel, params) => {

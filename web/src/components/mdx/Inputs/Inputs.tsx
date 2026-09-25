@@ -84,11 +84,17 @@ function Inputs({
   );
 
   // Values already registered under this id when this instance mounted. A
-  // remount (e.g. a Command's nested Inputs when instruction mode is toggled)
-  // resumes from them; otherwise the form would re-register its defaults over
-  // what the user typed.
+  // Command/Check swaps its whole layout when instruction mode is toggled, so
+  // its nested Inputs remounts; it resumes from these values, or the fresh form
+  // would re-register its config defaults over what the user typed. The resume
+  // applies to any remount under the same RunbookContext, not just a toggle
+  // (a reload, or another runbook reusing the id), so it is limited to the
+  // embedded variant, the only one a toggle remounts. A standalone Inputs
+  // always starts from its own defaults.
   const { blockInputs } = useRunbookContext()
-  const [registeredValues] = useState(() => blockInputs[id]?.values)
+  const [registeredValues] = useState(() =>
+    variant === 'embedded' ? blockInputs[id]?.values : undefined,
+  )
 
   // Apply prefilled variables, then any registered values, to the boilerplate config
   const boilerplateConfigWithPrefilledVariables = useMemo(() => {
