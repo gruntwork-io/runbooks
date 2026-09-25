@@ -6,24 +6,27 @@ import { Aside } from '@astrojs/starlight/components';
 
 # Watch Mode
 
-Watch mode monitors a `runbook.mdx` file (and its scripts, checks, or template files) for changes and automatically reloads the runbook in the app.
+Watch mode monitors a `runbook.mdx` file for changes and automatically reloads the runbook in the app.
 
 This feature is intended for **authors** of runbooks.
 
 <Aside type="caution">
-When you update a `command` property, local template, or local script, the runbook will automatically load these changes in the UI, but because of the [executable registry](/security/execution-model/#executable-registry), the runbook will continue to execute the _old_ versions of these files. The solution is to restart the app when you make a template or script change.
+Each reload rebuilds the [executable registry](/security/execution-model/#executable-registry) from the files on disk, so after a reload the app executes the current version of your commands and scripts. Pass `--disable-live-file-reload` to keep executing the versions that were present when the runbook was first opened.
+
+Only changes to `runbook.mdx` itself trigger a reload. After you change a script, template, or other file the runbook uses, change something in `runbook.mdx` or close and reopen the runbook to load it. Saving `runbook.mdx` without changing it rebuilds the registry but does not refresh the blocks on the page.
 </Aside>
 
 ## Activating watch mode
 
-Watch mode can be activated in two ways:
+Activate watch mode on the command line when you launch the app:
 
-1. **Via the command line** when launching the app:
-   ```bash
-   runbooks --watch RUNBOOK_SOURCE
-   ```
+```bash
+runbooks --watch RUNBOOK_SOURCE
+```
 
-2. **Via the app menu** -- toggle watch mode from the application menu while a runbook is open.
+Watch mode then stays on for every runbook you open until you quit the app.
+
+`--watch` and `--disable-live-file-reload` only take effect when they start the app. If Runbooks is already running, the command opens the runbook in the existing window without watch mode, so quit Runbooks first.
 
 ## Arguments
 
@@ -33,12 +36,17 @@ Watch mode can be activated in two ways:
 When watching a remote runbook, file watching operates on the local downloaded copy. Changes to the remote repository will not be detected automatically.
 </Aside>
 
+## Flags
+
+- `--disable-live-file-reload` - Keep the executable registry that was built when the runbook was first opened. Reloads still update what the app shows, but Runbooks keeps executing the original commands and scripts, and blocks whose script has changed show a "Script changed" warning.
+
 ## What it does
 
 When watch mode is active:
 
-1. **Watches for changes** - Monitors the runbook file and related files for any modifications
+1. **Watches for changes** - Monitors the runbook file for modifications
 2. **Auto-reloads** - Automatically refreshes the runbook in the app when changes are detected (within ~300ms)
+3. **Rebuilds the executable registry** - Re-reads the runbook and the scripts it references, unless `--disable-live-file-reload` is set
 
 ### Writing a new runbook
 
@@ -56,12 +64,13 @@ Then in your editor:
 ### File watching
 
 - Uses `chokidar` for efficient file system monitoring
-- Watches the directory containing your runbook file
+- Watches the directory containing your runbook file, so editors that save by replacing the file are still detected
+- Does not watch subdirectories, such as cloned repositories or generated output
 - Implements debouncing (300ms) to handle editors that save files multiple times
-- Only triggers on write and create events for your specific runbook file
+- Only triggers on write and create events for your specific runbook file; changes to other files in the directory, such as scripts, are ignored
 
 ### Auto-reload mechanism
 
 - Uses IPC (inter-process communication) events to notify the renderer process of file changes
-- When the file changes, the main process sends a `file-change` event via IPC
-- The renderer receives the event and automatically reloads the runbook content
+- When the file changes, the main process sends a `watch:file-change` event via IPC
+- The renderer receives the event and reloads the runbook, which re-reads the file and rebuilds the executable registry

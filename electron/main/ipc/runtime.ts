@@ -111,7 +111,6 @@ export function setExecutableRegistry(reg: ExecutableRegistry | null): void {
 export let runbookConfig: RunbookConfig = {
   localPath: "",
   isWatchMode: false,
-  useExecutableRegistry: true,
 }
 
 export function setRunbookConfig(config: RunbookConfig): void {

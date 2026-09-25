@@ -7,7 +7,7 @@ import * as os from "node:os"
 import { Effect, Layer, Stream } from "effect"
 import { watch as chokidarWatch } from "chokidar"
 import { FileSystem } from "../services/FileSystem.ts"
-import type { FileSystemShape, WalkEntry, FileChangeEvent } from "../services/FileSystem.ts"
+import type { FileSystemShape, WalkEntry, FileChangeEvent, WatchOptions } from "../services/FileSystem.ts"
 import {
   FileNotFoundError,
   FileReadError,
@@ -149,11 +149,11 @@ const impl: FileSystemShape = {
       )
     }, "unbounded"),
 
-  watch: (paths: string[]) =>
+  watch: (paths: string[], options?: WatchOptions) =>
     Stream.async<FileChangeEvent, FileWatchError>((emit) => {
       let watcher: ReturnType<typeof chokidarWatch> | null = null
       try {
-        watcher = chokidarWatch(paths, { ignoreInitial: true })
+        watcher = chokidarWatch(paths, { ignoreInitial: true, depth: options?.depth })
 
         const handler = (type: FileChangeEvent["type"]) => (filePath: string) => {
           emit.single({ type, path: filePath })

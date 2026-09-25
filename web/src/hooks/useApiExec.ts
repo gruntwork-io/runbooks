@@ -74,7 +74,6 @@ export interface UseApiExecOptions {
 export interface UseApiExecReturn {
   state: ExecState
   execute: (executableId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => void
-  executeByComponentId: (componentId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => void
   cancel: () => void
   reset: () => void
 }
@@ -166,11 +165,10 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     })
   }, [cancel])
 
-  // Shared execution logic for both registry and live-reload modes
+  // Runs a registry executable over IPC and streams its events into state
   const executeScript = useCallback(async (
     payload: {
-      executableId?: string;
-      componentId?: string;
+      executableId: string;
       templateVarValues: Record<string, unknown>;
       envVarsOverride?: Record<string, string>;
       usePty?: boolean;
@@ -338,7 +336,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     }
   }, [cancel, options])
 
-  // Execute script by executable ID (used in registry mode)
+  // Execute script by executable ID
   const execute = useCallback(
     (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => {
       executeScript({
@@ -352,29 +350,9 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     [executeScript]
   )
 
-  // Execute script by component ID (used in live-reload mode)
-  // Unlike execute() which uses pre-validated executable IDs from the registry,
-  // this sends the component ID to the backend, which then reads the runbook file
-  // from disk on-demand, parses it to find the component, and executes its script.
-  // This allows script changes to take effect immediately without restarting the server,
-  // but bypasses registry validation (only use with --live-file-reload flag).
-  const executeByComponentId = useCallback(
-    (componentId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => {
-      executeScript({
-        componentId,
-        templateVarValues,
-        envVarsOverride,
-        usePty,
-        timeoutMs,
-      })
-    },
-    [executeScript]
-  )
-
   return {
     state,
     execute,
-    executeByComponentId,
     cancel,
     reset,
   }

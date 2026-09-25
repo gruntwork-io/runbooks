@@ -1,6 +1,6 @@
 ---
 title: Execution Security Model
-description: Understanding how Runbooks validates and executes scripts in different modes
+description: Understanding how Runbooks validates and executes scripts
 ---
 
 ## Overview
@@ -17,11 +17,11 @@ When Runbooks loads, it immediately shows a warning to users to confirm that the
 
 ### Executable Registry
 
-By default, Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the main process will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).
+Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the main process will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).
 
-Here's how it works. When you open a runbook (in standard mode), Runbooks starts the main process and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
+Here's how it works. When you open a runbook, Runbooks starts the main process and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
 
-When you click "Run" in the UI, the renderer sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The main process validates that this executable ID exists in the registry (which was built from your Runbook at startup), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate IPC messages, they cannot inject arbitrary code because the main process will only execute scripts that were present in your Runbook when it was loaded. Effectively, the registry acts as a whitelist of approved executables.
+When you click "Run" in the UI, the renderer sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The main process validates that this executable ID exists in the registry (which was built from your Runbook when it was loaded), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate IPC messages, they cannot inject arbitrary code because the main process will only execute scripts that were present in your Runbook when it was loaded. Effectively, the registry acts as a whitelist of approved executables.
 
 ### Electron Security
 
@@ -32,14 +32,11 @@ Runbooks follows Electron security best practices to maintain strong process iso
 - **No `nodeIntegration` in the renderer**: Node.js integration is disabled in the renderer process. All privileged operations (script execution, file system access, environment management) are handled by the main process.
 - **Process isolation**: The main process and renderer process run in separate OS-level processes. The renderer cannot directly invoke system calls or spawn child processes.
 
-## Execution Modes
+## When the Registry Is Built
 
-Runbooks has two execution modes with different security/convenience trade-offs:
+Every script Runbooks runs comes from the executable registry. What changes between the ways you can open a runbook is when the registry is rebuilt from the files on disk.
 
-1. Standard (Executable Registry)
-2. Watch mode (Live-File-Reload)
-
-### Standard Mode
+### Opening a runbook
 ```bash
 runbooks open path/to/runbook.mdx
 ```
@@ -48,55 +45,47 @@ runbooks open path/to/runbook.mdx
 - For Runbook consumers who want to guarantee that they are executing exactly what the Runbook author wrote.
 
 **How it works:**
-1. Main process starts and scans the runbook file
+1. Main process loads the runbook file
 2. Builds an **Executable Registry** containing all `<Check>` and `<Command>` components
 3. Assigns each script a unique ID
 4. At execution time, validates the ID exists in the registry
 5. Executes only pre-approved scripts
 
-**Security:** High
-- All scripts pre-validated at startup
+**Security:**
+- All scripts pre-validated when the runbook is opened
 - Cannot execute arbitrary code via IPC manipulation
-- Changes to scripts require reopening the runbook
+- Changes you make to the runbook or its scripts afterwards are not executed until you close and reopen the runbook, which builds a new registry
 
-**Convenience:** Medium
-- When you make local file changes, the Runbook will not honor them automatically; you'll need to re-open the runbook to "activate" any new file changes.
-
-### Watch Mode (Live-File-Reload)
+### Watch mode
 ```bash
 runbooks open --watch path/to/runbook.mdx
 ```
 
-Watch mode can also be toggled from the application menu.
-
 **When to use:**
-- For Runbook authors who want to auto-reload their runbook file _and_ all Runbook script files. Since they are actively editing files on their file system, they are presumably ok with having these hot-reloaded.
+- For Runbook authors who want the app to reload their runbook as they edit it. Since they are actively editing files on their file system, they are presumably ok with having these changes picked up.
 
 **How it works:**
-1. Main process starts _without building an executable registry_
-2. Watches the Runbook file for changes and automatically reloads the UI
-3. When user clicks "Run" on a script:
-   - Main process reads the runbook file _from disk at that moment_
-   - Parses the file to find the requested component
-   - Extracts and executes the script content _from the current file system state_
-4. Essentially, every execution reads fresh from disk
+1. Main process loads the runbook and builds the registry, as above
+2. Watches the runbook file for changes and automatically reloads the UI
+3. Each reload rebuilds the registry from the runbook file and the scripts it references _as they are on disk at that moment_
+4. Execution still goes through the registry: the renderer sends an executable ID, never script content
 
-**Security:** Medium
-- No pre-validation of scripts at startup
-- Scripts read from current file system state
-- Still protected by Electron process isolation
-- More vulnerable to file system manipulation
+**Security:**
+- Scripts are still only executed from the registry, so IPC manipulation cannot inject arbitrary code
+- Whatever is on disk when the runbook reloads becomes approved, so anything that can write to the runbook's files while you work can change what runs
 
-**Convenience:** High
-- Script changes take effect immediately
-- No restart needed
-- Perfect for rapid runbook development
+### Freezing the registry
+```bash
+runbooks open --watch --disable-live-file-reload path/to/runbook.mdx
+```
+
+`--disable-live-file-reload` keeps the registry built when the runbook was first opened. Watch mode still reloads what the app shows, but Runbooks keeps executing the scripts that were present at open, and blocks whose script has changed show a "Script changed" warning. Opening a different runbook builds its registry as usual.
 
 ## How Scripts Are Executed
 
-Regardless of mode, the actual execution process is:
+The actual execution process is:
 
-1. **Validate request**: Check that execution is authorized (via registry or on-demand parsing)
+1. **Validate request**: Check that the requested executable ID exists in the registry
 2. **Render templates**: If script contains template variables like `{{ .VarName }}`, substitute them
 3. **Create temp file**: Write script content to a temporary file
 4. **Make executable**: Set file permissions (`chmod 0700`)
