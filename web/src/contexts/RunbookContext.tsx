@@ -121,6 +121,13 @@ export interface RunbookContextType {
   /** The original remote URL when the runbook was opened from a remote source (e.g., GitHub URL). */
   remoteSource: string | undefined
 
+  /**
+   * Identifies the runbook for per-runbook localStorage (done marks, task-list
+   * checkboxes): the remote URL when opened from one (remote clones land in a
+   * new temp folder on every open), otherwise the runbook's local directory.
+   */
+  storageScope: string | undefined
+
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
 
@@ -180,7 +187,7 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ .outputs.create_account.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children, runbookName, remoteSource }: { children: ReactNode, runbookName?: string, remoteSource?: string }) {
+export function RunbookContextProvider({ children, runbookName, remoteSource, storageScope }: { children: ReactNode, runbookName?: string, remoteSource?: string, storageScope?: string }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
@@ -303,6 +310,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
   const contextValue = useMemo(() => ({
     runbookName,
     remoteSource,
+    storageScope,
     blockInputs,
     registerInputs,
     getInputs,
@@ -310,7 +318,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource }: 
     registerOutputs,
     getOutputs,
     getTemplateContext,
-  }), [runbookName, remoteSource, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateContext])
+  }), [runbookName, remoteSource, storageScope, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateContext])
 
   return (
     <RunbookContext.Provider value={contextValue}>
