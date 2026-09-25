@@ -66,7 +66,7 @@ interface CheckProps {
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
   usePty?: boolean
-  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (5 minutes) applies. */
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
   timeoutMs?: number
 }
 

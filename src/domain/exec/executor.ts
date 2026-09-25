@@ -30,8 +30,12 @@ import type { ScriptSetup } from "./script.ts"
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default execution timeout in milliseconds (5 minutes). Overridable per-request via `ExecRequest.timeoutMs`. */
-const DEFAULT_EXEC_TIMEOUT_MS = 5 * 60 * 1000
+/**
+ * Default execution timeout in milliseconds (60 minutes). A backstop for hung
+ * scripts, not a budget: long terragrunt/tofu applies must not be killed by
+ * default. Overridable per-request via `ExecRequest.timeoutMs`.
+ */
+const DEFAULT_EXEC_TIMEOUT_MS = 60 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // Execution Event Types
