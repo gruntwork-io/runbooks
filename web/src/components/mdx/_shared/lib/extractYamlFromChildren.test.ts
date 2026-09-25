@@ -3,7 +3,35 @@ import { describe, it, expect } from 'vitest';
 import YAML from 'yaml';
 import { evaluate } from '@mdx-js/mdx';
 import * as runtime from 'react/jsx-runtime';
+import type { ReactNode } from 'react';
+import remarkGfm from 'remark-gfm';
 import { extractYamlFromChildren } from './extractYamlFromChildren';
+import { CodeBlock } from '../components/CodeBlock';
+
+/**
+ * Compiles MDX containing a single <Inputs> block with the same evaluate and
+ * remark-gfm options as MDXContainer, and returns the children MDX passes to
+ * it. The app's rehype plugins (asset paths, task-list ids) are left out; they
+ * don't touch Inputs content.
+ */
+async function compileInputsChildren(
+  mdxContent: string,
+  components: Record<string, unknown> = {},
+): Promise<ReactNode> {
+  const compiledMDX = await evaluate(mdxContent, {
+    ...runtime,
+    development: false,
+    baseUrl: import.meta.url,
+    remarkPlugins: [remarkGfm],
+    useMDXComponents: () => ({
+      Inputs: () => React.createElement('div', {}, 'Test component'),
+      ...components,
+    }),
+  });
+  return compiledMDX.default({}).props.children;
+}
+
+const MISSING_FENCE_ERROR = 'Invalid inline boilerplate configuration format';
 
 describe('extractYamlFromChildren', () => {
   it('should extract YAML from real MDX compilation and parse it correctly', async () => {
@@ -27,27 +55,8 @@ variables:
 \`\`\`
 </Inputs>`;
 
-    // Compile the MDX exactly as the real application does
-    const compiledMDX = await evaluate(mdxContent, {
-      ...runtime,
-      development: false,
-      baseUrl: import.meta.url,
-      useMDXComponents: () => ({
-        Inputs: () => {
-          return React.createElement('div', {}, 'Test component');
-        },
-      })
-    });
-
-    // Create the component and get the actual children structure
-    const MDXComponent = compiledMDX.default;
-    
-    // Call the component to get the React element tree
-    const componentResult = MDXComponent({ id: "test" });
-    
-    // Extract the children from the component result
-    // The children are the content inside the <NoName> wrapper
-    const capturedChildren = componentResult.props.children;
+    // Compile the MDX with the app's evaluate options
+    const capturedChildren = await compileInputsChildren(mdxContent);
 
     const extractedYaml = extractYamlFromChildren(capturedChildren);
 
@@ -74,5 +83,64 @@ variables:
     expect(environmentVar.type).toBe('enum');
     expect(environmentVar.options).toEqual(['dev', 'stage', 'prod']);
     expect(environmentVar.default).toBe('dev');
+  });
+
+  it('extracts fenced YAML when pre is rendered by the CodeBlock component', async () => {
+    const children = await compileInputsChildren(`<Inputs id="test">
+\`\`\`yaml
+variables:
+  - name: Region
+    default: us-east-1
+\`\`\`
+</Inputs>`, { pre: CodeBlock });
+
+    // The fence's trailing newline is trimmed only when CodeBlock is recognized as a pre element
+    expect(extractYamlFromChildren(children)).toEqual({
+      content: 'variables:\n  - name: Region\n    default: us-east-1',
+      error: null,
+    });
+  });
+
+  it('extracts single-line inline YAML passed as a plain string', async () => {
+    const children = await compileInputsChildren('<Inputs id="test">variables: []</Inputs>');
+
+    expect(extractYamlFromChildren(children)).toEqual({ content: 'variables: []', error: null });
+  });
+
+  it('rejects unfenced YAML with a code-fence configuration error', async () => {
+    const children = await compileInputsChildren(`<Inputs id="test">
+variables:
+  - name: AccountName
+    type: string
+  - name: Environment
+    type: string
+</Inputs>`);
+
+    const result = extractYamlFromChildren(children);
+
+    expect(result.content).toBe('');
+    expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
+    expect(result.error?.details).toContain('code fence');
+  });
+
+  it('rejects unfenced YAML separated by blank lines with a code-fence configuration error', async () => {
+    const children = await compileInputsChildren(`<Inputs id="test">
+variables:
+
+  - name: AccountName
+    type: string
+
+  - name: Environment
+    type: enum
+    options:
+      - dev
+      - prod
+    default: dev
+</Inputs>`);
+
+    const result = extractYamlFromChildren(children);
+
+    expect(result.content).toBe('');
+    expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
   });
 });

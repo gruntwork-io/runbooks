@@ -4,7 +4,7 @@
  * These blocks follow the same lifecycle — register a unique ID, fetch or
  * receive a BoilerplateConfig, render a form, and submit the collected values
  * back to the runbook context. This hook extracts that common lifecycle so each
- * block only needs to supply its specific config and optional data transforms.
+ * block only needs to supply its specific config.
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -30,8 +30,6 @@ interface UseInputRegistrationOptions {
   validationError: AppError | null
   /** Additional error to report (e.g., inline content parsing failures in Inputs). */
   extraError?: AppError | null
-  /** Transform applied to raw form data before it is registered with the runbook context. */
-  enrichFormData?: (formData: Record<string, unknown>) => Record<string, unknown>
 }
 
 interface UseInputRegistrationReturn {
@@ -56,7 +54,7 @@ interface UseInputRegistrationReturn {
  * 3. Telemetry tracking
  * 4. Form state initialization from BoilerplateConfig
  * 5. Auto-update debouncing after first submit
- * 6. Form submission with optional data enrichment
+ * 6. Form submission
  */
 export function useInputRegistration({
   id,
@@ -64,7 +62,6 @@ export function useInputRegistration({
   boilerplateConfig,
   validationError,
   extraError,
-  enrichFormData,
 }: UseInputRegistrationOptions): UseInputRegistrationReturn {
   // 1. ID registry
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, componentType)
@@ -136,11 +133,10 @@ export function useInputRegistration({
 
     autoUpdateTimerRef.current = setTimeout(() => {
       if (boilerplateConfig) {
-        const data = enrichFormData ? enrichFormData(formData) : formData
-        registerInputs(id, data, boilerplateConfig)
+        registerInputs(id, formData, boilerplateConfig)
       }
     }, 200)
-  }, [id, hasSubmitted, boilerplateConfig, registerInputs, enrichFormData])
+  }, [id, hasSubmitted, boilerplateConfig, registerInputs])
 
   useEffect(() => {
     return () => {
@@ -153,11 +149,10 @@ export function useInputRegistration({
   // 7. Submit handler
   const handleSubmit = useCallback(async (formData: Record<string, unknown>) => {
     if (boilerplateConfig) {
-      const data = enrichFormData ? enrichFormData(formData) : formData
-      registerInputs(id, data, boilerplateConfig)
+      registerInputs(id, formData, boilerplateConfig)
     }
     setHasSubmitted(true)
-  }, [id, boilerplateConfig, registerInputs, enrichFormData])
+  }, [id, boilerplateConfig, registerInputs])
 
   return {
     isDuplicate,

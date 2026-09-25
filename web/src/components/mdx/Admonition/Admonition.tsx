@@ -118,24 +118,23 @@ export function Admonition({
     }
   }, [type, componentId, reportError, clearError])
 
-  // Handle checkbox change with delayed fade-out
-  const handleConfirmationChange = (checked: boolean) => {
-    setIsConfirmed(checked)
-    if (checked && confirmationText) {
-      // If "don't show again" is checked, store in localStorage
-      if (dontShowAgain && allowPermanentHide && storageKey) {
-        saveHidePreference(`admonition_hide_${storageKey}`)
-      }
+  // Handle the confirmation button click with delayed fade-out
+  const handleConfirm = () => {
+    setIsConfirmed(true)
 
-      // Wait 250ms, then start fading out
-      setTimeout(() => {
-        setIsFadingOut(true)
-        // After 1s fade animation, hide completely
-        setTimeout(() => {
-          setIsVisible(false)
-        }, 1000)
-      }, 250)
+    // If "don't show again" is checked, store in localStorage
+    if (dontShowAgain && allowPermanentHide && storageKey) {
+      saveHidePreference(`admonition_hide_${storageKey}`)
     }
+
+    // Wait 250ms, then start fading out
+    setTimeout(() => {
+      setIsFadingOut(true)
+      // After 1s fade animation, hide completely
+      setTimeout(() => {
+        setIsVisible(false)
+      }, 1000)
+    }, 250)
   }
 
   if (!isVisible) return null
@@ -196,7 +195,7 @@ export function Admonition({
         {resolvedConfirmationText && (
           <div className="mt-3">
             <button
-              onClick={() => handleConfirmationChange(true)}
+              onClick={handleConfirm}
               disabled={isConfirmed}
               className="px-4 py-2 text-sm font-medium bg-warning text-white rounded-md hover:bg-warning/90 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >

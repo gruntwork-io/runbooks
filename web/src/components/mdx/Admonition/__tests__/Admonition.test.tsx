@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { render, screen, fireEvent, act } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { Admonition } from "../Admonition"
@@ -83,6 +83,45 @@ describe("Admonition", () => {
   it("shows confirmation button when confirmationText is set", () => {
     renderAdmonition({ type: "danger", confirmationText: "I understand" })
     expect(screen.getByText("I understand")).toBeInTheDocument()
+  })
+
+  describe("confirming", () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+      localStorage.clear()
+    })
+
+    it("disables the confirmation button, then fades out and hides the admonition", () => {
+      renderAdmonition({ type: "danger", title: "Destructive", confirmationText: "I understand" })
+      const button = screen.getByRole("button", { name: "I understand" })
+
+      fireEvent.click(button)
+      expect(button).toBeDisabled()
+      expect(screen.getByText("Destructive")).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(1250)
+      })
+      expect(screen.queryByText("Destructive")).not.toBeInTheDocument()
+    })
+
+    it("saves the \"Don't show me this again\" preference when confirmed", () => {
+      renderAdmonition({
+        type: "warning",
+        confirmationText: "Got it",
+        allowPermanentHide: true,
+        storageKey: "confirm-test",
+      })
+
+      fireEvent.click(screen.getByLabelText("Don't show me this again"))
+      fireEvent.click(screen.getByRole("button", { name: "Got it" }))
+
+      expect(localStorage.getItem("admonition_hide_confirm-test")).toBe("true")
+    })
   })
 
   // --- Invalid type ---
