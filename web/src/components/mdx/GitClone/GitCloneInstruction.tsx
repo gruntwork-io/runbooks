@@ -90,7 +90,7 @@ export function GitCloneInstruction({
             >
               sparse checkout
             </a>{' '}
-            to fetch just that directory.
+            to check out that directory instead of the whole repository.
           </span>
         ) : undefined
       }

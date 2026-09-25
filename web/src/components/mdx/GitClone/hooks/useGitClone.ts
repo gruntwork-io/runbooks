@@ -165,8 +165,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       // Store in ref so cancel() can unsubscribe.
       unsubLog = api.on('git:clone-progress', (data) => {
         const parsed = CloneLogEventSchema.safeParse(data)
-        // The channel is shared, so skip another clone's lines.
-        if (parsed.success && (!parsed.data.cloneId || parsed.data.cloneId === cloneId)) {
+        // The channel is shared, so skip another clone's lines. Main echoes
+        // the cloneId sent below on every event.
+        if (parsed.success && parsed.data.cloneId === cloneId) {
           const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
           setLogs(prev => {
             if (parsed.data.replace && prev.length > 0) {
@@ -365,7 +366,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     cloneIdRef.current = null
     if (cloneId) {
       api.invoke('git:clone-cancel', { cloneId }).catch(() => {
-        // Main has already finished with this clone — nothing left to stop.
+        // The cancel call itself failed (main resolves it even for a clone
+        // that already finished). This run is detached either way, so there
+        // is nothing more to do here.
       })
     }
     setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
