@@ -31,6 +31,20 @@ const ADC_JSON = JSON.stringify({
   private_key: "-----BEGIN PRIVATE KEY-----\nzzz\n-----END PRIVATE KEY-----\n",
 })
 
+/** The same block re-authenticated on the OAuth tab instead. */
+const USER: GoogleIdentity = {
+  email: "dev@example.com",
+  accountType: "user",
+  credentialType: "authorized_user",
+}
+
+const USER_JSON = JSON.stringify({
+  type: "authorized_user",
+  client_id: "id.apps.googleusercontent.com",
+  client_secret: "secret",
+  refresh_token: "1//refresh",
+})
+
 const credential = (path: string) =>
   ({
     ref: { kind: "file", path } as const,
@@ -108,7 +122,7 @@ describe("materializeForIdentity", () => {
     expect(fs.existsSync(second)).toBe(true)
   })
 
-  it("treats a different project on the same block as a different credential", () => {
+  it("keeps the previous file for another project until the renderer commits", () => {
     const a = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-one"), ADC_JSON)
     const b = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-two"), ADC_JSON)
 
@@ -165,12 +179,12 @@ describe("commitCredential", () => {
   })
 
   it("releases every file superseded across a multi-step flow", () => {
-    // One re-authentication can materialise under several identity keys: the
-    // project id is part of the key and is often resolved only after the
-    // credential exists. All of them are superseded by what the block finally
-    // publishes, which is why the queue is keyed on the block, not the identity.
+    // Successive re-authentications of one block can land under different
+    // identity keys: the project id is part of the key. All of them are
+    // superseded by what the block finally publishes, which is why both the
+    // queue and the predecessor lookup are keyed on the block, not the identity.
     const first = materializeForIdentity("block-a", identityKeyFor("block-a", SA, ""), ADC_JSON)
-    materializeForIdentity("block-a", identityKeyFor("block-a", SA, ""), ADC_JSON)
+    const second = materializeForIdentity("block-a", identityKeyFor("block-a", SA, ""), ADC_JSON)
     const withProject = materializeForIdentity(
       "block-a",
       identityKeyFor("block-a", SA, "my-proj"),
@@ -180,7 +194,65 @@ describe("commitCredential", () => {
     commitCredential("block-a", withProject)
 
     expect(fs.existsSync(first)).toBe(false)
+    expect(fs.existsSync(second)).toBe(false)
     expect(fs.existsSync(withProject)).toBe(true)
+  })
+
+  it("releases the block's committed file when it re-authenticates under another project", () => {
+    const one = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-one"), ADC_JSON)
+    commitCredential("block-a", one)
+
+    const two = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "proj-two"), ADC_JSON)
+    commitCredential("block-a", two)
+
+    expect(fs.existsSync(one)).toBe(false)
+    expect(fs.existsSync(two)).toBe(true)
+  })
+
+  it("releases the block's service-account file when it re-authenticates via OAuth", () => {
+    // Switching tabs changes the credential type AND the principal, so no part
+    // of the identity carries over — the old private key is still superseded.
+    const saFile = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
+    commitCredential("block-a", saFile)
+
+    const userFile = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", USER, "my-proj"),
+      USER_JSON,
+    )
+    commitCredential("block-a", userFile)
+
+    expect(fs.existsSync(saFile)).toBe(false)
+    expect(fs.readFileSync(userFile, "utf-8")).toBe(USER_JSON)
+  })
+
+  it("forgets the previous runbook's files on reset without releasing them", () => {
+    // A runbook switch does not stop running executions, so a step from the
+    // previous runbook may still be reading the file; the will-quit sweep
+    // removes it. And the next runbook's block with the same id must not
+    // inherit it as a predecessor to release.
+    const previousRunbook = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
+    commitCredential("block-a", previousRunbook)
+
+    resetGoogleCredentialRegistry()
+
+    const nextRunbook = materializeForIdentity(
+      "block-a",
+      identityKeyFor("block-a", SA, "my-proj"),
+      ADC_JSON,
+    )
+    commitCredential("block-a", nextRunbook)
+
+    expect(fs.existsSync(previousRunbook)).toBe(true)
+    expect(fs.existsSync(nextRunbook)).toBe(true)
   })
 })
 
