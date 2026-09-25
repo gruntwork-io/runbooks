@@ -176,6 +176,22 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
     const bundles = yield* BundleProducer
     const wasm = yield* WasmRuntime
 
+    /**
+     * Release a template's prepared handle and forget its vars baseline, so
+     * the next render re-prepares and treats every output as dirty. Release
+     * is best-effort: if the WASM runtime is unavailable or the handle is
+     * already gone on the Go side, the local maps are still cleared.
+     */
+    const dropTemplateState = (templateId: string) =>
+      Effect.gen(function* () {
+        const handle = handlesByTemplate.get(templateId)
+        if (handle) {
+          yield* wasm.releaseBundle(handle).pipe(Effect.ignore)
+          handlesByTemplate.delete(templateId)
+        }
+        previousVarsByTemplate.delete(templateId)
+      })
+
     const impl: WarmRenderDispatcherShape = {
       render: (templateId, templatePath, variables) =>
         Effect.gen(function* () {
@@ -183,12 +199,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
           // `reset()` a render that was already in flight can still leave a
           // handle or baseline behind for this id.
           if (templatePathById.get(templateId) !== templatePath) {
-            const staleHandle = handlesByTemplate.get(templateId)
-            if (staleHandle) {
-              yield* wasm.releaseBundle(staleHandle).pipe(Effect.ignore)
-              handlesByTemplate.delete(templateId)
-            }
-            previousVarsByTemplate.delete(templateId)
+            yield* dropTemplateState(templateId)
             yield* bundles.invalidate(templateId)
             templatePathById.set(templateId, templatePath)
           }
@@ -404,18 +415,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
           previousVarsByTemplate.set(templateId, variables)
         }),
 
-      invalidate: (templateId: string) =>
-        Effect.gen(function* () {
-          const handle = handlesByTemplate.get(templateId)
-          if (handle) {
-            // Best-effort release; if the WASM runtime is unavailable or
-            // the handle is already gone on the Go side, we still want to
-            // clear our local maps so subsequent renders re-prepare.
-            yield* wasm.releaseBundle(handle).pipe(Effect.ignore)
-            handlesByTemplate.delete(templateId)
-          }
-          previousVarsByTemplate.delete(templateId)
-        }),
+      invalidate: (templateId: string) => dropTemplateState(templateId),
     }
 
     return impl
