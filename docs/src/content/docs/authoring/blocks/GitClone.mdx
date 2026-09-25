@@ -175,6 +175,8 @@ git -c credential.helper= \
   pull
 ```
 
+For a GitLab checkout, use `username=oauth2` and `${GITLAB_TOKEN}` in the helper instead.
+
 ### Sparse Checkout
 
 Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to clone only a specific subdirectory:
