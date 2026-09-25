@@ -25,7 +25,7 @@ The `<Admonition>` block creates callout boxes to highlight important informatio
 - `title` (string) - Title for the callout box (defaults based on type). Supports inline markdown (bold, italic, links, code).
 - `description` (string) - Content/message to display. Supports inline markdown.
 - `closable` (boolean) - Whether users can close the admonition (default: false)
-- `confirmationText` (string) - If provided, shows a checkbox that users must check to dismiss
+- `confirmationText` (string) - If provided, shows a confirmation button with this label that users must click to dismiss the admonition
 - `allowPermanentHide` (boolean) - When true with confirmationText, adds "Don't show again" option
 - `storageKey` (string) - Unique key for localStorage (required with allowPermanentHide)
 
@@ -113,7 +113,7 @@ Allow users to dismiss the admonition:
 />
 ```
 
-## Confirmation Checkbox
+## Confirmation Button
 
 Require users to acknowledge before dismissing:
 

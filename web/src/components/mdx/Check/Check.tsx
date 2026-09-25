@@ -1,6 +1,5 @@
 import { CircleQuestionMark, CheckCircle, AlertTriangle, XCircle, Loader2 } from "lucide-react"
-import type { ReactNode } from "react"
-import { ScriptBlock, type ScriptBlockVariant } from "@/components/mdx/_shared/components/ScriptBlock"
+import { ScriptBlock, type ScriptBlockProps, type ScriptBlockVariant } from "@/components/mdx/_shared/components/ScriptBlock"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
 import type { ExecutionStatus } from "@/components/mdx/_shared/types"
 
@@ -43,32 +42,7 @@ const CHECK_VARIANT: ScriptBlockVariant = {
   }),
 }
 
-interface CheckProps {
-  id: string
-  title?: string
-  description?: string
-  path?: string
-  command?: string
-  /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  inputsId?: string | string[]
-  /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
-  awsAuthId?: string
-  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
-  githubAuthId?: string
-  /** Reference to a GitAuth block by ID (GitHub or GitLab). The block's credentials (GITHUB_TOKEN/GITHUB_USER or GITLAB_TOKEN/GITLAB_USER) will be passed as environment variables. */
-  gitAuthId?: string
-  /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
-  googleAuthId?: string
-  successMessage?: string
-  warnMessage?: string
-  failMessage?: string
-  runningMessage?: string
-  children?: ReactNode // For inline Inputs component
-  /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
-  usePty?: boolean
-  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (5 minutes) applies. */
-  timeoutMs?: number
-}
+type CheckProps = Omit<ScriptBlockProps, 'variant'>
 
 function Check(props: CheckProps) {
   return <ScriptBlock {...props} variant={CHECK_VARIANT} />
