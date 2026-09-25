@@ -271,7 +271,7 @@ describe("InputValidator.validateInputValues", () => {
       - type: regex
         regex: "^[A-Z]{3}$"`)
     const errs = v.validateInputValues({ "i1.code": "abc-lower" })
-    expect(errs).toEqual([{ inputKey: "i1.code", message: "Must match pattern: ^[A-Z]{3}$" }])
+    expect(errs).toEqual([{ inputKey: "i1.code", message: 'Must match pattern: ^[A-Z]{3}$ (got "abc-lower")' }])
     expect(v.validateInputValues({ "i1.code": "ABC" })).toEqual([])
   })
 
@@ -289,7 +289,7 @@ describe("InputValidator.validateInputValues", () => {
         min: 2
         max: 4`)
     const errs = v.validateInputValues({ "i1.short": "waytoolongvalue" })
-    expect(errs).toEqual([{ inputKey: "i1.short", message: "Must be between 2 and 4 characters" }])
+    expect(errs).toEqual([{ inputKey: "i1.short", message: 'Must be between 2 and 4 characters (got "waytoolongvalue")' }])
     expect(v.validateInputValues({ "i1.short": "abc" })).toEqual([])
     // The form checks the length of "42", not the number itself.
     expect(v.validateInputValues({ "i1.port": 42 })).toEqual([])
@@ -301,7 +301,7 @@ describe("InputValidator.validateInputValues", () => {
     validations:
       - alpha`)
     const errs = v.validateInputValues({ "i1.letters": "123" })
-    expect(errs).toEqual([{ inputKey: "i1.letters", message: "Must contain only letters" }])
+    expect(errs).toEqual([{ inputKey: "i1.letters", message: 'Must contain only letters (got "123")' }])
     expect(v.validateInputValues({ "i1.letters": "abc" })).toEqual([])
   })
 
@@ -329,14 +329,27 @@ describe("InputValidator.validateInputValues", () => {
         message: Must be an http(s) URL`)
     // Contains "@" and "." but has no domain dot after the "@".
     expect(v.validateInputValues({ "i1.email": "first.last@localhost" })).toEqual([
-      { inputKey: "i1.email", message: "Must be a valid email address" },
+      { inputKey: "i1.email", message: 'Must be a valid email address (got "first.last@localhost")' },
     ])
     expect(v.validateInputValues({ "i1.email": "first.last@example.com" })).toEqual([])
     // new URL() accepts any scheme; the form only accepts http(s).
     expect(v.validateInputValues({ "i1.site": "ftp://example.com" })).toEqual([
-      { inputKey: "i1.site", message: "Must be an http(s) URL" },
+      { inputKey: "i1.site", message: 'Must be an http(s) URL (got "ftp://example.com")' },
     ])
     expect(v.validateInputValues({ "i1.site": "https://example.com" })).toEqual([])
+  })
+
+  it("leaves the value out of the message for sensitive variables", () => {
+    const v = validatorFor(`
+  - name: token
+    sensitive: true
+    validations:
+      - type: length
+        min: 8
+        max: 64`)
+    expect(v.validateInputValues({ "i1.token": "secret" })).toEqual([
+      { inputKey: "i1.token", message: "Must be between 8 and 64 characters" },
+    ])
   })
 
   it("keeps the int and bool type checks", () => {

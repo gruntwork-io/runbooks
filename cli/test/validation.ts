@@ -565,8 +565,18 @@ function validateValue(
 
   const message = validateVariableValue(variable, value)
   if (message) {
-    errors.push({ inputKey: key, message })
+    // Fuzzed inputs change on every run and are only printed after validation
+    // passes, so name the failing value here (unless the variable is sensitive).
+    errors.push({ inputKey: key, message: variable.sensitive ? message : `${message} (got ${describeValue(value)})` })
   }
 
   return errors
+}
+
+function describeValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
 }
