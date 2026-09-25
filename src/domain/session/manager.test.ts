@@ -430,6 +430,17 @@ describe("SessionManager", () => {
       expect(ctx.workDir).toBe("/moved")
     })
 
+    it("keeps the working dir when the script's pwd capture came back empty", async () => {
+      await run(mgr.createSession("/work"), {})
+      const start = await run(mgr.getExecContext())
+
+      await applyCapture(start, { ...start.env, FOO: "1" }, "")
+
+      const ctx = await run(mgr.getExecContext())
+      expect(ctx.workDir).toBe("/work")
+      expect(ctx.env.FOO).toBe("1")
+    })
+
     it("does nothing to a session created after the script started", async () => {
       // Runbook A's script is running when runbook B is opened.
       await run(mgr.createSession("/a", "/a/runbook.mdx"), { A_SECRET: "a" })

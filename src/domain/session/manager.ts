@@ -360,7 +360,9 @@ export class SessionManager {
    * left alone. Auth blocks write to the session while a script runs
    * (appendToEnv, removeFromEnv, session:set-env), and replacing the env with
    * the script's start-time view would silently undo those writes. Likewise
-   * the working dir only moves if the script itself changed directory.
+   * the working dir only moves if the script itself changed directory. An
+   * empty `pwd` means the capture failed (e.g. the script removed its own cwd)
+   * and leaves the working dir as it is.
    *
    * No-op when the session was replaced (a different runbook opened) since the
    * snapshot was taken, so one runbook's env can't leak into the next.
@@ -384,7 +386,7 @@ export class SessionManager {
       for (const key of unset) {
         this.session.env.delete(key)
       }
-      if (params.pwd !== params.startWorkDir) {
+      if (params.pwd !== "" && params.pwd !== params.startWorkDir) {
         this.session.workingDir = params.pwd
       }
       this.session.executionCount++
