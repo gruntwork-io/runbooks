@@ -67,3 +67,61 @@ export const validateSessionPath = (p: string) =>
       }),
     )
   })
+
+/**
+ * Validate a git:clone destination. The clone handler may `rm -rf` it (from
+ * "Delete & Clone"), so this is stricter than validateSessionPath. The
+ * destination must be:
+ *   - inside the working directory once symlinks are resolved, so a
+ *     symlinked segment (`link/sub`, where link points outside) can't aim
+ *     the rm outside the session;
+ *   - a strict subdirectory: ".", "./", "sub/.." and the working directory's
+ *     own absolute path would otherwise delete the working directory itself;
+ *   - not an ancestor of the open runbook. A Command block's `cd ..` moves the
+ *     working directory (the script's final pwd is stored as the session
+ *     working dir), and then the runbook's own directory passes both checks.
+ */
+export const validateCloneDestination = (
+  absolutePath: string,
+  workingDir: string,
+  runbookPath: string,
+) =>
+  Effect.gen(function* () {
+    const reject = (message: string) =>
+      Effect.fail(new PathTraversalError({ path: absolutePath, message }))
+
+    if (!(yield* Effect.promise(() => isContainedInReal(absolutePath, workingDir)))) {
+      return yield* reject("clone destination is outside session working directory")
+    }
+    // Contained both ways means it is the working directory itself.
+    if (yield* Effect.promise(() => isContainedInReal(workingDir, absolutePath))) {
+      return yield* reject("clone destination must be a subdirectory of the session working directory")
+    }
+    if (runbookPath && (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))) {
+      return yield* reject("clone destination must not contain the open runbook")
+    }
+  })
+
+/**
+ * Map a runbook-asset:// request URL to the file it names in the runbook
+ * directory, or null if it must not be served. The URL's host + path
+ * (runbook-asset://assets/foo.png -> assets/foo.png) is percent-decoded
+ * before the check, so the path that is checked is the path that is served.
+ * Containment is checked on the symlink-resolved path, so a symlink in the
+ * runbook directory (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file
+ * from outside it.
+ */
+export async function resolveRunbookAssetPath(
+  requestUrl: string,
+  runbookDir: string,
+): Promise<string | null> {
+  let assetRelative: string
+  try {
+    const url = new URL(requestUrl)
+    assetRelative = decodeURIComponent(url.hostname + url.pathname)
+  } catch {
+    return null
+  }
+  const resolved = path.resolve(path.join(runbookDir, assetRelative))
+  return (await isContainedInReal(resolved, runbookDir)) ? resolved : null
+}

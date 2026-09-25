@@ -6,6 +6,7 @@ import {
   deleteBranch,
   resolveClonePaths,
   countFiles,
+  createPullRequest,
   createMergeRequest,
   seedDefaultBranch,
 } from "./operations.ts"
@@ -536,5 +537,79 @@ describe("seedDefaultBranch", () => {
     )
 
     expect(pushToken).toBe("ghp_secret")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Push credential username
+// ---------------------------------------------------------------------------
+
+describe("push credential username", () => {
+  // Every PR/MR/seed push authenticates with its provider's username, the same
+  // one git:clone uses: GitLab 16.x and older reject an OAuth token sent with
+  // any username but `oauth2`.
+  const prParams = {
+    owner: "acme",
+    repo: "infra",
+    title: "Change",
+    baseBranch: "main",
+    headBranch: "runbook/1",
+    commitMessage: "Change",
+    repoPath: "/repo",
+  }
+
+  const recordPush = (onPush: (username: string | undefined) => void) => ({
+    status: () => Effect.succeed([]),
+    hasCommits: () => Effect.succeed(false),
+    createBranch: () => Effect.void,
+    stageAll: () => Effect.void,
+    commit: () => Effect.void,
+    push: (_repo: string, _remote: string, _branch: string, options?: { username?: string }) =>
+      Effect.sync(() => onPush(options?.username)),
+  })
+
+  it("createPullRequest pushes as `x-access-token`", async () => {
+    let username: string | undefined
+    const layer = makeTestLayer({
+      git: recordPush((u) => (username = u)),
+      github: {
+        createPullRequest: (_token, p) =>
+          Effect.succeed({ url: "https://github.com/acme/infra/pull/1", number: 1, branch: p.headBranch }),
+      },
+    })
+
+    await Effect.runPromise(createPullRequest("tok", prParams).pipe(Effect.provide(layer)))
+
+    expect(username).toBe("x-access-token")
+  })
+
+  it("createMergeRequest pushes as `oauth2`", async () => {
+    let username: string | undefined
+    const layer = makeTestLayer({
+      git: recordPush((u) => (username = u)),
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.succeed({ url: "https://gitlab.com/acme/infra/-/merge_requests/1", number: 1, branch: p.headBranch }),
+      },
+    })
+
+    await Effect.runPromise(createMergeRequest("tok", prParams).pipe(Effect.provide(layer)))
+
+    expect(username).toBe("oauth2")
+  })
+
+  it("seedDefaultBranch pushes as the repo's provider", async () => {
+    const usernames: Array<string | undefined> = []
+    const layer = makeTestLayer({ git: recordPush((u) => usernames.push(u)) })
+
+    for (const provider of ["gitlab", "github"] as const) {
+      await Effect.runPromise(
+        seedDefaultBranch("tok", { repoPath: "/repo", branch: "main", provider }).pipe(
+          Effect.provide(layer),
+        ),
+      )
+    }
+
+    expect(usernames).toEqual(["oauth2", "x-access-token"])
   })
 })

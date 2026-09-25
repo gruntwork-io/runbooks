@@ -25,13 +25,12 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
-import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../../src/domain/git/url.ts"
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
-import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitLocalRepoResponse } from "../../shared/channels.ts"
 
@@ -224,21 +223,19 @@ export function registerGitHandlers(): void {
             session.workingDir,
           )
 
-          // Validate clone destination is within the session working dir
-          if (!isContainedIn(paths.absolutePath, session.workingDir)) {
-            return yield* Effect.fail(
-              new PathTraversalError({
-                path: paths.absolutePath,
-                message: "clone destination is outside session working directory",
-              }),
-            )
-          }
+          // Validate the clone destination before the existence check, so a
+          // bad localPath is an inline error, never a "Delete & Clone" prompt.
+          yield* validateCloneDestination(
+            paths.absolutePath,
+            session.workingDir,
+            session.runbookPath,
+          )
 
           // If the destination already exists, either surface directory_exists
           // so the renderer can prompt the user, or delete it when force=true
-          // (from "Delete & Clone"). The isContainedIn check above gates the
-          // rm so a malformed localPath cannot wipe anything outside the
-          // session working dir.
+          // (from "Delete & Clone"). validateCloneDestination above gates the
+          // rm: the destination is a strict subdirectory of the session working
+          // dir once symlinks are resolved, and doesn't contain the runbook.
           if (existsSync(paths.absolutePath)) {
             if (!params.force) {
               return { error: "directory_exists" as const }
@@ -304,22 +301,22 @@ export function registerGitHandlers(): void {
           const spawner = yield* ProcessSpawner
           const cloneArgs = ["clone", "--progress"]
           if (options.ref) cloneArgs.push("--branch", options.ref)
-
-          // GitLab wants username `oauth2` with the PAT as the password;
-          // GitHub accepts the default `x-access-token`. Keyed on provider so a
-          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
-          const cloneUsername = cloneProvider === "gitlab" ? "oauth2" : "x-access-token"
-          const effectiveUrl = options.token
-            ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
-            : params.url
-
-          cloneArgs.push(effectiveUrl, paths.absolutePath)
+          cloneArgs.push(params.url, paths.absolutePath)
 
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
-          // host-key verification prompt.
-          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
+          // host-key verification prompt. The token goes in the environment,
+          // not the URL, so it is never saved as the checkout's origin URL in
+          // .git/config. The credential username is keyed on provider so a
+          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
+          const env = withGitHttpAuth(
+            gitSpawnEnv(),
+            params.url,
+            options.token,
+            gitCredentialUsername(cloneProvider),
+          )
+          const proc = yield* spawner.spawn("git", cloneArgs, { env })
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
@@ -556,7 +553,11 @@ export function registerGitHandlers(): void {
             }),
         )
 
-        const options: PushOptions = { token, setUpstream: true }
+        const options: PushOptions = {
+          token,
+          username: gitCredentialUsername(provider),
+          setUpstream: true,
+        }
 
         sendLog(`Pushing ${params.branchName} to origin…`)
         yield* gitClient.push(repoPath, "origin", params.branchName, options)
@@ -698,8 +699,8 @@ export function registerGitHandlers(): void {
     async (_event, params: { worktreePath: string; branch: string }) => {
       return runAndUnwrap(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
-          return yield* deleteBranch(params.worktreePath, params.branch)
+          const repoPath = yield* validateSessionPath(params.worktreePath)
+          return yield* deleteBranch(repoPath, params.branch)
         }),
       )
     },
