@@ -103,7 +103,7 @@ Blocks often reference scripts and templates stored in folders. While you can st
 
 | Folder | Purpose | Used By |
 |--------|---------|---------|
-| `assets/` | Images, diagrams, and other static files | Markdown image syntax |
+| `assets/` | Images, diagrams, videos, and other static files | Markdown image syntax and `<img>`, `<video>`, `<audio>` tags |
 | `checks/` | Shell scripts that validate prerequisites | `<Check>` blocks |
 | `scripts/` | Shell scripts that execute actions | `<Command>` blocks |
 | `templates/` | Boilerplate template directories | `<Template>` blocks |
@@ -116,4 +116,8 @@ Always reference files relative to your runbook:
 <Check path="checks/prereq.sh" ... />
 <Template path="templates/my-template" ... />
 ![Diagram](./assets/diagram.png)
+<img src="./assets/diagram.png" width="400" />
+<video src="./assets/demo.mp4" poster="./assets/demo-poster.png" controls />
 ```
+
+Asset paths must start with `./assets/`. Runbooks loads them from the runbook's `assets/` folder whether they appear in markdown image syntax or in the `src` of an `<img>`, `<video>`, `<audio>` or `<source>` tag (and a `<video>`'s `poster`). Write the path as a plain string: `src={"./assets/demo.mp4"}` is left as written and won't load.

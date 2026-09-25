@@ -78,7 +78,7 @@ Contact support@example.com for help.
 ![Image with title](./assets/image.png "Image title")
 ```
 
-Images are resolved relative to the runbook file location.
+Image paths must start with `./assets/`. Runbooks loads them from the `assets/` folder next to your runbook file. Any other relative path, such as `images/diagram.png` or `assets/diagram.png` without the leading `./`, won't load. To set an image's size, use an `<img>` tag with the same kind of path, for example `<img src="./assets/image.png" width="400" />`. See [Relative Paths](/authoring/runbook-structure/#relative-paths) for video and audio.
 
 ### Code Blocks
 

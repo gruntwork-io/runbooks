@@ -204,12 +204,18 @@ export function registerExtraCaPems(pems: string[]): void {
 // ---------------------------------------------------------------------------
 // Register the runbook-asset protocol as privileged so it can be used in img
 // src, video src, etc. Must be called before app.whenReady().
+//
+// `stream: true` is required for <video>/<audio>: the handler below returns
+// net.fetch's streamed body, and without the flag media elements expect a
+// buffered response and fail anything beyond a few tens of KB with
+// MEDIA_ELEMENT_ERROR "Format error". (Range requests are not handled yet, so
+// media plays but is not seekable.)
 // ---------------------------------------------------------------------------
 
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "runbook-asset",
-    privileges: { standard: false, secure: true, supportFetchAPI: true },
+    privileges: { standard: false, secure: true, supportFetchAPI: true, stream: true },
   },
 ])
 
