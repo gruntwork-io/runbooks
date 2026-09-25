@@ -172,6 +172,28 @@ describe("deleteBranch", () => {
     )
     expect(result._tag).toBe("Right")
   })
+
+  it("refuses to delete the checked-out branch with a clear message", async () => {
+    let deleted = false
+    const layer = makeTestLayer({
+      git: {
+        getCurrentBranch: () => Effect.succeed("runbook/123"),
+        deleteBranch: () => Effect.sync(() => void (deleted = true)),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      deleteBranch("/repo", "runbook/123").pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        stderr: "Cannot delete branch runbook/123 because it is currently checked out",
+      })
+    }
+    expect(deleted).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------

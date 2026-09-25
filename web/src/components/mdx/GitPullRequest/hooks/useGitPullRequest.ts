@@ -233,8 +233,10 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
           setStatus(prev =>
             prev === 'creating' || prev === 'pushing' ? opts.errorStatus : prev,
           )
-          // Surface branch-exists code if the git:error event didn't arrive yet
-          if (/already exists/i.test(result.error)) {
+          // Surface branch-exists code if the git:error event didn't arrive yet.
+          // Only a local branch-name collision qualifies (mirrors
+          // isLocalBranchConflict in electron/main/ipc/git-pr-result.ts).
+          if (/a branch named .* already exists/i.test(result.error)) {
             setErrorCode(prev => prev ?? 'branch_exists')
             if ('headBranch' in opts.body) {
               setConflictBranchName(prev => prev ?? (opts.body as CreateRequestBody).headBranch)
@@ -336,8 +338,9 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     setLogs(prev => prev.length > 0 ? [...prev, createLogEntry('Canceled.')] : prev)
   }, [])
 
-  // Delete a local branch and reset to ready state
-  const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
+  // Delete a local branch and reset to ready state. Resolves true when the
+  // branch was deleted, so the caller can retry the create.
+  const deleteBranch = useCallback(async (localPath: string, branchName: string): Promise<boolean> => {
     try {
       await api.invoke(cfg.channels.deleteBranch, { worktreePath: localPath, branch: branchName })
 
@@ -346,11 +349,13 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       setConflictBranchName(null)
       setStatus('ready')
       setLogs([])
+      return true
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Failed to delete branch'
       setErrorMessage(msg)
       setErrorCode(null)
       setConflictBranchName(null)
+      return false
     }
   }, [api, cfg])
 

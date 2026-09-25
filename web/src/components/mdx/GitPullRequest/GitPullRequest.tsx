@@ -6,7 +6,7 @@ import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
+import { useRunbookContext, useTemplateContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
 import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
@@ -313,22 +313,25 @@ function GitPullRequestInteractive({
   const handleDeleteBranch = useCallback(async () => {
     if (!activeWorkTree || !conflictBranchName) return
     setDeletingBranch(true)
-    await deleteBranch(activeWorkTree.localPath, conflictBranchName)
+    const deleted = await deleteBranch(activeWorkTree.localPath, conflictBranchName)
     setDeletingBranch(false)
-  }, [activeWorkTree, conflictBranchName, deleteBranch])
+    // The button promises a retry: once the conflicting branch is gone, run
+    // the create again.
+    if (deleted) handleCreatePR()
+  }, [activeWorkTree, conflictBranchName, deleteBranch, handleCreatePR])
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
   const isFormDisabled = wrongProvider || !authMet || !activeWorkTree || !hasAllBlockingDependencies
 
-  // Block outputs for ViewOutputs
+  // Block outputs for ViewOutputs: what MAIN actually registered (git:outputs),
+  // so the panel can't show names downstream blocks can't reference. Gated on
+  // prResult so "create another" hides the previous PR's outputs.
+  const registeredOutputs = useOutputs(id)
   const outputValues = useMemo(() => {
-    if (!prResult) return null
-    return {
-      PR_ID: String(prResult.prNumber),
-      PR_URL: prResult.prUrl,
-    }
-  }, [prResult])
+    if (!prResult || !registeredOutputs?.length) return null
+    return Object.fromEntries(registeredOutputs.map(o => [o.name, o.value]))
+  }, [prResult, registeredOutputs])
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {

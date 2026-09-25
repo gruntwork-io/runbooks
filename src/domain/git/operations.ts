@@ -19,7 +19,10 @@ import { gitlabBaseUrlFromRemoteUrl } from "./gitlab-host.ts"
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Branches that cannot be deleted via deleteBranch. */
+/**
+ * Branches that cannot be deleted via deleteBranch, nor used as the head branch
+ * of a PR/MR (see runGitSteps).
+ */
 const PROTECTED_BRANCHES = new Set([
   "main",
   "master",
@@ -70,19 +73,35 @@ export interface OwnerRepo {
 
 /**
  * Delete a local branch. Refuses to delete protected branches (main, master,
- * develop, dev, staging, release, prod, production).
+ * develop, dev, staging, release, prod, production) and the branch that is
+ * currently checked out. The delete itself is `git branch -d`, so a branch with
+ * commits not merged into its upstream (or HEAD) is refused, not discarded.
  */
 export const deleteBranch = (repoPath: string, branch: string) =>
   Effect.gen(function* () {
     if (PROTECTED_BRANCHES.has(branch)) {
       return yield* new GitError({
-        command: "branch -D",
+        command: "branch -d",
         stderr: `Refusing to delete protected branch: ${branch}`,
         exitCode: 1,
       })
     }
 
     const gitClient = yield* GitClient
+
+    // git's own refusal ("used by worktree at …") doesn't say what to do.
+    // Best-effort: if HEAD can't be read, let `git branch -d` decide.
+    const current = yield* gitClient
+      .getCurrentBranch(repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    if (current === branch) {
+      return yield* new GitError({
+        command: "branch -d",
+        stderr: `Cannot delete branch ${branch} because it is currently checked out`,
+        exitCode: 1,
+      })
+    }
+
     return yield* gitClient.deleteBranch(repoPath, branch)
   })
 
@@ -169,6 +188,12 @@ const makeReport =
  *
  * `author` is the authenticated user's identity, applied to the commit only as a
  * fallback when the machine has no git identity configured (see CommitOptions).
+ *
+ * Resumable: an attempt that fails after `checkout -b` (a failed push, a failed
+ * API call) leaves HEAD on the head branch. Running again with the same branch
+ * name picks up there instead of failing on "a branch named … already exists":
+ * it skips the branch creation, commits only if there is something new, and
+ * pushes.
  */
 const runGitSteps = (
   token: string,
@@ -180,8 +205,31 @@ const runGitSteps = (
     const gitClient = yield* GitClient
     const report = makeReport(onProgress)
 
-    yield* report(`Creating branch ${params.headBranch}…`)
-    yield* gitClient.createBranch(params.repoPath, params.headBranch)
+    // Resuming skips `checkout -b`, whose failure on an existing branch was
+    // the only thing stopping a commit and push straight to the base branch.
+    if (params.headBranch === params.baseBranch || PROTECTED_BRANCHES.has(params.headBranch)) {
+      const reason =
+        params.headBranch === params.baseBranch ? "it is the base branch" : "it is a protected branch"
+      return yield* new GitError({
+        command: "checkout -b",
+        stderr: `Refusing to commit to ${params.headBranch}: ${reason}. Choose a new branch name for the changes.`,
+        exitCode: 1,
+      })
+    }
+
+    // Best-effort: an unreadable HEAD (e.g. an empty repo) just means "not
+    // resuming", and `checkout -b` reports whatever is actually wrong.
+    const current = yield* gitClient
+      .getCurrentBranch(params.repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    const resuming = current === params.headBranch
+
+    if (resuming) {
+      yield* report(`Resuming on existing branch ${params.headBranch}…`)
+    } else {
+      yield* report(`Creating branch ${params.headBranch}…`)
+      yield* gitClient.createBranch(params.repoPath, params.headBranch)
+    }
 
     // Keep embedded git repos out of the commit: `git add -A` would otherwise
     // stage them as broken submodule gitlinks pointing at commits the target
@@ -199,7 +247,19 @@ const runGitSteps = (
 
     yield* report("Staging and committing changes…")
     yield* gitClient.stageAll(params.repoPath, embedded)
-    yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
+
+    // On a fresh branch "nothing to commit" is the clearest error, so always
+    // commit. On a resumed branch an earlier attempt may already have committed
+    // everything; commit only what is staged now. (Not hasChanges: the embedded
+    // repos left out of staging still show as untracked.)
+    const hasStaged = resuming
+      ? (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
+      : true
+    if (hasStaged) {
+      yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
+    } else {
+      yield* report("No new changes to commit; pushing the existing commits…")
+    }
 
     yield* report(`Pushing ${params.headBranch} to origin…`)
     yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
@@ -211,7 +271,8 @@ const runGitSteps = (
 /**
  * Create a pull request by orchestrating: the shared git steps (branch, stage,
  * commit, push), then create the PR via the GitHub API and optionally add
- * labels.
+ * labels. Labels are best-effort: once the PR exists, a labeling failure is
+ * reported as a progress warning and the PR is still returned.
  */
 export const createPullRequest = (
   token: string,
@@ -240,19 +301,23 @@ export const createPullRequest = (
       body: params.body,
       baseBranch: params.baseBranch,
       headBranch: params.headBranch,
-      labels: params.labels,
     }
 
     const pr = yield* ghClient.createPullRequest(token, prParams)
 
     if (params.labels && params.labels.length > 0) {
-      yield* ghClient.addLabels(
-        token,
-        params.owner,
-        params.repo,
-        pr.number,
-        params.labels,
-      )
+      yield* report("Adding labels…")
+      yield* ghClient
+        .addLabels(token, params.owner, params.repo, pr.number, params.labels)
+        .pipe(
+          Effect.catchAll((e) =>
+            report(
+              `Warning: PR #${pr.number} was created but labels could not be applied: ${
+                e.message || `status ${e.status}`
+              }`,
+            ),
+          ),
+        )
     }
 
     return pr

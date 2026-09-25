@@ -59,8 +59,9 @@ export interface PRResult {
   prUrl: string
   /**
    * The user-facing number: a GitHub PR number, or a GitLab MR **iid**
-   * (project-scoped, rendered as `!N`). The block's `PR_ID` output is
-   * `String(prNumber)`, so for GitLab `PR_ID` is the iid.
+   * (project-scoped, rendered as `!N`). MAIN registers the block's `PR_ID`
+   * output as `String(prNumber)` (prBlockOutputs in
+   * electron/main/ipc/git-pr-result.ts), so for GitLab `PR_ID` is the iid.
    */
   prNumber: number
   branchName: string
