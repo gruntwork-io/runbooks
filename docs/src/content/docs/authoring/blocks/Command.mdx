@@ -298,6 +298,10 @@ Quoting keeps a value with spaces in one piece, but it does not make an untruste
 
 If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
 
+:::note
+[Runbook tests](/authoring/testing/) use a simpler template renderer that doesn't handle `eq` comparisons or the raw-string form yet. It leaves `{{ if eq ... }}` unrendered and reports `{{.Names}}` as an undefined variable, so a script that uses either works in the app but not under test.
+:::
+
 ### Execution Context
 
 Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your runbook like a workflow where earlier steps set up the environment for later steps.

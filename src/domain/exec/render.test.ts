@@ -71,13 +71,19 @@ function fakeGoTemplate(template: string, vars: Record<string, unknown>): string
   return out
 }
 
+/** Every `(template, varsJSON)` pair the fake WASM bridge was asked to render. */
+const renderCalls: Array<{ template: string; varsJSON: string }> = []
+
 function makeFakeWasm(): WasmRuntimeShape {
   const notImplemented = (name: string) =>
     Effect.die(`fake WasmRuntime: ${name} not implemented in render.test`)
   return {
     renderTemplate: (template, varsJSON) =>
       Effect.try({
-        try: () => fakeGoTemplate(template, JSON.parse(varsJSON)),
+        try: () => {
+          renderCalls.push({ template, varsJSON })
+          return fakeGoTemplate(template, JSON.parse(varsJSON))
+        },
         catch: (err) =>
           new WasmError({ message: (err as Error).message, kind: "internal" }),
       }),
@@ -122,6 +128,23 @@ describe("renderScriptForExec", () => {
       inputs: { A: "sa@p.iam.gserviceaccount.com" },
     })
     expect(out).toBe('TARGET_SA="sa@p.iam.gserviceaccount.com"')
+  })
+
+  // Checks the no-escaping contract at the WASM boundary itself, so it does
+  // not depend on how faithfully fakeGoTemplate models text/template.
+  it("hands the renderer raw, unquoted values", async () => {
+    const script = 'A="{{ .inputs.A }}" U="{{ .outputs.b.URL }}"'
+    renderCalls.length = 0
+    await renderOk(script, {
+      inputs: { A: "my repo" },
+      outputs: { b: { URL: "https://example.com/x?y=1" } },
+    })
+    const scriptCall = renderCalls.find((c) => c.template === script)
+    expect(scriptCall).toBeDefined()
+    expect(JSON.parse(scriptCall!.varsJSON)).toEqual({
+      inputs: { A: "my repo" },
+      outputs: { b: { URL: "https://example.com/x?y=1" } },
+    })
   })
 
   it("inserts block outputs verbatim", async () => {
