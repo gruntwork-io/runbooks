@@ -94,6 +94,30 @@ describe("findFencedCodeBlockRanges", () => {
     expect(findFencedCodeBlockRanges(content)).toEqual([])
   })
 
+  it("opens a fence on a list-item line and closes it on the indented run", () => {
+    for (const marker of ["-", "*", "1.", "2)"]) {
+      const content = `${marker} \`\`\`bash\n   echo hi\n   \`\`\`\n\n<Command id="real" />\n`
+      const ranges = findFencedCodeBlockRanges(content)
+      expect(ranges).toHaveLength(1)
+      expect(isInsideFencedCodeBlock(content.indexOf("echo hi"), ranges)).toBe(true)
+      expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+    }
+  })
+
+  it("does not close a fence on a list-item line", () => {
+    const content = [
+      "```",
+      "- ```",
+      '<Command id="example" />',
+      "```",
+      '<Command id="real" />',
+    ].join("\n")
+    const ranges = findFencedCodeBlockRanges(content)
+    expect(ranges).toHaveLength(1)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="example"'), ranges)).toBe(true)
+    expect(isInsideFencedCodeBlock(content.indexOf('id="real"'), ranges)).toBe(false)
+  })
+
   it("runs an unclosed fence to the end of the content", () => {
     const content = 'intro\n\n```\n<Command id="example" />\n'
     expect(findFencedCodeBlockRanges(content)).toEqual([

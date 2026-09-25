@@ -107,14 +107,8 @@ describe("TestExecutor — block order", () => {
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
 
-    const result = await executor.runTest({
-      name: "ordered",
-      steps: [
-        { block: "check-first", expect: "success" },
-        { block: "setup", expect: "success" },
-        { block: "verify-setup", expect: "success" },
-      ],
-    })
+    // No explicit steps: every block runs, in the order the validator lists them
+    const result = await executor.runTest({ name: "ordered" })
 
     expect(result.stepResults.map((r) => r.block)).toEqual([
       "check:check-first",

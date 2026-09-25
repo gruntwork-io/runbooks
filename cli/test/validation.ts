@@ -394,27 +394,23 @@ export interface TemplateBlock {
   target: string
 }
 
+// Both maps come from parseComponents, like the registry and InputValidator:
+// fenced examples are skipped and the first block with an id wins, so a
+// documented example can't replace the real block's content.
+
 export function parseTemplateInlineBlocks(runbookPath: string): Map<string, TemplateInlineBlock> {
   const content = fs.readFileSync(runbookPath, "utf-8")
   const blocks = new Map<string, TemplateInlineBlock>()
-  const re = /<TemplateInline\s+([^>]*?)>([\s\S]*?)<\/TemplateInline>/g
-  let match: RegExpExecArray | null
 
-  while ((match = re.exec(content)) !== null) {
-    const props = match[1]
-    const templateContent = match[2]
-    const id = extractProp(props, "id")
-    if (!id) continue
-
-    const generateFileStr = extractProp(props, "generateFile")
-
-    blocks.set(id, {
-      id,
-      content: extractTemplateContent(templateContent),
-      outputPath: extractProp(props, "outputPath"),
-      inputsId: extractProp(props, "inputsId"),
-      target: extractProp(props, "target"),
-      generateFile: generateFileStr === "true" || generateFileStr === "{true}",
+  for (const comp of parseComponents(content, "TemplateInline")) {
+    if (!comp.hasExplicitId) continue
+    blocks.set(comp.id, {
+      id: comp.id,
+      content: extractTemplateContent(comp.content),
+      outputPath: extractProp(comp.props, "outputPath"),
+      inputsId: extractProp(comp.props, "inputsId"),
+      target: extractProp(comp.props, "target"),
+      generateFile: extractProp(comp.props, "generateFile") === "true",
     })
   }
 
@@ -424,20 +420,15 @@ export function parseTemplateInlineBlocks(runbookPath: string): Map<string, Temp
 export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBlock> {
   const content = fs.readFileSync(runbookPath, "utf-8")
   const blocks = new Map<string, TemplateBlock>()
-  const re = /<Template\s+([^>]*?)(?:\/>|>(?:<\/Template>)?)/g
-  let match: RegExpExecArray | null
 
-  while ((match = re.exec(content)) !== null) {
-    const props = match[1]
-    const id = extractProp(props, "id")
-    const templatePath = extractProp(props, "path")
-    if (!id || !templatePath) continue
-
-    blocks.set(id, {
-      id,
+  for (const comp of parseComponents(content, "Template")) {
+    const templatePath = extractProp(comp.props, "path")
+    if (!comp.hasExplicitId || !templatePath) continue
+    blocks.set(comp.id, {
+      id: comp.id,
       templatePath,
-      inputsId: extractProp(props, "inputsId"),
-      target: extractProp(props, "target"),
+      inputsId: extractProp(comp.props, "inputsId"),
+      target: extractProp(comp.props, "target"),
     })
   }
 
