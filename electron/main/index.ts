@@ -20,6 +20,7 @@ import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
+import { cancelAllExecutions } from "./ipc/exec.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
@@ -483,26 +484,41 @@ app.on("window-all-closed", () => {
 })
 
 app.on("will-quit", (event) => {
-  // Clean up any temp clone directories
-  cleanupTempClones()
-
-  // Shred the credential files materialised for Google Cloud auth
-  cleanupGoogleCredentialFiles()
-
-  // Dispose the Effect managed runtime to clean up background fibers,
-  // file watchers, etc. Use a timeout to avoid blocking shutdown if a
-  // fiber never completes.
+  // Shutdown is async; use a timeout to avoid blocking it if a fiber never
+  // completes.
   event.preventDefault()
   const timeout = setTimeout(() => {
     app.exit(0)
   }, 2000)
-  runtime
-    .dispose()
+
+  // Stop running scripts first. They run in their own process group, so
+  // nothing else signals them when the app exits. Only the SIGTERM is
+  // guaranteed here (the spawner's SIGKILL escalation timer dies with this
+  // process), which is what lets terragrunt/tofu stop gracefully and release
+  // state locks. This runs before the cleanup below so a script is signalled
+  // before its temp clone or credential file disappears. The wait is capped at
+  // 1 s so that cleanup still runs inside the safety timeout.
+  Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
     .catch((err) => {
-      log.error("Error disposing runtime:", err)
+      log.error("Error cancelling executions:", err)
     })
     .finally(() => {
-      clearTimeout(timeout)
-      app.exit(0)
+      // Clean up any temp clone directories
+      cleanupTempClones()
+
+      // Shred the credential files materialised for Google Cloud auth
+      cleanupGoogleCredentialFiles()
+
+      // Dispose the Effect managed runtime to clean up background fibers,
+      // file watchers, etc.
+      runtime
+        .dispose()
+        .catch((err) => {
+          log.error("Error disposing runtime:", err)
+        })
+        .finally(() => {
+          clearTimeout(timeout)
+          app.exit(0)
+        })
     })
 })

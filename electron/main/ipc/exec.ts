@@ -63,19 +63,31 @@ function shellEscapeDeep(obj: Record<string, unknown>): Record<string, unknown> 
 // exec:cancel can interrupt a *specific* run. Aborting a controller interrupts
 // the Effect fiber (the signal is passed to runPromise below), which closes the
 // execution scope and runs the child-process kill finalizer in executor.ts.
-const activeExecutions = new Map<string, AbortController>()
+// `done` settles once that has happened, so quit can wait for it.
+const activeExecutions = new Map<string, { controller: AbortController; done: Promise<unknown> }>()
 // Fallback target for exec:cancel calls that don't name an executionId.
 let mostRecentExecutionId: string | null = null
 // Counter for synthesizing an id when a caller doesn't supply one.
 let execSeq = 0
 
 function abortExecution(id: string): boolean {
-  const controller = activeExecutions.get(id)
-  if (!controller) return false
-  controller.abort()
+  const execution = activeExecutions.get(id)
+  if (!execution) return false
+  execution.controller.abort()
   activeExecutions.delete(id)
   if (mostRecentExecutionId === id) mostRecentExecutionId = null
   return true
+}
+
+/**
+ * Cancel every running execution and wait until each has been interrupted,
+ * i.e. its kill finalizer has sent SIGTERM to the script's process group.
+ * Called on quit: scripts run detached, so nothing else stops them.
+ */
+export async function cancelAllExecutions(): Promise<void> {
+  const pending = [...activeExecutions.values()]
+  for (const { controller } of pending) controller.abort()
+  await Promise.allSettled(pending.map((e) => e.done))
 }
 
 export function registerExecHandlers(): void {
@@ -84,12 +96,11 @@ export function registerExecHandlers(): void {
     async (event, params: ExecRequest) => {
       log.debug("handler called for:", params.executableId || params.componentId)
       // Only one execution runs at a time: cancel (interrupt + kill) any others.
-      for (const controller of activeExecutions.values()) controller.abort()
+      for (const { controller } of activeExecutions.values()) controller.abort()
       activeExecutions.clear()
 
       const executionId = params.executionId ?? `main-${++execSeq}`
       const abortController = new AbortController()
-      activeExecutions.set(executionId, abortController)
       mostRecentExecutionId = executionId
 
       try {
@@ -103,7 +114,7 @@ export function registerExecHandlers(): void {
         // running child (and its process group). The signal.aborted checks below
         // are a belt-and-suspenders guard against a stray send in the small
         // window before interruption takes effect at the next yield point.
-        return await runtime.runPromise(
+        const run = runtime.runPromise(
           Effect.scoped(
             Effect.gen(function* () {
               // Get execution context from the session
@@ -215,6 +226,8 @@ export function registerExecHandlers(): void {
           ),
           { signal: abortController.signal },
         )
+        activeExecutions.set(executionId, { controller: abortController, done: run.catch(() => {}) })
+        return await run
       } catch (err) {
         log.debug("caught error:", err)
         if (abortController.signal.aborted) {

@@ -18,13 +18,18 @@
  * the direct child (the old `proc.kill()` behavior) would leave it orphaned and
  * running, which is the real-world failure where terragrunt/tofu kept running
  * after "Stop".
+ *
+ * The same stack also covers the other two ways a run ends: `timeoutMs` must
+ * kill a script that is still running, and a script that finishes on its own
+ * must NOT take down background jobs it deliberately left running.
  */
 import { describe, it, expect, afterEach } from "bun:test"
 import { Effect, Fiber, Layer, Stream } from "effect"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { executeScript } from "./executor.ts"
+import { executeScript, type ExecEvent } from "./executor.ts"
+import type { ExecRequest } from "../../types.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 import { ProcessEnvironmentLive } from "../../layers/ProcessEnvironment.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
@@ -136,6 +141,141 @@ describe("executeScript cancellation (e2e, real process tree)", () => {
       // generous window also covers the SIGKILL escalation path.
       const died = await waitUntil(() => !isAlive(grandchildPid!), 10000)
       expect(died).toBe(true)
+    },
+    20000,
+  )
+})
+
+/**
+ * Run a block to completion the way exec:run does: drain the log stream, then
+ * run completionEffect, inside one scope that closes before this returns.
+ * `pauseBeforeCompletionMs` holds the fiber between the two phases, standing in
+ * for slow completion processing.
+ */
+async function runToCompletion(
+  script: string,
+  request: ExecRequest,
+  pauseBeforeCompletionMs = 0,
+): Promise<{ events: ExecEvent[]; elapsedMs: number }> {
+  const startedAt = Date.now()
+  const events = await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          script,
+          "bash",
+          request,
+          { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
+          "",
+          "",
+        )
+        const logs = Array.from(yield* Stream.runCollect(logStream))
+        if (pauseBeforeCompletionMs > 0) yield* Effect.sleep(pauseBeforeCompletionMs)
+        const completion = yield* completionEffect
+        return [...logs, ...completion]
+      }),
+    ).pipe(Effect.provide(liveLayer)),
+  )
+  return { events, elapsedMs: Date.now() - startedAt }
+}
+
+const statusOf = (events: ExecEvent[]) =>
+  events.find((e): e is Extract<ExecEvent, { _tag: "status" }> => e._tag === "status")?.event
+
+const logLines = (events: ExecEvent[]) =>
+  events.flatMap((e) => (e._tag === "log" ? [e.event.line] : []))
+
+describe("executeScript timeoutMs (e2e, real process)", () => {
+  it(
+    "kills a script that outlives timeoutMs and reports it as failed",
+    async () => {
+      const { events, elapsedMs } = await runToCompletion(
+        "echo start\nsleep 10\necho end\n",
+        { timeoutMs: 300 },
+      )
+
+      expect(statusOf(events)).toEqual({ status: "fail", exitCode: -1 })
+      const lines = logLines(events)
+      expect(lines).toContain("start")
+      expect(lines).not.toContain("end")
+      expect(lines.some((l) => l.includes("timed out"))).toBe(true)
+      // Well short of the 10 s the script would otherwise run for.
+      expect(elapsedMs).toBeLessThan(5000)
+    },
+    20000,
+  )
+
+  it(
+    "times out a script whose background job keeps stdout open",
+    async () => {
+      // bash exits right after the echo, but the backgrounded sleep inherits
+      // stdout, so the output stream stays open until something kills it.
+      const { events, elapsedMs } = await runToCompletion("sleep 10 &\necho done\n", {
+        timeoutMs: 300,
+      })
+
+      expect(statusOf(events)).toEqual({ status: "fail", exitCode: -1 })
+      expect(elapsedMs).toBeLessThan(5000)
+    },
+    20000,
+  )
+
+  it(
+    "does not flag a run that exited before the deadline",
+    async () => {
+      // Completion runs after the deadline has passed. The watchdog must have
+      // stopped when the process closed instead of firing anyway.
+      const { events } = await runToCompletion("echo hi\n", { timeoutMs: 1000 }, 1500)
+
+      expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+      expect(logLines(events).some((l) => l.includes("timed out"))).toBe(false)
+    },
+    20000,
+  )
+})
+
+describe("executeScript success path (e2e, real process tree)", () => {
+  let backgroundPid: number | null = null
+  let pidFile: string | null = null
+
+  afterEach(() => {
+    if (backgroundPid !== null && isAlive(backgroundPid)) {
+      try {
+        process.kill(backgroundPid, "SIGKILL")
+      } catch {
+        /* already gone */
+      }
+    }
+    if (pidFile) fs.rmSync(pidFile, { force: true })
+    backgroundPid = null
+    pidFile = null
+  })
+
+  it(
+    "leaves background jobs a finished script started running",
+    async () => {
+      pidFile = path.join(
+        os.tmpdir(),
+        `runbook-bgtest-${process.pid}-${Math.random().toString(36).slice(2)}.pid`,
+      )
+      // The pattern for starting a port-forward or dev server for later blocks:
+      // background it with its output redirected so the block can finish.
+      const script = [
+        "nohup sleep 60 >/dev/null 2>&1 &",
+        `echo $! > '${pidFile}'`,
+        "",
+      ].join("\n")
+
+      const { events } = await runToCompletion(script, {})
+      expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+
+      backgroundPid = Number.parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10)
+      expect(backgroundPid).toBeGreaterThan(0)
+
+      // The scope has closed. Wait past the 5 s SIGKILL escalation a group kill
+      // would have scheduled, then check the job is still running.
+      await new Promise((r) => setTimeout(r, 6000))
+      expect(isAlive(backgroundPid)).toBe(true)
     },
     20000,
   )
