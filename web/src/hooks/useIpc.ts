@@ -52,6 +52,11 @@ export function useIpc<T>(
   const [isLoading, setIsLoading] = useState(!lazy && !disabled)
   const [error, setError] = useState<AppError | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // False once the hook unmounts, so a pending debounced request is dropped
+  // when its timer fires. See the unmount effect below. It starts true so a
+  // request scheduled before passive effects run (from a layout effect, say)
+  // isn't dropped if its timer fires first.
+  const mountedRef = useRef(true)
 
   // Use a ref for params so changing object identity doesn't trigger re-fetches.
   // Content changes are detected via paramsKey below.
@@ -119,6 +124,8 @@ export function useIpc<T>(
     }
 
     timeoutRef.current = setTimeout(async () => {
+      timeoutRef.current = null
+      if (!mountedRef.current) return
       setIsLoading(true)
       setError(null)
       await performInvoke(newParams)
@@ -141,7 +148,14 @@ export function useIpc<T>(
   useEffect(() => {
     if (!channel || disabled) {
       // Cleared or disabled: drop any in-flight response and stale data so the
-      // previous file/config doesn't linger when nothing is selected.
+      // previous file/config doesn't linger when nothing is selected. A pending
+      // debounced request must be cancelled outright: its timer would call the
+      // performInvoke captured at scheduling time (still holding the old
+      // channel) and take a fresh seq, so bumping the seq can't stop it.
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+        timeoutRef.current = null
+      }
       requestSeqRef.current += 1
       setData(null)
       setError(null)
@@ -165,6 +179,24 @@ export function useIpc<T>(
       }
     }
   }, [channel, performInvoke, paramsKey, lazy, disabled])
+
+  // Stop a pending debounced request from being sent after unmount, in every
+  // mode. The effect above has no cleanup in lazy mode, which is the mode
+  // that schedules debounced requests.
+  //
+  // The cleanup only flips a flag that the timer checks. It doesn't clear the
+  // timer or bump requestSeqRef, because StrictMode (in dev) and Fast Refresh
+  // run this cleanup and then the setup again on a live component. The setup
+  // restores the flag, but it can't reschedule a timer or re-send a request
+  // that a consumer issued once from its own mount effect. A real unmount
+  // needs no invalidation, since React ignores setState on an unmounted
+  // component.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   return { data, isLoading, error, debouncedRequest, refetch, silentRefetch }
 }
