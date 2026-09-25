@@ -50,7 +50,7 @@ The GitHubAuth block supports multiple authentication sources:
 
 ### GitHub Enterprise Support
 
-The GitHubAuth block supports GitHub.com, GitHub Enterprise Cloud and GitHub Enterprise Server. However, OAuth is only supported for GitHub.com and GitHub Enterprise Cloud. For GitHub Enterprise Server, you can use PAT authentication or contact Gruntwork for enterprise support options.
+The GitHubAuth block works with `github.com`, including GitHub Enterprise Cloud organizations hosted there. GitHub Enterprise Server is not supported: tokens are always validated against `github.com`. Contact Gruntwork for enterprise support options.
 
 ## Props
 

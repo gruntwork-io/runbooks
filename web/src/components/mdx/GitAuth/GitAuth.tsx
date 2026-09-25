@@ -270,10 +270,8 @@ function GitAuthInteractive({
               divergenceHint={auth.divergenceHint}
               sessionStale={auth.sessionStale}
               gitSslBackend={auth.cliStatus?.git?.sslBackend}
-              onApplySchannel={() => {
-                void window.api.invoke('vcs:apply-git-schannel').catch(() => {})
-              }}
-              onReAuthenticate={auth.resetAuth}
+              onApplySchannel={auth.applySchannel}
+              onReAuthenticate={auth.reAuthenticate}
             />
           )}
 

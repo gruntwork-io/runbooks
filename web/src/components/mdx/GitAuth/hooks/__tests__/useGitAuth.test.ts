@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createElement, type ReactNode } from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react'
+import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { useGitAuth } from '../useGitAuth'
 import { PROVIDERS } from '../../providers'
 
 // The hook depends on the runbook + session contexts; mock them so the test
 // can focus on the provider-aware IPC behavior. Reassign `blockOutputs` (and
 // rerender) to simulate another block registering outputs: the hook watches
-// the map by identity, as it does the real context's state.
+// the map by identity, as it does the real context's state. IPC is the one
+// faked boundary, injected through the real ApiProvider.
 const registerOutputs = vi.fn()
 let blockOutputs: Record<string, { values: Record<string, string> }> = {}
 
@@ -18,21 +21,25 @@ vi.mock('@/contexts/useSession', () => ({
 }))
 
 type InvokeImpl = (channel: string, args?: unknown) => Promise<unknown>
+type OnImpl = (channel: string, callback: (payload: unknown) => void) => () => void
 
-function installApi(impl: InvokeImpl) {
+let currentApi: RunbooksAPI
+
+/** Install a fake IPC surface. Returns the invoke spy so channels/params can be asserted. */
+function installApi(impl: InvokeImpl, on: OnImpl = () => () => {}) {
   const invoke = vi.fn(impl)
-  window.api = {
-    invoke,
-    on: vi.fn(() => () => {}),
-    once: vi.fn(),
-  } as unknown as typeof window.api
+  currentApi = { invoke, on: vi.fn(on), once: vi.fn() } as unknown as RunbooksAPI
   return invoke
 }
 
-const originalApi = window.api
+const wrapper = ({ children }: { children: ReactNode }) =>
+  createElement(ApiProvider, { api: currentApi, children })
+
+type Options = Parameters<typeof useGitAuth>[0]
+
+const renderGitAuth = (options: Options) => renderHook(() => useGitAuth(options), { wrapper })
 
 afterEach(() => {
-  window.api = originalApi
   blockOutputs = {}
   vi.clearAllMocks()
 })
@@ -49,7 +56,7 @@ describe('useGitAuth — GitLab provider', () => {
       return {}
     })
 
-    renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('gitlab:env-credentials', expect.anything())
@@ -70,9 +77,7 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
-    )
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -107,14 +112,12 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({
-        id: 'git',
-        provider: PROVIDERS.gitlab,
-        instanceUrl: 'https://gitlab.acme.com',
-        detectCredentials: false,
-      }),
-    )
+    const { result } = renderGitAuth({
+      id: 'git',
+      provider: PROVIDERS.gitlab,
+      instanceUrl: 'https://gitlab.acme.com',
+      detectCredentials: false,
+    })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -141,14 +144,12 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({
-        id: 'git',
-        provider: PROVIDERS.gitlab,
-        instanceUrl: 'https://gitlab.acme.com',
-        detectCredentials: false,
-      }),
-    )
+    const { result } = renderGitAuth({
+      id: 'git',
+      provider: PROVIDERS.gitlab,
+      instanceUrl: 'https://gitlab.acme.com',
+      detectCredentials: false,
+    })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -173,14 +174,12 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({
-        id: 'git',
-        provider: PROVIDERS.gitlab,
-        instanceUrl: 'https://seed.example.com',
-        detectCredentials: false,
-      }),
-    )
+    const { result } = renderGitAuth({
+      id: 'git',
+      provider: PROVIDERS.gitlab,
+      instanceUrl: 'https://seed.example.com',
+      detectCredentials: false,
+    })
 
     act(() => {
       result.current.setGitlabInstanceUrl('https://edited.example.com')
@@ -204,13 +203,11 @@ describe('useGitAuth — GitLab provider', () => {
       return {}
     })
 
-    renderHook(() =>
-      useGitAuth({
-        id: 'git',
-        provider: PROVIDERS.gitlab,
-        instanceUrl: 'https://gitlab.acme.com',
-      }),
-    )
+    renderGitAuth({
+      id: 'git',
+      provider: PROVIDERS.gitlab,
+      instanceUrl: 'https://gitlab.acme.com',
+    })
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith(
@@ -238,9 +235,7 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
-    )
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -260,9 +255,7 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
-    )
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -287,9 +280,7 @@ describe('useGitAuth — GitLab provider', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
-    )
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -309,7 +300,7 @@ describe('useGitAuth — GitLab provider', () => {
       return {}
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => {
       expect(result.current.detectionWarning).toContain('GITLAB_TOKEN')
@@ -333,7 +324,7 @@ describe('useGitAuth — GitLab provider', () => {
       return {}
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.availableHosts.map((h) => h.host)).toEqual(['gitlab.com', 'gitlab.gruntwork.io'])
@@ -358,7 +349,7 @@ describe('useGitAuth — GitLab provider', () => {
       return {}
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     // Initial detection targets glab's default (gitlab.com) and finds nothing.
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
@@ -387,7 +378,7 @@ describe('useGitAuth — GitLab provider', () => {
       return {}
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.authStatus).not.toBe('authenticated')
@@ -406,9 +397,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false }),
-    )
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false })
 
     act(() => result.current.setPatToken('ghp_abc'))
     await act(async () => {
@@ -438,7 +427,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.missingScope).toBe(false)
@@ -462,7 +451,7 @@ describe('useGitAuth — tri-state unreachable', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
 
@@ -489,7 +478,7 @@ describe('useGitAuth — tri-state unreachable', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
 
@@ -513,9 +502,7 @@ describe('useGitAuth — tri-state unreachable', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false }),
-    )
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab, detectCredentials: false })
 
     act(() => result.current.setPatToken('glpat-abc'))
     await act(async () => {
@@ -550,7 +537,7 @@ describe('useGitAuth — tri-state unreachable', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.unreachableInfo?.errorKind).toBe('network')
@@ -574,7 +561,7 @@ describe('useGitAuth — tri-state unreachable', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.unreachableInfo?.errorKind).toBe('server-cert')
@@ -599,7 +586,7 @@ describe('useGitAuth — copy contracts', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     // Exact chip copy — never "expired" (a 401 can't prove that).
@@ -616,7 +603,7 @@ describe('useGitAuth — copy contracts', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.manualHint).toBe(KEYRING_COPY)
@@ -641,7 +628,7 @@ describe('useGitAuth — copy contracts', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.divergenceHint).toBe(DIVERGENCE)
@@ -658,7 +645,7 @@ describe('useGitAuth — copy contracts', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     await waitFor(() =>
@@ -690,15 +677,17 @@ describe('useGitAuth — host union UX', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     const detectionCallsBefore = detectionCalls(invoke)
 
     act(() => result.current.handleHostSelect('__other__'))
 
-    // The card gives way to the PAT form, whose instance-URL field is asked for.
+    // The card gives way to the PAT form, whose instance-URL field is asked for,
+    // and takes the old instance's credential out of the outputs with it.
     expect(result.current.authStatus).toBe('pending')
     expect(result.current.userInfo).toBeNull()
+    expect(registerOutputs).toHaveBeenLastCalledWith('git', { GIT_PROVIDER: 'gitlab' })
     expect(result.current.instanceFieldFocusNonce).toBe(1)
     expect(result.current.selectedHost).toBe('gitlab.com')
     // No re-detection fired and no pick was persisted.
@@ -712,7 +701,7 @@ describe('useGitAuth — host union UX', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     act(() => result.current.setPatToken('glpat-abc'))
 
@@ -728,7 +717,7 @@ describe('useGitAuth — host union UX', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
 
     act(() => result.current.handleHostSelect('__other__'))
@@ -753,9 +742,7 @@ describe('useGitAuth — host union UX', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, instanceUrl: 'https://gitlab.acme.com' }),
-    )
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab, instanceUrl: 'https://gitlab.acme.com' })
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.selectedHost).toBe('gitlab.acme.com')
 
@@ -782,7 +769,7 @@ describe('useGitAuth — host union UX', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
 
     act(() => result.current.handleHostSelect('git.corp.example'))
@@ -795,24 +782,22 @@ describe('useGitAuth — host union UX', () => {
 
   it('flags the session as stale when another block authenticates a different host', async () => {
     let sessionChangedHandler: ((payload: unknown) => void) | undefined
-    const invoke = vi.fn(async (channel: string) => {
-      if (channel === 'gitlab:enumerate-hosts') return HOSTS
-      if (channel === 'gitlab:env-credentials') {
-        return { found: true, valid: true, user: { login: 'tanuki' }, host: 'gitlab.com', envVar: 'GITLAB_TOKEN' }
-      }
-      if (channel === 'session:set-env') return { ok: true }
-      return { found: false }
-    })
-    window.api = {
-      invoke,
-      on: vi.fn((channel: string, callback: (payload: unknown) => void) => {
+    installApi(
+      async (channel) => {
+        if (channel === 'gitlab:enumerate-hosts') return HOSTS
+        if (channel === 'gitlab:env-credentials') {
+          return { found: true, valid: true, user: { login: 'tanuki' }, host: 'gitlab.com', envVar: 'GITLAB_TOKEN' }
+        }
+        if (channel === 'session:set-env') return { ok: true }
+        return { found: false }
+      },
+      (channel, callback) => {
         if (channel === 'vcs:session-changed') sessionChangedHandler = callback
         return () => {}
-      }),
-      once: vi.fn(),
-    } as unknown as typeof window.api
+      },
+    )
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.sessionStale).toBe(false)
 
@@ -823,24 +808,22 @@ describe('useGitAuth — host union UX', () => {
 
   it('ignores session changes for the other provider or the same host', async () => {
     let sessionChangedHandler: ((payload: unknown) => void) | undefined
-    const invoke = vi.fn(async (channel: string) => {
-      if (channel === 'gitlab:enumerate-hosts') return HOSTS
-      if (channel === 'gitlab:env-credentials') {
-        return { found: true, valid: true, user: { login: 'tanuki' }, host: 'gitlab.com', envVar: 'GITLAB_TOKEN' }
-      }
-      if (channel === 'session:set-env') return { ok: true }
-      return { found: false }
-    })
-    window.api = {
-      invoke,
-      on: vi.fn((channel: string, callback: (payload: unknown) => void) => {
+    installApi(
+      async (channel) => {
+        if (channel === 'gitlab:enumerate-hosts') return HOSTS
+        if (channel === 'gitlab:env-credentials') {
+          return { found: true, valid: true, user: { login: 'tanuki' }, host: 'gitlab.com', envVar: 'GITLAB_TOKEN' }
+        }
+        if (channel === 'session:set-env') return { ok: true }
+        return { found: false }
+      },
+      (channel, callback) => {
         if (channel === 'vcs:session-changed') sessionChangedHandler = callback
         return () => {}
-      }),
-      once: vi.fn(),
-    } as unknown as typeof window.api
+      },
+    )
 
-    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
 
     act(() => sessionChangedHandler?.({ provider: 'github', host: 'github.com' }))
@@ -866,13 +849,11 @@ describe('useGitAuth — custody', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({
-        id: 'gh2',
-        provider: PROVIDERS.github,
-        detectCredentials: [{ block: 'github-auth' }],
-      }),
-    )
+    const { result } = renderGitAuth({
+      id: 'gh2',
+      provider: PROVIDERS.github,
+      detectCredentials: [{ block: 'github-auth' }],
+    })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(invoke).toHaveBeenCalledWith('github:validate', expect.objectContaining({ useSessionToken: true }))
@@ -898,9 +879,7 @@ describe('useGitAuth — custody', () => {
         return { found: false }
       })
 
-      const { result } = renderHook(() =>
-        useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false }),
-      )
+      const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false })
 
       await act(async () => {
         await result.current.startOAuth()
@@ -939,7 +918,7 @@ describe('useGitAuth — OAuth device-code polling', () => {
     invoke.mock.calls.filter((c) => c[0] === 'github:oauth-poll').length
 
   const renderOAuthHook = () =>
-    renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false }))
+    renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false })
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -1013,6 +992,147 @@ describe('useGitAuth — OAuth device-code polling', () => {
     })
     expect(pollCount(invoke)).toBe(3)
   })
+
+  it('a poll in flight when the flow is cancelled and reset never publishes its result', async () => {
+    let resolvePoll: (value: unknown) => void = () => {}
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:oauth-start') return { ...DEVICE_CODE, expiresIn: 900 }
+      if (channel === 'github:oauth-poll') return new Promise((resolve) => { resolvePoll = resolve })
+      return { found: false }
+    })
+    const { result } = renderOAuthHook()
+
+    await act(async () => {
+      await result.current.startOAuth()
+    })
+    expect(pollCount(invoke)).toBe(1)
+
+    // GitAuth's provider switch, while GitHub is still answering the poll.
+    act(() => {
+      result.current.cancelOAuth()
+      result.current.resetAuth()
+    })
+    await act(async () => {
+      resolvePoll({ status: 'complete', user: { login: 'octocat' }, tokenType: 'oauth', scopes: ['repo'] })
+    })
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.userInfo).toBeNull()
+    expect(registerOutputs).not.toHaveBeenCalled()
+  })
+
+  it('cancel then restart polls only the new device code', async () => {
+    let starts = 0
+    let resolveFirstPoll: (value: unknown) => void = () => {}
+    const invoke = installApi(async (channel, args) => {
+      if (channel === 'github:oauth-start') {
+        starts += 1
+        return { ...DEVICE_CODE, deviceCode: `dev-${starts}`, userCode: `CODE-${starts}`, expiresIn: 900 }
+      }
+      if (channel === 'github:oauth-poll') {
+        if ((args as { deviceCode: string }).deviceCode === 'dev-1') {
+          return new Promise((resolve) => { resolveFirstPoll = resolve })
+        }
+        return { status: 'pending' }
+      }
+      return { found: false }
+    })
+    const polledCodes = () =>
+      invoke.mock.calls
+        .filter((c) => c[0] === 'github:oauth-poll')
+        .map((c) => (c[1] as { deviceCode: string }).deviceCode)
+    const { result } = renderOAuthHook()
+
+    await act(async () => {
+      await result.current.startOAuth()
+    })
+    // Cancel while dev-1's first poll is in flight, then start over.
+    act(() => result.current.cancelOAuth())
+    await act(async () => {
+      await result.current.startOAuth()
+    })
+    await act(async () => {
+      resolveFirstPoll({ status: 'pending' })
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+
+    expect(polledCodes()[0]).toBe('dev-1')
+    expect(polledCodes().slice(1).length).toBeGreaterThan(1)
+    expect(polledCodes().slice(1).every((code) => code === 'dev-2')).toBe(true)
+    expect(result.current.oauthUserCode).toBe('CODE-2')
+    expect(result.current.authStatus).toBe('authenticating')
+  })
+})
+
+describe('useGitAuth — Re-authenticate', () => {
+  const envCalls = (invoke: ReturnType<typeof installApi>) =>
+    invoke.mock.calls.filter((c) => c[0] === 'github:env-credentials').length
+
+  const focusWindow = async () => {
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    // Give a re-detection every chance to start and settle.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+  }
+
+  it('withdraws the credential from the outputs and keeps GIT_PROVIDER', async () => {
+    installApi(async (channel) => {
+      if (channel === 'github:validate') return { valid: true, user: { login: 'octocat' }, tokenType: 'classic_pat', scopes: ['repo'] }
+      return { found: false }
+    })
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false })
+
+    act(() => result.current.setPatToken('ghp_abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+    expect(registerOutputs).toHaveBeenLastCalledWith('gh', expect.objectContaining({ GITHUB_TOKEN: 'ghp_abc' }))
+
+    act(() => result.current.reAuthenticate())
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(registerOutputs).toHaveBeenLastCalledWith('gh', { GIT_PROVIDER: 'github' })
+  })
+
+  it('does not re-detect the ambient credential on window focus', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:env-credentials') {
+        return { found: true, valid: true, user: { login: 'ambient' }, envVar: 'GITHUB_TOKEN' }
+      }
+      return { found: false }
+    })
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+
+    act(() => result.current.reAuthenticate())
+    // The user leaves to create a new token and comes back.
+    await focusWindow()
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(envCalls(invoke)).toBe(1)
+
+    // An explicit "Check again" still re-detects.
+    act(() => result.current.retryUnreachable())
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(envCalls(invoke)).toBe(2)
+  })
+
+  it('still re-detects on window focus when detection found nothing', async () => {
+    // The zero-click path: sign in with `gh auth login` in a terminal, come back.
+    const invoke = installApi(async () => ({ found: false }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(envCalls(invoke)).toBe(1)
+
+    await focusWindow()
+
+    await waitFor(() => expect(envCalls(invoke)).toBe(2))
+  })
 })
 
 describe('useGitAuth — {block} detection sources', () => {
@@ -1026,9 +1146,7 @@ describe('useGitAuth — {block} detection sources', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] }),
-    )
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.detectionSource).toBe('env')
@@ -1044,9 +1162,7 @@ describe('useGitAuth — {block} detection sources', () => {
       return { found: false }
     })
 
-    const { result, rerender } = renderHook(() =>
-      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] }),
-    )
+    const { result, rerender } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] })
 
     await waitFor(() => expect(result.current.waitingForBlockId).toBe('mint'))
     expect(result.current.detectionStatus).toBe('pending')
@@ -1076,9 +1192,7 @@ describe('useGitAuth — {block} detection sources', () => {
       return { found: false }
     })
 
-    const { result, rerender } = renderHook(() =>
-      useGitAuth({ id: 'gh2', provider: PROVIDERS.github, detectCredentials: [{ block: 'git-auth' }, 'env'] }),
-    )
+    const { result, rerender } = renderGitAuth({ id: 'gh2', provider: PROVIDERS.github, detectCredentials: [{ block: 'git-auth' }, 'env'] })
 
     await waitFor(() => expect(result.current.waitingForBlockId).toBe('git-auth'))
     expect(invoke).not.toHaveBeenCalledWith('github:env-credentials', expect.anything())
@@ -1100,9 +1214,7 @@ describe('useGitAuth — {block} detection sources', () => {
       return { found: false }
     })
 
-    const { result, rerender } = renderHook(() =>
-      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] }),
-    )
+    const { result, rerender } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }, 'env'] })
     await waitFor(() => expect(result.current.waitingForBlockId).toBe('mint'))
 
     blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
@@ -1124,9 +1236,7 @@ describe('useGitAuth — {block} detection sources', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] }),
-    )
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.detectionSource).toBe('block')
@@ -1146,7 +1256,7 @@ describe('useGitAuth — success details', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(result.current.detectionSource).toBe('cli')
@@ -1170,9 +1280,7 @@ describe('useGitAuth — success details', () => {
       return { found: false }
     })
 
-    const { result } = renderHook(() =>
-      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ env: { prefix: 'PROD_' } }] }),
-    )
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ env: { prefix: 'PROD_' } }] })
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
     expect(invoke).toHaveBeenCalledWith('github:env-credentials', expect.objectContaining({ prefix: 'PROD_' }))

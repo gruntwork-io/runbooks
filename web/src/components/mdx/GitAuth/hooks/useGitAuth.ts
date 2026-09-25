@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react"
+import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
@@ -104,6 +105,7 @@ export function useGitAuth({
   host,
   defaultTab,
 }: UseGitAuthOptions) {
+  const api = useApi()
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
@@ -140,6 +142,10 @@ export function useGitAuth({
   // session credential with a different host (vcs:session-changed).
   const [sessionStale, setSessionStale] = useState(false)
   const authenticatedHostRef = useRef<string | undefined>(undefined)
+  // Set by reAuthenticate: focus re-detection stays off until detection is
+  // re-armed explicitly (Check again, Retry, Reload, a host pick or a
+  // provider switch). State, not a ref, because it gates focusRedetectArmed.
+  const [redetectSuppressed, setRedetectSuppressed] = useState(false)
   const detectionAttemptedRef = useRef(false)
   // Bumped to invalidate in-flight detection loops; checked after every await.
   const detectionRunRef = useRef(0)
@@ -210,7 +216,11 @@ export function useGitAuth({
   // OAuth state
   const [oauthUserCode, setOauthUserCode] = useState<string | null>(null)
   const [oauthVerificationUri, setOauthVerificationUri] = useState<string | null>(null)
-  const oauthPollingCancelledRef = useRef(false)
+  // The current device flow. Each startOAuth takes the next number; cancel,
+  // reset and unmount bump it. Every continuation of a flow (the oauth-start
+  // reply, each poll reply, each scheduled poll) re-checks its number, so a
+  // poll in flight when its flow ended can never resume or publish.
+  const oauthFlowRef = useRef(0)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // The author-supplied client ID (GitHub OAuth only). Undefined means main
@@ -366,7 +376,7 @@ export function useGitAuth({
   ): Promise<{ valid: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; errorKind?: GitErrorKind; coldReadOk?: boolean; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string }> => {
     try {
       // A manually-entered instance URL takes precedence over the picked host.
-      const data = await window.api.invoke(provider.channels.validate, {
+      const data = await api.invoke(provider.channels.validate, {
         ...(token !== undefined ? { token } : {}),
         ...(opts?.registerSession ? { registerSession: true } : {}),
         ...(opts?.useSessionToken ? { useSessionToken: true } : {}),
@@ -391,12 +401,12 @@ export function useGitAuth({
         error: error instanceof Error ? error.message : 'Failed to validate token'
       }
     }
-  }, [provider, instanceUrlForIpc])
+  }, [api, provider, instanceUrlForIpc])
 
   // Try to detect credentials from environment variables
   const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean; warning?: string; envVar?: string; divergenceHint?: string; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean } }> => {
     try {
-      const data = await window.api.invoke(provider.channels.envCredentials, {
+      const data = await api.invoke(provider.channels.envCredentials, {
         prefix: options?.prefix || '',
         ...(instanceUrlForIpc
           ? { instanceUrl: instanceUrlForIpc }
@@ -434,12 +444,12 @@ export function useGitAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
     }
-  }, [provider, instanceUrlForIpc])
+  }, [api, provider, instanceUrlForIpc])
 
   // Try to detect credentials from the provider's CLI
   const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean; warning?: string; hint?: string; host?: string; source?: 'env' | 'cli' | 'config'; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean } }> => {
     try {
-      const data = await window.api.invoke(
+      const data = await api.invoke(
         provider.channels.cliCredentials,
         instanceUrlForIpc
           ? { instanceUrl: instanceUrlForIpc }
@@ -479,7 +489,7 @@ export function useGitAuth({
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
     }
-  }, [provider, instanceUrlForIpc])
+  }, [api, provider, instanceUrlForIpc])
 
   // Try to detect credentials from block outputs (block-chaining):
   // a referenced GitAuth block resolves against the SESSION env in main
@@ -544,7 +554,7 @@ export function useGitAuth({
     const channel = provider.channels.enumerateHosts
     void (async () => {
       try {
-        const data = await window.api.invoke(channel, {})
+        const data = await api.invoke(channel, {})
         if (cancelled) return
         // the enumerate result is the annotated merged union (objects);
         // membership checks compare against hosts.map(h => h.host).
@@ -571,7 +581,7 @@ export function useGitAuth({
     return () => {
       cancelled = true
     }
-  }, [hostSelectable, provider, host, sessionReady, hostsReloadNonce])
+  }, [api, hostSelectable, provider, host, sessionReady, hostsReloadNonce])
 
   // Walk the detection sources in order, stopping at the first success. A
   // {block} source whose block has not run yet pauses the walk (the author's
@@ -725,7 +735,7 @@ export function useGitAuth({
     let cancelled = false
     void (async () => {
       try {
-        const status = await window.api.invoke('vcs:cli-status')
+        const status = await api.invoke('vcs:cli-status')
         if (!cancelled) setCliStatus(status as VcsCliStatusResult)
       } catch {
         /* hint copy is enrichment */
@@ -734,7 +744,7 @@ export function useGitAuth({
     return () => {
       cancelled = true
     }
-  }, [detectionStatus])
+  }, [api, detectionStatus])
 
   // Resume detection once the block it paused on has run. A block that ran
   // but left no usable token falls through to the sources after it, exactly
@@ -823,22 +833,36 @@ export function useGitAuth({
     })
   }, [patToken, applyCredentialDetails, validateToken, registerCredentials, markUnreachable])
 
+  // End the current device flow: bump the flow number so every continuation
+  // of it stops, and drop its scheduled poll. Shared by cancel, reset and
+  // unmount.
+  const stopOAuthPolling = useCallback(() => {
+    oauthFlowRef.current += 1
+    if (oauthPollTimeoutRef.current) {
+      clearTimeout(oauthPollTimeoutRef.current)
+      oauthPollTimeoutRef.current = null
+    }
+  }, [])
+
   // Poll for OAuth completion until the device code expires. GitHub reports
   // `expired_token` itself once it lapses; the deadline is only a backstop.
-  const pollOAuthCompletion = useCallback(async (deviceCode: string, interval: number = 5, expiresIn: number = DEFAULT_OAUTH_EXPIRES_IN) => {
+  // `flow` is the device flow this loop belongs to; once it is no longer the
+  // current one the loop stops without touching state or outputs.
+  const pollOAuthCompletion = useCallback(async (flow: number, deviceCode: string, interval: number = 5, expiresIn: number = DEFAULT_OAUTH_EXPIRES_IN) => {
     const deadline = Date.now() + expiresIn * 1000
     let currentInterval = Math.max(interval, 5) * 1000 // GitHub requires at least 5 seconds
+    const stale = () => oauthFlowRef.current !== flow
 
     const poll = async () => {
-      if (oauthPollingCancelledRef.current) return
+      if (stale()) return
 
       try {
-        const data = await window.api.invoke('github:oauth-poll', {
+        const data = await api.invoke('github:oauth-poll', {
           ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
           deviceCode,
         })
 
-        if (oauthPollingCancelledRef.current) return
+        if (stale()) return
 
         if (data.status === 'pending') {
           if (Date.now() >= deadline) {
@@ -857,7 +881,6 @@ export function useGitAuth({
           // the session env; the token never reaches the renderer.
           const user = data.user as unknown as GitUserInfo
           registerMetadataOutputs(user)
-          if (oauthPollingCancelledRef.current) return
           setAuthStatus('authenticated')
           setUserInfo(user)
           applyCredentialDetails({
@@ -866,37 +889,39 @@ export function useGitAuth({
             sessionEnvWarning: data.sessionEnvWarning,
           })
         } else if (data.status === 'expired') {
-          if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
           setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
         } else {
           // Denied, or another error main reported
-          if (oauthPollingCancelledRef.current) return
           setAuthStatus('failed')
           setErrorMessage(data.error || 'Authorization failed')
         }
       } catch (error) {
-        if (!oauthPollingCancelledRef.current) {
-          setAuthStatus('failed')
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to check authorization status')
-        }
+        if (stale()) return
+        setAuthStatus('failed')
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to check authorization status')
       }
     }
 
     poll()
-  }, [effectiveClientId, registerMetadataOutputs, applyCredentialDetails])
+  }, [api, effectiveClientId, registerMetadataOutputs, applyCredentialDetails])
 
   // Start OAuth device flow
   const startOAuth = useCallback(async () => {
+    // A new flow supersedes any earlier one, even a poll still in flight.
+    stopOAuthPolling()
+    const flow = oauthFlowRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
-    oauthPollingCancelledRef.current = false
 
     try {
-      const data = await window.api.invoke('github:oauth-start', {
+      const data = await api.invoke('github:oauth-start', {
         ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
         scopes: oauthScopes,
       })
+
+      // Cancelled (or reset) while GitHub issued the code.
+      if (oauthFlowRef.current !== flow) return
 
       if (data.error) {
         setAuthStatus('failed')
@@ -911,35 +936,24 @@ export function useGitAuth({
       // default 5s and 15 minutes)
       // Note: We don't auto-open the browser - let user see the code first
       const pollInterval = data.interval || 5
-      pollOAuthCompletion(data.deviceCode, pollInterval, data.expiresIn || DEFAULT_OAUTH_EXPIRES_IN)
+      pollOAuthCompletion(flow, data.deviceCode, pollInterval, data.expiresIn || DEFAULT_OAUTH_EXPIRES_IN)
     } catch (error) {
+      if (oauthFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start OAuth flow')
     }
-  }, [effectiveClientId, oauthScopes, pollOAuthCompletion])
+  }, [api, effectiveClientId, oauthScopes, pollOAuthCompletion, stopOAuthPolling])
 
   // Cancel OAuth polling
   const cancelOAuth = useCallback(() => {
-    oauthPollingCancelledRef.current = true
-    if (oauthPollTimeoutRef.current) {
-      clearTimeout(oauthPollTimeoutRef.current)
-      oauthPollTimeoutRef.current = null
-    }
+    stopOAuthPolling()
     setAuthStatus('pending')
     setOauthUserCode(null)
     setOauthVerificationUri(null)
-  }, [])
+  }, [stopOAuthPolling])
 
   // Cleanup on unmount: cancel any pending OAuth polling
-  useEffect(() => {
-    return () => {
-      oauthPollingCancelledRef.current = true
-      if (oauthPollTimeoutRef.current) {
-        clearTimeout(oauthPollTimeoutRef.current)
-        oauthPollTimeoutRef.current = null
-      }
-    }
-  }, [])
+  useEffect(() => stopOAuthPolling, [stopOAuthPolling])
 
   // Clear the credential-detection display state (status, user, source badges,
   // scopes, warnings, hints, success meta). Shared by resetAuth and the
@@ -960,30 +974,45 @@ export function useGitAuth({
     setSessionEnvWarning(null)
   }, [])
 
-  // Reset to allow re-authentication
+  // Reset the card to the sign-in form. Leaves the block's outputs alone:
+  // a provider switch writes the new GIT_PROVIDER before calling this, and
+  // reAuthenticate withdraws the old credential itself.
   const resetAuth = useCallback(() => {
-    // Clear any pending polling before resetting
-    if (oauthPollTimeoutRef.current) {
-      clearTimeout(oauthPollTimeoutRef.current)
-      oauthPollTimeoutRef.current = null
-    }
+    // End any device flow, including a poll still in flight.
+    stopOAuthPolling()
     clearDetectionState()
     setErrorMessage(null)
     setPatToken('')
     setOauthUserCode(null)
     setOauthVerificationUri(null)
-    oauthPollingCancelledRef.current = false
-  }, [clearDetectionState])
+  }, [clearDetectionState, stopOAuthPolling])
+
+  // "Re-authenticate" on the success card. The card going back to the form
+  // takes the block's outputs with it (GIT_PROVIDER stays for downstream
+  // PR/MR blocks), so an `*AuthId` step stays gated until the new sign-in
+  // instead of running with the replaced credential. The session env keeps
+  // the old token until the next sign-in replaces it; this does not clear it.
+  // Focus re-detection stays off until the user asks for a check: it would
+  // sign straight back in with the ambient env/CLI credential the user is
+  // trying to replace, e.g. while they are away creating a new token.
+  const reAuthenticate = useCallback(() => {
+    clearRegisteredOutputs(provider.id)
+    setRedetectSuppressed(true)
+    resetAuth()
+  }, [clearRegisteredOutputs, provider.id, resetAuth])
 
   // Reset detection so it re-runs for a freshly-selected provider. Setting
   // detectionStatus back to 'pending' (when detection is enabled) shows the
   // "Checking…" state instead of flashing the manual form, and clearing
-  // detectionAttemptedRef lets the detection effect fire again.
+  // detectionAttemptedRef lets the detection effect fire again. Every
+  // explicit re-detection (beginRedetect) and a provider switch pass through
+  // here, so this is also what re-arms focus re-detection after reAuthenticate.
   const resetDetectionState = useCallback(() => {
     detectionRunRef.current += 1 // invalidate any in-flight detection loop
     detectionAttemptedRef.current = false
     remainingSourcesRef.current = []
     setWaitingForBlockId(null)
+    setRedetectSuppressed(false)
     setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
   }, [detectCredentials])
 
@@ -998,8 +1027,14 @@ export function useGitAuth({
   // explicit re-detection observes a terminal `gh auth switch`/`glab auth
   // login` immediately instead of after the 5-minute TTL. Fire-and-forget.
   const invalidateMainCache = useCallback(() => {
-    void window.api.invoke('vcs:invalidate-cache').catch(() => {})
-  }, [])
+    void api.invoke('vcs:invalidate-cache').catch(() => {})
+  }, [api])
+
+  // The success card's "Apply" for the Windows schannel suggestion: main sets
+  // git's http.sslBackend to schannel. Fire-and-forget, like the suggestion.
+  const applySchannel = useCallback(() => {
+    void api.invoke('vcs:apply-git-schannel').catch(() => {})
+  }, [api])
 
   // Switch the selected GitLab host and re-detect against it. Compares with
   // the host the picker shows (effectiveHost), not the internal pick: once an
@@ -1010,18 +1045,18 @@ export function useGitAuth({
     userPickedHostRef.current = true
     invalidateMainCache()
     // Persist the explicit pick (any source) so it survives restart.
-    void window.api.invoke('gitlab:host-picked', { host: nextHost }).catch(() => {})
+    void api.invoke('gitlab:host-picked', { host: nextHost }).catch(() => {})
     // A pick supersedes an entered or prop-seeded instance URL, which would
     // otherwise keep overriding effectiveHost and every IPC call.
     setGitlabInstanceUrl('')
     setSelectedHost(nextHost)
     beginRedetect()
     setDetectionNonce((n) => n + 1)
-  }, [beginRedetect, invalidateMainCache])
+  }, [api, beginRedetect, invalidateMainCache])
 
   // HostSelect onChange wrapper: the "Other instance…" row uses a sentinel
   // value intercepted BEFORE changeHost. When authenticated it leaves the
-  // success card (the same reset as "Re-authenticate") so the PAT form, which
+  // success card (it is "Re-authenticate") so the PAT form, which
   // carries the instance-URL field, renders; either way that field is then
   // focused. It does NOT alter selectedHost or run detection; the controlled
   // select snaps back to its prior value on the next render.
@@ -1029,13 +1064,13 @@ export function useGitAuth({
     if (value === OTHER_INSTANCE_SENTINEL) {
       // Only when authenticated: resetting a pending form would also wipe a
       // typed token and the current host's unreachable card.
-      if (authStatus === 'authenticated') resetAuth()
+      if (authStatus === 'authenticated') reAuthenticate()
       setAuthMethod('pat')
       setInstanceFieldFocusNonce((n) => n + 1)
       return
     }
     changeHost(value)
-  }, [authStatus, resetAuth, changeHost])
+  }, [authStatus, reAuthenticate, changeHost])
 
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
@@ -1081,7 +1116,7 @@ export function useGitAuth({
   }, [authStatus, provider])
 
   useEffect(() => {
-    const unsubscribe = window.api.on('vcs:session-changed', (payload) => {
+    const unsubscribe = api.on('vcs:session-changed', (payload) => {
       if (payload.provider !== provider.id) return
       const myHost = authenticatedHostRef.current
       if (myHost && payload.host !== myHost) {
@@ -1089,16 +1124,18 @@ export function useGitAuth({
       }
     })
     return unsubscribe
-  }, [provider])
+  }, [api, provider])
 
   // re-run detection automatically on window focus
   // while sitting IDLE in the manual UI — makes the terminal-`gh auth login`
   // flow genuinely zero-click. Debounced. Armed ONLY in 'pending': the OAuth
   // device flow guarantees a focus round-trip ('authenticating' — a redetect
   // would unmount the code panel mid-flow), and a redetect after 'failed'
-  // would wipe the failure UI the user is reading.
+  // would wipe the failure UI the user is reading. After an explicit
+  // Re-authenticate, re-detection is user-initiated only (Check again, Retry,
+  // Reload), as AwsAuth's and GoogleAuth's "Try auto-detection again" is.
   const focusRedetectArmed =
-    detectCredentials !== false && detectionStatus === 'done' && authStatus === 'pending'
+    detectCredentials !== false && detectionStatus === 'done' && authStatus === 'pending' && !redetectSuppressed
   useEffect(() => {
     if (!focusRedetectArmed) return
     let lastRun = 0
@@ -1192,7 +1229,9 @@ export function useGitAuth({
 
     // Actions
     resetAuth,
+    reAuthenticate,
     resetDetectionState,
     clearRegisteredOutputs,
+    applySchannel,
   }
 }

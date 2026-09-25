@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import type { ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TestWrapper } from '@/test/test-utils'
+import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 
 // The GitLab host picker against the REAL useGitAuth hook: what the select
 // shows and what "Other instance…" does are only visible with the hook, the
@@ -19,20 +21,23 @@ const HOSTS = {
   defaultHost: 'gitlab.com',
 }
 
-const originalApi = window.api
+let currentApi: RunbooksAPI
 
 function installApi(impl: (channel: string, args?: unknown) => Promise<unknown>) {
   const invoke = vi.fn(impl)
-  window.api = {
-    invoke,
-    on: vi.fn(() => () => {}),
-    once: vi.fn(),
-  } as unknown as typeof window.api
+  currentApi = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
   return invoke
 }
 
+function renderWithApi(ui: ReactNode) {
+  return render(
+    <TestWrapper>
+      <ApiProvider api={currentApi}>{ui}</ApiProvider>
+    </TestWrapper>,
+  )
+}
+
 afterEach(() => {
-  window.api = originalApi
   vi.clearAllMocks()
 })
 
@@ -48,11 +53,7 @@ describe('GitAuth — GitLab host picker (real hook)', () => {
       return { found: false }
     })
 
-    render(
-      <TestWrapper>
-        <GitAuth id="git" provider="gitlab" />
-      </TestWrapper>,
-    )
+    renderWithApi(<GitAuth id="git" provider="gitlab" />)
     await screen.findByText(/Authenticated to GitLab \(gitlab\.com\)/)
 
     const select = screen.getByRole('combobox')
@@ -70,11 +71,7 @@ describe('GitAuth — GitLab host picker (real hook)', () => {
       return { found: false }
     })
 
-    render(
-      <TestWrapper>
-        <GitAuth id="git" provider="gitlab" />
-      </TestWrapper>,
-    )
+    renderWithApi(<GitAuth id="git" provider="gitlab" />)
     await screen.findByPlaceholderText(/GitLab access token/i)
     const select = screen.getByRole('combobox')
 

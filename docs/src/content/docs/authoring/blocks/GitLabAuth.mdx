@@ -40,7 +40,7 @@ If no credentials are detected, the user authenticates manually with a Personal 
 
 ## Props
 
-`<GitLabAuth>` accepts the same props as [`<GitAuth>`](/authoring/blocks/gitauth/#props) except `provider` and `hideProviderSelect` (which are fixed to `gitlab` and `true`). The most common are `id` (required), `title`, `description`, `detectCredentials`, and `inputsId`.
+`<GitLabAuth>` accepts the same props as [`<GitAuth>`](/authoring/blocks/gitauth/#props) except `provider` and `hideProviderSelect` (which are fixed to `gitlab` and `true`). The most common are `id` (required), `title`, `description`, `detectCredentials`, and `inputsId`. For a self-managed GitLab instance, add `host` or `instanceUrl`; see [Self-managed GitLab](/authoring/blocks/gitauth/#self-managed-gitlab).
 
 ## Downstream references
 
