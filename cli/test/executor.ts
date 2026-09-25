@@ -24,7 +24,7 @@ import {
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
-import { normalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
+import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import {
   GITLAB_TOKEN_ENV_VARS,
   envTokenHost,
@@ -572,7 +572,8 @@ export class TestExecutor {
 
     // 3. Check auth dependencies. A block whose auth block hasn't run, or was
     // skipped, is blocked, which is what an `expect: blocked` step asserts.
-    if (this.authDeps.has(block.id)) {
+    // `expect: skip` skips the block whatever state its auth block is in.
+    if (step.expect !== "skip" && this.authDeps.has(block.id)) {
       const authDep = this.authDeps.get(block.id)!
       const authState = this.blockStates.get(authDep.authBlockId)
 
@@ -585,12 +586,6 @@ export class TestExecutor {
       }
 
       if (authState === "skipped") {
-        if (step.expect === "skip") {
-          result.passed = true
-          result.actualStatus = "skipped"
-          result.duration = Date.now() - start
-          return result
-        }
         result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
         result.error = `Block depends on "${authDep.authBlockId}" which was skipped`
@@ -1152,7 +1147,12 @@ export class TestExecutor {
 
     const env: Record<string, string | undefined> = { ...process.env, ...this.testEnv }
     const pinned = extractProp(block.props, "instanceUrl") || extractProp(block.props, "host")
-    const host = pinned ? normalizeGitLabHost(pinned) : envTokenHost(env)
+    // Not normalizeGitLabHost: its gitlab.com fallback would bind a typo'd pin
+    // to gitlab.com and hand the block a gitlab.com token.
+    const host = pinned ? tryNormalizeGitLabHost(pinned) : envTokenHost(env)
+    if (pinned && !host) {
+      return { skipReason: `"${pinned}" is not a valid GitLab instance URL or host` }
+    }
     if (!host || !mayAutoSendEnvToken(host, env)) {
       const bound = envTokenHost(env)
       return {
@@ -1777,6 +1777,7 @@ export class TestExecutor {
       fs.mkdirSync(cwd, { recursive: true })
       execFileSync("/bin/bash", ["-c", script], {
         cwd,
+        env: this.sessionEnvWithTestEnv(),
         timeout: 30000,
         stdio: "pipe",
       })

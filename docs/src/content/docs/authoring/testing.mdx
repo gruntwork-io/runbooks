@@ -122,11 +122,11 @@ tests:
 |-------|------|----------|-------------|
 | `name` | string | Yes | Unique identifier for the test case. |
 | `description` | string | No | Human-readable description of what the test validates. |
-| `env` | map | No | Environment variables to set for all blocks and `script` assertions in this test. Keys and values are strings. |
+| `env` | map | No | Environment variables to set for all blocks, `script` assertions and cleanup actions in this test. Keys and values are strings. |
 | `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
 | `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, every block runs once in document order and is expected to succeed, except [pull request blocks](#testing-pull-request-blocks), which are expected to skip. |
 | `assertions` | array | No | Validations to run after all steps complete. |
-| `cleanup` | array | No | Actions to run after the test completes (even on failure). |
+| `cleanup` | array | No | Actions to run after the test's blocks and assertions, even if one of them fails. |
 
 Each test case starts clean, from the environment the `test` command was started with plus the test case's `env`. With `use_temp_working_dir`, it also gets its own empty working directory. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app. None of that carries over into the next test case, and neither do auth block credentials.
 
@@ -398,7 +398,7 @@ tests:
 
 ## Cleanup
 
-Cleanup actions run after the test completes, even if the test fails:
+Cleanup actions run after the test's blocks and assertions, even if a block or assertion fails:
 
 ```yaml
 cleanup:
@@ -409,7 +409,9 @@ cleanup:
   - path: cleanup/teardown.sh
 ```
 
-Both kinds of action run in bash from the output directory (`<working_dir>/<output_path>`), which is created first if no block has generated files yet. A `path` script is read relative to the runbook's directory. A failing cleanup action doesn't fail the test and doesn't stop the remaining actions, but it is printed as a warning.
+Both kinds of action run in bash from the output directory (`<working_dir>/<output_path>`), which is created first if no block has generated files yet. A `path` script is read relative to the runbook's directory. They see the same environment as the test's blocks: the environment the `test` command was started with, plus anything earlier blocks exported or authenticated, with the test case's `env` on top. A failing cleanup action doesn't fail the test and doesn't stop the remaining actions, but it is printed as a warning.
+
+A test that fails before any block runs skips cleanup, since nothing has run yet. That happens when the runbook has a block type the runner doesn't know, when the test's inputs don't validate, and when a step names a block the runbook doesn't have.
 
 ## Testing AwsAuth Blocks
 
@@ -581,7 +583,7 @@ For runbooks with `<GitLabAuth>` blocks, the test framework checks for a GitLab 
 
 With `env_prefix` on the step, it checks the prefixed names instead (`CI_GITLAB_TOKEN`, `CI_GITLAB_ACCESS_TOKEN`, `CI_OAUTH_TOKEN`).
 
-On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too.
+On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too, and a block whose pinned value isn't a valid URL or host always skips.
 
 The test framework never sends the token anywhere, so a fake one is enough to test that the block authenticates:
 

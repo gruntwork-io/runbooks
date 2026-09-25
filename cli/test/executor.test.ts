@@ -143,12 +143,16 @@ describe("TestExecutor — cleanup", () => {
   let marker: string
   let warn: ReturnType<typeof spyOn>
 
-  const runWithCleanup = async (command: string, cleanup: CleanupAction[]) => {
+  const runWithCleanup = async (
+    command: string,
+    cleanup: CleanupAction[],
+    env?: Record<string, string>,
+  ) => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(rb, `# Cleanup\n\n<Command id="run" command='${command}' />\n`)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
-    return () => executor.runTest({ name: "cleanup", cleanup })
+    return () => executor.runTest({ name: "cleanup", cleanup, env })
   }
 
   beforeEach(() => {
@@ -192,6 +196,17 @@ describe("TestExecutor — cleanup", () => {
 
     expect(runTest().status).toBe("passed")
     expect(String(warn.mock.calls[0]?.[0])).toContain("failed: exit code 3: teardown broke")
+  })
+
+  it("sees the test case's env and what earlier blocks exported", async () => {
+    const runTest = await runWithCleanup(
+      "export FROM_BLOCK=exported",
+      [{ command: `echo "$FROM_BLOCK $FROM_TEST" > "${marker}"` }],
+      { FROM_TEST: "test-env" },
+    )
+
+    expect(runTest().status).toBe("passed")
+    expect(fs.readFileSync(marker, "utf-8").trim()).toBe("exported test-env")
   })
 
   it("still runs when block processing throws", async () => {
@@ -317,6 +332,17 @@ describe("TestExecutor — explicit steps", () => {
     })
     expect(skipped.error).toBeUndefined()
     expect(skipped.stepResults[1]?.actualStatus).toBe("blocked")
+  })
+
+  it("skips a block whose auth block hasn't run when the step expects skip", async () => {
+    const executor = await makeExecutor(
+      `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
+    )
+
+    const result = executor.runTest({ name: "skip", steps: [{ block: "deploy", expect: "skip" }] })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[0]?.actualStatus).toBe("skipped")
   })
 })
 
@@ -685,6 +711,22 @@ describe("TestExecutor — PR blocks", () => {
     expect(result.stepResults[1]?.actualStatus).toBe("blocked")
   })
 
+  it("skips a PR block whose auth block hasn't run", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({
+      name: "skip-pr-only",
+      steps: [
+        { block: "hello", expect: "success" },
+        { block: "pr", expect: "skip" },
+        { block: "mr", expect: "skip" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => s.actualStatus)).toEqual(["success", "skipped", "skipped"])
+  })
+
   it("expects PR blocks to skip when the test lists no steps", async () => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(rb, `# PR\n\n<Command id="hello" command="echo hello" />\n\n<GitHubPullRequest id="gh-pr" />\n`)
@@ -816,6 +858,15 @@ describe("TestExecutor — git auth blocks", () => {
     })
     expect(bound.error).toBeUndefined()
     expect(bound.stepResults[1]?.outputs?.gitlab_host).toBe("gitlab.example.com")
+  })
+
+  it("skips, rather than falling back to gitlab.com, when the pinned GitLab host is invalid", async () => {
+    const executor = await makeExecutor(`<GitAuth id="auth" provider="gitlab" instanceUrl="ftp://corp" />`)
+
+    // The env token is bound to gitlab.com (no GITLAB_HOST).
+    const result = runAuthThenReport(executor, { GITLAB_TOKEN: "fake-gitlab-token" })
+
+    expect(result.stepResults[0]?.actualStatus).toBe("skipped")
   })
 
   it("fails a GitAuth block with an unknown provider", async () => {
