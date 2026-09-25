@@ -223,32 +223,6 @@ function App() {
               <p className="text-muted-foreground">Loading runbook...</p>
             </div>
           </div>
-        ) : generatedFilesCheck.error && !hasEverLoadedRef.current ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center max-w-xl mx-auto p-6">
-              <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6 text-left">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-destructive" />
-                </div>
-                <h3 className="text-lg font-medium text-destructive mb-2 text-center">Invalid Output Path</h3>
-                <p className="text-destructive mb-4 text-center">{generatedFilesCheck.error.message}</p>
-                <div className="bg-destructive-muted rounded-md p-4 text-sm text-destructive">
-                  <p className="mb-2">
-                    When you launched Runbooks, you specified an <code className="bg-destructive-muted px-1 rounded">--output-path</code> of{' '}
-                    <code className="bg-destructive-muted px-1 rounded font-mono">
-                      {generatedFilesCheck.error.context?.specifiedPath || '(unknown)'}
-                    </code>, but the path must be within the current working directory.
-                  </p>
-                  <p>
-                    Your current working directory is{' '}
-                    <code className="bg-destructive-muted px-1 rounded font-mono">
-                      {generatedFilesCheck.error.context?.currentWorkingDir || '(unknown)'}
-                    </code>
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
         ) : getRunbookResult.error && !hasEverLoadedRef.current ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center max-w-md mx-auto p-6">
