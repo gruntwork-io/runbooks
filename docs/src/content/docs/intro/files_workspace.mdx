@@ -28,7 +28,7 @@ You want the runbook to generate new files and expect the user will then perform
 A [\<Template\>](/authoring/blocks/template/) block generates files when the user clicks "Generate" (the default `target` is `"generated"`). [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) blocks generate files when they run scripts that write to the `$GENERATED_FILES` environment variable.
 
 ##### Where they're stored
-The files are stored in a `generated/` folder on the user's local machine, relative to the [working directory](/commands/open#flags), or whatever folder the user specifies with the [output-path](/commands/open#flags) flag.
+The files are stored in a `generated/` folder on the user's local machine, inside the folder that contains the runbook file.
 
 ##### When you see them
 After the user clicks "Generate" on a \<Template\> block, or after a \<Command\> or \<Check\> block writes to `$GENERATED_FILES`, the files workspace is automatically opened.
@@ -85,13 +85,15 @@ Any files written to `$GENERATED_FILES` automatically appear in the workspace af
 
 Generated files are persisted to a folder on your local machine — they're not ephemeral or stored in memory.
 
-By default, generated files are written to a `generated/` folder in the working directory (the directory you run the `runbooks` command from):
+Generated files are written to a `generated/` folder inside the runbook's folder (the folder that contains the runbook file). Template blocks and `$GENERATED_FILES` captures both write there, even after a script has `cd`'d somewhere else:
 
 <FileTree>
-- **generated/** &larr; Created in your working directory
-  - main.tf
-  - variables.tf
-  - outputs.tf
+- my-runbook/
+  - runbook.mdx
+  - **generated/** &larr; Created next to your runbook
+    - main.tf
+    - variables.tf
+    - outputs.tf
 </FileTree>
 
 You can customize the output location with CLI flags:

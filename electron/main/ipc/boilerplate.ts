@@ -31,7 +31,7 @@ import type {
   RenderInlineRequest,
   BoilerplateRequest,
 } from "../../../src/types.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
 /**
  * Tracks in-flight render fibers per `templateId`. When a new render starts
@@ -200,9 +200,6 @@ export function registerBoilerplateHandlers(): void {
         const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
 
         // Resolve output directory
-        const session = yield* sessionManager.getSession()
-        const workingDir = session.workingDir
-
         let outputDir: string
         if (params.target === "worktree") {
           const workTreePath = sessionManager.getActiveWorkTreePath()
@@ -211,10 +208,7 @@ export function registerBoilerplateHandlers(): void {
           }
           outputDir = workTreePath
         } else {
-          outputDir = yield* resolveToAbsolutePath(
-            workingDir,
-            params.outputPath ?? "output",
-          )
+          outputDir = (yield* resolveGeneratedDir(params.outputPath)).absolutePath
         }
         yield* validateSessionPath(outputDir)
 

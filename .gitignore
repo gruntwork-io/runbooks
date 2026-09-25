@@ -19,6 +19,7 @@ coverage.out
 *.test
 dist/
 testdata/**/output
+testdata/**/generated
 testdata/**/empty-repo
 out/
 test-results/

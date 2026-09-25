@@ -3,6 +3,7 @@
  */
 import * as fs from "node:fs"
 import YAML from "yaml"
+import { DEFAULT_GENERATED_DIR } from "../../src/domain/files/generated.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -199,7 +200,7 @@ export function shouldUseTempWorkingDir(settings: TestSettings): boolean {
 }
 
 export function getOutputPath(settings: TestSettings): string {
-  return settings.output_path || "generated"
+  return settings.output_path || DEFAULT_GENERATED_DIR
 }
 
 // ---------------------------------------------------------------------------
