@@ -7,10 +7,12 @@
  * subsequent warm render reuses this in-memory bundle.
  *
  * Cache invalidation is per-session — the bundle is rebuilt only when a
- * different templateId is requested or when the cache is explicitly cleared
- * (e.g., user opens a different runbook). Edits to template files on disk
- * while the runbook is open will not be picked up; that's an acceptable
- * trade-off vs. the cost of running a watcher in production builds.
+ * different templateId is requested or when an entry is dropped: the warm
+ * dispatcher invalidates a templateId whose template path changed, and
+ * clears the whole cache when the user opens a different runbook. Edits to
+ * template files on disk while the runbook is open will not be picked up;
+ * that's an acceptable trade-off vs. the cost of running a watcher in
+ * production builds.
  */
 import { Context, Effect } from "effect"
 import type { WasmError, RenderError } from "../errors/index.ts"
@@ -46,12 +48,15 @@ export interface BundleProducerShape {
   ) => Effect.Effect<BundleArtifact, RenderError | WasmError>
 
   /**
-   * Clear all cached bundles. Intended for "user opened a different runbook"
-   * or "user invoked refresh" flows.
+   * Clear all cached bundles. Called via `WarmRenderDispatcher.reset` when
+   * the user opens a different runbook.
    */
   readonly clear: Effect.Effect<void>
 
-  /** Remove a single template's cache entry. */
+  /**
+   * Remove a single template's cache entry. The warm dispatcher calls this
+   * when a templateId is rendered from a different template path.
+   */
   readonly invalidate: (templateId: string) => Effect.Effect<void>
 }
 

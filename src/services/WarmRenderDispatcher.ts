@@ -5,7 +5,9 @@
  *
  * The dispatcher does NOT touch the filesystem. It returns rendered content
  * in memory; the IPC handler decides where to write (worktree, generated
- * files dir) and runs the manifest/diff pipeline on top.
+ * files dir) and runs the manifest/diff pipeline on top. Because only the
+ * caller knows when that output is actually on disk, the caller also
+ * advances the dispatcher's vars baseline via `commit`.
  */
 import { Context, Effect } from "effect"
 import type {
@@ -88,6 +90,10 @@ export interface WarmRenderDispatcherShape {
   /**
    * Attempt to render the template warm. Returns a result describing what
    * the WASM path produced and what (if anything) still needs cold rendering.
+   * Only the paths whose inputs changed since the last `commit` are rendered.
+   * If `templatePath` differs from the one this templateId last rendered
+   * from, the cached bundle, handle and vars baseline are dropped first and
+   * this is a first render.
    */
   readonly render: (
     templateId: string,
@@ -95,16 +101,32 @@ export interface WarmRenderDispatcherShape {
     variables: Record<string, unknown>,
   ) => Effect.Effect<WarmRenderResult, RenderError | WasmError>
 
-  /** Clear all cached bundles. */
+  /**
+   * Record `variables` as the baseline the next `render` diffs against. Call
+   * it only once every file for these vars is on disk and the manifest is
+   * stored. A render that's superseded or fails before then must not commit,
+   * so the next dirty set still includes the files it never wrote.
+   */
+  readonly commit: (
+    templateId: string,
+    variables: Record<string, unknown>,
+  ) => Effect.Effect<void>
+
+  /**
+   * Drop all warm-render state: release every prepared handle, forget every
+   * vars baseline and template path, and clear the bundle cache. Call when
+   * the user opens a different runbook.
+   */
   readonly reset: Effect.Effect<void>
 
   /**
    * Drop cached vars + handle for a single template. Use when the previous
    * render's output directory was wiped externally (e.g., a `GitClone` over
-   * the worktree, `rm -rf`, `git reset --hard`). Without this, the next
-   * render's dirty-set diff would only re-emit files whose vars changed —
-   * leaving the rest of the tree missing from disk because the dispatcher
-   * trusts that prior output is still where it was left.
+   * the worktree, `rm -rf`, `git reset --hard`), or when the output now goes
+   * to a different directory (e.g., another active worktree). Without this,
+   * the next render's dirty-set diff would only re-emit files whose vars
+   * changed — leaving the rest of the tree missing from disk because the
+   * dispatcher trusts that prior output is still where it was left.
    */
   readonly invalidate: (templateId: string) => Effect.Effect<void>
 }

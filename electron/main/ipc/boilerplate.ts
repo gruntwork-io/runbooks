@@ -21,8 +21,8 @@ import {
   buildManifestFromDirectoryWithContent,
   computeDiff,
   applyDiffFromContent,
+  findStaleManifestReason,
   hashFileContent,
-  BATCH_IO_CONCURRENCY,
 } from "../../../src/domain/files/manifest.ts"
 import { resolveToAbsolutePath } from "../../../src/domain/files/generated.ts"
 import type { ManifestEntry } from "../../../src/types.ts"
@@ -218,39 +218,23 @@ export function registerBoilerplateHandlers(): void {
         }
         yield* validateSessionPath(outputDir)
 
-        // Detect external wipe of the worktree (e.g., a `GitClone` block that
-        // re-clones over the worktree, `git reset --hard`, or `rm -rf`).
-        // Without this check, the warm dispatcher's dirty-set + manifest diff
-        // assume any "unchanged" file is still on disk from the prior render,
-        // so they're not re-emitted — leaving the tree partially populated.
-        // We stat every path from the previous manifest; if any is missing,
-        // drop the manifest + dispatcher cache so this render is treated as a
-        // first-render and rebuilds everything from scratch.
-        const existingManifest = manifestStore.get(templateId)
-        if (existingManifest && existingManifest.files.length > 0) {
-          // Stat the manifest concurrently. This runs on every render's hot
-          // path, and in the common case (no external wipe) every stat hits,
-          // so we can't rely on an early bail — issuing the stats in parallel
-          // keeps the check cheap even for a template producing a few hundred
-          // files. A hot-cache stat is sub-millisecond, so bounded
-          // concurrency is plenty to hide the latency.
-          const presence = yield* Effect.forEach(
-            existingManifest.files,
-            (entry) =>
-              fs
-                .exists(path.join(existingManifest.outputDir, entry.path))
-                .pipe(Effect.map((exists) => ({ path: entry.path, exists }))),
-            { concurrency: BATCH_IO_CONCURRENCY },
+        // Detect a previous manifest that no longer describes the output dir:
+        // an external wipe of the worktree (e.g., a `GitClone` block that
+        // re-clones over the worktree, `git reset --hard`, or `rm -rf`), or
+        // output that now goes to a different directory (the active worktree
+        // changed). Without this check, the warm dispatcher's dirty-set +
+        // manifest diff assume any "unchanged" file is still on disk from the
+        // prior render, so they're not re-emitted — leaving the tree partially
+        // populated. Drop the manifest + dispatcher cache so this render is
+        // treated as a first-render and rebuilds everything from scratch.
+        const stale = yield* findStaleManifestReason(manifestStore.get(templateId), outputDir)
+        if (stale) {
+          console.log(
+            "[ipc boilerplate:render] previous manifest is stale; treating as first-render",
+            { templateId, outputDir, ...stale },
           )
-          const missing = presence.find((p) => !p.exists)
-          if (missing) {
-            console.log(
-              "[ipc boilerplate:render] previous output dir missing files; treating as first-render",
-              { templateId, missingPathExample: missing.path },
-            )
-            manifestStore.delete(templateId)
-            yield* warmDispatcher.invalidate(templateId)
-          }
+          manifestStore.delete(templateId)
+          yield* warmDispatcher.invalidate(templateId)
         }
 
         const tFlatten = Date.now()
@@ -422,6 +406,10 @@ export function registerBoilerplateHandlers(): void {
         const dApply = Date.now() - tApply
 
         manifestStore.set(templateId, { templateId, outputDir, files: newEntries })
+        // The output for these vars is now on disk, so the next render can
+        // diff against them. A render superseded or failed before this point
+        // never commits, and the next dirty set still covers its change.
+        yield* warmDispatcher.commit(templateId, flattenedVariables)
 
         // For worktree target the UI discards fileTree and just refreshes
         // via invalidateGitFileTree, so skip the expensive walk.
