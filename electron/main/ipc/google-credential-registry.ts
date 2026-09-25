@@ -14,10 +14,12 @@
  *     `<GoogleAuth id="target"/>`; a single global "most recent" credential
  *     means "Change project" on one lists the projects of the other.
  *  2. A block's materialised credentials file is released only by that block
- *     re-authenticating, whatever identity the replacement is for: a different
- *     project, principal or credential type leaves the old file as unreachable
- *     as a rotated key does. Two blocks handed the SAME key and project produce
- *     a byte-identical identity, so keying on identity alone would have the
+ *     re-authenticating, whatever the replacement is: a different project,
+ *     principal or credential type — or a credential with no file of ours at
+ *     all (the user's own ADC file, a detected `GOOGLE_APPLICATION_CREDENTIALS`
+ *     path, a bare access token) — leaves the old file as unreachable as a
+ *     rotated key does. Two blocks handed the SAME key and project produce a
+ *     byte-identical identity, so keying on identity alone would have the
  *     second block zero and delete the file the first already published as its
  *     `GOOGLE_APPLICATION_CREDENTIALS` output.
  *  3. That release happens when the RENDERER commits the replacement, not when
@@ -98,10 +100,8 @@ export const identityKeyFor = (
  * not be deleted while the renderer is still publishing its path.
  * `commitCredential` is what finally zeroes it.
  *
- * `_identityKey` is ignored. Looking the predecessor up by identity only ever
- * queued a file with the same type, principal AND project, so re-authenticating
- * the block as anything else left the old file on disk until quit. The
- * parameter stays only until google.ts's call site is updated.
+ * `_identityKey` is ignored; the predecessor is looked up per block. It stays
+ * only until google.ts's call site is updated.
  *
  * The new file is written FIRST so a failed write never destroys a credential
  * that is still working.
@@ -136,6 +136,11 @@ export function materializeForIdentity(
  * finishing the project picker — never commits, so its superseded files survive
  * until the `will-quit` sweep in `cleanupGoogleCredentialFiles`. Leaking a 0600
  * file until quit is the right trade against deleting one a running step needs.
+ *
+ * The same trade covers a queued file ANOTHER block has registered as its own
+ * credential — a block whose detection read this block's
+ * `GOOGLE_APPLICATION_CREDENTIALS` output and confirmed it as an existing file.
+ * That file is skipped and dropped from the queue, leaving it to the sweep.
  */
 export function commitCredential(
   blockId: string | undefined,
@@ -147,6 +152,7 @@ export function commitCredential(
 
   for (const filePath of pending) {
     if (filePath === committedPath) continue
+    if (isActiveForAnotherBlock(key, filePath)) continue
     releaseCredentialFile(filePath)
   }
 
@@ -161,12 +167,48 @@ export function commitCredential(
   }
 }
 
-/** File a block's credential, and remember it as the newest. */
+/** Whether a block other than `ownKey` has `filePath` as its registered credential. */
+function isActiveForAnotherBlock(ownKey: string, filePath: string): boolean {
+  for (const [key, active] of activeCredentials) {
+    if (key !== ownKey && active.credentialsPath === filePath) return true
+  }
+  return false
+}
+
+/**
+ * File a block's credential, and remember it as the newest.
+ *
+ * Every successful authentication lands here, including the ones that
+ * materialise nothing: the gcloud Config tab or a detected
+ * `GOOGLE_APPLICATION_CREDENTIALS` path (an existing file, reused as-is) and a
+ * bare access token (no file at all). Those supersede the block's newest
+ * materialised file just as a new materialisation would, so it is queued for
+ * release here and forgotten as the block's newest. `commitCredential` still
+ * does the releasing, so it survives until the renderer publishes the
+ * replacement.
+ *
+ * A path this block itself materialised (its newest, or one already queued) is
+ * left alone. A materialising flow normally arrives with its own file as the
+ * newest, but it writes the session env between materialising and getting here,
+ * so an overlapping flow on the same block can materialise in between. Queueing
+ * THAT flow's file would let the earlier flow's commit delete the credential
+ * the later one is about to publish.
+ */
 export function setActiveCredential(
   blockId: string | undefined,
   credential: ActiveGoogleCredential,
 ): void {
   const key = credentialKeyFor(blockId)
+  const latest = latestMaterializedByBlock.get(key)
+  const path = credential.credentialsPath
+  const pending = pendingReleaseByBlock.get(key)
+  const isOwnFile = path !== undefined && (path === latest || pending?.has(path) === true)
+  if (latest && !isOwnFile) {
+    const queue = pending ?? new Set<string>()
+    queue.add(latest)
+    pendingReleaseByBlock.set(key, queue)
+    latestMaterializedByBlock.delete(key)
+  }
   activeCredentials.set(key, credential)
   lastActiveKey = key
 }

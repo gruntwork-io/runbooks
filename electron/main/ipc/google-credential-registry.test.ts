@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "bun:test"
 import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import type { GoogleIdentity } from "../../../src/services/GoogleClient.ts"
 import { cleanupGoogleCredentialFiles } from "./google-credentials.ts"
 import {
@@ -253,6 +255,95 @@ describe("commitCredential", () => {
 
     expect(fs.existsSync(previousRunbook)).toBe(true)
     expect(fs.existsSync(nextRunbook)).toBe(true)
+  })
+
+  it("never releases a file another block has registered as its own credential", () => {
+    // Block B's detection read block A's GOOGLE_APPLICATION_CREDENTIALS output
+    // and confirmed it as an existing file, so B is publishing A's file too.
+    const aFirst = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    setActiveCredential("block-a", credential(aFirst))
+    commitCredential("block-a", aFirst)
+    setActiveCredential("block-b", credential(aFirst))
+
+    const aSecond = materializeForIdentity("block-a", identityKeyFor("block-a", SA, "my-proj"), ADC_JSON)
+    setActiveCredential("block-a", credential(aSecond))
+    commitCredential("block-a", aSecond)
+
+    expect(fs.existsSync(aFirst)).toBe(true)
+    expect(activeCredentialFor("block-b")?.credentialsPath).toBe(aFirst)
+  })
+})
+
+describe("a re-authentication that materialises nothing", () => {
+  /** One block's service-account key, materialised, registered and published. */
+  const committedServiceAccountFile = (blockId: string): string => {
+    const saFile = materializeForIdentity(blockId, identityKeyFor(blockId, SA, "my-proj"), ADC_JSON)
+    setActiveCredential(blockId, credential(saFile))
+    commitCredential(blockId, saFile)
+    // Registering the file the block just materialised queues nothing.
+    expect(fs.existsSync(saFile)).toBe(true)
+    return saFile
+  }
+
+  it("releases the block's service-account file once it publishes an existing ADC file", () => {
+    // The gcloud Config tab, or detection of a GOOGLE_APPLICATION_CREDENTIALS
+    // path: the credential is a file the user already had, reused as-is.
+    const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "gcloud-config-"))
+    const userAdc = path.join(userDir, "application_default_credentials.json")
+    fs.writeFileSync(userAdc, USER_JSON)
+    try {
+      const saFile = committedServiceAccountFile("block-a")
+
+      setActiveCredential("block-a", {
+        ref: { kind: "file", path: userAdc },
+        credentialsPath: userAdc,
+        principal: USER.email,
+        credentialType: "authorized_user",
+      })
+      // Not before the renderer stops publishing the old path.
+      expect(fs.existsSync(saFile)).toBe(true)
+
+      commitCredential("block-a", userAdc)
+
+      expect(fs.existsSync(saFile)).toBe(false)
+      // The user's own file is never ours to release.
+      expect(fs.readFileSync(userAdc, "utf-8")).toBe(USER_JSON)
+    } finally {
+      fs.rmSync(userDir, { recursive: true, force: true })
+    }
+  })
+
+  it("releases the block's service-account file once it publishes a bare access token", () => {
+    const saFile = committedServiceAccountFile("block-a")
+
+    setActiveCredential("block-a", {
+      ref: { kind: "access_token", accessToken: "ya29.token" },
+      principal: USER.email,
+      credentialType: "access_token",
+    })
+    expect(fs.existsSync(saFile)).toBe(true)
+
+    commitCredential("block-a", undefined)
+
+    expect(fs.existsSync(saFile)).toBe(false)
+  })
+
+  it("does not queue an overlapping flow's newer file when an earlier flow registers", () => {
+    // Two auth flows on one block overlap: each writes the session env between
+    // materialising and registering, so the second can materialise before the
+    // first registers. The renderer then publishes them in order.
+    const key = identityKeyFor("block-a", SA, "my-proj")
+    const earlier = materializeForIdentity("block-a", key, ADC_JSON)
+    const later = materializeForIdentity("block-a", key, ADC_JSON)
+    setActiveCredential("block-a", credential(earlier))
+    setActiveCredential("block-a", credential(later))
+
+    commitCredential("block-a", earlier)
+    expect(fs.existsSync(later)).toBe(true)
+
+    commitCredential("block-a", later)
+    expect(fs.existsSync(earlier)).toBe(false)
+    expect(fs.existsSync(later)).toBe(true)
   })
 })
 
