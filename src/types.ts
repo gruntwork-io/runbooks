@@ -165,6 +165,11 @@ export interface RenderInlineRequest {
   inputs: InputValue[]
   generateFile?: boolean
   target?: "generated" | "worktree"
+  /**
+   * The block's id. With generateFile, main remembers what each block last
+   * wrote, so a render that writes a different path removes the old file.
+   */
+  blockId?: string
 }
 
 // ---------------------------------------------------------------------------

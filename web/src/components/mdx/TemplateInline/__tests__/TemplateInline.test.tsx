@@ -41,6 +41,7 @@ interface RenderInlineParams {
   inputs: Array<{ name: string; value: unknown }>
   generateFile?: boolean
   target?: string
+  blockId?: string
 }
 
 /**
@@ -163,6 +164,7 @@ describe("TemplateInline", () => {
         { name: "outputs", type: BoilerplateVariableType.Map, value: {} },
       ],
       generateFile: false,
+      blockId: "tpl",
     })
   })
 
@@ -209,6 +211,9 @@ describe("TemplateInline", () => {
     const call = renderInlineCalls(invoke)[0]
     expect(call.generateFile).toBe(true)
     expect(call).not.toHaveProperty("target")
+    // Main keys what each block last wrote by this id, to remove a file left
+    // at an old outputPath.
+    expect(call.blockId).toBe("tpl")
     expect(applyFileTreeUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ fileTree: GENERATED_TREE, totalFiles: 1, truncatedTree: false }),
     )

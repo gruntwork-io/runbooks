@@ -12,6 +12,7 @@
  *   bunx playwright test --config electron/e2e/playwright.config.ts kitchen-sink
  */
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import * as fs from "fs"
 import * as path from "path"
 import { fileURLToPath } from "url"
 
@@ -20,6 +21,8 @@ const __dirname = path.dirname(__filename)
 const ROOT = path.resolve(__dirname, "../..")
 const MAIN_ENTRY = path.join(ROOT, "dist/main/index.js")
 const KITCHEN_SINK = path.join(ROOT, "testdata/kitchen-sink")
+// Written by the `gen-file-tpl` <TemplateInline generateFile> block.
+const GEN_FILE_TPL_OUTPUT = path.join(KITCHEN_SINK, "output/generated.yaml")
 
 // Shared state for the test suite — we launch the app once and reuse it.
 let app: ElectronApplication
@@ -29,6 +32,10 @@ let page: Page
 const consoleErrors: string[] = []
 
 test.beforeAll(async () => {
+  // Remove a file left by an earlier run, so the TemplateInline write check
+  // below can only pass if this run wrote it.
+  fs.rmSync(GEN_FILE_TPL_OUTPUT, { force: true })
+
   app = await electron.launch({
     args: [MAIN_ENTRY, KITCHEN_SINK],
     env: {
@@ -338,6 +345,14 @@ test.describe("Templates", () => {
       const errorBanner = block.locator(".bg-destructive-muted")
       await expect(errorBanner).toHaveCount(0)
     }
+  })
+
+  test("template inline with generateFile writes the rendered file", async () => {
+    // Pins boilerplate:render-inline's write path end to end: the component
+    // tests mock IPC, so only a real run shows the file lands on disk.
+    await expect
+      .poll(() => (fs.existsSync(GEN_FILE_TPL_OUTPUT) ? fs.readFileSync(GEN_FILE_TPL_OUTPUT, "utf-8") : ""))
+      .toContain("name: hello world")
   })
 })
 

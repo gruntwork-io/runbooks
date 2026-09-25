@@ -48,7 +48,8 @@ interface TemplateInlineProps {
  * TemplateInline renders inline template content with variable substitution.
  * It displays the rendered output as code blocks. With generateFile, it also
  * saves the rendered file under outputPath in $GENERATED_FILES, or in the
- * active git worktree when target is "worktree".
+ * active git worktree when target is "worktree". When outputPath changes,
+ * main removes the file the block wrote at the old path.
  *
  * Variables are sourced from Inputs components referenced by inputsId.
  * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).
@@ -197,13 +198,16 @@ function TemplateInline({
 
     const payload = buildTemplatePayload({ inputs: inputValues, outputs: flattenedOutputs });
 
+    // blockId lets main remove the file this block wrote at its previous
+    // outputPath when the path changes (e.g. it follows a DirPicker output).
     debouncedRequest?.({
       templateFiles,
       inputs: payload,
       generateFile: effectiveGenerateFile,
       ...(target ? { target } : {}),
+      blockId: id,
     });
-  }, [inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, effectiveGenerateFile, target, debouncedRequest, isDuplicate]);
+  }, [id, inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, effectiveGenerateFile, target, debouncedRequest, isDuplicate]);
 
   // Apply file tree updates when render data arrives. Only a response that
   // wrote files carries a fileTree; a preview response (e.g. one left over from

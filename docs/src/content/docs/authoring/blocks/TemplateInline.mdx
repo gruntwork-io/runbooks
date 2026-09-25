@@ -245,6 +245,8 @@ Welcome to {{ .inputs.ProjectName }}!
 Use `generateFile={true}` when you want users to both see the output inline _and_ have the file saved to their workspace.
 </Aside>
 
+If `outputPath` changes between renders, for example because it uses a [`<DirPicker>`](/authoring/blocks/dirpicker/) output, the block saves the file at the new path and removes the one it saved at the old path, along with any directories that removal leaves empty. The old file is kept if it no longer holds what the block wrote, for example because you edited it.
+
 ## Block IDs
 
 Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the runbook and is used for dependency resolution between blocks.

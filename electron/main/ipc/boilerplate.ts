@@ -4,7 +4,7 @@
  * Provides config parsing, template rendering, and inline template rendering.
  */
 import * as path from "path"
-import { Cause, Effect, Exit, Fiber } from "effect"
+import { Cause, Effect, Either, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
@@ -12,7 +12,10 @@ import {
   extractOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
 import { flattenVariables, resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"
-import { writeInlineRenderedFiles } from "../../../src/domain/boilerplate/writeInlineRenderedFiles.ts"
+import {
+  writeInlineRenderedFiles,
+  type InlineWriteRecord,
+} from "../../../src/domain/boilerplate/writeInlineRenderedFiles.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
@@ -76,6 +79,19 @@ interface SupersessionStats {
   wastedMs: number
 }
 const supersessionStats = new Map<string, SupersessionStats>()
+
+/**
+ * What each `<TemplateInline generateFile>` block last wrote, by block id, so
+ * a render that writes a different path (e.g. an outputPath that follows a
+ * DirPicker selection) removes the file the block left at the old one.
+ */
+const inlineWrites = new Map<string, InlineWriteRecord>()
+
+/**
+ * Inline writes run one at a time, so two overlapping renders of a block
+ * cannot both start from the same previous record and each leave a file.
+ */
+const inlineWriteLock = Effect.unsafeMakeSemaphore(1)
 
 /**
  * Resolve the directory a render writes into: the active git worktree for
@@ -617,7 +633,24 @@ export function registerBoilerplateHandlers(): void {
           // paths relative to that dir.
           const outputDir = yield* resolveRenderOutputDir(params.target)
           yield* validateSessionPath(outputDir)
-          yield* writeInlineRenderedFiles(contents, outputDir)
+          const { blockId } = params
+          yield* inlineWriteLock.withPermits(1)(
+            Effect.gen(function* () {
+              // Clean up after the block's previous render only inside a
+              // directory this session may still write to: the worktree it
+              // wrote into may have been replaced, or the runbook switched.
+              const previous = blockId ? inlineWrites.get(blockId) : undefined
+              const cleanUp =
+                previous &&
+                Either.isRight(yield* Effect.either(validateSessionPath(previous.outputDir)))
+              const written = yield* writeInlineRenderedFiles(
+                contents,
+                outputDir,
+                cleanUp ? previous : undefined,
+              )
+              if (blockId) inlineWrites.set(blockId, written)
+            }),
+          )
 
           // Same tree contract as boilerplate:render: for the worktree target
           // the UI ignores the tree and only refreshes the git tree, so skip
