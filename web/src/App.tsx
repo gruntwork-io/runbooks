@@ -6,6 +6,7 @@ import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
 import { OpenUrlModal } from './components/layout/OpenUrlModal'
 import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
+import { RunbookOpenError } from './components/layout/RunbookOpenError'
 import MDXContainer from './components/MDXContainer'
 import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
 import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
@@ -17,8 +18,10 @@ import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useIpcWatchMode } from './hooks/useIpcWatchMode'
 import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
 import { useErrorReporting } from './contexts/useErrorReporting'
+import { useLogs } from './contexts/useLogs'
 import { useApi } from './contexts/ApiContext'
 import { cn } from './lib/utils'
+import type { AppError } from './types/error'
 
 function App() {
   const api = useApi()
@@ -28,6 +31,9 @@ function App() {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+  // The failed-open error the user dismissed from the inline banner. A new
+  // failure is a new error object, so it shows the banner again.
+  const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null);
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke('native:open-runbook-dialog')
@@ -45,9 +51,11 @@ function App() {
 
   // Check for existing generated files when runbook loads.
   // Disabled until a runbook is open — the IPC handler requires a session,
-  // which only exists after the main process has loaded a runbook.
+  // which only exists after the main process has loaded a runbook. Keyed by
+  // the runbook's path so opening a different runbook checks again.
   const generatedFilesCheck = useIpcGeneratedFilesCheck({
     disabled: !getRunbookResult.data,
+    runbookPath: getRunbookResult.data?.path,
   })
   
   // Get error counts from the error reporting context (populated by MDX components)
@@ -82,15 +90,7 @@ function App() {
   const { workTrees, resetWorkTrees } = useGitWorkTree()
   const hasWorkTrees = workTrees.length > 0
 
-  // IpcGitWorkTreeProvider is mounted once at the app root, so it otherwise
-  // keeps whatever worktree was registered/active in a previously opened
-  // runbook. Clear it whenever the loaded runbook actually changes (not on
-  // watch-mode content reloads, which keep the same path) so a stale repo
-  // from an unrelated runbook can't be picked as "active" in this one.
-  useEffect(() => {
-    resetWorkTrees()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getRunbookResult.data?.path])
+  const { clearLogs } = useLogs()
   
   // Show artifacts panel unless user has manually hidden it
   const showArtifacts = !isArtifactsHidden
@@ -153,6 +153,26 @@ function App() {
     generatedFilesCheck.data?.hasFiles,
     alertDismissedThisSession,
   ]);
+
+  // The worktree, logs and generated-files providers are mounted once at the
+  // app root, so they otherwise keep whatever the previously opened runbook
+  // left there (a stale "active" repo, its logs in the download, its file
+  // tree). Clear them whenever the loaded runbook actually changes, including
+  // on close (the path becomes undefined), but not on watch-mode reloads,
+  // which keep the same path. The per-runbook block state is reset by keying
+  // MDXContainer on the same path below.
+  //
+  // Declared after the alert effect so its reset wins in the commit that
+  // switches runbooks, when the alert effect still sees the previous
+  // runbook's check result; the new runbook's check then decides.
+  useEffect(() => {
+    resetWorkTrees()
+    clearLogs()
+    updateGeneratedFileTree(null)
+    setShowGeneratedFilesAlert(false)
+    setAlertDismissedThisSession(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getRunbookResult.data?.path])
   
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ''
@@ -181,6 +201,13 @@ function App() {
     return cleanup
   }, [api, clearAllErrors])
 
+  // A failed open after a runbook has loaded (e.g. Cmd+O on a folder with no
+  // runbook.mdx) leaves the current runbook mounted, so report it in a banner
+  // over it rather than the full-screen error used for the first open.
+  const openError = getRunbookResult.error
+  const showOpenErrorBanner =
+    openError !== null && hasEverLoadedRef.current && openError !== dismissedOpenError
+
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
     setShowGeneratedFilesAlert(false);
@@ -201,14 +228,30 @@ function App() {
       <div className="flex flex-col">
         <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
         
-        {/* Error Summary Banner */}
-        {(errorCount > 0 || warningCount > 0) && (
-          <ErrorSummaryBanner
-            errors={errors}
-            errorCount={errorCount}
-            warningCount={warningCount}
-            className="fixed top-15 left-1/2 -translate-x-1/2 z-50 shadow-md max-w-2xl"
-          />
+        {/* Failed-open and Error Summary banners, stacked in one fixed
+            container so they never overlap each other */}
+        {(showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
+          <div className="fixed top-15 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl flex flex-col items-center gap-2 pointer-events-none">
+            {showOpenErrorBanner && openError && (
+              <RunbookOpenError
+                variant="inline"
+                message={openError.message}
+                currentPath={pathName}
+                onChooseAnother={handleOpenRunbook}
+                onRetry={() => getRunbookResult.refetch()}
+                onDismiss={() => setDismissedOpenError(openError)}
+                className="w-full shadow-md pointer-events-auto"
+              />
+            )}
+            {(errorCount > 0 || warningCount > 0) && (
+              <ErrorSummaryBanner
+                errors={errors}
+                errorCount={errorCount}
+                warningCount={warningCount}
+                className="shadow-md pointer-events-auto"
+              />
+            )}
+          </div>
         )}
         
         {/* Loading and Error States
@@ -250,31 +293,12 @@ function App() {
             </div>
           </div>
         ) : getRunbookResult.error && !hasEverLoadedRef.current ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center max-w-md mx-auto p-6">
-              <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-destructive" />
-                </div>
-                <h3 className="text-lg font-medium text-destructive mb-2">Couldn't open runbook</h3>
-                <p className="text-sm text-destructive mb-6 whitespace-pre-line">{getRunbookResult.error.message}</p>
-                <div className="flex items-center justify-center gap-3">
-                  <button
-                    onClick={handleOpenRunbook}
-                    className="px-4 py-2 bg-destructive text-white rounded-md hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 cursor-pointer"
-                  >
-                    Choose Another Folder
-                  </button>
-                  <button
-                    onClick={() => getRunbookResult.refetch()}
-                    className="px-4 py-2 border border-destructive/40 text-destructive rounded-md hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive focus:ring-offset-2 cursor-pointer"
-                  >
-                    Retry
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
+          <RunbookOpenError
+            variant="fullscreen"
+            message={getRunbookResult.error.message}
+            onChooseAnother={handleOpenRunbook}
+            onRetry={() => getRunbookResult.refetch()}
+          />
         ) : !getRunbookResult.data && !hasEverLoadedRef.current ? (
           <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
@@ -309,7 +333,11 @@ function App() {
                     'hidden': activeMobileSection !== 'markdown',
                   }
                 )}>
+                  {/* Keyed by the runbook's file path so opening a different
+                      runbook starts from fresh block inputs/outputs and trust
+                      banner, while same-path reloads keep them. */}
                   <MDXContainer
+                    key={getRunbookResult.data?.path}
                     content={content}
                     runbookPath={runbookPath}
                     remoteSource={getRunbookResult.data?.remoteSource}
@@ -372,7 +400,11 @@ function App() {
       )}
 
       {/* Open from URL Modal */}
-      <OpenUrlModal open={isUrlModalOpen} onOpenChange={setIsUrlModalOpen} />
+      <OpenUrlModal
+        open={isUrlModalOpen}
+        onOpenChange={setIsUrlModalOpen}
+        onOpened={getRunbookResult.openRunbook}
+      />
     </>
   )
 }

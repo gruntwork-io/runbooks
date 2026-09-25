@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
   Dialog,
@@ -13,6 +13,8 @@ import { useApi } from '@/contexts/ApiContext'
 interface OpenUrlModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opens the cloned runbook. Called only if the request wasn't cancelled. */
+  onOpened: (path: string, remoteSource: string) => void
 }
 
 const REMOTE_PREFIXES = ['http://', 'https://', 'git::']
@@ -23,11 +25,15 @@ function looksLikeRemoteUrl(input: string): boolean {
   return REMOTE_PREFIXES.some((p) => trimmed.startsWith(p)) || REMOTE_SHORTHAND.test(trimmed)
 }
 
-export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
+export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps) {
   const api = useApi()
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  // Identifies the in-flight request. Closing the modal bumps it, so a clone
+  // that finishes (or fails) after Cancel is ignored: it neither opens the
+  // runbook nor leaves its error behind for the next time the modal opens.
+  const requestIdRef = useRef(0)
 
   const reset = useCallback(() => {
     setUrl('')
@@ -36,6 +42,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
   }, [])
 
   const handleClose = useCallback(() => {
+    requestIdRef.current++
     reset()
     onOpenChange(false)
   }, [reset, onOpenChange])
@@ -51,16 +58,20 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
 
     setError(null)
     setIsLoading(true)
+    const requestId = ++requestIdRef.current
 
     try {
-      await api.invoke('runbook:open-remote', { url: trimmed })
+      const result = await api.invoke('runbook:open-remote', { url: trimmed })
+      if (requestId !== requestIdRef.current) return
+      onOpened(result.path, result.remoteSource)
       reset()
       onOpenChange(false)
     } catch (err: unknown) {
+      if (requestId !== requestIdRef.current) return
       setError(err instanceof Error ? err.message : 'Failed to open remote runbook')
       setIsLoading(false)
     }
-  }, [url, api, onOpenChange, reset])
+  }, [url, api, onOpened, onOpenChange, reset])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

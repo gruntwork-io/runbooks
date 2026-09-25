@@ -148,18 +148,13 @@ export function registerRunbookHandlers(): void {
     },
   )
 
+  // Clones and resolves the runbook, but leaves opening it to the renderer:
+  // the Open from URL modal only opens the result if the user hasn't cancelled
+  // while the clone was running.
   ipcMain.handle(
     "runbook:open-remote",
     async (_event, params: { url: string }) => {
       const result = await resolveRemoteRunbook(params.url)
-      // Notify the renderer to load the resolved runbook
-      const win = getMainWindow()
-      if (win) {
-        win.webContents.send("file:open-runbook", {
-          path: result.localPath,
-          remoteSource: result.remoteSource,
-        })
-      }
       return { path: result.localPath, remoteSource: result.remoteSource }
     },
   )
