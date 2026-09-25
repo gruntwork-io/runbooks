@@ -226,6 +226,21 @@ describe('App runbook switching', () => {
     })
   })
 
+  it('clears the previous runbook logs when it is closed before the next one opens', async () => {
+    const { emit } = renderApp()
+    await openRunbook(emit, '/work/a', 'Runbook A')
+    fireEvent.click(screen.getByRole('button', { name: 'Seed logs' }))
+    expect(await isLogDownloadEnabled(emit)).toBe(true)
+
+    await emit('menu:close-runbook')
+    expect(await screen.findByText('Welcome')).toBeInTheDocument()
+    await openRunbook(emit, '/work/b', 'Runbook B')
+
+    // The logs store lives above App, so closing alone doesn't empty it; the
+    // reset also has to run when the path goes to undefined and back.
+    expect(await isLogDownloadEnabled(emit)).toBe(false)
+  })
+
   it('does not re-render the app when a block writes logs', async () => {
     const { emit } = renderApp()
     await openRunbook(emit, '/work/a', 'Runbook A')
