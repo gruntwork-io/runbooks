@@ -18,6 +18,7 @@ import {
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
+import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
@@ -97,6 +98,10 @@ export function registerRunbookHandlers(): void {
         // Path may not exist yet — fall back to the lexical resolution.
       }
 
+      // Read the runbook file content (before the session is created: whether
+      // it has an <AwsAuth> block decides which env vars the session strips)
+      const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
+
       // A different runbook than the one the current session belongs to
       // (including "no session yet") gets a fully fresh session: env,
       // working dir, AND registered/active git worktrees. Without this, a
@@ -107,6 +112,10 @@ export function registerRunbookHandlers(): void {
       // Reloading the SAME runbook (watch mode, re-opening the same file)
       // must NOT do this — it would wipe env vars a script exported mid-run.
       if (sessionManager.getRunbookPath() !== runbookPath) {
+        // A runbook with <AwsAuth> starts without the inherited AWS keys, so
+        // no script sees them until the user confirms an account. Set on every
+        // new session (even to []) so one runbook's list can't carry over.
+        sessionManager.setProtectedEnvVars(protectedEnvVarsForRunbook(fileData.content))
         await runtime.runPromise(sessionManager.createSession(sessionDir, runbookPath))
         // These mirror the same "most recent wins across the whole process"
         // pattern as the worktree state above — reset them at the same
@@ -117,9 +126,6 @@ export function registerRunbookHandlers(): void {
       } else {
         sessionManager.setWorkingDir(sessionDir)
       }
-
-      // Read the runbook file content
-      const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
 
       // Build the executable registry from the runbook
       const registry = await runtime.runPromise(

@@ -200,8 +200,16 @@ export function registerExecHandlers(): void {
                     event.sender.send("exec:files-captured", execEvent.event)
                     break
                   case "env_captured": {
-                    const filteredEnv = filterCapturedEnv(execEvent.env)
-                    yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
+                    // Applied as a delta against the start-time snapshot, not
+                    // a replacement: auth blocks may have written to the
+                    // session while the script ran (see applyCapturedEnv).
+                    yield* sessionManager.applyCapturedEnv({
+                      before: context.env,
+                      after: filterCapturedEnv(execEvent.env),
+                      startWorkDir: context.workDir,
+                      pwd: execEvent.pwd,
+                      generation: context.generation,
+                    })
                     break
                   }
                   case "done":
