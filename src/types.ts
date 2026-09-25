@@ -142,12 +142,12 @@ export interface RenderRequest {
   perf?: RenderPerfContext
 }
 
-export interface RenderResponse {
+export interface RenderResponse extends Partial<FileTreeMeta> {
   message: string
   outputDir: string
   templatePath: string
-  fileTree: FileTreeNode[]
-  meta: FileTreeMeta
+  /** Omitted when nothing was written (the no-change shortcut). */
+  fileTree?: FileTreeNode[]
   deletedFiles: string[]
   createdFiles: string[]
   modifiedFiles: string[]
@@ -164,8 +164,13 @@ export interface RenderInlineRequest {
   templateFiles: Record<string, string>
   inputs: InputValue[]
   generateFile?: boolean
-  outputPath?: string
   target?: "generated" | "worktree"
+  /**
+   * The block's id. With generateFile, main remembers what each block last
+   * wrote, so a render that writes a different path cleans up the old file
+   * (removes it if the block created it, restores it if it was already there).
+   */
+  blockId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -232,10 +237,11 @@ export interface CapturedFile {
   size: number
 }
 
-export interface FilesCapturedEvent {
+export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
   files: CapturedFile[]
   count: number
-  fileTree: unknown
+  /** The generated-files tree after the capture. Omitted if it could not be read. */
+  fileTree?: FileTreeNode[]
 }
 
 export interface BlockOutputsEvent {

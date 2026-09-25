@@ -255,7 +255,7 @@ export interface ApplyDiffResult {
  * Never removes `stopAt` itself, anything outside `stopAt`, or a filesystem
  * root. Silently ignores removal failures (non-empty, permission, etc.).
  */
-function cleanupEmptyParentDirs(dir: string, stopAt: string) {
+export function cleanupEmptyParentDirs(dir: string, stopAt: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
     let current = dir
