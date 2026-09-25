@@ -11,8 +11,8 @@ import {
   runtime,
   sessionManager,
   executableRegistry,
-  runbookConfig,
 } from "./runtime.ts"
+import { resolveGeneratedDir } from "./path-guard.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
@@ -147,9 +147,7 @@ export function registerExecHandlers(): void {
               }
 
               const workTreePath = sessionManager.getActiveWorkTreePath()
-              const outputPath = runbookConfig.localPath
-                ? runbookConfig.localPath.replace(/\/[^/]+$/, "/output")
-                : ""
+              const outputPath = (yield* resolveGeneratedDir()).absolutePath
 
               // Execute the script — returns log stream + completion effect
               const { logStream, completionEffect, logFilePath } = yield* executeScript(

@@ -21,6 +21,15 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
+ * Default folder for generated files. In the app it sits in the runbook's
+ * directory: Template renders and `$GENERATED_FILES` captures are written
+ * there, and the existing-files check and Delete action look there. The test
+ * CLI uses the same default under its working directory, so runbook tests'
+ * `generated/...` assertions describe what the app does.
+ */
+export const DEFAULT_GENERATED_DIR = "generated"
+
+/**
  * Resolve a raw output path to an absolute path.
  *
  * - If the path is already absolute it is returned as-is.

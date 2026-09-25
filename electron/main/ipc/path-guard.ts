@@ -9,6 +9,10 @@ import { Effect } from "effect"
 import { sessionManager, runbookConfig } from "./runtime.ts"
 import { isContainedInReal } from "../../../src/path-validation.ts"
 import { PathTraversalError } from "../../../src/errors/index.ts"
+import {
+  DEFAULT_GENERATED_DIR,
+  resolveToAbsolutePath,
+} from "../../../src/domain/files/generated.ts"
 
 /**
  * Resolve a path that may be relative to the runbook directory.
@@ -66,4 +70,26 @@ export const validateSessionPath = (p: string) =>
         message: `path is outside session working directory and registered worktrees`,
       }),
     )
+  })
+
+/**
+ * Resolve the generated-files directory. Template renders, `$GENERATED_FILES`
+ * capture, and the existing-files check and Delete action all go through
+ * here so they agree on one directory.
+ *
+ * A relative `outputPath` resolves against the session's `initialWorkDir` (the
+ * realpath'd runbook directory), never the live `workingDir`: that follows a
+ * script's `cd`, which would scatter output across whatever directories the
+ * runbook's scripts happened to leave the session in.
+ *
+ * Returns the base directory and relative path alongside the absolute path so
+ * callers of `checkGeneratedFiles` / `deleteGeneratedFiles` can pass the same
+ * pair and report paths consistent with this one.
+ */
+export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) =>
+  Effect.gen(function* () {
+    const session = yield* sessionManager.getSession()
+    const baseDir = session.initialWorkDir
+    const absolutePath = yield* resolveToAbsolutePath(baseDir, outputPath)
+    return { baseDir, outputPath, absolutePath }
   })
