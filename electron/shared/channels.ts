@@ -692,6 +692,7 @@ export interface RenderInlineRequest {
 
 export interface ProfileInfo {
   name: string
+  authType: "sso" | "static" | "assume_role" | "unsupported"
   ssoStartUrl?: string
   ssoRegion?: string
   region?: string

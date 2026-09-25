@@ -2,15 +2,13 @@
  * IPC handlers for AWS authentication.
  *
  * Bridges Electron ipcMain to the AWS auth domain module, providing credential
- * validation, env credential detection (aws-env.ts), profile-based auth, SSO
- * device flow, and region checking.
+ * validation, env credential detection (aws-env.ts), profile-based auth
+ * (aws-profiles.ts), SSO device flow, and region checking.
  */
 import { ipcMain } from "electron"
 import { runtime } from "./runtime.ts"
 import {
   validateCredentials,
-  listProfiles,
-  authenticateProfile,
   startSsoFlow,
   signInWithSsoRole,
   checkRegion,
@@ -18,6 +16,8 @@ import {
 import type { AwsCredentials, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
 import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
 import type { EnvCredentialsParams } from "./aws-env.ts"
+import { handleProfiles, handleProfileAuth } from "./aws-profiles.ts"
+import type { ProfileAuthRequest } from "./aws-profiles.ts"
 import { handleSsoPoll, handleSsoRoles } from "./aws-sso.ts"
 import type { SsoPollRequest, SsoRolesRequest } from "./aws-sso.ts"
 
@@ -40,10 +40,9 @@ export function registerAwsHandlers(): void {
     "aws:validate",
     async (_event, params: ValidatePayload) => {
       const credentials = unwrapCredentials(params)
-      const region = params.region ?? credentials.region
       try {
         const identity = await runtime.runPromise(
-          validateCredentials(credentials, region),
+          validateCredentials(credentials),
         )
         return { valid: true, ...identity }
       } catch (err) {
@@ -55,34 +54,11 @@ export function registerAwsHandlers(): void {
     },
   )
 
-  ipcMain.handle("aws:profiles", async () => {
-    return runtime.runPromise(listProfiles())
-  })
+  ipcMain.handle("aws:profiles", async () => handleProfiles())
 
   ipcMain.handle(
     "aws:profile-auth",
-    async (_event, params: { profileName?: string; profile?: string }) => {
-      const profileName = params.profileName ?? params.profile ?? ""
-      try {
-        const credentials = await runtime.runPromise(authenticateProfile(profileName))
-        const identity = await runtime.runPromise(
-          validateCredentials(credentials, credentials.region),
-        )
-        return {
-          valid: true,
-          ...identity,
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
-          region: credentials.region,
-        }
-      } catch (err) {
-        return {
-          valid: false,
-          error: err instanceof Error ? err.message : String(err),
-        }
-      }
-    },
+    async (_event, params: ProfileAuthRequest) => handleProfileAuth(params),
   )
 
   ipcMain.handle(

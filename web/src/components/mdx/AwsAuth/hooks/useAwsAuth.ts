@@ -568,15 +568,18 @@ export function useAwsAuth({
     setLoadingProfiles(true)
     try {
       const data = await api.invoke('aws:profiles', {} as Record<string, never>)
-      const profileList: ProfileInfo[] = (data.profiles as unknown as ProfileInfo[]) || []
+      const profileList: ProfileInfo[] = data.profiles ?? []
       setProfiles(profileList)
-      const firstUsable = profileList.find(p => p.authType === 'static' || p.authType === 'assume_role')
-      if (firstUsable) {
-        setSelectedProfile(firstUsable)
-      }
+      // Keep the user's pick across a refresh while it is still listed and
+      // usable (taking the fresh entry, whose type may have changed); otherwise
+      // the first usable profile, or nothing, so a stale pick can't be used.
+      const usable = (p: ProfileInfo) => p.authType === 'static' || p.authType === 'assume_role'
+      setSelectedProfile(prev =>
+        (prev && profileList.find(p => p.name === prev.name && usable(p))) ?? profileList.find(usable) ?? null)
     } catch (error) {
       console.error('Failed to load AWS profiles:', error)
       setProfiles([])
+      setSelectedProfile(null)
     } finally {
       setLoadingProfiles(false)
     }

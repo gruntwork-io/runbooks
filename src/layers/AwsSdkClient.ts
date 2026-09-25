@@ -1,16 +1,13 @@
 /**
  * Live implementation of the AwsClient service using AWS SDK v3.
  */
-import * as fs from "node:fs/promises"
-import * as path from "node:path"
-import * as os from "node:os"
 import { Effect, Layer } from "effect"
 import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts"
 import { IAMClient, ListAccountAliasesCommand } from "@aws-sdk/client-iam"
 import { SSOClient, GetRoleCredentialsCommand, ListAccountsCommand, ListAccountRolesCommand } from "@aws-sdk/client-sso"
 import { SSOOIDCClient, RegisterClientCommand, StartDeviceAuthorizationCommand, CreateTokenCommand } from "@aws-sdk/client-sso-oidc"
 import { AccountClient, GetRegionOptStatusCommand } from "@aws-sdk/client-account"
-import { parse as parseIni } from "ini"
+import { parseKnownFiles } from "@smithy/shared-ini-file-loader"
 import { AwsClient } from "../services/AwsClient.ts"
 import type {
   AwsClientShape,
@@ -40,6 +37,19 @@ function describeSsoTokenError(err: unknown): string {
   }
   return `Failed to poll SSO token: ${err}`
 }
+
+/**
+ * Every profile in the shared config and credentials files, read the way the
+ * SDK's own credential providers read them: `[profile x]` in config and `[x]`
+ * in credentials are one profile with both files' keys merged, dotted names
+ * such as `acme.prod` are kept whole, and AWS_CONFIG_FILE /
+ * AWS_SHARED_CREDENTIALS_FILE are honored. `ignoreCache` makes each call
+ * re-read the files, so "Refresh profiles" picks up edits.
+ */
+const readProfiles = () => parseKnownFiles({ ignoreCache: true })
+
+/** Config sections that sit next to profiles but are not profiles. */
+const NON_PROFILE_SECTIONS = ["sso-session.", "services."]
 
 function makeCredentialsProvider(creds: AwsCredentials) {
   return {
@@ -82,42 +92,10 @@ const impl: AwsClientShape = {
   listProfiles: () =>
     Effect.tryPromise({
       try: async (): Promise<ProfileInfo[]> => {
-        const awsDir = path.join(os.homedir(), ".aws")
-        const profiles: ProfileInfo[] = []
-        const seen = new Set<string>()
-
-        // Parse config file
-        try {
-          const configContent = await fs.readFile(path.join(awsDir, "config"), "utf-8")
-          const config = parseIni(configContent)
-          for (const section of Object.keys(config)) {
-            const name = section.replace(/^profile\s+/, "")
-            if (seen.has(name)) continue
-            seen.add(name)
-
-            const block = config[section] as Record<string, string>
-            profiles.push(classifyProfile(name, block))
-          }
-        } catch {
-          // Config file may not exist
-        }
-
-        // Parse credentials file
-        try {
-          const credsContent = await fs.readFile(path.join(awsDir, "credentials"), "utf-8")
-          const creds = parseIni(credsContent)
-          for (const name of Object.keys(creds)) {
-            if (seen.has(name)) continue
-            seen.add(name)
-
-            const block = creds[name] as Record<string, string>
-            profiles.push(classifyProfile(name, block))
-          }
-        } catch {
-          // Credentials file may not exist
-        }
-
-        return profiles
+        const profiles = await readProfiles()
+        return Object.entries(profiles)
+          .filter(([name]) => !NON_PROFILE_SECTIONS.some((prefix) => name.startsWith(prefix)))
+          .map(([name, block]) => classifyProfile(name, block))
       },
       catch: (err) => new AwsConfigError({ message: `Failed to list AWS profiles: ${err}` }),
     }),
@@ -127,27 +105,14 @@ const impl: AwsClientShape = {
       try: async (): Promise<AwsCredentials> => {
         // Dynamic import to avoid bundling credential-providers when not needed
         const { fromIni } = await import("@aws-sdk/credential-providers")
-        const provider = fromIni({ profile: profileName })
+        // ignoreCache: the files as they are now, the same ones listProfiles read.
+        const provider = fromIni({ profile: profileName, ignoreCache: true })
         const resolved = await provider()
 
-        // Determine region from config
-        const awsDir = path.join(os.homedir(), ".aws")
-        let region = "us-east-1"
-        try {
-          const configContent = await fs.readFile(path.join(awsDir, "config"), "utf-8")
-          const config = parseIni(configContent)
-          const section = config[`profile ${profileName}`] ?? config[profileName]
-          if (section && typeof section === "object" && "region" in section) {
-            region = (section as Record<string, string>).region
-          }
-        } catch {
-          // Fall back to default region
-        }
+        // The profile's region, from whichever of the two files sets it.
+        const region = (await readProfiles())[profileName]?.region ?? "us-east-1"
 
-        // Validate
-        const stsClient = new STSClient({ region, credentials: resolved })
-        await stsClient.send(new GetCallerIdentityCommand({}))
-
+        // No STS call here: callers validate the credentials (see AwsClientShape).
         return {
           accessKeyId: resolved.accessKeyId,
           secretAccessKey: resolved.secretAccessKey,
@@ -294,28 +259,32 @@ const impl: AwsClientShape = {
     }),
 
   checkRegion: (region: string, creds: AwsCredentials) =>
-    Effect.tryPromise({
-      try: async (): Promise<boolean> => {
-        const client = new AccountClient({
-          region: "us-east-1",
-          credentials: makeCredentialsProvider(creds),
-        })
-        const resp = await client.send(
-          new GetRegionOptStatusCommand({ RegionName: region }),
-        )
-        return (
-          resp.RegionOptStatus === "ENABLED" ||
-          resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
-        )
-      },
-      catch: () => true,
-    }) as unknown as Effect.Effect<boolean, AwsAuthError>,
+    Effect.tryPromise(async (): Promise<boolean> => {
+      const client = new AccountClient({
+        region: "us-east-1",
+        credentials: makeCredentialsProvider(creds),
+      })
+      const resp = await client.send(
+        new GetRegionOptStatusCommand({ RegionName: region }),
+      )
+      return (
+        resp.RegionOptStatus === "ENABLED" ||
+        resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
+      )
+    }).pipe(
+      // Fail OPEN: a missing account:GetRegionOptStatus permission, an SCP or a
+      // network blip says nothing about the region, so it must not put a
+      // "region is not enabled" warning on the success card.
+      Effect.orElseSucceed(() => true),
+    ),
 }
 
-function classifyProfile(name: string, block: Record<string, string>): ProfileInfo {
+function classifyProfile(name: string, block: Record<string, string | undefined>): ProfileInfo {
   const base = { name, region: block.region }
 
-  if (block.sso_start_url) {
+  // Legacy SSO profiles carry sso_start_url; `aws configure sso` (CLI v2.9+)
+  // writes sso_session, pointing at an [sso-session ...] section instead.
+  if (block.sso_start_url || block.sso_session) {
     return {
       ...base,
       authType: "sso" as const,
@@ -326,7 +295,7 @@ function classifyProfile(name: string, block: Record<string, string>): ProfileIn
   if (block.aws_access_key_id) {
     return { ...base, authType: "static" as const }
   }
-  if (block.role_arn && block.source_profile) {
+  if (block.role_arn && (block.source_profile || block.credential_source)) {
     return { ...base, authType: "assume_role" as const }
   }
   return { ...base, authType: "unsupported" as const }

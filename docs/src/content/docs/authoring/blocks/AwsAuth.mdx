@@ -168,15 +168,19 @@ When using multiple AwsAuth blocks, be aware that the session environment variab
 
 ## Local Profile Support
 
-The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/config` files. Two profile types are supported:
+The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/config` files, or from the files that `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` point to. The files are read the way the AWS CLI reads them: `[profile staging]` in config and `[staging]` in credentials are one profile, so keys in one file and a region in the other work together. Two profile types are supported:
 
 | Profile Type | Description |
 |--------------|-------------|
 | **Static Credentials** | Profiles with `aws_access_key_id` and `aws_secret_access_key` |
-| **Assume Role** | Profiles that use `role_arn` to assume a role |
+| **Assume Role** | Profiles with a `role_arn` and either a `source_profile` or a `credential_source` |
+
+Other profile types, such as `credential_process` profiles, are not listed.
+
+**Refresh profiles** re-reads both files. The selected profile stays selected as long as it is still listed.
 
 <Aside type="note">
-SSO profiles configured in `~/.aws/config` are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
+SSO profiles (those with `sso_session` or `sso_start_url`) are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
 </Aside>
 
 ## Auto-Detection of Credentials

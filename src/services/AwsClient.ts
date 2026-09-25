@@ -65,6 +65,7 @@ export interface SsoRole {
 export interface AwsClientShape {
   readonly validateCredentials: (creds: AwsCredentials, region: string) => Effect.Effect<AwsIdentity, AwsAuthError>
   readonly listProfiles: () => Effect.Effect<ProfileInfo[], AwsConfigError>
+  /** Resolves the profile's credentials without validating them; callers run validateCredentials. */
   readonly authenticateProfile: (profileName: string) => Effect.Effect<AwsCredentials, AwsAuthError>
   readonly startSsoDeviceAuth: (startUrl: string, region: string) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
   readonly pollSsoToken: (params: SsoPollParams) => Effect.Effect<SsoTokenResult, AwsSsoError>

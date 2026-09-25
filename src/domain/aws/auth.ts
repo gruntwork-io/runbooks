@@ -67,10 +67,10 @@ export type SsoPollOutcome =
 // ---------------------------------------------------------------------------
 
 /**
- * Validate AWS credentials by calling STS GetCallerIdentity.
- * Always uses us-east-1 for the STS call regardless of the provided region.
+ * Validate AWS credentials by calling STS GetCallerIdentity in us-east-1 (see
+ * STS_REGION).
  */
-export const validateCredentials = (creds: AwsCredentials, _region: string) =>
+export const validateCredentials = (creds: AwsCredentials) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
     return yield* awsClient.validateCredentials(creds, STS_REGION)
@@ -177,7 +177,8 @@ export const listProfiles = () =>
   })
 
 /**
- * Authenticate using a named AWS profile.
+ * Resolve a named AWS profile's credentials. Does not validate them: callers
+ * run validateCredentials.
  */
 export const authenticateProfile = (profileName: string) =>
   Effect.gen(function* () {
@@ -225,7 +226,7 @@ export const completeSsoAuth = (params: SsoCompleteParams) =>
 export const signInWithSsoRole = (params: SsoCompleteParams) =>
   Effect.gen(function* () {
     const credentials = yield* completeSsoAuth(params)
-    const identity = yield* validateCredentials(credentials, credentials.region)
+    const identity = yield* validateCredentials(credentials)
     return { credentials, identity }
   })
 
