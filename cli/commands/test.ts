@@ -12,6 +12,7 @@ import {
   isParallelizable,
   shouldUseTempWorkingDir,
   type RunbookTestSuite,
+  type TestResult,
 } from "../test/config.ts"
 import { TestExecutor } from "../test/executor.ts"
 import { TextReporter, JUnitReporter, reportToFile, type Reporter } from "../test/reporter.ts"
@@ -25,7 +26,8 @@ interface TestOptions {
   test?: string
   output: string
   outputFile?: string
-  maxParallel: number
+  /** Accepted so existing invocations keep working, but unused: see runTestSuites. */
+  maxParallel?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ export function registerTestCommand(program: Command): void {
     .option("--test <name>", "Run only the specified test case")
     .option("--output <format>", "Output format (text or junit)", "text")
     .option("--output-file <path>", "Write output to file")
-    .option("--max-parallel <n>", "Maximum parallel test suites", "0")
+    .option("--max-parallel <n>", "Currently ignored: runbooks are tested one at a time")
     .action(async (paths: string[], opts: TestOptions) => {
       await runTestCommand(paths, opts)
     })
@@ -65,6 +67,14 @@ async function runTestCommand(paths: string[], opts: TestOptions): Promise<void>
   // Exit with failure code if any tests failed
   const totalFailed = suites.reduce((n, s) => n + s.failed, 0)
   if (totalFailed > 0) process.exit(1)
+
+  // A --test filter that matches nothing reports 0 passed, 0 failed; don't
+  // let a typo'd name pass as green. Checked across all suites, since with
+  // /... the name usually exists in only one runbook.
+  if (opts.test && !suites.some((s) => s.results.some((r) => r.testCase === opts.test))) {
+    console.error(`No test case named "${opts.test}" found in ${runbooks.length} runbook(s)`)
+    process.exit(1)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,8 +177,10 @@ async function runTestSuites(
       } else {
         sequential.push(runbook)
       }
-    } catch (e) {
-      console.error(`Error loading config for ${runbook}: ${e}`)
+    } catch {
+      // runTestSuite reloads the config and records the load error as a
+      // failed "config" result, so a broken runbook_test.yml fails the run.
+      sequential.push(runbook)
     }
   }
 
@@ -178,7 +190,8 @@ async function runTestSuites(
   // parallelism would require a worker pool (worker_threads / child_process).
   // Until then both groups share one loop, parallelizable first to preserve
   // report ordering.
-  // TODO: Add parallel execution with worker pool for the `parallel` group.
+  // TODO: Add parallel execution with worker pool for the `parallel` group,
+  // sized by --max-parallel.
   for (const runbook of [...parallel, ...sequential]) {
     suites.push(await runTestSuite(runbook, opts))
   }
@@ -217,15 +230,15 @@ async function runTestSuite(
     return suite
   }
 
-  // Resolve working directory
-  let workDir: string
-  let cleanupWorkDir: (() => void) | null = null
+  // Resolve the configured working directory, or the cwd. With
+  // use_temp_working_dir (the default), each test case runs in its own fresh
+  // temp dir instead, made and removed around it below, so no test case sees
+  // files or clones an earlier one left behind.
+  const useTempWorkDir = shouldUseTempWorkingDir(config.settings)
+  let workDir = process.cwd()
 
   try {
-    if (shouldUseTempWorkingDir(config.settings)) {
-      workDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-workdir-"))
-      cleanupWorkDir = () => { try { fs.rmSync(workDir, { recursive: true, force: true }) } catch {} }
-    } else if (config.settings.working_dir) {
+    if (!useTempWorkDir && config.settings.working_dir) {
       if (config.settings.working_dir === ".") {
         workDir = path.dirname(runbookPath)
       } else if (path.isAbsolute(config.settings.working_dir)) {
@@ -233,8 +246,6 @@ async function runTestSuite(
       } else {
         workDir = path.join(path.dirname(runbookPath), config.settings.working_dir)
       }
-    } else {
-      workDir = process.cwd()
     }
   } catch (e: unknown) {
     suite.results.push({
@@ -272,7 +283,6 @@ async function runTestSuite(
     })
     suite.failed = 1
     suite.duration = Date.now() - start
-    cleanupWorkDir?.()
     return suite
   }
 
@@ -283,7 +293,29 @@ async function runTestSuite(
     if (opts.test && tc.name !== opts.test) continue
 
     runner.printTestHeader(tc.name)
-    const result = runner.runTest(tc)
+    let tempWorkDir: string | null = null
+    let result: TestResult
+    try {
+      if (useTempWorkDir) {
+        tempWorkDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-workdir-"))
+      }
+      result = runner.runTest(tc, tempWorkDir ?? workDir)
+    } catch (e: unknown) {
+      // An unexpected throw fails this test case only; the remaining test
+      // cases and runbooks still run and are reported.
+      result = {
+        testCase: tc.name,
+        status: "failed",
+        error: `${e}`,
+        duration: 0,
+        stepResults: [],
+        assertions: [],
+      }
+    } finally {
+      if (tempWorkDir) {
+        try { fs.rmSync(tempWorkDir, { recursive: true, force: true }) } catch {}
+      }
+    }
     suite.results.push(result)
 
     switch (result.status) {
@@ -293,7 +325,6 @@ async function runTestSuite(
     }
   }
 
-  cleanupWorkDir?.()
   suite.duration = Date.now() - start
   return suite
 }
@@ -313,10 +344,10 @@ function reportResults(suites: RunbookTestSuite[], opts: TestOptions): void {
 
   switch (opts.output) {
     case "junit":
-      reporter = new JUnitReporter(process.stdout)
+      reporter = new JUnitReporter()
       break
     default:
-      reporter = new TextReporter(process.stdout, opts.verbose)
+      reporter = new TextReporter(opts.verbose)
       break
   }
 
@@ -325,10 +356,10 @@ function reportResults(suites: RunbookTestSuite[], opts: TestOptions): void {
       reportToFile(reporter, suites, opts.outputFile)
     } catch (e: unknown) {
       console.error(`Error writing to output file: ${e}`)
-      reporter.report(suites)
+      process.stdout.write(reporter.render(suites))
     }
     return
   }
 
-  reporter.report(suites)
+  process.stdout.write(reporter.render(suites))
 }
