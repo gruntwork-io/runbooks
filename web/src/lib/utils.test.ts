@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getDirectoryPath, normalizeBlockId } from './utils'
+import { basename, getDirectoryPath, normalizeBlockId } from './utils'
 
 describe('getDirectoryPath', () => {
   it('should extract directory path from file path with extension', () => {
@@ -64,6 +64,29 @@ describe('getDirectoryPath', () => {
     expect(getDirectoryPath('relative/path/file.txt')).toBe('relative/path')
     expect(getDirectoryPath('./local/file.txt')).toBe('./local')
     expect(getDirectoryPath('../parent/file.txt')).toBe('../parent')
+  })
+})
+
+describe('basename', () => {
+  it('returns the last segment of a POSIX path', () => {
+    expect(basename('/a/b/repo')).toBe('repo')
+  })
+
+  it('returns the last segment of a Windows path', () => {
+    expect(basename('C:\\Users\\me\\repo')).toBe('repo')
+  })
+
+  it('handles mixed separators', () => {
+    expect(basename('C:\\repo/src\\foo.ts')).toBe('foo.ts')
+  })
+
+  it('ignores trailing separators', () => {
+    expect(basename('/a/b/repo/')).toBe('repo')
+    expect(basename('C:\\Users\\me\\repo\\')).toBe('repo')
+  })
+
+  it('returns a bare name unchanged', () => {
+    expect(basename('file')).toBe('file')
   })
 })
 

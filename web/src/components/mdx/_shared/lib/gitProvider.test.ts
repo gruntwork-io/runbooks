@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl } from './gitProvider'
+import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl, repoWebUrl } from './gitProvider'
 import type { BlockOutputs } from '@/contexts/RunbookContext'
 
 function outputs(id: string, values: Record<string, string>): Record<string, BlockOutputs> {
@@ -90,5 +90,30 @@ describe('hostFromRepoUrl', () => {
     expect(hostFromRepoUrl('deploy@gitlab.example.com:group/project.git')).toBe(
       'gitlab.example.com',
     )
+  })
+})
+
+describe('repoWebUrl', () => {
+  it.each([
+    ['an HTTPS clone URL', 'https://github.com/o/r.git', 'o', 'r', 'https://github.com/o/r'],
+    ['a bare host/path', 'github.com/o/r', 'o', 'r', 'https://github.com/o/r'],
+    ['an SCP-style SSH remote', 'git@github.com:o/r.git', 'o', 'r', 'https://github.com/o/r'],
+    ['an SCP-style remote with another user', 'deploy@gl.example.com:g/r.git', 'g', 'r', 'https://gl.example.com/g/r'],
+    ['an ssh:// URL, dropping the SSH port', 'ssh://git@gl.example.com:2222/g/sub/r.git', 'g/sub', 'r', 'https://gl.example.com/g/sub/r'],
+    ['an HTTPS URL on a custom web port', 'https://gl.example.com:8443/g/r', 'g', 'r', 'https://gl.example.com:8443/g/r'],
+    ['an HTTPS URL with embedded credentials', 'https://user:tok@github.com/o/r.git', 'o', 'r', 'https://github.com/o/r'],
+  ])('links %s', (_label, repoUrl, owner, name, expected) => {
+    expect(repoWebUrl(repoUrl, owner, name)).toBe(expected)
+  })
+
+  it('returns undefined when the repo has no remote or no owner', () => {
+    expect(repoWebUrl('', 'o', 'r')).toBeUndefined()
+    expect(repoWebUrl(undefined, 'o', 'r')).toBeUndefined()
+    expect(repoWebUrl('https://github.com/o/r.git', '', 'r')).toBeUndefined()
+  })
+
+  it('returns undefined for a remote with no web host', () => {
+    expect(repoWebUrl('file:///srv/git/o/r.git', 'o', 'r')).toBeUndefined()
+    expect(repoWebUrl('https://', 'o', 'r')).toBeUndefined()
   })
 })

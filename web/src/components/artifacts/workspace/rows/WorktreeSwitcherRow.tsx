@@ -2,7 +2,7 @@
  * @fileoverview WorktreeSwitcherRow Component
  *
  * A Popover-based dropdown for switching between multiple git worktrees.
- * Each option shows the GitHub icon, owner/repo, and ref name so users
+ * Each option shows the provider icon, owner/repo, and ref name so users
  * can distinguish clones of the same repo on different refs.
  *
  * Only renders when there are 2+ worktrees.
@@ -12,9 +12,9 @@ import { useState } from 'react'
 import { ChevronDown, CircleDot } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { GitHubIcon } from '@/components/icons/GitHubIcon'
 import type { GitWorkTree } from '@/contexts/gitWorkTreeTypes'
 import { RefIcon, formatRef } from './gitRefDisplay'
+import { RepoIcon, RepoLabel } from './RepoLabel'
 
 interface WorktreeSwitcherRowProps {
   /** All registered worktrees */
@@ -59,10 +59,8 @@ export const WorktreeSwitcherRow = ({
               "hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer transition-colors",
             )}
           >
-            <GitHubIcon className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-            <span className="truncate font-medium text-foreground">
-              {activeWorkTree.gitInfo.repoOwner}/{activeWorkTree.gitInfo.repoName}
-            </span>
+            <RepoIcon repoUrl={activeWorkTree.gitInfo.repoUrl} className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+            <RepoLabel gitInfo={activeWorkTree.gitInfo} className="truncate font-medium text-foreground" />
             <span className="text-muted-foreground text-xs flex-shrink-0">|</span>
             <div className="flex items-center gap-1 flex-shrink-0">
               <RefIcon refType={activeWorkTree.gitInfo.refType} className="w-3 h-3 text-muted-foreground" />
@@ -106,17 +104,15 @@ export const WorktreeSwitcherRow = ({
                       isActive ? "text-success" : "text-transparent",
                     )}
                   />
-                  <GitHubIcon className={cn(
+                  <RepoIcon repoUrl={wt.gitInfo.repoUrl} className={cn(
                     "w-3.5 h-3.5 flex-shrink-0",
                     isActive ? "text-primary" : "text-muted-foreground",
                   )} />
                   <div className="flex flex-col min-w-0 gap-0.5">
-                    <span className={cn(
+                    <RepoLabel gitInfo={wt.gitInfo} className={cn(
                       "font-medium truncate text-sm leading-tight",
                       isActive ? "text-primary" : "text-foreground",
-                    )}>
-                      {wt.gitInfo.repoOwner}/{wt.gitInfo.repoName}
-                    </span>
+                    )} />
                     <div className="flex items-center gap-1">
                       <RefIcon refType={wt.gitInfo.refType} className={cn(
                         "w-3 h-3 flex-shrink-0",

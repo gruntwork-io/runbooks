@@ -80,4 +80,13 @@
   & .ansi-underline {
     text-decoration: underline;
   }
+
+  /* Links from ansi-to-react's linkify carry no class, and Tailwind preflight
+     resets anchors to inherit color and decoration. Underline them so they read
+     as links; the color stays whatever the ANSI span sets. */
+  & a {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
 }
