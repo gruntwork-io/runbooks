@@ -16,6 +16,7 @@ import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
+import { installIpcErrorNormalization } from "./ipc/ipc-error.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
@@ -280,6 +281,15 @@ if (cliConfig.runbookPath) {
 if (cliConfig.watch) {
   setRunbookConfig({ ...runbookConfig, isWatchMode: true, disableLiveFileReload: cliConfig.disableLiveFileReload })
 }
+
+// ---------------------------------------------------------------------------
+// IPC error normalization. Wraps ipcMain.handle so every handler's rejection
+// crosses to the renderer as a clean message instead of a FiberFailure dump
+// (see ipc/ipc-error.ts). Must run before the first ipcMain.handle call: the
+// native handlers below and registerAllIpcHandlers() in whenReady.
+// ---------------------------------------------------------------------------
+
+installIpcErrorNormalization(ipcMain)
 
 // ---------------------------------------------------------------------------
 // Native IPC handlers (Electron-only, no backend dependency)

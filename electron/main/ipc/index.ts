@@ -4,6 +4,11 @@
  * Aggregates all handler modules and registers them with Electron's ipcMain.
  * Call registerAllIpcHandlers() once during app startup, before creating any
  * BrowserWindow instances.
+ *
+ * Handlers may let `runtime.runPromise(...)` reject: main/index.ts installs
+ * installIpcErrorNormalization() (ipc-error.ts) before any handler is
+ * registered, which turns every rejection into a clean message for the
+ * renderer.
  */
 import { ipcMain } from "electron"
 import { Effect } from "effect"

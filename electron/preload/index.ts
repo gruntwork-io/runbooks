@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
 import type { IpcChannelMap, IpcEventMap, InvokeChannel, EventChannel } from "../shared/channels.ts"
+import { cleanIpcErrorMessage } from "../shared/ipc-error-message.ts"
 
 // Derive allowlists from the channel type definitions — no manual sync needed.
 const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
@@ -55,7 +56,12 @@ contextBridge.exposeInMainWorld("api", {
     if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
       return Promise.reject(new Error(`Blocked IPC invoke on unknown channel: ${channel}`))
     }
-    return ipcRenderer.invoke(channel, ...args)
+    // Strip Electron's "Error invoking remote method '<channel>': Error: "
+    // wrapper once here, so every caller (useIpc and direct api.invoke catch
+    // blocks alike) gets just the handler's message.
+    return ipcRenderer.invoke(channel, ...args).catch((err: unknown) => {
+      throw new Error(cleanIpcErrorMessage(err instanceof Error ? err.message : String(err)))
+    })
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {
