@@ -23,6 +23,25 @@ import { useApi } from './contexts/ApiContext'
 import { cn } from './lib/utils'
 import type { AppError } from './types/error'
 
+/**
+ * Clears the root logs store whenever the loaded runbook changes, including
+ * on close (the path becomes undefined), so the previous runbook's logs don't
+ * end up in the "download logs" zip.
+ *
+ * A separate child so App itself doesn't read LogsContext: its value changes
+ * on every streamed log line, and App re-rendering would re-render the whole
+ * runbook each time. Its effect runs before App's in the same commit, which is
+ * fine, because the next runbook's blocks only register logs once its MDX has
+ * compiled.
+ */
+function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string }) {
+  const { clearLogs } = useLogs()
+  useEffect(() => {
+    clearLogs()
+  }, [runbookPath, clearLogs])
+  return null
+}
+
 function App() {
   const api = useApi()
   const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
@@ -90,8 +109,6 @@ function App() {
   const { workTrees, resetWorkTrees } = useGitWorkTree()
   const hasWorkTrees = workTrees.length > 0
 
-  const { clearLogs } = useLogs()
-  
   // Show artifacts panel unless user has manually hidden it
   const showArtifacts = !isArtifactsHidden
   
@@ -154,20 +171,20 @@ function App() {
     alertDismissedThisSession,
   ]);
 
-  // The worktree, logs and generated-files providers are mounted once at the
-  // app root, so they otherwise keep whatever the previously opened runbook
-  // left there (a stale "active" repo, its logs in the download, its file
-  // tree). Clear them whenever the loaded runbook actually changes, including
-  // on close (the path becomes undefined), but not on watch-mode reloads,
-  // which keep the same path. The per-runbook block state is reset by keying
-  // MDXContainer on the same path below.
+  // The worktree and generated-files providers are mounted once at the app
+  // root, so they otherwise keep whatever the previously opened runbook left
+  // there (a stale "active" repo, its file tree). Clear them, and the
+  // generated-files alert state, whenever the loaded runbook actually
+  // changes, including on close (the path becomes undefined), but not on
+  // watch-mode reloads, which keep the same path. The per-runbook block state
+  // is reset by keying MDXContainer on the same path below, and the logs
+  // store by ClearLogsOnRunbookChange.
   //
   // Declared after the alert effect so its reset wins in the commit that
   // switches runbooks, when the alert effect still sees the previous
   // runbook's check result; the new runbook's check then decides.
   useEffect(() => {
     resetWorkTrees()
-    clearLogs()
     updateGeneratedFileTree(null)
     setShowGeneratedFilesAlert(false)
     setAlertDismissedThisSession(false)
@@ -191,6 +208,11 @@ function App() {
   // Listen for "Close Runbook" menu command. useIpcGetRunbook clears its
   // own state; here we drop the "has ever loaded" latch and any error
   // banners so the WelcomeScreen renders again.
+  //
+  // The two alert setters duplicate the path-change effect's reset on
+  // purpose: that effect only runs after the close has rendered, and in that
+  // render the alert, remounted under its new (undefined) key, would still
+  // get the previous runbook's check data and an open state.
   useEffect(() => {
     const cleanup = api.on('menu:close-runbook', () => {
       hasEverLoadedRef.current = false
@@ -225,6 +247,7 @@ function App() {
 
   return (
     <>
+      <ClearLogsOnRunbookChange runbookPath={getRunbookResult.data?.path} />
       <div className="flex flex-col">
         <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
         

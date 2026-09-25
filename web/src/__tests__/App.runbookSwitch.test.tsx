@@ -12,9 +12,14 @@ import { useLogs } from '@/contexts/useLogs'
 import App from '../App'
 
 // The artifacts panel polls the workspace over IPC and the welcome screen
-// checks the CLI install; neither is under test here.
+// checks the CLI install; neither is under test here. App renders the
+// artifacts panel directly, so its render count tracks App's.
+const artifactsRenders = vi.hoisted(() => ({ count: 0 }))
 vi.mock('@/components/layout/ArtifactsContainer', () => ({
-  ArtifactsContainer: () => null,
+  ArtifactsContainer: () => {
+    artifactsRenders.count++
+    return null
+  },
 }))
 vi.mock('@/components/layout/WelcomeScreen', () => ({
   WelcomeScreen: () => <div>Welcome</div>,
@@ -219,6 +224,21 @@ describe('App runbook switching', () => {
     expect(callsTo(invoke, 'generated-files:check').at(-1)?.[1]).toEqual({
       runbookPath: '/work/b/runbook.mdx',
     })
+  })
+
+  it('does not re-render the app when a block writes logs', async () => {
+    const { emit } = renderApp()
+    await openRunbook(emit, '/work/a', 'Runbook A')
+    // Let App's own delayed state (the "show code" button timer) settle first.
+    await screen.findByTitle('Show generated files', {}, { timeout: 3000 })
+
+    const rendersBefore = artifactsRenders.count
+    fireEvent.click(screen.getByRole('button', { name: 'Seed logs' }))
+
+    // Streamed log lines update the logs store; only its readers (the header,
+    // the blocks) re-render, not App and the whole runbook under it.
+    expect(artifactsRenders.count).toBe(rendersBefore)
+    expect(await isLogDownloadEnabled(emit)).toBe(true)
   })
 
   it('keeps per-runbook state when the same runbook is opened again', async () => {
