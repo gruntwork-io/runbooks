@@ -103,8 +103,28 @@ export function useAwsAuth({
   const [ssoAccountSearch, setSsoAccountSearch] = useState('')
   const [ssoRoleSearch, setSsoRoleSearch] = useState('')
 
-  // SSO polling cancellation
-  const ssoPollingCancelledRef = useRef(false)
+  // SSO polling. Each sign-in attempt runs under its own flow number, and its
+  // poll loop acts only while that number is current. stopSsoPolling bumps the
+  // number and clears the pending timer, so cancel, re-auth, retry and unmount
+  // end the loop even with a poll in flight, and a later attempt can't revive it.
+  const ssoFlowRef = useRef(0)
+  const ssoPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const stopSsoPolling = useCallback(() => {
+    ssoFlowRef.current++
+    if (ssoPollTimeoutRef.current) {
+      clearTimeout(ssoPollTimeoutRef.current)
+      ssoPollTimeoutRef.current = null
+    }
+  }, [])
+
+  // Cleanup on unmount: an abandoned loop would otherwise keep polling and,
+  // on approval, register credentials from a block that is no longer shown.
+  useEffect(() => {
+    return () => {
+      stopSsoPolling()
+    }
+  }, [stopSsoPolling])
 
   // Helper to check for credentials from block outputs
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: Partial<AwsCredentials>; error?: string } => {
@@ -524,8 +544,10 @@ export function useAwsAuth({
     setAuthStatus('pending')
   }, [])
 
-  // Retry credential detection (after user rejected and wants to go back)
+  // Retry credential detection (after user rejected and wants to go back).
+  // The link is shown while an SSO sign-in may be in progress, so stop it.
   const handleRetryDetection = useCallback(() => {
+    stopSsoPolling()
     // Reset detection state so the effect will re-run
     setDetectedCredentials(null)
     setDetectionWarning(null)
@@ -539,7 +561,7 @@ export function useAwsAuth({
     detectionAttemptedRef.current = false
     // Increment the attempt counter to trigger the effect to re-run
     setDetectionAttempt(prev => prev + 1)
-  }, [])
+  }, [stopSsoPolling])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = useCallback(async () => {
@@ -597,13 +619,15 @@ export function useAwsAuth({
     })
   }, [accessKeyId, secretAccessKey, sessionToken, selectedDefaultRegion, validateCredentials])
 
-  // Poll for SSO authentication completion
-  const pollSsoCompletion = useCallback(async (deviceCode: string, clientId: string, clientSecret: string) => {
+  // Poll for SSO authentication completion. `flow` is the attempt this loop
+  // belongs to; once it is no longer current the loop stops without touching state.
+  const pollSsoCompletion = useCallback(async (deviceCode: string, clientId: string, clientSecret: string, flow: number) => {
     const maxAttempts = 60
     let attempts = 0
+    const stale = () => ssoFlowRef.current !== flow
 
     const poll = async () => {
-      if (ssoPollingCancelledRef.current) return
+      if (stale()) return
 
       try {
         const data = await api.invoke('aws:sso-poll', {
@@ -615,11 +639,11 @@ export function useAwsAuth({
           roleName: ssoRoleName,
         })
 
-        if (ssoPollingCancelledRef.current) return
+        if (stale()) return
 
         if (data.status === 'pending' && attempts < maxAttempts) {
           attempts++
-          setTimeout(poll, 2000)
+          ssoPollTimeoutRef.current = setTimeout(poll, 2000)
         } else if (data.status === 'select_account') {
           setSsoAccessToken(data.accessToken ?? null)
           setSsoAccounts((data.accounts ?? []) as unknown as SSOAccount[])
@@ -638,7 +662,7 @@ export function useAwsAuth({
           setErrorMessage(data.error || 'SSO authentication timed out or failed')
         }
       } catch (error) {
-        if (ssoPollingCancelledRef.current) return
+        if (stale()) return
         setAuthStatus('failed')
         setErrorMessage(error instanceof Error ? error.message : 'Failed to poll SSO status')
       }
@@ -654,7 +678,9 @@ export function useAwsAuth({
       return
     }
 
-    ssoPollingCancelledRef.current = false
+    // End any earlier attempt; this one runs under a fresh flow number.
+    stopSsoPolling()
+    const flow = ssoFlowRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
@@ -666,18 +692,23 @@ export function useAwsAuth({
         roleName: ssoRoleName,
       })
 
+      // Cancelled (or superseded) while the device flow was starting: don't
+      // open the browser or start polling for an attempt the user abandoned.
+      if (ssoFlowRef.current !== flow) return
+
       if (data.verificationUri) {
         window.open(data.verificationUri, '_blank')
-        pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret)
+        pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret, flow)
       } else {
         setAuthStatus('failed')
         setErrorMessage(data.error || 'Failed to start SSO authentication')
       }
     } catch (error) {
+      if (ssoFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [api, ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, pollSsoCompletion])
+  }, [api, ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, pollSsoCompletion, stopSsoPolling])
 
   // Handle SSO account selection - load roles for selected account
   const handleSsoAccountSelect = useCallback(async (account: SSOAccount) => {
@@ -793,8 +824,14 @@ export function useAwsAuth({
     }
   }, [api, selectedProfile, selectedDefaultRegion, registerCredentials])
 
-  // Reset to manual authentication (show auth tabs)
+  // Reset to manual authentication (show auth tabs). Also "Re-authenticate".
   const handleManualAuth = useCallback(() => {
+    stopSsoPolling()
+    // Withdraw the block's outputs so `awsAuthId` steps stop using the
+    // credential this reset exists to replace (GoogleAuth does the same).
+    // registerOutputs replaces the whole map. The session env keeps the old
+    // AWS_* values until the next sign-in overwrites them.
+    registerOutputs(id, { __AUTHENTICATED: 'false' })
     setAuthStatus('pending')
     setErrorMessage(null)
     setWarningMessage(null)
@@ -811,14 +848,14 @@ export function useAwsAuth({
     setDetectionStatus('done')
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
-  }, [])
+  }, [stopSsoPolling, registerOutputs, id])
 
   // Cancel SSO authentication
   const handleCancelSsoAuth = useCallback(() => {
-    ssoPollingCancelledRef.current = true
+    stopSsoPolling()
     setAuthStatus('pending')
     setErrorMessage(null)
-  }, [])
+  }, [stopSsoPolling])
 
   return {
     // Core state

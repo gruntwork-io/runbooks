@@ -12,14 +12,14 @@ import {
   listProfiles,
   authenticateProfile,
   startSsoFlow,
-  pollSsoToken,
-  completeSsoAuth,
-  listSsoRoles,
+  signInWithSsoRole,
   checkRegion,
 } from "../../../src/domain/aws/auth.ts"
-import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
+import type { AwsCredentials, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
 import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
 import type { EnvCredentialsParams } from "./aws-env.ts"
+import { handleSsoPoll, handleSsoRoles } from "./aws-sso.ts"
+import type { SsoPollRequest, SsoRolesRequest } from "./aws-sso.ts"
 
 type ValidatePayload = Partial<AwsCredentials> & { credentials?: AwsCredentials; region?: string }
 
@@ -94,28 +94,19 @@ export function registerAwsHandlers(): void {
 
   ipcMain.handle(
     "aws:sso-poll",
-    async (_event, params: SsoPollParams) => {
-      return runtime.runPromise(pollSsoToken(params))
-    },
+    async (_event, params: SsoPollRequest) => handleSsoPoll(params),
   )
 
   ipcMain.handle(
     "aws:sso-roles",
-    async (_event, params: { accessToken: string; accountId: string }) => {
-      return runtime.runPromise(
-        listSsoRoles(params.accessToken, params.accountId),
-      )
-    },
+    async (_event, params: SsoRolesRequest) => handleSsoRoles(params),
   )
 
   ipcMain.handle(
     "aws:sso-complete",
     async (_event, params: SsoCompleteParams) => {
       try {
-        const credentials = await runtime.runPromise(completeSsoAuth(params))
-        const identity = await runtime.runPromise(
-          validateCredentials(credentials, credentials.region),
-        )
+        const { credentials, identity } = await runtime.runPromise(signInWithSsoRole(params))
         return {
           ...identity,
           accessKeyId: credentials.accessKeyId,

@@ -1,8 +1,10 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Exit, Layer } from "effect"
-import { detectEnvCredentials, confirmEnvCredentials } from "./auth.ts"
+import { Cause, Effect, Exit, Layer } from "effect"
+import { detectEnvCredentials, confirmEnvCredentials, pollSsoFlow } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestAwsClient } from "../../test-utils/TestLayer.ts"
+import { AwsAuthError, AwsSsoError } from "../../errors/index.ts"
+import type { AwsClientShape, SsoAccount } from "../../services/AwsClient.ts"
 
 describe("detectEnvCredentials", () => {
   it("returns credentials when both keys are set", async () => {
@@ -241,5 +243,170 @@ describe("confirmEnvCredentials", () => {
       expect(await confirmRegion({})).toBe("us-east-1")
       expect(await confirmRegion({}, "")).toBe("us-east-1")
     })
+  })
+})
+
+/**
+ * The SSO device flow after the user approves in the browser: the poll carries
+ * the flow as far as it can without asking (Go backend parity), and every SSO
+ * call goes to the region the flow was started in.
+ */
+describe("pollSsoFlow", () => {
+  const SSO_REGION = "eu-central-1"
+  const POLL = { clientId: "cid", clientSecret: "csecret", deviceCode: "dc-1", region: SSO_REGION }
+  const ACCOUNT_A: SsoAccount = { accountId: "111111111111", accountName: "prod" }
+  const ACCOUNT_B: SsoAccount = { accountId: "222222222222", accountName: "dev" }
+  const ROLE_CREDS = {
+    accessKeyId: "ASIA_ROLE",
+    secretAccessKey: "role-secret",
+    sessionToken: "role-token",
+    region: SSO_REGION,
+  }
+  const IDENTITY = { accountId: "111111111111", arn: "arn:aws:sts::111111111111:assumed-role/Admin/me" }
+
+  /**
+   * Runs one poll. Every SSO call records the region it was sent to; the
+   * token is granted and account/role listings are empty unless overridden.
+   */
+  const run = async (
+    overrides: Partial<AwsClientShape>,
+    extra: { accountId?: string; roleName?: string } = {},
+  ) => {
+    const regions: string[] = []
+    const completed: unknown[] = []
+    const layer = makeTestAwsClient({
+      pollSsoToken: (params) => {
+        regions.push(params.region)
+        return Effect.succeed({ accessToken: "sso-token" })
+      },
+      completeSsoAuth: (params) => {
+        regions.push(params.region)
+        completed.push(params)
+        return Effect.succeed(ROLE_CREDS)
+      },
+      validateCredentials: () => Effect.succeed(IDENTITY),
+      ...overrides,
+      listSsoAccounts: (token, region) => {
+        regions.push(region)
+        return overrides.listSsoAccounts?.(token, region) ?? Effect.succeed([])
+      },
+      listSsoRoles: (token, accountId, region) => {
+        regions.push(region)
+        return overrides.listSsoRoles?.(token, accountId, region) ?? Effect.succeed([])
+      },
+    })
+    const exit = await Effect.runPromiseExit(
+      pollSsoFlow({ ...POLL, ...extra }).pipe(Effect.provide(layer)),
+    )
+    return { exit, regions, completed }
+  }
+
+  const outcome = (exit: Exit.Exit<unknown, unknown>) => {
+    if (!Exit.isSuccess(exit)) throw new Error(`expected the poll to succeed: ${Cause.pretty(exit.cause)}`)
+    return exit.value
+  }
+
+  const failureMessage = (exit: Exit.Exit<unknown, unknown>) => {
+    if (!Exit.isFailure(exit)) throw new Error("expected the poll to fail")
+    const err = Cause.failureOption(exit.cause)
+    if (err._tag === "None") throw new Error("expected a typed failure")
+    return (err.value as { message: string }).message
+  }
+
+  it("is pending until the user approves", async () => {
+    const { exit } = await run({ pollSsoToken: () => Effect.succeed({ pending: true }) })
+    expect(outcome(exit)).toEqual({ status: "pending" })
+  })
+
+  it("signs in to the pinned account and role without listing accounts", async () => {
+    const { exit, regions, completed } = await run({}, { accountId: "111111111111", roleName: "Admin" })
+
+    expect(outcome(exit)).toEqual({ status: "success", credentials: ROLE_CREDS, identity: IDENTITY })
+    expect(completed).toEqual([
+      { accessToken: "sso-token", accountId: "111111111111", roleName: "Admin", region: SSO_REGION },
+    ])
+    // pollSsoToken, then completeSsoAuth: no listing call.
+    expect(regions).toEqual([SSO_REGION, SSO_REGION])
+  })
+
+  it("lists accounts when only one of account and role is pinned", async () => {
+    const { exit } = await run(
+      { listSsoAccounts: () => Effect.succeed([ACCOUNT_A, ACCOUNT_B]) },
+      { accountId: "111111111111" },
+    )
+    expect(outcome(exit)).toEqual({
+      status: "select_account",
+      accessToken: "sso-token",
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+    })
+  })
+
+  it("asks the user to choose when there are several accounts", async () => {
+    const { exit, regions, completed } = await run({
+      listSsoAccounts: () => Effect.succeed([ACCOUNT_A, ACCOUNT_B]),
+    })
+
+    expect(outcome(exit)).toEqual({
+      status: "select_account",
+      accessToken: "sso-token",
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+    })
+    expect(completed).toEqual([])
+    expect(regions).toEqual([SSO_REGION, SSO_REGION])
+  })
+
+  it("signs in without asking when there is one account with one role", async () => {
+    const { exit, regions, completed } = await run({
+      listSsoAccounts: () => Effect.succeed([ACCOUNT_A]),
+      listSsoRoles: (_token, accountId) => Effect.succeed([{ roleName: "ReadOnly", accountId }]),
+    })
+
+    expect(outcome(exit)).toEqual({ status: "success", credentials: ROLE_CREDS, identity: IDENTITY })
+    expect(completed).toEqual([
+      { accessToken: "sso-token", accountId: "111111111111", roleName: "ReadOnly", region: SSO_REGION },
+    ])
+    // poll, list accounts, list roles, complete — all in the SSO region.
+    expect(regions).toEqual([SSO_REGION, SSO_REGION, SSO_REGION, SSO_REGION])
+  })
+
+  it("asks the user to choose when the one account has several roles", async () => {
+    const { exit, completed } = await run({
+      listSsoAccounts: () => Effect.succeed([ACCOUNT_A]),
+      listSsoRoles: (_token, accountId) =>
+        Effect.succeed([{ roleName: "ReadOnly", accountId }, { roleName: "Admin", accountId }]),
+    })
+
+    expect(outcome(exit)).toEqual({ status: "select_account", accessToken: "sso-token", accounts: [ACCOUNT_A] })
+    expect(completed).toEqual([])
+  })
+
+  it("fails when no accounts are available", async () => {
+    const { exit } = await run({ listSsoAccounts: () => Effect.succeed([]) })
+    expect(failureMessage(exit)).toContain("No AWS accounts are available")
+  })
+
+  it("fails when the one account has no roles", async () => {
+    const { exit } = await run({ listSsoAccounts: () => Effect.succeed([ACCOUNT_A]) })
+    expect(failureMessage(exit)).toContain("No roles are available to you in account 111111111111")
+  })
+
+  it("fails when the approved token poll returns no access token", async () => {
+    const { exit } = await run({ pollSsoToken: () => Effect.succeed({}) })
+    expect(failureMessage(exit)).toContain("without an access token")
+  })
+
+  it("fails with the SSO error when the token poll fails", async () => {
+    const { exit } = await run({
+      pollSsoToken: () => Effect.fail(new AwsSsoError({ message: "The SSO sign-in request expired. Please try again." })),
+    })
+    expect(failureMessage(exit)).toBe("The SSO sign-in request expired. Please try again.")
+  })
+
+  it("fails when the role credentials do not validate", async () => {
+    const { exit } = await run(
+      { validateCredentials: () => Effect.fail(new AwsAuthError({ message: "sts said no" })) },
+      { accountId: "111111111111", roleName: "Admin" },
+    )
+    expect(failureMessage(exit)).toBe("sts said no")
   })
 })

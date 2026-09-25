@@ -3,9 +3,15 @@
  */
 import { Effect } from "effect"
 import { AwsClient } from "../../services/AwsClient.ts"
-import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../services/AwsClient.ts"
+import type {
+  AwsCredentials,
+  AwsIdentity,
+  SsoAccount,
+  SsoPollParams,
+  SsoCompleteParams,
+} from "../../services/AwsClient.ts"
 import { Environment } from "../../services/Environment.ts"
-import { AwsAuthError } from "../../errors/index.ts"
+import { AwsAuthError, AwsSsoError } from "../../errors/index.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
@@ -32,6 +38,29 @@ export interface EnvCredentials {
   readonly sessionToken?: string
   readonly region?: string
 }
+
+/** One poll of the SSO device flow with the block's optional pinned account and role. */
+export interface SsoFlowPollParams extends SsoPollParams {
+  readonly accountId?: string
+  readonly roleName?: string
+}
+
+/**
+ * Where the SSO device flow stands after one poll. The block's aws:sso-poll
+ * reply is built from this; failures travel in the error channel.
+ */
+export type SsoPollOutcome =
+  | { readonly status: "pending" }
+  | {
+      readonly status: "select_account"
+      readonly accessToken: string
+      readonly accounts: readonly SsoAccount[]
+    }
+  | {
+      readonly status: "success"
+      readonly credentials: AwsCredentials
+      readonly identity: AwsIdentity
+    }
 
 // ---------------------------------------------------------------------------
 // Credential Validation
@@ -190,21 +219,86 @@ export const completeSsoAuth = (params: SsoCompleteParams) =>
   })
 
 /**
+ * Exchange the SSO access token for the role's credentials and confirm them
+ * via STS. Returns the credentials together with the identity they belong to.
+ */
+export const signInWithSsoRole = (params: SsoCompleteParams) =>
+  Effect.gen(function* () {
+    const credentials = yield* completeSsoAuth(params)
+    const identity = yield* validateCredentials(credentials, credentials.region)
+    return { credentials, identity }
+  })
+
+/**
  * List AWS accounts accessible via SSO.
  */
-export const listSsoAccounts = (accessToken: string) =>
+export const listSsoAccounts = (accessToken: string, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.listSsoAccounts(accessToken)
+    return yield* awsClient.listSsoAccounts(accessToken, region)
   })
 
 /**
  * List roles available for a specific SSO account.
  */
-export const listSsoRoles = (accessToken: string, accountId: string) =>
+export const listSsoRoles = (accessToken: string, accountId: string, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.listSsoRoles(accessToken, accountId)
+    return yield* awsClient.listSsoRoles(accessToken, accountId, region)
+  })
+
+/**
+ * One poll of the SSO device flow, carried as far as it can go without the
+ * user:
+ * - not approved yet → pending;
+ * - approved, with the block's account and role both pinned → sign in to
+ *   that role;
+ * - otherwise list the accounts: none fails; exactly one account with exactly
+ *   one role signs in to it; anything else asks the user to choose.
+ *
+ * Every SSO call goes to `params.region`, where the device flow was started.
+ */
+export const pollSsoFlow = (
+  params: SsoFlowPollParams,
+): Effect.Effect<SsoPollOutcome, AwsSsoError | AwsAuthError, AwsClient> =>
+  Effect.gen(function* () {
+    const token = yield* pollSsoToken(params)
+    if (token.pending) {
+      return { status: "pending" } as const
+    }
+    const accessToken = token.accessToken
+    if (!accessToken) {
+      return yield* new AwsSsoError({ message: "SSO sign-in finished without an access token" })
+    }
+
+    const { region } = params
+    let accountId = params.accountId
+    let roleName = params.roleName
+
+    if (!accountId || !roleName) {
+      const accounts = yield* listSsoAccounts(accessToken, region)
+      if (accounts.length === 0) {
+        return yield* new AwsSsoError({ message: "No AWS accounts are available to you in IAM Identity Center" })
+      }
+      const selectAccount = { status: "select_account", accessToken, accounts } as const
+      if (accounts.length > 1) {
+        return selectAccount
+      }
+
+      const [account] = accounts
+      const roles = yield* listSsoRoles(accessToken, account.accountId, region)
+      if (roles.length === 0) {
+        return yield* new AwsSsoError({ message: `No roles are available to you in account ${account.accountId}` })
+      }
+      if (roles.length > 1) {
+        return selectAccount
+      }
+      accountId = account.accountId
+      roleName = roles[0].roleName
+    }
+
+    const { credentials, identity } = yield* signInWithSsoRole({ accessToken, accountId, roleName, region })
+    return { status: "success", credentials, identity } as const
   })
 
 // ---------------------------------------------------------------------------

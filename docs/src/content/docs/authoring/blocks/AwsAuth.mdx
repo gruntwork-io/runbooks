@@ -54,9 +54,9 @@ The user can still switch tabs — `defaultTab` only chooses the starting one.
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
 | `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
-| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured |
-| `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication |
-| `ssoRoleName` | string | - | Pre-select a specific IAM role to assume |
+| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. Every SSO call goes to this region |
+| `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication. Takes effect only together with `ssoRoleName` |
+| `ssoRoleName` | string | - | Pre-select a specific IAM role to assume. Takes effect only together with `ssoAccountId` |
 
 ## Environment Variables
 
@@ -76,6 +76,8 @@ These variables are set in the session environment, so all subsequent blocks hav
 When you authenticate to AWS using the AwsAuth block, the [environment variables above](#environment-variables) are automatically made available to all subsequent Command and Check blocks. This means that Command and Check blocks will use the most recently authenticated AwsAuth block (if any) to get AWS authentication credentials.
 
 Any subsequent AWS authentication will update the environment variables and then become the default AWS authentication credentials.
+
+Clicking **Re-authenticate** on the success card withdraws the block's credentials, so blocks that reference it with `awsAuthId` (below) report it as not authenticated until the user signs in again. The session environment variables keep their previous values until the next sign-in replaces them.
 
 However, in some cases, you may want to use a specific AWS authentication with a block, not just the most recent AWS authentication. To do that, you can reference a specific AwsAuth block from Command or Check blocks using the `awsAuthId` prop. For example:
 
@@ -112,7 +114,9 @@ While you can use `awsAuthId` to explicitly reference the AwsAuth block, the cre
 
 ### Pre-selected SSO Account and Role
 
-Skip the account/role selection step by pre-configuring them:
+After the user approves the sign-in in their browser, AwsAuth lists the AWS accounts they can access and asks them to pick an account and then a role. If they can access exactly one account with exactly one role, that role is used without asking.
+
+Skip the account/role selection step by pre-configuring both (setting only one of them has no effect):
 
 ```mdx
 <AwsAuth

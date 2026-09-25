@@ -26,6 +26,21 @@ import type {
 } from "../services/AwsClient.ts"
 import { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
 
+/**
+ * The CreateToken failures a user causes get a message that says what to do;
+ * anything else keeps the SDK's own text.
+ */
+function describeSsoTokenError(err: unknown): string {
+  const name = err instanceof Error ? err.name : undefined
+  if (name === "AccessDeniedException") {
+    return "SSO sign-in was denied or cancelled in the browser"
+  }
+  if (name === "ExpiredTokenException") {
+    return "The SSO sign-in request expired. Please try again."
+  }
+  return `Failed to poll SSO token: ${err}`
+}
+
 function makeCredentialsProvider(creds: AwsCredentials) {
   return {
     accessKeyId: creds.accessKeyId,
@@ -177,7 +192,9 @@ const impl: AwsClientShape = {
   pollSsoToken: (params: SsoPollParams) =>
     Effect.tryPromise({
       try: async (): Promise<SsoTokenResult> => {
-        const oidcClient = new SSOOIDCClient({})
+        // The OIDC client was registered in the SSO region, so CreateToken has
+        // to go to that region's endpoint, whatever the ambient region is.
+        const oidcClient = new SSOOIDCClient({ region: params.region })
 
         try {
           const tokenResp = await oidcClient.send(
@@ -191,13 +208,18 @@ const impl: AwsClientShape = {
 
           return { accessToken: tokenResp.accessToken }
         } catch (err: unknown) {
-          if (err instanceof Error && err.name === "AuthorizationPendingException") {
+          // Both mean "not approved yet": SlowDown is the device flow asking
+          // the client to poll less often, not a failure.
+          if (
+            err instanceof Error &&
+            (err.name === "AuthorizationPendingException" || err.name === "SlowDownException")
+          ) {
             return { pending: true }
           }
           throw err
         }
       },
-      catch: (err) => new AwsSsoError({ message: `Failed to poll SSO token: ${err}`, cause: err }),
+      catch: (err) => new AwsSsoError({ message: describeSsoTokenError(err), cause: err }),
     }),
 
   completeSsoAuth: (params: SsoCompleteParams) =>
@@ -223,33 +245,50 @@ const impl: AwsClientShape = {
       catch: (err) => new AwsSsoError({ message: `Failed to complete SSO auth: ${err}`, cause: err }),
     }),
 
-  listSsoAccounts: (accessToken: string) =>
+  listSsoAccounts: (accessToken: string, region: string) =>
     Effect.tryPromise({
       try: async (): Promise<SsoAccount[]> => {
-        const ssoClient = new SSOClient({})
-        const resp = await ssoClient.send(
-          new ListAccountsCommand({ accessToken }),
-        )
-        return (resp.accountList ?? []).map((a) => ({
-          accountId: a.accountId ?? "",
-          accountName: a.accountName ?? "",
-          emailAddress: a.emailAddress,
-        }))
+        const ssoClient = new SSOClient({ region })
+        const accounts: SsoAccount[] = []
+        // Paginated: an organization's accounts can span several pages.
+        let nextToken: string | undefined
+        do {
+          const resp = await ssoClient.send(
+            new ListAccountsCommand({ accessToken, nextToken }),
+          )
+          for (const a of resp.accountList ?? []) {
+            accounts.push({
+              accountId: a.accountId ?? "",
+              accountName: a.accountName ?? "",
+              emailAddress: a.emailAddress,
+            })
+          }
+          nextToken = resp.nextToken
+        } while (nextToken)
+        return accounts
       },
       catch: (err) => new AwsSsoError({ message: `Failed to list SSO accounts: ${err}`, cause: err }),
     }),
 
-  listSsoRoles: (accessToken: string, accountId: string) =>
+  listSsoRoles: (accessToken: string, accountId: string, region: string) =>
     Effect.tryPromise({
       try: async (): Promise<SsoRole[]> => {
-        const ssoClient = new SSOClient({})
-        const resp = await ssoClient.send(
-          new ListAccountRolesCommand({ accessToken, accountId }),
-        )
-        return (resp.roleList ?? []).map((r) => ({
-          roleName: r.roleName ?? "",
-          accountId: r.accountId ?? accountId,
-        }))
+        const ssoClient = new SSOClient({ region })
+        const roles: SsoRole[] = []
+        let nextToken: string | undefined
+        do {
+          const resp = await ssoClient.send(
+            new ListAccountRolesCommand({ accessToken, accountId, nextToken }),
+          )
+          for (const r of resp.roleList ?? []) {
+            roles.push({
+              roleName: r.roleName ?? "",
+              accountId: r.accountId ?? accountId,
+            })
+          }
+          nextToken = resp.nextToken
+        } while (nextToken)
+        return roles
       },
       catch: (err) => new AwsSsoError({ message: `Failed to list SSO roles: ${err}`, cause: err }),
     }),
