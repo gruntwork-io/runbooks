@@ -21,23 +21,31 @@ export interface PushOptions {
   readonly setUpstream?: boolean
 }
 
+/** One file's worktree-vs-HEAD line counts (`git diff HEAD --numstat`). */
 export interface DiffEntry {
   readonly path: string
   readonly changeType: string
   readonly additions: number
   readonly deletions: number
+  /** The file's content at HEAD; undefined when it has none (new file, unborn branch, binary). */
   readonly originalContent?: string
-  readonly newContent?: string
   readonly isBinary: boolean
-  readonly diffTruncated: boolean
 }
 
 export interface StatusEntry {
+  /** Repo-relative path, verbatim (never C-quoted). For a rename/copy, the new path. */
   readonly path: string
+  /** Porcelain v1 XY code, trimmed (e.g. "M", "??", "R"). */
   readonly status: string
+  /** For a rename/copy (R/C), the path it came from. */
+  readonly origPath?: string
 }
 
 export interface GitInfo {
+  /**
+   * The checked-out ref: the branch name, the tag name when `refType` is
+   * "tag", or "HEAD" when `refType` is "detached".
+   */
   readonly branch: string
   readonly refType: "branch" | "tag" | "detached"
   readonly remoteUrl?: string
@@ -73,8 +81,17 @@ export interface GitClientShape {
   readonly getRepoRoot: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   readonly getRemoteUrl: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   readonly getInfo: (repoPath: string) => Effect.Effect<GitInfo, GitError | SpawnError>
+  /**
+   * Changed tracked files, worktree vs HEAD (staged and unstaged alike), with
+   * HEAD content for text files. Omit `filePath` to diff the whole worktree in
+   * one pass. On an unborn branch it falls back to worktree vs index.
+   */
   readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
   readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
+  /**
+   * Whether HEAD resolves to a commit. False only for an unborn HEAD (a fresh
+   * `git init` or an empty clone); fails when the repo can't be queried.
+   */
   readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>

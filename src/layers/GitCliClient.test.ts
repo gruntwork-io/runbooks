@@ -6,13 +6,15 @@
  * workspace unit tests stub `git.diff` to *return* `originalContent`, so they
  * pass even when the real implementation never populates it. Only a test that
  * drives the actual `GitCliClientLive` layer against real git catches that.
+ * The same goes for path quoting: stubs hand back clean paths, while real git
+ * C-quotes any path with a space or non-ASCII character unless run with -z.
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Layer } from "effect"
+import { Effect, Either, Layer } from "effect"
 import { GitClient } from "../services/GitClient.ts"
 import { GitError } from "../errors/index.ts"
 import { GitCliClientLive } from "./GitCliClient.ts"
@@ -28,12 +30,44 @@ const runDiff = (repoPath: string, filePath?: string) =>
     }).pipe(Effect.provide(layer)),
   )
 
+const runStatus = (repoPath: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.status(repoPath)
+    }).pipe(Effect.provide(layer)),
+  )
+
+const runCheckIgnored = (repoPath: string, paths: string[]) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.checkIgnored(repoPath, paths)
+    }).pipe(Effect.provide(layer)),
+  )
+
 const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const git = yield* GitClient
       return yield* git.stageAll(repoPath, excludePaths)
     }).pipe(Effect.provide(layer)),
+  )
+
+const runInfo = (repoPath: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.getInfo(repoPath)
+    }).pipe(Effect.provide(layer)),
+  )
+
+const runHasCommitsEither = (repoPath: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      return yield* git.hasCommits(repoPath)
+    }).pipe(Effect.provide(layer), Effect.either),
   )
 
 const runCommitEither = (
@@ -120,9 +154,9 @@ describe("GitCliClientLive.diff (real repo)", () => {
   })
 
   it("leaves originalContent undefined for a file not in HEAD", async () => {
-    // Stage a brand-new file, then modify it in the working tree. The
-    // worktree-vs-index diff surfaces it, but there is no HEAD version to read,
-    // so originalContent must stay undefined rather than error out.
+    // Stage a brand-new file, then modify it in the working tree. The HEAD
+    // diff surfaces it, but there is no HEAD version to read, so
+    // originalContent must stay undefined rather than error out.
     fs.writeFileSync(path.join(repoPath, "fresh.txt"), "brand new\n")
     git(repoPath, "add", "fresh.txt")
     fs.writeFileSync(path.join(repoPath, "fresh.txt"), "brand new\nmore\n")
@@ -132,6 +166,238 @@ describe("GitCliClientLive.diff (real repo)", () => {
 
     expect(entry).toBeDefined()
     expect(entry?.originalContent).toBeUndefined()
+    // Its line counts (against HEAD, where it doesn't exist) are still reported.
+    expect(entry?.additions).toBe(2)
+    expect(entry?.deletions).toBe(0)
+  })
+
+  it("counts a staged modification against HEAD", async () => {
+    // A worktree-vs-index diff sees nothing once the change is staged.
+    fs.writeFileSync(path.join(repoPath, "tracked.txt"), "line one\nCHANGED\n")
+    git(repoPath, "add", "tracked.txt")
+
+    const entries = await runDiff(repoPath)
+
+    expect(entries).toEqual([
+      {
+        path: "tracked.txt",
+        changeType: "modified",
+        additions: 1,
+        deletions: 1,
+        originalContent: "line one\nline two",
+        isBinary: false,
+      },
+    ])
+  })
+
+  it("reports a staged deletion with its HEAD content", async () => {
+    git(repoPath, "rm", "-q", "tracked.txt")
+
+    const entries = await runDiff(repoPath)
+    const entry = entries.find((e) => e.path === "tracked.txt")
+
+    expect(entry?.deletions).toBe(2)
+    expect(entry?.originalContent).toBe("line one\nline two")
+  })
+
+  it("returns a non-ASCII path verbatim with its HEAD content", async () => {
+    fs.writeFileSync(path.join(repoPath, "café.txt"), "before\n")
+    git(repoPath, "add", "café.txt")
+    git(repoPath, "commit", "-m", "add café")
+    fs.writeFileSync(path.join(repoPath, "café.txt"), "after\n")
+
+    // Both the whole-worktree pass and the single-file lookup must match it.
+    for (const entries of [await runDiff(repoPath), await runDiff(repoPath, "café.txt")]) {
+      const entry = entries.find((e) => e.path === "café.txt")
+      expect(entry?.originalContent).toBe("before")
+      expect(entry?.additions).toBe(1)
+    }
+  })
+
+  it("falls back to the index on an unborn branch instead of failing", async () => {
+    // No commits yet, so there is no HEAD to diff against. A staged file then
+    // deleted from the worktree (`AD`) still has to come back as an entry.
+    const unborn = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitdiff-unborn-"))
+    try {
+      git(unborn, "init")
+      fs.writeFileSync(path.join(unborn, "staged.txt"), "a\nb\n")
+      git(unborn, "add", "staged.txt")
+      fs.rmSync(path.join(unborn, "staged.txt"))
+
+      const entries = await runDiff(unborn)
+
+      expect(entries).toEqual([
+        {
+          path: "staged.txt",
+          changeType: "modified",
+          additions: 0,
+          deletions: 2,
+          originalContent: undefined,
+          isBinary: false,
+        },
+      ])
+    } finally {
+      fs.rmSync(unborn, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("GitCliClientLive.status (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitstatus-"))
+    git(repoPath, "init")
+    fs.writeFileSync(path.join(repoPath, "my file.txt"), "one\n")
+    fs.writeFileSync(path.join(repoPath, "café.txt"), "one\n")
+    fs.writeFileSync(path.join(repoPath, "old.txt"), "one\n")
+    git(repoPath, "add", ".")
+    git(repoPath, "commit", "-m", "initial")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("returns paths with spaces and non-ASCII characters verbatim", async () => {
+    // Without -z these come back as `"my file.txt"` and `"caf\303\251.txt"`.
+    fs.writeFileSync(path.join(repoPath, "my file.txt"), "two\n")
+    fs.writeFileSync(path.join(repoPath, "café.txt"), "two\n")
+    fs.writeFileSync(path.join(repoPath, "new file.txt"), "new\n")
+
+    const entries = await runStatus(repoPath)
+
+    expect(entries).toHaveLength(3)
+    expect(entries).toContainEqual({ path: "my file.txt", status: "M" })
+    expect(entries).toContainEqual({ path: "café.txt", status: "M" })
+    expect(entries).toContainEqual({ path: "new file.txt", status: "??" })
+  })
+
+  it("reports a staged rename as the new path, with the old one in origPath", async () => {
+    git(repoPath, "mv", "old.txt", "new name.txt")
+
+    expect(await runStatus(repoPath)).toEqual([
+      { path: "new name.txt", status: "R", origPath: "old.txt" },
+    ])
+  })
+
+  it("reports an untracked embedded repo whose name has a space as one directory entry", async () => {
+    // detectEmbeddedRepos keys on the trailing slash to keep this out of the commit.
+    const sub = path.join(repoPath, "my repo")
+    fs.mkdirSync(sub)
+    git(sub, "init")
+    fs.writeFileSync(path.join(sub, "inner.txt"), "inner\n")
+    git(sub, "add", "inner.txt")
+    git(sub, "commit", "-m", "sub initial")
+
+    expect(await runStatus(repoPath)).toEqual([{ path: "my repo/", status: "??" }])
+  })
+})
+
+describe("GitCliClientLive.getInfo (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitinfo-"))
+    git(repoPath, "init")
+    git(repoPath, "commit", "--allow-empty", "-m", "first")
+    git(repoPath, "commit", "--allow-empty", "-m", "second")
+    git(repoPath, "tag", "v1.0.0")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("reports a branch whose tip is tagged as a branch", async () => {
+    // Right after a release is tagged, main's tip carries the tag too.
+    expect(await runInfo(repoPath)).toMatchObject({ branch: "main", refType: "branch" })
+  })
+
+  it("reports a checked-out tag as that tag", async () => {
+    // Checking out a tag detaches HEAD, so abbrev-ref alone only says "HEAD".
+    git(repoPath, "checkout", "-q", "v1.0.0")
+    const sha = gitOut(repoPath, "rev-parse", "HEAD").trim()
+
+    expect(await runInfo(repoPath)).toMatchObject({ branch: "v1.0.0", refType: "tag", commitSha: sha })
+  })
+
+  it("reports a checked-out untagged commit as detached", async () => {
+    const sha = gitOut(repoPath, "rev-parse", "HEAD~1").trim()
+    git(repoPath, "checkout", "-q", sha)
+
+    expect(await runInfo(repoPath)).toMatchObject({ branch: "HEAD", refType: "detached", commitSha: sha })
+  })
+})
+
+describe("GitCliClientLive.hasCommits (real repo)", () => {
+  let dir: string
+  let savedCeiling: string | undefined
+
+  beforeEach(() => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githascommits-")))
+    // Stop git's repo discovery at the temp root, so a non-repo dir can't
+    // resolve to some enclosing repository on the test machine.
+    savedCeiling = process.env.GIT_CEILING_DIRECTORIES
+    process.env.GIT_CEILING_DIRECTORIES = path.dirname(dir)
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+    restoreEnv("GIT_CEILING_DIRECTORIES", savedCeiling)
+  })
+
+  it("returns false for a repo with no commits yet", async () => {
+    git(dir, "init")
+
+    expect(await runHasCommitsEither(dir)).toEqual(Either.right(false))
+  })
+
+  it("returns true once HEAD has a commit", async () => {
+    git(dir, "init")
+    git(dir, "commit", "--allow-empty", "-m", "first")
+
+    expect(await runHasCommitsEither(dir)).toEqual(Either.right(true))
+  })
+
+  it("fails instead of returning false for a directory that isn't a repo", async () => {
+    // Callers treat a failure as "has history" so an unreadable repo is never
+    // offered a seeded branch; answering false here would defeat that.
+    const result = await runHasCommitsEither(dir)
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("GitError")
+      expect((result.left as GitError).exitCode).toBe(128)
+    }
+  })
+
+  it("fails with a SpawnError when git can't run in the path", async () => {
+    const result = await runHasCommitsEither(path.join(dir, "missing"))
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") expect(result.left._tag).toBe("SpawnError")
+  })
+})
+
+describe("GitCliClientLive.checkIgnored (real repo)", () => {
+  let repoPath: string
+
+  beforeEach(() => {
+    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitignore-"))
+    git(repoPath, "init")
+    fs.writeFileSync(path.join(repoPath, ".gitignore"), "*.log\n")
+  })
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true })
+  })
+
+  it("matches ignored paths with non-ASCII characters", async () => {
+    // Without -z git prints `"caf\303\251.log"`, which never matches the input.
+    const ignored = await runCheckIgnored(repoPath, ["café.log", "notes.txt", "my debug.log"])
+
+    expect([...ignored].sort()).toEqual(["café.log", "my debug.log"])
   })
 })
 

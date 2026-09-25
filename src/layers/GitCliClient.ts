@@ -83,6 +83,36 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/**
+ * Split the output of a `-z` git command into its NUL-terminated fields. With
+ * -z git prints paths verbatim instead of C-quoting spaces and non-ASCII. runGit
+ * hands back readline lines, so a field that contains a newline arrives split;
+ * joining on "\n" restores it before splitting on NUL. readline also ends a
+ * line at a lone "\r" or at "\r\n", so a CR inside a path comes back as "\n"
+ * (a limit of the line-based runGit; such paths won't match on disk).
+ */
+function nulFields(lines: string[]): string[] {
+  return lines.join("\n").split("\0").filter((f) => f.length > 0)
+}
+
+/**
+ * Resolve HEAD to a commit SHA, or undefined on an unborn branch (a repo with
+ * no commits yet). `--verify --quiet` exits 1 only when HEAD resolves to
+ * nothing; any other failure (not a repo, dubious ownership, spawn error)
+ * propagates.
+ */
+function resolveHead(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
+    Effect.map((lines): string | undefined => lines[0]?.trim() || undefined),
+    Effect.catchTag("GitError", (e) =>
+      e.exitCode === 1 ? Effect.succeed(undefined) : Effect.fail(e),
+    ),
+  )
+}
+
+/** Max concurrent `git show` reads per diff, so a big change set can't fork hundreds of gits. */
+const SHOW_CONCURRENCY = 8
+
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
@@ -197,19 +227,23 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     getInfo: (repoPath: string) =>
       Effect.gen(function* () {
         const branchLines = yield* runGit(spawner, ["rev-parse", "--abbrev-ref", "HEAD"], repoPath)
-        const branch = branchLines[0] ?? ""
+        let branch = branchLines[0] ?? ""
 
-        // Determine ref type
+        // Determine ref type. A named branch is a branch even when its tip is
+        // tagged. Checking out a tag always detaches HEAD (abbrev-ref prints
+        // "HEAD"), so only then ask whether HEAD sits exactly on a tag, and
+        // report the tag name as the ref.
         let refType: GitInfo["refType"] = "branch"
         if (branch === "HEAD") {
-          refType = "detached"
-        } else {
-          // Check if it's a tag
           const tagResult = yield* runGit(spawner, ["describe", "--tags", "--exact-match", "HEAD"], repoPath).pipe(
             Effect.catchAll(() => Effect.succeed([] as string[])),
           )
-          if (tagResult.length > 0) {
+          const tag = tagResult[0]?.trim()
+          if (tag) {
+            branch = tag
             refType = "tag"
+          } else {
+            refType = "detached"
           }
         }
 
@@ -230,83 +264,105 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     diff: (repoPath: string, filePath?: string) =>
       Effect.gen(function* () {
-        // Get numstat
-        const numstatArgs = ["diff", "--numstat"]
-        if (filePath) numstatArgs.push("--", filePath)
-        const numstatLines = yield* runGit(spawner, numstatArgs, repoPath)
+        // Diff the worktree against HEAD, the same base originalContent comes
+        // from, so staged changes get real counts too (plain `git diff` is
+        // worktree vs index and reports nothing for them). HEAD is resolved
+        // once so the counts and every `git show` below read the same commit
+        // even if a commit lands mid-poll. An unborn branch has no HEAD to
+        // compare against, so fall back to worktree vs index.
+        const head = yield* resolveHead(spawner, repoPath)
 
-        const entries: DiffEntry[] = []
-        for (const line of numstatLines) {
-          if (!line.trim()) continue
-          const parts = line.split("\t")
-          if (parts.length < 3) continue
+        // One diff for every path. -z keeps paths verbatim; --no-renames keeps
+        // one path per record, matching `status`. --raw adds each path's
+        // status letter, so paths added relative to HEAD skip the `git show`
+        // below instead of spawning one that is certain to fail.
+        const diffArgs = ["diff", "--raw", "--numstat", "-z", "--no-renames"]
+        if (head) diffArgs.push(head)
+        diffArgs.push("--")
+        if (filePath) diffArgs.push(filePath)
+        const fields = nulFields(yield* runGit(spawner, diffArgs, repoPath))
 
-          const [addStr, delStr, diffPath] = parts
-          const isBinary = addStr === "-" && delStr === "-"
-
-          // Get content diff for this file
-          let originalContent: string | undefined
-          let newContent: string | undefined
-          let diffTruncated = false
-
-          if (!isBinary) {
-            // Original (HEAD) content. The Changed Files view needs this to
-            // render deleted files at all and to compute the before/after diff
-            // for modified files. Files not present in HEAD (e.g. newly added)
-            // make `git show` fail; treat that as "no original" rather than an
-            // error so the rest of the diff still renders.
-            originalContent = yield* runGit(
-              spawner,
-              ["show", `HEAD:${diffPath}`],
-              repoPath,
-            ).pipe(
-              Effect.map((lines) => lines.join("\n")),
-              Effect.catchAll(() => Effect.succeed(undefined)),
-            )
-
-            const contentArgs = ["diff", "--", diffPath]
-            const contentLines = yield* runGit(spawner, contentArgs, repoPath).pipe(
-              Effect.catchAll(() => Effect.succeed([] as string[])),
-            )
-            const diffContent = contentLines.join("\n")
-            if (diffContent.length > 100_000) {
-              diffTruncated = true
-            }
-            // Store the raw diff as newContent for now
-            newContent = diffTruncated ? diffContent.slice(0, 100_000) : diffContent
+        const addedPaths = new Set<string>()
+        const stats: { addStr: string; delStr: string; diffPath: string }[] = []
+        for (let i = 0; i < fields.length; i++) {
+          // Raw records come first, as two fields:
+          // `:<omode> <nmode> <osha> <nsha> <X>` then `<path>`. A numstat
+          // record never starts with ':', so the two can't be confused.
+          const raw = /^:[0-7]+ [0-7]+ \S+ \S+ ([A-Z])\d*$/.exec(fields[i])
+          if (raw) {
+            const rawPath = fields[++i]
+            if (raw[1] === "A" && rawPath !== undefined) addedPaths.add(rawPath)
+            continue
           }
-
-          entries.push({
-            path: diffPath,
-            changeType: "modified",
-            additions: isBinary ? 0 : parseInt(addStr, 10),
-            deletions: isBinary ? 0 : parseInt(delStr, 10),
-            originalContent,
-            newContent,
-            isBinary,
-            diffTruncated,
-          })
+          // Then numstat records: `<added>\t<deleted>\t<path>`; the path may
+          // itself contain tabs.
+          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(fields[i])
+          if (!match) continue
+          const [, addStr, delStr, diffPath] = match
+          stats.push({ addStr, delStr, diffPath })
         }
 
-        return entries
+        return yield* Effect.forEach(
+          stats,
+          ({ addStr, delStr, diffPath }) =>
+            Effect.gen(function* () {
+              const isBinary = addStr === "-" && delStr === "-"
+
+              // Original (HEAD) content. The Changed Files view needs this to
+              // render deleted files at all and to compute the before/after diff
+              // for modified files. A path added relative to HEAD (a staged new
+              // file, the new side of a staged rename) has none, so it isn't
+              // read. Should `git show` still fail, treat that as "no original"
+              // rather than an error so the rest of the diff still renders.
+              const originalContent =
+                isBinary || !head || addedPaths.has(diffPath)
+                  ? undefined
+                  : yield* runGit(spawner, ["show", `${head}:${diffPath}`], repoPath).pipe(
+                      Effect.map((lines): string | undefined => lines.join("\n")),
+                      Effect.catchAll(() => Effect.succeed(undefined)),
+                    )
+
+              return {
+                path: diffPath,
+                changeType: "modified",
+                additions: isBinary ? 0 : parseInt(addStr, 10),
+                deletions: isBinary ? 0 : parseInt(delStr, 10),
+                originalContent,
+                isBinary,
+              } satisfies DiffEntry
+            }),
+          { concurrency: SHOW_CONCURRENCY },
+        )
       }),
 
     status: (repoPath: string) =>
       Effect.gen(function* () {
-        const lines = yield* runGit(spawner, ["status", "--porcelain", "--untracked-files=all"], repoPath)
-        return lines
-          .filter((l) => l.trim().length > 0)
-          .map((line): StatusEntry => ({
-            path: line.slice(3),
-            status: line.slice(0, 2).trim(),
-          }))
+        // -z prints paths verbatim; without it git C-quotes any path with a
+        // space or non-ASCII character (`"my file.txt"`).
+        const lines = yield* runGit(
+          spawner,
+          ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+          repoPath,
+        )
+        const fields = nulFields(lines)
+        const entries: StatusEntry[] = []
+        for (let i = 0; i < fields.length; i++) {
+          const xy = fields[i].slice(0, 2)
+          const entry: StatusEntry = { path: fields[i].slice(3), status: xy.trim() }
+          // A rename/copy record is followed by a second field holding the
+          // path it came from: new path first, then the old one.
+          if (xy.includes("R") || xy.includes("C")) {
+            entries.push({ ...entry, origPath: fields[++i] })
+          } else {
+            entries.push(entry)
+          }
+        }
+        return entries
       }),
 
     hasCommits: (repoPath: string) =>
-      runGit(spawner, ["rev-parse", "HEAD"], repoPath).pipe(
-        Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
-      ),
+      // Errors propagate (see resolveHead), so callers' best-effort fallbacks apply.
+      resolveHead(spawner, repoPath).pipe(Effect.map((sha) => sha !== undefined)),
 
     hasChanges: (repoPath: string) =>
       Effect.gen(function* () {
@@ -317,9 +373,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {
         if (paths.length === 0) return new Set<string>()
-        const stdin = paths.join("\n")
+        // -z: NUL-separated paths in and out. Without it git C-quotes
+        // non-ASCII paths in its output, so they never match the input.
+        const stdin = paths.map((p) => `${p}\0`).join("")
         // git check-ignore exits with 1 when no paths are ignored, so handle that
-        const proc = yield* spawner.spawn("git", ["check-ignore", "--stdin"], {
+        const proc = yield* spawner.spawn("git", ["check-ignore", "-z", "--stdin"], {
           cwd: repoPath,
           stdin,
           env: gitSpawnEnv(),
@@ -328,9 +386,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // Ignore exit code — 1 just means "no ignored files found"
         const lines = Chunk.toArray(chunks)
           .filter((l) => l.source === "stdout")
-          .map((l) => l.line.trim())
-          .filter((l) => l.length > 0)
-        return new Set(lines)
+          .map((l) => l.line)
+        return new Set(nulFields(lines))
       }),
 
     createBranch: (repoPath: string, branch: string) =>
