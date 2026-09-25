@@ -68,7 +68,8 @@ describe("generateFuzzValue", () => {
     }
   })
 
-  it("int: a lone max keeps min at 0, or max - 100 when max is negative", () => {
+  it("int: a lone max keeps min at 0, or max - 100 when max is non-positive", () => {
+    const zeroes = new Set<number>()
     for (let i = 0; i < SAMPLES; i++) {
       const pos = generateFuzzValue({ type: "int", max: 50 }) as number
       expect(pos).toBeGreaterThanOrEqual(0)
@@ -76,7 +77,13 @@ describe("generateFuzzValue", () => {
       const neg = generateFuzzValue({ type: "int", max: -5 }) as number
       expect(neg).toBeGreaterThanOrEqual(-105)
       expect(neg).toBeLessThanOrEqual(-5)
+      const zero = generateFuzzValue({ type: "int", max: 0 }) as number
+      expect(zero).toBeGreaterThanOrEqual(-100)
+      expect(zero).toBeLessThanOrEqual(0)
+      zeroes.add(zero)
     }
+    // A lone max of 0 must still fuzz, not collapse to the constant 0.
+    expect(zeroes.size).toBeGreaterThan(1)
   })
 
   it("int/float: min == max yields exactly that value", () => {

@@ -87,10 +87,10 @@ function generateString(config: FuzzConfig): string {
   return (config.prefix ?? "") + result + (config.suffix ?? "")
 }
 
-// min defaults to 0 (max - 100 when only a negative max is set) and max to
+// min defaults to 0 (max - 100 when only a non-positive max is set) and max to
 // min + 100, so a lone bound is honored. min == max yields that exact value.
 function numericRange(config: FuzzConfig): [number, number] {
-  const min = config.min ?? (config.max !== undefined && config.max < 0 ? config.max - 100 : 0)
+  const min = config.min ?? (config.max !== undefined && config.max <= 0 ? config.max - 100 : 0)
   const max = config.max ?? min + 100
   if (max < min) throw new Error(`fuzz ${config.type}: max (${max}) is less than min (${min})`)
   return [min, max]

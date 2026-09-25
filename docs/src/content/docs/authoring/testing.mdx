@@ -272,7 +272,7 @@ The `fuzz` object specifies how to generate random values.
 | `suffix` | string | `string` | Suffix to append to the generated string. |
 | `includeSpaces` | boolean | `string` | Include space characters. Default: `false`. |
 | `includeSpecialChars` | boolean | `string` | Include special characters. Default: `false`. |
-| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0, or `max - 100` when only a negative `max` is set. |
+| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0, or `max - 100` when only a zero or negative `max` is set. |
 | `max` | integer | `int`, `float` | Maximum numeric value. Must be at least `min`; equal to `min` for a fixed value. Default: `min + 100`. |
 | `options` | array | `enum` | Array of valid enum options. Required for `enum` type. |
 | `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
