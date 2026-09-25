@@ -80,17 +80,108 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath?.endsWith("/relative/runbook.mdx")).toBe(true)
   })
 
-  it("parses --watch and --output-path together with a positional", () => {
-    const config = parseCliArgs([
-      "runbooks",
-      "--watch",
-      "--output-path",
-      "out-dir",
-      "./local/runbook.mdx",
-    ])
+  it("parses --watch together with a positional", () => {
+    const config = parseCliArgs(["runbooks", "--watch", "./local/runbook.mdx"])
     expect(config.watch).toBe(true)
-    expect(config.outputPath?.endsWith("/out-dir")).toBe(true)
     expect(config.runbookPath?.endsWith("/local/runbook.mdx")).toBe(true)
+  })
+
+  // -----------------------------------------------------------------------
+  // Relative paths resolve against the caller's cwd. A second instance
+  // forwards its argv to the first, whose own cwd may be "/" (Dock/launcher
+  // start); Electron passes the second instance's cwd separately.
+  // -----------------------------------------------------------------------
+
+  it("resolves a positional path against the given cwd", () => {
+    const config = parseCliArgs(["runbooks", "./rb"], "/home/me/proj")
+    expect(config.runbookPath).toBe("/home/me/proj/rb")
+  })
+
+  it("resolves a --runbook path against the given cwd", () => {
+    const config = parseCliArgs(["runbooks", "--runbook", "rb/runbook.mdx"], "/home/me/proj")
+    expect(config.runbookPath).toBe("/home/me/proj/rb/runbook.mdx")
+  })
+
+  it("resolves a second-instance argv against the second instance's cwd", () => {
+    // Shape Electron delivers to "second-instance": Chromium switches are
+    // inserted before the entry script.
+    const config = parseCliArgs(
+      ["/Applications/Runbooks.app/Contents/MacOS/Runbooks", "--allow-file-access-from-files", "/repo/dist/main/index.js", "./rb"],
+      "/p",
+    )
+    expect(config.runbookPath).toBe("/p/rb")
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  // -----------------------------------------------------------------------
+  // Positional filters drop Electron's own arguments, not user input.
+  // -----------------------------------------------------------------------
+
+  it("keeps a positional path that contains 'electron'", () => {
+    const config = parseCliArgs(["runbooks", "/home/me/electron-infra/runbooks/deploy"])
+    expect(config.runbookPath).toBe("/home/me/electron-infra/runbooks/deploy")
+  })
+
+  it("keeps a positional URL that contains 'electron'", () => {
+    const url = "https://github.com/electron/fiddle/tree/main/runbooks"
+    const config = parseCliArgs(["runbooks", url])
+    expect(config.remoteUrl).toBe(url)
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("opens the current directory for a bare '.'", () => {
+    const config = parseCliArgs(["runbooks", "."], "/home/me/proj")
+    expect(config.runbookPath).toBe("/home/me/proj")
+  })
+
+  it("ignores the app's own path in an unpackaged run (electron .)", () => {
+    const config = parseCliArgs(["electron", "."], "/repo", "/repo")
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("still opens a runbook passed after the app path in an unpackaged run", () => {
+    const config = parseCliArgs(["electron", ".", "./rb"], "/repo", "/repo")
+    expect(config.runbookPath).toBe("/repo/rb")
+  })
+
+  it("finds no runbook in a Playwright launch argv", () => {
+    const config = parseCliArgs(
+      [
+        "/x/Electron",
+        "-r",
+        "/x/node_modules/playwright-core/lib/server/electron/loader.js",
+        "--inspect=0",
+        "--remote-debugging-port=0",
+        "/repo/dist/main/index.js",
+      ],
+      "/repo",
+      "/repo/dist/main",
+    )
+    expect(config.runbookPath).toBeNull()
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  // -----------------------------------------------------------------------
+  // --working-dir / --output-path (old Go CLI) are not supported. Their
+  // values must be skipped so they can't be taken as the runbook path.
+  // -----------------------------------------------------------------------
+
+  it.each([
+    [["open", "my-runbook", "--working-dir", "/path/to/project"]],
+    [["open", "my-runbook", "--output-path", "./infrastructure"]],
+    [["open", "--working-dir", "/path/to/project", "my-runbook"]],
+    [["open", "my-runbook", "--working-dir=::tmp"]],
+    [["open", "my-runbook", "--output-path=./infrastructure"]],
+  ])("does not take the value of an unsupported flag as the runbook path: %p", (args) => {
+    const config = parseCliArgs(["runbooks", ...args], "/home/me")
+    expect(config.runbookPath).toBe("/home/me/my-runbook")
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  it("does not swallow the next flag after a value-less unsupported flag", () => {
+    const config = parseCliArgs(["runbooks", "--output-path", "--watch", "./rb"], "/home/me")
+    expect(config.watch).toBe(true)
+    expect(config.runbookPath).toBe("/home/me/rb")
   })
 
   it("parses --no-telemetry", () => {

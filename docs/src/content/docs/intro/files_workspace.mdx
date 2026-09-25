@@ -28,7 +28,7 @@ You want the runbook to generate new files and expect the user will then perform
 A [\<Template\>](/authoring/blocks/template/) block generates files when the user clicks "Generate" (the default `target` is `"generated"`). [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) blocks generate files when they run scripts that write to the `$GENERATED_FILES` environment variable.
 
 ##### Where they're stored
-The files are stored in a `generated/` folder on the user's local machine, relative to the [working directory](/commands/open#flags), or whatever folder the user specifies with the [output-path](/commands/open#flags) flag.
+The files are stored in a `generated/` folder on the user's local machine, inside the working directory (the folder that contains `runbook.mdx`).
 
 ##### When you see them
 After the user clicks "Generate" on a \<Template\> block, or after a \<Command\> or \<Check\> block writes to `$GENERATED_FILES`, the files workspace is automatically opened.
@@ -44,7 +44,7 @@ Initially, the files are cloned from a git repository via a [\<GitClone\>](/auth
 Any subsequent changes in the files come from a [\<Template\>](/authoring/blocks/template/) block that sets `target="worktree"`, or [\<Command\>](/authoring/blocks/command/), and [\<Check\>](/authoring/blocks/check/) blocks that run scripts that write to the `$REPO_FILES` environment variable.
 
 ##### Where they're stored
-The files are stored in a local path (relative to the [working directory](/commands/open#flags)) specified in the [\<GitClone\>](/authoring/blocks/gitclone/) block.
+The files are stored in a local path (relative to the working directory, the folder that contains `runbook.mdx`) specified in the [\<GitClone\>](/authoring/blocks/gitclone/) block.
 
 ##### When you see them
 After a \<GitClone\> block successfully clones a repository, the files workspace automatically switches to the **Repository** tab to show the cloned files.
@@ -85,7 +85,7 @@ Any files written to `$GENERATED_FILES` automatically appear in the workspace af
 
 Generated files are persisted to a folder on your local machine — they're not ephemeral or stored in memory.
 
-By default, generated files are written to a `generated/` folder in the working directory (the directory you run the `runbooks` command from):
+Generated files are written to a `generated/` folder in the working directory, which is the folder that contains `runbook.mdx`:
 
 <FileTree>
 - **generated/** &larr; Created in your working directory
@@ -94,22 +94,7 @@ By default, generated files are written to a `generated/` folder in the working 
   - outputs.tf
 </FileTree>
 
-You can customize the output location with CLI flags:
-
-```bash
-# Use a specific working directory
-runbooks open my-runbook --working-dir /path/to/project
-
-# Write to a custom subfolder within the working directory
-runbooks open my-runbook --output-path ./infrastructure
-
-# Use an isolated temporary directory (auto-cleaned on exit)
-runbooks open my-runbook --working-dir=::tmp
-```
-
-<Aside type="tip">
-The `--working-dir=::tmp` keyword is useful for sandboxed execution where you don't want generated files to persist after you close the runbook.
-</Aside>
+For a [remote runbook](/commands/open#remote-sources), the working directory is inside a temporary clone, so its generated files are deleted when you quit Runbooks.
 
 ### Subdirectories within templates
 

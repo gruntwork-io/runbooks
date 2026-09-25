@@ -52,7 +52,7 @@ runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main
 | OpenTofu git::https | `git::https://github.com/org/repo.git//path?ref=main` |
 
 <Aside type="note">
-When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir=::tmp`). You can override this with `--working-dir` if needed.
+When you open a remote runbook, Runbooks clones it into a temporary directory. The runbook's folder inside that clone becomes the working directory: scripts start there, and generated files are saved inside it. The temporary directory is deleted when you quit Runbooks.
 </Aside>
 
 ### Authentication for private repos
@@ -65,24 +65,18 @@ For public repositories, no authentication is needed. For private repositories, 
 ## Flags
 
 - `--watch` - Enable [watch mode](/commands/watch) for live-reload during authoring.
-- `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
-  - All relative paths are resolved from this directory
-  - Can be absolute or relative to current directory
-  - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
-- `--output-path <path>` - Directory where generated files will be written (default: `generated`)
-  - Resolved relative to the working directory
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
 
 When you run `runbooks open`:
 
-1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
+1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone. If the download fails (for example, a private repo with no token), the app shows an error dialog that explains why.
 2. **Launches the app** - Opens the Runbooks desktop window and loads the specified runbook
 3. **Renders the runbook** - The app parses and renders the `runbook.mdx` file, providing an interactive UI for the runbook's steps, scripts, and forms
 4. **Keeps running** - The app continues running until you close the window
 
-If the app is already running, a second invocation focuses the existing window and opens the new runbook in it.
+If the app is already running, a second invocation focuses the existing window and opens the new runbook in it. A relative path is resolved from the directory you ran the command in.
 
 ## Troubleshooting
 
