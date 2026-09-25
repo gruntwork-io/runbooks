@@ -26,6 +26,7 @@ import {
   configuredEnvHost,
   hasEnvToken,
 } from "../../../src/domain/gitlab/auth.ts"
+import { ENV_PREFIX_PATTERN } from "../../../src/domain/github/auth.ts"
 import {
   normalizeGitLabBaseUrl,
   normalizeGitLabHost,
@@ -234,13 +235,24 @@ export function registerGitLabHandlers(): void {
         instanceUrl?: string
       } = {},
     ) => {
+      // The {env:{prefix}} variant: the renderer-supplied prefix is
+      // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
+      const prefix = params.prefix || undefined
+      if (prefix !== undefined && !ENV_PREFIX_PATTERN.test(prefix)) {
+        return {
+          found: false as const,
+          outcome: "absent" as const,
+          error: `Invalid env prefix "${prefix}": must match ${ENV_PREFIX_PATTERN}`,
+        }
+      }
+
       const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
 
       // env-token host binding is enforced inside detectGitLabEnv.
       const result = await withTlsOrchestration({
         provider: "gitlab",
         host,
-        detect: () => withVcs((vcs) => vcs.detectGitLabEnv(baseUrl)),
+        detect: () => withVcs((vcs) => vcs.detectGitLabEnv(baseUrl, prefix)),
       })
 
       let sessionEnvWarning: string | undefined

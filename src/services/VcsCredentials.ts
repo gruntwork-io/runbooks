@@ -80,7 +80,9 @@ export interface VcsCredentialsShape {
   // glab/config reads. A bare host normalizes to its https origin.
   readonly detectGitHubEnv: (prefix?: string) => Effect.Effect<DetectionResult>
   readonly detectGitHubCli: () => Effect.Effect<DetectionResult>
-  readonly detectGitLabEnv: (instance: string) => Effect.Effect<DetectionResult>
+  // `prefix` (the `{env:{prefix}}` variant) reads only <PREFIX>GITLAB_TOKEN /
+  // <PREFIX>GITLAB_ACCESS_TOKEN, host-bound by the prefixed host vars.
+  readonly detectGitLabEnv: (instance: string, prefix?: string) => Effect.Effect<DetectionResult>
   readonly detectGitLabCli: (instance: string) => Effect.Effect<DetectionResult>
 
   // --- full chains: first-success-wins; `invalid` warns and continues;

@@ -38,6 +38,23 @@ By default, Runbooks automatically detects and uses credentials from, in order:
 
 If no credentials are detected, the user authenticates manually with a Personal Access Token.
 
+### Prefixed environment variables
+
+Add `{ env: { prefix: 'PREFIX_' } }` to `detectCredentials` to read a namespaced token instead of the standard variables. For example, you can use a CI token so it is never confused with a personal `GITLAB_TOKEN`:
+
+```mdx
+<GitLabAuth
+  id="gitlab-auth"
+  detectCredentials={[{ env: { prefix: 'CI_' } }, 'cli']}
+/>
+```
+
+With a prefix, Runbooks reads only `CI_GITLAB_TOKEN`, then `CI_GITLAB_ACCESS_TOKEN`. It never falls back to the unprefixed variables. The prefix may contain only uppercase letters, digits and underscores. It must start with a letter and end with an underscore (for example `CI_` or `PROD_`). Any other prefix is rejected.
+
+An environment token is only ever sent to one GitLab host. For a prefixed token, that host comes from the prefixed host variables: `CI_GITLAB_HOST`, then `CI_GITLAB_URI`, then `CI_GL_HOST`. If none is set, the host is `gitlab.com`. The unprefixed `GITLAB_HOST` does not apply. If the block authenticates to any other host, the prefixed token is skipped.
+
+On success the token is saved to the session as `GITLAB_TOKEN`, as with any other source, so downstream blocks don't need to know the prefix.
+
 ## Props
 
 `<GitLabAuth>` accepts the same props as [`<GitAuth>`](/authoring/blocks/gitauth/#props) except `provider` and `hideProviderSelect` (which are fixed to `gitlab` and `true`). The most common are `id` (required), `title`, `description`, `detectCredentials`, and `inputsId`.

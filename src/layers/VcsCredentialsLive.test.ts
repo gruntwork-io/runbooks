@@ -193,6 +193,82 @@ describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
     expect(bound.outcome).toBe("valid")
     expect(validatedAgainst).toBe("https://git.corp.example")
   })
+
+  it("{env:{prefix}}: validates <PREFIX>GITLAB_TOKEN, never the unprefixed token", async () => {
+    const validated: string[] = []
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal", CI_GITLAB_TOKEN: "glpat-ci" },
+      gitlab: {
+        validateToken: (token) => {
+          validated.push(token)
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(result.outcome).toBe("valid")
+    expect(result.token).toBe("glpat-ci")
+    expect(result.envVar).toBe("CI_GITLAB_TOKEN")
+    expect(validated).toEqual(["glpat-ci"])
+  })
+
+  it("{env:{prefix}}: only the unprefixed token set is absent — no validation call", async () => {
+    let validateCalls = 0
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal" },
+      gitlab: {
+        validateToken: () => {
+          validateCalls++
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(result.outcome).toBe("absent")
+    expect(result.token).toBeUndefined()
+    expect(validateCalls).toBe(0)
+  })
+
+  it("{env:{prefix}}: an invalid prefix is absent — no validation call", async () => {
+    let validateCalls = 0
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal", "ci-GITLAB_TOKEN": "glpat-ci" },
+      gitlab: {
+        validateToken: () => {
+          validateCalls++
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "ci-"))
+    expect(result.outcome).toBe("absent")
+    expect(validateCalls).toBe(0)
+  })
+
+  it("{env:{prefix}}: the prefixed token is bound to <PREFIX>GITLAB_HOST only", async () => {
+    let validatedAgainst: string | undefined
+    const harness = makeHarness({
+      env: {
+        CI_GITLAB_TOKEN: "glpat-ci",
+        CI_GITLAB_HOST: "git.corp.example",
+        // The unprefixed host var never rebinds a prefixed token.
+        GITLAB_HOST: "gitlab.com",
+      },
+      gitlab: {
+        validateToken: (_token, baseUrl) => {
+          validatedAgainst = baseUrl
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const other = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(other.outcome).toBe("absent")
+    expect(validatedAgainst).toBeUndefined()
+
+    const bound = await harness.use((vcs) => vcs.detectGitLabEnv("git.corp.example", "CI_"))
+    expect(bound.outcome).toBe("valid")
+    expect(validatedAgainst).toBe("https://git.corp.example")
+  })
 })
 
 describe("VcsCredentialsLive — probe gating", () => {
