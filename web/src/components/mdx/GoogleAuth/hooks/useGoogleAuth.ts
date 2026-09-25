@@ -145,15 +145,13 @@ export interface UseGoogleAuthReturn {
   /** Absolute path of a chosen key file — what MAIN reads and validates. */
   keyFilePath: string | null
   loadKeyFromFile: () => Promise<void>
-  /** Free-text project override for the SA tab. Seeded from the `project` prop. */
+  /** Free-text project override for the SA tab. Follows the `project` prop until edited. */
   projectIdInput: string
   setProjectIdInput: (v: string) => void
 
-  // ---- Region / zone (secondary) --------------------------------------------
+  // ---- Region (secondary) ---------------------------------------------------
   selectedRegion: string
   setSelectedRegion: (v: string) => void
-  selectedZone: string
-  setSelectedZone: (v: string) => void
 
   // ---- gcloud tab -----------------------------------------------------------
   gcloudConfigs: GcloudConfigInfo[]
@@ -280,11 +278,13 @@ export function useGoogleAuth({
   // never the contents — MAIN reads and validates the file itself (D12).
   const [keyFilePath, setKeyFilePath] = useState<string | null>(null)
   const [keyFileName, setKeyFileName] = useState<string | null>(null)
-  const [projectIdInput, setProjectIdInput] = useState(project ?? '')
+  // null until the user edits the field. Until then it follows the `project`
+  // prop, which can be a template that only resolves (or changes) after mount.
+  const [projectIdOverride, setProjectIdOverride] = useState<string | null>(null)
+  const projectIdInput = projectIdOverride ?? project ?? ''
 
-  // ---- Region / zone (secondary) --------------------------------------------
+  // ---- Region (secondary) ---------------------------------------------------
   const [selectedRegion, setSelectedRegion] = useState(defaultRegion ?? '')
-  const [selectedZone, setSelectedZone] = useState(defaultZone ?? '')
 
   // ---- gcloud tab -----------------------------------------------------------
   const [gcloudConfigs, setGcloudConfigs] = useState<GcloudConfigInfo[]>([])
@@ -491,9 +491,13 @@ export function useGoogleAuth({
     await checkProjectStatus(result.projectId)
   }, [registerBlockOutputs, appendWarning, checkProjectStatus])
 
-  /** Region/zone actually in force: the tab's picker wins over the props. */
-  const effectiveRegion = selectedRegion || defaultRegion || ''
-  const effectiveZone = selectedZone || defaultZone || ''
+  /**
+   * Region/zone actually in force. The picker is seeded from `defaultRegion`,
+   * and its "No default region" row clears it to '' — no region, NOT a fallback
+   * to the prop. The zone has no picker, so it comes from `defaultZone` only.
+   */
+  const effectiveRegion = selectedRegion
+  const effectiveZone = defaultZone ?? ''
 
   /**
    * Pin a project (picker click, single-project auto-select, or the `project`
@@ -1135,9 +1139,9 @@ export function useGoogleAuth({
     setWarningMessage(null)
     invalidateBlockOutputs()
 
-    // The picker's value wins over the prop; the key's own project_id (resolved
-    // in MAIN) is the fallback when neither is set.
-    const requestedProject = projectIdInput.trim() || project || ''
+    // The field already shows the prop until the user edits it, so its value is
+    // the whole request. Cleared, MAIN falls back to the key's own project_id.
+    const requestedProject = projectIdInput.trim()
 
     try {
       const data = await api.invoke('google:validate-credentials', {
@@ -1168,7 +1172,9 @@ export function useGoogleAuth({
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
 
-      const resolvedProjectId = project || data.projectId || requestedProject || ''
+      // Publish the project MAIN actually registered (it echoes the one it wrote
+      // into the session env), so `googleAuthId` steps and bare steps agree.
+      const resolvedProjectId = data.projectId || requestedProject
 
       if (resolvedProjectId) {
         // MAIN already wrote the project into the session env during validate.
@@ -1220,7 +1226,6 @@ export function useGoogleAuth({
     serviceAccountKey,
     keyFilePath,
     projectIdInput,
-    project,
     effectiveRegion,
     effectiveZone,
     completeAuthentication,
@@ -1748,13 +1753,11 @@ export function useGoogleAuth({
     keyFilePath,
     loadKeyFromFile,
     projectIdInput,
-    setProjectIdInput,
+    setProjectIdInput: setProjectIdOverride,
 
-    // Region / zone
+    // Region
     selectedRegion,
     setSelectedRegion,
-    selectedZone,
-    setSelectedZone,
 
     // gcloud tab
     gcloudConfigs,

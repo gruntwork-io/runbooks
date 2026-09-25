@@ -517,6 +517,162 @@ describe('useGoogleAuth — service account tab', () => {
     expect(invoke).not.toHaveBeenCalledWith('session:set-env', expect.anything())
   })
 
+  /**
+   * MAIN registers `params.projectId ?? <the key's project_id>` in the session
+   * env and echoes it back as `projectId`. Modelled here so a test sees the
+   * project MAIN would actually have written.
+   */
+  const echoingValidate = (channel: string, args?: Record<string, unknown>) => {
+    if (channel === 'google:validate-credentials') {
+      return {
+        valid: true,
+        account: { principal: 'sa@key-project.iam.gserviceaccount.com', accountType: 'service_account' },
+        projectId: (args?.projectId as string | undefined) ?? 'key-project',
+        credentialType: 'service_account',
+        credentialsPath: '/tmp/runbooks-gcp-4/adc.json',
+      }
+    }
+    if (channel === 'google:check-project') return { enabled: true }
+    return {}
+  }
+
+  /** The full output map for an `echoingValidate` login. */
+  const saOutputs = (over: Partial<Record<string, string>>) =>
+    outputs({
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-4/adc.json',
+      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-4/adc.json',
+      CLOUDSDK_CORE_ACCOUNT: 'sa@key-project.iam.gserviceaccount.com',
+      GOOGLE_AUTH_TYPE: 'service_account',
+      ...over,
+    })
+
+  const projectOutputs = (projectId: string) => ({
+    GOOGLE_CLOUD_PROJECT: projectId,
+    CLOUDSDK_CORE_PROJECT: projectId,
+    GOOGLE_PROJECT: projectId,
+  })
+
+  it('publishes the Project ID typed over the `project` prop — the one MAIN registered', async () => {
+    const invoke = installApi(echoingValidate)
+    const { result } = renderGoogleAuth({ id: 'gcp', project: 'prop-proj', detectCredentials: false })
+
+    expect(result.current.projectIdInput).toBe('prop-proj')
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    act(() => result.current.setProjectIdInput('user-proj'))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(invoke).toHaveBeenCalledWith('google:validate-credentials', {
+      blockId: 'gcp',
+      keyJson: SA_KEY,
+      projectId: 'user-proj',
+      registerSession: true,
+    })
+    // The outputs (what a `googleAuthId` step injects) name the same project as
+    // the session env MAIN wrote (what a bare step inherits).
+    expect(registerOutputs).toHaveBeenCalledWith('gcp', saOutputs(projectOutputs('user-proj')))
+    expect(result.current.accountInfo?.projectId).toBe('user-proj')
+    expect(invoke).toHaveBeenCalledWith('google:check-project', {
+      blockId: 'gcp',
+      projectId: 'user-proj',
+    })
+  })
+
+  it('the Project ID field follows a `project` prop that changes before any edit', async () => {
+    const invoke = installApi(echoingValidate)
+    // `project="{{ .inputs.project }}"` re-resolves when the input changes.
+    const { result, rerender } = renderHook(
+      (options: Parameters<typeof useGoogleAuth>[0]) => useGoogleAuth(options),
+      { wrapper, initialProps: { id: 'gcp', project: 'dev', detectCredentials: false } },
+    )
+    expect(result.current.projectIdInput).toBe('dev')
+
+    rerender({ id: 'gcp', project: 'prod', detectCredentials: false })
+    expect(result.current.projectIdInput).toBe('prod')
+
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(invoke).toHaveBeenCalledWith(
+      'google:validate-credentials',
+      expect.objectContaining({ projectId: 'prod' }),
+    )
+    expect(registerOutputs).toHaveBeenCalledWith('gcp', saOutputs(projectOutputs('prod')))
+  })
+
+  it('an edited Project ID survives a later change to the `project` prop', () => {
+    const { result, rerender } = renderHook(
+      (options: Parameters<typeof useGoogleAuth>[0]) => useGoogleAuth(options),
+      { wrapper, initialProps: { id: 'gcp', project: 'dev', detectCredentials: false } },
+    )
+
+    act(() => result.current.setProjectIdInput('user-proj'))
+    rerender({ id: 'gcp', project: 'prod', detectCredentials: false })
+
+    expect(result.current.projectIdInput).toBe('user-proj')
+  })
+
+  it("clearing the Project ID field sends no project, so the key's own project_id applies", async () => {
+    const invoke = installApi(echoingValidate)
+    const { result } = renderGoogleAuth({ id: 'gcp', project: 'prop-proj', detectCredentials: false })
+
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    act(() => result.current.setProjectIdInput(''))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(invoke).toHaveBeenCalledWith('google:validate-credentials', {
+      blockId: 'gcp',
+      keyJson: SA_KEY,
+      registerSession: true,
+    })
+    expect(registerOutputs).toHaveBeenCalledWith('gcp', saOutputs(projectOutputs('key-project')))
+  })
+
+  it('"No default region" sends and publishes no region, even with defaultRegion set', async () => {
+    const invoke = installApi(echoingValidate)
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      defaultRegion: 'us-central1',
+      defaultZone: 'us-central1-a',
+      detectCredentials: false,
+    })
+
+    expect(result.current.selectedRegion).toBe('us-central1')
+    act(() => result.current.setServiceAccountKey(SA_KEY))
+    act(() => result.current.setSelectedRegion(''))
+    await act(async () => {
+      result.current.handleServiceAccountSubmit()
+    })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    // No `region` key at all; the zone has no picker and still comes from the prop.
+    expect(invoke).toHaveBeenCalledWith('google:validate-credentials', {
+      blockId: 'gcp',
+      keyJson: SA_KEY,
+      zone: 'us-central1-a',
+      registerSession: true,
+    })
+    expect(registerOutputs).toHaveBeenCalledWith(
+      'gcp',
+      saOutputs({
+        ...projectOutputs('key-project'),
+        GOOGLE_CLOUD_REGION: '',
+        CLOUDSDK_COMPUTE_REGION: '',
+        GOOGLE_REGION: '',
+        CLOUDSDK_COMPUTE_ZONE: 'us-central1-a',
+        GOOGLE_ZONE: 'us-central1-a',
+      }),
+    )
+  })
+
   it('surfaces a rejected key inline as a runtime error', async () => {
     installApi((channel) =>
       channel === 'google:validate-credentials'
@@ -1304,6 +1460,44 @@ describe('useGoogleAuth — gcloud tab', () => {
       'Configuration found, but no Application Default Credentials — run `gcloud auth application-default login`.',
     )
     expect(invoke).not.toHaveBeenCalledWith('google:gcloud-auth', expect.anything())
+  })
+
+  it('"No default region" falls through to the configuration\'s own compute/region', async () => {
+    const invoke = installApi((channel) => {
+      if (channel === 'google:gcloud-configurations') return GCLOUD_LISTING
+      if (channel === 'google:gcloud-auth') {
+        return {
+          valid: true,
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          projectId: 'proj-a',
+          credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+        }
+      }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      defaultRegion: 'europe-west1',
+      detectCredentials: false,
+    })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    act(() => result.current.setSelectedRegion(''))
+    await act(async () => {
+      await result.current.handleGcloudAuth()
+    })
+
+    // The `default` configuration's compute/region, not the cleared prop.
+    expect(invoke).toHaveBeenCalledWith('google:gcloud-auth', {
+      blockId: 'gcp',
+      configuration: 'default',
+      projectId: 'proj-a',
+      region: 'us-east1',
+    })
   })
 })
 

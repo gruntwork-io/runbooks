@@ -31,7 +31,7 @@ The GoogleAuth block provides three ways to authenticate:
 | **Google Sign-In** | Interactive browser sign-in that produces user credentials, the same thing `gcloud auth application-default login` produces. Requires an author-supplied OAuth client — see [Google Sign-In](#google-sign-in) |
 | **gcloud Config** | Reuse a configuration and Application Default Credentials that already exist on the machine |
 
-All three tabs also offer an optional **Default Region** picker, which seeds the region environment variables for subsequent commands.
+All three tabs also offer an optional **Default Region** picker, which seeds the region environment variables for subsequent commands. It starts on `defaultRegion`; choosing **No default region** sets no region at all (on the gcloud Config tab, the configuration's own `compute/region` then applies).
 
 Service Account Key is the tab users land on. Set `defaultTab` to open on a different one:
 
@@ -122,7 +122,7 @@ The block also publishes its result as block outputs, so a specific GoogleAuth b
 | `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT` | The selected project ID |
 | `CLOUDSDK_CORE_ACCOUNT` | The authenticated principal |
 | `GOOGLE_CLOUD_REGION`, `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_REGION` | The selected region, if any |
-| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | The selected zone, if any |
+| `CLOUDSDK_COMPUTE_ZONE`, `GOOGLE_ZONE` | `defaultZone`, or the gcloud configuration's `compute/zone`, if any |
 | `GOOGLE_AUTH_TYPE` | How the credential was obtained: `service_account`, `authorized_user`, `external_account`, `impersonated_service_account`, or `access_token` |
 | `__AUTHENTICATED` | Always `true` once the block has authenticated |
 
@@ -210,7 +210,7 @@ The two are alternatives: choosing a file clears a pasted key, and typing into t
 
 Two optional fields refine the result:
 
-- **Project ID** — overrides the project. Leave it blank to use the key's own `project_id`.
+- **Project ID** — overrides the project. It starts out showing the `project` prop, if set; leave it blank to use the key's own `project_id`.
 - **Default Region** — sets the region environment variables.
 
 The key is validated by exchanging it for a real access token, so an expired, revoked, disabled, or malformed key fails immediately with the reason shown inline. On success, `GOOGLE_APPLICATION_CREDENTIALS` points at the key: a file you chose is used where it already lives, and a pasted key is written to a private `0600` file that is deleted when Runbooks quits.
