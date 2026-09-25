@@ -318,7 +318,8 @@ describe('DirPicker — PATH output', () => {
         <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />
       </Harness>,
     )
-    expect(publishedValues()?.PATH).toBeUndefined()
+    // An entry with no PATH, not a missing entry or PATH: ''.
+    expect(publishedValues()).toEqual({})
 
     fireEvent.change(pathInput(), { target: { value: 'prod' } })
     await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
