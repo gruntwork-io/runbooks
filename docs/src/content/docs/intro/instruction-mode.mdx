@@ -64,7 +64,10 @@ value or, until you supply one, a placeholder such as `<bucket>`:
 
 - **`Inputs` form values** are substituted directly into the commands shown,
   including those from an `<Inputs>` nested inside a Command or Check. An input
-  you haven't filled in yet shows as a `<name>` placeholder.
+  you haven't filled in yet shows as a `<name>` placeholder. An input used only
+  in template logic, such as the condition of an `{{ if … }}`, gets no
+  placeholder: until you fill it in, that logic is shown as written rather than
+  guessed.
 - **Values produced by an earlier step** (a script's outputs) can't be known by
   the app, because it runs nothing. When a command needs one, instruction mode
   shows a small field labeled with the value it stands in for (for example,

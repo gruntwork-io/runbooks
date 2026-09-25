@@ -76,9 +76,33 @@ describe('buildInputPlaceholders', () => {
     expect(inputs).toEqual({ a: '<a>', b: '<b>', c: '<c>', d: false })
   })
 
-  it('fills references inside template logic too', () => {
-    const inputs = buildInputPlaceholders(['{{ if .inputs.verbose }}-v{{ end }}'], {})
-    expect(inputs).toEqual({ verbose: '<verbose>' })
+  it('fills a piped value reference', () => {
+    expect(buildInputPlaceholders(['{{ .inputs.region | upper }}'], {})).toEqual({
+      region: '<region>',
+    })
+  })
+
+  it('leaves an input used only in template logic unset', () => {
+    // A placeholder is a truthy string: `if` would take a branch the user never
+    // chose. Unset, the engine fails and the fallback shows the logic as written.
+    const base = { name: 'web' }
+    const inputs = buildInputPlaceholders(
+      [
+        'terraform destroy {{ if .inputs.auto_approve }}-auto-approve{{ end }}',
+        '{{ if eq .inputs.env "prod" }}--prod{{ end }} {{ printf "%s" .inputs.region }}',
+        '{{ range .inputs.tags }}{{ . }}{{ end }} {{ .inputs.name }}',
+      ],
+      base,
+    )
+    expect(inputs).toBe(base)
+  })
+
+  it('fills an input used both as a value and in template logic', () => {
+    const inputs = buildInputPlaceholders(
+      ['{{ if .inputs.var_file }}-var-file={{ .inputs.var_file }}{{ end }}'],
+      {},
+    )
+    expect(inputs).toEqual({ var_file: '<var_file>' })
   })
 
   it('nests the placeholder for a dotted reference without mutating the input', () => {

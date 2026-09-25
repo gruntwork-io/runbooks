@@ -17,6 +17,7 @@ import {
 } from '@/lib/extractTemplateDependencies'
 import {
   computeUnmetInputDependencies,
+  extractInputValueReferences,
   resolveTemplateReferences,
   type TemplateContext,
   type TemplateInputs,
@@ -103,21 +104,28 @@ export function buildManualOutputs(
 }
 
 /**
- * The inputs counterpart of buildManualOutputs: give every `{{ .inputs.* }}`
- * reference in the commands that has no value yet (unset or empty) a `<name>`
- * placeholder. The engine renders a missing input as a `[template error: …]` in
- * place of the whole command, so filling the gap first keeps the rest of the
- * command intact and reads as a clear "fill me in" slot. A dotted reference
- * (`{{ .inputs.tags.env }}`) gets a nested placeholder named after its last
- * segment (`<env>`). The given inputs are not mutated.
+ * The inputs counterpart of buildManualOutputs: give every input the commands
+ * use as a plain value (`{{ .inputs.x }}`, optionally piped) that has no value
+ * yet (unset or empty) a `<name>` placeholder. The engine renders a missing
+ * input as a `[template error: …]` in place of the whole command, so filling
+ * the gap first keeps the rest of the command intact and reads as a clear
+ * "fill me in" slot. A dotted reference (`{{ .inputs.tags.env }}`) gets a
+ * nested placeholder named after its last segment (`<env>`). The given inputs
+ * are not mutated.
+ *
+ * An input referenced only inside template logic (`{{ if .inputs.x }}`, a
+ * function argument) is left unset: a placeholder there would be evaluated as
+ * a real value (a truthy string) and silently pick a branch the user never
+ * chose. Unset, it makes the engine fail, and the client-side fallback shows
+ * that logic as written, with a note. An input that is also used as a plain
+ * value does get the placeholder (the engine takes one value per input), so
+ * the command shows the visible `<name>` slot.
  */
 export function buildInputPlaceholders(
   commands: string[],
   inputs: TemplateInputs,
 ): TemplateInputs {
-  const referenced = splitDependencies(
-    commands.flatMap((c) => extractTemplateDependenciesFromString(c)),
-  ).inputs
+  const referenced = [...new Set(commands.flatMap(extractInputValueReferences))]
   const missing = computeUnmetInputDependencies(referenced, inputs)
   if (missing.length === 0) return inputs
 
@@ -174,7 +182,8 @@ export function fieldsNeedingPrompt(
  * Merge form inputs and manually-supplied output values into a single template
  * context (§5 step 2). Existing context outputs are kept (e.g. a DirPicker's
  * published path), with the prompted manual values layered on top. Inputs the
- * `commands` reference but no form has set get a `<name>` placeholder.
+ * `commands` use as plain values but no form has set get a `<name>`
+ * placeholder (see buildInputPlaceholders).
  */
 export function buildMergedContext(
   baseContext: TemplateContext,

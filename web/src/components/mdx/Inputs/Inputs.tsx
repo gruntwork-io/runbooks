@@ -1,5 +1,6 @@
-import { useMemo, useEffect, useRef } from 'react'
+import { useMemo, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useRunbookContext } from '@/contexts/useRunbook'
 import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
 import { DuplicateIdError } from '../_shared/components/DuplicateIdError'
 import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
@@ -82,21 +83,31 @@ function Inputs({
     !validationError && !inlineContentError
   );
 
-  // Apply prefilled variables to the boilerplate config
+  // Values already registered under this id when this instance mounted. A
+  // remount (e.g. a Command's nested Inputs when instruction mode is toggled)
+  // resumes from them; otherwise the form would re-register its defaults over
+  // what the user typed.
+  const { blockInputs } = useRunbookContext()
+  const [registeredValues] = useState(() => blockInputs[id]?.values)
+
+  // Apply prefilled variables, then any registered values, to the boilerplate config
   const boilerplateConfigWithPrefilledVariables = useMemo(() => {
     if (!boilerplateConfig) return null
-    const hasPrefilledVars = Object.keys(prefilledVariables).length > 0
-    if (!hasPrefilledVars) return boilerplateConfig
+    const overrides: Record<string, unknown> = { ...prefilledVariables }
+    for (const [name, value] of Object.entries(registeredValues ?? {})) {
+      if (value !== undefined) overrides[name] = value
+    }
+    if (Object.keys(overrides).length === 0) return boilerplateConfig
     return {
       ...boilerplateConfig,
       variables: boilerplateConfig.variables.map(variable => ({
         ...variable,
-        default: Object.prototype.hasOwnProperty.call(prefilledVariables, variable.name)
-          ? prefilledVariables[variable.name]
+        default: Object.prototype.hasOwnProperty.call(overrides, variable.name)
+          ? overrides[variable.name]
           : variable.default
       }))
     }
-  }, [boilerplateConfig, prefilledVariables])
+  }, [boilerplateConfig, prefilledVariables, registeredValues])
 
   // Shared registration logic (ID registry, error reporting, telemetry, form state, debouncing)
   const {

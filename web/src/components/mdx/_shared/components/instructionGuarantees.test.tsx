@@ -10,9 +10,10 @@ import type { TemplateContext } from '@/lib/templateUtils'
  * path (spec §10):
  *  - the only IPC channel touched while resolving is the side-effect-free
  *    boilerplate:render-inline — never exec:run, render-to-disk, clone, push, PR;
- *  - every `{{ .inputs.* }}` / `{{ .outputs.* }}` reference in a displayed
- *    command resolves to a value or a `<name>` placeholder, whether or not the
- *    engine is available.
+ *  - every `{{ .inputs.* }}` / `{{ .outputs.* }}` value reference in a
+ *    displayed command resolves to a value or a `<name>` placeholder, whether or
+ *    not the engine is available;
+ *  - template logic is never evaluated against a placeholder.
  */
 
 const FORBIDDEN_CHANNELS = [
@@ -163,5 +164,39 @@ describe('instruction mode — no unresolved template references', () => {
     expect(screen.getByText('echo us-east-1')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('[template error')
     expect(document.body.textContent).not.toContain('{{')
+  })
+
+  it('never evaluates a conditional against a placeholder for an unset input', async () => {
+    // A stand-in for the engine: `if` on a missing key is an error (the WASM
+    // engine renders with OnMissingKey=ExitWithError); any set value is truthy.
+    const invoke = vi.fn().mockImplementation(async (_channel, params) => {
+      const inputs = params.inputs.find((v: { name: string }) => v.name === 'inputs')?.value ?? {}
+      const content = !('auto_approve' in inputs)
+        ? '[template error: template: cmd-0:1:24: executing "cmd-0" at <.inputs.auto_approve>: map has no entry for key "auto_approve"]'
+        : inputs.auto_approve
+          ? 'terraform destroy -auto-approve'
+          : 'terraform destroy '
+      return { renderedFiles: { 'cmd-0': { content } } }
+    })
+    const command = 'terraform destroy {{ if .inputs.auto_approve }}-auto-approve{{ end }}'
+
+    renderWithApi(
+      <Instruction
+        title="Run this:"
+        command={command}
+        templateContext={{ inputs: { auto_approve: undefined }, outputs: {} }}
+      />,
+      invoke,
+    )
+
+    // The unchecked, unset bool gets no placeholder: the engine can't decide
+    // the branch, so the logic is shown as written, flagged by the note.
+    await screen.findByText(/simplified resolver/)
+    expect(screen.getByText(command)).toBeInTheDocument()
+    expect(screen.queryByText('terraform destroy -auto-approve')).toBeNull()
+    const [, params] = invoke.mock.calls[0]
+    expect(params.inputs).toContainEqual(
+      expect.objectContaining({ name: 'inputs', value: { auto_approve: undefined } }),
+    )
   })
 })
