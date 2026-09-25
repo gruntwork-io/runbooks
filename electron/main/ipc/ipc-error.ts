@@ -27,6 +27,8 @@ interface TaggedFailure {
   readonly _tag: string
   readonly message?: unknown
   readonly path?: unknown
+  readonly id?: unknown
+  readonly status?: unknown
   readonly cause?: unknown
 }
 
@@ -48,8 +50,14 @@ export function describeFailure(err: unknown): string {
     if (typeof err.message === "string" && err.message !== "") return err.message
     // Data.TaggedError leaves the inherited Error.message empty unless the
     // error declares a `message` field, so build one from what it does carry,
-    // e.g. "FileReadError (/x/y.txt): ENOENT: no such file or directory".
-    const where = typeof err.path === "string" ? ` (${err.path})` : ""
+    // e.g. "FileReadError (/x/y.txt): ENOENT: no such file or directory",
+    // "ExecutableNotFoundError (id: build)" or "GitHubApiError (status 404)".
+    const details = [
+      typeof err.path === "string" ? err.path : "",
+      typeof err.id === "string" ? `id: ${err.id}` : "",
+      typeof err.status === "number" ? `status ${err.status}` : "",
+    ].filter(Boolean)
+    const where = details.length > 0 ? ` (${details.join(", ")})` : ""
     const why = err.cause instanceof Error && err.cause.message ? `: ${err.cause.message}` : ""
     return `${err._tag}${where}${why}`
   }

@@ -2,8 +2,10 @@ import { describe, it, expect, afterAll } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import type { IpcMain, IpcMainInvokeEvent } from "electron"
 import {
+  ExecutableNotFoundError,
   FileReadError,
   GitError,
+  GitHubApiError,
   PathTraversalError,
   RenderError,
   SessionNotFoundError,
@@ -41,6 +43,14 @@ describe("toIpcError", () => {
     expect(toIpcError(err).message).toBe(
       "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
     )
+  })
+
+  it("includes an id or HTTP status when a tagged failure has no message", async () => {
+    const notFound = await rejectionOf(Effect.fail(new ExecutableNotFoundError({ id: "build" })))
+    expect(toIpcError(notFound).message).toBe("ExecutableNotFoundError (id: build)")
+
+    const apiError = await rejectionOf(Effect.fail(new GitHubApiError({ status: 404, message: "" })))
+    expect(toIpcError(apiError).message).toBe("GitHubApiError (status 404)")
   })
 
   it("falls back to the bare tag when a tagged failure carries nothing else", async () => {
