@@ -2,8 +2,8 @@
  * File reading utilities.
  *
  * Provides file metadata reading with truncation, runbook path resolution,
- * language detection from extension, asset extension whitelisting, and
- * MIME-type resolution.
+ * language detection from extension, content hashing, and the VCS-directory
+ * and binary-extension lists shared by the tree walkers.
  */
 
 import path from "path"
