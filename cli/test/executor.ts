@@ -14,8 +14,7 @@ import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import {
-  detectInterpreter,
-  isBashInterpreter,
+  resolveScriptRunner,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
 import type { Executable } from "../../src/types.ts"
@@ -735,8 +734,8 @@ export class TestExecutor {
 
     try {
       // Prepare the script
-      const [interpreter, interpreterArgs] = detectInterpreter(scriptContent, foundExec.language)
-      const isBash = isBashInterpreter(interpreter)
+      const { interpreter, args: interpreterArgs, wrap: isBash } =
+        resolveScriptRunner(scriptContent, foundExec.language)
 
       let scriptToWrite = scriptContent
       let envCapturePath = ""

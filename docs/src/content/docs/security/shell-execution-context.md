@@ -36,6 +36,8 @@ Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or
 
 **Why?** Environment persistence works by wrapping your script in a Bash wrapper that captures environment changes after execution. This wrapper is Bash-specific and can't be applied to other interpreters. Additionally, environment changes in subprocesses (like a Python script) can't propagate back to the parent process — this is a fundamental limitation of how Unix processes work.
 
+Because the wrapper is Bash code, scripts with a `#!/bin/sh` shebang run under `bash`, not your system's `sh`. On Debian and Ubuntu, `sh` is `dash`, which can't run the wrapper at all. POSIX `sh` scripts run unchanged under `bash`.
+
 ### Multiline Environment Variables
 
 Environment variables can contain embedded newlines — RSA keys, JSON configs, multiline strings, etc. These values are correctly preserved across blocks:
@@ -67,7 +69,7 @@ trap "rm -rf $TEMP_DIR" EXIT
 export RESULT="computed value"
 ```
 
-Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. When your script exits:
+Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. The usual `trap` forms all work: `trap -- cleanup EXIT`, `trap cleanup INT EXIT` (the `INT` handler is installed as usual), and resets such as `trap - EXIT` or `trap EXIT`. When your script exits:
 
 1. Your trap handler runs first (cleanup happens)
 2. Runbooks captures the final environment state
@@ -226,6 +228,7 @@ Runbooks determines which interpreter to use for your script:
 | Shebang | Interpreter |
 |---------|-------------|
 | `#!/bin/bash` | Bash shell |
+| `#!/bin/sh` | Bash shell (see [Bash Scripts Only](#bash-scripts-only)) |
 | `#!/bin/zsh` | Zsh shell |
 | `#!/usr/bin/env python3` | Python 3 |
 | `#!/usr/bin/env node` | Node.js |

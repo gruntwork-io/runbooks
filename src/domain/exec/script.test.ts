@@ -8,12 +8,15 @@ import {
   detectInterpreter,
   isBashInterpreter,
   isValidEnvVarName,
+  resolveScriptRunner,
+  prepareScript,
   wrapBashScript,
   parseEnvCapture,
   parseBlockOutputs,
   captureFilesFromDir,
 } from "./script.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
+import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
 function runFs<A>(effect: Effect.Effect<A, any, any>, files: Record<string, string> = {}) {
   return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<A, any, never>)
@@ -82,6 +85,57 @@ describe("isBashInterpreter", () => {
     "",
   ])("returns false for %s", (interp) => {
     expect(isBashInterpreter(interp)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveScriptRunner
+// ---------------------------------------------------------------------------
+
+describe("resolveScriptRunner", () => {
+  it("runs a #!/bin/sh script under bash, since it gets the bash wrapper", () => {
+    expect(resolveScriptRunner("#!/bin/sh\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: [],
+      wrap: true,
+    })
+  })
+
+  it("runs a #!/usr/bin/env sh script under bash", () => {
+    expect(resolveScriptRunner("#!/usr/bin/env sh\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: [],
+      wrap: true,
+    })
+  })
+
+  it("keeps shebang args when switching sh to bash", () => {
+    expect(resolveScriptRunner("#!/bin/sh -e\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: ["-e"],
+      wrap: true,
+    })
+  })
+
+  it("wraps bash scripts and scripts without a shebang", () => {
+    expect(resolveScriptRunner("#!/bin/bash\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: [],
+      wrap: true,
+    })
+    expect(resolveScriptRunner("echo hi", "")).toEqual({
+      interpreter: "bash",
+      args: [],
+      wrap: true,
+    })
+  })
+
+  it("leaves other interpreters unwrapped", () => {
+    expect(resolveScriptRunner("#!/usr/bin/env python3\nprint(1)", "")).toEqual({
+      interpreter: "python3",
+      args: [],
+      wrap: false,
+    })
   })
 })
 
@@ -473,6 +527,105 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
     expect(result.capturedEnv).not.toBeNull()
     expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+  })
+
+  it("'trap -- handler EXIT' runs the user's handler and env capture", () => {
+    const result = runWrapped(
+      `trap -- 'echo USER_CLEANUP' EXIT
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("lowercase 'exit' is intercepted like EXIT", () => {
+    const result = runWrapped(
+      `trap 'echo USER_CLEANUP' exit
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("'trap handler INT EXIT' keeps the EXIT handler and installs the INT one", () => {
+    const result = runWrapped(
+      `trap 'echo USER_CLEANUP' INT EXIT
+       trap -p INT
+       export MY_VAR=hello`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toMatch(/trap -- 'echo USER_CLEANUP' (SIG)?INT/)
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it.each([
+    "trap EXIT",
+    "trap 0",
+    "trap -- - EXIT",
+    "trap 0 INT",
+  ])("'%s' resets the user's EXIT handler and still runs env capture", (reset) => {
+    const result = runWrapped(
+      `trap 'echo SHOULD_NOT_RUN' EXIT
+       ${reset}
+       export AFTER_RESET=yes
+       echo done`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("done")
+    expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+  })
+
+  it("the trap override works under set -euo pipefail", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       trap -- 'echo FIRST_CLEANUP' EXIT
+       trap - EXIT
+       trap 'echo on-int' INT
+       trap 'echo USER_CLEANUP' EXIT
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("running")
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.stdout).not.toContain("FIRST_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("prepareScript runs a #!/bin/sh script under bash, so its EXIT trap and env capture both work", async () => {
+    const { stdout, env } = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const setup = yield* prepareScript(
+            "#!/bin/sh\ntrap 'echo USER_CLEANUP' EXIT\nexport MY_VAR=hello\necho running\n",
+            "",
+          )
+          // Spawn exactly what the executor would: the resolved interpreter,
+          // not the wrapper's own #!/bin/bash line.
+          const res = yield* Effect.sync(() =>
+            spawnSync(setup.interpreter, [...setup.args, setup.scriptPath], {
+              encoding: "utf8",
+            }),
+          )
+          const captured = yield* parseEnvCapture(setup.envCapturePath, setup.pwdCapturePath)
+          return { stdout: res.stdout ?? "", env: captured.env }
+        }),
+      ).pipe(Effect.provide(NodeFileSystemLive)),
+    )
+    expect(stdout).toContain("running")
+    expect(stdout).toContain("USER_CLEANUP")
+    expect(env?.MY_VAR).toBe("hello")
   })
 
   it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {

@@ -110,7 +110,9 @@ export function detectInterpreter(
 }
 
 /**
- * Returns true if the interpreter is a bash-compatible shell.
+ * Returns true for shells whose scripts get the bash wrapper (bash and sh).
+ * The wrapper is bash code, so those scripts always run under bash; see
+ * resolveScriptRunner.
  */
 export function isBashInterpreter(interpreter: string): boolean {
   switch (interpreter) {
@@ -126,6 +128,23 @@ export function isBashInterpreter(interpreter: string): boolean {
   }
 }
 
+/**
+ * Decide how to run a script. Scripts whose interpreter is bash or sh get the
+ * env-capture wrapper, and the wrapper is bash code, so they always run under
+ * `bash`, even with a `#!/bin/sh` shebang. dash (/bin/sh on Debian/Ubuntu)
+ * can't parse the `trap()` override. bash-as-sh (macOS) runs in POSIX mode,
+ * where the special builtin `trap` wins over the override, so a user EXIT trap
+ * disables env capture. Shebang args (e.g. `-e`) are kept.
+ */
+export function resolveScriptRunner(
+  content: string,
+  language: string,
+): { interpreter: string; args: string[]; wrap: boolean } {
+  const [detected, args] = detectInterpreter(content, language)
+  const wrap = isBashInterpreter(detected)
+  return { interpreter: wrap ? "bash" : detected, args, wrap }
+}
+
 // ---------------------------------------------------------------------------
 // Bash Script Wrapping
 // ---------------------------------------------------------------------------
@@ -137,6 +156,7 @@ export function isBashInterpreter(interpreter: string): boolean {
  *  3. EXIT trap interception -- chains user EXIT traps with our capture handler
  *
  * Uses `env -0` for NUL-terminated output to handle values with embedded newlines.
+ * The result is bash code: run it with `bash`, never `sh` (see resolveScriptRunner).
  */
 export function wrapBashScript(
   script: string,
@@ -182,11 +202,16 @@ __runbooks_capture_env() {
 #
 # When user calls: trap "rm -rf $TEMP_DIR" EXIT
 # Our function:
-#   1. Detects it's an EXIT trap
-#   2. Saves the handler to __RUNBOOKS_USER_EXIT_HANDLER
-#   3. Returns without setting the actual trap (ours remains active)
+#   1. Parses the arguments the way the builtin does: an optional leading '--',
+#      then the action and the signal list. A single operand ('trap EXIT') or
+#      an all-digit first operand ('trap 0 INT') resets every listed signal,
+#      same as 'trap - EXIT INT'.
+#   2. Saves the action for EXIT (any case, or 0) to __RUNBOOKS_USER_EXIT_HANDLER
+#      without setting the actual trap (ours remains active)
+#   3. Passes every other signal in the call to 'builtin trap', so
+#      'trap cleanup INT EXIT' still installs the INT handler
 #
-# For non-EXIT traps, we pass through to 'builtin trap' so they work normally.
+# Printing forms ('trap', 'trap -p', 'trap -l', 'trap -P') pass straight through.
 # -----------------------------------------------------------------------------
 
 # Store user's EXIT trap handler (if they set one)
@@ -194,40 +219,54 @@ __RUNBOOKS_USER_EXIT_HANDLER=""
 
 # Override the trap builtin to intercept EXIT handlers
 trap() {
-    # Handle query flags (-p, -l) immediately - pass through to builtin
-    if [[ "$1" == "-p" || "$1" == "-l" ]]; then
+    # Printing forms pass straight through to builtin
+    if [[ $# -eq 0 || "$1" == "-p"|| "$1" == "-l" || "$1" == "-P" ]]; then
         builtin trap "$@"
         return $?
     fi
-
-    # Check if EXIT (or signal 0, which is equivalent) is in the arguments
-    local has_exit=false
-    local i
-    for i in "$@"; do
-        if [[ "$i" == "EXIT" || "$i" == "0" ]]; then
-            has_exit=true
-            break
+    if [[ "$1" == "--" ]]; then
+        shift
+        # 'trap --' on its own prints, like 'trap'
+        if [[ $# -eq 0 ]]; then
+            builtin trap
+            return $?
         fi
-    done
-
-    if $has_exit && [[ $# -ge 2 ]]; then
-        # This is setting an EXIT trap - intercept it
-        local handler="$1"
-        if [[ "$handler" == "-" ]]; then
-            # trap - EXIT: reset to default (clear user handler)
-            __RUNBOOKS_USER_EXIT_HANDLER=""
-        elif [[ -z "$handler" ]]; then
-            # trap '' EXIT: ignore signal (clear user handler)
-            __RUNBOOKS_USER_EXIT_HANDLER=""
-        else
-            # Save user's handler to call during exit
-            __RUNBOOKS_USER_EXIT_HANDLER="$handler"
-        fi
-        return 0
     fi
 
-    # Not an EXIT trap (or just querying) - pass through to builtin
-    builtin trap "$@"
+    local handler
+    if [[ $# -eq 1 || "$1" =~ ^[0-9]+$ ]]; then
+        # Every operand is a signal to reset
+        handler="-"
+    else
+        handler="$1"
+        shift
+    fi
+
+    local sig
+    local -a others=()
+    for sig in "$@"; do
+        case "$sig" in
+            [Ee][Xx][Ii][Tt]|0)
+                if [[ "$handler" == "-" || -z "$handler" ]]; then
+                    # trap - EXIT (reset) or trap '' EXIT (ignore): clear user handler
+                    __RUNBOOKS_USER_EXIT_HANDLER=""
+                else
+                    # Save user's handler to call during exit
+                    __RUNBOOKS_USER_EXIT_HANDLER="$handler"
+                fi
+                ;;
+            *)
+                others+=("$sig")
+                ;;
+        esac
+    done
+
+    # Guarded: "\${others[@]}" on an empty array errors under 'set -u' in bash < 4.4
+    if [[ \${#others[@]} -gt 0 ]]; then
+        builtin trap -- "$handler" "\${others[@]}"
+        return $?
+    fi
+    return 0
 }
 
 # -----------------------------------------------------------------------------
@@ -288,8 +327,7 @@ export const prepareScript = (
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const [interpreter, args] = detectInterpreter(content, language)
-    const isBash = isBashInterpreter(interpreter)
+    const { interpreter, args, wrap: isBash } = resolveScriptRunner(content, language)
 
     let scriptToWrite = content
     let envCapturePath = ""
