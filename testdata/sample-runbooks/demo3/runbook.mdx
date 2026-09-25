@@ -71,7 +71,7 @@ Let's render a standard template with inputs from test1 and test2:
 This tests that `<Inputs>` with inline YAML works correctly when nested inside a `<Command>` block (embedded variant):
 
 <Command id="test6-command"
-    command="echo 'Project: {{ .inputs.ProjectName }} by {{ .inputs.AuthorName }}'"
+    command='echo "Project: {{ .inputs.ProjectName }} by {{ .inputs.AuthorName }}"'
     title="Test embedded inputs"
     description="Tests that inline YAML extraction works for embedded Inputs"
     successMessage="Embedded inputs work!"
