@@ -19,16 +19,19 @@ export interface CloneStepOptions {
 }
 
 /**
- * Normalize a repo path for sparse checkout: trim it and drop a leading `./`
- * and trailing `/`. Succeeds with undefined when the path names the whole
- * repository (`""` or `"."`). Fails for an absolute path or one with a `..`
- * segment, since neither names a directory inside the repository.
+ * Normalize a repo path for sparse checkout: trim it, turn `\` into `/` (git
+ * paths are always `/`-separated, so a Windows-style `modules\vpc` would
+ * otherwise match nothing), and drop a leading `./` and trailing `/`.
+ * Succeeds with undefined when the path names the whole repository (`""` or
+ * `"."`). Fails for an absolute path or one with a `..` segment, since neither
+ * names a directory inside the repository.
  */
 export function normalizeRepoPath(
   repoPath: string | undefined,
 ): Either.Either<string | undefined, GitError> {
   const trimmed = (repoPath ?? "").trim()
-  if (/^(?:[/\\]|[A-Za-z]:)/.test(trimmed) || trimmed.split(/[/\\]/).includes("..")) {
+  const slashed = trimmed.replace(/\\/g, "/")
+  if (/^(?:\/|[A-Za-z]:)/.test(slashed) || slashed.split("/").includes("..")) {
     return Either.left(
       new GitError({
         command: "git sparse-checkout",
@@ -37,7 +40,7 @@ export function normalizeRepoPath(
       }),
     )
   }
-  const normalized = trimmed.replace(/^(?:\.\/+)+/, "").replace(/\/+$/, "")
+  const normalized = slashed.replace(/^(?:\.\/+)+/, "").replace(/\/+$/, "")
   return Either.right(normalized === "" || normalized === "." ? undefined : normalized)
 }
 
@@ -45,6 +48,10 @@ export function normalizeRepoPath(
  * The argument lists of the git commands that clone `url` into `dest`, to run
  * in order, stopping at the first failure. Every command addresses `dest`
  * itself (`-C`), so none needs a working directory.
+ *
+ * In a sparse clone the final `checkout` downloads file contents from the
+ * remote (the clone is blobless), so every step, not only `clone`, needs
+ * access to the repository's credentials.
  */
 export function buildCloneSteps(
   url: string,

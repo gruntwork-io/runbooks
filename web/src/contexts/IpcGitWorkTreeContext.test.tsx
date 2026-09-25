@@ -85,6 +85,53 @@ describe('IpcGitWorkTreeProvider', () => {
       expect(activeSyncs().at(-1)).toBe('/work/second')
     })
 
+    it('gives the active role back when the displaced worktree registers again', () => {
+      const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first')))
+      act(() => result.current.registerWorkTree(workTree('second', '/work/second')))
+      // The first block clicks "Clone again": the second stands in meanwhile.
+      act(() => result.current.unregisterWorkTree('first'))
+      invoke.mockClear()
+
+      // Its new clone must win back the role, or <GitPullRequest> would
+      // target the second block's repository.
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first-again')))
+
+      expect(result.current.activeWorkTreeId).toBe('first')
+      expect(activeSyncs()).toEqual(['/work/first-again'])
+
+      // Handed back once only: the second re-registering later doesn't take it.
+      act(() => result.current.registerWorkTree(workTree('second', '/work/second-again')))
+      expect(result.current.activeWorkTreeId).toBe('first')
+    })
+
+    it('gives the role back to the original holder when its stand-in also starts over', () => {
+      const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first')))
+      act(() => result.current.registerWorkTree(workTree('second', '/work/second')))
+      act(() => result.current.unregisterWorkTree('first'))
+      act(() => result.current.unregisterWorkTree('second'))
+      expect(result.current.activeWorkTreeId).toBeNull()
+
+      act(() => result.current.registerWorkTree(workTree('second', '/work/second-again')))
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first-again')))
+
+      expect(result.current.activeWorkTreeId).toBe('first')
+      expect(activeSyncs().at(-1)).toBe('/work/first-again')
+    })
+
+    it('keeps an explicit choice over handing the role back', () => {
+      const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first')))
+      act(() => result.current.registerWorkTree(workTree('second', '/work/second')))
+      act(() => result.current.unregisterWorkTree('first'))
+      act(() => result.current.setActiveWorkTree('second'))
+
+      act(() => result.current.registerWorkTree(workTree('first', '/work/first-again')))
+
+      expect(result.current.activeWorkTreeId).toBe('second')
+    })
+
     it('keeps the active worktree when a different one is removed', () => {
       const { result } = renderHook(() => useGitWorkTree(), { wrapper: Wrapper })
       act(() => result.current.registerWorkTree(workTree('first', '/work/first')))

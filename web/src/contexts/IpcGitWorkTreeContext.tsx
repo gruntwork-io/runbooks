@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { useApi } from './ApiContext'
 import { GitWorkTreeContext } from './gitWorkTreeTypes'
@@ -16,6 +16,12 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
   const [activeWorkTreeId, setActiveWorkTreeId] = useState<string | null>(null)
   const [treeVersion, setTreeVersion] = useState(0)
   const api = useApi()
+  // The worktree that last lost the active role to unregisterWorkTree (its
+  // block started over). When that block registers again it takes the role
+  // back, as if it had never left; otherwise, in a runbook with several
+  // GitClone blocks, the stand-in would stay active and <GitPullRequest>
+  // would target the wrong repository.
+  const displacedActiveIdRef = useRef<string | null>(null)
 
   const invalidateGitFileTree = useCallback(() => {
     setTreeVersion(v => v + 1)
@@ -38,12 +44,16 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
       return [...prev, workTree]
     })
 
+    // Decided outside the updater, which StrictMode runs twice.
+    const reclaimsActive = displacedActiveIdRef.current === workTree.id
+    if (reclaimsActive) displacedActiveIdRef.current = null
+
     // Auto-activate the first registered worktree
     setActiveWorkTreeId(prev => {
       // First worktree: set it as active on the backend too. Re-registering
       // the active one (its block cloned again, maybe to another path) syncs
       // it again, or the backend would stay on the old path.
-      if (prev === null || prev === workTree.id) {
+      if (prev === null || prev === workTree.id || reclaimsActive) {
         syncActiveToBackend(workTree.localPath)
         return workTree.id
       }
@@ -65,6 +75,8 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
     if (remaining.length === workTrees.length) return
     setWorkTrees(remaining)
     if (activeWorkTreeId === id) {
+      // Keep the original holder when a stand-in is removed in turn.
+      displacedActiveIdRef.current ??= id
       const next = remaining[0] ?? null
       setActiveWorkTreeId(next?.id ?? null)
       if (next) syncActiveToBackend(next.localPath)
@@ -73,6 +85,8 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
   }, [workTrees, activeWorkTreeId, syncActiveToBackend, invalidateGitFileTree])
 
   const setActiveWorkTree = useCallback((id: string) => {
+    // An explicit choice wins over handing the role back later.
+    displacedActiveIdRef.current = null
     setActiveWorkTreeId(id)
 
     // Find the worktree's local path and sync to the backend
@@ -94,6 +108,7 @@ export const IpcGitWorkTreeProvider: React.FC<IpcGitWorkTreeProviderProps> = ({ 
   // selection) would silently stick around as "active" after switching to an
   // unrelated runbook in the same running window.
   const resetWorkTrees = useCallback(() => {
+    displacedActiveIdRef.current = null
     setWorkTrees([])
     setActiveWorkTreeId(null)
     invalidateGitFileTree()

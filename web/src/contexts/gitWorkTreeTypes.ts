@@ -29,7 +29,7 @@ export interface GitWorkTreeContextType {
   activeWorkTree: GitWorkTree | null
   /** Register a new worktree (or replace one with the same id) */
   registerWorkTree: (workTree: GitWorkTree) => void
-  /** Remove one block's worktree; if it was active, the first remaining one becomes active */
+  /** Remove one block's worktree; if it was active, the first remaining one stands in until it registers again */
   unregisterWorkTree: (id: string) => void
   /** Switch the active worktree by id */
   setActiveWorkTree: (id: string) => void

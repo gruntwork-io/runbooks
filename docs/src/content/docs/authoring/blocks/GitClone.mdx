@@ -246,9 +246,11 @@ Reference outputs in downstream blocks using template variables:
 
 ### Cancelling and Starting Over
 
-**Cancel** stops the running `git clone` process, which removes the partially cloned directory. A cancelled clone produces no outputs.
+**Cancel** stops the running `git` process, and a cancelled clone produces no outputs. `git clone` removes its partially cloned directory when stopped. A [sparse checkout](#sparse-checkout) is the exception: it runs several `git` commands, and one cancelled after the first of them (the clone itself) leaves the directory in place. Cloning to the same path again then offers **Delete & Clone** to replace it.
 
-**Clone again** (or **Choose a different repo** for a local checkout) withdraws the block's outputs and removes the repository from the workspace until the next clone or checkout completes. Later blocks wait for it rather than carrying on against the previous repository, and a repository with no commits chosen next is held back as described in [Repositories With No Commits](#repositories-with-no-commits).
+**Clone again** (or **Choose a different repo** for a local checkout) withdraws the block's outputs and takes the repository out of the workspace panel until the next clone or checkout completes. Blocks that read this block's outputs wait for that next clone rather than using the previous repository's values. [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) stops targeting the previous repository too: it waits, or uses the repository of another `<GitClone>` block in the runbook until this one completes again. A repository with no commits chosen next is held back as described in [Repositories With No Commits](#repositories-with-no-commits).
+
+`$REPO_FILES` and `target="worktree"` writes are not held back. When no other `<GitClone>` block has a repository in the workspace, they keep pointing at the previous repository until the next clone or checkout completes.
 
 ### View Logs
 

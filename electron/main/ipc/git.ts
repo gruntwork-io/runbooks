@@ -349,63 +349,67 @@ export function registerGitHandlers(): void {
           })
 
           for (const cloneArgs of cloneSteps) {
-            log.debug("spawning git process...")
-            // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
-            // not yet in known_hosts fails fast instead of hanging on the
-            // host-key verification prompt.
-            //
-            // git:clone-cancel interrupts this fiber. Kill git when that happens,
-            // or it keeps writing into the destination after the renderer has
-            // moved on (and races a "Delete & Clone" of the same directory). A
-            // terminated git clone cleans up its partial clone itself; a sparse
-            // clone stopped in a later step leaves the directory for "Delete &
-            // Clone".
-            const proc = yield* Effect.acquireRelease(
-              spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() }),
-              (spawned, exit) => (Exit.isInterrupted(exit) ? spawned.kill : Effect.void),
-            )
+            // Each step gets its own scope, so the kill below is tied to the
+            // step that is running: a step that already exited is not signalled.
+            yield* Effect.scoped(Effect.gen(function* () {
+              log.debug("spawning git process...")
+              // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
+              // not yet in known_hosts fails fast instead of hanging on the
+              // host-key verification prompt.
+              //
+              // git:clone-cancel interrupts this fiber. Kill git when that happens,
+              // or it keeps writing into the destination after the renderer has
+              // moved on (and races a "Delete & Clone" of the same directory). A
+              // terminated git clone cleans up its partial clone itself; a sparse
+              // clone stopped in a later step leaves the directory for "Delete &
+              // Clone".
+              const proc = yield* Effect.acquireRelease(
+                spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() }),
+                (spawned, exit) => (Exit.isInterrupted(exit) ? spawned.kill : Effect.void),
+              )
 
-            log.debug("draining output stream...")
-            const stderrLines: string[] = []
-            yield* Stream.runForEach(proc.output, (line) =>
-              Effect.sync(() => {
-                if (line.source === "stderr") stderrLines.push(line.line)
-                event.sender.send("git:clone-progress", {
-                  line: line.line,
-                  timestamp: new Date().toISOString(),
-                  cloneId: params.cloneId,
-                })
-              }),
-            )
-
-            log.debug("getting exit code...")
-            const exitCode = yield* proc.exitCode
-            log.debug("exit code:", exitCode)
-            if (exitCode !== 0) {
-              const stderr = stderrLines.join("\n").trim()
-              // With strict host-key checking, cloning a host that isn't in
-              // known_hosts yet fails with "Host key verification failed." rather
-              // than hanging on the interactive prompt. git's bare message gives
-              // no remedy, so append the exact command to trust the host. The
-              // host is pulled from the SSH/SCP-form URL (git@host:owner/repo),
-              // for which new URL() yields no hostname.
-              let stderrOut =
-                stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`
-              if (/host key verification failed/i.test(stderr)) {
-                const sshHost =
-                  params.url.match(/^(?:ssh:\/\/)?(?:[^@/]+@)?([^:/]+)/)?.[1] ?? "<host>"
-                stderrOut +=
-                  `\n\nThe SSH host key for ${sshHost} isn't trusted yet. Add it to ` +
-                  `known_hosts, then clone again:\n  ssh-keyscan ${sshHost} >> ~/.ssh/known_hosts`
-              }
-              return yield* Effect.fail(
-                new GitError({
-                  command: "git clone",
-                  stderr: stderrOut,
-                  exitCode,
+              log.debug("draining output stream...")
+              const stderrLines: string[] = []
+              yield* Stream.runForEach(proc.output, (line) =>
+                Effect.sync(() => {
+                  if (line.source === "stderr") stderrLines.push(line.line)
+                  event.sender.send("git:clone-progress", {
+                    line: line.line,
+                    timestamp: new Date().toISOString(),
+                    cloneId: params.cloneId,
+                  })
                 }),
               )
-            }
+
+              log.debug("getting exit code...")
+              const exitCode = yield* proc.exitCode
+              log.debug("exit code:", exitCode)
+              if (exitCode !== 0) {
+                const stderr = stderrLines.join("\n").trim()
+                // With strict host-key checking, cloning a host that isn't in
+                // known_hosts yet fails with "Host key verification failed." rather
+                // than hanging on the interactive prompt. git's bare message gives
+                // no remedy, so append the exact command to trust the host. The
+                // host is pulled from the SSH/SCP-form URL (git@host:owner/repo),
+                // for which new URL() yields no hostname.
+                let stderrOut =
+                  stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`
+                if (/host key verification failed/i.test(stderr)) {
+                  const sshHost =
+                    params.url.match(/^(?:ssh:\/\/)?(?:[^@/]+@)?([^:/]+)/)?.[1] ?? "<host>"
+                  stderrOut +=
+                    `\n\nThe SSH host key for ${sshHost} isn't trusted yet. Add it to ` +
+                    `known_hosts, then clone again:\n  ssh-keyscan ${sshHost} >> ~/.ssh/known_hosts`
+                }
+                return yield* Effect.fail(
+                  new GitError({
+                    command: "git clone",
+                    stderr: stderrOut,
+                    exitCode,
+                  }),
+                )
+              }
+            }))
           }
 
           event.sender.send("git:clone-progress", {

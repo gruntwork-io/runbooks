@@ -55,6 +55,12 @@ describe("normalizeRepoPath", () => {
     expect(normalize(".//docs//")).toBe("docs")
   })
 
+  it("turns backslashes into the / git paths use", () => {
+    expect(normalize("modules\\vpc")).toBe("modules/vpc")
+    expect(normalize(".\\modules\\vpc\\")).toBe("modules/vpc")
+    expect(normalize(".\\")).toBeUndefined()
+  })
+
   it("returns undefined for the repository root", () => {
     expect(normalize(undefined)).toBeUndefined()
     expect(normalize("")).toBeUndefined()
