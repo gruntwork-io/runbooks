@@ -31,7 +31,10 @@ function stripNonColorAnsi(text: string): string {
  * Renders terminal output text, handling both plain text and ANSI escape codes.
  * 
  * - Plain text (no ANSI codes): Uses LinkifiedText for clickable URLs
- * - ANSI text (has escape codes): Uses ansi-to-react for colored output
+ * - ANSI text (has escape codes): Uses ansi-to-react for colored output, with
+ *   its built-in linkify for clickable URLs
+ *
+ * `linkify` applies to both paths.
  * 
  * Usage:
  *   <TerminalText text="Plain text with https://example.com" />
@@ -57,12 +60,12 @@ export function TerminalText({ text, linkify = true, wrap = true }: TerminalText
   }
 
   // Has ANSI codes - render with ansi-to-react
-  // Note: ansi-to-react handles the conversion, but URLs inside won't be clickable
-  // This is a trade-off for supporting colors
   // Use useClasses to output CSS class names instead of inline styles (easier to customize)
+  // linkify stays a boolean (the library's classic URL regex): "fuzzy" mode would
+  // also link bare names with a real TLD, such as main.tf in terraform output
   return (
     <span className={className}>
-      <Ansi useClasses>{cleanedText}</Ansi>
+      <Ansi useClasses linkify={linkify}>{cleanedText}</Ansi>
     </span>
   )
 }
