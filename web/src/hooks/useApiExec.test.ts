@@ -375,6 +375,70 @@ describe('useApiExec state machine', () => {
     expect(onOutputsCaptured).toHaveBeenCalledWith({ account_id: '123', region: 'us-west-2' })
   })
 
+  it('files-captured event: passes the backend payload, tree and truncation fields, to the callback', async () => {
+    // The exact shape src/domain/exec/executor.ts emits for a step that wrote
+    // main.tf to $GENERATED_FILES.
+    const payload = {
+      files: [{ path: 'main.tf', size: 19 }],
+      count: 1,
+      fileTree: [
+        {
+          id: 'main.tf',
+          name: 'main.tf',
+          type: 'file',
+          children: [],
+          file: {
+            name: 'main.tf',
+            path: 'main.tf',
+            content: 'resource "x" "y" {}',
+            language: 'hcl',
+            size: 19,
+            isTruncated: false,
+          },
+        },
+      ],
+      totalFiles: 1,
+      truncatedTree: false,
+      heavyDirs: [],
+    }
+    const onFilesCaptured = vi.fn()
+    const { result } = renderHook(() => useApiExec({ onFilesCaptured }))
+
+    act(() => {
+      result.current.execute('test-executable')
+    })
+
+    act(() => {
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit('exec:files-captured', payload)
+      mock.resolveInvoke()
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    expect(onFilesCaptured).toHaveBeenCalledTimes(1)
+    expect(onFilesCaptured).toHaveBeenCalledWith(payload)
+  })
+
+  it('files-captured event without a tree still reaches the callback', async () => {
+    // Main omits fileTree when it could not read the output dir; the step
+    // still captured files, so the git tree must still refresh.
+    const onFilesCaptured = vi.fn()
+    const { result } = renderHook(() => useApiExec({ onFilesCaptured }))
+
+    act(() => {
+      result.current.execute('test-executable')
+    })
+
+    act(() => {
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit('exec:files-captured', { files: [{ path: 'main.tf', size: 19 }], count: 1 })
+      mock.resolveInvoke()
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    expect(onFilesCaptured).toHaveBeenCalledWith({ files: [{ path: 'main.tf', size: 19 }], count: 1 })
+  })
+
   it('warn status: exit code 2 sets warn status', async () => {
     const { result } = renderHook(() => useApiExec())
 

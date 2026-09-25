@@ -22,7 +22,8 @@ import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutput
 
 interface RenderInlineResult {
   renderedFiles: Record<string, File>
-  fileTree: FileTreeNode[]
+  /** Present only when the render wrote files (generateFile). */
+  fileTree?: FileTreeNode[]
   truncatedTree?: boolean
   totalFiles?: number
   heavyDirs?: Array<{ path: string; fileCount: number }>
@@ -33,9 +34,9 @@ interface TemplateInlineProps {
   id: string
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
-  /** Output path prefix for generated files */
+  /** Path of the rendered file, relative to the output dir (e.g. "docs/account.hcl") */
   outputPath?: string
-  /** Whether to generate the file to the file tree (default: false, preview only) */
+  /** Whether to also save the rendered file to the workspace (default: false, preview only) */
   generateFile?: boolean
   /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). Only used when generateFile is true. */
   target?: 'generated' | 'worktree'
@@ -45,7 +46,9 @@ interface TemplateInlineProps {
 
 /**
  * TemplateInline renders inline template content with variable substitution.
- * It displays the rendered output as code blocks (preview only, no file generation).
+ * It displays the rendered output as code blocks. With generateFile, it also
+ * saves the rendered file under outputPath in $GENERATED_FILES, or in the
+ * active git worktree when target is "worktree".
  *
  * Variables are sourced from Inputs components referenced by inputsId.
  * When multiple inputsIds are provided, variables and configs are merged (later IDs override earlier).
@@ -185,9 +188,10 @@ function TemplateInline({
     // cause type-conversion errors like strconv.Atoi("").
     if (hasEmptyNumericInputs(inputs)) return;
 
-    // Deduplicate renders: hash the current inputs/outputs and skip if nothing changed.
+    // Deduplicate renders: hash everything the request depends on and skip if nothing changed.
     // This prevents redundant API calls when React re-runs the effect with the same values.
-    const key = computeChangeKey(inputs, allOutputs);
+    // generateFile/target are part of the key so leaving instruction mode re-renders and writes.
+    const key = computeChangeKey(inputs, allOutputs, templateFiles, effectiveGenerateFile, target);
     if (key === lastRenderedKeyRef.current) return;
     lastRenderedKeyRef.current = key;
 
@@ -201,12 +205,15 @@ function TemplateInline({
     });
   }, [inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, effectiveGenerateFile, target, debouncedRequest, isDuplicate]);
 
-  // Apply file tree updates when render data arrives
+  // Apply file tree updates when render data arrives. Only a response that
+  // wrote files carries a fileTree; a preview response (e.g. one left over from
+  // instruction mode) must never replace the Generated tree.
   useEffect(() => {
     if (!data) return;
     setHasRendered(true);
-    if (effectiveGenerateFile) {
-      applyFileTreeUpdate(data);
+    const { fileTree } = data;
+    if (effectiveGenerateFile && Array.isArray(fileTree)) {
+      applyFileTreeUpdate({ ...data, fileTree });
     }
   }, [data, effectiveGenerateFile, applyFileTreeUpdate]);
 

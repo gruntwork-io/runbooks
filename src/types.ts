@@ -142,12 +142,12 @@ export interface RenderRequest {
   perf?: RenderPerfContext
 }
 
-export interface RenderResponse {
+export interface RenderResponse extends Partial<FileTreeMeta> {
   message: string
   outputDir: string
   templatePath: string
-  fileTree: FileTreeNode[]
-  meta: FileTreeMeta
+  /** Omitted when nothing was written (the no-change shortcut). */
+  fileTree?: FileTreeNode[]
   deletedFiles: string[]
   createdFiles: string[]
   modifiedFiles: string[]
@@ -164,7 +164,6 @@ export interface RenderInlineRequest {
   templateFiles: Record<string, string>
   inputs: InputValue[]
   generateFile?: boolean
-  outputPath?: string
   target?: "generated" | "worktree"
 }
 
@@ -232,10 +231,11 @@ export interface CapturedFile {
   size: number
 }
 
-export interface FilesCapturedEvent {
+export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
   files: CapturedFile[]
   count: number
-  fileTree: unknown
+  /** The generated-files tree after the capture. Omitted if it could not be read. */
+  fileTree?: FileTreeNode[]
 }
 
 export interface BlockOutputsEvent {

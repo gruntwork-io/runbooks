@@ -6,6 +6,7 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
 import { ExecTimeoutError } from "../../errors/index.ts"
+import { buildFileTree } from "../workspace/file-tree.ts"
 import { makeLogger } from "../../logger.ts"
 
 const log = makeLogger("domain:exec")
@@ -289,12 +290,19 @@ export const executeScript = (
         ).pipe(Effect.catchAll(() => Effect.succeed([] as CapturedFile[])))
 
         if (capturedFiles.length > 0) {
+          // Send the whole generated-files tree, built the way
+          // boilerplate:render builds it, so the Generated panel shows the
+          // captured files. A failed walk must not fail a successful run; the
+          // event then carries no tree and the panel keeps what it had.
+          const built = yield* buildFileTree(outputPath).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          )
           events.push({
             _tag: "files_captured",
             event: {
               files: capturedFiles,
               count: capturedFiles.length,
-              fileTree: null,
+              ...(built ? { fileTree: built.tree, ...built.meta } : {}),
             },
           })
         }
