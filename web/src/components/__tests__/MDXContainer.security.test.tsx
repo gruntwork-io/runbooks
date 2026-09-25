@@ -22,6 +22,8 @@ const ATTACKS: Array<[string, string]> = [
   ['a prop expression', `<Admonition type="info" title={String(${EXEC})} />`],
   ['a spread prop', `<Admonition type="info" {...${EXEC}} />`],
   ['a template substitution', `<Admonition type="info" title={\`\${${EXEC}}\`} />`],
+  // Inline script text can't contain `{`, which MDX would parse as an expression.
+  ['a namespaced script element', `<svg><svg:script>window.api.invoke('runbook:executables')</svg:script></svg>`],
 ]
 
 describe('MDXContainer — runbook code cannot run on open', () => {

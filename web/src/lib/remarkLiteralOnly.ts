@@ -39,6 +39,8 @@ const LITERALS_HINT =
  *   as DOM attributes, so `ONANIMATIONSTART="..."` becomes an inline handler;
  * - dotted element names, which reach properties of a block instead of the
  *   block itself (`<Admonition.constructor>` renders `Function`);
+ * - namespaced element names, because `<svg><svg:script>` creates a real
+ *   script element that slips past a check on the name `script`;
  * - props and object keys that inject raw HTML or replace a prototype (see
  *   BLOCKED_PROPS).
  *
@@ -105,6 +107,12 @@ function checkElement(element: MdxNode) {
   }
   if (name.includes('-')) {
     throw notAllowed(element, `custom elements like ${tag} are not allowed in runbooks.`)
+  }
+  // Inside `<svg>`, React creates `<svg:script>` with createElementNS, which
+  // yields a real script element (local name `script`) that runs when mounted.
+  // Rejecting every prefix is simpler and fails closed.
+  if (name.includes(':')) {
+    throw notAllowed(element, `namespaced element names like ${tag} are not allowed in runbooks.`)
   }
 
   for (const attribute of element.attributes ?? []) {
