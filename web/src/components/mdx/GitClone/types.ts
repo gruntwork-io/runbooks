@@ -20,8 +20,6 @@ export interface GitCloneProps {
   prefilledRepoPath?: string
   /** Pre-fill the local path (relative to CWD) where files will be cloned (supports template expressions) */
   prefilledLocalPath?: string
-  /** Whether to use PTY (pseudo-terminal) for git clone execution. Defaults to true. Set to false to use pipes instead, which may be needed for environments that don't support PTY. */
-  usePty?: boolean
   /** Whether to show the file tree in the workspace panel after cloning. Defaults to true. */
   showFileTree?: boolean
   /**

@@ -98,9 +98,8 @@ You can pre-populate the URL, ref, sparse checkout path, and local path fields. 
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
 | `prefilledUrl` | `string` | No | Pre-fills the Git URL input field. The user can edit this value before cloning. |
 | `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
-| `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path. When set, only the specified subdirectory of the repository will be cloned (e.g., `modules/vpc`). |
+| `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path: a directory relative to the repository root (e.g., `modules/vpc`). When set, only that directory is checked out, plus the loose files above it such as a top-level `README.md`. Empty or `.` clones the whole repository. See [Sparse Checkout](#sparse-checkout). |
 | `prefilledLocalPath` | `string` | No | Pre-fills the local path (relative to the current working directory) where files will be cloned. Defaults to the repository name if empty. |
-| `usePty` | `boolean` | No | Whether to use a pseudo-terminal (PTY) for the git clone process. Defaults to `true`. PTY enables rich output like progress bars and colors. Set to `false` if your environment doesn't support PTY. |
 | `showFileTree` | `boolean` | No | Whether to show the cloned repository's file tree in the workspace panel after cloning. Defaults to `true`. When enabled, the "All files" and "Changed" tabs display the cloned files and any subsequent modifications. |
 | `source` | `'clone' \| 'local'` | No | Which source the block starts on: clone a remote repo, or use an existing local checkout. Defaults to `local` when `prefilledRepoDir` is set, otherwise `clone`. |
 | `hideSourceSelect` | `boolean` | No | Hides the source picker and locks the block to `source`. Defaults to `false`. |
@@ -169,7 +168,7 @@ When a GitHub token is available and the user enters a `github.com` HTTPS URL, t
 
 ### Sparse Checkout
 
-Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to clone only a specific subdirectory:
+Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to check out only one directory of a large repository:
 
 ```mdx
 <GitClone
@@ -181,7 +180,11 @@ Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to clone only 
 />
 ```
 
-This uses `git sparse-checkout` under the hood, which is efficient even for large repositories because it only downloads the blobs for the specified path.
+This clones the history without file contents (`git clone --filter=blob:none --no-checkout`), then checks out the path with a cone-mode `git sparse-checkout`. File contents are downloaded only for the files that are checked out, so it stays fast even for large repositories. It works together with `prefilledRef`.
+
+Cone mode checks out more than the directory itself: it also includes the files directly inside each directory above it, up to the repository root. For `modules/vpc-app`, that is everything under `modules/vpc-app/`, plus the files (but not the subdirectories) in `modules/` and at the root, such as a top-level `README.md`.
+
+The path is relative to the repository root. An absolute path or one containing `..` fails the clone, and an empty path or `.` clones the whole repository.
 
 ### Custom Local Path
 

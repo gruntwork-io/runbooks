@@ -159,7 +159,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
-  const clone = useCallback(async (url: string, ref: string, repoPath: string, localPath: string, usePty?: boolean, force?: boolean): Promise<'directory_exists' | void> => {
+  const clone = useCallback(async (url: string, ref: string, repoPath: string, localPath: string, force?: boolean): Promise<'directory_exists' | void> => {
     const runId = ++cloneRunRef.current
     const cloneId = crypto.randomUUID()
     cloneIdRef.current = cloneId
@@ -175,7 +175,6 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       if (ref) body.ref = ref
       if (repoPath) body.repo_path = repoPath
       if (localPath) body.localPath = localPath
-      if (usePty !== undefined) body.use_pty = usePty
       if (force) body.force = true
       if (authProvider) body.provider = authProvider
 

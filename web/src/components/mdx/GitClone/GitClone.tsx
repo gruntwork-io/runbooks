@@ -70,7 +70,6 @@ function GitCloneInteractive({
   prefilledRef = '',
   prefilledRepoPath = '',
   prefilledLocalPath = '',
-  usePty,
   showFileTree = true,
   source,
   hideSourceSelect = false,
@@ -372,11 +371,11 @@ function GitCloneInteractive({
   const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
     setShowOverwriteConfirm(false)
-    const result = await clone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim(), usePty, force)
+    const result = await clone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim(), force)
     if (result === 'directory_exists') {
       setShowOverwriteConfirm(true)
     }
-  }, [gitUrl, ref, repoPath, localPath, clone, usePty])
+  }, [gitUrl, ref, repoPath, localPath, clone])
 
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
@@ -592,7 +591,7 @@ function GitCloneInteractive({
                         <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
                           Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
                           <InfoTooltip>
-                            Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                            Check out one subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> checks out that directory (plus the files at the top of the repo) instead of the entire repo.
                           </InfoTooltip>
                         </label>
                         <input

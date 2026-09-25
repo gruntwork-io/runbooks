@@ -886,6 +886,10 @@ export interface GitCloneRequest {
   cloneId?: string
   localPath?: string
   ref?: string
+  /**
+   * Directory to sparse-checkout, relative to the repository root. Empty or
+   * "." clones the whole repository.
+   */
   repo_path?: string
   credentials?: { token: string }
   /**
@@ -896,7 +900,6 @@ export interface GitCloneRequest {
    * SaaS hostnames.
    */
   provider?: "github" | "gitlab"
-  use_pty?: boolean
   force?: boolean
 }
 

@@ -8,11 +8,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { ManagedRuntime } from "effect"
+import { Either, ManagedRuntime } from "effect"
 
 import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
 import {
   detectInterpreter,
   isBashInterpreter,
@@ -1330,35 +1331,21 @@ export class TestExecutor {
       console.log(`  Destination: ${destPath}`)
     }
 
+    // The same git commands the app runs, so a sparse clone (with or without
+    // a ref) behaves identically here.
+    const cloneSteps = buildCloneSteps(effectiveURL, destPath, { ref, repoPath })
+    if (Either.isLeft(cloneSteps)) {
+      result.passed = false; result.actualStatus = "fail"
+      result.error = cloneSteps.left.stderr
+      result.duration = Date.now() - start
+      return result
+    }
+
     try {
-      const cloneArgs = ["clone", "--progress"]
-      if (repoPath) {
-        // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", effectiveURL, destPath)
-      } else {
-        cloneArgs.push(effectiveURL, destPath)
-      }
-
-      execFileSync("git", cloneArgs, {
-        timeout: this.options.timeout,
-        stdio: "pipe",
-      })
-
-      if (repoPath) {
-        execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-        execFileSync("git", ["sparse-checkout", "set", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-        execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-      }
-
-      if (ref && !repoPath) {
-        execFileSync("git", ["checkout", ref], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+      for (const cloneArgs of cloneSteps.right) {
+        execFileSync("git", cloneArgs, {
+          timeout: this.options.timeout,
+          stdio: "pipe",
         })
       }
     } catch (e: unknown) {

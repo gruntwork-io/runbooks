@@ -149,7 +149,7 @@ describe('useGitClone — cancel', () => {
 
     act(() => { void result.current.clone('https://github.com/acme/infra.git', '', '', '') })
     act(() => result.current.cancel())
-    act(() => { void result.current.clone('https://github.com/acme/infra.git', '', '', '', undefined, true) })
+    act(() => { void result.current.clone('https://github.com/acme/infra.git', '', '', '', true) })
     const [first, retry] = cloneIds
     expect(retry).not.toBe(first)
 
