@@ -36,7 +36,7 @@ Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or
 
 **Why?** Environment persistence works by wrapping your script in a Bash wrapper that captures environment changes after execution. This wrapper is Bash-specific and can't be applied to other interpreters. Additionally, environment changes in subprocesses (like a Python script) can't propagate back to the parent process — this is a fundamental limitation of how Unix processes work.
 
-Because the wrapper is Bash code, scripts with a `#!/bin/sh` shebang run under `bash`, not your system's `sh`. On Debian and Ubuntu, `sh` is `dash`, which can't run the wrapper at all. POSIX `sh` scripts run unchanged under `bash`.
+Because the wrapper is Bash code, scripts with a `#!/bin/sh` shebang run under `bash`, not your system's `sh`. On Debian and Ubuntu, `sh` is `dash`, which can't run the wrapper at all. Bash runs POSIX `sh` scripts as they are. For `#!/bin/sh` scripts Runbooks also turns on Bash's `xpg_echo` option, so `echo "a\nb"` prints two lines, just as `sh` does on macOS, Debian, and Ubuntu. Scripts with a `#!/bin/bash` shebang keep Bash's default, where `echo` prints `\n` literally unless you pass `-e`.
 
 ### Multiline Environment Variables
 

@@ -93,10 +93,10 @@ describe("isBashInterpreter", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveScriptRunner", () => {
-  it("runs a #!/bin/sh script under bash, since it gets the bash wrapper", () => {
+  it("runs a #!/bin/sh script under bash with sh's echo behavior", () => {
     expect(resolveScriptRunner("#!/bin/sh\necho hi", "")).toEqual({
       interpreter: "bash",
-      args: [],
+      args: ["-O", "xpg_echo"],
       wrap: true,
     })
   })
@@ -104,15 +104,25 @@ describe("resolveScriptRunner", () => {
   it("runs a #!/usr/bin/env sh script under bash", () => {
     expect(resolveScriptRunner("#!/usr/bin/env sh\necho hi", "")).toEqual({
       interpreter: "bash",
-      args: [],
+      args: ["-O", "xpg_echo"],
       wrap: true,
     })
+  })
+
+  it("treats an explicit sh language like a #!/bin/sh shebang", () => {
+    for (const lang of ["sh", "/bin/sh", "/usr/bin/sh"]) {
+      expect(resolveScriptRunner("echo hi", lang)).toEqual({
+        interpreter: "bash",
+        args: ["-O", "xpg_echo"],
+        wrap: true,
+      })
+    }
   })
 
   it("keeps shebang args when switching sh to bash", () => {
     expect(resolveScriptRunner("#!/bin/sh -e\necho hi", "")).toEqual({
       interpreter: "bash",
-      args: ["-e"],
+      args: ["-O", "xpg_echo", "-e"],
       wrap: true,
     })
   })
@@ -603,16 +613,14 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.capturedEnv!.MY_VAR).toBe("hello")
   })
 
-  it("prepareScript runs a #!/bin/sh script under bash, so its EXIT trap and env capture both work", async () => {
-    const { stdout, env } = await Effect.runPromise(
+  /** Prepare `content` and spawn exactly what the executor would. */
+  function runPrepared(content: string) {
+    return Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
-          const setup = yield* prepareScript(
-            "#!/bin/sh\ntrap 'echo USER_CLEANUP' EXIT\nexport MY_VAR=hello\necho running\n",
-            "",
-          )
-          // Spawn exactly what the executor would: the resolved interpreter,
-          // not the wrapper's own #!/bin/bash line.
+          const setup = yield* prepareScript(content, "")
+          // The resolved interpreter and args, not the wrapper's own
+          // #!/bin/bash line.
           const res = yield* Effect.sync(() =>
             spawnSync(setup.interpreter, [...setup.args, setup.scriptPath], {
               encoding: "utf8",
@@ -623,9 +631,25 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
         }),
       ).pipe(Effect.provide(NodeFileSystemLive)),
     )
+  }
+
+  it("prepareScript runs a #!/bin/sh script under bash, so its EXIT trap and env capture both work", async () => {
+    const { stdout, env } = await runPrepared(
+      "#!/bin/sh\ntrap 'echo USER_CLEANUP' EXIT\nexport MY_VAR=hello\necho running\n",
+    )
     expect(stdout).toContain("running")
     expect(stdout).toContain("USER_CLEANUP")
     expect(env?.MY_VAR).toBe("hello")
+  })
+
+  it("a #!/bin/sh script's echo expands backslash escapes, as under dash and macOS sh", async () => {
+    const { stdout } = await runPrepared('#!/bin/sh\necho "a\\nb"\n')
+    expect(stdout).toBe("a\nb\n")
+  })
+
+  it("a #!/bin/bash script's echo keeps bash's default and prints escapes literally", async () => {
+    const { stdout } = await runPrepared('#!/bin/bash\necho "a\\nb"\n')
+    expect(stdout).toBe("a\\nb\n")
   })
 
   it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {

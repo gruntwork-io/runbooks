@@ -147,15 +147,14 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it("runs the wrapped script under bash, so the wrapper keeps its EXIT handler", async () => {
-    // `trap -p EXIT` shows who owns EXIT after the user sets a trap. Under
-    // bash, the wrapper's trap override keeps its env-capture handler
-    // installed. Under dash the wrapper is a syntax error (exit 2, "warn").
-    // Under bash-as-sh (macOS) POSIX mode lets the user's trap replace it.
+  it("runs the wrapped script under bash, not in POSIX mode", async () => {
+    // Under dash the wrapper is a syntax error (exit 2, "warn"). Under
+    // bash-as-sh (macOS) POSIX mode is on, which lets the user's EXIT trap
+    // replace the wrapper's env-capture handler.
     fs.mkdirSync(path.join(tmp, "scripts"))
     fs.writeFileSync(
       path.join(tmp, "scripts", "cleanup.sh"),
-      "#!/bin/sh\ntrap 'echo cleanup' EXIT\ntrap -p EXIT\n",
+      "#!/bin/sh\ntrap 'echo cleanup' EXIT\nshopt -oq posix && echo POSIX_MODE || echo NOT_POSIX\n",
     )
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(rb, `# sh block\n\n<Command id="sh-block" path="scripts/cleanup.sh" />\n`)
@@ -168,7 +167,8 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
     })
 
     expect(result.stepResults[0]?.actualStatus).toBe("success")
-    expect(result.stepResults[0]?.logs).toContain("__runbooks_combined_exit")
+    expect(result.stepResults[0]?.logs).toContain("NOT_POSIX")
+    expect(result.stepResults[0]?.logs).not.toContain("POSIX_MODE")
     expect(result.stepResults[0]?.logs).toContain("cleanup")
   })
 })

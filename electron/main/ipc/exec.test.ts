@@ -70,10 +70,12 @@ describe("cancelAllExecutions", () => {
     grandchildPid = null
   })
 
-  afterAll(async () => {
+  afterAll(() => {
     setExecutableRegistry(null)
     fs.rmSync(tmpDir, { recursive: true, force: true })
-    await runtime.dispose()
+    // Don't dispose `runtime`: it's a module singleton shared with every other
+    // test file in this bun process, and a disposed ManagedRuntime fails every
+    // later runPromise with "ManagedRuntime disposed".
   })
 
   it("resolves only after every running script's process group has been signalled", async () => {

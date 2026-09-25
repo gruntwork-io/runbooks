@@ -135,6 +135,10 @@ export function isBashInterpreter(interpreter: string): boolean {
  * can't parse the `trap()` override. bash-as-sh (macOS) runs in POSIX mode,
  * where the special builtin `trap` wins over the override, so a user EXIT trap
  * disables env capture. Shebang args (e.g. `-e`) are kept.
+ *
+ * sh scripts also get `-O xpg_echo`. dash and macOS /bin/sh both expand
+ * backslash escapes in `echo` ("a\nb" prints two lines), and plain bash does
+ * not, so without it a `#!/bin/sh` script's echo output would change.
  */
 export function resolveScriptRunner(
   content: string,
@@ -142,7 +146,9 @@ export function resolveScriptRunner(
 ): { interpreter: string; args: string[]; wrap: boolean } {
   const [detected, args] = detectInterpreter(content, language)
   const wrap = isBashInterpreter(detected)
-  return { interpreter: wrap ? "bash" : detected, args, wrap }
+  if (!wrap) return { interpreter: detected, args, wrap }
+  const isSh = detected.slice(detected.lastIndexOf("/") + 1) === "sh"
+  return { interpreter: "bash", args: isSh ? ["-O", "xpg_echo", ...args] : args, wrap }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +226,7 @@ __RUNBOOKS_USER_EXIT_HANDLER=""
 # Override the trap builtin to intercept EXIT handlers
 trap() {
     # Printing forms pass straight through to builtin
-    if [[ $# -eq 0 || "$1" == "-p"|| "$1" == "-l" || "$1" == "-P" ]]; then
+    if [[ $# -eq 0 || "$1" == "-p" || "$1" == "-l" || "$1" == "-P" ]]; then
         builtin trap "$@"
         return $?
     fi
