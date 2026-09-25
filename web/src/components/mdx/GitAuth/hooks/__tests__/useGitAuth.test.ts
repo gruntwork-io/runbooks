@@ -1366,6 +1366,141 @@ describe('useGitAuth — provider switch mid-validation', () => {
   })
 })
 
+// A host pick, Reload or Check again sends the card back through detection.
+// Whatever the card held or was signing in with belongs to what it just left,
+// so none of it may stay published or land afterwards: an `*AuthId` step
+// would run with the wrong instance's credential.
+describe('useGitAuth — re-detection drops the previous credential', () => {
+  const HOSTS = {
+    hosts: [
+      { host: 'gitlab.com', sources: ['glab'], hasCredential: true },
+      { host: 'git.corp.example', sources: ['recent'], hasCredential: false },
+    ],
+    defaultHost: 'gitlab.com',
+  }
+  const TANUKI = { found: true, valid: true, user: { login: 'tanuki' }, host: 'gitlab.com', envVar: 'GITLAB_TOKEN' }
+
+  it('a host pick on an authenticated card withdraws its outputs, and nothing is found on the new host', async () => {
+    installApi(async (channel, args) => {
+      if (channel === 'gitlab:enumerate-hosts') return HOSTS
+      if (channel === 'gitlab:env-credentials') {
+        return (args as { host?: string }).host === 'gitlab.com' ? TANUKI : { found: false }
+      }
+      return { found: false }
+    })
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(registerOutputs).toHaveBeenLastCalledWith('git', expect.objectContaining({ __AUTHENTICATED: 'true' }))
+    registerOutputs.mockClear()
+
+    act(() => result.current.handleHostSelect('git.corp.example'))
+
+    // Withdrawn before detection on the new host starts ("Checking…").
+    expect(result.current.detectionStatus).toBe('pending')
+    expect(registerOutputs).toHaveBeenLastCalledWith('git', { GIT_PROVIDER: 'gitlab' })
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.selectedHost).toBe('git.corp.example')
+    expect(registerOutputs.mock.calls).toEqual([['git', { GIT_PROVIDER: 'gitlab' }]])
+  })
+
+  it('Reload on an authenticated card withdraws its outputs until detection signs back in', async () => {
+    let envCalls = 0
+    const second: { resolve: (value: unknown) => void } = { resolve: () => {} }
+    installApi(async (channel) => {
+      if (channel === 'gitlab:enumerate-hosts') return HOSTS
+      if (channel === 'gitlab:env-credentials') {
+        return ++envCalls === 1 ? TANUKI : new Promise((resolve) => { second.resolve = resolve })
+      }
+      return { found: false }
+    })
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+
+    act(() => result.current.reloadDetection())
+
+    expect(registerOutputs).toHaveBeenLastCalledWith('git', { GIT_PROVIDER: 'gitlab' })
+    await waitFor(() => expect(envCalls).toBe(2))
+    // Still checking: the old credential stays withdrawn.
+    expect(result.current.detectionStatus).toBe('pending')
+    expect(registerOutputs).toHaveBeenLastCalledWith('git', { GIT_PROVIDER: 'gitlab' })
+
+    await act(async () => {
+      second.resolve(TANUKI)
+    })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(registerOutputs).toHaveBeenLastCalledWith('git', {
+      GITLAB_USER: 'tanuki',
+      GIT_PROVIDER: 'gitlab',
+      __AUTHENTICATED: 'true',
+    })
+  })
+
+  it.each([
+    ['a host pick', (auth: ReturnType<typeof useGitAuth>) => auth.handleHostSelect('git.corp.example')],
+    ['Reload', (auth: ReturnType<typeof useGitAuth>) => auth.reloadDetection()],
+  ])('drops a PAT validated after %s', async (_label, redetect) => {
+    const pending: { resolve: (value: unknown) => void } = { resolve: () => {} }
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:enumerate-hosts') return HOSTS
+      if (channel === 'gitlab:validate') return new Promise((resolve) => { pending.resolve = resolve })
+      return { found: false }
+    })
+    const { result } = renderGitAuth({ id: 'git', provider: PROVIDERS.gitlab })
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+
+    act(() => result.current.setPatToken('glpat-old'))
+    let submitted: Promise<void> = Promise.resolve()
+    act(() => {
+      submitted = result.current.handlePatSubmit()
+    })
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('gitlab:validate', expect.anything()))
+    expect(result.current.authStatus).toBe('authenticating')
+
+    act(() => redetect(result.current))
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    await act(async () => {
+      pending.resolve({ valid: true, user: { login: 'tanuki' }, tokenType: 'pat' })
+      await submitted
+    })
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.userInfo).toBeNull()
+    expect(registerOutputs).not.toHaveBeenCalled()
+  })
+
+  it('Check again ends a device flow in progress', async () => {
+    let resolvePoll: (value: unknown) => void = () => {}
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:oauth-start') {
+        return { deviceCode: 'dev123', userCode: 'ABCD-1234', verificationUri: 'https://github.com/login/device', interval: 5, expiresIn: 900 }
+      }
+      if (channel === 'github:oauth-poll') return new Promise((resolve) => { resolvePoll = resolve })
+      return { found: false }
+    })
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github })
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+
+    await act(async () => {
+      await result.current.startOAuth()
+    })
+    expect(invoke).toHaveBeenCalledWith('github:oauth-poll', expect.anything())
+
+    act(() => result.current.retryUnreachable())
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    await act(async () => {
+      resolvePoll({ status: 'complete', user: { login: 'octocat' }, tokenType: 'oauth', scopes: ['repo'] })
+    })
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.userInfo).toBeNull()
+    expect(result.current.oauthUserCode).toBeNull()
+    expect(registerOutputs).not.toHaveBeenCalled()
+  })
+})
+
 describe('useGitAuth — success details', () => {
   it('keeps the token type of a CLI-detected token', async () => {
     installApi(async (channel) => {

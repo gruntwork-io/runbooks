@@ -189,9 +189,10 @@ export function useGitAuth({
   const [patToken, setPatToken] = useState('')
   const [showPatToken, setShowPatToken] = useState(false)
   // The current PAT submission. Each submit takes the next number and
-  // resetAuth (a provider switch, Re-authenticate) bumps it, so a validation
-  // still in flight when the card was reset neither signs the card in nor
-  // publishes the old provider's outputs.
+  // clearDetectionState (a provider switch, Re-authenticate, a host pick,
+  // Reload, Retry) bumps it, so a validation still in flight when the card
+  // was reset neither signs the card in nor publishes outputs for the
+  // provider or host the card has moved away from.
   const patSubmitRef = useRef(0)
 
   // GitLab self-hosted instance URL, seeded from the prop and editable in the
@@ -223,9 +224,10 @@ export function useGitAuth({
   const [oauthUserCode, setOauthUserCode] = useState<string | null>(null)
   const [oauthVerificationUri, setOauthVerificationUri] = useState<string | null>(null)
   // The current device flow. Each startOAuth takes the next number; cancel,
-  // reset and unmount bump it. Every continuation of a flow (the oauth-start
-  // reply, each poll reply, each scheduled poll) re-checks its number, so a
-  // poll in flight when its flow ended can never resume or publish.
+  // reset, re-detection and unmount bump it. Every continuation of a flow
+  // (the oauth-start reply, each poll reply, each scheduled poll) re-checks
+  // its number, so a poll in flight when its flow ended can never resume or
+  // publish.
   const oauthFlowRef = useRef(0)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -823,8 +825,8 @@ export function useGitAuth({
   }, [patToken, applyCredentialDetails, validateToken, registerCredentials, markUnreachable])
 
   // End the current device flow: bump the flow number so every continuation
-  // of it stops, and drop its scheduled poll. Shared by cancel, reset and
-  // unmount.
+  // of it stops, and drop its scheduled poll. Shared by cancel, reset,
+  // re-detection and unmount.
   const stopOAuthPolling = useCallback(() => {
     oauthFlowRef.current += 1
     if (oauthPollTimeoutRef.current) {
@@ -947,7 +949,15 @@ export function useGitAuth({
   // Clear the credential-detection display state (status, user, source badges,
   // scopes, warnings, hints, success meta). Shared by resetAuth and the
   // redetect entry points so a new detection field only has to be cleared once.
+  // It puts the card back to 'pending', so it also ends any sign-in still in
+  // flight: the device flow (including a poll in flight) and a PAT validation.
+  // Otherwise a result for the card's previous state (e.g. a PAT validated
+  // against the host just switched away from) would still sign it in.
   const clearDetectionState = useCallback(() => {
+    stopOAuthPolling()
+    patSubmitRef.current += 1
+    setOauthUserCode(null)
+    setOauthVerificationUri(null)
     setAuthStatus('pending')
     setUserInfo(null)
     setDetectionSource(null)
@@ -961,22 +971,16 @@ export function useGitAuth({
     setSuccessMeta(null)
     setSessionStale(false)
     setSessionEnvWarning(null)
-  }, [])
+  }, [stopOAuthPolling])
 
   // Reset the card to the sign-in form. Leaves the block's outputs alone:
   // a provider switch writes the new GIT_PROVIDER before calling this, and
   // reAuthenticate withdraws the old credential itself.
   const resetAuth = useCallback(() => {
-    // End any device flow, including a poll still in flight, and drop a PAT
-    // validation still in flight.
-    stopOAuthPolling()
-    patSubmitRef.current += 1
     clearDetectionState()
     setErrorMessage(null)
     setPatToken('')
-    setOauthUserCode(null)
-    setOauthVerificationUri(null)
-  }, [clearDetectionState, stopOAuthPolling])
+  }, [clearDetectionState])
 
   // "Re-authenticate" on the success card. The card going back to the form
   // takes the block's outputs with it (GIT_PROVIDER stays for downstream
@@ -1008,11 +1012,16 @@ export function useGitAuth({
   }, [detectCredentials])
 
   // Clear transient auth/detection state and arm the detection effect to fire
-  // again. Shared by host switching and the manual config reload.
+  // again. Shared by host switching, the manual config reload and Retry.
+  // Leaving an authenticated card also withdraws its outputs, as
+  // reAuthenticate does (GIT_PROVIDER stays): e.g. a host pick that finds
+  // nothing on the new host must not leave the old host's credential
+  // published, and an `*AuthId` step must not run with it while "Checking…".
   const beginRedetect = useCallback(() => {
+    if (authStatus === 'authenticated') clearRegisteredOutputs(provider.id)
     clearDetectionState()
     resetDetectionState()
-  }, [clearDetectionState, resetDetectionState])
+  }, [authStatus, clearRegisteredOutputs, provider.id, clearDetectionState, resetDetectionState])
 
   // Flush main's per-(binary,host) CLI read cache (invalidation) so an
   // explicit re-detection observes a terminal `gh auth switch`/`glab auth
