@@ -733,6 +733,9 @@ export function useAwsAuth({
 
   // Handle SSO account selection - load roles for selected account
   const handleSsoAccountSelect = useCallback(async (account: SSOAccount) => {
+    // Like the poll loop, a reply that lands after the attempt was cancelled
+    // (the selector's Cancel is handleManualAuth) must not reopen the role picker.
+    const flow = ssoFlowRef.current
     setSelectedSsoAccount(account)
     setLoadingRoles(true)
     setSelectedSsoRole('')
@@ -745,6 +748,8 @@ export function useAwsAuth({
         region: ssoRegion,
       })
 
+      if (ssoFlowRef.current !== flow) return
+
       if (data.roles && data.roles.length > 0) {
         setSsoRoles(data.roles)
         if (data.roles.length === 1) {
@@ -756,6 +761,7 @@ export function useAwsAuth({
         setAuthStatus('failed')
       }
     } catch (error) {
+      if (ssoFlowRef.current !== flow) return
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load roles')
       setAuthStatus('failed')
     } finally {
@@ -770,6 +776,9 @@ export function useAwsAuth({
       return
     }
 
+    // 'authenticating' shows the SSO form's Cancel button. A reply that arrives
+    // after Cancel (or after a new sign-in started) must not sign the block in.
+    const flow = ssoFlowRef.current
     setAuthStatus('authenticating')
 
     try {
@@ -779,6 +788,8 @@ export function useAwsAuth({
         roleName: selectedSsoRole,
         region: ssoRegion,
       })
+
+      if (ssoFlowRef.current !== flow) return
 
       if (data.accessKeyId) {
         setAuthStatus('authenticated')
@@ -794,6 +805,7 @@ export function useAwsAuth({
         setErrorMessage(data.error || 'Failed to complete SSO authentication')
       }
     } catch (error) {
+      if (ssoFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
     }

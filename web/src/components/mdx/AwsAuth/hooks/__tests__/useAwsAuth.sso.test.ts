@@ -9,7 +9,7 @@ import { useAwsAuth } from '../useAwsAuth'
  * aws:sso-roles handlers return (pinned on that side by
  * electron/main/ipc/aws-sso.test.ts), and the poll loop's lifecycle: a loop
  * belongs to one sign-in attempt, and cancel, restart, re-auth, retry and
- * unmount all end it for good. The IPC surface is the only boundary faked
+ * unmount all end it for good (the account and role steps too). The IPC surface is the only boundary faked
  * (through the real ApiProvider); timers are fake so the 2s poll interval and
  * the 2-minute limit run instantly.
  */
@@ -301,6 +301,65 @@ describe('useAwsAuth — SSO poll lifecycle', () => {
 
     expect(polledDeviceCodes()).toEqual(['D1'])
     expect(result.current.authStatus).toBe('pending')
+  })
+})
+
+describe('useAwsAuth — SSO account and role steps after a cancel', () => {
+  const SELECT_ACCOUNT = { status: 'select_account', accessToken: 'sso-token', accounts: ACCOUNTS }
+
+  it('ignores an aws:sso-complete reply that lands after Cancel', async () => {
+    const complete = deferred<unknown>()
+    installApi({
+      'aws:sso-poll': () => SELECT_ACCOUNT,
+      'aws:sso-roles': () => ({ roles: [{ roleName: 'Admin' }] }),
+      'aws:sso-complete': () => complete.promise,
+    })
+    const { result } = renderSso()
+
+    await act(() => result.current.handleSsoAuth())
+    await advance(0)
+    await act(() => result.current.handleSsoAccountSelect(ACCOUNTS[0]))
+    expect(result.current.selectedSsoRole).toBe('Admin')
+
+    // While aws:sso-complete is in flight the SSO form shows Cancel.
+    let completing!: Promise<void>
+    act(() => { completing = result.current.handleSsoComplete() })
+    expect(result.current.authStatus).toBe('authenticating')
+    act(() => result.current.handleCancelSsoAuth())
+    await act(async () => {
+      complete.resolve({ ...IDENTITY, ...ROLE_KEYS })
+      await completing
+    })
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.accountInfo).toBeNull()
+    expect(registerOutputs).not.toHaveBeenCalled()
+    expect(channelsCalled()).not.toContain('session:set-env')
+  })
+
+  it("ignores an aws:sso-roles reply that lands after the account picker's Cancel", async () => {
+    const roles = deferred<unknown>()
+    installApi({
+      'aws:sso-poll': () => SELECT_ACCOUNT,
+      'aws:sso-roles': () => roles.promise,
+    })
+    const { result } = renderSso()
+
+    await act(() => result.current.handleSsoAuth())
+    await advance(0)
+    expect(result.current.authStatus).toBe('select_account')
+
+    let selecting!: Promise<void>
+    act(() => { selecting = result.current.handleSsoAccountSelect(ACCOUNTS[0]) })
+    act(() => result.current.handleManualAuth())
+    await act(async () => {
+      roles.resolve({ roles: [{ roleName: 'Admin' }] })
+      await selecting
+    })
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.ssoRoles).toEqual([])
+    expect(result.current.loadingRoles).toBe(false)
   })
 })
 
