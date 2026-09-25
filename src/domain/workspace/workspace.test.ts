@@ -589,6 +589,36 @@ describe("getWorkspaceChanges (real repo)", () => {
     expect(gitCalls.filter((args) => args[0] === "diff")).toHaveLength(1)
     expect(gitCalls.filter((args) => args[0] === "show")).toHaveLength(files.length)
   })
+
+  it("skips the HEAD read for paths added relative to HEAD", async () => {
+    write("mod.tf", "before\n")
+    write("old.tf", "moved\n")
+    git("add", ".")
+    git("commit", "-m", "initial")
+    write("mod.tf", "after\n")
+    // Both have no HEAD version, so a `git show` for either is certain to fail:
+    // a staged new file, and the new side of a staged rename (--no-renames
+    // reports it as added, and the old side as deleted).
+    write("new.tf", "fresh\n")
+    git("add", "new.tf")
+    git("mv", "old.tf", "renamed.tf")
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges(repoPath).pipe(Effect.provide(liveLayer)),
+    )
+    const byPath = Object.fromEntries(result.changes.map((c) => [c.path, c]))
+
+    expect(byPath["mod.tf"]).toMatchObject({ changeType: "modified", originalContent: "before" })
+    expect(byPath["new.tf"]).toMatchObject({ changeType: "added", newContent: "fresh\n" })
+    expect(byPath["renamed.tf"]?.originalContent).toBeUndefined()
+    expect(gitCalls.filter((args) => args[0] === "diff")).toHaveLength(1)
+    // Only paths that exist in HEAD are read: the modified file and the old
+    // side of the rename. new.tf and renamed.tf cost nothing.
+    const shownPaths = gitCalls
+      .filter((args) => args[0] === "show")
+      .map((args) => args[1].slice(args[1].indexOf(":") + 1))
+    expect(shownPaths.sort()).toEqual(["mod.tf", "old.tf"])
+  })
 })
 
 describe("getWorkspaceTree", () => {

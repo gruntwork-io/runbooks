@@ -96,7 +96,8 @@ function nulFields(lines: string[]): string[] {
 /**
  * Resolve HEAD to a commit SHA, or undefined on an unborn branch (a repo with
  * no commits yet). `--verify --quiet` exits 1 only when HEAD resolves to
- * nothing; any other failure (not a repo, spawn error) propagates.
+ * nothing; any other failure (not a repo, dubious ownership, spawn error)
+ * propagates.
  */
 function resolveHead(spawner: ProcessSpawner["Type"], repoPath: string) {
   return runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
@@ -269,18 +270,31 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // compare against, so fall back to worktree vs index.
         const head = yield* resolveHead(spawner, repoPath)
 
-        // One numstat for every path. -z keeps paths verbatim; --no-renames
-        // keeps one path per record, matching `status`.
-        const numstatArgs = ["diff", "--numstat", "-z", "--no-renames"]
-        if (head) numstatArgs.push(head)
-        numstatArgs.push("--")
-        if (filePath) numstatArgs.push(filePath)
-        const records = nulFields(yield* runGit(spawner, numstatArgs, repoPath))
+        // One diff for every path. -z keeps paths verbatim; --no-renames keeps
+        // one path per record, matching `status`. --raw adds each path's
+        // status letter, so paths added relative to HEAD skip the `git show`
+        // below instead of spawning one that is certain to fail.
+        const diffArgs = ["diff", "--raw", "--numstat", "-z", "--no-renames"]
+        if (head) diffArgs.push(head)
+        diffArgs.push("--")
+        if (filePath) diffArgs.push(filePath)
+        const fields = nulFields(yield* runGit(spawner, diffArgs, repoPath))
 
+        const addedPaths = new Set<string>()
         const stats: { addStr: string; delStr: string; diffPath: string }[] = []
-        for (const record of records) {
-          // `<added>\t<deleted>\t<path>`; the path may itself contain tabs.
-          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(record)
+        for (let i = 0; i < fields.length; i++) {
+          // Raw records come first, as two fields:
+          // `:<omode> <nmode> <osha> <nsha> <X>` then `<path>`. A numstat
+          // record never starts with ':', so the two can't be confused.
+          const raw = /^:[0-7]+ [0-7]+ \S+ \S+ ([A-Z])\d*$/.exec(fields[i])
+          if (raw) {
+            const rawPath = fields[++i]
+            if (raw[1] === "A" && rawPath !== undefined) addedPaths.add(rawPath)
+            continue
+          }
+          // Then numstat records: `<added>\t<deleted>\t<path>`; the path may
+          // itself contain tabs.
+          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(fields[i])
           if (!match) continue
           const [, addStr, delStr, diffPath] = match
           stats.push({ addStr, delStr, diffPath })
@@ -294,11 +308,12 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
               // Original (HEAD) content. The Changed Files view needs this to
               // render deleted files at all and to compute the before/after diff
-              // for modified files. Files not present in HEAD (e.g. newly added)
-              // make `git show` fail; treat that as "no original" rather than an
-              // error so the rest of the diff still renders.
+              // for modified files. A path added relative to HEAD (a staged new
+              // file, the new side of a staged rename) has none, so it isn't
+              // read. Should `git show` still fail, treat that as "no original"
+              // rather than an error so the rest of the diff still renders.
               const originalContent =
-                isBinary || !head
+                isBinary || !head || addedPaths.has(diffPath)
                   ? undefined
                   : yield* runGit(spawner, ["show", `${head}:${diffPath}`], repoPath).pipe(
                       Effect.map((lines): string | undefined => lines.join("\n")),
@@ -344,13 +359,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       }),
 
     hasCommits: (repoPath: string) =>
-      // `--verify --quiet` exits 1 (no output) only when HEAD resolves to nothing,
-      // i.e. an unborn branch. Anything else (not a repo, dubious ownership, spawn
-      // failure) is a real error and propagates, so callers' best-effort fallbacks apply.
-      runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
-        Effect.as(true),
-        Effect.catchTag("GitError", (e) => (e.exitCode === 1 ? Effect.succeed(false) : Effect.fail(e))),
-      ),
+      // Errors propagate (see resolveHead), so callers' best-effort fallbacks apply.
+      resolveHead(spawner, repoPath).pipe(Effect.map((sha) => sha !== undefined)),
 
     hasChanges: (repoPath: string) =>
       Effect.gen(function* () {

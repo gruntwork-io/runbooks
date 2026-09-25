@@ -166,6 +166,9 @@ describe("GitCliClientLive.diff (real repo)", () => {
 
     expect(entry).toBeDefined()
     expect(entry?.originalContent).toBeUndefined()
+    // Its line counts (against HEAD, where it doesn't exist) are still reported.
+    expect(entry?.additions).toBe(2)
+    expect(entry?.deletions).toBe(0)
   })
 
   it("counts a staged modification against HEAD", async () => {
