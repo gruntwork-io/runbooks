@@ -235,8 +235,13 @@ export function registerExecHandlers(): void {
         }
         throw err
       } finally {
-        activeExecutions.delete(executionId)
-        if (mostRecentExecutionId === executionId) mostRecentExecutionId = null
+        // Only remove our own entry. Renderer execution ids restart after a
+        // reload, so a newer run may already be registered under this id, and
+        // deleting it would leave that run unreachable by Stop and by quit.
+        if (activeExecutions.get(executionId)?.controller === abortController) {
+          activeExecutions.delete(executionId)
+          if (mostRecentExecutionId === executionId) mostRecentExecutionId = null
+        }
       }
     },
   )

@@ -492,12 +492,15 @@ app.on("will-quit", (event) => {
   }, 2000)
 
   // Stop running scripts first. They run in their own process group, so
-  // nothing else signals them when the app exits. Only the SIGTERM is
-  // guaranteed here (the spawner's SIGKILL escalation timer dies with this
-  // process), which is what lets terragrunt/tofu stop gracefully and release
-  // state locks. This runs before the cleanup below so a script is signalled
-  // before its temp clone or credential file disappears. The wait is capped at
-  // 1 s so that cleanup still runs inside the safety timeout.
+  // nothing else signals them when the app exits, and they would otherwise
+  // keep running headless. Only the SIGTERM is guaranteed here (the spawner's
+  // SIGKILL escalation timer dies with this process), and we don't wait for
+  // the scripts to finish: once the app exits their stdout/stderr pipes are
+  // closed, so a graceful shutdown that still writes output (e.g. tofu
+  // releasing a state lock) can be cut short by SIGPIPE. This runs before the
+  // cleanup below so a script is signalled before its temp clone or credential
+  // file disappears. The wait is capped at 1 s so that cleanup still runs
+  // inside the safety timeout.
   Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
     .catch((err) => {
       log.error("Error cancelling executions:", err)

@@ -48,38 +48,16 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
 
 describe("cancelAllExecutions", () => {
   let tmpDir = ""
-  let grandchildPid: number | null = null
+  let pidFile = ""
+  let executableId = ""
+  const grandchildPids: number[] = []
   let killSpy: ReturnType<typeof spyOn<typeof process, "kill">> | null = null
 
   beforeAll(async () => {
     registerExecHandlers()
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-exec-quit-"))
     await runtime.runPromise(sessionManager.createSession(tmpDir))
-  })
-
-  afterEach(() => {
-    killSpy?.mockRestore()
-    killSpy = null
-    if (grandchildPid !== null && isAlive(grandchildPid)) {
-      try {
-        process.kill(grandchildPid, "SIGKILL")
-      } catch {
-        /* already gone */
-      }
-    }
-    grandchildPid = null
-  })
-
-  afterAll(() => {
-    setExecutableRegistry(null)
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-    // Don't dispose `runtime`: it's a module singleton shared with every other
-    // test file in this bun process, and a disposed ManagedRuntime fails every
-    // later runPromise with "ManagedRuntime disposed".
-  })
-
-  it("resolves only after every running script's process group has been signalled", async () => {
-    const pidFile = path.join(tmpDir, "pids")
+    pidFile = path.join(tmpDir, "pids")
     // Record the group leader ($$) and a backgrounded grandchild, then block.
     fs.writeFileSync(
       path.join(tmpDir, "long.sh"),
@@ -93,21 +71,48 @@ describe("cancelAllExecutions", () => {
       ),
     )
     setExecutableRegistry(registry)
-    const [executableId] = Object.keys(registry.getAllExecutables())
+    ;[executableId] = Object.keys(registry.getAllExecutables())
+  })
 
-    const run = handlers.get("exec:run")!(
-      { sender: { send: () => {} } },
-      { executableId, executionId: "quit-test" },
-    )
+  afterEach(() => {
+    killSpy?.mockRestore()
+    killSpy = null
+    for (const pid of grandchildPids.splice(0)) {
+      if (!isAlive(pid)) continue
+      try {
+        process.kill(pid, "SIGKILL")
+      } catch {
+        /* already gone */
+      }
+    }
+    fs.rmSync(pidFile, { force: true })
+  })
 
+  afterAll(() => {
+    setExecutableRegistry(null)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    // Don't dispose `runtime`: it's a module singleton shared with every other
+    // test file in this bun process, and a disposed ManagedRuntime fails every
+    // later runPromise with "ManagedRuntime disposed".
+  })
+
+  /** Start long.sh via exec:run and wait until it has recorded its pids. */
+  async function startLongRun(executionId: string) {
+    fs.rmSync(pidFile, { force: true })
+    const run = handlers.get("exec:run")!({ sender: { send: () => {} } }, { executableId, executionId })
     const started = await waitUntil(
       () => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
       8000,
     )
     expect(started).toBe(true)
     const [leaderPid, childPid] = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
-    grandchildPid = childPid
+    grandchildPids.push(childPid)
     expect(isAlive(childPid)).toBe(true)
+    return { run, leaderPid, childPid }
+  }
+
+  it("resolves only after every running script's process group has been signalled", async () => {
+    const { run, leaderPid, childPid } = await startLongRun("quit-test")
 
     killSpy = spyOn(process, "kill")
     await cancelAllExecutions()
@@ -117,4 +122,20 @@ describe("cancelAllExecutions", () => {
     expect(await run).toEqual({ status: null, cancelled: true })
     expect(await waitUntil(() => !isAlive(childPid), 10000)).toBe(true)
   }, 20000)
+
+  it("still cancels a run that reused the id of the run it replaced", async () => {
+    // Renderer execution ids restart after a reload, so a new run can arrive
+    // under the id of one that is still running. exec:run cancels the old run;
+    // its cleanup must not remove the new run's entry.
+    const first = await startLongRun("1")
+    const second = await startLongRun("1")
+    expect(await first.run).toEqual({ status: null, cancelled: true })
+
+    killSpy = spyOn(process, "kill")
+    await cancelAllExecutions()
+
+    expect(killSpy).toHaveBeenCalledWith(-second.leaderPid, "SIGTERM")
+    expect(await second.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
+  }, 30000)
 })
