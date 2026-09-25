@@ -9,17 +9,20 @@ Runbooks includes a built-in testing framework that lets you validate that your 
 
 To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks-cli test /path/to/runbook` or `runbooks-cli test ./...` to run the tests. Tests are meant to run locally or in CI.
 
-The test runner is a standalone Node.js CLI included in the Runbooks repository. After building the project (`just build`), invoke it as `node dist/cli/index.js test`. The examples below use `runbooks-cli` as shorthand for this invocation.
+The test runner is a standalone CLI in the [Runbooks repository](https://github.com/gruntwork-io/runbooks). From a checkout, `just compile-test-cli` builds it into a single binary at `resources/bin/runbooks-test`, which runs without Node.js or Bun. You can also run it from source with `bun cli/index.ts test`. The examples below use `runbooks-cli` as shorthand for either invocation.
 
 ## Quick Start
 
-1. Generate a test configuration for your runbook:
+1. Create a `runbook_test.yml` file next to your `runbook.mdx`. This minimal configuration runs every block in document order and expects each one to succeed:
 
-```bash
-runbooks-cli test init ./my-runbook
+```yaml
+version: 1
+
+tests:
+  - name: happy-path
 ```
 
-This creates `runbook_test.yml` with reasonable defaults based on your runbook's blocks. You can edit the file to customize the tests if needed.
+Add inputs, steps, and assertions as you need them. For a fuller example to start from, see [`testdata/sample-runbooks/my-first-runbook/runbook_test.yml`](https://github.com/gruntwork-io/runbooks/blob/main/testdata/sample-runbooks/my-first-runbook/runbook_test.yml) in the Runbooks repository.
 
 2. Run the tests:
 
@@ -59,10 +62,10 @@ tests:
     
     assertions:
       - type: file_exists
-        path: generated/README.md
+        path: README.md
       
       - type: file_contains
-        path: generated/README.md
+        path: README.md
         contains: "test-project"
     
     cleanup:
@@ -179,10 +182,6 @@ Each step references a block by its ID. How a block gets its ID depends on the b
 
 All block types use the explicit `id` prop for identification in test steps.
 
-:::tip
-Run `runbooks-cli test init` to automatically discover all block IDs in your runbook.
-:::
-
 ### Assertion Object
 
 All assertions have a `type` field that determines which other fields are required.
@@ -206,15 +205,17 @@ assertions:
 | `output_equals` | `block`, `output`, `value` | — | Check that a block output equals a value. |
 | `output_matches` | `block`, `output`, `pattern` | — | Check that a block output matches a regex pattern. |
 | `output_exists` | `block`, `output` | — | Check that a block output exists (is not empty). |
-| `files_generated` | `block` | `min_count` | Check that a Template block generated files. |
+| `files_generated` | `block` | `min_count` | Check that a block generated files. |
 | `script` | `command` | — | Run a custom script (exit 0 = pass). |
+
+`files_generated` counts only the files the named block wrote during the test case: the files a `<Template>` rendered, the file a `<TemplateInline>` with `generateFile` wrote, or the files a `<Command>` or `<Check>` wrote to `$GENERATED_FILES`. Templates with `target="worktree"` count too, even though they write into the cloned repository rather than the output directory. Files that other blocks or earlier test cases left in the output directory don't count.
 
 #### Assertion Field Reference
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `type` | string | The assertion type. Required for all assertions. |
-| `path` | string | File or directory path (relative to working directory). |
+| `path` | string | File or directory path, relative to the output directory (`<working_dir>/<output_path>`, which is `generated/` in the working directory by default). An absolute path is used as is. |
 | `contains` | string | Substring to search for in file content. |
 | `pattern` | string | Regular expression pattern. |
 | `value` | string | Expected exact value. |
@@ -353,6 +354,7 @@ tests:
         outputs: [resource_id, resource_arn]
         assertions:
           - type: output_exists
+            block: create-resources
             output: resource_id
       
       - block: generate-config
@@ -360,14 +362,14 @@ tests:
     
     assertions:
       - type: file_exists
-        path: generated/config.json
+        path: config.json
       
       - type: file_contains
-        path: generated/config.json
+        path: config.json
         contains: "test-project"
       
       - type: file_matches
-        path: generated/config.json
+        path: config.json
         pattern: '"version":\s*"\d+\.\d+\.\d+"'
       
       - type: output_matches
@@ -651,10 +653,9 @@ Use the `...` glob pattern to discover and test all runbooks:
 ```bash
 # Test all runbooks in a directory tree
 runbooks-cli test ./runbooks/...
-
-# Control parallel execution
-runbooks-cli test ./runbooks/... --max-parallel 4
 ```
+
+Runbooks are tested one at a time. The `--max-parallel` flag is accepted but currently has no effect.
 
 ### CI Output
 
@@ -717,10 +718,10 @@ jobs:
       
       - uses: jdx/mise-action@v2
 
-      - name: Install dependencies and build
+      - name: Build the test runner
         run: |
-          bun install
-          electron-vite build
+          bun install --frozen-lockfile
+          just compile-test-cli
       
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -729,7 +730,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
       
       - name: Run runbook tests
-        run: node dist/cli/index.js test ./runbooks/... --output junit --output-file results.xml
+        run: resources/bin/runbooks-test test ./runbooks/... --output junit --output-file results.xml
         env:
           RUNBOOKS_TEST_AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
           RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
@@ -754,11 +755,12 @@ test-runbooks:
     RUNBOOKS_TEST_AWS_REGION: $AWS_REGION
   before_script:
     - curl -fsSL https://mise.jdx.dev/install.sh | sh
+    - export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
     - mise install
-    - bun install
-    - electron-vite build
+    - bun install --frozen-lockfile
+    - just compile-test-cli
   script:
-    - node dist/cli/index.js test ./runbooks/... --output junit --output-file results.xml
+    - resources/bin/runbooks-test test ./runbooks/... --output junit --output-file results.xml
   artifacts:
     reports:
       junit: results.xml
@@ -862,7 +864,7 @@ tests:
 
 ## Best Practices
 
-1. **Start with `test init`**: Generate your test configuration automatically, then customize it.
+1. **Start small**: Begin with one test case and no `steps`, so every block runs in document order, then add inputs, steps, and assertions.
 
 2. **Test happy paths first**: Ensure your runbook works when everything goes right.
 

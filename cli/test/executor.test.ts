@@ -474,6 +474,108 @@ describe("TestExecutor — block outputs", () => {
 })
 
 // ---------------------------------------------------------------------------
+// files_generated counts the files the named block wrote this test case, not
+// whatever happens to be in the output dir.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — files_generated", () => {
+  let tmp: string
+
+  const makeExecutor = async (blocks: string[]) => {
+    const tmplDir = path.join(tmp, "templates", "cfg")
+    fs.mkdirSync(path.join(tmplDir, "nested"), { recursive: true })
+    fs.writeFileSync(path.join(tmplDir, "boilerplate.yml"), "variables: []\n")
+    fs.writeFileSync(path.join(tmplDir, "main.tf"), "# main\n")
+    fs.writeFileSync(path.join(tmplDir, "nested", "vars.tf"), "# vars\n")
+
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, ["# Files", ...blocks, ""].join("\n\n"))
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const RUNBOOK_BLOCKS = [
+    `<Template id="tmpl" path="templates/cfg" />`,
+    `<TemplateInline id="inline" outputPath="inline.txt" generateFile={true}>\n\`\`\`\nhello\n\`\`\`\n</TemplateInline>`,
+    `<Command id="capture" command='mkdir -p "$GENERATED_FILES/sub" && echo a > "$GENERATED_FILES/a.txt" && echo b > "$GENERATED_FILES/sub/b.txt"' />`,
+    `<Command id="echo-only" command="echo hi" />`,
+  ]
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-files-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("counts Template, TemplateInline and $GENERATED_FILES writes per block", async () => {
+    const executor = await makeExecutor(RUNBOOK_BLOCKS)
+
+    const result = executor.runTest({
+      name: "generated",
+      assertions: [
+        { type: "files_generated", block: "tmpl", min_count: 2 },
+        { type: "files_generated", block: "inline" },
+        { type: "files_generated", block: "capture", min_count: 2 },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+  })
+
+  it("fails for a block that wrote nothing, though other blocks filled the output dir", async () => {
+    const executor = await makeExecutor(RUNBOOK_BLOCKS)
+
+    const result = executor.runTest({
+      name: "echo-only",
+      assertions: [{ type: "files_generated", block: "echo-only" }],
+    })
+
+    expect(fs.readdirSync(path.join(tmp, "generated")).length).toBeGreaterThan(0)
+    expect(result.status).toBe("failed")
+    expect(result.error).toBe('Assertion failed: Block "echo-only" generated 0 file(s), expected at least 1')
+  })
+
+  it("doesn't count files a block wrote in an earlier test case", async () => {
+    const executor = await makeExecutor(RUNBOOK_BLOCKS)
+    const assertions = [{ type: "files_generated" as const, block: "tmpl" }]
+
+    expect(executor.runTest({ name: "first", assertions }).status).toBe("passed")
+    const second = executor.runTest({
+      name: "second",
+      steps: [{ block: "echo-only", expect: "success" }],
+      assertions,
+    })
+
+    // tmpl's files are still in the shared output dir, but tmpl didn't run
+    expect(fs.existsSync(path.join(tmp, "generated", "main.tf"))).toBe(true)
+    expect(second.status).toBe("failed")
+  })
+
+  it("counts files a Template wrote into the worktree", async () => {
+    const repo = path.join(tmp, "checkout")
+    fs.mkdirSync(repo)
+    execFileSync("git", ["init", "-q"], { cwd: repo })
+    const executor = await makeExecutor([
+      `<GitClone id="repo" source="local" prefilledRepoDir="${repo}" />`,
+      `<Template id="tmpl" path="templates/cfg" target="worktree" />`,
+    ])
+
+    const result = executor.runTest({
+      name: "worktree",
+      assertions: [{ type: "files_generated", block: "tmpl", min_count: 2 }],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(fs.existsSync(path.join(repo, "nested", "vars.tf"))).toBe(true)
+    expect(fs.existsSync(path.join(tmp, "generated"))).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // PR blocks: recognized and parsed, so a runbook with one can be tested, and
 // a step that names one can only expect `skip` (or `blocked`).
 // ---------------------------------------------------------------------------

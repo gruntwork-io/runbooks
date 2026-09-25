@@ -26,7 +26,8 @@ interface TestOptions {
   test?: string
   output: string
   outputFile?: string
-  maxParallel: number
+  /** Accepted so existing invocations keep working, but unused: see runTestSuites. */
+  maxParallel?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -42,7 +43,7 @@ export function registerTestCommand(program: Command): void {
     .option("--test <name>", "Run only the specified test case")
     .option("--output <format>", "Output format (text or junit)", "text")
     .option("--output-file <path>", "Write output to file")
-    .option("--max-parallel <n>", "Maximum parallel test suites", "0")
+    .option("--max-parallel <n>", "Currently ignored: runbooks are tested one at a time")
     .action(async (paths: string[], opts: TestOptions) => {
       await runTestCommand(paths, opts)
     })
@@ -189,7 +190,8 @@ async function runTestSuites(
   // parallelism would require a worker pool (worker_threads / child_process).
   // Until then both groups share one loop, parallelizable first to preserve
   // report ordering.
-  // TODO: Add parallel execution with worker pool for the `parallel` group.
+  // TODO: Add parallel execution with worker pool for the `parallel` group,
+  // sized by --max-parallel.
   for (const runbook of [...parallel, ...sequential]) {
     suites.push(await runTestSuite(runbook, opts))
   }

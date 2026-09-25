@@ -242,6 +242,8 @@ export class TestExecutor {
   private sessionEnv: string[] = []
   private sessionWorkDir: string
   private blockOutputs = new Map<string, Map<string, string>>()
+  // Files each block wrote this test case, by block ID, for files_generated
+  private generatedFileCounts = new Map<string, number>()
   private testInputs: Record<string, unknown> = {}
   private testEnv: Record<string, string> = {}
   private blockStates = new Map<string, BlockState>()
@@ -416,6 +418,7 @@ export class TestExecutor {
     this.sessionEnv = [...this.initialSessionEnv]
     this.sessionWorkDir = workingDir
     this.blockOutputs = new Map()
+    this.generatedFileCounts = new Map()
     this.blockStates = new Map()
     this.authBlockCredentials = new Map()
     this.gitAuthTokens = new Map()
@@ -867,7 +870,7 @@ export class TestExecutor {
         if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath)
 
         // Copy captured files to output directory
-        this.captureFiles(filesDir, this.resolveOutputPath())
+        this.creditGeneratedFiles(block.id, this.captureFiles(filesDir, this.resolveOutputPath()))
       }
 
       if (this.options.verbose) {
@@ -953,6 +956,7 @@ export class TestExecutor {
       try {
         fs.mkdirSync(path.dirname(outputFile), { recursive: true })
         fs.writeFileSync(outputFile, rendered)
+        this.creditGeneratedFiles(block.id, 1)
         if (this.options.verbose) console.log(`--- Wrote file: ${outputFile} ---`)
       } catch (e: unknown) {
         result.passed = false; result.actualStatus = "error"
@@ -1018,7 +1022,7 @@ export class TestExecutor {
           vars[parts[1]] = value
         }
       }
-      this.renderTemplateDir(templatePath, outputDir, vars)
+      this.creditGeneratedFiles(block.id, this.renderTemplateDir(templatePath, outputDir, vars))
     } catch (e: unknown) {
       result.passed = false; result.actualStatus = "error"
       result.error = `Template rendering failed: ${e}`
@@ -1039,13 +1043,15 @@ export class TestExecutor {
 
   /**
    * Walk a template directory, render each file through Go template, and write
-   * to the output directory. Skips `boilerplate.yml` and hidden files.
+   * to the output directory. Skips `boilerplate.yml` and hidden files. Returns
+   * the number of files written.
    */
   private renderTemplateDir(
     templateDir: string,
     outputDir: string,
     vars: Record<string, unknown>,
-  ): void {
+  ): number {
+    let written = 0
     const entries = fs.readdirSync(templateDir, { withFileTypes: true })
     for (const entry of entries) {
       if (entry.name === "boilerplate.yml" || entry.name.startsWith(".")) continue
@@ -1055,13 +1061,15 @@ export class TestExecutor {
 
       if (entry.isDirectory()) {
         fs.mkdirSync(destPath, { recursive: true })
-        this.renderTemplateDir(srcPath, destPath, vars)
+        written += this.renderTemplateDir(srcPath, destPath, vars)
       } else {
         const content = fs.readFileSync(srcPath, "utf-8")
         const rendered = renderGoTemplate(content, vars)
         fs.writeFileSync(destPath, rendered)
+        written++
       }
     }
+    return written
   }
 
   // -----------------------------------------------------------------------
@@ -1663,6 +1671,7 @@ export class TestExecutor {
     return {
       outputDir: this.resolveOutputPath(),
       blockOutputs: this.blockOutputs,
+      generatedFiles: this.generatedFileCounts,
       sessionEnv: this.sessionEnv,
       timeout: this.options.timeout,
     }
@@ -1717,20 +1726,33 @@ export class TestExecutor {
     if (error) console.log(`  Error: ${error}`)
   }
 
-  private captureFiles(fromDir: string, toDir: string): void {
-    if (!fs.existsSync(fromDir)) return
+  /** Copy a block's $GENERATED_FILES tree into `toDir`. Returns the number of files copied. */
+  private captureFiles(fromDir: string, toDir: string): number {
+    if (!fs.existsSync(fromDir)) return 0
+    let copied = 0
     const entries = fs.readdirSync(fromDir, { withFileTypes: true })
     for (const entry of entries) {
       const src = path.join(fromDir, entry.name)
       const dest = path.join(toDir, entry.name)
       if (entry.isDirectory()) {
         fs.mkdirSync(dest, { recursive: true })
-        this.captureFiles(src, dest)
+        copied += this.captureFiles(src, dest)
       } else {
         fs.mkdirSync(path.dirname(dest), { recursive: true })
         fs.copyFileSync(src, dest)
+        copied++
       }
     }
+    return copied
+  }
+
+  /**
+   * Add to the files a block has written this test case. files_generated
+   * checks this count rather than the output dir, which can hold files from
+   * other blocks and which worktree-targeted templates don't write into.
+   */
+  private creditGeneratedFiles(blockId: string, count: number): void {
+    this.generatedFileCounts.set(blockId, (this.generatedFileCounts.get(blockId) ?? 0) + count)
   }
 
   /**

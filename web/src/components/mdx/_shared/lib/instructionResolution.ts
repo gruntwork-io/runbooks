@@ -1,6 +1,6 @@
 /**
  * Pure helpers for resolving a runbook command into a flattened, copy-pasteable
- * instruction (instruction mode). See plans/non-interactive-mode-spec.md §5/§6.5.
+ * instruction (instruction mode).
  *
  * The mode runs nothing, so a command's `{{ .outputs.<id>.<key> }}` references
  * can't be computed from app state. Instead we auto-detect them, prompt the user

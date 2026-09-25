@@ -118,6 +118,26 @@ describe("runbooks-cli test — --output-file", () => {
   }, CLI_TIMEOUT)
 })
 
+describe("runbooks-cli test — documented usage", () => {
+  it("runs every block when a test case has only a name, as in the Quick Start", () => {
+    const minimal = "version: 1\n\ntests:\n  - name: happy-path\n"
+    const passing = writeRunbook("passing", PASSING_MDX, minimal)
+    const failing = writeRunbook("failing", FAILING_MDX, minimal)
+
+    expect(runCli(passing).status).toBe(0)
+    expect(runCli(failing).status).toBe(1)
+  }, CLI_TIMEOUT)
+
+  it("accepts --max-parallel, which is currently ignored", () => {
+    const good = writeRunbook("good", PASSING_MDX, testYml("hello"))
+
+    const { status, stdout } = runCli(good, "--max-parallel", "4")
+
+    expect(status).toBe(0)
+    expect(stdout).toContain("1 passed, 0 failed")
+  }, CLI_TIMEOUT)
+})
+
 describe("runbooks-cli test — unexpected errors", () => {
   it("records a test case that throws as failed and keeps running the rest", () => {
     // A dangling symlink in $GENERATED_FILES makes file capture throw ENOENT
