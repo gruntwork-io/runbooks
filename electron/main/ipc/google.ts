@@ -1101,8 +1101,8 @@ export function registerGoogleHandlers(): void {
     ) => {
       if (!params.projectId) return { ok: false, error: "No project selected" }
       try {
-        // Re-points the whole session at the CALLING block's credential with
-        // the new project; see commitBlockProject.
+        // Re-points the session at the CALLING block's credential, account
+        // and new project together; see commitBlockProject.
         const { env, region, zone } = commitBlockProject(params)
         const sessionEnvWarning = await applyGoogleSessionEnv(env)
 

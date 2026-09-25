@@ -5,11 +5,20 @@
  * Pure: this module decides WHICH keys to set and delete, and google.ts applies
  * the change to the session. Split out of the IPC module, like
  * ./google-credential-registry.ts, so the rule it encodes can be exercised
- * without an Electron `ipcMain`: the session env always describes ONE block's
- * whole credential. The documented multi-project pattern puts
- * `<GoogleAuth id="source"/>` next to `<GoogleAuth id="target"/>`, and writing
- * only a project there pairs one block's credential and account with the
- * other block's project.
+ * without an Electron `ipcMain`: a block's credential, account and project are
+ * re-pointed together, never one without the others. The documented
+ * multi-project pattern puts `<GoogleAuth id="source"/>` next to
+ * `<GoogleAuth id="target"/>`, and writing only a project there pairs one
+ * block's credential and account with the other block's project.
+ *
+ * Known gap: only keys the credential carries are set, and only
+ * CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE is ever cleared. So keys the new owner
+ * lacks survive from the previous one: GOOGLE_OAUTH_ACCESS_TOKEN and
+ * CLOUDSDK_AUTH_ACCESS_TOKEN from an access-token block, CLOUDSDK_ACTIVE_CONFIG_NAME
+ * from a gcloud-tab block, and region/zone. The OpenTofu `google` provider
+ * prefers GOOGLE_OAUTH_ACCESS_TOKEN over GOOGLE_APPLICATION_CREDENTIALS, so a
+ * file-backed block that follows an access-token block still shares the
+ * session with that token.
  */
 import { activeCredentialFor, type ActiveGoogleCredential } from "./google-credential-registry.ts"
 
@@ -85,10 +94,11 @@ export interface GoogleSessionEnvChange {
 }
 
 /**
- * Point the whole session env at ONE block's credential: its credentials file
- * (or bare access token), principal, project, region, zone and gcloud
+ * Point the session env at ONE block's credential: its credentials file (or
+ * bare access token), principal, project, region, zone and gcloud
  * configuration, together. Every write that makes a block the session default
- * goes through here.
+ * goes through here. Keys this credential does not carry are left as they are
+ * (see the known gap in the module doc).
  */
 export function sessionEnvForCredential(credential: ActiveGoogleCredential): GoogleSessionEnvChange {
   return {

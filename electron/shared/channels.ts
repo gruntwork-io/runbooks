@@ -343,7 +343,8 @@ export interface IpcChannelMap {
     result: { projects: GoogleProjectIpc[]; error?: string }
   }
   // Project selection happens after auth; MAIN owns the session-env write,
-  // which re-points the whole session at the CALLING block's credential.
+  // which re-points the session at the CALLING block's credential, account
+  // and new project together.
   "google:set-project": {
     params: { blockId?: string; projectId: string; region?: string; zone?: string }
     result: {

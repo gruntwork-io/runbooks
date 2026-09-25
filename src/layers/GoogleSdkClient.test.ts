@@ -218,6 +218,26 @@ describe("classifyProjectAccessError", () => {
   it("reads the status off a legacy response-only error shape", () => {
     expect(classifyProjectAccessError({ response: { status: 404 } })).toBe("denied")
   })
+
+  it("does not throw on a malformed details list, and ignores entries it cannot read", () => {
+    // A proxy or a future API can put anything here. Unreadable entries carry
+    // no reason, so this is the bare 403 verdict rather than a throw.
+    const malformed = (details: unknown): unknown => ({
+      status: 403,
+      response: { status: 403, data: { error: { code: 403, status: "PERMISSION_DENIED", details } } },
+    })
+    expect(classifyProjectAccessError(malformed([{ "@type": 1 }, null, "x"]))).toBe("denied")
+    expect(
+      classifyProjectAccessError(malformed([{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: 7 }])),
+    ).toBe("denied")
+    expect(classifyProjectAccessError(malformed("not-a-list"))).toBe("denied")
+    // A readable ErrorInfo next to junk still decides the verdict.
+    expect(
+      classifyProjectAccessError(
+        malformed([{ "@type": 1 }, { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" }]),
+      ),
+    ).toBe("unknown")
+  })
 })
 
 // ---------------------------------------------------------------------------

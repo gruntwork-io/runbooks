@@ -730,13 +730,17 @@ export function classifyProjectAccessError(err: unknown): GoogleProjectAccess {
     (typeof apiError.code === "number" ? apiError.code : undefined)
   const body = apiError.response?.data?.error
   const rpcCode = body?.status
-  // Checked rather than trusted: a proxy's error body must not turn this
-  // verdict into a throw, which the caller would report as a failure.
+  // Checked rather than trusted, down to each entry's fields: a proxy's error
+  // body must not turn this verdict into a throw, which the caller would report
+  // as a failure.
   const details: readonly GoogleErrorDetail[] = Array.isArray(body?.details) ? body.details : []
   const reasons = details
-    .filter((detail) => detail?.["@type"]?.endsWith("google.rpc.ErrorInfo"))
-    .map((detail) => detail.reason)
-    .filter((reason): reason is string => Boolean(reason))
+    .filter((detail) => {
+      const type: unknown = detail?.["@type"]
+      return typeof type === "string" && type.endsWith("google.rpc.ErrorInfo")
+    })
+    .map((detail): unknown => detail.reason)
+    .filter((reason): reason is string => typeof reason === "string" && reason !== "")
 
   if (rpcCode && INCONCLUSIVE_RPC_CODES.has(rpcCode)) return "unknown"
   if (httpStatus === 404) return "denied"
