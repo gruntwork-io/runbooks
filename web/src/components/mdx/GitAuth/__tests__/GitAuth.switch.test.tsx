@@ -17,7 +17,6 @@ beforeEach(() => {
   window.api = {
     invoke: vi.fn(async () => ({})),
     on: vi.fn(() => () => {}),
-    once: vi.fn(),
   } as unknown as typeof window.api
 })
 
@@ -72,7 +71,6 @@ describe('GitAuth — provider switch (real hook)', () => {
     window.api = {
       invoke,
       on: vi.fn(() => () => {}),
-      once: vi.fn(),
     } as unknown as typeof window.api
 
     render(

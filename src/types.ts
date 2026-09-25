@@ -269,7 +269,6 @@ export interface SessionMetadata {
   executionCount: number
   createdAt: string
   lastActivity: string
-  activeTabs: number
 }
 
 export interface SessionExecContext {
@@ -408,6 +407,3 @@ export const MAX_CHANGED_FILES = 500
 
 /** Maximum directory entries for lazy-loading */
 export const MAX_DIR_ENTRIES = 500
-
-/** Maximum tokens per session */
-export const MAX_TOKENS_PER_SESSION = 20

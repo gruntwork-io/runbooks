@@ -1,19 +1,14 @@
 /**
- * A SessionManager manages a single session with multiple tokens (max 20) for
- * concurrent browser tabs. Environment changes made by scripts persist across
- * block executions. All browser tabs share the same session ("one runbook = one
- * environment"), each identified by its own token.
+ * A SessionManager holds the single, process-local session for the open
+ * runbook ("one runbook = one environment"). Environment and working-directory
+ * changes made by scripts persist across block executions.
  */
 
 import { Effect } from "effect"
 
 import { Environment } from "../../services/Environment.js"
 import { SessionError, SessionNotFoundError } from "../../errors/index.js"
-import {
-  type SessionMetadata,
-  type SessionExecContext,
-  MAX_TOKENS_PER_SESSION,
-} from "../../types.js"
+import type { SessionMetadata, SessionExecContext } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Excluded env vars — shell internals that should never be captured
@@ -58,7 +53,6 @@ const EXCLUDED_ENV_VARS = new Set<string>([
 // ---------------------------------------------------------------------------
 
 interface Session {
-  validTokens: Map<string, Date>
   env: Map<string, string>
   initialEnv: Map<string, string>
   initialWorkDir: string
@@ -77,11 +71,6 @@ interface Session {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Generate a cryptographically-secure token via the Web Crypto global. */
-function generateSecretToken(): string {
-  return crypto.randomUUID()
-}
 
 function copyEnvMap(src: Map<string, string>): Map<string, string> {
   return new Map(src)
@@ -137,9 +126,9 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Create a new session, replacing any existing one (all previous tokens are
-   * invalidated). The environment is captured from the running process via the
-   * Environment service, with protected vars stripped.
+   * Create a new session, replacing any existing one. The environment is
+   * captured from the running process via the Environment service, with
+   * protected vars stripped.
    */
   createSession(initialWorkingDir: string, runbookPath: string = "") {
     return Effect.gen(this, function* () {
@@ -153,11 +142,9 @@ export class SessionManager {
         env.delete(key)
       }
 
-      const token = generateSecretToken()
       const now = new Date()
 
       const session: Session = {
-        validTokens: new Map([[token, now]]),
         env,
         initialEnv: copyEnvMap(env),
         initialWorkDir: initialWorkingDir,
@@ -171,33 +158,6 @@ export class SessionManager {
       }
 
       this.session = session
-
-      return { token }
-    })
-  }
-
-  /**
-   * Create a new token for an existing session (new browser tab joining).
-   * Preserves the session's current environment state.
-   */
-  joinSession() {
-    return Effect.gen(this, function* () {
-      if (this.session === null) {
-        return yield* new SessionNotFoundError()
-      }
-
-      const token = generateSecretToken()
-
-      // Prune oldest token if at capacity
-      if (this.session.validTokens.size >= MAX_TOKENS_PER_SESSION) {
-        this.pruneOldestToken()
-      }
-
-      const now = new Date()
-      this.session.validTokens.set(token, now)
-      this.session.lastActivity = now
-
-      return { token }
     })
   }
 
@@ -213,11 +173,6 @@ export class SessionManager {
       }
       return this.session
     })
-  }
-
-  /** Returns whether a session currently exists. */
-  hasSession(): boolean {
-    return this.session !== null
   }
 
   /**
@@ -255,44 +210,13 @@ export class SessionManager {
     })
   }
 
-  /**
-   * Delete the session, invalidating all tokens.
-   */
-  deleteSession(): void {
-    this.session = null
-  }
-
   // -------------------------------------------------------------------------
-  // Token management
+  // Execution context
   // -------------------------------------------------------------------------
 
   /**
-   * Validate a token and return an immutable execution context snapshot.
-   * Returns `null` if the token is invalid or no session exists.
-   */
-  validateToken(
-    token: string,
-  ): Effect.Effect<SessionExecContext | null, never, never> {
-    return Effect.sync(() => {
-      if (this.session === null) {
-        return null
-      }
-
-      if (!this.session.validTokens.has(token)) {
-        return null
-      }
-
-      // Return a snapshot — env as a plain record, safe to use after this call
-      return {
-        env: mapToRecord(this.session.env),
-        workDir: this.session.workingDir,
-      }
-    })
-  }
-
-  /**
-   * Get the current execution context without token validation.
-   * Used by IPC handlers where authentication is unnecessary (process-local).
+   * Return a snapshot of the session's env and working directory for a script
+   * run. The env is a plain-record copy, safe to use after this call.
    */
   getExecContext(): Effect.Effect<SessionExecContext, SessionNotFoundError, never> {
     return Effect.gen(this, function* () {
@@ -304,23 +228,6 @@ export class SessionManager {
         workDir: this.session.workingDir,
       }
     })
-  }
-
-  /**
-   * Remove a specific token from the session (tab close cleanup).
-   * Returns true if the token was found and removed.
-   */
-  revokeToken(token: string): boolean {
-    if (this.session === null) {
-      return false
-    }
-
-    return this.session.validTokens.delete(token)
-  }
-
-  /** Number of active tokens (browser tabs). */
-  tokenCount(): number {
-    return this.session?.validTokens.size ?? 0
   }
 
   // -------------------------------------------------------------------------
@@ -402,7 +309,6 @@ export class SessionManager {
         executionCount: this.session.executionCount,
         createdAt: this.session.createdAt.toISOString(),
         lastActivity: this.session.lastActivity.toISOString(),
-        activeTabs: this.session.validTokens.size,
       }
 
       return meta
@@ -451,28 +357,5 @@ export class SessionManager {
     }
 
     return this.session.registeredWorkTreePaths.at(-1)!
-  }
-
-  // -------------------------------------------------------------------------
-  // Internal helpers
-  // -------------------------------------------------------------------------
-
-  /** Remove the oldest token to make room for a new one. */
-  private pruneOldestToken(): void {
-    if (this.session === null) return
-
-    let oldestToken: string | null = null
-    let oldestTime: Date | null = null
-
-    for (const [token, created] of this.session.validTokens) {
-      if (oldestTime === null || created < oldestTime) {
-        oldestToken = token
-        oldestTime = created
-      }
-    }
-
-    if (oldestToken !== null) {
-      this.session.validTokens.delete(oldestToken)
-    }
   }
 }
