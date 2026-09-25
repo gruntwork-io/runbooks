@@ -272,13 +272,13 @@ The `fuzz` object specifies how to generate random values.
 | `suffix` | string | `string` | Suffix to append to the generated string. |
 | `includeSpaces` | boolean | `string` | Include space characters. Default: `false`. |
 | `includeSpecialChars` | boolean | `string` | Include special characters. Default: `false`. |
-| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0. |
-| `max` | integer | `int`, `float` | Maximum numeric value. Default: 100. |
+| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0, or `max - 100` when only a zero or negative `max` is set. |
+| `max` | integer | `int`, `float` | Maximum numeric value. Must be at least `min`; equal to `min` for a fixed value. Default: `min + 100`. |
 | `options` | array | `enum` | Array of valid enum options. Required for `enum` type. |
 | `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
 | `minDate` | string | `date`, `timestamp` | Minimum date (supports RFC3339, YYYY-MM-DD). Default: 365 days ago. |
 | `maxDate` | string | `date`, `timestamp` | Maximum date. Default: now. |
-| `format` | string | `date`, `timestamp` | Output format. Default: `2006-01-02` for date, RFC3339 for timestamp. |
+| `format` | string | `date`, `timestamp` | Output format as a Go reference layout, evaluated in UTC. Supported tokens: `2006` (year), `01` (month), `02` (day), `15` (hour), `04` (minute), `05` (second), and `Z07:00` (written as `Z`). Default: `2006-01-02` for date, RFC3339 for timestamp. |
 | `wordCount` | integer | `words` | Exact number of words. |
 | `minWordCount` | integer | `words` | Minimum word count. Default: 2. |
 | `maxWordCount` | integer | `words` | Maximum word count. Default: `minWordCount + 3`. |
