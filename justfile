@@ -8,12 +8,14 @@ default:
 
 # --- Development ---
 
-# Start Electron app in dev mode with HMR
-dev:
+# Start Electron app in dev mode with HMR. Depends on fetch-boilerplate so
+# the app always renders with the vendored boilerplate under resources/ —
+# the main process never falls back to a boilerplate on PATH.
+dev: fetch-boilerplate
     mise x node -- npx electron-vite dev
 
 # Start Electron app pointing at a specific runbook
-dev-runbook path="testdata/my-first-runbook":
+dev-runbook path="testdata/my-first-runbook": fetch-boilerplate
     mise x node -- npx electron-vite dev -- --runbook {{path}}
 
 # --- Build ---
@@ -38,8 +40,9 @@ compile-test-cli:
 # Fetch the boilerplate CLI + WASM artifacts from gruntwork-io/boilerplate
 # release assets, pinned to {{boilerplate_version}}. Lands them under
 # resources/bin and resources/wasm so electron-builder.extraResources picks
-# them up and the main process can point BOILERPLATE_BIN /
-# BOILERPLATE_WASM_DIR at the bundled copies.
+# them up and the main process points BOILERPLATE_BIN / BOILERPLATE_WASM_DIR
+# at the vendored copies. This is the only boilerplate the app ever runs —
+# it is not installed via mise and a copy on PATH is never used.
 #
 # Defaults to the host os/arch (dev / local-packaging case). CI cross-packages
 # by passing explicit target os+arch — e.g. on an arm64 macOS runner building

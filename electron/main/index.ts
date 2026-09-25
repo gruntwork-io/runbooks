@@ -23,7 +23,7 @@ import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { isContainedIn } from "../../src/path-validation.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
-import { eagerLoadInBackground as eagerLoadBoilerplateWasm, isWasmConfigured } from "../../src/layers/NodeWasmRuntime.ts"
+import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { Effect } from "effect"
 import { coldReadSystemPems, installSystemTrust, refreshSystemPems } from "../../src/domain/tls/system-ca.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
@@ -141,11 +141,21 @@ export function registerExtraCaPems(pems: string[]): void {
   installAndLog(lastKnownSystemPems, "glab ca_cert harvest")
 }
 
-// Point the boilerplate renderer at the bundled CLI + WASM artifacts the
+// Point the boilerplate renderer at the vendored CLI + WASM artifacts the
 // `just fetch-boilerplate` recipe drops under resources/. In packaged
 // builds, electron-builder.extraResources puts them next to app.asar; in
-// dev (`electron-vite dev`), app.getAppPath() is the repo root. User-set
-// env vars win so devs can still override with a custom build.
+// dev (`electron-vite dev`), resources/ sits at the repo root.
+//
+// Always the vendored copy, unconditionally: a `boilerplate` on the user's
+// PATH or a stale BOILERPLATE_BIN exported from their shell rc (which
+// populateShellEnv() has already merged in above) must never be picked up.
+// The CLI and WASM blob are pinned to the same release in the justfile, and
+// a version skew between them silently changes how templates render.
+//
+// The one escape hatch is RUNBOOKS_BOILERPLATE_BIN / RUNBOOKS_BOILERPLATE_WASM_DIR
+// for testing a custom boilerplate build. The names are deliberately
+// different from the BOILERPLATE_* vars the render layers read: nobody has
+// RUNBOOKS_BOILERPLATE_BIN set by accident, so it stays an explicit choice.
 {
   // Packaged: extraResources lands files under process.resourcesPath
   // (e.g. .app/Contents/Resources/bin, .../wasm). Dev (electron <main.js>
@@ -154,19 +164,40 @@ export function registerExtraCaPems(pems: string[]): void {
   const resourcesDir = app.isPackaged
     ? process.resourcesPath
     : path.resolve(__dirname, "..", "..", "resources")
-  if (!process.env.BOILERPLATE_BIN) {
-    const bundled = path.join(
-      resourcesDir,
-      "bin",
-      process.platform === "win32" ? "boilerplate.exe" : "boilerplate",
+  const vendoredBin = path.join(
+    resourcesDir,
+    "bin",
+    process.platform === "win32" ? "boilerplate.exe" : "boilerplate",
+  )
+  const vendoredWasmDir = path.join(resourcesDir, "wasm")
+
+  const overrideBin = process.env.RUNBOOKS_BOILERPLATE_BIN
+  const overrideWasmDir = process.env.RUNBOOKS_BOILERPLATE_WASM_DIR
+  const bin = overrideBin || vendoredBin
+  const wasmDir = overrideWasmDir || vendoredWasmDir
+  process.env.BOILERPLATE_BIN = bin
+  process.env.BOILERPLATE_WASM_DIR = wasmDir
+
+  // Never silent: an override changes what every template renders with.
+  if (overrideBin) log.warn(`RUNBOOKS_BOILERPLATE_BIN override active: ${overrideBin}`)
+  if (overrideWasmDir) log.warn(`RUNBOOKS_BOILERPLATE_WASM_DIR override active: ${overrideWasmDir}`)
+
+  // Missing artifacts mean a broken checkout, package, or override — not a
+  // reason to go hunting on PATH. Say so loudly; the render layers will fail
+  // with the same path in their error so the cause is obvious.
+  const missing = [
+    bin,
+    path.join(wasmDir, "boilerplate-full.wasm.br"),
+    path.join(wasmDir, "wasm_exec.js"),
+  ].filter((f) => !fs.existsSync(f))
+  if (missing.length > 0) {
+    const hint =
+      overrideBin || overrideWasmDir
+        ? "Check the RUNBOOKS_BOILERPLATE_* override paths."
+        : "Run `just fetch-boilerplate`."
+    log.error(
+      `Boilerplate artifacts missing (${missing.join(", ")}); template rendering will fail. ${hint}`,
     )
-    if (fs.existsSync(bundled)) process.env.BOILERPLATE_BIN = bundled
-  }
-  if (!process.env.BOILERPLATE_WASM_DIR) {
-    const bundledWasmDir = path.join(resourcesDir, "wasm")
-    if (fs.existsSync(path.join(bundledWasmDir, "boilerplate-full.wasm.br"))) {
-      process.env.BOILERPLATE_WASM_DIR = bundledWasmDir
-    }
   }
 }
 
@@ -410,12 +441,9 @@ app.whenReady().then(() => {
 
   // Kick off the boilerplate WASM load as a background task. The full build
   // is ~600-900ms to instantiate; running it now overlaps the cost with the
-  // user reading the runbook before their first edit. Gated on
-  // BOILERPLATE_WASM_DIR — without it, the cold subprocess renderer is used.
-  if (isWasmConfigured()) {
-    log.info("Boilerplate WASM dir configured, starting eager background load")
-    eagerLoadBoilerplateWasm()
-  }
+  // user reading the runbook before their first edit.
+  log.info("Starting eager background load of vendored boilerplate WASM")
+  eagerLoadBoilerplateWasm()
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
   if (cliConfig.remoteUrl) {

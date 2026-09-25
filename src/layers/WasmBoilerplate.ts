@@ -33,19 +33,27 @@ import { RenderError } from "../errors/index.ts"
 // ---------------------------------------------------------------------------
 
 /**
- * Location of the `boilerplate` binary.
+ * Location of the vendored `boilerplate` binary.
  *
- * Resolution order:
- *   1. `BOILERPLATE_BIN` env var (absolute path or bare command name)
- *   2. Bare `boilerplate` — relies on the user's PATH
+ * The app ships its own copy of the CLI (`just fetch-boilerplate` →
+ * resources/bin) and the main process points `BOILERPLATE_BIN` at it before
+ * any render can run. There is deliberately no fallback to a `boilerplate`
+ * on PATH: a user-installed copy could be any version, and the CLI must
+ * match the vendored WASM build or render output silently diverges. An
+ * unset env var is a wiring bug, so fail with the reason rather than guess.
  *
  * The binary is invoked in non-interactive mode with `--disable-dependency-prompt`,
  * so dependencies (remote templates) are pulled in without any stdin prompts.
  */
-export function resolveBoilerplateBinary(): string {
-  const env = process.env.BOILERPLATE_BIN
-  if (env && env.length > 0) return env
-  return "boilerplate"
+export function resolveBoilerplateBinary(): Effect.Effect<string, RenderError> {
+  const bin = process.env.BOILERPLATE_BIN
+  if (bin && bin.length > 0) return Effect.succeed(bin)
+  return Effect.fail(
+    new RenderError({
+      message:
+        "BOILERPLATE_BIN is not set. The main process must point it at the vendored boilerplate binary (resources/bin) before rendering.",
+    }),
+  )
 }
 
 /**
@@ -101,7 +109,7 @@ function runBoilerplate(
 ) {
   return Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const binary = resolveBoilerplateBinary()
+    const binary = yield* resolveBoilerplateBinary()
     const args = [
       "--template-url", templateDir,
       "--output-folder", outputDir,
@@ -115,7 +123,7 @@ function runBoilerplate(
       Effect.mapError(
         (err) =>
           new RenderError({
-            message: `Failed to spawn boilerplate binary "${binary}". Ensure it is installed and on PATH, or set BOILERPLATE_BIN.`,
+            message: `Failed to spawn vendored boilerplate binary "${binary}". The bundled copy is missing or not executable; run \`just fetch-boilerplate\`.`,
             cause: err,
           }),
       ),
