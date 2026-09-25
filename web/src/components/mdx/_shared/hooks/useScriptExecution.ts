@@ -455,8 +455,9 @@ export function useScriptExecution({
   // Track if component is mounted to prevent setState on unmounted component
   const isMountedRef = useRef(true)
   
-  // Track pending fetch to allow cancellation
-  const abortControllerRef = useRef<AbortController | null>(null)
+  // Monotonic render counter: only the latest render may commit. IPC calls
+  // can't be cancelled, so a slower earlier render is dropped instead.
+  const renderSeqRef = useRef(0)
   
   // Determine the actual script content to use
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
@@ -507,14 +508,8 @@ export function useScriptExecution({
 
   // Function to render script with inputs
   const renderScript = useCallback(async (inputs: TemplateValue[]) => {
-    // Cancel any pending render request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    
-    // Create new abort controller for this request
-    const abortController = new AbortController()
-    abortControllerRef.current = abortController
+    // Supersede any pending render request
+    const seq = ++renderSeqRef.current
     
     setIsRendering(true)
     setRenderError(null)
@@ -535,8 +530,8 @@ export function useScriptExecution({
         inputs,
       })
 
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
+      // Check if component is still mounted and this is still the latest render
+      if (!isMountedRef.current || seq !== renderSeqRef.current) return
       const renderedFiles = responseData.renderedFiles
       
       // Check if we got the expected file structure
@@ -552,13 +547,8 @@ export function useScriptExecution({
       setRenderedScript(renderedFiles['script.sh'].content)
       setIsRendering(false)
     } catch (err) {
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
-      
-      // Don't set error if request was aborted (expected behavior)
-      if (err instanceof Error && err.name === 'AbortError') {
-        return
-      }
+      // Check if component is still mounted and this is still the latest render
+      if (!isMountedRef.current || seq !== renderSeqRef.current) return
       
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
@@ -695,11 +685,6 @@ export function useScriptExecution({
     
     return () => {
       isMountedRef.current = false
-      
-      // Cancel any pending render request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
       
       // Cancel any ongoing execution
       cancelExec()
