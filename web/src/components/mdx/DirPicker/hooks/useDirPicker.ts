@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useApi } from '@/contexts/ApiContext'
 import { useSession } from '@/contexts/useSession'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
@@ -18,11 +19,10 @@ interface DirLevel {
   selected: string
   /** Available subdirectory names. */
   dirs: string[]
-  /** Whether we're currently loading dirs for this level. */
-  loading: boolean
 }
 
 export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPickerOptions) {
+  const api = useApi()
   const { isReady: sessionReady } = useSession()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
@@ -49,13 +49,13 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
     if (!sessionReady) return []
     try {
-      const data = await window.api.invoke('workspace:dirs', { worktreePath: absPath })
+      const data = await api.invoke('workspace:dirs', { worktreePath: absPath })
       return data.dirs ?? []
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch directories')
       return []
     }
-  }, [sessionReady])
+  }, [api, sessionReady])
 
   // Build the composed path from dropdown selections
   const composedPath = useMemo(() => {
@@ -75,7 +75,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     setError(null)
     const init = async () => {
       const dirs = await fetchDirs(rootPath)
-      setLevels([{ path: rootPath, selected: '', dirs, loading: false }])
+      setLevels([{ path: rootPath, selected: '', dirs }])
     }
     init()
   }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
@@ -115,7 +115,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     if (childDirs.length > 0) {
       setLevels(prev => [
         ...prev,
-        { path: nextAbsPath, selected: '', dirs: childDirs, loading: false },
+        { path: nextAbsPath, selected: '', dirs: childDirs },
       ])
     }
   }, [rootPath, levels, fetchDirs, maxLevels])
@@ -125,22 +125,20 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     setManualPath(composedPath)
   }, [composedPath])
 
-  // Register outputs whenever the path changes
+  const publishedPath = allOutputs[normalizeBlockId(id)]?.values?.PATH
+
+  // Keep this block's PATH output in sync with the path shown in the input.
+  // This effect is the only writer of PATH. An empty path clears the output
+  // ({}), so downstream blocks see PATH as unmet again. Comparing against the
+  // published value (rather than tracking what this instance wrote) also clears
+  // a PATH left behind by DirPickerInstruction or a previous mount.
   useEffect(() => {
     if (manualPath) {
-      registerOutputs(id, { PATH: manualPath })
+      if (manualPath !== publishedPath) registerOutputs(id, { PATH: manualPath })
+    } else if (publishedPath !== undefined) {
+      registerOutputs(id, {})
     }
-  }, [id, manualPath, registerOutputs])
-
-  // Handle manual path edits
-  const setPath = useCallback((path: string) => {
-    setManualPath(path)
-    // When manually editing, clear dropdown state since it may no longer match
-    if (path !== composedPath) {
-      // Keep levels for display but register the manual path
-      registerOutputs(id, { PATH: path })
-    }
-  }, [id, composedPath, registerOutputs])
+  }, [id, manualPath, publishedPath, registerOutputs])
 
   return {
     levels,
@@ -148,6 +146,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     error,
     isWorkspaceReady,
     selectDir,
-    setPath,
+    // Manual edits only change the path shown; the effect above publishes it.
+    setPath: setManualPath,
   }
 }
