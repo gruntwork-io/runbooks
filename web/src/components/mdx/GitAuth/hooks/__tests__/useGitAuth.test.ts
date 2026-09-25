@@ -22,7 +22,6 @@ function installApi(impl: InvokeImpl) {
   window.api = {
     invoke,
     on: vi.fn(() => () => {}),
-    once: vi.fn(),
   } as unknown as typeof window.api
   return invoke
 }
@@ -729,7 +728,6 @@ describe('useGitAuth — host union UX', () => {
         if (channel === 'vcs:session-changed') sessionChangedHandler = callback
         return () => {}
       }),
-      once: vi.fn(),
     } as unknown as typeof window.api
 
     const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
@@ -757,7 +755,6 @@ describe('useGitAuth — host union UX', () => {
         if (channel === 'vcs:session-changed') sessionChangedHandler = callback
         return () => {}
       }),
-      once: vi.fn(),
     } as unknown as typeof window.api
 
     const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))

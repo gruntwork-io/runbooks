@@ -2,8 +2,8 @@
  * File reading utilities.
  *
  * Provides file metadata reading with truncation, runbook path resolution,
- * language detection from extension, asset extension whitelisting, and
- * MIME-type resolution.
+ * language detection from extension, content hashing, and the VCS-directory
+ * and binary-extension lists shared by the tree walkers.
  */
 
 import path from "path"
@@ -138,37 +138,6 @@ const BASENAME_LANGUAGE_MAP: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
-// Asset content types
-// ---------------------------------------------------------------------------
-
-/**
- * Allowed asset extensions mapped to their MIME types.
- * Single source of truth for both the whitelist check and content-type header.
- */
-const ALLOWED_ASSET_CONTENT_TYPES: Record<string, string> = {
-  // Images
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".webp": "image/webp",
-  ".bmp": "image/bmp",
-  ".ico": "image/x-icon",
-  // Documents
-  ".pdf": "application/pdf",
-  // Media
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-  ".ogg": "video/ogg",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".m4a": "audio/mp4",
-  ".avi": "video/x-msvideo",
-  ".mov": "video/quicktime",
-}
-
-// ---------------------------------------------------------------------------
 // Public helpers
 // ---------------------------------------------------------------------------
 
@@ -190,24 +159,6 @@ export function getLanguageFromExtension(filename: string): string {
   }
 
   return "text"
-}
-
-/**
- * Returns `true` when the file extension is in the whitelist of servable asset
- * types (images, PDFs, media).
- */
-export function isAllowedAssetExtension(filename: string): boolean {
-  const ext = path.extname(filename).toLowerCase()
-  return ext in ALLOWED_ASSET_CONTENT_TYPES
-}
-
-/**
- * Return the MIME content-type for a filename based on its extension.
- * Falls back to `"application/octet-stream"` for unknown extensions.
- */
-export function getContentType(filename: string): string {
-  const ext = path.extname(filename).toLowerCase()
-  return ALLOWED_ASSET_CONTENT_TYPES[ext] ?? "application/octet-stream"
 }
 
 /**

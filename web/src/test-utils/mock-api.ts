@@ -27,6 +27,5 @@ export function createMockApi(responses: Record<string, unknown> = {}): Runbooks
       throw new Error(`No mock response for channel: ${channel}`)
     }) as RunbooksAPI["invoke"],
     on: (() => () => {}) as RunbooksAPI["on"],
-    once: (() => {}) as RunbooksAPI["once"],
   }
 }

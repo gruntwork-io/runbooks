@@ -8,8 +8,8 @@
 // Import from the canonical src/types.ts so channels.ts and the backend
 // handlers share the same contract. Re-exported so consumers can import
 // these types from channels.ts directly.
-import type { ExecRequest, Section } from '../../src/types.ts'
-export type { ExecRequest, Section }
+import type { ExecRequest, Section, SessionMetadata } from '../../src/types.ts'
+export type { ExecRequest, Section, SessionMetadata }
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -26,13 +26,10 @@ export interface IpcChannelMap {
     result: { path: string; remoteSource: string }
   }
   "runbook:executables": { params: void; result: { executables: Record<string, Executable>; warnings?: string[] } }
-  "runbook:assets": { params: { filepath: string }; result: { data: Buffer; mimeType: string } }
 
   // Session
-  "session:join": { params: void; result: { token: string } }
   "session:get": { params: void; result: SessionMetadata }
   "session:reset": { params: void; result: { ok: true } }
-  "session:delete": { params: void; result: { ok: true } }
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
 
   // Execution
@@ -556,10 +553,6 @@ export interface IpcChannelMap {
     params: void
     result: { ok: true; symlinkPath: string }
   }
-  "cli:uninstall": {
-    params: void
-    result: { ok: true }
-  }
 
   // VCS CLI diagnostics: which provider CLIs are
   // installed, their versions / probe floors, and (Windows) git's TLS
@@ -586,7 +579,6 @@ export interface IpcChannelMap {
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
   "native:close-runbook": { params: void; result: { ok: true } }
-  "native:get-app-info": { params: void; result: { version: string; platform: string; arch: string } }
   "native:get-cli-config": {
     params: void
     result: {
@@ -648,12 +640,6 @@ export interface Executable {
   language: string
   hash: string
   componentId?: string
-}
-
-export interface SessionMetadata {
-  workingDir: string
-  executionCount: number
-  env: Record<string, string>
 }
 
 export interface BoilerplateConfig {
