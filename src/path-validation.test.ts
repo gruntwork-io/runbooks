@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test"
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { Effect, Exit } from "effect"
@@ -114,6 +114,23 @@ describe("isContainedInReal", () => {
     symlinkSync(path.join(container, "real.txt"), path.join(container, "inside-link"))
     // A dangling symlink inside the container pointing OUT (write-through escape).
     symlinkSync(path.join(outside, "ghost.txt"), path.join(container, "dangling-escape"))
+
+    // Relative-target fixtures. The kernel resolves a relative link target
+    // against the link's *real* parent and applies `..` after dereferencing
+    // the prefix, so neither may be resolved lexically.
+    mkdirSync(path.join(container, "deep", "a", "b"), { recursive: true })
+    mkdirSync(path.join(outside, "deep"))
+    // deep/a/b/up really is deep/.
+    symlinkSync("../..", path.join(container, "deep", "a", "b", "up"))
+    // Dangling, relative: from deep/ this is <root>/escaped-up.txt.
+    symlinkSync("../../escaped-up.txt", path.join(container, "deep", "escape-up"))
+    // Dangling, relative, stays inside: from deep/ this is <container>/future.txt.
+    symlinkSync("../future.txt", path.join(container, "deep", "inside-dangling"))
+    // s really is <root>/outside/deep, so s/.. is <root>/outside, not the container.
+    symlinkSync("../outside/deep", path.join(container, "s"))
+    symlinkSync("s/../escaped-dotdot.txt", path.join(container, "dangling-dotdot"))
+    // A self-referencing symlink cycle.
+    symlinkSync("loop", path.join(container, "loop"))
   })
 
   afterAll(() => {
@@ -149,6 +166,50 @@ describe("isContainedInReal", () => {
 
   it("rejects a plainly out-of-container path", async () => {
     expect(await isContainedInReal(path.join(outside, "secret.txt"), container)).toBe(false)
+  })
+
+  it("rejects a relative dangling symlink reached through a directory symlink", async () => {
+    // Lexically the link sits in deep/a/b/, so ../../escaped-up.txt would be
+    // deep/a/escaped-up.txt; a write actually lands in <root>/.
+    const viaUp = path.join(container, "deep", "a", "b", "up", "escape-up")
+    expect(await isContainedInReal(viaUp, container)).toBe(false)
+  })
+
+  it("rejects a dangling symlink whose target has `..` after a directory symlink", async () => {
+    // s/../escaped-dotdot.txt collapses lexically to <container>/escaped-dotdot.txt,
+    // but s/.. is <root>/outside.
+    expect(await isContainedInReal(path.join(container, "dangling-dotdot"), container)).toBe(false)
+  })
+
+  it("rejects an input path with `..` after a directory symlink that points outside", async () => {
+    // String concatenation keeps the `..` that path.join would collapse.
+    const input = `${container}${path.sep}escape-dir${path.sep}..${path.sep}escaped.txt`
+    expect(await isContainedInReal(input, container)).toBe(false)
+  })
+
+  it("rejects a symlink reached after `..` pops a not-yet-existing segment", async () => {
+    // mkdir -p creates not-yet/, after which escape-dir is followed outside.
+    const input = `${container}${path.sep}not-yet${path.sep}..${path.sep}escape-dir${path.sep}new.txt`
+    expect(await isContainedInReal(input, container)).toBe(false)
+  })
+
+  it("allows a relative dangling symlink that stays inside the container", async () => {
+    expect(await isContainedInReal(path.join(container, "deep", "inside-dangling"), container)).toBe(true)
+    const viaUp = path.join(container, "deep", "a", "b", "up", "inside-dangling")
+    expect(await isContainedInReal(viaUp, container)).toBe(true)
+  })
+
+  it("fails closed on a symlink cycle", async () => {
+    expect(await isContainedInReal(path.join(container, "loop", "x.txt"), container)).toBe(false)
+  })
+
+  // The same directory has two spellings on a case-insensitive filesystem
+  // (the macOS and Windows defaults); both must canonicalize to one.
+  const caseInsensitive = tmpdir().toUpperCase() !== tmpdir() && existsSync(tmpdir().toUpperCase())
+  const itCaseInsensitive = caseInsensitive ? it : it.skip
+  itCaseInsensitive("matches a differently-cased spelling of the container", async () => {
+    const target = path.join(container.toUpperCase(), "new-output.txt")
+    expect(await isContainedInReal(target, container)).toBe(true)
   })
 })
 
