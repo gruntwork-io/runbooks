@@ -311,14 +311,17 @@ function GitAuthInteractive({
           {/* Authentication form (only show when not authenticated and detection is done) */}
           {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
-              {/* CLI-status-driven hint + the "Check again" control */}
+              {/* CLI-status-driven hint + the "Check again" control. The GitLab
+                  host picker carries Reload instead; without the picker (GitHub,
+                  or a `host`-pinned GitLab block) this is the only way to re-run
+                  detection after Re-authenticate turns focus re-detection off. */}
               {auth.manualHint && (
                 <div
                   data-testid="vcs-cli-hint"
                   className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
                 >
                   <span>{auth.manualHint}</span>
-                  {provider === 'github' && (
+                  {!auth.hostSelectable && (
                     <button
                       type="button"
                       onClick={auth.retryUnreachable}

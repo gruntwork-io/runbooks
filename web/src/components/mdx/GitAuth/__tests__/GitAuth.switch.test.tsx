@@ -157,6 +157,50 @@ describe('GitAuth — provider switch (real hook)', () => {
     expect(screen.queryByText(/Authenticated to GitLab/i)).toBeNull()
   })
 
+  it('Reload detects only against the host the re-read glab config names', async () => {
+    // The card signed in on gitlab.com; the user then ran `glab auth login`
+    // for a self-managed host, which is now glab's default. Reload must not
+    // re-detect against gitlab.com before the new host list arrives.
+    let enumerations = 0
+    const invoke = installApi(async (channel: string, args?: { host?: string }) => {
+      if (channel === 'gitlab:enumerate-hosts') {
+        enumerations += 1
+        return {
+          hosts: [
+            { host: 'gitlab.com', sources: ['env'], hasCredential: true },
+            { host: 'git.corp.example', sources: ['glab'], hasCredential: true },
+          ],
+          defaultHost: enumerations === 1 ? 'gitlab.com' : 'git.corp.example',
+        }
+      }
+      if (channel === 'gitlab:env-credentials') {
+        return args?.host === 'gitlab.com'
+          ? { found: true, valid: true, user: { login: 'tanuki' }, envVar: 'GITLAB_TOKEN', host: 'gitlab.com' }
+          : { found: false }
+      }
+      if (channel === 'gitlab:cli-credentials') {
+        return args?.host === 'git.corp.example'
+          ? { found: true, user: { login: 'corp-user' }, host: 'git.corp.example' }
+          : { found: false }
+      }
+      return {}
+    })
+    const detectionCalls = () =>
+      invoke.mock.calls.filter((c) => c[0] === 'gitlab:env-credentials' || c[0] === 'gitlab:cli-credentials')
+
+    renderWithApi(<GitAuth id="git" provider="gitlab" />)
+    await screen.findByText(/Authenticated to GitLab \(gitlab\.com\)/i)
+    const before = detectionCalls().length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+
+    await screen.findByText(/Authenticated to GitLab \(git\.corp\.example\)/i)
+    expect(screen.getAllByText(/corp-user/).length).toBeGreaterThan(0)
+    const afterReload = detectionCalls().slice(before)
+    expect(afterReload.length).toBeGreaterThan(0)
+    expect(afterReload.every((c) => (c[1] as { host?: string }).host === 'git.corp.example')).toBe(true)
+  })
+
   it('GitLab→GitHub switch restores the GitHub OAuth flow', async () => {
     renderWithApi(<GitAuth id="git" provider="gitlab" detectCredentials={false} />)
 
@@ -241,6 +285,28 @@ describe('GitAuth — Re-authenticate (real hook)', () => {
       window.dispatchEvent(new Event('focus'))
     })
     await waitFor(() => expect(detections('gitlab:cli-credentials')).toBe(2))
+  })
+
+  it('offers Check again on a host-pinned GitLab block, which has no Reload', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:env-credentials') {
+        return { found: true, valid: true, user: { login: 'ambient' }, envVar: 'GITLAB_TOKEN', host: 'gitlab.corp' }
+      }
+      if (channel === 'vcs:cli-status') return { glab: { installed: true } }
+      return { found: false }
+    })
+    const detections = () => invoke.mock.calls.filter((c) => c[0] === 'gitlab:env-credentials').length
+
+    renderWithApi(<GitAuth id="git" provider="gitlab" host="gitlab.corp" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-authenticate' }))
+    await screen.findByPlaceholderText(/GitLab access token/i)
+    expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull()
+
+    // Focus re-detection is off after Re-authenticate; Check again is the
+    // user's way to ask for detection again.
+    fireEvent.click(await screen.findByRole('button', { name: 'Check again' }))
+    await screen.findByRole('button', { name: 'Re-authenticate' })
+    expect(detections()).toBe(2)
   })
 })
 

@@ -38,6 +38,10 @@ interface UseGitAuthOptions {
 
 const DEFAULT_GITLAB_HOST = 'gitlab.com'
 
+// Module-level so the default keeps one identity across renders: the
+// detection effect and the redetect callbacks depend on it.
+const DEFAULT_DETECT_CREDENTIALS: GitCredentialSource[] = ['env', 'cli']
+
 /** GitHub's device-code lifetime in seconds when oauth-start reports none. */
 const DEFAULT_OAUTH_EXPIRES_IN = 900
 
@@ -101,7 +105,7 @@ export function useGitAuth({
   instanceUrl,
   oauthClientId,
   oauthScopes = ['repo'],
-  detectCredentials = ['env', 'cli'],
+  detectCredentials = DEFAULT_DETECT_CREDENTIALS,
   host,
   defaultTab,
 }: UseGitAuthOptions) {
@@ -1075,12 +1079,14 @@ export function useGitAuth({
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
   //
-  // Only bump hostsReloadNonce — NOT detectionNonce. Re-enumeration flips
-  // hostsReady false→true, and that transition (with detectionAttemptedRef
-  // already cleared by beginRedetect) drives a single detection against the
-  // freshly-resolved host. Bumping detectionNonce too would fire detection
-  // immediately against the *pre-reload* host and then lock detectionAttemptedRef,
-  // so a changed glab default would never be re-detected.
+  // Closes the hosts gate in the same batch as beginRedetect, then bumps only
+  // hostsReloadNonce — NOT detectionNonce. Re-enumeration reopens the gate,
+  // and that transition (with detectionAttemptedRef already cleared by
+  // beginRedetect) drives a single detection against the freshly-resolved
+  // host. With the gate still open, any re-render before the enumerate
+  // effect ran (beginRedetect's own state updates are one) would detect
+  // against the *pre-reload* host and lock detectionAttemptedRef, so a
+  // changed glab default would never be re-detected.
   const reloadDetection = useCallback(() => {
     // Reload re-enumerates, flushes the CLI token cache, clears
     // the transport-degraded flags (both via vcs:invalidate-cache), resets
@@ -1088,6 +1094,7 @@ export function useGitAuth({
     invalidateMainCache()
     setDowngradedHosts(new Set())
     beginRedetect()
+    setHostsReadyFor(null)
     setHostsReloadNonce((n) => n + 1)
   }, [beginRedetect, invalidateMainCache])
 
