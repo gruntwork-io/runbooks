@@ -95,7 +95,7 @@ describe('useGitAuth — GitLab provider', () => {
     expect(invoke).not.toHaveBeenCalledWith('session:set-env', expect.anything())
     expect(result.current.authStatus).toBe('authenticated')
     // No scopes returned (introspection unavailable) → no claim about missing scopes.
-    expect(result.current.scopeWarning).toBeNull()
+    expect(result.current.missingScope).toBe(false)
   })
 
   it('sends a self-hosted instanceUrl to gitlab:validate when supplying a token', async () => {
@@ -248,7 +248,7 @@ describe('useGitAuth — GitLab provider', () => {
     })
 
     expect(result.current.detectedScopes).toEqual(['read_user', 'write_repository'])
-    expect(result.current.scopeWarning).toBeNull()
+    expect(result.current.missingScope).toBe(false)
   })
 
   it('does not warn when the token has the api superset scope', async () => {
@@ -270,7 +270,7 @@ describe('useGitAuth — GitLab provider', () => {
     })
 
     expect(result.current.detectedScopes).toEqual(['api'])
-    expect(result.current.scopeWarning).toBeNull()
+    expect(result.current.missingScope).toBe(false)
   })
 
   it('warns when the token grants no repository write access', async () => {
@@ -297,7 +297,7 @@ describe('useGitAuth — GitLab provider', () => {
     })
 
     expect(result.current.detectedScopes).toEqual(['read_user', 'read_repository'])
-    expect(result.current.scopeWarning).toContain('write_repository')
+    expect(result.current.missingScope).toBe(true)
   })
 
   it('detection warnings reference GITLAB_TOKEN / glab, never GITHUB_TOKEN', async () => {
@@ -417,7 +417,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
 
     expect(invoke).toHaveBeenCalledWith('github:validate', { token: 'ghp_abc', registerSession: true })
     expect(result.current.authStatus).toBe('authenticated')
-    expect(result.current.scopeWarning).toContain('repo')
+    expect(result.current.missingScope).toBe(true)
     expect(registerOutputs).toHaveBeenCalledWith('gh', {
       GITHUB_TOKEN: 'ghp_abc',
       GITHUB_USER: 'octocat',
@@ -441,7 +441,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
     const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
 
     await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
-    expect(result.current.scopeWarning).toBeNull()
+    expect(result.current.missingScope).toBe(false)
   })
 })
 
@@ -678,7 +678,51 @@ describe('useGitAuth — host union UX', () => {
     defaultHost: 'gitlab.com',
   }
 
-  it("the 'Other instance…' sentinel never changes the host and never runs detection", async () => {
+  const detectionCalls = (invoke: ReturnType<typeof installApi>) =>
+    invoke.mock.calls.filter((c) => c[0] === 'gitlab:cli-credentials' || c[0] === 'gitlab:env-credentials').length
+
+  it("the 'Other instance…' sentinel leaves the success card without changing the host or running detection", async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:enumerate-hosts') return HOSTS
+      if (channel === 'gitlab:env-credentials') {
+        return { found: true, valid: true, user: { login: 'tanuki' }, host: 'gitlab.com', envVar: 'GITLAB_TOKEN' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    const detectionCallsBefore = detectionCalls(invoke)
+
+    act(() => result.current.handleHostSelect('__other__'))
+
+    // The card gives way to the PAT form, whose instance-URL field is asked for.
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.userInfo).toBeNull()
+    expect(result.current.instanceFieldFocusNonce).toBe(1)
+    expect(result.current.selectedHost).toBe('gitlab.com')
+    // No re-detection fired and no pick was persisted.
+    expect(detectionCalls(invoke)).toBe(detectionCallsBefore)
+    expect(invoke.mock.calls.filter((c) => c[0] === 'gitlab:host-picked').length).toBe(0)
+  })
+
+  it("the 'Other instance…' sentinel keeps an unauthenticated form's typed token", async () => {
+    installApi(async (channel) => {
+      if (channel === 'gitlab:enumerate-hosts') return HOSTS
+      return { found: false }
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    act(() => result.current.setPatToken('glpat-abc'))
+
+    act(() => result.current.handleHostSelect('__other__'))
+
+    expect(result.current.patToken).toBe('glpat-abc')
+    expect(result.current.instanceFieldFocusNonce).toBe(1)
+  })
+
+  it('a host pick replaces an entered instance URL, even the previously picked host', async () => {
     const invoke = installApi(async (channel) => {
       if (channel === 'gitlab:enumerate-hosts') return HOSTS
       return { found: false }
@@ -686,15 +730,48 @@ describe('useGitAuth — host union UX', () => {
 
     const { result } = renderHook(() => useGitAuth({ id: 'git', provider: PROVIDERS.gitlab }))
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
-    const detectionCallsBefore = invoke.mock.calls.filter((c) => c[0] === 'gitlab:cli-credentials').length
 
     act(() => result.current.handleHostSelect('__other__'))
+    act(() => result.current.setGitlabInstanceUrl('https://gitlab.new.example'))
+    expect(result.current.selectedHost).toBe('gitlab.new.example')
+
+    // gitlab.com is still the internal pick; going back to it must not be a no-op.
+    const callsBefore = invoke.mock.calls.length
+    act(() => result.current.handleHostSelect('gitlab.com'))
 
     expect(result.current.selectedHost).toBe('gitlab.com')
-    expect(result.current.authMethod).toBe('pat')
-    // No re-detection fired and no pick was persisted.
-    expect(invoke.mock.calls.filter((c) => c[0] === 'gitlab:cli-credentials').length).toBe(detectionCallsBefore)
-    expect(invoke.mock.calls.filter((c) => c[0] === 'gitlab:host-picked').length).toBe(0)
+    expect(result.current.gitlabInstanceUrl).toBe('')
+    await waitFor(() => {
+      expect(invoke.mock.calls.slice(callsBefore)).toContainEqual(['gitlab:cli-credentials', { host: 'gitlab.com' }])
+    })
+    expect(invoke).toHaveBeenCalledWith('gitlab:host-picked', { host: 'gitlab.com' })
+  })
+
+  it('a host pick overrides the instanceUrl prop for detection', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'gitlab:enumerate-hosts') return HOSTS
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'git', provider: PROVIDERS.gitlab, instanceUrl: 'https://gitlab.acme.com' }),
+    )
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.selectedHost).toBe('gitlab.acme.com')
+
+    const callsBefore = invoke.mock.calls.length
+    act(() => result.current.handleHostSelect('git.corp.example'))
+
+    expect(result.current.selectedHost).toBe('git.corp.example')
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    const redetection = invoke.mock.calls
+      .slice(callsBefore)
+      .filter((c) => c[0] === 'gitlab:cli-credentials' || c[0] === 'gitlab:env-credentials')
+    expect(redetection.length).toBe(2)
+    for (const [, args] of redetection) {
+      expect(args).toEqual(expect.objectContaining({ host: 'git.corp.example' }))
+      expect(args).not.toHaveProperty('instanceUrl')
+    }
   })
 
   it('an explicit host pick is persisted via gitlab:host-picked', async () => {
@@ -965,7 +1042,7 @@ describe('useGitAuth — {block} detection sources', () => {
     expect(result.current.detectedScopes).toEqual(['read:org'])
     expect(result.current.detectedTokenType).toBe('classic_pat')
     expect(result.current.successMeta).toEqual({ validatedVia: 'direct' })
-    expect(result.current.scopeWarning).toContain('repo')
+    expect(result.current.missingScope).toBe(true)
   })
 })
 

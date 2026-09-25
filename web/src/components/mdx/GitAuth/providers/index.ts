@@ -64,6 +64,9 @@ export interface ProviderConfig {
      * `write_repository`. Defaults to `[requiredScope]` when omitted.
      */
     acceptableScopes?: string[]
+    /** What a token without an acceptable scope breaks, shown under the
+     *  missing-scope warning on the success card. */
+    scopeWarningDetail?: string
     showAppInstallBranch: boolean
     showFineGrainedNote: boolean
     /** Label shown for an unrecognized token type. */

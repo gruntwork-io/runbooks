@@ -118,7 +118,7 @@ export function useGitAuth({
   const [detectionSource, setDetectionSource] = useState<GitDetectionSource>(null)
   const [detectedScopes, setDetectedScopes] = useState<string[] | null>(null)
   const [detectedTokenType, setDetectedTokenType] = useState<GitTokenType | null>(null)
-  const [scopeWarning, setScopeWarning] = useState<string | null>(null)
+  const [missingScope, setMissingScope] = useState(false)
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const [unreachableInfo, setUnreachableInfo] = useState<GitUnreachableInfo | null>(null)
@@ -179,6 +179,9 @@ export function useGitAuth({
   // PAT form. Only meaningful for the GitLab provider; sent with the token so
   // validation/detection targets the right instance (empty → gitlab.com).
   const [gitlabInstanceUrl, setGitlabInstanceUrl] = useState(instanceUrl ?? '')
+  // Bumped when "Other instance…" is picked; the block focuses the
+  // instance-URL field on each bump.
+  const [instanceFieldFocusNonce, setInstanceFieldFocusNonce] = useState(0)
 
   // The instance URL to send over IPC: only for GitLab, and only when non-empty
   // (so GitHub and the gitlab.com default both send nothing).
@@ -213,21 +216,14 @@ export function useGitAuth({
   // scope is missing) and none of the acceptable scopes are present. Acceptable
   // scopes default to [requiredScope], but a provider can list several when more
   // than one grants the needed access (e.g. GitLab's `api` ⊇ `write_repository`).
+  // The warning's copy lives in the provider config
+  // (`provider.success.scopeWarningDetail`) and is rendered by AuthSuccess.
   const shouldWarnMissingScope = useCallback((scopes: string[] | undefined): boolean => {
     if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
     if (!scopes || scopes.length === 0) return false
     const acceptable = provider.success.acceptableScopes ?? [provider.success.requiredScope]
     return !scopes.some((scope) => acceptable.includes(scope))
   }, [provider])
-
-  // Raise the missing-scope warning chip when the token's known scopes lack an
-  // acceptable one; a no-op when scopes are unknown/empty. Centralizes the chip
-  // copy so every detection/auth path renders it identically.
-  const warnIfMissingScope = useCallback((scopes: string[] | undefined): void => {
-    if (shouldWarnMissingScope(scopes)) {
-      setScopeWarning(`Missing "${provider.success.requiredScope}" scope - some operations may fail`)
-    }
-  }, [provider, shouldWarnMissingScope])
 
   // Helper to check for credentials from block outputs. A referenced GitAuth
   // block (marked __AUTHENTICATED) is metadata-only — its credential
@@ -324,14 +320,12 @@ export function useGitAuth({
   const applyCredentialDetails = useCallback((details: CredentialDetails) => {
     const scopes = details.scopes && details.scopes.length > 0 ? details.scopes : null
     setDetectedScopes(scopes)
-    if (scopes) {
-      warnIfMissingScope(scopes)
-    }
+    setMissingScope(shouldWarnMissingScope(details.scopes))
     setDetectedTokenType(details.tokenType ?? null)
     setSuccessMeta(details.meta ?? null)
     setDivergenceHint(details.divergenceHint ?? null)
     setSessionEnvWarning(details.sessionEnvWarning ?? null)
-  }, [warnIfMissingScope])
+  }, [shouldWarnMissingScope])
 
   // Shared success epilogue — every detection source ends a successful
   // detection the same way. Outputs are metadata-only, but WITH the user var:
@@ -945,7 +939,7 @@ export function useGitAuth({
     setDetectionSource(null)
     setDetectedScopes(null)
     setDetectedTokenType(null)
-    setScopeWarning(null)
+    setMissingScope(false)
     setDetectionWarning(null)
     setUnreachableInfo(null)
     setDetectionHint(null)
@@ -1000,30 +994,41 @@ export function useGitAuth({
     void window.api.invoke('vcs:invalidate-cache').catch(() => {})
   }, [])
 
-  // Switch the selected GitLab host and re-detect against it.
+  // Switch the selected GitLab host and re-detect against it. Compares with
+  // the host the picker shows (effectiveHost), not the internal pick: once an
+  // instance URL is entered the two differ, and picking the previously picked
+  // host must still take effect.
   const changeHost = useCallback((nextHost: string) => {
-    if (nextHost === selectedHost) return
+    if (nextHost === effectiveHostRef.current) return
     userPickedHostRef.current = true
     invalidateMainCache()
     // Persist the explicit pick (any source) so it survives restart.
     void window.api.invoke('gitlab:host-picked', { host: nextHost }).catch(() => {})
+    // A pick supersedes an entered or prop-seeded instance URL, which would
+    // otherwise keep overriding effectiveHost and every IPC call.
+    setGitlabInstanceUrl('')
     setSelectedHost(nextHost)
     beginRedetect()
     setDetectionNonce((n) => n + 1)
-  }, [selectedHost, beginRedetect, invalidateMainCache])
+  }, [beginRedetect, invalidateMainCache])
 
   // HostSelect onChange wrapper: the "Other instance…" row uses a sentinel
-  // value intercepted BEFORE changeHost — it reveals the
-  // instance-URL field (the PAT form carries it), does NOT alter
-  // selectedHost, and does NOT run detection; the controlled select snaps
-  // back to its prior value on the next render.
+  // value intercepted BEFORE changeHost. When authenticated it leaves the
+  // success card (the same reset as "Re-authenticate") so the PAT form, which
+  // carries the instance-URL field, renders; either way that field is then
+  // focused. It does NOT alter selectedHost or run detection; the controlled
+  // select snaps back to its prior value on the next render.
   const handleHostSelect = useCallback((value: string) => {
     if (value === OTHER_INSTANCE_SENTINEL) {
+      // Only when authenticated: resetting a pending form would also wipe a
+      // typed token and the current host's unreachable card.
+      if (authStatus === 'authenticated') resetAuth()
       setAuthMethod('pat')
+      setInstanceFieldFocusNonce((n) => n + 1)
       return
     }
     changeHost(value)
-  }, [changeHost])
+  }, [authStatus, resetAuth, changeHost])
 
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
@@ -1134,7 +1139,7 @@ export function useGitAuth({
     detectionSource,
     detectedScopes,
     detectedTokenType,
-    scopeWarning,
+    missingScope,
     detectionWarning,
     sessionEnvWarning,
     waitingForBlockId,
@@ -1168,6 +1173,7 @@ export function useGitAuth({
     handlePatSubmit,
     gitlabInstanceUrl,
     setGitlabInstanceUrl,
+    instanceFieldFocusNonce,
 
     // OAuth
     effectiveClientId,

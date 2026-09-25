@@ -51,7 +51,7 @@ If no credentials are detected, users authenticate manually.
 | `gitlab` | PAT, CLI, env | `glab` | `GITLAB_TOKEN` | No |
 
 <Aside type="note">
-GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so GitLab authenticates via a Personal Access Token, the `glab` CLI, or the `GITLAB_TOKEN` environment variable. GitLab's API exposes no token scopes, so Runbooks does not display or warn about GitLab scopes.
+GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so GitLab authenticates via a Personal Access Token, the `glab` CLI, or the `GITLAB_TOKEN` environment variable. When GitLab reports a token's scopes, the success card lists them and warns if the token has neither `api` nor `write_repository`, since pushing branches and opening merge requests may fail.
 </Aside>
 
 Only `gitlab.com` and `github.com` are supported today. Self-managed GitLab and GitHub Enterprise hosts are not yet configurable.

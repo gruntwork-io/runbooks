@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useRef, useState, useMemo } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
@@ -122,6 +122,16 @@ function GitAuthInteractive({
   useEffect(() => {
     trackBlockRender(__registryType)
   }, [trackBlockRender, __registryType])
+
+  // "Other instance…" in the host picker asks for the instance-URL field.
+  // Focused from here rather than from PatForm: the form remounts whenever
+  // detection re-runs, and a remount must not re-take focus for an old pick.
+  const instanceFieldRef = useRef<HTMLInputElement>(null)
+  const instanceFieldFocusNonce = auth.instanceFieldFocusNonce
+  useEffect(() => {
+    if (!instanceFieldFocusNonce) return
+    instanceFieldRef.current?.focus()
+  }, [instanceFieldFocusNonce])
 
   // When the OAuth tab is disabled (unreachable), make sure the PAT form
   // is the one showing rather than a dead OAuth pane.
@@ -253,7 +263,7 @@ function GitAuthInteractive({
               detectionSource={auth.detectionSource}
               detectedScopes={auth.detectedScopes}
               detectedTokenType={auth.detectedTokenType}
-              scopeWarning={auth.scopeWarning}
+              missingScope={auth.missingScope}
               sessionEnvWarning={auth.sessionEnvWarning}
               host={auth.selectedHost}
               successMeta={auth.successMeta}
@@ -365,6 +375,7 @@ function GitAuthInteractive({
                     provider={providerConfig}
                     instanceUrl={auth.gitlabInstanceUrl}
                     setInstanceUrl={auth.setGitlabInstanceUrl}
+                    instanceInputRef={instanceFieldRef}
                   />
                   {/* Providers without OAuth (GitLab) surface the auto-detect
                       FAQ here, since there is no OAuth tab to carry it. */}
