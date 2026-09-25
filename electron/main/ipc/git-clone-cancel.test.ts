@@ -1,27 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll, mock } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
+import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // git.ts registers its handlers on electron's ipcMain. Capture them so the
 // real git:clone / git:clone-cancel handlers can be called directly; the rest
 // of the stack (Effect runtime, session, process spawning) is the live one.
-// bun shares module mocks between test files and can't add an export to one
-// already loaded, so this declares the same exports as theme-store.test.ts.
 type Handler = (event: unknown, params: unknown) => Promise<unknown>
 const handlers = new Map<string, Handler>()
-mock.module("electron", () => ({
-  app: {
-    getPath: (name: string) => {
-      throw new Error(`unexpected app.getPath(${name})`)
-    },
-  },
+mockElectron({
   ipcMain: {
     handle: (channel: string, handler: Handler) => {
       handlers.set(channel, handler)
     },
   },
-}))
+})
 
 const { registerGitHandlers } = await import("./git.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
