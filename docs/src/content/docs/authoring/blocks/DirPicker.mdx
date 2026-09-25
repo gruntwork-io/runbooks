@@ -100,7 +100,7 @@ More generally, the DirPicker block can be used to help users select any path wh
 
 | Output | Description |
 |--------|-------------|
-| `PATH` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. |
+| `PATH` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. When the path is empty (the first dropdown is reset to its placeholder or the text input is cleared), `PATH` is removed, so blocks that reference it wait until a path is chosen again. |
 
 ### Directory-Level Labels
 
@@ -127,9 +127,9 @@ The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using blo
 ### How It Works
 
 1. DirPicker resolves its root directory from `rootDir` (if set) or by reading the `clone_path` output of the referenced `<GitClone>` block once the clone completes.
-2. It fetches the immediate subdirectories via `GET /api/workspace/dirs`.
+2. It lists the immediate subdirectories of the root directory to fill the first dropdown.
 3. Each dropdown selection triggers a fetch for the next level's subdirectories, building a cascading drill-down.
 4. An editable text input below the dropdowns shows the composed path. Users can edit this directly for full control.
-5. On every change (dropdown or manual edit), the block registers `PATH` as an output.
+5. On every change (dropdown or manual edit), the block registers `PATH` as an output. Clearing the path removes the output.
 
 Hidden directories (those starting with `.`) are excluded from the dropdown options.

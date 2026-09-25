@@ -186,8 +186,7 @@ function DirPickerInteractive({
                     <select
                       value={level.selected}
                       onChange={(e) => selectDir(index, e.target.value)}
-                      disabled={level.loading}
-                      className="flex-1 px-2 py-1.5 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground"
+                      className="flex-1 px-2 py-1.5 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
                     >
                       <option value="">
                         {`Select ${levelLabel.toLowerCase()}...`}

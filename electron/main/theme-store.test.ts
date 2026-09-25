@@ -7,8 +7,14 @@ import * as nodePath from "node:path"
 // Mock it to point at a per-test temp dir so the module is testable without an
 // Electron runtime. The mock reads `tmpDir` lazily, so reassigning it in
 // beforeEach takes effect for each test.
+//
+// bun shares module mocks across the test files in a run, and the first
+// mock.module("electron") call fixes the module's export names: a later mock
+// can replace an export but not add one. The IPC handler tests mock `ipcMain`,
+// so declare it here too.
 let tmpDir = ""
 mock.module("electron", () => ({
+  ipcMain: { handle: () => {} },
   app: {
     getPath: (name: string) => {
       if (name === "userData") return tmpDir

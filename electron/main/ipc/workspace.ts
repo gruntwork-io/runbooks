@@ -69,7 +69,8 @@ export function registerWorkspaceHandlers(): void {
       return runtime.runPromise(
         Effect.gen(function* () {
           yield* validateSessionPath(params.worktreePath)
-          return yield* getWorkspaceDirs(params.worktreePath)
+          const dirs = yield* getWorkspaceDirs(params.worktreePath)
+          return { dirs }
         }),
       )
     },
