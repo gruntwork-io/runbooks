@@ -10,11 +10,27 @@ interface WelcomeScreenProps {
   onOpenRunbook?: () => void
 }
 
+/**
+ * Dismissing the administrator password prompt is not an error worth showing:
+ * osascript reports "User canceled. (-128)" and pkexec "Request dismissed".
+ * Matches showCliError in electron/main/menu.ts.
+ */
+function isUserCancel(message: string): boolean {
+  return message.includes('User canceled') || message.includes('dismissed')
+}
+
+/** Electron rejects an invoke with "Error invoking remote method '<channel>': Error: <message>". */
+function invokeErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  return raw.replace(/^Error invoking remote method '[^']*':\s*/, '').replace(/^(Error:\s*)+/, '').trim()
+}
+
 export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) {
   const api = useApi()
   const { resolvedTheme } = useTheme()
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
   const [cliLoading, setCliLoading] = useState(false)
+  const [cliError, setCliError] = useState<string | null>(null)
 
   useEffect(() => {
     api.invoke('cli:check-install')
@@ -24,11 +40,13 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
 
   const handleInstallCli = useCallback(async () => {
     setCliLoading(true)
+    setCliError(null)
     try {
       await api.invoke('cli:install')
       setCliInstalled(true)
-    } catch {
-      // User cancelled or error — ignore
+    } catch (err) {
+      const message = invokeErrorMessage(err)
+      if (!isUserCancel(message)) setCliError(message)
     } finally {
       setCliLoading(false)
     }
@@ -92,27 +110,32 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
               </div>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={handleInstallCli}
-              disabled={cliLoading || cliInstalled === null}
-              className="flex items-start gap-3 p-4 rounded-lg border border-border bg-muted text-left hover:border-info/40 hover:bg-info-muted transition-colors cursor-pointer w-full disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Terminal className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-foreground">Install command line tool</p>
-                  {cliLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5 text-primary" />
-                  )}
+            <div>
+              <button
+                type="button"
+                onClick={handleInstallCli}
+                disabled={cliLoading || cliInstalled === null}
+                className="flex items-start gap-3 p-4 rounded-lg border border-border bg-muted text-left hover:border-info/40 hover:bg-info-muted transition-colors cursor-pointer w-full disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <Terminal className="w-5 h-5 text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">Install command line tool</p>
+                    {cliLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 text-primary" />
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Install the <code className="bg-accent px-1 rounded font-mono text-[11px] text-muted-foreground">runbooks</code> command in your PATH to open runbooks from the terminal
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Install the <code className="bg-accent px-1 rounded font-mono text-[11px] text-muted-foreground">runbooks</code> command in your PATH to open runbooks from the terminal
-                </p>
-              </div>
-            </button>
+              </button>
+              {cliError && (
+                <p role="alert" className="mt-2 px-1 text-xs text-destructive">{cliError}</p>
+              )}
+            </div>
           )}
 
           <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-muted">
