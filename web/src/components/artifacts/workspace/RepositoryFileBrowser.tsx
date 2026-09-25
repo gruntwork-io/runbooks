@@ -11,7 +11,7 @@ import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles'
 import { FileTree } from '../code/FileTree'
 import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX, WrapText } from 'lucide-react'
-import { cn, formatFileSize } from '@/lib/utils'
+import { basename, cn, formatFileSize } from '@/lib/utils'
 import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import { useFileContent } from '@/hooks/useFileContent'
@@ -51,20 +51,27 @@ export const RepositoryFileBrowser = ({
   const { changes } = useGitFileChanges()
   const { activeWorkTree, treeVersion } = useGitWorkTree()
 
-  // When changes are detected, refetch the currently selected file so All Files shows updated content
-  const prevChangesRef = useRef<typeof changes>([])
+  // When the change list changes, clear the cache and refetch the selected file
+  // so All Files shows updated content. useGitFileChanges only hands over a new
+  // `changes` array when the polled response differs, so a new identity means
+  // something on disk changed (including edits made outside the app, which never
+  // bump treeVersion). Keying on identity also means selecting a file doesn't
+  // refetch what the click handler just fetched.
+  const prevChangesRef = useRef(changes)
   useEffect(() => {
-    if (!selectedFilePath || !activeWorkTree?.localPath || changes.length === 0) return
-    const selectedIsChanged = changes.some((c) => c.path === selectedFilePath)
-    if (!selectedIsChanged) return
-    // Avoid refetching on every poll if change list is unchanged
-    const prevPaths = prevChangesRef.current.map((c) => c.path).sort().join(',')
-    const currPaths = changes.map((c) => c.path).sort().join(',')
-    if (prevPaths === currPaths) return
+    if (prevChangesRef.current === changes) return
+    const prevChanges = prevChangesRef.current
     prevChangesRef.current = changes
+    // Other changed (or just reverted) files must not be served from the cache either
+    clearCache()
+    if (!selectedFilePath || !activeWorkTree?.localPath) return
+    // Changed now: a further edit to an already-changed file.
+    // Changed before: a revert that dropped it from the list.
+    const isChanged = (c: { path: string }) => c.path === selectedFilePath
+    if (!changes.some(isChanged) && !prevChanges.some(isChanged)) return
     const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
     refetchFileContent(absPath)
-  }, [changes, selectedFilePath, activeWorkTree?.localPath, refetchFileContent])
+  }, [changes, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
 
   // When the worktree tree is invalidated (e.g. template wrote a file),
   // clear the cache so *any* file clicked afterward gets a fresh fetch,
@@ -233,12 +240,12 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
       <div className="p-4">
         <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
           <ImageIcon className="w-4 h-4" />
-          <span className="font-mono text-xs">{fileContent.path.split('/').pop()}</span>
+          <span className="font-mono text-xs">{basename(fileContent.path)}</span>
           <span className="text-muted-foreground">({formatFileSize(fileContent.size)})</span>
         </div>
         <img
           src={fileContent.dataUri}
-          alt={fileContent.path.split('/').pop() || 'Image'}
+          alt={basename(fileContent.path) || 'Image'}
           className="max-w-full border border-border rounded"
         />
       </div>
@@ -288,7 +295,7 @@ function TextFileViewer({ filePath, fileContent }: {
   return (
     <div data-testid={`code-file-${filePath}`} className="h-full flex flex-col">
       <div className="px-3 py-2 bg-muted border-b border-border text-xs text-muted-foreground font-mono flex items-center justify-between gap-2">
-        <span className="truncate">{fileContent.path.split('/').pop()}</span>
+        <span className="truncate">{basename(fileContent.path)}</span>
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-muted-foreground">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
           <button

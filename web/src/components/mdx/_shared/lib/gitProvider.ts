@@ -72,6 +72,36 @@ export function hostFromRepoUrl(repoUrl: string | undefined): string | undefined
 }
 
 /**
+ * The web page of a repo, derived from its clone/remote URL (HTTPS, SCP-style
+ * SSH, or ssh://) plus the parsed owner and name. Returns undefined when any
+ * part is empty (e.g. a local checkout with no remote) or the URL can't be
+ * parsed, so callers render plain text rather than a dead link.
+ *
+ * An http(s) URL keeps its origin, so a custom web port survives and embedded
+ * credentials are dropped. For SSH and other schemes only the hostname is kept:
+ * their port (e.g. `ssh://git@host:2222/...`) is not a web port, which is why
+ * this doesn't use hostFromRepoUrl.
+ */
+export function repoWebUrl(
+  repoUrl: string | undefined,
+  owner: string | undefined,
+  name: string | undefined,
+): string | undefined {
+  if (!repoUrl || !owner || !name) return undefined
+  const path = `/${owner}/${name}`
+  const scp = repoUrl.match(/^[^/@]+@([^:/]+):/)
+  if (scp) return `https://${scp[1]}${path}`
+  try {
+    const url = new URL(repoUrl.includes('://') ? repoUrl : `https://${repoUrl}`)
+    if (!url.hostname) return undefined
+    if (url.protocol === 'http:' || url.protocol === 'https:') return `${url.origin}${path}`
+    return `https://${url.hostname}${path}`
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Best-effort provider guess from a clone URL's host. Only the public SaaS
  * hosts (github.com / gitlab.com) are recognized; self-hosted/Enterprise hosts
  * return `undefined` (we can't tell GitHub Enterprise from GitLab self-managed
