@@ -121,7 +121,7 @@ tests:
 | `description` | string | No | Human-readable description of what the test validates. |
 | `env` | map | No | Environment variables to set for all blocks in this test. Keys and values are strings. |
 | `inputs` | map | No | Variable values for the test. Keys use `inputsID.varName` format. Values can be literals or fuzz configs. |
-| `steps` | array | No | Blocks to execute in order. If empty, all blocks run in document order. |
+| `steps` | array | No | Blocks to execute, in the order listed. A block can be listed more than once, and blocks that aren't listed don't run. A step whose `block` matches no block in the runbook fails the test. If empty, all blocks run in document order. |
 | `assertions` | array | No | Validations to run after all steps complete. |
 | `cleanup` | array | No | Actions to run after the test completes (even on failure). |
 
@@ -142,7 +142,7 @@ steps:
 | `block` | string | Yes | ID of the block to execute. |
 | `expect` | string | No | Expected execution status. Default: `success`. See Expected Status values below. |
 | `outputs` | array | No | Output names to capture from the block. |
-| `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). |
+| `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). Write each one as templates reference it, with hyphens in the block ID turned into underscores: `outputs.create_account.account_id` for block `create-account`. |
 | `error_contains` | string | No | Expected error message substring (used with `config_error` status). |
 | `assertions` | array | No | Assertions to run immediately after this step completes. |
 
@@ -153,7 +153,7 @@ steps:
 | `success` | Block completed successfully (exit code 0). |
 | `fail` | Block failed (exit code 1+). |
 | `warn` | Block completed with warning (exit code 2). |
-| `blocked` | Block should be blocked due to missing dependencies. |
+| `blocked` | Block should be blocked: an auth block it depends on hasn't run or was skipped, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
 | `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). |
 | `config_error` | Block has a configuration error (missing props, invalid config, etc.). |
 
@@ -617,7 +617,7 @@ The file is written before the command exits, including when tests fail. If it c
 
 ## Out-of-Order Testing
 
-In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the runbook. You can do this by explicitly specifying the order of the blocks in the test configuration file.
+In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the runbook. You can do this by explicitly specifying the order of the blocks in the test configuration file. Steps run in the order listed, and a block listed more than once runs once per step, each time with that step's expectation.
 
 Keep in mind, though, that when new blocks are added to the runbook, they will not be included in the test unless you explicitly add them to the test configuration file.
 

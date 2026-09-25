@@ -28,5 +28,5 @@ tests:
         expect: skip
       - block: welcome-card
         expect: skip
-      - block: create-pr
-        expect: skip
+      # create-pr isn't listed: the test runner doesn't parse PR blocks yet, and
+      # a step naming a block it can't find fails the test.

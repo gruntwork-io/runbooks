@@ -2,7 +2,8 @@
  * Test execution engine.
  *
  * Runs runbook tests in headless mode: parses the MDX, executes blocks in
- * document order, captures outputs, and validates assertions.
+ * document order (or in the order a test's steps list them), captures
+ * outputs, and validates assertions.
  */
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -380,14 +381,25 @@ export class TestExecutor {
     // 3. Get all blocks in document order
     const allBlocks = this.validator.getComponents()
 
-    // 4. Build step maps
-    const expectsConfigError = new Set<string>()
-    const stepsToRun = new Map<string, TestStep>()
-    const hasExplicitSteps = (tc.steps?.length ?? 0) > 0
-
-    for (const step of tc.steps ?? []) {
-      if (step.expect === "config_error") expectsConfigError.add(step.block)
-      stepsToRun.set(step.block, step)
+    // 4. Pair each block to run with its step. Explicit steps run in the order
+    // listed, so a block can run more than once with a different expectation
+    // each time; without steps, every block runs once in document order.
+    const plan: Array<{ block: ParsedComponent; step: TestStep }> = []
+    if (tc.steps && tc.steps.length > 0) {
+      for (const [i, step] of tc.steps.entries()) {
+        const block = allBlocks.find((b) => b.id === step.block)
+        if (!block) {
+          result.status = "failed"
+          result.error = `Test step ${i + 1} references unknown block "${step.block}"`
+          result.duration = Date.now() - start
+          return result
+        }
+        plan.push({ block, step })
+      }
+    } else {
+      for (const block of allBlocks) {
+        plan.push({ block, step: { block: block.id, expect: "success" } })
+      }
     }
 
     const registryWarnings = this.registry.getWarnings()
@@ -395,25 +407,19 @@ export class TestExecutor {
     // Cleanup runs however the test ends (a failed block or assertion, or an
     // unexpected throw) so teardown is never skipped.
     try {
-      // 5. Process each block in document order
-      for (const block of allBlocks) {
-        const stepResult = this.processBlock(
-          block, stepsToRun, expectsConfigError, registryWarnings, hasExplicitSteps,
-        )
+      // 5. Process each planned step
+      for (const { block, step } of plan) {
+        const stepResult = this.processBlock(block, step, registryWarnings)
         result.stepResults.push(stepResult)
 
         if (!stepResult.passed) {
-          const isRequested = stepsToRun.has(block.id) || !hasExplicitSteps
-          if (isRequested) {
-            result.status = "failed"
-            result.error = this.formatBlockError(block, stepResult)
-            break
-          }
+          result.status = "failed"
+          result.error = this.formatBlockError(block, stepResult)
+          break
         }
 
         // Per-step assertions
-        const step = stepsToRun.get(block.id)
-        if (step?.assertions && stepResult.passed) {
+        if (step.assertions) {
           for (const assertion of step.assertions) {
             const ar = runAssertion(assertion, this.makeAssertionCtx())
             stepResult.assertionResults.push(ar)
@@ -457,23 +463,14 @@ export class TestExecutor {
 
   private processBlock(
     block: ParsedComponent,
-    stepsToRun: Map<string, TestStep>,
-    expectsConfigError: Set<string>,
+    step: TestStep,
     registryWarnings: string[],
-    hasExplicitSteps: boolean,
   ): StepResult {
     const start = Date.now()
 
-    let step = stepsToRun.get(block.id)
-    let shouldRun = stepsToRun.has(block.id)
-    if (!hasExplicitSteps) {
-      shouldRun = block.type !== "Inputs"
-      step = step ?? { block: block.id, expect: "success" }
-    }
-
     const result = makeStepResult(
       `${lowercaseFirst(block.type)}:${block.id}`,
-      step?.expect ?? "success",
+      step.expect,
     )
 
     // 1. Check for config errors
@@ -483,16 +480,12 @@ export class TestExecutor {
       result.actualStatus = "config_error"
       result.error = configError
 
-      const isRequested = stepsToRun.has(block.id) || !hasExplicitSteps
-
-      if (expectsConfigError.has(block.id)) {
-        if (step?.error_contains && !configError.toLowerCase().includes(step.error_contains.toLowerCase())) {
+      if (step.expect === "config_error") {
+        if (step.error_contains && !configError.toLowerCase().includes(step.error_contains.toLowerCase())) {
           result.passed = false
         } else {
           result.passed = true
         }
-      } else if (!isRequested) {
-        result.passed = true
       } else {
         result.passed = false
       }
@@ -520,21 +513,14 @@ export class TestExecutor {
       return result
     }
 
-    // 3. Skip non-requested blocks
-    if (!shouldRun) {
-      result.actualStatus = "skipped"
-      result.passed = true
-      result.duration = Date.now() - start
-      return result
-    }
-
-    // 4. Check auth dependencies
+    // 3. Check auth dependencies. A block whose auth block hasn't run, or was
+    // skipped, is blocked, which is what an `expect: blocked` step asserts.
     if (this.authDeps.has(block.id)) {
       const authDep = this.authDeps.get(block.id)!
       const authState = this.blockStates.get(authDep.authBlockId)
 
       if (authState === undefined) {
-        result.passed = false
+        result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
         result.error = `Block depends on "${authDep.authBlockId}" which hasn't run yet`
         result.duration = Date.now() - start
@@ -542,13 +528,13 @@ export class TestExecutor {
       }
 
       if (authState === "skipped") {
-        if (step?.expect === "skip") {
+        if (step.expect === "skip") {
           result.passed = true
           result.actualStatus = "skipped"
           result.duration = Date.now() - start
           return result
         }
-        result.passed = false
+        result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
         result.error = `Block depends on "${authDep.authBlockId}" which was skipped`
         result.duration = Date.now() - start
@@ -556,8 +542,8 @@ export class TestExecutor {
       }
     }
 
-    // 5. Dispatch block
-    return this.dispatchBlock(block, step!, start)
+    // 4. Dispatch block
+    return this.dispatchBlock(block, step, start)
   }
 
   private getConfigErrorForBlock(block: ParsedComponent, registryWarnings: string[]): string {
@@ -601,6 +587,21 @@ export class TestExecutor {
       result.passed = false
       result.actualStatus = "no_config_error"
       result.error = "Expected config_error but block configuration is valid"
+      result.duration = Date.now() - start
+      return result
+    }
+
+    // Handle blocked expectation before rendering anything: a blocked block's
+    // templates reference outputs that don't exist yet, so rendering would fail.
+    if (step.expect === "blocked") {
+      const missing = this.checkMissingOutputs(step.missing_outputs ?? [])
+      if (missing.length > 0) {
+        result.passed = true; result.actualStatus = "blocked"
+        result.error = `Blocked due to missing outputs: ${missing.join(", ")}`
+      } else {
+        result.passed = false; result.actualStatus = "not_blocked"
+        result.error = "Expected block to be blocked but all dependencies are satisfied"
+      }
       result.duration = Date.now() - start
       return result
     }
@@ -702,20 +703,6 @@ export class TestExecutor {
     if (!foundExec) {
       result.passed = false; result.actualStatus = "error"
       result.error = `Block "${block.id}" not found in runbook`
-      result.duration = Date.now() - start
-      return result
-    }
-
-    // Handle blocked expectation
-    if (step.expect === "blocked") {
-      const missing = this.checkMissingOutputs(step.missing_outputs ?? [])
-      if (missing.length > 0) {
-        result.passed = true; result.actualStatus = "blocked"
-        result.error = `Blocked due to missing outputs: ${missing.join(", ")}`
-      } else {
-        result.passed = false; result.actualStatus = "not_blocked"
-        result.error = "Expected block to be blocked but all dependencies are satisfied"
-      }
       result.duration = Date.now() - start
       return result
     }
@@ -1503,14 +1490,18 @@ export class TestExecutor {
   }
 
   private checkMissingOutputs(expected: string[]): string[] {
+    // Look outputs up the way templates reference them: buildTemplateVars keys
+    // them by block id with hyphens turned into underscores, so
+    // `outputs.create_account.account_id` finds block "create-account".
+    const templateOutputs = this.buildTemplateVars().outputs as Record<string, Record<string, string>>
     const missing: string[] = []
     for (const p of expected) {
       const parts = p.split(".")
       if (parts.length >= 3 && parts[0] === "outputs") {
-        const blockId = parts[1]
+        const blockId = parts[1].replace(/-/g, "_")
         const outputName = parts[2]
-        const outputs = this.blockOutputs.get(blockId)
-        if (!outputs || !outputs.get(outputName)) {
+        const outputs = templateOutputs[blockId]
+        if (!outputs || !outputs[outputName]) {
           missing.push(p)
         }
       }

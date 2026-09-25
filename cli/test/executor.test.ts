@@ -206,3 +206,116 @@ describe("TestExecutor — cleanup", () => {
     expect(fs.existsSync(marker)).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Explicit steps: run in the order listed (a block may appear more than once),
+// and `expect: blocked` is judged before any template rendering.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — explicit steps", () => {
+  let tmp: string
+
+  const makeExecutor = async (mdx: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, mdx)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  // The runbook from the testing docs' "Out-of-Order Testing" example.
+  const OUTPUTS_RUNBOOK = [
+    "# Outputs",
+    "",
+    `<Command id="create-account" command='echo "account_id=123" >> "$RUNBOOK_OUTPUT"' />`,
+    "",
+    `<Command id="create-resources" command="echo {{ .outputs.create_account.account_id }}" />`,
+    "",
+  ].join("\n")
+
+  const blockedOnAccount = {
+    block: "create-resources",
+    expect: "blocked" as const,
+    missing_outputs: ["outputs.create_account.account_id"],
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-steps-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("runs steps in the order listed, once per step", async () => {
+    const executor = await makeExecutor(OUTPUTS_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "out-of-order",
+      steps: [
+        blockedOnAccount,
+        { block: "create-account", expect: "success" },
+        { block: "create-resources", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:create-resources", "blocked"],
+      ["command:create-account", "success"],
+      ["command:create-resources", "success"],
+    ])
+    expect(result.stepResults[2]?.logs).toContain("123")
+  })
+
+  it("fails a blocked expectation once the dependency has produced the output", async () => {
+    const executor = await makeExecutor(OUTPUTS_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "not-blocked",
+      steps: [{ block: "create-account", expect: "success" }, blockedOnAccount],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.actualStatus).toBe("not_blocked")
+  })
+
+  it("fails, without running anything, when a step names an unknown block", async () => {
+    const executor = await makeExecutor(OUTPUTS_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "typo",
+      steps: [
+        { block: "create-account", expect: "success" },
+        { block: "create-acount", expect: "success" },
+      ],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toBe('Test step 2 references unknown block "create-acount"')
+    expect(result.stepResults).toEqual([])
+  })
+
+  it("passes a blocked expectation when the block's auth block hasn't run or was skipped", async () => {
+    const executor = await makeExecutor(
+      `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
+    )
+
+    const notRun = executor.runTest({
+      name: "auth-not-run",
+      steps: [{ block: "deploy", expect: "blocked" }],
+    })
+    expect(notRun.error).toBeUndefined()
+    expect(notRun.stepResults[0]?.actualStatus).toBe("blocked")
+
+    const skipped = executor.runTest({
+      name: "auth-skipped",
+      steps: [
+        { block: "aws", expect: "skip" },
+        { block: "deploy", expect: "blocked" },
+      ],
+    })
+    expect(skipped.error).toBeUndefined()
+    expect(skipped.stepResults[1]?.actualStatus).toBe("blocked")
+  })
+})
