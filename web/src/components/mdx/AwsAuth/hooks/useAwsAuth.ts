@@ -845,7 +845,8 @@ export function useAwsAuth({
           accessKeyId: data.accessKeyId!,
           secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,
-          region: selectedDefaultRegion
+          // The region main validated in: the profile's own, else the chosen one.
+          region: data.region || selectedDefaultRegion
         })
       } else {
         setAuthStatus('failed')

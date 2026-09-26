@@ -133,6 +133,8 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      /** The region the credentials were validated in: the profile's own, else `defaultRegion`. */
+      region?: string
       accountId?: string
       accountName?: string
       arn?: string

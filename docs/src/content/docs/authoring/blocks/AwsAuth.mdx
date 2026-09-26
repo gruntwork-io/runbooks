@@ -179,7 +179,7 @@ Other profile types, such as `credential_process` profiles, are not listed.
 
 **Refresh profiles** re-reads both files. The selected profile stays selected as long as it is still listed.
 
-A profile's credentials are validated in the partition of the profile's own `region`. A profile that sets no region uses the region selected in the block instead, so pick a `us-gov-*` region for a GovCloud profile without one.
+A profile's own `region` is the one its credentials are validated in and the one set as `AWS_REGION`. A profile that sets no region uses the region selected in the block instead, so pick a `us-gov-*` region for a GovCloud profile without one.
 
 <Aside type="note">
 SSO profiles (those with `sso_session` or `sso_start_url`) are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.

@@ -111,6 +111,23 @@ describe('useAwsAuth — local profiles', () => {
   })
 })
 
+describe('useAwsAuth — profile region', () => {
+  it("publishes the profile's own region, not the chosen one, when the profile sets one", async () => {
+    replyWith([DEFAULT])
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, args?: unknown) => {
+      const reply = await base(channel, args)
+      return channel === 'aws:profile-auth' ? { ...reply, region: 'us-gov-east-1' } : reply
+    })
+    const { result } = renderAwsAuth()
+    await act(() => result.current.loadAwsProfiles())
+
+    await act(() => result.current.handleProfileAuth())
+
+    expect(registerOutputs).toHaveBeenCalledWith('aws', expect.objectContaining({ AWS_REGION: 'us-gov-east-1' }))
+  })
+})
+
 describe('useAwsAuth — refreshing profiles', () => {
   it("keeps the user's pick", async () => {
     replyWith([DEFAULT, ADMIN])
