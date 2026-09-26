@@ -25,7 +25,7 @@ import type {
   SsoRole,
 } from "../services/AwsClient.ts"
 import { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
-import { partitionHomeRegion } from "../domain/aws/partition.ts"
+import { partitionHomeRegion } from "./AwsPartition.ts"
 
 function makeCredentialsProvider(creds: AwsCredentials) {
   return {
@@ -39,8 +39,11 @@ const impl: AwsClientShape = {
   validateCredentials: (creds: AwsCredentials, region: string) =>
     Effect.tryPromise({
       try: async (): Promise<AwsIdentity> => {
+        // STS and IAM go to the home region of `region`'s partition (see
+        // partitionHomeRegion), not to `region` itself.
+        const homeRegion = partitionHomeRegion(region)
         const stsClient = new STSClient({
-          region,
+          region: homeRegion,
           credentials: makeCredentialsProvider(creds),
         })
         const identity = await stsClient.send(new GetCallerIdentityCommand({}))
@@ -51,7 +54,7 @@ const impl: AwsClientShape = {
         let accountName: string | undefined
         try {
           const iamClient = new IAMClient({
-            region,
+            region: homeRegion,
             credentials: makeCredentialsProvider(creds),
           })
           const aliases = await iamClient.send(new ListAccountAliasesCommand({}))

@@ -6,7 +6,6 @@ import { AwsClient } from "../../services/AwsClient.ts"
 import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../services/AwsClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { AwsAuthError } from "../../errors/index.ts"
-import { partitionHomeRegion } from "./partition.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,13 +23,13 @@ export interface EnvCredentials {
 // ---------------------------------------------------------------------------
 
 /**
- * Validate AWS credentials by calling STS GetCallerIdentity in the home
- * region of the partition `region` belongs to, not in `region` itself.
+ * Validate AWS credentials by calling STS GetCallerIdentity. `region` is the
+ * working region; the client sends the call to its partition's STS.
  */
 export const validateCredentials = (creds: AwsCredentials, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.validateCredentials(creds, partitionHomeRegion(region))
+    return yield* awsClient.validateCredentials(creds, region)
   })
 
 // ---------------------------------------------------------------------------
@@ -94,7 +93,7 @@ export const confirmEnvCredentials = () =>
       region: envCreds.region ?? "us-east-1",
     }
 
-    yield* awsClient.validateCredentials(creds, partitionHomeRegion(creds.region))
+    yield* awsClient.validateCredentials(creds, creds.region)
 
     return creds
   })

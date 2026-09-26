@@ -58,6 +58,10 @@ The user can still switch tabs — `defaultTab` only chooses the starting one.
 | `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication |
 | `ssoRoleName` | string | - | Pre-select a specific IAM role to assume |
 
+### AWS partitions
+
+Credentials are validated in the partition their region belongs to: the commercial partition, GovCloud (US), China, the European Sovereign Cloud, or an isolated (ISO) partition. The region picker lists commercial and GovCloud regions. A region in any other partition works when it comes from the environment's credentials, a profile's `region`, or a block's `AWS_REGION` output, and is validated against that partition's own STS endpoint.
+
 ## Environment Variables
 
 When authentication succeeds, the following environment variables are automatically set for subsequent Command and Check blocks:
