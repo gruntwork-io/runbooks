@@ -1,0 +1,264 @@
+import { describe, it, expect, spyOn, beforeEach, afterAll } from "bun:test"
+import { Effect, Layer } from "effect"
+import { runtime, sessionManager } from "./runtime.ts"
+import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
+import { makeTestEnvironment } from "../../../src/test-utils/TestEnvironment.ts"
+import { makeTestAwsClient } from "../../../src/test-utils/TestLayer.ts"
+import { AwsAuthError } from "../../../src/errors/index.ts"
+import type { AwsClient, AwsClientShape } from "../../../src/services/AwsClient.ts"
+import type { Environment } from "../../../src/services/Environment.ts"
+
+/**
+ * The aws:env-credentials / aws:env-credentials-confirm replies as the
+ * renderer receives them. The shared runtime runs each effect against the test
+ * Environment (the process env) and AwsClient (STS); the domain functions and
+ * the session manager are the real ones.
+ */
+
+let processEnv: Record<string, string> = {}
+let validateCredentials: AwsClientShape["validateCredentials"]
+
+const runPromise = spyOn(runtime, "runPromise").mockImplementation(
+  (<A, E>(effect: Effect.Effect<A, E, Environment | AwsClient>) =>
+    Effect.runPromise(
+      Effect.provide(
+        effect,
+        Layer.merge(makeTestEnvironment(processEnv), makeTestAwsClient({ validateCredentials })),
+      ),
+    )) as typeof runtime.runPromise,
+)
+
+afterAll(() => {
+  runPromise.mockRestore()
+  sessionManager.deleteSession()
+})
+
+/** The session env, as the next script would receive it. */
+const sessionEnv = () =>
+  Effect.runSync(sessionManager.getSession().pipe(Effect.map((s) => Object.fromEntries(s.env))))
+
+const IDENTITY = {
+  accountId: "111122223333",
+  accountName: "prod",
+  arn: "arn:aws:iam::111122223333:user/deployer",
+}
+
+beforeEach(() => {
+  processEnv = {}
+  validateCredentials = () => Effect.succeed(IDENTITY)
+  // A session left over from an earlier SSO sign-in in another block.
+  Effect.runSync(
+    sessionManager.createSession("/tmp").pipe(
+      Effect.provide(makeTestEnvironment({ AWS_SESSION_TOKEN: "stale-sso-token", PATH: "/usr/bin" })),
+    ),
+  )
+})
+
+describe("aws:env-credentials", () => {
+  it("returns found/valid identity metadata and never the key material", async () => {
+    processEnv = {
+      AWS_ACCESS_KEY_ID: "AKIA_DEV",
+      AWS_SECRET_ACCESS_KEY: "dev-secret",
+      AWS_SESSION_TOKEN: "dev-token",
+      AWS_REGION: "eu-west-1",
+    }
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentials({ prefix: "", defaultRegion: "us-west-2" })
+
+    expect(reply).toEqual({
+      found: true,
+      valid: true,
+      ...IDENTITY,
+      region: "eu-west-1",
+      hasSessionToken: true,
+    })
+    const serialized = JSON.stringify(reply)
+    expect(serialized).not.toContain("AKIA_DEV")
+    expect(serialized).not.toContain("dev-secret")
+    expect(serialized).not.toContain("dev-token")
+    // Detection is read-only.
+    expect(sessionEnv()).toEqual(before)
+  })
+
+  it("reports the block's defaultRegion when the environment names none", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+
+    const reply = await handleEnvCredentials({ prefix: "", defaultRegion: "ap-south-1" })
+
+    expect(reply.region).toBe("ap-south-1")
+    expect(reply.hasSessionToken).toBe(false)
+  })
+
+  it("returns found:false when no credentials are set", async () => {
+    expect(await handleEnvCredentials({ prefix: "", defaultRegion: "" })).toEqual({ found: false })
+  })
+
+  it("returns found but invalid when STS rejects the credentials", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_OLD", AWS_SECRET_ACCESS_KEY: "expired" }
+    validateCredentials = () => Effect.fail(new AwsAuthError({ message: "ExpiredToken" }))
+
+    const reply = await handleEnvCredentials({ prefix: "", defaultRegion: "us-west-2" })
+
+    expect(reply.found).toBe(true)
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain("ExpiredToken")
+  })
+
+  it("reports found but invalid, without calling STS, when nothing names a region", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+    let called = false
+    validateCredentials = () => {
+      called = true
+      return Effect.succeed(IDENTITY)
+    }
+
+    const reply = await handleEnvCredentials({ prefix: "", defaultRegion: "" })
+
+    expect(reply.found).toBe(true)
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain("No AWS region")
+    expect(called).toBe(false)
+  })
+
+  it("reads only the prefixed variables for a prefixed source", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+
+    expect(await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })).toEqual({ found: false })
+
+    const validated: string[] = []
+    validateCredentials = (creds) => {
+      validated.push(creds.accessKeyId)
+      return Effect.succeed(IDENTITY)
+    }
+    processEnv = {
+      ...processEnv,
+      PROD_AWS_ACCESS_KEY_ID: "AKIA_PROD",
+      PROD_AWS_SECRET_ACCESS_KEY: "prod-secret",
+    }
+
+    const reply = await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })
+
+    expect(reply.valid).toBe(true)
+    expect(validated).toEqual(["AKIA_PROD"])
+  })
+
+  it("rejects a prefix that fails the allowlist", async () => {
+    processEnv = { "prod-AWS_ACCESS_KEY_ID": "AKIA_X", "prod-AWS_SECRET_ACCESS_KEY": "x" }
+
+    const reply = await handleEnvCredentials({ prefix: "prod-" })
+
+    expect(reply.found).toBe(false)
+    expect(reply.error).toContain('Invalid env prefix "prod-"')
+  })
+})
+
+describe("aws:env-credentials-confirm", () => {
+  it("returns the keys and region without writing the session env", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "", defaultRegion: "us-west-2" })
+
+    expect(reply).toEqual({
+      valid: true,
+      ...IDENTITY,
+      accessKeyId: "AKIA_DEV",
+      secretAccessKey: "dev-secret",
+      sessionToken: undefined,
+      region: "us-west-2",
+    })
+    // The renderer publishes the keys once it knows the attempt is still
+    // current, so a reply nobody is waiting for changes nothing.
+    expect(sessionEnv()).toEqual(before)
+  })
+
+  it("confirms when the account is the one the prompt showed", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+
+    const reply = await handleEnvCredentialsConfirm({
+      prefix: "",
+      defaultRegion: "us-west-2",
+      expectedAccountId: IDENTITY.accountId,
+    })
+
+    expect(reply.valid).toBe(true)
+    expect(reply.accessKeyId).toBe("AKIA_DEV")
+  })
+
+  it("reports a changed account without returning keys or writing anything", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_NEW", AWS_SECRET_ACCESS_KEY: "new-secret" }
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentialsConfirm({
+      prefix: "",
+      defaultRegion: "us-west-2",
+      expectedAccountId: "999999999999",
+    })
+
+    expect(reply).toEqual({
+      valid: false,
+      accountChanged: true,
+      error: `The credentials now belong to account ${IDENTITY.accountId}, not 999999999999`,
+      ...IDENTITY,
+      region: "us-west-2",
+      hasSessionToken: false,
+    })
+    expect(reply).not.toHaveProperty("accessKeyId")
+    expect(sessionEnv()).toEqual(before)
+  })
+
+  it("confirms the prefixed credentials with their session token", async () => {
+    processEnv = {
+      AWS_ACCESS_KEY_ID: "AKIA_DEV",
+      AWS_SECRET_ACCESS_KEY: "dev-secret",
+      PROD_AWS_ACCESS_KEY_ID: "ASIA_PROD",
+      PROD_AWS_SECRET_ACCESS_KEY: "prod-secret",
+      PROD_AWS_SESSION_TOKEN: "prod-token",
+      PROD_AWS_REGION: "eu-central-1",
+    }
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "PROD_", defaultRegion: "us-east-1" })
+
+    expect(reply).toMatchObject({
+      valid: true,
+      accessKeyId: "ASIA_PROD",
+      secretAccessKey: "prod-secret",
+      sessionToken: "prod-token",
+      region: "eu-central-1",
+    })
+  })
+
+  it("writes nothing and returns valid:false when STS rejects the credentials", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_OLD", AWS_SECRET_ACCESS_KEY: "expired" }
+    validateCredentials = () => Effect.fail(new AwsAuthError({ message: "ExpiredToken" }))
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "", defaultRegion: "us-west-2" })
+
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain("ExpiredToken")
+    expect(sessionEnv()).toEqual(before)
+  })
+
+  it("returns valid:false when the credentials are gone at confirm time", async () => {
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "" })
+
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain("No AWS credentials found")
+    expect(sessionEnv()).toEqual(before)
+  })
+
+  it("rejects a prefix that fails the allowlist and writes nothing", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "../" })
+
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain('Invalid env prefix "../"')
+    expect(sessionEnv()).toEqual(before)
+  })
+})

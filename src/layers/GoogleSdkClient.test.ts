@@ -82,7 +82,7 @@ describe("describeCredentialFailure", () => {
 
 /**
  * `checkProject` is the `aws:check-region` analogue, and AwsSdkClient
- * deliberately FAILS OPEN (`catch: () => true`) so a transient error never
+ * FAILS OPEN (any SDK error reads as enabled) so a transient error never
  * renders a false "not accessible" warning on the success card. These cases pin
  * the equivalent discipline: only an answer that names THIS project as missing
  * or forbidden may become `denied`.
