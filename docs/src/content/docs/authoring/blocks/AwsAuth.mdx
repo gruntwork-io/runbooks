@@ -50,13 +50,13 @@ The user can still switch tabs — `defaultTab` only chooses the starting one.
 | `id` | string | required | Unique identifier for this component |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
-| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported |
+| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported. When the credentials don't name a region themselves, this region also decides which partition (commercial or GovCloud) they are validated in |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
 | `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
-| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. For a GovCloud Identity Center this is `us-gov-east-1` or `us-gov-west-1` |
-| `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication |
-| `ssoRoleName` | string | - | Pre-select a specific IAM role to assume |
+| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. Every SSO call goes to this region. For a GovCloud Identity Center this is `us-gov-east-1` or `us-gov-west-1` |
+| `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication. Takes effect only together with `ssoRoleName` |
+| `ssoRoleName` | string | - | Pre-select a specific IAM role to assume. Takes effect only together with `ssoAccountId` |
 
 ## Environment Variables
 
@@ -76,6 +76,8 @@ These variables are set in the session environment, so all subsequent blocks hav
 When you authenticate to AWS using the AwsAuth block, the [environment variables above](#environment-variables) are automatically made available to all subsequent Command and Check blocks. This means that Command and Check blocks will use the most recently authenticated AwsAuth block (if any) to get AWS authentication credentials.
 
 Any subsequent AWS authentication will update the environment variables and then become the default AWS authentication credentials.
+
+Clicking **Re-authenticate** on the success card withdraws the block's credentials, so blocks that reference it with `awsAuthId` (below) report it as not authenticated until the user signs in again. The session environment variables keep their previous values until the next sign-in replaces them.
 
 However, in some cases, you may want to use a specific AWS authentication with a block, not just the most recent AWS authentication. To do that, you can reference a specific AwsAuth block from Command or Check blocks using the `awsAuthId` prop. For example:
 
@@ -112,7 +114,9 @@ While you can use `awsAuthId` to explicitly reference the AwsAuth block, the cre
 
 ### Pre-selected SSO Account and Role
 
-Skip the account/role selection step by pre-configuring them:
+After the user approves the sign-in in their browser, AwsAuth lists the AWS accounts they can access and asks them to pick an account and then a role. If they can access exactly one account with exactly one role, that role is used without asking.
+
+Skip the account/role selection step by pre-configuring both (setting only one of them has no effect):
 
 ```mdx
 <AwsAuth
@@ -164,15 +168,21 @@ When using multiple AwsAuth blocks, be aware that the session environment variab
 
 ## Local Profile Support
 
-The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/config` files. Two profile types are supported:
+The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/config` files, or from the files that `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` point to. The files are read the way the AWS CLI reads them: `[profile staging]` in config and `[staging]` in credentials are one profile, so keys in one file and a region in the other work together. Two profile types are supported:
 
 | Profile Type | Description |
 |--------------|-------------|
 | **Static Credentials** | Profiles with `aws_access_key_id` and `aws_secret_access_key` |
-| **Assume Role** | Profiles that use `role_arn` to assume a role |
+| **Assume Role** | Profiles with a `role_arn` and either a `source_profile` or a `credential_source` |
+
+Other profile types, such as `credential_process` profiles, are not listed.
+
+**Refresh profiles** re-reads both files. The selected profile stays selected as long as it is still listed.
+
+A profile's own `region` is the one its credentials are validated in and the one set as `AWS_REGION`. A profile that sets no region uses the region selected in the block instead, so pick a `us-gov-*` region for a GovCloud profile without one.
 
 <Aside type="note">
-SSO profiles configured in `~/.aws/config` are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
+SSO profiles (those with `sso_session` or `sso_start_url`) are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
 </Aside>
 
 ## Auto-Detection of Credentials
@@ -199,7 +209,11 @@ If credentials are found and valid, the user sees a confirmation prompt showing:
 - Default Region
 - Whether credentials are temporary or static
 
+The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`. It is the value set as `AWS_REGION` once the user confirms, and it decides the partition the credentials are validated in, so GovCloud keys need a `us-gov-*` region. If none of the three is set, detection reports an error instead of assuming a region.
+
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
+
+When the user clicks "Use These Credentials", AwsAuth reads and validates the environment's credentials again before setting them in the session. If they now belong to a different AWS account than the prompt showed, the prompt switches to that account and the user has to confirm again.
 
 ### Credential Sources
 
@@ -227,7 +241,7 @@ Check for the standard AWS environment variables, but with a custom prefix. For 
 - `PROD_AWS_ACCESS_KEY_ID`
 - `PROD_AWS_SECRET_ACCESS_KEY`
 - `PROD_AWS_SESSION_TOKEN`
-- `PROD_AWS_REGION`
+- `PROD_AWS_REGION` (or `PROD_AWS_DEFAULT_REGION`)
 
 ```mdx
 <AwsAuth
@@ -235,6 +249,8 @@ Check for the standard AWS environment variables, but with a custom prefix. For 
   detectCredentials={[{ env: { prefix: 'PROD_' } }]}
 />
 ```
+
+A prefixed source reads only the prefixed variables. It never falls back to the unprefixed `AWS_*` credentials, so a `PROD_` block can't pick up your development keys by accident. When you confirm, the credentials are set in the session under the standard names (`AWS_ACCESS_KEY_ID`, `AWS_REGION`, and so on).
 
 Prefixes must follow these rules:
 
@@ -292,6 +308,8 @@ echo "AWS_REGION=us-west-2" >> "$RUNBOOK_OUTPUT"  # Optional: override region
 ```
 
 The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defaultRegion` prop is used.
+
+When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers those, not the ones it checked when the prompt appeared. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate (for example, temporary credentials that have expired), the block shows the error and registers nothing.
 
 ### When Users Reject Auto-Detected Credentials
 

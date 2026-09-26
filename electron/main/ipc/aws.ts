@@ -2,23 +2,24 @@
  * IPC handlers for AWS authentication.
  *
  * Bridges Electron ipcMain to the AWS auth domain module, providing credential
- * validation, profile-based auth, SSO device flow, and region checking.
+ * validation, env credential detection (aws-env.ts), profile-based auth
+ * (aws-profiles.ts), SSO device flow, and region checking.
  */
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime } from "./runtime.ts"
 import {
   validateCredentials,
-  detectEnvCredentials,
-  confirmEnvCredentials,
-  listProfiles,
-  authenticateProfile,
   startSsoFlow,
-  pollSsoToken,
-  completeSsoAuth,
-  listSsoRoles,
+  signInWithSsoRole,
   checkRegion,
 } from "../../../src/domain/aws/auth.ts"
-import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
+import type { AwsCredentials, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
+import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
+import type { EnvCredentialsParams, EnvCredentialsConfirmParams } from "./aws-env.ts"
+import { handleProfiles, handleProfileAuth } from "./aws-profiles.ts"
+import type { ProfileAuthRequest } from "./aws-profiles.ts"
+import { handleSsoPoll, handleSsoRoles } from "./aws-sso.ts"
+import type { SsoPollRequest, SsoRolesRequest } from "./aws-sso.ts"
 
 type ValidatePayload = Partial<AwsCredentials> & { credentials?: AwsCredentials; region?: string }
 
@@ -54,34 +55,11 @@ export function registerAwsHandlers(): void {
     },
   )
 
-  ipcMain.handle("aws:profiles", async () => {
-    return runtime.runPromise(listProfiles())
-  })
+  ipcMain.handle("aws:profiles", async () => handleProfiles())
 
   ipcMain.handle(
     "aws:profile-auth",
-    async (_event, params: { profileName?: string; profile?: string }) => {
-      const profileName = params.profileName ?? params.profile ?? ""
-      try {
-        const credentials = await runtime.runPromise(authenticateProfile(profileName))
-        const identity = await runtime.runPromise(
-          validateCredentials(credentials, credentials.region),
-        )
-        return {
-          valid: true,
-          ...identity,
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
-          region: credentials.region,
-        }
-      } catch (err) {
-        return {
-          valid: false,
-          error: err instanceof Error ? err.message : String(err),
-        }
-      }
-    },
+    async (_event, params: ProfileAuthRequest) => handleProfileAuth(params),
   )
 
   ipcMain.handle(
@@ -93,28 +71,19 @@ export function registerAwsHandlers(): void {
 
   ipcMain.handle(
     "aws:sso-poll",
-    async (_event, params: SsoPollParams) => {
-      return runtime.runPromise(pollSsoToken(params))
-    },
+    async (_event, params: SsoPollRequest) => handleSsoPoll(params),
   )
 
   ipcMain.handle(
     "aws:sso-roles",
-    async (_event, params: { accessToken: string; accountId: string; region: string }) => {
-      return runtime.runPromise(
-        listSsoRoles(params.accessToken, params.accountId, params.region),
-      )
-    },
+    async (_event, params: SsoRolesRequest) => handleSsoRoles(params),
   )
 
   ipcMain.handle(
     "aws:sso-complete",
     async (_event, params: SsoCompleteParams) => {
       try {
-        const credentials = await runtime.runPromise(completeSsoAuth(params))
-        const identity = await runtime.runPromise(
-          validateCredentials(credentials, credentials.region),
-        )
+        const { credentials, identity } = await runtime.runPromise(signInWithSsoRole(params))
         return {
           ...identity,
           accessKeyId: credentials.accessKeyId,
@@ -130,27 +99,15 @@ export function registerAwsHandlers(): void {
     },
   )
 
-  ipcMain.handle("aws:env-credentials", async () => {
-    return runtime.runPromise(detectEnvCredentials())
-  })
+  ipcMain.handle(
+    "aws:env-credentials",
+    async (_event, params: EnvCredentialsParams = {}) => handleEnvCredentials(params),
+  )
 
-  ipcMain.handle("aws:env-credentials-confirm", async () => {
-    const credentials = await runtime.runPromise(confirmEnvCredentials())
-
-    // Inject the validated credentials into the session environment
-    const envVars: Record<string, string> = {
-      AWS_ACCESS_KEY_ID: credentials.accessKeyId,
-      AWS_SECRET_ACCESS_KEY: credentials.secretAccessKey,
-      AWS_DEFAULT_REGION: credentials.region,
-    }
-    if (credentials.sessionToken) {
-      envVars.AWS_SESSION_TOKEN = credentials.sessionToken
-    }
-
-    await runtime.runPromise(sessionManager.appendToEnv(envVars))
-
-    return credentials
-  })
+  ipcMain.handle(
+    "aws:env-credentials-confirm",
+    async (_event, params: EnvCredentialsConfirmParams = {}) => handleEnvCredentialsConfirm(params),
+  )
 
   ipcMain.handle(
     "aws:check-region",
