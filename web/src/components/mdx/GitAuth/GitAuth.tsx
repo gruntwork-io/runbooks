@@ -179,7 +179,7 @@ function GitAuthInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Title row with provider icon */}
           <div className="flex items-center gap-1 mb-2">
             <providerConfig.Logo className="size-6 text-foreground" />

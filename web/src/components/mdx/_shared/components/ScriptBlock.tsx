@@ -370,9 +370,8 @@ export function ScriptBlock({
           <IconComponent data-testid={`icon-${status}`} className={`size-6 ${iconClasses} ${status === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="">
         {/* Main body */}
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {variant.showPendingPlaceholder && status === 'pending' && command && !title && (
             <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
           )}
@@ -543,7 +542,6 @@ export function ScriptBlock({
               </Button>
             </div>
           </div>
-        </div>
         </div>
       </div>
 

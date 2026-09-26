@@ -135,7 +135,7 @@ function DirPickerInteractive({
           <FolderOpen className={`size-6 ${iconColor}`} />
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {/* Title and description */}
           <div className="text-md font-bold text-foreground">
             <InlineMarkdown>{resolvedTitle}</InlineMarkdown>

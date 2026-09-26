@@ -212,7 +212,7 @@ function GoogleAuthInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Title row with the Google Cloud lockup. The wordmark uses
               currentColor, so light and dark surfaces need no asset swap. */}
           <div className="flex items-center gap-3 mb-2">
