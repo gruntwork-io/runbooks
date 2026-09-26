@@ -40,7 +40,7 @@ export interface GoogleIdentity {
  * Whether a credential can read a project.
  *
  * Deliberately three-valued rather than a boolean. `AwsSdkClient.checkRegion`
- * uses `catch: () => true` — it FAILS OPEN so a transient error never produces
+ * FAILS OPEN (`regionEnabledOrUnknown`) so a transient error never produces
  * a false "that region is disabled" warning. The same discipline applies here,
  * but the reason matters: a project that answers 404/PERMISSION_DENIED is a
  * real `denied`, while a disabled Resource Manager API, an insufficient scope,

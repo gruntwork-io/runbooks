@@ -19,6 +19,9 @@ import {
   checkRegion,
 } from "../../../src/domain/aws/auth.ts"
 import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
+import { makeLogger } from "../logger.ts"
+
+const log = makeLogger("ipc:aws")
 
 type ValidatePayload = Partial<AwsCredentials> & { credentials?: AwsCredentials; region?: string }
 
@@ -165,10 +168,8 @@ export function registerAwsHandlers(): void {
           ? { enabled: true }
           : { enabled: false, warning: `Region ${region} is not enabled for this AWS account` }
       } catch (err) {
-        return {
-          enabled: false,
-          warning: err instanceof Error ? err.message : String(err),
-        }
+        log.error("Region opt-in check crashed:", err)
+        return { enabled: true }
       }
     },
   )

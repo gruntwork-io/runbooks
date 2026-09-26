@@ -255,23 +255,33 @@ const impl: AwsClientShape = {
     }),
 
   checkRegion: (region: string, creds: AwsCredentials) =>
-    Effect.tryPromise({
-      try: async (): Promise<boolean> => {
-        const client = new AccountClient({
-          region: "us-east-1",
-          credentials: makeCredentialsProvider(creds),
-        })
-        const resp = await client.send(
-          new GetRegionOptStatusCommand({ RegionName: region }),
-        )
-        return (
-          resp.RegionOptStatus === "ENABLED" ||
-          resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
-        )
-      },
-      catch: () => true,
-    }) as unknown as Effect.Effect<boolean, AwsAuthError>,
+    regionEnabledOrUnknown(async () => {
+      const client = new AccountClient({
+        region: "us-east-1",
+        credentials: makeCredentialsProvider(creds),
+      })
+      const resp = await client.send(
+        new GetRegionOptStatusCommand({ RegionName: region }),
+      )
+      return (
+        resp.RegionOptStatus === "ENABLED" ||
+        resp.RegionOptStatus === "ENABLED_BY_DEFAULT"
+      )
+    }),
 }
+
+/**
+ * Runs a region opt-in lookup and fails open: a lookup that throws reports the
+ * region as enabled. A role without `account:GetRegionOptStatus` cannot answer
+ * the question, and that is not evidence the region is disabled.
+ */
+export const regionEnabledOrUnknown = (
+  lookup: () => Promise<boolean>,
+): Effect.Effect<boolean, never> =>
+  Effect.tryPromise({
+    try: lookup,
+    catch: (err) => new AwsAuthError({ message: `Failed to check region opt-in status: ${err}`, cause: err }),
+  }).pipe(Effect.orElseSucceed(() => true))
 
 function classifyProfile(name: string, block: Record<string, string>): ProfileInfo {
   const base = { name, region: block.region }
