@@ -57,7 +57,7 @@ describe("aws:profiles", () => {
 })
 
 describe("aws:profile-auth", () => {
-  it("resolves the profile and validates it once, via STS in its partition", async () => {
+  it("resolves the profile and validates it once, in the profile's region", async () => {
     const resolved: string[] = []
     const validated: unknown[][] = []
     aws.authenticateProfile = (profileName) => {
@@ -78,10 +78,11 @@ describe("aws:profile-auth", () => {
       region: "eu-west-1",
     })
     expect(resolved).toEqual(["dev"])
-    expect(validated).toEqual([[CREDENTIALS, "us-east-1"]])
+    // The working region; AwsSdkClient routes STS to its partition's home region.
+    expect(validated).toEqual([[CREDENTIALS, "eu-west-1"]])
   })
 
-  it("validates a GovCloud profile against GovCloud STS", async () => {
+  it("validates a GovCloud profile in its GovCloud region", async () => {
     const validated: string[] = []
     aws.authenticateProfile = () => Effect.succeed({ ...CREDENTIALS, region: "us-gov-east-1" })
     aws.validateCredentials = (_creds, region) => {
@@ -92,7 +93,7 @@ describe("aws:profile-auth", () => {
     const reply = await handleProfileAuth({ profileName: "gov", defaultRegion: "us-west-2" })
 
     expect(reply).toMatchObject({ valid: true, region: "us-gov-east-1" })
-    expect(validated).toEqual(["us-gov-west-1"])
+    expect(validated).toEqual(["us-gov-east-1"])
   })
 
   it("uses the block's region for a profile that names none", async () => {
