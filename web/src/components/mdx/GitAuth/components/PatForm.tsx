@@ -4,6 +4,7 @@ import { useState } from "react"
 import type { GitAuthStatus } from "../types"
 import type { ProviderConfig } from "../providers"
 import { normalizeInstanceBaseUrl } from "../utils"
+import { githubHostKind, githubTokenCreateUrl } from "@/components/mdx/_shared/lib/githubHost"
 
 interface PatFormProps {
   authStatus: GitAuthStatus
@@ -13,6 +14,8 @@ interface PatFormProps {
   setShowPatToken: (value: boolean) => void
   onSubmit: () => void
   provider: ProviderConfig
+  /** The active host (picked/pinned). GitHub's token link follows it. */
+  host?: string
   /** GitLab self-hosted instance URL (GitLab only). */
   instanceUrl?: string
   setInstanceUrl?: (value: string) => void
@@ -26,6 +29,7 @@ export function PatForm({
   setShowPatToken,
   onSubmit,
   provider,
+  host,
   instanceUrl = '',
   setInstanceUrl,
 }: PatFormProps) {
@@ -33,13 +37,19 @@ export function PatForm({
   const [showSetupGuide, setShowSetupGuide] = useState(false)
 
   // GitLab can run self-hosted, so let the user point the token at their own
-  // instance. The token-creation link follows that instance; everything else
-  // (GitHub, or a blank field) keeps the provider's gitlab.com default.
-  const showInstanceField = provider.id === 'gitlab' && setInstanceUrl !== undefined
-  const instanceBase = provider.id === 'gitlab' ? normalizeInstanceBaseUrl(instanceUrl) : null
+  // instance. The token-creation link follows that instance; a blank field
+  // keeps the provider's gitlab.com default. GitHub's link follows the active
+  // host (github.com, *.ghe.com, or a GHES host).
+  const showInstanceField = provider.supportsManualInstance && setInstanceUrl !== undefined
+  const instanceBase = provider.supportsManualInstance ? normalizeInstanceBaseUrl(instanceUrl) : null
   const tokenCreateUrl = instanceBase
     ? `${instanceBase}/-/user_settings/personal_access_tokens`
-    : provider.pat.tokenCreateUrl
+    : provider.id === 'github' && host
+      ? githubTokenCreateUrl(host)
+      : provider.pat.tokenCreateUrl
+  // GHES links to the classic token page (fine-grained tokens aren't on every
+  // supported GHES version).
+  const isGhes = provider.id === 'github' && host !== undefined && githubHostKind(host) === 'ghes'
 
   return (
     <div className="space-y-4">
@@ -165,7 +175,9 @@ export function PatForm({
             ) : (
               <>
                 <div>
-                  <p className="font-medium text-foreground">1. Create a fine-grained token:</p>
+                  <p className="font-medium text-foreground">
+                    {isGhes ? '1. Create a personal access token:' : '1. Create a fine-grained token:'}
+                  </p>
                   <a
                     href={tokenCreateUrl}
                     target="_blank"
@@ -177,6 +189,20 @@ export function PatForm({
                   </a>
                 </div>
 
+                {isGhes ? (
+                  <>
+                    <div>
+                      <p className="font-medium text-foreground">2. Select scopes:</p>
+                      <p>Choose <code className="bg-accent px-1 rounded">repo</code> (clone, push, and pull requests).</p>
+                    </div>
+
+                    <div>
+                      <p className="font-medium text-foreground">3. Generate and copy the token</p>
+                      <p>Paste it above. Classic tokens start with <code className="bg-accent px-1 rounded">ghp_</code></p>
+                    </div>
+                  </>
+                ) : (
+                <>
                 <div>
                   <p className="font-medium text-foreground">2. Set repository access:</p>
                   <p>Select "Only select repositories" and choose the repos you need, or "All repositories" for broader access.</p>
@@ -195,6 +221,8 @@ export function PatForm({
                   <p className="font-medium text-foreground">4. Generate and copy the token</p>
                   <p>Paste it above. Fine-grained tokens start with <code className="bg-accent px-1 rounded">github_pat_</code></p>
                 </div>
+                </>
+                )}
               </>
             )}
           </div>

@@ -132,8 +132,8 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     [authId, authDerivedProvider, cfg],
   )
 
-  // Fetch labels for a repo. `host` targets the repo's own GitLab instance
-  // (self-hosted or gitlab.com); GitHub's labels channel ignores it.
+  // Fetch labels for a repo. `host` targets the repo's own instance (GitLab
+  // self-hosted or gitlab.com; GitHub Enterprise or github.com).
   const fetchLabels = useCallback(async (owner: string, repo: string, host?: string) => {
     if (!owner || !repo) return
     setLabelsLoading(true)
