@@ -106,7 +106,7 @@ describe("detectEnvCredentials — {env:{prefix}} variant", () => {
       GITHUB_TOKEN: "ghp_ambient",
     })
     const result = await Effect.runPromise(
-      detectEnvCredentials("MYAPP_").pipe(Effect.provide(layer)),
+      detectEnvCredentials("github.com", "MYAPP_").pipe(Effect.provide(layer)),
     )
     expect(result).toEqual({ token: "gho_prefixed", envVar: "MYAPP_GH_TOKEN" })
   })
@@ -117,7 +117,7 @@ describe("detectEnvCredentials — {env:{prefix}} variant", () => {
       MYAPP_GH_TOKEN: "gho_second",
     })
     const result = await Effect.runPromise(
-      detectEnvCredentials("MYAPP_").pipe(Effect.provide(layer)),
+      detectEnvCredentials("github.com", "MYAPP_").pipe(Effect.provide(layer)),
     )
     expect(result?.envVar).toBe("MYAPP_GITHUB_TOKEN")
   })
@@ -125,7 +125,7 @@ describe("detectEnvCredentials — {env:{prefix}} variant", () => {
   it("never falls back to the unprefixed vars", async () => {
     const layer = makeTestEnvironment({ GITHUB_TOKEN: "ghp_ambient" })
     const result = await Effect.runPromise(
-      detectEnvCredentials("MYAPP_").pipe(Effect.provide(layer)),
+      detectEnvCredentials("github.com", "MYAPP_").pipe(Effect.provide(layer)),
     )
     expect(result).toBeUndefined()
   })
@@ -133,7 +133,7 @@ describe("detectEnvCredentials — {env:{prefix}} variant", () => {
   it("treats an allowlist-violating prefix as absent (defense in depth)", async () => {
     const layer = makeTestEnvironment({ "lower_GITHUB_TOKEN": "ghp_x" })
     const result = await Effect.runPromise(
-      detectEnvCredentials("lower_").pipe(Effect.provide(layer)),
+      detectEnvCredentials("github.com", "lower_").pipe(Effect.provide(layer)),
     )
     expect(result).toBeUndefined()
   })

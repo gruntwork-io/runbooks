@@ -16,9 +16,35 @@ import type {
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
 import { classifyTlsError } from "../domain/tls/system-ca.ts"
+import {
+  DEFAULT_GITHUB_HOST,
+  githubAccessTokenUrl,
+  githubApiBase,
+  githubDeviceCodeUrl,
+  tryNormalizeGitHubHost,
+} from "../domain/git/github-host.ts"
 
-const API_BASE = "https://api.github.com"
-const OAUTH_BASE = "https://github.com"
+/**
+ * Resolve the caller's `host` (default github.com) with the STRICT parse: an
+ * unparseable host throws instead of falling back to github.com, so a token
+ * meant for an enterprise host can never be sent to github.com (status 400 —
+ * a caller error, not a transport failure).
+ */
+function resolveHost(host?: string): string {
+  if (host === undefined) return DEFAULT_GITHUB_HOST
+  const normalized = tryNormalizeGitHubHost(host)
+  if (!normalized) {
+    throw new GitHubApiError({ status: 400, message: `invalid GitHub host: ${JSON.stringify(host)}` })
+  }
+  return normalized
+}
+
+/**
+ * The REST API base for the caller's `host` (see resolveHost). Each API method
+ * binds it to a local `API_BASE` first thing, so its request URLs read the
+ * same as they did when the base was a github.com-only module constant.
+ */
+const apiBaseFor = (host?: string): string => githubApiBase(resolveHost(host))
 
 // status 0 = no HTTP response; `kind` carries the transport classification.
 const toGitHubApiError = (err: unknown): GitHubApiError =>
@@ -82,9 +108,10 @@ async function paginateAll<T>(
 // identity from the installation owner.
 async function validateInstallationToken(
   token: string,
+  apiBase: string,
 ): Promise<GitHubTokenValidation> {
   const resp = await githubFetch(
-    `${API_BASE}/installation/repositories?per_page=1`,
+    `${apiBase}/installation/repositories?per_page=1`,
     { token },
   )
   await assertOk(resp)
@@ -103,8 +130,9 @@ async function validateInstallationToken(
 
 async function validateUserToken(
   token: string,
+  apiBase: string,
 ): Promise<GitHubTokenValidation> {
-  const resp = await githubFetch(`${API_BASE}/user`, { token })
+  const resp = await githubFetch(`${apiBase}/user`, { token })
   await assertOk(resp)
   const data = (await resp.json()) as {
     login: string
@@ -131,19 +159,19 @@ async function validateUserToken(
 }
 
 const impl: GitHubClientShape = {
-  validateToken: (token: string) =>
+  validateToken: (token: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GitHubTokenValidation> =>
         token.startsWith("ghs_")
-          ? validateInstallationToken(token)
-          : validateUserToken(token),
+          ? validateInstallationToken(token, apiBaseFor(host))
+          : validateUserToken(token, apiBaseFor(host)),
       catch: toGitHubApiError,
     }),
 
-  startOAuthDeviceFlow: (clientId: string, scopes: string[]) =>
+  startOAuthDeviceFlow: (clientId: string, scopes: string[], host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<DeviceFlowStart> => {
-        const resp = await fetch(`${OAUTH_BASE}/login/device/code`, {
+        const resp = await fetch(githubDeviceCodeUrl(resolveHost(host)), {
           method: "POST",
           headers: {
             Accept: "application/json",
@@ -171,10 +199,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  pollOAuthToken: (clientId: string, deviceCode: string) =>
+  pollOAuthToken: (clientId: string, deviceCode: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<OAuthPollResult> => {
-        const resp = await fetch(`${OAUTH_BASE}/login/oauth/access_token`, {
+        const resp = await fetch(githubAccessTokenUrl(resolveHost(host)), {
           method: "POST",
           headers: {
             Accept: "application/json",
@@ -202,9 +230,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  listOrgs: (token: string) =>
+  listOrgs: (token: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GitHubOrg[]> => {
+        const API_BASE = apiBaseFor(host)
         const orgs = await paginateAll<{ id: number; login: string; description?: string }>(
           `${API_BASE}/user/orgs`,
           token,
@@ -214,9 +243,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  listRepos: (token: string, owner: string, query?: string) =>
+  listRepos: (token: string, owner: string, query?: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GitHubRepo[]> => {
+        const API_BASE = apiBaseFor(host)
         // Determine if owner is an org or user
         let url: string
         try {
@@ -255,9 +285,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  getRepo: (token: string, owner: string, repo: string) =>
+  getRepo: (token: string, owner: string, repo: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GitHubRepo> => {
+        const API_BASE = apiBaseFor(host)
         const data = await githubJson<{
           id: number
           name: string
@@ -278,9 +309,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  listRefs: (token: string, owner: string, repo: string, query?: string) =>
+  listRefs: (token: string, owner: string, repo: string, query?: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<GitHubRef[]> => {
+        const API_BASE = apiBaseFor(host)
         const [branches, tags] = await Promise.all([
           paginateAll<{ name: string }>(`${API_BASE}/repos/${owner}/${repo}/branches`, token),
           paginateAll<{ name: string }>(`${API_BASE}/repos/${owner}/${repo}/tags`, token),
@@ -300,9 +332,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  listLabels: (token: string, owner: string, repo: string) =>
+  listLabels: (token: string, owner: string, repo: string, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<string[]> => {
+        const API_BASE = apiBaseFor(host)
         const labels = await paginateAll<{ name: string }>(
           `${API_BASE}/repos/${owner}/${repo}/labels`,
           token,
@@ -312,9 +345,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  createPullRequest: (token: string, params: CreatePRParams) =>
+  createPullRequest: (token: string, params: CreatePRParams, host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<PullRequestResult> => {
+        const API_BASE = apiBaseFor(host)
         const data = await githubJson<{
           html_url: string
           number: number
@@ -353,9 +387,10 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[]) =>
+  addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[], host?: string) =>
     Effect.tryPromise({
       try: async (): Promise<void> => {
+        const API_BASE = apiBaseFor(host)
         await githubJson(
           `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/labels`,
           {

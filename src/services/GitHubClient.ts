@@ -67,17 +67,24 @@ export interface PullRequestResult {
 
 export type GitHubTokenType = "classic_pat" | "fine_grained_pat" | "oauth" | "github_app" | "unknown"
 
+/**
+ * Every method takes an optional trailing `host` — the GitHub host to target
+ * (`github.com`, a GHES host, or a `<sub>.ghe.com` tenant; a bare host or a
+ * URL). It defaults to github.com. A `host` that is given but unparseable
+ * FAILS the call rather than falling back to github.com, so a token is never
+ * sent to a host other than the one the caller named.
+ */
 export interface GitHubClientShape {
-  readonly validateToken: (token: string) => Effect.Effect<GitHubTokenValidation, GitHubApiError>
-  readonly startOAuthDeviceFlow: (clientId: string, scopes: string[]) => Effect.Effect<DeviceFlowStart, GitHubApiError>
-  readonly pollOAuthToken: (clientId: string, deviceCode: string) => Effect.Effect<OAuthPollResult, GitHubApiError>
-  readonly listOrgs: (token: string) => Effect.Effect<GitHubOrg[], GitHubApiError>
-  readonly listRepos: (token: string, owner: string, query?: string) => Effect.Effect<GitHubRepo[], GitHubApiError>
-  readonly getRepo: (token: string, owner: string, repo: string) => Effect.Effect<GitHubRepo, GitHubApiError>
-  readonly listRefs: (token: string, owner: string, repo: string, query?: string) => Effect.Effect<GitHubRef[], GitHubApiError>
-  readonly listLabels: (token: string, owner: string, repo: string) => Effect.Effect<string[], GitHubApiError>
-  readonly createPullRequest: (token: string, params: CreatePRParams) => Effect.Effect<PullRequestResult, GitHubApiError>
-  readonly addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[]) => Effect.Effect<void, GitHubApiError>
+  readonly validateToken: (token: string, host?: string) => Effect.Effect<GitHubTokenValidation, GitHubApiError>
+  readonly startOAuthDeviceFlow: (clientId: string, scopes: string[], host?: string) => Effect.Effect<DeviceFlowStart, GitHubApiError>
+  readonly pollOAuthToken: (clientId: string, deviceCode: string, host?: string) => Effect.Effect<OAuthPollResult, GitHubApiError>
+  readonly listOrgs: (token: string, host?: string) => Effect.Effect<GitHubOrg[], GitHubApiError>
+  readonly listRepos: (token: string, owner: string, query?: string, host?: string) => Effect.Effect<GitHubRepo[], GitHubApiError>
+  readonly getRepo: (token: string, owner: string, repo: string, host?: string) => Effect.Effect<GitHubRepo, GitHubApiError>
+  readonly listRefs: (token: string, owner: string, repo: string, query?: string, host?: string) => Effect.Effect<GitHubRef[], GitHubApiError>
+  readonly listLabels: (token: string, owner: string, repo: string, host?: string) => Effect.Effect<string[], GitHubApiError>
+  readonly createPullRequest: (token: string, params: CreatePRParams, host?: string) => Effect.Effect<PullRequestResult, GitHubApiError>
+  readonly addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[], host?: string) => Effect.Effect<void, GitHubApiError>
 }
 
 export class GitHubClient extends Context.Tag("GitHubClient")<GitHubClient, GitHubClientShape>() {}

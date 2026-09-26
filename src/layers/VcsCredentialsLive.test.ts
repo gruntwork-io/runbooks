@@ -68,7 +68,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
             : Effect.fail(new GitHubApiError({ status: 401, message: "401" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
+    const result = await harness.use((vcs) => vcs.resolveGitHub("github.com"))
     expect(result.outcome).toBe("valid")
     expect(result.source).toBe("env")
     expect(result.envVar).toBe("GITHUB_TOKEN")
@@ -94,7 +94,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
             : Effect.fail(new GitHubApiError({ status: 401, message: "401 Bad credentials" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
+    const result = await harness.use((vcs) => vcs.resolveGitHub("github.com"))
     expect(result.outcome).toBe("valid")
     expect(result.source).toBe("cli")
     // chip copy carried along — never "expired".
@@ -109,7 +109,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
           Effect.fail(new GitHubApiError({ status: 0, message: "fetch failed", kind: "tls" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
+    const result = await harness.use((vcs) => vcs.resolveGitHub("github.com"))
     expect(result.outcome).toBe("unreachable")
     expect(result.errorKind).toBe("tls")
     expect(result.warnings).toEqual([]) // never a token warning for transport failures
@@ -140,7 +140,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
         validateToken: () => Effect.fail(new GitHubApiError({ status: 0, message: "fetch failed" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.detectGitHubEnv())
+    const result = await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))
     expect(result.outcome).toBe("unreachable")
     expect(result.errorKind).toBe("tls")
     expect(result.warnings).toEqual([]) // never a token warning for a transport failure
@@ -153,7 +153,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
         validateToken: () => Effect.fail(new GitHubApiError({ status: 401, message: "Bad credentials" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.detectGitHubEnv())
+    const result = await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))
     expect(result.outcome).toBe("invalid")
     expect(result.errorKind).toBeUndefined()
   })
@@ -165,7 +165,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
         "gh version": () => ghVersion,
       }),
     })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
+    const result = await harness.use((vcs) => vcs.resolveGitHub("github.com"))
     expect(result.outcome).toBe("absent")
     expect(result.warnings).toEqual([])
   })
@@ -384,10 +384,10 @@ describe("VcsCredentialsLive — CLI read cache", () => {
             : Effect.fail(new GitHubApiError({ status: 401, message: "401" })),
       },
     })
-    const first = await harness.use((vcs) => vcs.detectGitHubCli())
+    const first = await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
     expect(first.outcome).toBe("invalid")
     valid = true
-    const second = await harness.use((vcs) => vcs.detectGitHubCli())
+    const second = await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
     expect(second.outcome).toBe("valid")
     // The invalid validation flushed the cache → two real reads.
     expect(harness.calls.filter((c) => c.command === "gh" && c.args[1] === "token")).toHaveLength(2)

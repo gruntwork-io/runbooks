@@ -39,7 +39,7 @@ Pair with `<GitAuth>` and `<GitClone>` to create a complete workflow. The provid
 
 1. An explicit `provider` prop, if set.
 2. The `GIT_PROVIDER` output of the block referenced by `gitAuthId` (or `githubAuthId`).
-3. The host of the cloned repository's remote URL.
+3. The host of the cloned repository's remote URL (`github.com` and `*.ghe.com` tenants are recognized as GitHub; a GitHub Enterprise Server host is only recognized through the linked auth block).
 4. Otherwise, defaults to `github`.
 
 This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks/gitauth/): the provider comes from the linked auth block, not the remote hostname, so self-hosted instances resolve correctly.
@@ -142,6 +142,34 @@ Both prerequisites are checked automatically, and the block shows amber warnings
 ### Labels
 
 The block fetches available labels from the repository and presents them in a searchable multi-select dropdown. Labels can also be pre-selected using the `prefilledPullRequestLabels` prop.
+
+### GitHub Enterprise Hosts
+
+This section applies to GitHub; GitLab merge requests use the instance of the repository's remote. On GitHub, the pull request is opened against the host of the cloned repository's `origin` remote — `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com` — using that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`). Labels are fetched from the same host.
+
+That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ — for example, a repository cloned from `github.example.com` while the auth block signed in to `github.com` — the block fails with a clear error instead of sending the token to a host it was not issued for. Links to token settings shown by the block also follow the authenticated host.
+
+```mdx
+<GitAuth
+  id="git-auth"
+  provider="github"
+  host="github.example.com"
+/>
+
+<GitClone
+  id="clone-repo"
+  gitAuthId="git-auth"
+  prefilledUrl="https://github.example.com/platform/infrastructure-live"
+/>
+
+<GitPullRequest
+  id="create-pr"
+  gitAuthId="git-auth"
+  title="Open Pull Request"
+/>
+```
+
+See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
 
 ## Provider-locked aliases
 
