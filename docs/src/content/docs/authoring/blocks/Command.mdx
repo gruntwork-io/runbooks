@@ -42,7 +42,7 @@ Command blocks and [Check](/authoring/blocks/check/) blocks share many features 
 - `failMessage` (string) - Message shown when command fails (default: "Failed"). Supports inline markdown.
 - `runningMessage` (string) - Message shown while running (default: "Running..."). Supports inline markdown.
 - `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
-- `timeoutMs` (number) - Maximum time, in milliseconds, the script is allowed to run before it is killed and the block is marked as failed. Defaults to `300000` (5 minutes). Use this for scripts that legitimately take longer than the default — for example, `timeoutMs={1800000}` for a 30-minute deployment.
+- `timeoutMs` (number) - Maximum time, in milliseconds, the script is allowed to run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that legitimately run longer — for example, `timeoutMs={7200000}` for a 2-hour deployment — or lower it so a hung script fails sooner.
 
 ### Inline content
 
@@ -295,6 +295,16 @@ Scripts run in a **persistent environment** — environment variable changes (`e
 Scripts also run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**.
 
 For full details, see [Shell Execution Context](/security/shell-execution-context/).
+
+#### Background Processes
+
+A block finishes once its script has exited and no process it started still has the script's output open. To leave a process running for later blocks, such as a port-forward or a local dev server, start it in the background with its output redirected:
+
+```bash
+nohup kubectl port-forward svc/web 8080:80 > /tmp/port-forward.log 2>&1 &
+```
+
+Without the redirect, the block keeps waiting on the background process until `timeoutMs` kills it. Stopping a running block, or letting it hit `timeoutMs`, terminates the script together with every process it started. Quitting Runbooks while a block is running sends them the same termination signal.
 
 ### Examples
 

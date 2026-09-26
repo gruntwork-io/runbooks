@@ -1,7 +1,7 @@
 /**
  * Script execution orchestration.
  */
-import { Effect, Stream } from "effect"
+import { Effect, Ref, Stream } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
@@ -30,8 +30,12 @@ import type { ScriptSetup } from "./script.ts"
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Default execution timeout in milliseconds (5 minutes). Overridable per-request via `ExecRequest.timeoutMs`. */
-const DEFAULT_EXEC_TIMEOUT_MS = 5 * 60 * 1000
+/**
+ * Default execution timeout in milliseconds (60 minutes). A backstop for hung
+ * scripts, not a budget: long terragrunt/tofu applies must not be killed by
+ * default. Overridable per-request via `ExecRequest.timeoutMs`.
+ */
+const DEFAULT_EXEC_TIMEOUT_MS = 60 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // Execution Event Types
@@ -210,8 +214,28 @@ export const executeScript = (
       logFilePath,
     })
 
-    // Kill the child process when the scope closes (e.g. on cancellation)
+    // Kill the process group when the scope closes. `kill` is a no-op once the
+    // process has closed, so in practice this only acts on interruption (Stop,
+    // or quitting mid-run); background jobs a finished script left running
+    // survive.
     yield* Effect.addFinalizer(() => process.kill.pipe(Effect.ignore))
+
+    // Timeout watchdog, armed at spawn. It races the timeout against the real
+    // exit, so it ends when the process closes and can never flag or signal a
+    // run that already finished. The flag is set before the kill, and exitCode
+    // resolves only once the killed process closes, so completionEffect always
+    // sees it. The kill also ends `output`, which unblocks the log drain.
+    const timedOutRef = yield* Ref.make(false)
+    yield* process.exitCode.pipe(
+      Effect.timeoutFail({
+        duration: effectiveTimeoutMs,
+        onTimeout: () => new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs }),
+      }),
+      Effect.catchTag("ExecTimeoutError", () =>
+        Ref.set(timedOutRef, true).pipe(Effect.zipRight(process.kill)),
+      ),
+      Effect.forkScoped,
+    )
 
     log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
@@ -229,20 +253,8 @@ export const executeScript = (
     // Stream.concat is unreliable within forkDaemon + Effect.scoped —
     // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
-      const exitResult = yield* process.exitCode.pipe(
-        Effect.timeoutFail({
-          duration: effectiveTimeoutMs,
-          onTimeout: () => new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs }),
-        }),
-        Effect.either,
-      )
-
-      const timedOut = exitResult._tag === "Left" && exitResult.left._tag === "ExecTimeoutError"
-      const exitCode = exitResult._tag === "Right" ? exitResult.right : -1
-
-      if (timedOut) {
-        yield* process.kill.pipe(Effect.ignore)
-      }
+      const exitCode = yield* process.exitCode
+      const timedOut = yield* Ref.get(timedOutRef)
 
       const statusEvent = determineExitStatus(exitCode, timedOut)
       const isSuccessOrWarn = statusEvent.status === "success" || statusEvent.status === "warn"

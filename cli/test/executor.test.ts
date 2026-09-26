@@ -131,3 +131,44 @@ describe("TestExecutor — GitClone local checkout", () => {
     expect(result.stepResults[0]?.error).toMatch(/Not a git repository/)
   })
 })
+
+// ---------------------------------------------------------------------------
+// #!/bin/sh blocks get the bash env-capture wrapper, so they must run under
+// bash like they do in the app.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — #!/bin/sh blocks", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sh-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("runs the wrapped script under bash, not in POSIX mode", async () => {
+    // Under dash the wrapper is a syntax error (exit 2, "warn"). Under
+    // bash-as-sh (macOS) POSIX mode is on, which lets the user's EXIT trap
+    // replace the wrapper's env-capture handler.
+    fs.mkdirSync(path.join(tmp, "scripts"))
+    fs.writeFileSync(
+      path.join(tmp, "scripts", "cleanup.sh"),
+      "#!/bin/sh\ntrap 'echo cleanup' EXIT\nshopt -oq posix && echo POSIX_MODE || echo NOT_POSIX\n",
+    )
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# sh block\n\n<Command id="sh-block" path="scripts/cleanup.sh" />\n`)
+
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    const result = await executor.runTest({
+      name: "sh",
+      steps: [{ block: "sh-block", expect: "success" }],
+    })
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    expect(result.stepResults[0]?.logs).toContain("NOT_POSIX")
+    expect(result.stepResults[0]?.logs).not.toContain("POSIX_MODE")
+    expect(result.stepResults[0]?.logs).toContain("cleanup")
+  })
+})
