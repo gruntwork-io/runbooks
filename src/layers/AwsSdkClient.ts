@@ -22,6 +22,7 @@ import type {
   SsoRole,
 } from "../services/AwsClient.ts"
 import { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.ts"
+import { partitionHomeRegion } from "../domain/aws/partition.ts"
 
 /**
  * The CreateToken failures a user causes get a message that says what to do;
@@ -109,8 +110,9 @@ const impl: AwsClientShape = {
         const provider = fromIni({ profile: profileName, ignoreCache: true })
         const resolved = await provider()
 
-        // The profile's region, from whichever of the two files sets it.
-        const region = (await readProfiles())[profileName]?.region ?? "us-east-1"
+        // The profile's region, from whichever of the two files sets it. Empty
+        // when neither does: the domain falls back to the block's region.
+        const region = (await readProfiles())[profileName]?.region ?? ""
 
         // No STS call here: callers validate the credentials (see AwsClientShape).
         return {
@@ -261,7 +263,7 @@ const impl: AwsClientShape = {
   checkRegion: (region: string, creds: AwsCredentials) =>
     Effect.tryPromise(async (): Promise<boolean> => {
       const client = new AccountClient({
-        region: "us-east-1",
+        region: partitionHomeRegion(region),
         credentials: makeCredentialsProvider(creds),
       })
       const resp = await client.send(

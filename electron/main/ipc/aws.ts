@@ -40,9 +40,10 @@ export function registerAwsHandlers(): void {
     "aws:validate",
     async (_event, params: ValidatePayload) => {
       const credentials = unwrapCredentials(params)
+      const region = params.region ?? credentials.region
       try {
         const identity = await runtime.runPromise(
-          validateCredentials(credentials),
+          validateCredentials(credentials, region),
         )
         return { valid: true, ...identity }
       } catch (err) {

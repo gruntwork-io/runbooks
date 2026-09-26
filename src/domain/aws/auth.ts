@@ -13,20 +13,7 @@ import type {
 import { Environment } from "../../services/Environment.ts"
 import { AwsAuthError, AwsSsoError } from "../../errors/index.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** STS calls always use us-east-1 regardless of the user's configured region. */
-const STS_REGION = "us-east-1"
-
-/**
- * Working region for env credentials when neither the environment nor the
- * block's defaultRegion names one. Kept apart from STS_REGION: that is only
- * the endpoint GetCallerIdentity is sent to, not a region to hand the user.
- */
-const FALLBACK_REGION = "us-east-1"
+import { partitionHomeRegion } from "./partition.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,17 +50,29 @@ export type SsoPollOutcome =
     }
 
 // ---------------------------------------------------------------------------
+// Working Region
+// ---------------------------------------------------------------------------
+
+/**
+ * The working region, or `missing` as an AwsAuthError when nothing named one.
+ * The region also picks the partition credentials are validated in, so a
+ * guessed default would send GovCloud credentials to commercial STS.
+ */
+const resolveRegion = (region: string | undefined, missing: string) =>
+  region ? Effect.succeed(region) : Effect.fail(new AwsAuthError({ message: missing }))
+
+// ---------------------------------------------------------------------------
 // Credential Validation
 // ---------------------------------------------------------------------------
 
 /**
- * Validate AWS credentials by calling STS GetCallerIdentity in us-east-1 (see
- * STS_REGION).
+ * Validate AWS credentials by calling STS GetCallerIdentity in the home
+ * region of the partition `region` belongs to, not in `region` itself.
  */
-export const validateCredentials = (creds: AwsCredentials) =>
+export const validateCredentials = (creds: AwsCredentials, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.validateCredentials(creds, STS_REGION)
+    return yield* awsClient.validateCredentials(creds, partitionHomeRegion(region))
   })
 
 // ---------------------------------------------------------------------------
@@ -125,21 +124,22 @@ export const detectEnvCredentials = (prefix?: string) =>
 /**
  * Validate detected env credentials via STS and return them as full
  * AwsCredentials together with the identity they belong to. The working
- * region is the environment's, then the block's `defaultRegion`, then
- * FALLBACK_REGION.
+ * region is the environment's, then the block's `defaultRegion`; with
+ * neither, it fails rather than guess one.
  */
 export const validateEnvCredentials = (envCreds: EnvCredentials, defaultRegion?: string) =>
   Effect.gen(function* () {
-    const awsClient = yield* AwsClient
-
     const credentials: AwsCredentials = {
       accessKeyId: envCreds.accessKeyId,
       secretAccessKey: envCreds.secretAccessKey,
       sessionToken: envCreds.sessionToken,
-      region: envCreds.region || defaultRegion || FALLBACK_REGION,
+      region: yield* resolveRegion(
+        envCreds.region || defaultRegion,
+        "No AWS region for the environment credentials: set AWS_REGION (with the block's prefix, if it uses one) or give the AwsAuth block a defaultRegion",
+      ),
     }
 
-    const identity = yield* awsClient.validateCredentials(credentials, STS_REGION)
+    const identity = yield* validateCredentials(credentials, credentials.region)
 
     return { credentials, identity }
   })
@@ -177,13 +177,19 @@ export const listProfiles = () =>
   })
 
 /**
- * Resolve a named AWS profile's credentials. Does not validate them: callers
- * run validateCredentials.
+ * Resolve a named AWS profile's credentials. The region is the profile's own,
+ * then the block's `defaultRegion`. Does not validate them: callers run
+ * validateCredentials.
  */
-export const authenticateProfile = (profileName: string) =>
+export const authenticateProfile = (profileName: string, defaultRegion?: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.authenticateProfile(profileName)
+    const credentials = yield* awsClient.authenticateProfile(profileName)
+    const region = yield* resolveRegion(
+      credentials.region || defaultRegion,
+      `No AWS region for profile "${profileName}": set region in its AWS config or give the AwsAuth block a defaultRegion`,
+    )
+    return { ...credentials, region }
   })
 
 // ---------------------------------------------------------------------------
@@ -221,17 +227,19 @@ export const completeSsoAuth = (params: SsoCompleteParams) =>
 
 /**
  * Exchange the SSO access token for the role's credentials and confirm them
- * via STS. Returns the credentials together with the identity they belong to.
+ * via STS in the partition of the IAM Identity Center region. Returns the
+ * credentials together with the identity they belong to.
  */
 export const signInWithSsoRole = (params: SsoCompleteParams) =>
   Effect.gen(function* () {
     const credentials = yield* completeSsoAuth(params)
-    const identity = yield* validateCredentials(credentials)
+    const identity = yield* validateCredentials(credentials, params.region)
     return { credentials, identity }
   })
 
 /**
- * List AWS accounts accessible via SSO.
+ * List AWS accounts accessible via SSO. `region` is where the IAM Identity
+ * Center instance lives.
  */
 export const listSsoAccounts = (accessToken: string, region: string) =>
   Effect.gen(function* () {
@@ -240,7 +248,8 @@ export const listSsoAccounts = (accessToken: string, region: string) =>
   })
 
 /**
- * List roles available for a specific SSO account.
+ * List roles available for a specific SSO account. `region` is where the IAM
+ * Identity Center instance lives.
  */
 export const listSsoRoles = (accessToken: string, accountId: string, region: string) =>
   Effect.gen(function* () {

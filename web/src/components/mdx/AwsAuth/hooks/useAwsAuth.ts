@@ -836,7 +836,7 @@ export function useAwsAuth({
     setErrorMessage(null)
 
     try {
-      const data = await api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name })
+      const data = await api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name, defaultRegion: selectedDefaultRegion })
 
       if (data.valid) {
         setAuthStatus('authenticated')

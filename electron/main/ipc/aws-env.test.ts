@@ -98,17 +98,33 @@ describe("aws:env-credentials", () => {
     processEnv = { AWS_ACCESS_KEY_ID: "AKIA_OLD", AWS_SECRET_ACCESS_KEY: "expired" }
     validateCredentials = () => Effect.fail(new AwsAuthError({ message: "ExpiredToken" }))
 
-    const reply = await handleEnvCredentials({ prefix: "" })
+    const reply = await handleEnvCredentials({ prefix: "", defaultRegion: "us-west-2" })
 
     expect(reply.found).toBe(true)
     expect(reply.valid).toBe(false)
     expect(reply.error).toContain("ExpiredToken")
   })
 
+  it("reports found but invalid, without calling STS, when nothing names a region", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+    let called = false
+    validateCredentials = () => {
+      called = true
+      return Effect.succeed(IDENTITY)
+    }
+
+    const reply = await handleEnvCredentials({ prefix: "", defaultRegion: "" })
+
+    expect(reply.found).toBe(true)
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain("No AWS region")
+    expect(called).toBe(false)
+  })
+
   it("reads only the prefixed variables for a prefixed source", async () => {
     processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
 
-    expect(await handleEnvCredentials({ prefix: "PROD_" })).toEqual({ found: false })
+    expect(await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })).toEqual({ found: false })
 
     const validated: string[] = []
     validateCredentials = (creds) => {
@@ -121,7 +137,7 @@ describe("aws:env-credentials", () => {
       PROD_AWS_SECRET_ACCESS_KEY: "prod-secret",
     }
 
-    const reply = await handleEnvCredentials({ prefix: "PROD_" })
+    const reply = await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })
 
     expect(reply.valid).toBe(true)
     expect(validated).toEqual(["AKIA_PROD"])
@@ -187,7 +203,7 @@ describe("aws:env-credentials-confirm", () => {
     validateCredentials = () => Effect.fail(new AwsAuthError({ message: "ExpiredToken" }))
     const before = sessionEnv()
 
-    const reply = await handleEnvCredentialsConfirm({ prefix: "" })
+    const reply = await handleEnvCredentialsConfirm({ prefix: "", defaultRegion: "us-west-2" })
 
     expect(reply.valid).toBe(false)
     expect(reply.error).toContain("ExpiredToken")

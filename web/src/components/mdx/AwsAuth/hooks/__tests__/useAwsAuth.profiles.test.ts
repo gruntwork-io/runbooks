@@ -94,7 +94,13 @@ describe('useAwsAuth — local profiles', () => {
 
     await act(() => result.current.handleProfileAuth())
 
-    expect(invoke).toHaveBeenCalledWith('aws:profile-auth', { profileName: 'default', profile: 'default' })
+    // The chosen region goes along: it is the fallback when the profile sets
+    // none, and it picks the partition (commercial or GovCloud) STS runs in.
+    expect(invoke).toHaveBeenCalledWith('aws:profile-auth', {
+      profileName: 'default',
+      profile: 'default',
+      defaultRegion: 'us-west-2',
+    })
     expect(result.current.authStatus).toBe('authenticated')
     expect(registerOutputs).toHaveBeenCalledWith('aws', {
       AWS_ACCESS_KEY_ID: 'AKIA_DEV',

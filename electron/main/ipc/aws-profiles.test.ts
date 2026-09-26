@@ -57,7 +57,7 @@ describe("aws:profiles", () => {
 })
 
 describe("aws:profile-auth", () => {
-  it("resolves the profile and validates it once, via STS in us-east-1", async () => {
+  it("resolves the profile and validates it once, via STS in its partition", async () => {
     const resolved: string[] = []
     const validated: unknown[][] = []
     aws.authenticateProfile = (profileName) => {
@@ -79,6 +79,49 @@ describe("aws:profile-auth", () => {
     })
     expect(resolved).toEqual(["dev"])
     expect(validated).toEqual([[CREDENTIALS, "us-east-1"]])
+  })
+
+  it("validates a GovCloud profile against GovCloud STS", async () => {
+    const validated: string[] = []
+    aws.authenticateProfile = () => Effect.succeed({ ...CREDENTIALS, region: "us-gov-east-1" })
+    aws.validateCredentials = (_creds, region) => {
+      validated.push(region)
+      return Effect.succeed(IDENTITY)
+    }
+
+    const reply = await handleProfileAuth({ profileName: "gov", defaultRegion: "us-west-2" })
+
+    expect(reply).toMatchObject({ valid: true, region: "us-gov-east-1" })
+    expect(validated).toEqual(["us-gov-west-1"])
+  })
+
+  it("uses the block's region for a profile that names none", async () => {
+    const validated: string[] = []
+    aws.authenticateProfile = () => Effect.succeed({ ...CREDENTIALS, region: "" })
+    aws.validateCredentials = (_creds, region) => {
+      validated.push(region)
+      return Effect.succeed(IDENTITY)
+    }
+
+    const reply = await handleProfileAuth({ profileName: "gov", defaultRegion: "us-gov-west-1" })
+
+    expect(reply).toMatchObject({ valid: true, region: "us-gov-west-1" })
+    expect(validated).toEqual(["us-gov-west-1"])
+  })
+
+  it("fails instead of guessing when neither the profile nor the block names a region", async () => {
+    let validated = false
+    aws.authenticateProfile = () => Effect.succeed({ ...CREDENTIALS, region: "" })
+    aws.validateCredentials = () => {
+      validated = true
+      return Effect.succeed(IDENTITY)
+    }
+
+    const reply = await handleProfileAuth({ profileName: "dev" })
+
+    expect(reply.valid).toBe(false)
+    expect(reply.error).toContain('No AWS region for profile "dev"')
+    expect(validated).toBe(false)
   })
 
   it("replies { valid: false, error } instead of rejecting", async () => {

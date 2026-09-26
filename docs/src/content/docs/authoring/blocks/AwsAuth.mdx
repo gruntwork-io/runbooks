@@ -50,11 +50,11 @@ The user can still switch tabs — `defaultTab` only chooses the starting one.
 | `id` | string | required | Unique identifier for this component |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
-| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable |
+| `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported. When the credentials don't name a region themselves, this region also decides which partition (commercial or GovCloud) they are validated in |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
 | `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
-| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. Every SSO call goes to this region |
+| `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. Every SSO call goes to this region. For a GovCloud Identity Center this is `us-gov-east-1` or `us-gov-west-1` |
 | `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication. Takes effect only together with `ssoRoleName` |
 | `ssoRoleName` | string | - | Pre-select a specific IAM role to assume. Takes effect only together with `ssoAccountId` |
 
@@ -179,6 +179,8 @@ Other profile types, such as `credential_process` profiles, are not listed.
 
 **Refresh profiles** re-reads both files. The selected profile stays selected as long as it is still listed.
 
+A profile's credentials are validated in the partition of the profile's own `region`. A profile that sets no region uses the region selected in the block instead, so pick a `us-gov-*` region for a GovCloud profile without one.
+
 <Aside type="note">
 SSO profiles (those with `sso_session` or `sso_start_url`) are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
 </Aside>
@@ -207,7 +209,7 @@ If credentials are found and valid, the user sees a confirmation prompt showing:
 - Default Region
 - Whether credentials are temporary or static
 
-The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`. It is the value set as `AWS_REGION` once the user confirms.
+The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`. It is the value set as `AWS_REGION` once the user confirms, and it decides the partition the credentials are validated in, so GovCloud keys need a `us-gov-*` region. If none of the three is set, detection reports an error instead of assuming a region.
 
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
 

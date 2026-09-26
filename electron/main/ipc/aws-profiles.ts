@@ -12,7 +12,7 @@ import {
   authenticateProfile,
 } from "../../../src/domain/aws/auth.ts"
 
-export type ProfileAuthRequest = { profileName?: string; profile?: string }
+export type ProfileAuthRequest = { profileName?: string; profile?: string; defaultRegion?: string }
 
 /** aws:profiles — every profile in the local AWS config and credentials files. */
 export async function handleProfiles() {
@@ -21,13 +21,15 @@ export async function handleProfiles() {
 
 /**
  * aws:profile-auth — resolve the profile's credentials, then validate them
- * once via STS. Never rejects: a failure comes back as `{valid:false, error}`.
+ * once via STS in the partition of the profile's region (or, when the profile
+ * sets none, the block's `defaultRegion`). Never rejects: a failure comes back
+ * as `{valid:false, error}`.
  */
 export async function handleProfileAuth(params: ProfileAuthRequest) {
   const profileName = params.profileName ?? params.profile ?? ""
   try {
-    const credentials = await runtime.runPromise(authenticateProfile(profileName))
-    const identity = await runtime.runPromise(validateCredentials(credentials))
+    const credentials = await runtime.runPromise(authenticateProfile(profileName, params.defaultRegion))
+    const identity = await runtime.runPromise(validateCredentials(credentials, credentials.region))
     return {
       valid: true,
       ...identity,

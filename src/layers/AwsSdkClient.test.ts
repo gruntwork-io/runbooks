@@ -310,12 +310,12 @@ describe("AwsSdkClient local profiles", () => {
       expect(Either.isRight(result) && result.right.region).toBe("ap-south-1")
     })
 
-    it("falls back to us-east-1 when the profile names no region", async () => {
+    it("returns an empty region when the profile names none, rather than guessing one", async () => {
       writeCredentials(`[dev]\n${keys("AKIA_DEV")}`)
 
       const result = await run((c) => c.authenticateProfile("dev"))
 
-      expect(Either.isRight(result) && result.right.region).toBe("us-east-1")
+      expect(Either.isRight(result) && result.right.region).toBe("")
     })
   })
 })

@@ -34,7 +34,7 @@ export interface SsoPollParams {
   readonly clientId: string
   readonly clientSecret: string
   readonly deviceCode: string
-  /** The IAM Identity Center region the device flow was started in. */
+  /** Region of the IAM Identity Center instance that issued the device code. */
   readonly region: string
 }
 
@@ -65,7 +65,10 @@ export interface SsoRole {
 export interface AwsClientShape {
   readonly validateCredentials: (creds: AwsCredentials, region: string) => Effect.Effect<AwsIdentity, AwsAuthError>
   readonly listProfiles: () => Effect.Effect<ProfileInfo[], AwsConfigError>
-  /** Resolves the profile's credentials without validating them; callers run validateCredentials. */
+  /**
+   * Resolves the profile's credentials without validating them; callers run
+   * validateCredentials. `region` is empty when the profile does not set one.
+   */
   readonly authenticateProfile: (profileName: string) => Effect.Effect<AwsCredentials, AwsAuthError>
   readonly startSsoDeviceAuth: (startUrl: string, region: string) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
   readonly pollSsoToken: (params: SsoPollParams) => Effect.Effect<SsoTokenResult, AwsSsoError>

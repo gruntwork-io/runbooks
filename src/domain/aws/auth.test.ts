@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
-import { detectEnvCredentials, confirmEnvCredentials, pollSsoFlow } from "./auth.ts"
+import { detectEnvCredentials, confirmEnvCredentials, pollSsoFlow, validateCredentials } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestAwsClient } from "../../test-utils/TestLayer.ts"
 import { AwsAuthError, AwsSsoError } from "../../errors/index.ts"
@@ -168,6 +168,7 @@ describe("confirmEnvCredentials", () => {
       makeTestEnvironment({
         AWS_ACCESS_KEY_ID: "AKID",
         AWS_SECRET_ACCESS_KEY: "SECRET",
+        AWS_REGION: "us-west-2",
       }),
       makeTestAwsClient({
         validateCredentials: (_creds, region) => {
@@ -207,41 +208,66 @@ describe("confirmEnvCredentials", () => {
       }),
     )
     const result = await Effect.runPromise(
-      confirmEnvCredentials("PROD_").pipe(Effect.provide(layer)),
+      confirmEnvCredentials("PROD_", "us-west-2").pipe(Effect.provide(layer)),
     )
     expect(seen).toEqual(["PROD_AKID"])
     expect(result.credentials.secretAccessKey).toBe("PROD_SECRET")
   })
 
   describe("region", () => {
+    /** Confirms env credentials, recording the region STS was called in. */
     const confirmRegion = async (env: Record<string, string>, defaultRegion?: string) => {
+      let stsRegion: string | undefined
       const layer = Layer.merge(
         makeTestEnvironment({ AWS_ACCESS_KEY_ID: "AKID", AWS_SECRET_ACCESS_KEY: "SECRET", ...env }),
         makeTestAwsClient({
           validateCredentials: (_creds, region) => {
-            // STS is always called in us-east-1, whatever the working region.
-            expect(region).toBe("us-east-1")
+            stsRegion = region
             return Effect.succeed({ accountId: "123456789012", arn: "arn:aws:iam::123456789012:user/test" })
           },
         }),
       )
-      const result = await Effect.runPromise(
+      const exit = await Effect.runPromiseExit(
         confirmEnvCredentials(undefined, defaultRegion).pipe(Effect.provide(layer)),
       )
-      return result.credentials.region
+      return { exit, stsRegion }
+    }
+
+    const workingRegion = (exit: Exit.Exit<{ credentials: { region: string } }, unknown>) => {
+      if (!Exit.isSuccess(exit)) throw new Error(`expected confirm to succeed: ${Cause.pretty(exit.cause)}`)
+      return exit.value.credentials.region
     }
 
     it("uses the environment's region first", async () => {
-      expect(await confirmRegion({ AWS_REGION: "eu-west-1" }, "ap-south-1")).toBe("eu-west-1")
+      const { exit, stsRegion } = await confirmRegion({ AWS_REGION: "eu-west-1" }, "ap-south-1")
+      expect(workingRegion(exit)).toBe("eu-west-1")
+      expect(stsRegion).toBe("us-east-1")
     })
 
-    it("falls back to the block's defaultRegion, not us-east-1", async () => {
-      expect(await confirmRegion({}, "ap-south-1")).toBe("ap-south-1")
+    it("falls back to the block's defaultRegion", async () => {
+      const { exit } = await confirmRegion({}, "ap-south-1")
+      expect(workingRegion(exit)).toBe("ap-south-1")
     })
 
-    it("uses us-east-1 only when nothing names a region", async () => {
-      expect(await confirmRegion({})).toBe("us-east-1")
-      expect(await confirmRegion({}, "")).toBe("us-east-1")
+    it("validates GovCloud credentials against GovCloud STS", async () => {
+      const { exit, stsRegion } = await confirmRegion({ AWS_DEFAULT_REGION: "us-gov-east-1" })
+      expect(workingRegion(exit)).toBe("us-gov-east-1")
+      expect(stsRegion).toBe("us-gov-west-1")
+    })
+
+    it("takes the partition from a GovCloud defaultRegion", async () => {
+      const { exit, stsRegion } = await confirmRegion({}, "us-gov-east-1")
+      expect(workingRegion(exit)).toBe("us-gov-east-1")
+      expect(stsRegion).toBe("us-gov-west-1")
+    })
+
+    it("fails instead of guessing a region when nothing names one", async () => {
+      for (const defaultRegion of [undefined, ""]) {
+        const { exit, stsRegion } = await confirmRegion({}, defaultRegion)
+        expect(Exit.isFailure(exit)).toBe(true)
+        expect(String(Exit.isFailure(exit) && Cause.squash(exit.cause))).toContain("No AWS region")
+        expect(stsRegion).toBeUndefined()
+      }
     })
   })
 })
@@ -402,11 +428,57 @@ describe("pollSsoFlow", () => {
     expect(failureMessage(exit)).toBe("The SSO sign-in request expired. Please try again.")
   })
 
+  it("validates the role credentials in the partition of the SSO region", async () => {
+    const stsRegions: string[] = []
+    const record = { validateCredentials: (_creds: unknown, region: string) => {
+      stsRegions.push(region)
+      return Effect.succeed(IDENTITY)
+    } }
+    await run(record, { accountId: "111111111111", roleName: "Admin" })
+    const gov = makeTestAwsClient({
+      pollSsoToken: () => Effect.succeed({ accessToken: "sso-token" }),
+      completeSsoAuth: () => Effect.succeed({ ...ROLE_CREDS, region: "us-gov-east-1" }),
+      ...record,
+    })
+    await Effect.runPromise(
+      pollSsoFlow({ ...POLL, region: "us-gov-east-1", accountId: "111111111111", roleName: "Admin" }).pipe(Effect.provide(gov)),
+    )
+    expect(stsRegions).toEqual(["us-east-1", "us-gov-west-1"])
+  })
+
   it("fails when the role credentials do not validate", async () => {
     const { exit } = await run(
       { validateCredentials: () => Effect.fail(new AwsAuthError({ message: "sts said no" })) },
       { accountId: "111111111111", roleName: "Admin" },
     )
     expect(failureMessage(exit)).toBe("sts said no")
+  })
+})
+
+describe("validateCredentials", () => {
+  const creds = { accessKeyId: "AKID", secretAccessKey: "SECRET", region: "us-gov-west-1" }
+
+  it("sends GovCloud credentials to GovCloud STS", async () => {
+    let stsRegion: string | undefined
+    const layer = makeTestAwsClient({
+      validateCredentials: (_creds, region) => {
+        stsRegion = region
+        return Effect.succeed({ accountId: "123456789012", arn: "arn:aws-us-gov:iam::123456789012:user/test" })
+      },
+    })
+    await Effect.runPromise(validateCredentials(creds, "us-gov-west-1").pipe(Effect.provide(layer)))
+    expect(stsRegion).toBe("us-gov-west-1")
+  })
+
+  it("sends commercial credentials to us-east-1 STS whatever region was picked", async () => {
+    let stsRegion: string | undefined
+    const layer = makeTestAwsClient({
+      validateCredentials: (_creds, region) => {
+        stsRegion = region
+        return Effect.succeed({ accountId: "123456789012", arn: "arn:aws:iam::123456789012:user/test" })
+      },
+    })
+    await Effect.runPromise(validateCredentials({ ...creds, region: "eu-west-2" }, "eu-west-2").pipe(Effect.provide(layer)))
+    expect(stsRegion).toBe("us-east-1")
   })
 })
