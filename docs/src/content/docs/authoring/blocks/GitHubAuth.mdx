@@ -258,7 +258,7 @@ If either source provides valid credentials, authentication succeeds immediately
 | Source | Description |
 |--------|-------------|
 | `'env'` | Check standard env vars (`GITHUB_TOKEN`, `GH_TOKEN`; `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` for GitHub Enterprise Server) |
-| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_GITHUB_TOKEN`, `PREFIX_GH_TOKEN`, …) under the same host binding |
+| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_GITHUB_TOKEN`, `PREFIX_GH_TOKEN`, …), bound to a host by `PREFIX_GH_HOST` |
 | `'cli'` | Check GitHub CLI (`gh auth token --hostname <host>`) |
 | `{ block: 'block-id' }` | Use token from a Command block's output |
 
@@ -286,7 +286,7 @@ Check prefixed environment variables (e.g., `PROD_GITHUB_TOKEN`):
 - Uppercase letters, numbers, and underscores only
 - Must start with a letter
 - Optional trailing underscore (recommended for readability)
-- Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN` (or `PREFIX_GH_ENTERPRISE_TOKEN` / `PREFIX_GITHUB_ENTERPRISE_TOKEN` for a GitHub Enterprise Server host). The unprefixed `GH_HOST` decides which host they are bound to, exactly as for the unprefixed variables
+- Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN` (or `PREFIX_GH_ENTERPRISE_TOKEN` / `PREFIX_GITHUB_ENTERPRISE_TOKEN` for a GitHub Enterprise Server host). `PREFIX_GH_HOST` (not the unprefixed `GH_HOST`) decides which host they are bound to, by the same rules as for the unprefixed variables
 
 #### Test Prefix
 

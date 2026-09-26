@@ -160,9 +160,14 @@ export const GITHUB_ENTERPRISE_TOKEN_ENV_VARS = ["GH_ENTERPRISE_TOKEN", "GITHUB_
 const isSetEnvVar = (value: string | undefined): value is string =>
   value !== undefined && value.trim().length > 0
 
-/** GH_HOST, raw and unnormalized; blank counts as unset. */
-export const configuredGhHost = (env: Record<string, string | undefined>): string | undefined =>
-  isSetEnvVar(env.GH_HOST) ? env.GH_HOST : undefined
+/** `<prefix>GH_HOST`, raw and unnormalized; blank counts as unset. */
+export const configuredGhHost = (
+  env: Record<string, string | undefined>,
+  prefix = "",
+): string | undefined => {
+  const value = env[`${prefix}GH_HOST`]
+  return isSetEnvVar(value) ? value : undefined
+}
 
 /**
  * The host gh's env conventions bind each env token to — each token goes to
@@ -179,14 +184,21 @@ export const configuredGhHost = (env: Record<string, string | undefined>): strin
  *
  * A GH_HOST that is set but unparseable binds NOTHING — falling back to
  * github.com would send a corporate token cross-origin on a typo.
+ *
+ * Prefixed tokens (the `{env:{prefix}}` variant) are bound the same way by
+ * `<PREFIX>GH_HOST` — never by the unprefixed GH_HOST (as for GitLab's
+ * prefixed host vars).
  */
 export interface GitHubEnvBindings {
   readonly standard?: string
   readonly enterprise?: string
 }
 
-export const githubEnvBindings = (env: Record<string, string | undefined>): GitHubEnvBindings => {
-  const raw = configuredGhHost(env)
+export const githubEnvBindings = (
+  env: Record<string, string | undefined>,
+  prefix = "",
+): GitHubEnvBindings => {
+  const raw = configuredGhHost(env, prefix)
   if (raw === undefined) return { standard: DEFAULT_GITHUB_HOST }
   const ghHost = tryNormalizeGitHubHost(raw)
   if (!ghHost) return {}
@@ -209,7 +221,7 @@ export const githubEnvTokenVarsForHost = (
   if (prefix !== "" && !ENV_PREFIX_PATTERN.test(prefix)) return []
   const target = tryNormalizeGitHubHost(host)
   if (!target) return []
-  const bindings = githubEnvBindings(env)
+  const bindings = githubEnvBindings(env, prefix)
   const names =
     bindings.standard === target
       ? GITHUB_TOKEN_ENV_VARS
@@ -315,7 +327,7 @@ export const githubSessionCredential = (
  * for the GHES host GH_HOST names.
  *
  * With a `prefix` (the `{env:{prefix}}` variant), looks up the same names
- * with the prefix (`<PREFIX>GITHUB_TOKEN`, …) under the same binding.
+ * with the prefix (`<PREFIX>GITHUB_TOKEN`, …), bound by `<PREFIX>GH_HOST`.
  */
 export const detectEnvCredentials = (host: string = DEFAULT_GITHUB_HOST, prefix?: string) =>
   Effect.gen(function* () {
