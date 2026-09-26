@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createElement, type ReactNode } from 'react'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { useAwsAuth } from '../useAwsAuth'
 import type { ProfileInfo } from '../../types'
@@ -179,5 +179,59 @@ describe('useAwsAuth — refreshing profiles', () => {
 
     expect(result.current.profiles).toEqual([])
     expect(result.current.selectedProfile).toBeNull()
+  })
+})
+
+describe('useAwsAuth — profile sign-in reply after the attempt ended', () => {
+  /** Holds aws:profile-auth in flight until the test answers it. */
+  const holdProfileAuth = () => {
+    let answer!: (reply: Record<string, unknown>) => void
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, args?: unknown) => {
+      if (channel === 'aws:profile-auth') return new Promise((r) => { answer = r })
+      if (channel === 'aws:env-credentials') return { found: false }
+      return base(channel, args)
+    })
+    return (reply: Record<string, unknown>) => answer(reply)
+  }
+  const VALID = { valid: true, accountId: '111122223333', arn: 'arn:aws:iam::111122223333:user/dev', accessKeyId: 'AKIA_DEV', secretAccessKey: 'dev-secret' }
+
+  it("ignores a reply that lands after 'Try auto-detection again'", async () => {
+    replyWith([DEFAULT])
+    const answer = holdProfileAuth()
+    const { result } = renderHook(
+      () => useAwsAuth({ id: 'aws', ssoRegion: 'us-east-1', defaultRegion: 'us-west-2', detectCredentials: ['env'], defaultTab: 'profile' }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    await act(() => result.current.loadAwsProfiles())
+
+    let signingIn!: Promise<void>
+    act(() => { signingIn = result.current.handleProfileAuth() })
+    expect(result.current.authStatus).toBe('authenticating')
+    act(() => result.current.handleRetryDetection())
+    await act(async () => {
+      answer(VALID)
+      await signingIn
+    })
+
+    expect(result.current.authStatus).not.toBe('authenticated')
+    expect(result.current.accountInfo).toBeNull()
+    expect(registerOutputs).not.toHaveBeenCalled()
+  })
+
+  it('publishes nothing when the reply lands after the block unmounts', async () => {
+    replyWith([DEFAULT])
+    const answer = holdProfileAuth()
+    const { result, unmount } = renderAwsAuth()
+    await act(() => result.current.loadAwsProfiles())
+
+    let signingIn!: Promise<void>
+    act(() => { signingIn = result.current.handleProfileAuth() })
+    unmount()
+    answer(VALID)
+    await signingIn
+
+    expect(registerOutputs).not.toHaveBeenCalled()
   })
 })

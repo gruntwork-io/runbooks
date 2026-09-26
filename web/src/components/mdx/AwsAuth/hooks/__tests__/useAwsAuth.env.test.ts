@@ -183,3 +183,25 @@ describe('useAwsAuth — env credential confirm', () => {
     expect(registerOutputs).not.toHaveBeenCalled()
   })
 })
+
+describe('useAwsAuth — env confirm reply after the block is gone', () => {
+  it('publishes nothing when the confirm reply lands after the block unmounts', async () => {
+    let answerConfirm!: (reply: Reply) => void
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'aws:env-credentials') return { found: true, valid: true, ...IDENTITY, region: 'eu-west-1', hasSessionToken: false }
+      if (channel === 'aws:env-credentials-confirm') return new Promise<Reply>((r) => { answerConfirm = r })
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+    const { result, unmount } = renderAwsAuth()
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+
+    let confirming!: Promise<void>
+    act(() => { confirming = result.current.handleConfirmDetected() })
+    unmount()
+    answerConfirm({ valid: true, ...IDENTITY, accessKeyId: 'AKIA_ENV', secretAccessKey: 'env-secret', region: 'eu-west-1' })
+    await confirming
+
+    expect(registerOutputs).not.toHaveBeenCalled()
+  })
+})

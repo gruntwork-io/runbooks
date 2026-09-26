@@ -103,15 +103,16 @@ export function useAwsAuth({
   const [ssoAccountSearch, setSsoAccountSearch] = useState('')
   const [ssoRoleSearch, setSsoRoleSearch] = useState('')
 
-  // SSO polling. Each sign-in attempt runs under its own flow number, and its
-  // poll loop acts only while that number is current. stopSsoPolling bumps the
-  // number and clears the pending timer, so cancel, re-auth, retry and unmount
-  // end the loop even with a poll in flight, and a later attempt can't revive it.
-  const ssoFlowRef = useRef(0)
+  // Each sign-in attempt (SSO, profile, static keys, confirming detected
+  // credentials) runs under its own flow number and acts on an IPC reply only
+  // while that number is current. stopSsoPolling bumps the number and clears
+  // the pending SSO timer, so cancel, re-auth, retry and unmount end an attempt
+  // even with a reply in flight, and a later attempt can't revive it.
+  const authFlowRef = useRef(0)
   const ssoPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stopSsoPolling = useCallback(() => {
-    ssoFlowRef.current++
+    authFlowRef.current++
     if (ssoPollTimeoutRef.current) {
       clearTimeout(ssoPollTimeoutRef.current)
       ssoPollTimeoutRef.current = null
@@ -447,6 +448,9 @@ export function useAwsAuth({
   const handleConfirmDetected = useCallback(async () => {
     if (!detectedCredentials) return
 
+    stopSsoPolling()
+    const flow = authFlowRef.current
+    const stale = () => authFlowRef.current !== flow
     setAuthStatus('authenticating')
 
     // For env-detected credentials, call the confirm endpoint to register them to session
@@ -456,6 +460,7 @@ export function useAwsAuth({
           prefix: detectedCredentials.envPrefix || '',
           defaultRegion: defaultRegion || '',
         })
+        if (stale()) return
 
         if (!data.valid) {
           setAuthStatus('failed')
@@ -493,6 +498,7 @@ export function useAwsAuth({
         setDetectionStatus('done')
         return
       } catch (error) {
+        if (stale()) return
         setAuthStatus('failed')
         setErrorMessage(error instanceof Error ? error.message : 'Failed to register credentials')
         return
@@ -513,6 +519,7 @@ export function useAwsAuth({
         // avoid TOCTOU: the block may have re-run, or its temporary credentials
         // expired, between detection and confirmation.
         const result = await tryBlockCredentials(blockSource.block)
+        if (stale()) return
 
         if (!result.success || !result.creds) {
           setAuthStatus('failed')
@@ -550,7 +557,7 @@ export function useAwsAuth({
     // Fallback - shouldn't reach here normally
     setAuthStatus('failed')
     setErrorMessage('Failed to confirm detected credentials')
-  }, [api, detectedCredentials, detectionWarning, detectCredentials, tryBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id])
+  }, [api, detectedCredentials, detectionWarning, detectCredentials, tryBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id, stopSsoPolling])
 
   // User rejects detected credentials - show manual auth
   // Note: credentials are not in session until confirmed, so no need to clear them
@@ -605,12 +612,15 @@ export function useAwsAuth({
 
   // Validate credentials by calling STS GetCallerIdentity
   const validateCredentials = useCallback(async (creds: AwsCredentials) => {
+    stopSsoPolling()
+    const flow = authFlowRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
     setWarningMessage(null)
 
     try {
       const data = await api.invoke('aws:validate', creds)
+      if (authFlowRef.current !== flow) return
 
       if (data.valid) {
         setAuthStatus('authenticated')
@@ -621,10 +631,11 @@ export function useAwsAuth({
         setErrorMessage(data.error || 'Failed to validate credentials')
       }
     } catch (error) {
+      if (authFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [api, registerCredentials])
+  }, [api, registerCredentials, stopSsoPolling])
 
   // Handle static credentials submission
   const handleCredentialsSubmit = useCallback(() => {
@@ -645,7 +656,7 @@ export function useAwsAuth({
   const pollSsoCompletion = useCallback(async (deviceCode: string, clientId: string, clientSecret: string, flow: number) => {
     const maxAttempts = 60
     let attempts = 0
-    const stale = () => ssoFlowRef.current !== flow
+    const stale = () => authFlowRef.current !== flow
 
     const poll = async () => {
       if (stale()) return
@@ -701,7 +712,7 @@ export function useAwsAuth({
 
     // End any earlier attempt; this one runs under a fresh flow number.
     stopSsoPolling()
-    const flow = ssoFlowRef.current
+    const flow = authFlowRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
@@ -715,7 +726,7 @@ export function useAwsAuth({
 
       // Cancelled (or superseded) while the device flow was starting: don't
       // open the browser or start polling for an attempt the user abandoned.
-      if (ssoFlowRef.current !== flow) return
+      if (authFlowRef.current !== flow) return
 
       if (data.verificationUri) {
         window.open(data.verificationUri, '_blank')
@@ -725,7 +736,7 @@ export function useAwsAuth({
         setErrorMessage(data.error || 'Failed to start SSO authentication')
       }
     } catch (error) {
-      if (ssoFlowRef.current !== flow) return
+      if (authFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
@@ -735,7 +746,7 @@ export function useAwsAuth({
   const handleSsoAccountSelect = useCallback(async (account: SSOAccount) => {
     // Like the poll loop, a reply that lands after the attempt was cancelled
     // (the selector's Cancel is handleManualAuth) must not reopen the role picker.
-    const flow = ssoFlowRef.current
+    const flow = authFlowRef.current
     setSelectedSsoAccount(account)
     setLoadingRoles(true)
     setSelectedSsoRole('')
@@ -748,7 +759,7 @@ export function useAwsAuth({
         region: ssoRegion,
       })
 
-      if (ssoFlowRef.current !== flow) return
+      if (authFlowRef.current !== flow) return
 
       if (data.roles && data.roles.length > 0) {
         setSsoRoles(data.roles)
@@ -761,7 +772,7 @@ export function useAwsAuth({
         setAuthStatus('failed')
       }
     } catch (error) {
-      if (ssoFlowRef.current !== flow) return
+      if (authFlowRef.current !== flow) return
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load roles')
       setAuthStatus('failed')
     } finally {
@@ -778,7 +789,7 @@ export function useAwsAuth({
 
     // 'authenticating' shows the SSO form's Cancel button. A reply that arrives
     // after Cancel (or after a new sign-in started) must not sign the block in.
-    const flow = ssoFlowRef.current
+    const flow = authFlowRef.current
     setAuthStatus('authenticating')
 
     try {
@@ -789,7 +800,7 @@ export function useAwsAuth({
         region: ssoRegion,
       })
 
-      if (ssoFlowRef.current !== flow) return
+      if (authFlowRef.current !== flow) return
 
       if (data.accessKeyId) {
         setAuthStatus('authenticated')
@@ -805,7 +816,7 @@ export function useAwsAuth({
         setErrorMessage(data.error || 'Failed to complete SSO authentication')
       }
     } catch (error) {
-      if (ssoFlowRef.current !== flow) return
+      if (authFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
     }
@@ -832,11 +843,14 @@ export function useAwsAuth({
       return
     }
 
+    stopSsoPolling()
+    const flow = authFlowRef.current
     setAuthStatus('authenticating')
     setErrorMessage(null)
 
     try {
       const data = await api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name, defaultRegion: selectedDefaultRegion })
+      if (authFlowRef.current !== flow) return
 
       if (data.valid) {
         setAuthStatus('authenticated')
@@ -853,10 +867,11 @@ export function useAwsAuth({
         setErrorMessage(data.error || 'Failed to authenticate with profile')
       }
     } catch (error) {
+      if (authFlowRef.current !== flow) return
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
     }
-  }, [api, selectedProfile, selectedDefaultRegion, registerCredentials])
+  }, [api, selectedProfile, selectedDefaultRegion, registerCredentials, stopSsoPolling])
 
   // Reset to manual authentication (show auth tabs). Also "Re-authenticate".
   const handleManualAuth = useCallback(() => {
