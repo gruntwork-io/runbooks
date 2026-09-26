@@ -5,6 +5,9 @@ export const AWS_REGIONS = [
   { code: "us-east-2", name: "US East (Ohio)", geography: "United States" },
   { code: "us-west-1", name: "US West (N. California)", geography: "United States" },
   { code: "us-west-2", name: "US West (Oregon)", geography: "United States" },
+  // AWS GovCloud (US)
+  { code: "us-gov-east-1", name: "AWS GovCloud (US-East)", geography: "United States" },
+  { code: "us-gov-west-1", name: "AWS GovCloud (US-West)", geography: "United States" },
   // Africa
   { code: "af-south-1", name: "Africa (Cape Town)", geography: "South Africa" },
   // Asia Pacific

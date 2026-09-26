@@ -6,13 +6,7 @@ import { AwsClient } from "../../services/AwsClient.ts"
 import type { AwsCredentials, SsoPollParams, SsoCompleteParams } from "../../services/AwsClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { AwsAuthError } from "../../errors/index.ts"
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** STS calls always use us-east-1 regardless of the user's configured region. */
-const STS_REGION = "us-east-1"
+import { partitionHomeRegion } from "./partition.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,13 +24,13 @@ export interface EnvCredentials {
 // ---------------------------------------------------------------------------
 
 /**
- * Validate AWS credentials by calling STS GetCallerIdentity.
- * Always uses us-east-1 for the STS call regardless of the provided region.
+ * Validate AWS credentials by calling STS GetCallerIdentity in the home
+ * region of the partition `region` belongs to, not in `region` itself.
  */
-export const validateCredentials = (creds: AwsCredentials, _region: string) =>
+export const validateCredentials = (creds: AwsCredentials, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.validateCredentials(creds, STS_REGION)
+    return yield* awsClient.validateCredentials(creds, partitionHomeRegion(region))
   })
 
 // ---------------------------------------------------------------------------
@@ -97,10 +91,10 @@ export const confirmEnvCredentials = () =>
       accessKeyId: envCreds.accessKeyId,
       secretAccessKey: envCreds.secretAccessKey,
       sessionToken: envCreds.sessionToken,
-      region: envCreds.region ?? STS_REGION,
+      region: envCreds.region ?? "us-east-1",
     }
 
-    yield* awsClient.validateCredentials(creds, STS_REGION)
+    yield* awsClient.validateCredentials(creds, partitionHomeRegion(creds.region))
 
     return creds
   })
@@ -161,21 +155,23 @@ export const completeSsoAuth = (params: SsoCompleteParams) =>
   })
 
 /**
- * List AWS accounts accessible via SSO.
+ * List AWS accounts accessible via SSO. `region` is where the IAM Identity
+ * Center instance lives.
  */
-export const listSsoAccounts = (accessToken: string) =>
+export const listSsoAccounts = (accessToken: string, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.listSsoAccounts(accessToken)
+    return yield* awsClient.listSsoAccounts(accessToken, region)
   })
 
 /**
- * List roles available for a specific SSO account.
+ * List roles available for a specific SSO account. `region` is where the IAM
+ * Identity Center instance lives.
  */
-export const listSsoRoles = (accessToken: string, accountId: string) =>
+export const listSsoRoles = (accessToken: string, accountId: string, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.listSsoRoles(accessToken, accountId)
+    return yield* awsClient.listSsoRoles(accessToken, accountId, region)
   })
 
 // ---------------------------------------------------------------------------
