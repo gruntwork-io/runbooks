@@ -453,45 +453,53 @@ export function useAwsAuth({
     const stale = () => authFlowRef.current !== flow
     setAuthStatus('authenticating')
 
-    // For env-detected credentials, call the confirm endpoint to register them to session
+    // Env-detected credentials: MAIN re-detects and validates them and hands
+    // the keys back without writing anything. They are published (block
+    // outputs and session env, via registerCredentials) only once this attempt
+    // is still current and the account is the one the prompt showed.
     if (detectedCredentials.source === 'env') {
       try {
         const data = await api.invoke('aws:env-credentials-confirm', {
           prefix: detectedCredentials.envPrefix || '',
           defaultRegion: defaultRegion || '',
+          expectedAccountId: detectedCredentials.accountId,
         })
         if (stale()) return
 
-        if (!data.valid) {
+        // The env now holds another account's credentials: show that account
+        // and ask again, as the block branch does.
+        if (data.accountChanged && data.accountId && data.arn) {
+          setDetectedCredentials({
+            accountId: data.accountId,
+            accountName: data.accountName,
+            arn: data.arn,
+            region: data.region || defaultRegion,
+            source: 'env',
+            envPrefix: detectedCredentials.envPrefix,
+            hasSessionToken: data.hasSessionToken || false,
+          })
+          setAuthStatus('pending')
+          return
+        }
+
+        if (!data.valid || !data.accessKeyId || !data.secretAccessKey) {
           setAuthStatus('failed')
           setErrorMessage(data.error || 'Failed to register credentials')
           return
         }
 
+        await registerCredentials({
+          accessKeyId: data.accessKeyId,
+          secretAccessKey: data.secretAccessKey,
+          sessionToken: data.sessionToken,
+          region: data.region || defaultRegion,
+        })
         setAuthStatus('authenticated')
-        // Use the confirmed response payload (not detectedCredentials) to avoid
-        // TOCTOU: credentials may have changed between detection and confirmation.
         setAccountInfo({
           accountId: data.accountId,
           accountName: data.accountName,
           arn: data.arn,
         })
-        
-        // Register credentials per-block for awsAuthId support
-        // The confirm endpoint now returns credentials so we can store them
-        if (data.accessKeyId && data.secretAccessKey) {
-          const outputs: Record<string, string> = {
-            AWS_ACCESS_KEY_ID: data.accessKeyId,
-            AWS_SECRET_ACCESS_KEY: data.secretAccessKey,
-            AWS_REGION: data.region || defaultRegion,
-            AWS_SESSION_TOKEN: data.sessionToken || '',
-          }
-          registerOutputs(id, outputs)
-        } else {
-          // Fallback: register marker if credentials weren't returned (shouldn't happen)
-          registerOutputs(id, { __AUTHENTICATED: 'true' })
-        }
-        
         if (detectionWarning) {
           setWarningMessage(detectionWarning)
         }
@@ -557,7 +565,7 @@ export function useAwsAuth({
     // Fallback - shouldn't reach here normally
     setAuthStatus('failed')
     setErrorMessage('Failed to confirm detected credentials')
-  }, [api, detectedCredentials, detectionWarning, detectCredentials, tryBlockCredentials, defaultRegion, registerCredentials, registerOutputs, id, stopSsoPolling])
+  }, [api, detectedCredentials, detectionWarning, detectCredentials, tryBlockCredentials, defaultRegion, registerCredentials, stopSsoPolling])
 
   // User rejects detected credentials - show manual auth
   // Note: credentials are not in session until confirmed, so no need to clear them

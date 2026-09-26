@@ -154,8 +154,9 @@ describe("aws:env-credentials", () => {
 })
 
 describe("aws:env-credentials-confirm", () => {
-  it("writes AWS_REGION and clears a stale session token for static keys", async () => {
+  it("returns the keys and region without writing the session env", async () => {
     processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+    const before = sessionEnv()
 
     const reply = await handleEnvCredentialsConfirm({ prefix: "", defaultRegion: "us-west-2" })
 
@@ -167,13 +168,44 @@ describe("aws:env-credentials-confirm", () => {
       sessionToken: undefined,
       region: "us-west-2",
     })
-    expect(sessionEnv()).toEqual({
-      PATH: "/usr/bin",
-      AWS_ACCESS_KEY_ID: "AKIA_DEV",
-      AWS_SECRET_ACCESS_KEY: "dev-secret",
-      AWS_REGION: "us-west-2",
-      AWS_SESSION_TOKEN: "",
+    // The renderer publishes the keys once it knows the attempt is still
+    // current, so a reply nobody is waiting for changes nothing.
+    expect(sessionEnv()).toEqual(before)
+  })
+
+  it("confirms when the account is the one the prompt showed", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
+
+    const reply = await handleEnvCredentialsConfirm({
+      prefix: "",
+      defaultRegion: "us-west-2",
+      expectedAccountId: IDENTITY.accountId,
     })
+
+    expect(reply.valid).toBe(true)
+    expect(reply.accessKeyId).toBe("AKIA_DEV")
+  })
+
+  it("reports a changed account without returning keys or writing anything", async () => {
+    processEnv = { AWS_ACCESS_KEY_ID: "AKIA_NEW", AWS_SECRET_ACCESS_KEY: "new-secret" }
+    const before = sessionEnv()
+
+    const reply = await handleEnvCredentialsConfirm({
+      prefix: "",
+      defaultRegion: "us-west-2",
+      expectedAccountId: "999999999999",
+    })
+
+    expect(reply).toEqual({
+      valid: false,
+      accountChanged: true,
+      error: `The credentials now belong to account ${IDENTITY.accountId}, not 999999999999`,
+      ...IDENTITY,
+      region: "us-west-2",
+      hasSessionToken: false,
+    })
+    expect(reply).not.toHaveProperty("accessKeyId")
+    expect(sessionEnv()).toEqual(before)
   })
 
   it("confirms the prefixed credentials with their session token", async () => {
@@ -188,13 +220,12 @@ describe("aws:env-credentials-confirm", () => {
 
     const reply = await handleEnvCredentialsConfirm({ prefix: "PROD_", defaultRegion: "us-east-1" })
 
-    expect(reply.valid).toBe(true)
-    expect(reply.accessKeyId).toBe("ASIA_PROD")
-    expect(sessionEnv()).toMatchObject({
-      AWS_ACCESS_KEY_ID: "ASIA_PROD",
-      AWS_SECRET_ACCESS_KEY: "prod-secret",
-      AWS_REGION: "eu-central-1",
-      AWS_SESSION_TOKEN: "prod-token",
+    expect(reply).toMatchObject({
+      valid: true,
+      accessKeyId: "ASIA_PROD",
+      secretAccessKey: "prod-secret",
+      sessionToken: "prod-token",
+      region: "eu-central-1",
     })
   })
 

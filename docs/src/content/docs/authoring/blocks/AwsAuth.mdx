@@ -213,6 +213,8 @@ The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's 
 
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
 
+When the user clicks "Use These Credentials", AwsAuth reads and validates the environment's credentials again before setting them in the session. If they now belong to a different AWS account than the prompt showed, the prompt switches to that account and the user has to confirm again.
+
 ### Credential Sources
 
 | Source | Description |

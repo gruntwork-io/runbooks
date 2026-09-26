@@ -15,7 +15,7 @@ import {
 } from "../../../src/domain/aws/auth.ts"
 import type { AwsCredentials, SsoCompleteParams } from "../../../src/services/AwsClient.ts"
 import { handleEnvCredentials, handleEnvCredentialsConfirm } from "./aws-env.ts"
-import type { EnvCredentialsParams } from "./aws-env.ts"
+import type { EnvCredentialsParams, EnvCredentialsConfirmParams } from "./aws-env.ts"
 import { handleProfiles, handleProfileAuth } from "./aws-profiles.ts"
 import type { ProfileAuthRequest } from "./aws-profiles.ts"
 import { handleSsoPoll, handleSsoRoles } from "./aws-sso.ts"
@@ -106,7 +106,7 @@ export function registerAwsHandlers(): void {
 
   ipcMain.handle(
     "aws:env-credentials-confirm",
-    async (_event, params: EnvCredentialsParams = {}) => handleEnvCredentialsConfirm(params),
+    async (_event, params: EnvCredentialsConfirmParams = {}) => handleEnvCredentialsConfirm(params),
   )
 
   ipcMain.handle(

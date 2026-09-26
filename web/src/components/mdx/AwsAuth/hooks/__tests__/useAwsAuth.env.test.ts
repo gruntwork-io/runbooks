@@ -30,6 +30,8 @@ function installApi(replies: { detect?: Reply; confirm?: Reply }) {
   const invoke = vi.fn(async (channel: string) => {
     if (channel === 'aws:env-credentials') return replies.detect ?? { found: false }
     if (channel === 'aws:env-credentials-confirm') return replies.confirm ?? { valid: false }
+    if (channel === 'session:set-env') return { ok: true }
+    if (channel === 'aws:check-region') return { enabled: true }
     throw new Error(`unexpected channel ${channel}`)
   })
   currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
@@ -156,15 +158,44 @@ describe('useAwsAuth — env credential confirm', () => {
 
     await act(() => result.current.handleConfirmDetected())
 
-    expect(invoke).toHaveBeenCalledWith('aws:env-credentials-confirm', { prefix: 'PROD_', defaultRegion: 'us-west-2' })
+    expect(invoke).toHaveBeenCalledWith('aws:env-credentials-confirm', {
+      prefix: 'PROD_',
+      defaultRegion: 'us-west-2',
+      expectedAccountId: IDENTITY.accountId,
+    })
     expect(result.current.authStatus).toBe('authenticated')
     expect(result.current.accountInfo).toEqual(IDENTITY)
-    expect(registerOutputs).toHaveBeenCalledWith('aws', {
+    const published = {
       AWS_ACCESS_KEY_ID: 'AKIA_PROD',
       AWS_SECRET_ACCESS_KEY: 'prod-secret',
       AWS_REGION: 'eu-central-1',
       AWS_SESSION_TOKEN: '',
+    }
+    expect(registerOutputs).toHaveBeenCalledWith('aws', published)
+    // The renderer, not MAIN's confirm handler, writes the session env.
+    expect(invoke).toHaveBeenCalledWith('session:set-env', { env: published })
+  })
+
+  it('asks again, publishing nothing, when the credentials now belong to another account', async () => {
+    const OTHER = { accountId: '999999999999', accountName: 'other', arn: 'arn:aws:iam::999999999999:user/x' }
+    const invoke = installApi({
+      detect: { found: true, valid: true, ...IDENTITY, region: 'us-west-2', hasSessionToken: false },
+      confirm: { valid: false, accountChanged: true, ...OTHER, region: 'us-west-2', hasSessionToken: true },
     })
+
+    const { result } = renderAwsAuth()
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+    await act(() => result.current.handleConfirmDetected())
+
+    expect(result.current.authStatus).toBe('pending')
+    expect(result.current.detectedCredentials).toEqual({
+      ...OTHER,
+      region: 'us-west-2',
+      source: 'env',
+      hasSessionToken: true,
+    })
+    expect(registerOutputs).not.toHaveBeenCalled()
+    expect(invoke.mock.calls.map(([c]) => c)).not.toContain('session:set-env')
   })
 
   it('fails without publishing anything when confirm reports invalid', async () => {
@@ -203,5 +234,8 @@ describe('useAwsAuth — env confirm reply after the block is gone', () => {
     await confirming
 
     expect(registerOutputs).not.toHaveBeenCalled()
+    // MAIN's confirm handler writes nothing itself, and the renderer never
+    // gets to publish: the session env is untouched.
+    expect(invoke.mock.calls.map(([c]) => c)).not.toContain('session:set-env')
   })
 })

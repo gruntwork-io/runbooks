@@ -4,10 +4,10 @@
  *
  * Split out of the IPC module so the reply contract can be exercised without
  * an Electron `ipcMain`: detection returns metadata only, confirm validates
- * before it writes anything to the session, and a renderer-supplied prefix is
- * allowlist-checked before any env var name is built from it.
+ * and hands the keys back without writing the session, and a renderer-supplied
+ * prefix is allowlist-checked before any env var name is built from it.
  */
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime } from "./runtime.ts"
 import {
   detectEnvCredentials,
   validateEnvCredentials,
@@ -16,6 +16,9 @@ import {
 import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
 
 export type EnvCredentialsParams = { prefix?: string; defaultRegion?: string }
+
+/** Confirm also carries the account the user was shown and agreed to. */
+export type EnvCredentialsConfirmParams = EnvCredentialsParams & { expectedAccountId?: string }
 
 /**
  * The prefix is untrusted renderer input: allowlist-validate it in MAIN before
@@ -73,12 +76,18 @@ export async function handleEnvCredentials(params: EnvCredentialsParams = {}) {
 
 /**
  * aws:env-credentials-confirm — the same detection, re-run at confirm time
- * (the credentials may have changed since detect). Validation comes first, so
- * a failure writes nothing to the session. Returns the keys: the renderer
- * publishes them as block outputs for awsAuthId, like aws:profile-auth and
- * aws:sso-complete.
+ * (the credentials may have changed since detect), then validated.
+ *
+ * It writes nothing to the session. It returns the keys, and the renderer
+ * publishes them (block outputs and session env, like aws:profile-auth and
+ * aws:sso-complete) only if the sign-in attempt is still current, so a reply
+ * that lands after the block is gone changes nothing.
+ *
+ * When `expectedAccountId` is given and the credentials now belong to another
+ * account, the reply is `{ valid: false, accountChanged: true, ...identity }`
+ * with no keys, so the user is asked again about the account they would get.
  */
-export async function handleEnvCredentialsConfirm(params: EnvCredentialsParams = {}) {
+export async function handleEnvCredentialsConfirm(params: EnvCredentialsConfirmParams = {}) {
   const prefix = params.prefix || undefined
   const prefixError = invalidPrefixError(prefix)
   if (prefixError) return { valid: false, error: prefixError }
@@ -88,18 +97,18 @@ export async function handleEnvCredentialsConfirm(params: EnvCredentialsParams =
       confirmEnvCredentials(prefix, params.defaultRegion),
     )
 
-    // The same variables useAwsAuth's registerCredentials publishes:
-    // AWS_REGION (what the block documents and the SDKs read), and an
-    // explicit empty AWS_SESSION_TOKEN so static keys never run with a
-    // previous auth's session token.
-    await runtime.runPromise(
-      sessionManager.appendToEnv({
-        AWS_ACCESS_KEY_ID: credentials.accessKeyId,
-        AWS_SECRET_ACCESS_KEY: credentials.secretAccessKey,
-        AWS_REGION: credentials.region,
-        AWS_SESSION_TOKEN: credentials.sessionToken ?? "",
-      }),
-    )
+    if (params.expectedAccountId && identity.accountId !== params.expectedAccountId) {
+      return {
+        valid: false,
+        accountChanged: true,
+        error: `The credentials now belong to account ${identity.accountId}, not ${params.expectedAccountId}`,
+        accountId: identity.accountId,
+        accountName: identity.accountName,
+        arn: identity.arn,
+        region: credentials.region,
+        hasSessionToken: !!credentials.sessionToken,
+      }
+    }
 
     return {
       valid: true,

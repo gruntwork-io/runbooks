@@ -112,10 +112,14 @@ export interface IpcChannelMap {
     }
   }
   "aws:env-credentials-confirm": {
-    params: { prefix?: string; defaultRegion?: string }
+    /** `expectedAccountId`: the account the prompt showed; a different one is not confirmed. */
+    params: { prefix?: string; defaultRegion?: string; expectedAccountId?: string }
     result: {
       valid?: boolean
       error?: string
+      /** The credentials now belong to another account; no keys are returned. */
+      accountChanged?: boolean
+      hasSessionToken?: boolean
       accountId?: string
       accountName?: string
       arn?: string

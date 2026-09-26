@@ -161,6 +161,8 @@ describe("AwsAuth — detection", () => {
           region: "us-east-1",
         }
       }
+      if (channel === "session:set-env") return { ok: true }
+      if (channel === "aws:check-region") return { enabled: true }
       throw new Error(`unexpected channel ${channel}`)
     })
     renderBlock(<AwsAuth id="test-aws" />)
