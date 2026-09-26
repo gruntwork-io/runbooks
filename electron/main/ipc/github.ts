@@ -211,6 +211,7 @@ export function registerGitHubHandlers(): void {
         rememberGitHubHost(host)
         return {
           valid: true,
+          host,
           user: result.user,
           scopes: result.scopes,
           tokenType,

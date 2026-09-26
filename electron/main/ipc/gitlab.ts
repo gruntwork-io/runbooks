@@ -210,6 +210,7 @@ export function registerGitLabHandlers(): void {
         }
         return {
           valid: true,
+          host,
           user: result.user,
           scopes: result.scopes,
           tokenType,

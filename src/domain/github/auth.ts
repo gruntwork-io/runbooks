@@ -282,12 +282,14 @@ export const githubSessionEnv = (
  * Host-bound read of the GitHub credential in the session env.
  *
  * `authHost` is the host a GitAuth block wrote the session credential for
- * (main-only bookkeeping). It is trusted only while the env still carries the
- * matching GITHUB_HOST the block wrote with it — a session env reset drops
- * both together. With it, the session's GITHUB_TOKEN (or GH_TOKEN) is
- * released for that host and no other. Without it, the session env is
- * whatever the process started with, so it is interpreted with gh's own
- * conventions (githubEnvBindings) exactly like the ambient env.
+ * (main-only bookkeeping, cleared together with the session env). With it,
+ * the session's GITHUB_TOKEN (or GH_TOKEN) is released for that host and no
+ * other — and only while the env still carries the matching GITHUB_HOST the
+ * block wrote with it. If a script changed or removed GITHUB_HOST, nothing is
+ * released: the token may still be the auth block's, so reinterpreting it
+ * with gh's conventions could send it to the wrong host. Without `authHost`,
+ * the session env is whatever the process started with, so it is interpreted
+ * with gh's own conventions (githubEnvBindings) exactly like the ambient env.
  *
  * `host` undefined means "the session's GitHub host": the auth block's host,
  * else the host an env token is bound to (standard first, then enterprise),
@@ -298,8 +300,8 @@ export const githubSessionCredential = (
   host: string | undefined,
   authHost?: string,
 ): { token: string; host: string } | undefined => {
-  const boundAuthHost =
-    authHost !== undefined && tryNormalizeGitHubHost(env.GITHUB_HOST) === authHost ? authHost : undefined
+  if (authHost !== undefined && tryNormalizeGitHubHost(env.GITHUB_HOST) !== authHost) return undefined
+  const boundAuthHost = authHost
   const bindings = githubEnvBindings(env)
   const target =
     host !== undefined

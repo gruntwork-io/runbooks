@@ -34,6 +34,12 @@ describe('tryNormalizeGitHubHost', () => {
     expect(tryNormalizeGitHubHost('not a host')).toBeUndefined()
   })
 
+  it('rejects hosts with characters that are not valid in a DNS name', () => {
+    for (const bad of ['a.com;script-src', 'a.com,b.com', "a'b.com", '*.example.com']) {
+      expect(tryNormalizeGitHubHost(bad)).toBeUndefined()
+    }
+  })
+
   it('normalizeGitHubHost falls back to github.com for display', () => {
     expect(normalizeGitHubHost('')).toBe('github.com')
     expect(normalizeGitHubHost('acme.ghe.com')).toBe('acme.ghe.com')

@@ -32,6 +32,9 @@ const GHE_CLOUD_API_HOST = /^api\.([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.ghe\.com)$/
 
 export type GitHubHostKind = "dotcom" | "ghe-cloud" | "ghes"
 
+/** A lowercase DNS hostname with an optional port. */
+const DNS_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/
+
 /**
  * Normalize a user-supplied GitHub host or URL (`ghes.example.com`,
  * `https://ghes.example.com/org/repo`, `https://api.github.com`) to a bare,
@@ -51,7 +54,10 @@ export function tryNormalizeGitHubHost(input?: string | null): string | undefine
     const u = new URL(hasScheme ? raw : `https://${raw}`)
     if (u.username || u.password) return undefined
     const host = u.host.toLowerCase()
-    if (!host) return undefined
+    // DNS labels (+ optional port) only: the URL parser admits characters
+    // such as `;` `,` `'` `*` in a host, which must never reach an API URL,
+    // a gh argument or the CSP.
+    if (!DNS_HOST.test(host)) return undefined
     if (host === "api.github.com") return DEFAULT_GITHUB_HOST
     const gheApi = GHE_CLOUD_API_HOST.exec(host)
     return gheApi ? gheApi[1] : host

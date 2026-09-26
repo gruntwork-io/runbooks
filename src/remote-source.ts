@@ -141,8 +141,9 @@ export const parseRemoteSource = (
     }
 
     // 3) GitHub tree URL (github.com, GHES, or a ghe.com tenant)
+    // A GitLab host's `/g/p/tree/...` is a subgroup path, not a GitHub URL.
     match = trimmed.match(GITHUB_TREE_REGEX)
-    if (match) {
+    if (match && !isGitLabHost(match[1])) {
       const [, rawHost, owner, repo, refAndPath] = match
       const host = rawHost.toLowerCase()
       return {
@@ -158,7 +159,7 @@ export const parseRemoteSource = (
 
     // 4) GitHub blob URL
     match = trimmed.match(GITHUB_BLOB_REGEX)
-    if (match) {
+    if (match && !isGitLabHost(match[1])) {
       const [, rawHost, owner, repo, refAndPath] = match
       const host = rawHost.toLowerCase()
       return {
