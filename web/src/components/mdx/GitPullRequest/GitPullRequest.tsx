@@ -242,8 +242,9 @@ function GitPullRequestInteractive({
     return status
   }, [status, authMet, activeWorkTree, wrongProvider])
 
-  // Fetch labels when ready. Pass the repo's host so a self-hosted GitLab's
-  // labels are fetched from its own instance, not gitlab.com.
+  // Fetch labels when ready. Pass the repo's host so a self-hosted GitLab's or
+  // GitHub Enterprise repo's labels are fetched from its own instance, not
+  // gitlab.com / github.com.
   useEffect(() => {
     if (effectiveStatus === 'ready' && activeWorkTree?.gitInfo?.repoOwner && activeWorkTree?.gitInfo?.repoName) {
       fetchLabels(

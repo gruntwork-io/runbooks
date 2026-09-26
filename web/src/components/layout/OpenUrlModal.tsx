@@ -91,7 +91,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
               setError(null)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="https://github.com/owner/repo/tree/main/path/to/runbook"
+            placeholder="https://github.com/owner/repo/tree/main/path (or a GitHub Enterprise / GitLab URL)"
             className="w-full rounded-md border border-input px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
             autoFocus
             disabled={isLoading}

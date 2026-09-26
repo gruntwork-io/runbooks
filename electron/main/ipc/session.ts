@@ -5,7 +5,7 @@
  * All handlers are process-local and trusted -- no token validation needed.
  */
 import { ipcMain } from "electron"
-import { runtime, sessionManager } from "./runtime.ts"
+import { runtime, sessionManager, vcsSessionMeta } from "./runtime.ts"
 
 export function registerSessionHandlers(): void {
   ipcMain.handle("session:join", async () => {
@@ -17,7 +17,11 @@ export function registerSessionHandlers(): void {
   })
 
   ipcMain.handle("session:reset", async () => {
-    return runtime.runPromise(sessionManager.resetSession())
+    const result = await runtime.runPromise(sessionManager.resetSession())
+    // The reset restores the initial env, dropping every credential an auth
+    // block wrote — drop their host bindings with them.
+    vcsSessionMeta.clear()
+    return result
   })
 
   ipcMain.handle("session:delete", async () => {

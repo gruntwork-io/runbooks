@@ -48,10 +48,18 @@ export const githubProviderConfig: ProviderConfig = {
     validate: 'github:validate',
     envCredentials: 'github:env-credentials',
     cliCredentials: 'github:cli-credentials',
+    enumerateHosts: 'github:enumerate-hosts',
+    hostPicked: 'github:host-picked',
   },
+  // github.com plus any GitHub Enterprise hosts (GHES or *.ghe.com) the user
+  // is logged into via gh. The picker only shows when there is a choice.
+  supportsHostSelection: true,
+  defaultHost: 'github.com',
+  supportsManualInstance: false,
   env: {
     tokenVar: 'GITHUB_TOKEN',
     userVar: 'GITHUB_USER',
+    hostVar: 'GITHUB_HOST',
     altTokenVars: ['GH_TOKEN'],
   },
   pat: {

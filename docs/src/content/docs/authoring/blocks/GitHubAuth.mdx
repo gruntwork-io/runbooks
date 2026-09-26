@@ -32,8 +32,8 @@ You can still authenticate to GitHub without this block by using Runbooks' suppo
 ```
 
 By default, Runbooks will automatically detect and use credentials from:
-1. Environment variables (`GITHUB_TOKEN` or `GH_TOKEN`)
-2. GitHub CLI (`gh auth token`)
+1. Environment variables (`GITHUB_TOKEN` or `GH_TOKEN`; `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN` for a GitHub Enterprise Server host — see [Environment variables and hosts](#environment-variables-and-hosts))
+2. GitHub CLI (`gh auth token --hostname <host>`)
 
 If no credentials are detected, users can authenticate manually via OAuth or PAT.
 
@@ -50,7 +50,114 @@ The GitHubAuth block supports multiple authentication sources:
 
 ### GitHub Enterprise Support
 
-The GitHubAuth block supports GitHub.com, GitHub Enterprise Cloud and GitHub Enterprise Server. However, OAuth is only supported for GitHub.com and GitHub Enterprise Cloud. For GitHub Enterprise Server, you can use PAT authentication or contact Gruntwork for enterprise support options.
+The GitHubAuth block works with three kinds of GitHub host:
+
+| Host kind | Example host | REST API base URL |
+|-----------|--------------|-------------------|
+| **GitHub.com** (default) | `github.com` | `https://api.github.com` |
+| **GitHub Enterprise Cloud with data residency** (GHE.com) | `acme.ghe.com` | `https://api.acme.ghe.com` |
+| **GitHub Enterprise Server** (GHES, self-hosted) | `github.example.com` | `https://github.example.com/api/v3` |
+
+Any host that is not `github.com` or a `*.ghe.com` tenant is treated as GitHub Enterprise Server. GitHub is always reached over HTTPS, and the OAuth device flow always uses the host's web origin (`https://<host>/login/device`). GitHub Enterprise Cloud *without* data residency lives on `github.com` itself, so it needs no host configuration.
+
+#### Pinning the host
+
+Set the `host` prop to pin the block to one GitHub host. The host picker is hidden, and detection, validation, OAuth and every API call target that host only:
+
+```mdx
+{/* GitHub Enterprise Server */}
+<GitHubAuth
+  id="gh-auth"
+  title="Authenticate to GitHub Enterprise"
+  host="github.example.com"
+/>
+
+{/* GitHub Enterprise Cloud with data residency */}
+<GitHubAuth
+  id="gh-auth"
+  title="Authenticate to Acme's GitHub"
+  host="acme.ghe.com"
+/>
+```
+
+`host` accepts a bare hostname (optionally with a port) or a URL such as `https://github.example.com`; only the host part is kept. An API origin is mapped back to its web host (`api.github.com` → `github.com`, `api.acme.ghe.com` → `acme.ghe.com`). A `host` value that cannot be parsed is reported as a configuration error — the block never falls back to `github.com`.
+
+#### Picking a host
+
+Without a `host` prop, the block offers a **GitHub host** picker listing every GitHub host Runbooks knows about:
+
+- Hosts you are logged into with the GitHub CLI (from gh's `hosts.yml`, i.e. every `gh auth login --hostname <host>`)
+- The host named by the `GH_HOST` environment variable
+- The host the current session is already authenticated to
+- Enterprise hosts you recently authenticated to in Runbooks
+- `github.com`, always
+
+The picker only appears when more than one host is available, so users who only use `github.com` see no difference. The initially selected host is, in order of precedence:
+
+1. The host the user last picked, **if a credential for it is still available**
+2. The host named by `GH_HOST`
+3. `github.com`
+
+To make an enterprise host show up in the picker, log in to it once with the GitHub CLI:
+
+```bash
+gh auth login --hostname github.example.com
+```
+
+#### Environment variables and hosts
+
+Runbooks follows the GitHub CLI's environment variable conventions, but binds every token to **exactly one host**. A token is never sent to any other host:
+
+| Variable | Used for |
+|----------|----------|
+| `GITHUB_TOKEN`, `GH_TOKEN` | The host named by `GH_HOST` when it is `github.com` or a `*.ghe.com` tenant; otherwise `github.com` |
+| `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` | Only the GitHub Enterprise Server host named by `GH_HOST`; otherwise never used |
+
+For example:
+
+| Environment | `github.com` | `acme.ghe.com` | `github.example.com` (GHES) |
+|-------------|--------------|----------------|-----------------------------|
+| `GITHUB_TOKEN` set, no `GH_HOST` | `GITHUB_TOKEN` | — | — |
+| `GITHUB_TOKEN` set, `GH_HOST=acme.ghe.com` | — | `GITHUB_TOKEN` | — |
+| `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` set, `GH_HOST=github.example.com` | `GITHUB_TOKEN` | — | `GH_ENTERPRISE_TOKEN` |
+| `GH_ENTERPRISE_TOKEN` set, no `GH_HOST` | — | — | — |
+
+When both variables of a pair are set, `GITHUB_TOKEN` wins over `GH_TOKEN`, and `GH_ENTERPRISE_TOKEN` wins over `GITHUB_ENTERPRISE_TOKEN`. A `GH_HOST` that cannot be parsed binds no environment token at all. For any other host, use the GitHub CLI, OAuth, or a personal access token.
+
+<Aside type="note">
+This is deliberately stricter than the GitHub CLI, which sends `GITHUB_TOKEN` to both `github.com` and `*.ghe.com` hosts, and `GH_ENTERPRISE_TOKEN` to any Enterprise Server host. Because a runbook can choose the host, Runbooks only releases an environment token to the one host the user configured it for.
+</Aside>
+
+GitHub CLI detection runs `gh auth token --hostname <host>` for the selected host, so it returns the token gh stored for that host regardless of gh's own default host.
+
+#### OAuth on enterprise hosts
+
+The built-in Gruntwork Runbooks OAuth app only exists on `github.com`. To offer **Sign in with GitHub** on an enterprise host, register an OAuth app on that instance (or tenant) with **device flow enabled**, and pass its client ID in `oauthClientId`.
+
+`oauthClientId` accepts either:
+
+- **A string** — applies to the block's `host` when one is set, otherwise to `github.com` only.
+- **A map of host to client ID** — useful when the host picker is shown and users may pick different hosts.
+
+```mdx
+{/* Pinned host: the string applies to github.example.com */}
+<GitHubAuth
+  id="gh-auth"
+  host="github.example.com"
+  oauthClientId="0a1b2c3d4e5f6a7b8c9d"
+/>
+
+{/* Host picker: one OAuth app per host */}
+<GitHubAuth
+  id="gh-auth"
+  oauthClientId={{
+    "github.example.com": "0a1b2c3d4e5f6a7b8c9d",
+    "acme.ghe.com": "9f8e7d6c5b4a39281706",
+  }}
+/>
+```
+
+`github.com` keeps using the Gruntwork app unless the map (or a string without `host`) overrides it. For an enterprise host with no client ID, the OAuth tab is disabled with an explanation, and users can still sign in with a personal access token or `gh auth login --hostname <host>`. Runbooks never sends the `github.com` client ID to an enterprise host.
 
 ## Props
 
@@ -60,7 +167,8 @@ The GitHubAuth block supports GitHub.com, GitHub Enterprise Cloud and GitHub Ent
 | `title` | string | "GitHub Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
 | `detectCredentials` | `false` or `CredentialSource[]` | `['env', 'cli']` | Whether and how the block should automatically detect credentials in the user's environment |
-| `oauthClientId` | string | Gruntwork default | Custom OAuth App client ID |
+| `host` | string | - | Pins the GitHub host (`github.com`, a GHE.com tenant such as `acme.ghe.com`, or a GitHub Enterprise Server host such as `github.example.com`) and hides the host picker. See [GitHub Enterprise Support](#github-enterprise-support) |
+| `oauthClientId` | string or `Record<string, string>` | Gruntwork default (github.com only) | Custom OAuth App client ID. A string applies to `host` (or `github.com` when `host` is unset); a map is keyed by host. Required for OAuth on enterprise hosts |
 | `oauthScopes` | string[] | `["repo"]` | OAuth scopes to request |
 | `defaultTab` | `'oauth'` or `'pat'` | `'oauth'` | Which authentication tab the block opens on |
 
@@ -72,6 +180,9 @@ When authentication succeeds, the following environment variables are set in the
 |----------|-------------|
 | `GITHUB_TOKEN` | The GitHub access token |
 | `GITHUB_USER` | The authenticated user's login name |
+| `GITHUB_HOST` | The GitHub host the token belongs to (e.g. `github.com`, `acme.ghe.com`, `github.example.com`) |
+| `GH_HOST` | Same as `GITHUB_HOST`, so `gh` commands in later scripts target the same host |
+| `GH_ENTERPRISE_TOKEN` | GitHub Enterprise Server hosts only: the same token, since it is the only token variable `gh` reads for Enterprise Server |
 
 All subsequent Command and Check blocks automatically have access to these credentials. If you authenticate multiple times, the most recent credentials become the default.
 
@@ -110,7 +221,7 @@ You can explicitly reference a GitHubAuth block using the `githubAuthId` prop. T
 
 When a GitHubAuth block authenticates, it does two things:
 
-1. **Sets session-level environment variables** (`GITHUB_TOKEN`, `GITHUB_USER`) that are available to all subsequent blocks
+1. **Sets session-level environment variables** (`GITHUB_TOKEN`, `GITHUB_USER`, `GITHUB_HOST`, `GH_HOST`) that are available to all subsequent blocks
 2. **Stores credentials** that can be passed to specific blocks via `githubAuthId`
 
 When you use `githubAuthId` to reference a GitHubAuth block, the credentials from that specific GitHubAuth block are passed as environment variables that override any session-level values _for that block only_. This ensures the command uses the exact credentials from the referenced block, even if:
@@ -137,8 +248,8 @@ With no configuration, GitHubAuth tries these sources in order:
 <GitHubAuth id="gh-auth" />
 ```
 
-1. **Environment variables** - `GITHUB_TOKEN` or `GH_TOKEN`
-2. **GitHub CLI** - `gh auth token`
+1. **Environment variables** - `GITHUB_TOKEN` or `GH_TOKEN` (or `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN` for a GitHub Enterprise Server host), following the [host binding rules](#environment-variables-and-hosts)
+2. **GitHub CLI** - `gh auth token --hostname <host>`
 
 If either source provides valid credentials, authentication succeeds immediately. If neither is found, users see the manual OAuth/PAT interface.
 
@@ -146,9 +257,9 @@ If either source provides valid credentials, authentication succeeds immediately
 
 | Source | Description |
 |--------|-------------|
-| `'env'` | Check standard env vars (`GITHUB_TOKEN`, `GH_TOKEN`) |
-| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_GITHUB_TOKEN`, `PREFIX_GH_TOKEN`) |
-| `'cli'` | Check GitHub CLI (`gh auth token`) |
+| `'env'` | Check standard env vars (`GITHUB_TOKEN`, `GH_TOKEN`; `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` for GitHub Enterprise Server) |
+| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_GITHUB_TOKEN`, `PREFIX_GH_TOKEN`, …), bound to a host by `PREFIX_GH_HOST` |
+| `'cli'` | Check GitHub CLI (`gh auth token --hostname <host>`) |
 | `{ block: 'block-id' }` | Use token from a Command block's output |
 
 #### Custom Detection Order
@@ -175,7 +286,7 @@ Check prefixed environment variables (e.g., `PROD_GITHUB_TOKEN`):
 - Uppercase letters, numbers, and underscores only
 - Must start with a letter
 - Optional trailing underscore (recommended for readability)
-- Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN`
+- Only allows reading `PREFIX_GITHUB_TOKEN` / `PREFIX_GH_TOKEN` (or `PREFIX_GH_ENTERPRISE_TOKEN` / `PREFIX_GITHUB_ENTERPRISE_TOKEN` for a GitHub Enterprise Server host). `PREFIX_GH_HOST` (not the unprefixed `GH_HOST`) decides which host they are bound to, by the same rules as for the unprefixed variables
 
 #### Test Prefix
 
@@ -231,7 +342,7 @@ echo "GITHUB_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"
 
 ## Permissions
 
-Once authenticated to GitHub, Runbooks will update the environment variables `GITHUB_TOKEN` and `GITHUB_USER` with the authenticated user's token and username. GitHub tokens have permissions that control what actions they can perform. The way permissions are configured depends on the authentication method:
+Once authenticated to GitHub, Runbooks will update the environment variables `GITHUB_TOKEN` and `GITHUB_USER` (plus `GITHUB_HOST` and `GH_HOST`) with the authenticated user's token and username. GitHub tokens have permissions that control what actions they can perform. The way permissions are configured depends on the authentication method:
 
 | Method | How Permissions Are Set |
 |--------|------------------------|
@@ -276,6 +387,8 @@ When users authenticate with a PAT, the token's permissions are determined by ho
 
 If your runbook requires specific permissions, document them clearly so users know what to configure when creating their PAT.
 
+The block's "create a token" link follows the selected host: `https://<host>/settings/personal-access-tokens/new` on `github.com` and GHE.com tenants, and `https://<host>/settings/tokens/new` on GitHub Enterprise Server.
+
 ### Auto-detected credentials
 
 When GitHubAuth detects credentials from environment variables or GitHub CLI, those tokens retain whatever permissions they were created with. If a detected token lacks required permissions, operations may fail at runtime.
@@ -291,7 +404,8 @@ When detecting credentials from GitHub CLI, Runbooks checks if the token has the
 The GitHubAuth block is designed with a local-first security model:
 
 1. **Gruntwork never sees your credentials.** All authentication happens between your machine and GitHub. Tokens are never transmitted to Gruntwork servers.
-2. **Credentials stay in memory.** Tokens are stored only in your local Runbooks session and are never persisted to disk.
+2. **Tokens stay with their host.** A token is only ever sent to the GitHub host it was issued for. An enterprise token is never sent to `github.com`, and a `github.com` token is never sent to an enterprise host.
+3. **Credentials stay in memory.** Tokens are stored only in your local Runbooks session and are never persisted to disk.
 
 ### How Credentials Stay Local
 
@@ -309,8 +423,8 @@ Each authentication method keeps your credentials on your machine:
 When you authenticate via OAuth:
 
 1. Runbooks (running on your machine) requests a device code from GitHub
-2. You open github.com/login/device and enter the code
-3. You see "Gruntwork Runbooks wants to access your account" and approve
+2. You open `https://<host>/login/device` (github.com/login/device by default) and enter the code
+3. You see "Gruntwork Runbooks wants to access your account" (or the name of your enterprise's OAuth app) and approve
 4. GitHub sends the token directly to your local Runbooks instance
 
 The token goes from GitHub to your machine. Gruntwork has no server in this flow and cannot intercept your token.
@@ -336,9 +450,19 @@ As part of our internal security practices, we've analyzed the potential risks o
 
 **Scenario**: An attacker publishes a runbook that attempts to redirect OAuth to a fake GitHub login page (e.g., `oauthBaseUrl="https://github-login.attacker.com"`).
 
-**What happens**: Nothing. Runbooks does not allow `oauthBaseUrl` as a prop. GitHubAuth only communicates with Github.com, so the attack fails before it starts.
+**What happens**: Nothing. Runbooks does not allow `oauthBaseUrl` as a prop. GitHubAuth only communicates with the GitHub host shown in the block (`github.com` unless `host` or the host picker says otherwise), always over HTTPS, so the attack fails before it starts.
 
 **Risk**: None. This attack vector is blocked by design.
+
+#### Malicious Runbook with Custom `host`
+
+**Scenario**: An attacker publishes a runbook with `host="github-login.attacker.com"`, hoping to collect tokens from your environment or GitHub CLI.
+
+**What happens**: The block shows the host it is authenticating to. Environment tokens are only released to the host they are bound to (`GITHUB_TOKEN` to `github.com` or the `*.ghe.com` host in `GH_HOST`; `GH_ENTERPRISE_TOKEN` only to the Enterprise Server host in `GH_HOST`), and GitHub CLI detection only returns a token you stored for that exact host with `gh auth login --hostname`. OAuth needs an app registered on that host.
+
+**Risk**: Low. Only a token you type or paste into the block could reach the attacker's host.
+
+**Mitigation**: Check the host shown in the block before pasting a personal access token or approving a sign-in.
 
 #### Scope Escalation
 
@@ -361,5 +485,7 @@ Since Gruntwork never has your tokens, revoking access doesn't "take back" anyth
 You can manage authorizations at:
 - [github.com/settings/applications](https://github.com/settings/applications) - Revoke OAuth authorizations
 - [github.com/settings/tokens](https://github.com/settings/tokens) - Revoke personal access tokens
+
+On an enterprise host, use the same paths on that host (for example `https://github.example.com/settings/tokens`).
 
 Alternatively, simply closing your Runbooks session discards any tokens stored locally.

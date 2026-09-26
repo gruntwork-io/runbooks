@@ -30,18 +30,29 @@ export interface ProviderConfig {
     validate: 'github:validate' | 'gitlab:validate'
     envCredentials: 'github:env-credentials' | 'gitlab:env-credentials'
     cliCredentials: 'github:cli-credentials' | 'gitlab:cli-credentials'
-    /** Enumerate available hosts for the host picker (GitLab only). */
-    enumerateHosts?: 'gitlab:enumerate-hosts'
+    /** Enumerate available hosts for the host picker. */
+    enumerateHosts?: 'github:enumerate-hosts' | 'gitlab:enumerate-hosts'
+    /** Persist an explicit host pick so it survives restart. */
+    hostPicked?: 'github:host-picked' | 'gitlab:host-picked'
   }
   /**
    * Whether this provider supports choosing among multiple hosts/instances
-   * (GitLab self-managed vs gitlab.com). GitHub is single-host here, so false.
+   * (GitHub Enterprise vs github.com, GitLab self-managed vs gitlab.com).
    */
   supportsHostSelection?: boolean
+  /** The host used when none is picked, pinned, or enumerated. */
+  defaultHost: 'github.com' | 'gitlab.com'
+  /**
+   * Whether the user can type an arbitrary instance URL (the "Other
+   * instance…" picker row and the PAT form's instance-URL field). GitLab only.
+   */
+  supportsManualInstance: boolean
   /** Session/output env var names this provider writes. */
   env: {
     tokenVar: 'GITHUB_TOKEN' | 'GITLAB_TOKEN'
     userVar: 'GITHUB_USER' | 'GITLAB_USER'
+    /** Block output naming the host this block authenticated against. */
+    hostVar: 'GITHUB_HOST' | 'GITLAB_HOST'
     /** Alternate token env vars (used for block-output detection). */
     altTokenVars: string[]
   }

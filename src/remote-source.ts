@@ -9,6 +9,7 @@ import type { SpawnError } from "./errors/index.ts"
 import { RemoteSourceError } from "./errors/index.ts"
 import { gitSpawnEnv } from "./domain/git/env.ts"
 import { isGitLabHost } from "./domain/git/gitlab-host.ts"
+import { isGitHubHost } from "./domain/git/github-host.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
 // ---------------------------------------------------------------------------
@@ -27,13 +28,17 @@ const GIT_PREFIX_REGEX =
 const GITHUB_SHORTHAND_REGEX =
   /^github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/\/(.+?)(?:\?ref=(.+))?$/
 
-/** GitHub browser tree URL: https://github.com/owner/repo/tree/ref/path */
+/**
+ * GitHub browser tree URL: https://<host>/owner/repo/tree/ref/path. The host
+ * may be github.com, a GHES host or a ghe.com tenant — the `/owner/repo/tree/`
+ * shape (no GitLab `/-/` marker) is what identifies it.
+ */
 const GITHUB_TREE_REGEX =
-  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/tree\/(.+)$/
+  /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/tree\/(.+)$/
 
-/** GitHub browser blob URL: https://github.com/owner/repo/blob/ref/file */
+/** GitHub browser blob URL: https://<host>/owner/repo/blob/ref/file */
 const GITHUB_BLOB_REGEX =
-  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/
+  /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/blob\/(.+)$/
 
 /**
  * GitLab browser tree URL: https://host/group/.../repo/-/tree/ref/path
@@ -47,9 +52,13 @@ const GITLAB_TREE_REGEX =
 const GITLAB_BLOB_REGEX =
   /^https?:\/\/([^/]+)\/(.+?)\/-\/blob\/(.+)$/
 
-/** Plain GitHub repo URL: https://github.com/owner/repo (no nested groups) */
+/**
+ * Plain GitHub repo URL: https://<host>/owner/repo (no nested groups). The
+ * caller only accepts it when the host is GitHub (isGitHubHost: github.com,
+ * a ghe.com tenant, or a configured enterprise host).
+ */
 const PLAIN_GITHUB_REPO_REGEX =
-  /^https?:\/\/github\.com\/([^/]+)\/([^/.]+?)(?:\.git)?$/
+  /^https?:\/\/([^/]+)\/([^/]+)\/([^/.]+?)(?:\.git)?$/
 
 /**
  * Plain GitLab repo URL: https://<host>/group/.../repo
@@ -81,7 +90,19 @@ const splitOwnerRepo = (
 // parseRemoteSource
 // ---------------------------------------------------------------------------
 
-export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource, RemoteSourceError> =>
+export interface ParseRemoteSourceOptions {
+  /**
+   * Enterprise GitHub hosts the user configured (gh's hosts.yml, GH_HOST). A
+   * GHES host has an arbitrary name, so a plain `https://<host>/owner/repo`
+   * URL is recognized as GitHub only for these (and github.com / ghe.com).
+   */
+  readonly githubHosts?: readonly string[]
+}
+
+export const parseRemoteSource = (
+  raw: string,
+  opts: ParseRemoteSourceOptions = {},
+): Effect.Effect<ParsedRemoteSource, RemoteSourceError> =>
   Effect.gen(function* () {
     const trimmed = raw.trim()
     if (!trimmed) {
@@ -119,31 +140,34 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
       }
     }
 
-    // 3) GitHub tree URL
+    // 3) GitHub tree URL (github.com, GHES, or a ghe.com tenant)
+    // A GitLab host's `/g/p/tree/...` is a subgroup path, not a GitHub URL.
     match = trimmed.match(GITHUB_TREE_REGEX)
-    if (match) {
-      const [, owner, repo, refAndPath] = match
+    if (match && !isGitLabHost(match[1])) {
+      const [, rawHost, owner, repo, refAndPath] = match
+      const host = rawHost.toLowerCase()
       return {
-        host: "github.com",
+        host,
         owner,
         repo,
         // ref/path split is ambiguous; set path as combined and resolve later
         path: refAndPath,
-        cloneURL: `https://github.com/${owner}/${repo}.git`,
+        cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: false,
       }
     }
 
     // 4) GitHub blob URL
     match = trimmed.match(GITHUB_BLOB_REGEX)
-    if (match) {
-      const [, owner, repo, refAndPath] = match
+    if (match && !isGitLabHost(match[1])) {
+      const [, rawHost, owner, repo, refAndPath] = match
+      const host = rawHost.toLowerCase()
       return {
-        host: "github.com",
+        host,
         owner,
         repo,
         path: refAndPath,
-        cloneURL: `https://github.com/${owner}/${repo}.git`,
+        cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: true,
       }
     }
@@ -180,13 +204,14 @@ export const parseRemoteSource = (raw: string): Effect.Effect<ParsedRemoteSource
 
     // 7) Plain GitHub repo URL (GitHub has no nested groups → exactly owner/repo)
     match = trimmed.match(PLAIN_GITHUB_REPO_REGEX)
-    if (match) {
-      const [, owner, repo] = match
+    if (match && isGitHubHost(match[1], opts.githubHosts)) {
+      const [, rawHost, owner, repo] = match
+      const host = rawHost.toLowerCase()
       return {
-        host: "github.com",
+        host,
         owner,
         repo,
-        cloneURL: `https://github.com/${owner}/${repo}.git`,
+        cloneURL: `https://${host}/${owner}/${repo}.git`,
         isBlobURL: false,
       }
     }

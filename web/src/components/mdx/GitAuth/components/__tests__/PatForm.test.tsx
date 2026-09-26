@@ -71,3 +71,24 @@ describe("PatForm — GitLab self-hosted instance field", () => {
     )
   })
 })
+
+describe("PatForm — GitHub token link follows the active host", () => {
+  const linkFor = (host?: string) => {
+    renderPatForm({ provider: PROVIDERS.github, host })
+    fireEvent.click(screen.getByText("How do I create a token?"))
+    return screen.getByRole("link", { name: /settings\// })
+  }
+
+  it("github.com (unchanged)", () => {
+    expect(linkFor("github.com")).toHaveAttribute("href", "https://github.com/settings/personal-access-tokens/new")
+  })
+
+  it("a *.ghe.com tenant uses fine-grained tokens on its own host", () => {
+    expect(linkFor("acme.ghe.com")).toHaveAttribute("href", "https://acme.ghe.com/settings/personal-access-tokens/new")
+  })
+
+  it("GHES links to the classic token page", () => {
+    expect(linkFor("ghes.corp")).toHaveAttribute("href", "https://ghes.corp/settings/tokens/new")
+    expect(screen.getByText("1. Create a personal access token:")).toBeInTheDocument()
+  })
+})

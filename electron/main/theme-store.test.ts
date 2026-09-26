@@ -7,6 +7,13 @@ import * as nodePath from "node:path"
 // Mock it to point at a per-test temp dir so the module is testable without an
 // Electron runtime. The mock reads `tmpDir` lazily, so reassigning it in
 // beforeEach takes effect for each test.
+//
+// The inert ipcMain/contextBridge/ipcRenderer stubs are NOT used here: within
+// one `bun test` process the first mock.module("electron") fixes the module's
+// export NAMES for every later file, so a later mock that adds names (e.g.
+// ipc/github.test.ts, which needs ipcMain) would fail to link with
+// "Export named 'ipcMain' not found" if this file ran first. Keep this list a
+// superset of the names other electron-mocking tests import.
 let tmpDir = ""
 mock.module("electron", () => ({
   app: {
@@ -15,6 +22,9 @@ mock.module("electron", () => ({
       throw new Error(`unexpected app.getPath(${name})`)
     },
   },
+  ipcMain: { handle: () => {} },
+  contextBridge: { exposeInMainWorld: () => {} },
+  ipcRenderer: { invoke: () => Promise.resolve(), on: () => {}, once: () => {}, removeListener: () => {} },
 }))
 
 const { getStoredTheme, setStoredTheme } = await import("./theme-store.ts")

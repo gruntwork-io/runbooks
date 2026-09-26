@@ -5,7 +5,11 @@
  * CLI open-file) can obtain the main window without circular imports.
  */
 import { BrowserWindow, nativeTheme, session, shell } from "electron"
+import fs from "fs"
 import path from "path"
+import { buildContentSecurityPolicy } from "./csp.ts"
+import { readVcsAuthStore } from "./recent-hosts.ts"
+import { parseGhHosts, resolveGhHostsPath } from "../../src/domain/github/auth.ts"
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
 
@@ -17,6 +21,24 @@ function openExternalIfAllowed(url: string): void {
       shell.openExternal(url)
     }
   } catch { /* ignore invalid URLs */ }
+}
+
+/**
+ * The GitHub hosts the user has configured or used — GH_HOST, gh's hosts.yml,
+ * and the persisted recent/last-picked hosts — whose avatars the CSP must
+ * allow. Synchronous and best-effort: read when a frame loads.
+ */
+function knownGitHubHosts(): string[] {
+  const hosts: string[] = []
+  if (process.env.GH_HOST) hosts.push(process.env.GH_HOST)
+  try {
+    const hostsPath = resolveGhHostsPath({ env: process.env })
+    if (hostsPath) hosts.push(...parseGhHosts(fs.readFileSync(hostsPath, "utf8")))
+  } catch { /* no gh config */ }
+  const store = readVcsAuthStore()
+  hosts.push(...store.recentGitHubHosts)
+  if (store.lastSelectedGitHubHost) hosts.push(store.lastSelectedGitHubHost)
+  return hosts
 }
 
 /**
@@ -87,9 +109,7 @@ export function createMainWindow(): BrowserWindow {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          "Content-Security-Policy": [
-            "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: runbook-asset: https://avatars.githubusercontent.com https://gitlab.com https://secure.gravatar.com; media-src 'self' runbook-asset:; font-src 'self' data:",
-          ],
+          "Content-Security-Policy": [buildContentSecurityPolicy(knownGitHubHosts())],
         },
       })
     })

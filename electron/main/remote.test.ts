@@ -272,3 +272,103 @@ describe("cleanupTempClones", () => {
     nodeFs.rmSync(a, { recursive: true, force: true })
   })
 })
+
+// ---------------------------------------------------------------------------
+// GitHub Enterprise hosts (GHES / ghe.com)
+// ---------------------------------------------------------------------------
+
+describe("authHintForHost — GitHub enterprise hosts", () => {
+  it("GHES (provider github): GH_ENTERPRISE_TOKEN + GH_HOST binding and gh --hostname", () => {
+    expect(authHintForHost("ghes.example.com", "github")).toEqual({
+      envRemedy: "GH_ENTERPRISE_TOKEN and GH_HOST=ghes.example.com",
+      cliCmd: "gh auth login --hostname ghes.example.com",
+    })
+    // lowercased, port kept
+    expect(authHintForHost("GHES.example.com:8443", "github")).toEqual({
+      envRemedy: "GH_ENTERPRISE_TOKEN and GH_HOST=ghes.example.com:8443",
+      cliCmd: "gh auth login --hostname ghes.example.com:8443",
+    })
+  })
+
+  it("GHES without provider detection gets no hint (an arbitrary name can't be placed)", () => {
+    expect(authHintForHost("ghes.example.com")).toBeUndefined()
+  })
+
+  it("ghe.com tenant (by name, or provider github): GITHUB_TOKEN + GH_HOST binding", () => {
+    const expected = {
+      envRemedy: "GITHUB_TOKEN and GH_HOST=acme.ghe.com",
+      cliCmd: "gh auth login --hostname acme.ghe.com",
+    }
+    expect(authHintForHost("acme.ghe.com")).toEqual(expected)
+    expect(authHintForHost("acme.ghe.com", "github")).toEqual(expected)
+  })
+
+  it("github.com keeps its plain hint regardless of provider", () => {
+    expect(authHintForHost("github.com", "github")).toEqual({ envRemedy: "GITHUB_TOKEN", cliCmd: "gh auth login" })
+  })
+
+  it("provider gitlab places an arbitrary host as GitLab", () => {
+    expect(authHintForHost("git.corp.net", "gitlab")).toEqual({
+      envRemedy: "GITLAB_TOKEN and GITLAB_HOST=git.corp.net",
+      cliCmd: "glab auth login --hostname git.corp.net",
+    })
+  })
+})
+
+describe("classifyCloneError — threads provider", () => {
+  const authFail = "fatal: Authentication failed"
+
+  it("GHES with provider github, no token → GitHub enterprise hint", () => {
+    const result = classifyCloneError({
+      host: "ghes.example.com",
+      owner: "o",
+      repo: "r",
+      stderr: authFail,
+      hadToken: false,
+      provider: "github",
+    })
+    expect(result).toEqual({
+      kind: "auth",
+      hint: "authentication required for ghes.example.com/o/r: set GH_ENTERPRISE_TOKEN and GH_HOST=ghes.example.com, or run 'gh auth login --hostname ghes.example.com'",
+    })
+  })
+
+  it("GHES with provider github, with token → verify hint", () => {
+    const result = classifyCloneError({
+      host: "ghes.example.com",
+      owner: "o",
+      repo: "r",
+      stderr: authFail,
+      hadToken: true,
+      provider: "github",
+    })
+    expect(result.hint).toBe(
+      "authentication failed for ghes.example.com/o/r (token may be invalid or expired): verify GH_ENTERPRISE_TOKEN and GH_HOST=ghes.example.com, or re-run 'gh auth login --hostname ghes.example.com'",
+    )
+  })
+
+  it("GHES without provider → generic hint", () => {
+    const result = classifyCloneError({
+      host: "ghes.example.com",
+      owner: "o",
+      repo: "r",
+      stderr: authFail,
+      hadToken: false,
+    })
+    expect(result.hint).toBe("authentication required for ghes.example.com/o/r: provide an access token for ghes.example.com")
+  })
+
+  it("ghe.com tenant", () => {
+    const result = classifyCloneError({
+      host: "acme.ghe.com",
+      owner: "o",
+      repo: "r",
+      stderr: authFail,
+      hadToken: false,
+      provider: "github",
+    })
+    expect(result.hint).toBe(
+      "authentication required for acme.ghe.com/o/r: set GITHUB_TOKEN and GH_HOST=acme.ghe.com, or run 'gh auth login --hostname acme.ghe.com'",
+    )
+  })
+})

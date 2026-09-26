@@ -4,6 +4,7 @@ import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
+import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from '@/components/mdx/_shared/lib/githubHost'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef, LocalRepoInfo } from '../types'
 
@@ -86,6 +87,18 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     [gitAuthId, githubAuthId, allOutputs],
   )
 
+  // The GitHub host of the linked auth block (its GITHUB_HOST output):
+  // github.com, a *.ghe.com tenant, or a GHES host. The repo browser lists and
+  // builds clone URLs against it. Defaults to github.com.
+  const githubHost = useMemo((): string => {
+    for (const authId of [gitAuthId, githubAuthId]) {
+      if (!authId) continue
+      const host = tryNormalizeGitHubHost(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST)
+      if (host) return host
+    }
+    return DEFAULT_GITHUB_HOST
+  }, [gitAuthId, githubAuthId, allOutputs])
+
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
     try {
@@ -104,7 +117,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     fetchWorkingDir()
 
     try {
-      const orgs = await api.invoke('github:orgs')
+      const orgs = await api.invoke('github:orgs', { host: githubHost })
       // If we got orgs back (even just the user), we have a token
       setHasGitHubToken(Array.isArray(orgs) && orgs.length > 0)
     } catch {
@@ -113,29 +126,29 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       setTokenChecked(true)
       setCloneStatus('ready')
     }
-  }, [api, fetchWorkingDir])
+  }, [api, fetchWorkingDir, githubHost])
 
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
     try {
-      const orgs = await api.invoke('github:orgs')
+      const orgs = await api.invoke('github:orgs', { host: githubHost })
       return (orgs as unknown as GitHubOrg[]) ?? []
     } catch {
       return []
     }
-  }, [api])
+  }, [api, githubHost])
 
   const fetchRepos = useCallback(async (owner: string, _query?: string): Promise<GitHubRepo[]> => {
     try {
-      const repos = await api.invoke('github:repos', { org: owner })
+      const repos = await api.invoke('github:repos', { org: owner, host: githubHost })
       return (repos as unknown as GitHubRepo[]) ?? []
     } catch {
       return []
     }
-  }, [api])
+  }, [api, githubHost])
 
   const fetchRefs = useCallback(async (owner: string, repo: string, _query?: string): Promise<{ refs: GitHubRef[]; totalCount: number; hasMore: boolean }> => {
     try {
-      const refs = await api.invoke('github:refs', { owner, repo })
+      const refs = await api.invoke('github:refs', { owner, repo, host: githubHost })
       const typedRefs = (refs as unknown as GitHubRef[]) ?? []
       return {
         refs: typedRefs,
@@ -145,7 +158,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     } catch {
       return { refs: [], totalCount: 0, hasMore: false }
     }
-  }, [api])
+  }, [api, githubHost])
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
@@ -389,6 +402,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    githubHost,
     workingDir,
     localPreview,
     localPreviewStatus,

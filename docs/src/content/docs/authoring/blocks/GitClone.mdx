@@ -152,7 +152,7 @@ The GitClone block accepts the following URL formats:
 
 | Format | Example | Notes |
 |--------|---------|-------|
-| HTTPS | `https://github.com/org/repo.git` | Recommended. Token auth injected automatically for GitHub URLs. |
+| HTTPS | `https://github.com/org/repo.git` | Recommended. Token auth injected automatically for URLs on the authenticated GitHub host. |
 | HTTPS (no .git) | `https://github.com/org/repo` | Also works without the `.git` suffix. |
 | Any host | `https://gitlab.com/org/repo.git` | Works with any git hosting provider. |
 | SSH | `git@github.com:org/repo.git` | Token auth does **not** apply to SSH URLs. Use HTTPS for token-based auth. |
@@ -161,11 +161,36 @@ The GitClone block accepts the following URL formats:
 
 The GitClone block resolves GitHub credentials in the following order:
 
-1. **`githubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs.
-2. **Session environment** — Checks the session environment for `GITHUB_TOKEN` or `GH_TOKEN`.
+1. **`githubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs, for the host that block authenticated to.
+2. **Session environment** — Checks the session environment for a GitHub token bound to the host (see [environment variables and hosts](/authoring/blocks/githubauth/#environment-variables-and-hosts)).
 3. **No token** — The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
 
-When a GitHub token is available and the user enters a `github.com` HTTPS URL, the token is automatically injected on the server side for authentication. The token is never exposed in the browser.
+When a GitHub token is available and the user enters an HTTPS URL on the host that token belongs to, the token is automatically injected on the server side for authentication. The token is never exposed in the browser.
+
+#### GitHub Enterprise
+
+GitClone follows the GitHub host of the linked auth block (its `GITHUB_HOST` output; `github.com` by default). When the auth block authenticated to a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`:
+
+- The **Browse GitHub repositories** dropdown lists organizations, repositories, and refs from that host's API.
+- Repositories picked in the browser are cloned from `https://<host>/<org>/<repo>`, and the URL placeholder shows that host.
+- The token is only injected into clone URLs on that same host. A URL on any other host (including `github.com`) is cloned without it.
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Connect to GitHub Enterprise"
+  host="github.example.com"
+/>
+
+<GitClone
+  id="clone-repo"
+  githubAuthId="gh-auth"
+  title="Clone a Repo"
+  prefilledUrl="https://github.example.com/platform/infrastructure-live"
+/>
+```
+
+A `prefilledUrl` on `github.com`, a `*.ghe.com` tenant, or the auth block's host is recognized as a GitHub repository, so its organization and repository are pre-selected in the browser.
 
 ### Sparse Checkout
 

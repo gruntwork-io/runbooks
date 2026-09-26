@@ -12,6 +12,7 @@ import { VcsCredentials } from "../services/VcsCredentials.ts"
 import type {
   CliValidation,
   DetectionResult,
+  GitHubHostsInfo,
   MergedGitLabHosts,
   VcsCredentialsShape,
   VcsCliStatusInfo,
@@ -29,7 +30,9 @@ import {
   detectEnvCredentials as detectGitHubEnvCredentials,
   detectCliCredentials as detectGitHubCliToken,
   detectHostsYmlCredentials,
+  detectGhConfigHosts,
   cliScopes as detectGhCliScopes,
+  configuredGhHost,
   GH_ENV_OVERRIDES,
 } from "../domain/github/auth.ts"
 import {
@@ -54,6 +57,12 @@ import {
   normalizeGitLabBaseUrl,
   normalizeGitLabHost,
 } from "../domain/git/gitlab-host.ts"
+import {
+  DEFAULT_GITHUB_HOST,
+  githubHostKind,
+  isGitHubHost,
+  tryNormalizeGitHubHost,
+} from "../domain/git/github-host.ts"
 
 // exact copies — contracts.
 const GH_KEYRING_HINT = "gh stores this token in the OS keyring; install gh or paste a token."
@@ -189,11 +198,10 @@ export const VcsCredentialsLive = Layer.effect(
     /** invalidation: any auth failure flushes the relevant entry. */
     const flushOnAuthFailure = (key: string) => Effect.sync(() => cliReadCache.delete(key))
 
-    const ghReadCached = cachedRead(
-      "gh:github.com",
-      run(detectGitHubCliToken()),
-      (token) => token !== undefined,
-    )
+    // Keyed per host: a token gh stored for one host is never served for
+    // another.
+    const ghReadCached = (host: string) =>
+      cachedRead(`gh:${host}`, run(detectGitHubCliToken(host)), (token) => token !== undefined)
     const glabReadCached = (host: string) =>
       cachedRead(
         `glab:${host}`,
@@ -221,8 +229,8 @@ export const VcsCredentialsLive = Layer.effect(
 
     // --- Direct validation (one transport: global fetch via the clients) ---
 
-    const validateGitHubDirect = (token: string): Effect.Effect<DirectValidation> =>
-      githubClient.validateToken(token).pipe(
+    const validateGitHubDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
+      githubClient.validateToken(token, host).pipe(
         Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
         Effect.catchAll((err: GitHubApiError) =>
           Effect.succeed<DirectValidation>({ ok: false, status: err.status, kind: err.kind, message: err.message }),
@@ -239,29 +247,35 @@ export const VcsCredentialsLive = Layer.effect(
 
     // --- Detection legs -----------------------------------------
 
-    const detectGitHubEnv = (prefix?: string): Effect.Effect<DetectionResult> =>
+    const detectGitHubEnv = (rawHost: string, prefix?: string): Effect.Effect<DetectionResult> =>
       Effect.gen(function* () {
-        const cred = yield* run(detectGitHubEnvCredentials(prefix))
+        const host = tryNormalizeGitHubHost(rawHost)
+        if (!host) return absent()
+        // binding rule: only the env token bound to `host` is read, so it is
+        // never transmitted to any other host (githubEnvBindings).
+        const cred = yield* run(detectGitHubEnvCredentials(host, prefix))
         if (!cred) return absent()
-        const validation = yield* validateGitHubDirect(cred.token)
+        const validation = yield* validateGitHubDirect(cred.token, host)
         const base = {
           token: cred.token,
           source: "env" as const,
           envVar: cred.envVar,
           divergenceHint: cred.shadowedVar ? ENV_DIVERGENCE_HINT : undefined,
         }
-        return toDetection(validation, base, [`${cred.envVar} is not valid for github.com`])
+        return toDetection(validation, base, [`${cred.envVar} is not valid for ${host}`])
       })
 
-    const detectGitHubCli = (): Effect.Effect<DetectionResult> =>
+    const detectGitHubCli = (rawHost: string): Effect.Effect<DetectionResult> =>
       Effect.gen(function* () {
-        let token = yield* ghReadCached
+        const host = tryNormalizeGitHubHost(rawHost)
+        if (!host) return absent()
+        let token = yield* ghReadCached(host)
         let source: "cli" | "config" = "cli"
         if (!token) {
           // hosts.yml is the gh-BINARY-ABSENT-ONLY fallback.
           const status = yield* cliStatus()
           if (!status.gh.installed) {
-            const fallback = yield* run(detectHostsYmlCredentials())
+            const fallback = yield* run(detectHostsYmlCredentials(host))
             if (fallback.token) {
               token = fallback.token
               source = "config"
@@ -271,16 +285,18 @@ export const VcsCredentialsLive = Layer.effect(
           }
           if (!token) return absent()
         }
-        const validation = yield* validateGitHubDirect(token)
-        if (!validation.ok) yield* flushOnAuthFailure("gh:github.com")
+        const validation = yield* validateGitHubDirect(token, host)
+        if (!validation.ok) yield* flushOnAuthFailure(`gh:${host}`)
         // Supplement scopes via `gh auth status` for cli-sourced tokens
         // — advisory; skipped for the binary-absent fallback.
         let scopes = validation.scopes
         if (validation.ok && (!scopes || scopes.length === 0) && source === "cli") {
-          scopes = (yield* run(detectGhCliScopes())) ?? scopes
+          scopes = (yield* run(detectGhCliScopes(host))) ?? scopes
         }
         return toDetection({ ...validation, scopes }, { token, source }, [
-          "GitHub CLI token is invalid or expired",
+          host === DEFAULT_GITHUB_HOST
+            ? "GitHub CLI token is invalid or expired"
+            : `GitHub CLI token for ${host} is invalid or expired`,
         ])
       })
 
@@ -364,7 +380,8 @@ export const VcsCredentialsLive = Layer.effect(
         return absent({ warnings, hint })
       })
 
-    const resolveGitHub = (prefix?: string) => chain([detectGitHubEnv(prefix), detectGitHubCli()])
+    const resolveGitHub = (host: string, prefix?: string) =>
+      chain([detectGitHubEnv(host, prefix), detectGitHubCli(host)])
     const resolveGitLab = (instance: string) =>
       chain([detectGitLabEnv(instance), detectGitLabCli(instance)])
 
@@ -376,9 +393,54 @@ export const VcsCredentialsLive = Layer.effect(
       Effect.gen(function* () {
         const validation =
           provider === "github"
-            ? yield* validateGitHubDirect(token)
+            ? yield* validateGitHubDirect(token, host)
             : yield* validateGitLabDirect(token, host)
         return toDetection(validation, { token }, [])
+      })
+
+    // --- provider detection (names + the user's own config, no network) --
+
+    const enumerateGitHubHosts = (): Effect.Effect<GitHubHostsInfo> =>
+      Effect.gen(function* () {
+        const configHosts = yield* run(detectGhConfigHosts())
+        const raw = configuredGhHost(yield* environment.getAll())
+        const envHost = raw !== undefined ? tryNormalizeGitHubHost(raw) : undefined
+        return {
+          configHosts,
+          ...(envHost ? { envHost } : {}),
+          defaultHost: envHost ?? DEFAULT_GITHUB_HOST,
+        }
+      })
+
+    const isKnownGitHub = (host: string): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        if (isGitHubHost(host)) return true
+        const { configHosts, envHost } = yield* enumerateGitHubHosts()
+        return isGitHubHost(host, envHost ? [...configHosts, envHost] : configHosts)
+      })
+
+    // GitLab membership: union of glab config hosts + the env-bound host — not
+    // the name heuristic alone (the `git.corp.net` blind spot). The heuristic
+    // stays as the final fallback for never-configured-but-obvious hosts.
+    const isKnownGitLab = (host: string): Effect.Effect<boolean> =>
+      Effect.gen(function* () {
+        const allEnv = yield* environment.getAll()
+        const { hosts } = yield* run(detectConfigHosts())
+        return (
+          host === DEFAULT_GITLAB_HOST ||
+          hosts.some((h) => h.toLowerCase() === host) ||
+          envTokenHost(allEnv) === host ||
+          isGitLabHost(host)
+        )
+      })
+
+    const detectProvider = (rawHost: string): Effect.Effect<VcsProvider | undefined> =>
+      Effect.gen(function* () {
+        const host = rawHost.trim().toLowerCase()
+        if (!host) return undefined
+        if (yield* isKnownGitHub(host)) return "github" as const
+        if (yield* isKnownGitLab(host)) return "gitlab" as const
+        return undefined
       })
 
     // --- read-only host→token (golang semantics, no network) ----------
@@ -386,32 +448,25 @@ export const VcsCredentialsLive = Layer.effect(
     const tokenForHost = (rawHost: string): Effect.Effect<string | undefined> =>
       Effect.gen(function* () {
         const host = rawHost.trim().toLowerCase()
-        if (host === "github.com") {
-          const cred = yield* run(detectGitHubEnvCredentials())
+        const provider = yield* detectProvider(host)
+        if (provider === undefined) return undefined // not an error; public repos must work
+
+        if (provider === "github") {
+          // Every source is read for exactly this host: the env token bound
+          // to it, gh's stored token for it, its hosts.yml entry.
+          const cred = yield* run(detectGitHubEnvCredentials(host))
           if (cred) return cred.token
-          const cli = yield* ghReadCached
+          const cli = yield* ghReadCached(host)
           if (cli) return cli
           const status = yield* cliStatus()
           if (!status.gh.installed) {
-            const fallback = yield* run(detectHostsYmlCredentials())
+            const fallback = yield* run(detectHostsYmlCredentials(host))
             if (fallback.token) return fallback.token
           }
           return undefined
         }
 
-        // GitLab branch: union membership — glab config hosts + the env-bound
-        // host — not the name heuristic alone (the `git.corp.net` blind spot).
-        // The heuristic stays as the final fallback for
-        // never-configured-but-obvious hosts.
         const allEnv = yield* environment.getAll()
-        const { hosts } = yield* run(detectConfigHosts())
-        const isKnownGitLab =
-          host === DEFAULT_GITLAB_HOST ||
-          hosts.some((h) => h.toLowerCase() === host) ||
-          envTokenHost(allEnv) === host ||
-          isGitLabHost(host)
-        if (!isKnownGitLab) return undefined // not an error; public repos must work
-
         if (mayAutoSendEnvToken(host, allEnv)) {
           const cred = yield* run(detectGitLabEnvCredentials())
           if (cred) return cred.token
@@ -485,7 +540,7 @@ export const VcsCredentialsLive = Layer.effect(
       }
     }
 
-    const probeGitHub = (token: string): Effect.Effect<CliValidation, VcsCliError> =>
+    const probeGitHub = (host: string, token: string): Effect.Effect<CliValidation, VcsCliError> =>
       Effect.gen(function* () {
         const status = yield* cliStatus()
         if (!status.gh.installed) {
@@ -496,17 +551,25 @@ export const VcsCredentialsLive = Layer.effect(
             new VcsCliError({ kind: "api", stderr: `gh ${status.gh.version ?? "?"} is below the supported floor` }),
           )
         }
+        const target = tryNormalizeGitHubHost(host)
+        if (!target) {
+          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: `invalid GitHub host: ${host}` }))
+        }
         // Pin gh to validate exactly the candidate (env-over-stored-creds is
-        // documented gh behavior); token via CHILD ENV only, never argv.
+        // documented gh behavior); token via CHILD ENV only, never argv. gh
+        // reads GH_TOKEN for github.com / ghe.com hosts and
+        // GH_ENTERPRISE_TOKEN for GHES, so set the one gh will use for the
+        // pinned host (the hygiene overrides strip all the others).
+        const tokenVar = githubHostKind(target) === "ghes" ? "GH_ENTERPRISE_TOKEN" : "GH_TOKEN"
         const childEnv = {
           ...buildCliEnv(yield* environment.getAll(), GH_ENV_OVERRIDES),
-          GH_TOKEN: token,
+          [tokenVar]: token,
         }
         // -i exposes headers, so X-OAuth-Scopes still yields scopes. The
         // --hostname pin mirrors the detection path: without it, GH_HOST
-        // (which the hygiene overrides also strip) would aim the probe — and
-        // the candidate token — at a GHES origin instead of github.com.
-        const result = yield* runCli("gh", ["api", "user", "-i", "--hostname", "github.com"], childEnv)
+        // (which the hygiene overrides also strip) could aim the probe — and
+        // the candidate token — at a different host.
+        const result = yield* runCli("gh", ["api", "user", "-i", "--hostname", target], childEnv)
         if (result.exitCode !== 0) {
           return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }))
         }
@@ -600,7 +663,7 @@ export const VcsCredentialsLive = Layer.effect(
       token: string,
       source: VcsCredentialSource,
     ): Effect.Effect<CliValidation, VcsCliError> =>
-      provider === "github" ? probeGitHub(token) : probeGitLab(host, token, source)
+      provider === "github" ? probeGitHub(host, token) : probeGitLab(host, token, source)
 
     const shape: VcsCredentialsShape = {
       detectGitHubEnv,
@@ -612,6 +675,8 @@ export const VcsCredentialsLive = Layer.effect(
       validateDirect,
       tokenForHost,
       enumerateGitLabHosts: (): Effect.Effect<MergedGitLabHosts> => run(detectConfigHosts()),
+      enumerateGitHubHosts,
+      detectProvider,
       validateViaCli,
       cliStatus,
       invalidateCache: () =>

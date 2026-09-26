@@ -367,26 +367,53 @@ export interface IpcChannelMap {
   }
 
   // GitHub Authentication
+  //
+  // Every github:* channel targets ONE GitHub host via an optional `host`
+  // (github.com, a GHES host, or a `<sub>.ghe.com` tenant; bare host or URL),
+  // defaulting to github.com. Main parses it strictly — an unparseable host is
+  // refused, never rebound to github.com — and every token read, validated or
+  // written stays with that host.
+  //
+  // Enumerate the known GitHub hosts for the picker: the merged, deduped
+  // union of gh's hosts.yml hosts, GH_HOST, the session host, persisted
+  // recents and github.com — annotated with provenance and an OFFLINE-ONLY
+  // credential check. `defaultHost` follows the precedence (persisted pick
+  // when it still has a credential > GH_HOST > github.com).
+  "github:enumerate-hosts": {
+    params: Record<string, never>
+    result: {
+      hosts: Array<{
+        host: string
+        sources: Array<"gh" | "env" | "session" | "recent">
+        /** Offline-only: credential FOUND (not yet validated). */
+        hasCredential: boolean
+      }>
+      defaultHost: string
+    }
+  }
+  // Persist an explicit dropdown pick so it survives restart.
+  "github:host-picked": { params: { host: string }; result: { ok: true } }
   "github:validate": {
-    // `host` is accepted for parity with gitlab:validate so the shared useGitAuth
-    // hook passes one payload shape; the GitHub handler ignores it.
     // custody: `useSessionToken` validates the provider's SESSION credential
-    // (the {block:'GitAuth-id'} chaining mode — no token crosses IPC);
-    // `registerSession` makes MAIN write the session env on success (the PAT
-    // path); the renderer never writes session credentials.
+    // for `host` (the {block:'GitAuth-id'} chaining mode — no token crosses
+    // IPC); `registerSession` makes MAIN write the session env on success
+    // (the PAT path); the renderer never writes session credentials.
     params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number } & VcsDetectionMeta
+    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number; host?: string } & VcsDetectionMeta
   }
   "github:oauth-start": {
     // clientId/scopes are optional — main owns the defaults (the
-    // custom-clientId author prop keeps sending an explicit clientId).
-    params: { clientId?: string; scopes?: string[] }
+    // custom-clientId author prop keeps sending an explicit clientId). The
+    // Gruntwork default client ID applies to github.com only: for an
+    // enterprise host without a clientId the call REJECTS (OAuth unavailable)
+    // rather than falling back to github.com.
+    params: { clientId?: string; scopes?: string[]; host?: string }
     result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; error?: string }
   }
   "github:oauth-poll": {
     // the completion result is METADATA-ONLY — no access token crosses
     // IPC; main writes the session env before reporting completion.
-    params: { clientId?: string; deviceCode: string }
+    params: { clientId?: string; deviceCode: string; host?: string }
     result: {
       status?: string
       pending?: boolean
@@ -411,6 +438,8 @@ export interface IpcChannelMap {
       tokenType?: string
       error?: string
       status?: number
+      /** The GitHub host this credential was detected/validated against. */
+      host?: string
     } & VcsDetectionMeta
   }
   "github:cli-credentials": {
@@ -422,12 +451,16 @@ export interface IpcChannelMap {
       tokenType?: string
       error?: string
       status?: number
+      /** The GitHub host this credential was detected/validated against. */
+      host?: string
     } & VcsDetectionMeta
   }
-  "github:orgs": { params: void; result: GitHubOrg[] }
-  "github:repos": { params: { org: string }; result: GitHubRepo[] }
-  "github:refs": { params: { owner: string; repo: string }; result: GitHubRef[] }
-  "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
+  // API queries use the session credential for `host` (omitted: the
+  // session's GitHub host) and call that host's API.
+  "github:orgs": { params: { host?: string } | void; result: GitHubOrg[] }
+  "github:repos": { params: { org: string; host?: string }; result: GitHubRepo[] }
+  "github:refs": { params: { owner: string; repo: string; host?: string }; result: GitHubRef[] }
+  "github:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
 
   // GitLab Authentication
   // Enumerate the known GitLab hosts for the picker:
