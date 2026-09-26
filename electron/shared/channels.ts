@@ -112,10 +112,14 @@ export interface IpcChannelMap {
     }
   }
   "aws:env-credentials-confirm": {
-    params: { prefix?: string; defaultRegion?: string }
+    /** `expectedAccountId`: the account the prompt showed; a different one is not confirmed. */
+    params: { prefix?: string; defaultRegion?: string; expectedAccountId?: string }
     result: {
       valid?: boolean
       error?: string
+      /** The credentials now belong to another account; no keys are returned. */
+      accountChanged?: boolean
+      hasSessionToken?: boolean
       accountId?: string
       accountName?: string
       arn?: string
@@ -126,13 +130,15 @@ export interface IpcChannelMap {
     }
   }
   "aws:profile-auth": {
-    params: { profileName: string; profile?: string }
+    params: { profileName: string; profile?: string; defaultRegion?: string }
     result: {
       valid?: boolean
       credentials?: AwsCredentials
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      /** The region the credentials were validated in: the profile's own, else `defaultRegion`. */
+      region?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -692,6 +698,7 @@ export interface RenderInlineRequest {
 
 export interface ProfileInfo {
   name: string
+  authType: "sso" | "static" | "assume_role" | "unsupported"
   ssoStartUrl?: string
   ssoRegion?: string
   region?: string

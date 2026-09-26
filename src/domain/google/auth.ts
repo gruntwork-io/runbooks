@@ -15,6 +15,7 @@ import {
   OAUTH_MISSING_CLIENT_SECRET,
   OAUTH_NOT_CONFIGURED,
 } from "./oauth-client.ts"
+import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 export {
   DEFAULT_GOOGLE_OAUTH_CLIENT_ID,
@@ -44,12 +45,9 @@ export const DEFAULT_GOOGLE_SCOPES = [
   "openid",
 ] as const
 
-/**
- * Allowlist for the `{env:{prefix}}` detectCredentials variant,
- * enforced in MAIN (the renderer-supplied prefix is untrusted input).
- * Reused verbatim from src/domain/github/auth.ts.
- */
-export const ENV_PREFIX_PATTERN = /^[A-Z][A-Z0-9_]*_$/
+// The `{env:{prefix}}` allowlist is shared by every auth block; re-exported
+// here so existing importers keep working.
+export { ENV_PREFIX_PATTERN }
 
 /**
  * Credential-bearing env vars, in precedence order: a path to a credentials

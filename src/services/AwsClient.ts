@@ -40,6 +40,7 @@ export interface SsoPollParams {
 
 export interface SsoTokenResult {
   readonly accessToken?: string
+  /** The user has not approved yet (AuthorizationPending or SlowDown). */
   readonly pending?: boolean
 }
 
@@ -69,6 +70,10 @@ export interface AwsClientShape {
    */
   readonly validateCredentials: (creds: AwsCredentials, region: string) => Effect.Effect<AwsIdentity, AwsAuthError>
   readonly listProfiles: () => Effect.Effect<ProfileInfo[], AwsConfigError>
+  /**
+   * Resolves the profile's credentials without validating them; callers run
+   * validateCredentials. `region` is empty when the profile does not set one.
+   */
   readonly authenticateProfile: (profileName: string) => Effect.Effect<AwsCredentials, AwsAuthError>
   readonly startSsoDeviceAuth: (startUrl: string, region: string) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
   readonly pollSsoToken: (params: SsoPollParams) => Effect.Effect<SsoTokenResult, AwsSsoError>

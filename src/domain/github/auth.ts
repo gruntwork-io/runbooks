@@ -11,6 +11,7 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { detectCliToken, buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
+import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -38,11 +39,9 @@ export const GH_ENV_OVERRIDES: CliEnvOverrides = {
   set: { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", NO_COLOR: "1" },
 }
 
-/**
- * Allowlist for the `{env:{prefix}}` detectCredentials variant,
- * enforced in MAIN (the renderer-supplied prefix is untrusted input).
- */
-export const ENV_PREFIX_PATTERN = /^[A-Z][A-Z0-9_]*_$/
+// The `{env:{prefix}}` allowlist is shared by every auth block; re-exported
+// here so existing importers keep working.
+export { ENV_PREFIX_PATTERN }
 
 // ---------------------------------------------------------------------------
 // Token Validation
