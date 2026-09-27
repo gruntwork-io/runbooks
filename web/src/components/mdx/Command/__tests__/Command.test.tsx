@@ -240,6 +240,26 @@ describe("Command", () => {
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
   })
 
+  // An auth block supplies credentials, never `.inputs` values, so referencing
+  // one doesn't stand in for an Inputs configuration.
+  it.each([
+    ["awsAuthId", { awsAuthId: "aws-auth" }],
+    ["githubAuthId", { githubAuthId: "gh-auth" }],
+    ["gitAuthId", { gitAuthId: "git-auth" }],
+    ["googleAuthId", { googleAuthId: "gcp-auth" }],
+  ])("shows Configuration Required for input references with only %s", (_prop, authProps) => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      inputDependencies: ["region"],
+      hasAllInputDependencies: false,
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand(authProps)
+    expect(screen.getByText(/Configuration Required/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
+  })
+
   it("disables Run when output dependencies are unmet", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,

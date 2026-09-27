@@ -2,13 +2,18 @@ import { Context, Effect } from "effect"
 import type { GitError, SpawnError } from "../errors/index.ts"
 
 export interface CloneOptions {
+  /** Branch, tag or commit SHA to check out. Defaults to the remote's default branch. */
   readonly ref?: string
   readonly repoPath?: string
   readonly token?: string
   /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
   readonly username?: string
   readonly force?: boolean
-  /** When set, use sparse checkout to only fetch this subpath within the repo. */
+  /**
+   * When set, sparse-checkout only this repo-relative path. A directory is
+   * checked out with everything under it; a file brings its whole parent
+   * directory.
+   */
   readonly sparse?: string
 }
 

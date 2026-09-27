@@ -9,20 +9,18 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useApi } from '@/contexts/ApiContext'
+import { cleanIpcErrorMessage } from '@/hooks/useIpc'
 
 interface OpenUrlModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-const REMOTE_PREFIXES = ['http://', 'https://', 'git::']
-const REMOTE_SHORTHAND = /^(github\.com|gitlab\.com)\//
-
-function looksLikeRemoteUrl(input: string): boolean {
-  const trimmed = input.trim()
-  return REMOTE_PREFIXES.some((p) => trimmed.startsWith(p)) || REMOTE_SHORTHAND.test(trimmed)
-}
-
+/**
+ * "Open from URL" dialog. Hands whatever the user typed to the main process,
+ * which parses the source, clones it and opens the runbook, and shows its
+ * error message inline when that fails.
+ */
 export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
   const api = useApi()
   const [url, setUrl] = useState('')
@@ -44,11 +42,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
     const trimmed = url.trim()
     if (!trimmed) return
 
-    if (!looksLikeRemoteUrl(trimmed)) {
-      setError('Please enter a GitHub, GitLab, or git:: URL')
-      return
-    }
-
+    // The main process parses the source; its error names what it accepts.
     setError(null)
     setIsLoading(true)
 
@@ -57,7 +51,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
       reset()
       onOpenChange(false)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to open remote runbook')
+      setError(err instanceof Error ? cleanIpcErrorMessage(err.message) : 'Failed to open remote runbook')
       setIsLoading(false)
     }
   }, [url, api, onOpenChange, reset])
@@ -78,7 +72,8 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
         <DialogHeader>
           <DialogTitle>Open from URL</DialogTitle>
           <DialogDescription>
-            Paste a GitHub or GitLab URL to a runbook directory or file.
+            Paste a GitHub or GitLab link to a runbook directory or runbook.mdx file, or a
+            go-getter source such as <code className="text-xs">github.com/org/repo//path?ref=main</code>.
           </DialogDescription>
         </DialogHeader>
 
@@ -91,7 +86,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
               setError(null)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="https://github.com/owner/repo/tree/main/path (or a GitHub Enterprise / GitLab URL)"
+            placeholder="https://github.com/org/repo/tree/main/path/to/runbook"
             className="w-full rounded-md border border-input px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
             autoFocus
             disabled={isLoading}
