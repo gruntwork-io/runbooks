@@ -388,6 +388,24 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     const dest = await runClone({ ref: detached, sparse: "runbooks/vpc" })
     expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC detached\n")
   })
+
+  it("a URL starting with - is the repository, never an option", async () => {
+    // Read as an option, `-u@host:repo` would be clone's --upload-pack and
+    // the destination would become the repository to clone.
+    const dest = path.join(workPath, "dash")
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* GitClient
+        return yield* client.cloneSimple("-u@host:repo", dest)
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      const stderr = (result.left as GitError).stderr
+      expect(stderr).toContain("-u@host")
+      expect(stderr).not.toContain(`repository '${dest}' does not exist`)
+    }
+  })
 })
 
 /**

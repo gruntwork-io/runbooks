@@ -107,7 +107,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         if (sparse) cloneArgs.push("--filter=blob:none")
         if (sparse || commit) cloneArgs.push("--no-checkout")
         if (ref && !commit) cloneArgs.push("--branch", ref)
-        cloneArgs.push(url, dest)
+        // `--` so a URL starting with `-` can never read as an option.
+        cloneArgs.push("--", url, dest)
         yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
 
         let rev = "HEAD"

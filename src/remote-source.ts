@@ -51,9 +51,10 @@ const SCHEME_PREFIX = /^(git::|https?:\/\/|ssh:\/\/)/i
 
 /**
  * scp-like SSH address: `user@host:path`. The user part is required so a
- * local path is never mistaken for one.
+ * local path is never mistaken for one, and may not start with `-`, which
+ * git would read as an option.
  */
-const SCP_LIKE = /^([A-Za-z0-9._~-]+)@([A-Za-z0-9][A-Za-z0-9.-]*):(.+)$/
+const SCP_LIKE = /^([A-Za-z0-9._~][A-Za-z0-9._~-]*)@([A-Za-z0-9][A-Za-z0-9.-]*):(.+)$/
 
 /** go-getter's scheme-less GitHub / GitLab detectors. */
 const SHORTHAND = /^(github\.com|gitlab\.com)\/(.*)$/i
@@ -172,21 +173,21 @@ function parseHttpSource(input: string, opts: ParseRemoteSourceOptions): ParsedR
     return browserSource(host, decodePath(ownerRepoPath), refAndPath)
   }
 
-  const { address, subdir } = splitGoGetter(input)
+  const { address, subdir, ref } = splitGoGetter(input)
   if (subdir !== undefined || /\.git\/?$/i.test(parseUrl(address).pathname)) {
     return parseGitSource(input)
   }
 
-  // Plain repo URLs: the repo root on the default branch.
+  // Plain repo URLs: the repo root, on `?ref=` or the default branch.
   const segments = decodePath(url.pathname).split("/").filter(Boolean)
   if (segments.length === 2 && isGitHubHost(host, opts.githubHosts)) {
-    return repoSource(host, segments.join("/"))
+    return repoSource(host, segments.join("/"), { ref })
   }
   // GitLab supports nested groups, so the last segment is the project and
   // everything before it the owner. Only hosts recognizably GitLab by name
   // qualify; others (e.g. bitbucket.org) are unsupported.
   if (segments.length >= 2 && isGitLabHost(host)) {
-    return repoSource(host, segments.join("/"))
+    return repoSource(host, segments.join("/"), { ref })
   }
   throw new InvalidSource(UNSUPPORTED)
 }
@@ -294,9 +295,12 @@ function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: strin
  * Split a go-getter source into its address, the `//` subdirectory, and the
  * `?ref=` query parameter — go-getter's SourceDirSubdir. The `://` of a
  * scheme is skipped so it never reads as the separator. Other query
- * parameters (`depth`, `sshkey`) don't apply here and are ignored.
+ * parameters (`depth`, `sshkey`) don't apply here and are ignored, and a
+ * `#fragment` is page state, not part of the source.
  */
-function splitGoGetter(source: string): { address: string; subdir?: string; ref?: string } {
+function splitGoGetter(raw: string): { address: string; subdir?: string; ref?: string } {
+  const hashStart = raw.indexOf("#")
+  const source = hashStart === -1 ? raw : raw.slice(0, hashStart)
   const queryStart = source.indexOf("?")
   const beforeQuery = queryStart === -1 ? source : source.slice(0, queryStart)
   const query = new URLSearchParams(queryStart === -1 ? "" : source.slice(queryStart + 1))
@@ -386,7 +390,8 @@ export const resolveRef = (
     // Fetch all remote refs. gitSpawnEnv keeps ssh non-interactive so an
     // ls-remote against an unknown SSH host fails fast instead of hanging on
     // the host-key prompt.
-    const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", cloneURL], {
+    // `--` so a URL starting with `-` can never read as an option.
+    const proc = yield* spawner.spawn("git", ["ls-remote", "--refs", "--", cloneURL], {
       env: env ?? gitSpawnEnv(),
     })
     const lines: string[] = []
