@@ -227,7 +227,7 @@ variables:
 
 <Command 
     id="create-repo" 
-    command="gh repo create {{ .inputs.OrgName }}/{{ .inputs.RepoName }} --private"
+    command='gh repo create "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}" --private'
     inputsId="repo-config"
     title="Create GitHub Repository"
     successMessage="Repository {{ .inputs.RepoName }} created!"

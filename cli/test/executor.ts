@@ -1330,7 +1330,9 @@ export class TestExecutor {
           githubSessionCredential(sessionEnv, cloneHost, tryNormalizeGitHubHost(sessionEnv.GITHUB_HOST))?.token ?? ""
       }
       if (token) {
-        cloneEnv = withGitHttpAuth({ ...process.env }, cloneURL, token)
+        // No terminal prompt: a rejected token must fail the step, not wait
+        // for a username on the TTY until the step times out.
+        cloneEnv = withGitHttpAuth({ ...process.env, GIT_TERMINAL_PROMPT: "0" }, cloneURL, token)
       }
     }
 

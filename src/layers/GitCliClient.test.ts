@@ -527,6 +527,23 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     expect(server.seenAuthorization).not.toContain(basic("x-access-token", "STALE"))
   }, 30_000)
 
+  it("does not send the token to a push URL on another origin", async () => {
+    // The caller bound the token to origin's fetch URL; a pushurl (or
+    // pushInsteadOf) pointing at another host must not receive it.
+    const work = path.join(root, "push-other-origin")
+    git(root, "clone", path.join(root, "server", "repo.git"), work)
+    git(work, "remote", "set-url", "origin", repoUrl)
+    git(work, "remote", "set-url", "--push", "origin", repoUrl.replace("127.0.0.1", "localhost"))
+    git(work, "checkout", "-b", "other-origin")
+    git(work, "commit", "--allow-empty", "-m", "empty")
+
+    await run(Effect.flatMap(GitClient, (g) => g.push(work, "origin", "other-origin", { token: TOKEN, username: "oauth2" })))
+
+    expect(server.seenAuthorization).not.toContain(basic("oauth2", TOKEN))
+    const push = spawns.find((s) => s.args[0] === "push")
+    expect(push?.env?.GIT_CONFIG_COUNT).toBe(process.env.GIT_CONFIG_COUNT)
+  }, 30_000)
+
   it("never hands a rejected token's fallback to the user's credential helper", async () => {
     // Without resetting credential.helper, a 401 makes git ask the user's
     // helper for a login and then tell it to erase that login when it fails.

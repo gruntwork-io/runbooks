@@ -204,7 +204,7 @@ variables:
 
 <Check 
     id="check-region" 
-    command="aws ec2 describe-availability-zones --region {{ .inputs.AwsRegion }}"
+    command='aws ec2 describe-availability-zones --region "{{ .inputs.AwsRegion }}"'
     inputsId="region-config"
     title="Check AWS Region Accessibility"
     successMessage="Region {{ .inputs.AwsRegion }} is accessible!"

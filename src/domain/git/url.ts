@@ -43,6 +43,21 @@ export function stripUrlCredentials(url: string): string {
 }
 
 /**
+ * True when `a` and `b` are http(s) URLs with the same origin (scheme, host
+ * and port; userinfo and path are ignored). A token bound to one remote URL
+ * may be sent to the other only when this holds.
+ */
+export function sameHttpOrigin(a: string, b: string): boolean {
+  try {
+    const pa = new URL(a)
+    const pb = new URL(b)
+    return isHttpUrl(pa) && isHttpUrl(pb) && pa.origin === pb.origin
+  } catch {
+    return false
+  }
+}
+
+/**
  * Authenticate one git invocation's HTTP(S) requests to `url` with `token`,
  * without putting the token in the URL.
  *
