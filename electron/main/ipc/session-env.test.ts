@@ -167,6 +167,44 @@ describe("exec:run captured env", () => {
     expect(ctx.workDir).toBe(tmpDir)
   }, 30000)
 
+  /**
+   * Open a runbook with one inline Command, add `sessionEnv` to its session,
+   * and run the Command to completion with `envVarsOverride`.
+   */
+  async function runCommand(
+    name: string,
+    command: string,
+    opts: { sessionEnv?: Record<string, string>; envVarsOverride?: Record<string, string> } = {},
+  ) {
+    await openRunbook(writeRunbook(name, `<Command id="cmd" command="${command}" />\n`))
+    if (opts.sessionEnv) await runtime.runPromise(sessionManager.appendToEnv(opts.sessionEnv))
+    const { executables } = (await handlers.get("runbook:executables")!({})) as {
+      executables: Record<string, { componentId: string }>
+    }
+    const executableId = Object.keys(executables).find((id) => executables[id]!.componentId === "cmd")!
+    const result = (await handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId: name, envVarsOverride: opts.envVarsOverride },
+    )) as { status: { status: string } | null }
+    expect(result.status?.status).toBe("success")
+    return runtime.runPromise(sessionManager.getExecContext())
+  }
+
+  it("does not write a run's block-scoped env overrides into the session", async () => {
+    // What a Command with awsAuthId / googleAuthId passes for just this run.
+    const ctx = await runCommand("block-scoped", "true", {
+      envVarsOverride: { AWS_ACCESS_KEY_ID: "AKIA_BLOCK_SCOPED", AWS_SESSION_TOKEN: "" },
+    })
+    expect(awsKeysOf(ctx.env)).toEqual(AWS_ENV)
+  }, 30000)
+
+  it("keeps session vars that the capture filter drops", async () => {
+    const ctx = await runCommand("filtered-keys", "true", {
+      sessionEnv: { BASH_SILENCE_DEPRECATION_WARNING: "1" },
+    })
+    expect(ctx.env.BASH_SILENCE_DEPRECATION_WARNING).toBe("1")
+  }, 30000)
+
   it("does not apply a script's env to a runbook opened while it ran", async () => {
     const runbook = await openBlockingRunbook("switched-away")
     const run = await runbook.start()
