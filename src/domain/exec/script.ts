@@ -218,6 +218,8 @@ __runbooks_capture_env() {
 #      'trap cleanup INT EXIT' still installs the INT handler
 #
 # Printing forms ('trap', 'trap -p', 'trap -l', 'trap -P') pass straight through.
+# So does every call in a subshell or command substitution: bash resets traps
+# there, so our EXIT handler isn't installed and a saved handler would never run.
 # -----------------------------------------------------------------------------
 
 # Store user's EXIT trap handler (if they set one)
@@ -225,8 +227,8 @@ __RUNBOOKS_USER_EXIT_HANDLER=""
 
 # Override the trap builtin to intercept EXIT handlers
 trap() {
-    # Printing forms pass straight through to builtin
-    if [[ $# -eq 0 || "$1" == "-p" || "$1" == "-l" || "$1" == "-P" ]]; then
+    # Printing forms, and any call in a subshell, pass straight through to builtin
+    if [[ $BASH_SUBSHELL -gt 0 || $# -eq 0 || "$1" == "-p" || "$1" == "-l" || "$1" == "-P" ]]; then
         builtin trap "$@"
         return $?
     fi

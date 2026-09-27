@@ -613,6 +613,36 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.capturedEnv!.MY_VAR).toBe("hello")
   })
 
+  // bash resets traps in a subshell, so the wrapper's EXIT handler is not
+  // installed there. A trap set in a subshell must be the real one, or it
+  // never runs.
+  it("an EXIT trap set in a ( ) subshell runs when the subshell exits", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       trap 'echo TOP_CLEANUP' EXIT
+       ( trap 'echo SUB_CLEANUP' EXIT; echo in-sub )
+       echo after-sub
+       export MY_VAR=hello`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("in-sub\nSUB_CLEANUP\nafter-sub\nTOP_CLEANUP\n")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("an EXIT trap set in a $( ) command substitution runs, and its output is captured", () => {
+    const result = runWrapped(
+      `set -u
+       x=$(trap 'echo CS_CLEANUP' EXIT; echo value)
+       echo "x=[$x]"
+       export MY_VAR=hello`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("x=[value\nCS_CLEANUP]")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
   /** Prepare `content` and spawn exactly what the executor would. */
   function runPrepared(content: string) {
     return Effect.runPromise(
@@ -639,6 +669,14 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     )
     expect(stdout).toContain("running")
     expect(stdout).toContain("USER_CLEANUP")
+    expect(env?.MY_VAR).toBe("hello")
+  })
+
+  it("prepareScript runs a #!/bin/sh script's subshell EXIT trap, as sh does", async () => {
+    const { stdout, env } = await runPrepared(
+      "#!/bin/sh\n( trap 'echo SUB_CLEANUP' EXIT; echo in-sub )\necho after-sub\nexport MY_VAR=hello\n",
+    )
+    expect(stdout).toBe("in-sub\nSUB_CLEANUP\nafter-sub\n")
     expect(env?.MY_VAR).toBe("hello")
   })
 
