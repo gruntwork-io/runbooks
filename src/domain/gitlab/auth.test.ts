@@ -79,6 +79,22 @@ describe("detectEnvCredentials", () => {
     expect(result).toBeUndefined()
   })
 
+  it("treats a blank token var as unset (like glab and hasEnvToken)", async () => {
+    const unprefixed = makeTestEnvironment({ GITLAB_TOKEN: "  ", GITLAB_ACCESS_TOKEN: "glpat-access" })
+    expect(
+      await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(unprefixed))),
+    ).toEqual({ token: "glpat-access", envVar: "GITLAB_ACCESS_TOKEN" })
+
+    const prefixed = makeTestEnvironment({ CI_GITLAB_TOKEN: "\t", CI_GITLAB_ACCESS_TOKEN: "glpat-ci" })
+    expect(
+      await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(prefixed))),
+    ).toEqual({ token: "glpat-ci", envVar: "CI_GITLAB_ACCESS_TOKEN" })
+
+    const blankOnly = makeTestEnvironment({ GITLAB_TOKEN: " ", CI_GITLAB_TOKEN: " " })
+    expect(await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(blankOnly)))).toBeUndefined()
+    expect(await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(blankOnly)))).toBeUndefined()
+  })
+
   it("does not read GITHUB_TOKEN", async () => {
     const layer = makeTestEnvironment({ GITHUB_TOKEN: "ghp_should_be_ignored" })
     const result = await Effect.runPromise(

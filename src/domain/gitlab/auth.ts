@@ -163,7 +163,9 @@ export const detectEnvCredentials = (prefix?: string) =>
 
     for (const envVar of envVars) {
       const token = yield* env.get(envVar)
-      if (token) {
+      // Blank counts as unset (as in glab and hasEnvToken): an empty
+      // GITLAB_TOKEN must not hide a real GITLAB_ACCESS_TOKEN.
+      if (isSetEnvVar(token)) {
         return { token, envVar } satisfies GitLabEnvCredential
       }
     }
