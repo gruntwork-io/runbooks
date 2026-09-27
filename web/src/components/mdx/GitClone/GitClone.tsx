@@ -11,6 +11,8 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import { isGitHubRepoHost } from "@/components/mdx/_shared/lib/githubHost"
 import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
@@ -155,6 +157,7 @@ function GitCloneInteractive({
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    githubHost,
     workingDir,
     localPreview,
     localPreviewStatus,
@@ -353,14 +356,16 @@ function GitCloneInteractive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloneStatus, cloneResult, selectedLocalInfo])
 
-  // Seed the GitHub browser's org/repo, but only from GitHub URLs — feeding a
-  // GitLab owner/repo into the GitHub browser would be meaningless.
+  // Seed the GitHub browser's org/repo, but only from GitHub URLs (github.com,
+  // *.ghe.com, or the linked auth block's host) — feeding a GitLab owner/repo
+  // into the GitHub browser would be meaningless.
   const prefilledGitHub = useMemo(() => {
-    if (resolvedUrl && /(?:\/\/|@)github\.com[/:]/.test(resolvedUrl)) {
+    const urlHost = hostFromRepoUrl(resolvedUrl)?.toLowerCase()
+    if (resolvedUrl && urlHost && (isGitHubRepoHost(urlHost) || urlHost === githubHost)) {
       return parseOwnerRepoFromURL(resolvedUrl)
     }
     return null
-  }, [resolvedUrl])
+  }, [resolvedUrl, githubHost])
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
@@ -531,7 +536,7 @@ function GitCloneInteractive({
                       type="text"
                       value={gitUrl}
                       onChange={(e) => setGitUrl(e.target.value)}
-                      placeholder="https://github.com/org/repo.git"
+                      placeholder={`https://${githubHost}/org/repo.git`}
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
@@ -540,6 +545,8 @@ function GitCloneInteractive({
                   {/* GitHub Browser (only if token available) */}
                   {tokenChecked && hasGitHubToken && (
                     <GitHubBrowser
+                      key={githubHost}
+                      host={githubHost}
                       onRepoSelected={handleRepoSelected}
                       onRefSelected={handleRefSelected}
                       fetchOrgs={fetchOrgs}
