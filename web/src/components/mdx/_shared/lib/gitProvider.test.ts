@@ -109,6 +109,7 @@ describe('repoWebUrl', () => {
     ['an ssh:// URL, dropping the SSH port', 'ssh://git@gl.example.com:2222/g/sub/r.git', 'g/sub', 'r', 'https://gl.example.com/g/sub/r'],
     ['an HTTPS URL on a custom web port', 'https://gl.example.com:8443/g/r', 'g', 'r', 'https://gl.example.com:8443/g/r'],
     ['an HTTPS URL with embedded credentials', 'https://user:tok@github.com/o/r.git', 'o', 'r', 'https://github.com/o/r'],
+    ['an SCP-style remote on an IPv6 host', 'git@[::1]:o/r.git', 'o', 'r', 'https://[::1]/o/r'],
   ])('links %s', (_label, repoUrl, owner, name, expected) => {
     expect(repoWebUrl(repoUrl, owner, name)).toBe(expected)
   })

@@ -90,7 +90,8 @@ export function repoWebUrl(
 ): string | undefined {
   if (!repoUrl || !owner || !name) return undefined
   const path = `/${owner}/${name}`
-  const scp = repoUrl.match(/^[^/@]+@([^:/]+):/)
+  // The host is a bracketed IPv6 literal (git@[::1]:o/r) or a plain name.
+  const scp = repoUrl.match(/^[^/@]+@(\[[^\]/]+\]|[^[\]:/@]+):/)
   if (scp) return `https://${scp[1]}${path}`
   try {
     const url = new URL(repoUrl.includes('://') ? repoUrl : `https://${repoUrl}`)
