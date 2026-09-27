@@ -85,6 +85,19 @@ export const installSystemTrust = (
 
 const COLD_READ_TIMEOUT_MS = 10_000
 
+/**
+ * The cold-read child's `-e` script. It writes the JSON from the main script
+ * and lets the process exit on its own. Never switch to `-p` or add
+ * process.exit: both flush stdout during exit, after the event loop has
+ * stopped. On POSIX a piped stdout is non-blocking, so an exit-time write
+ * stops the first time the pipe buffer (64 KiB on Linux) is full and drops
+ * the rest. Real stores serialize to ~1 MB, and `-p` prints from an "exit"
+ * handler on Node 22. With a natural exit, the pending write keeps the
+ * event loop alive until the parent has read every byte.
+ */
+const COLD_READ_SCRIPT =
+  "process.stdout.write(JSON.stringify(require('node:tls').getCACertificates('system')))"
+
 // The cold-read child receives no token env at all.
 const coldReadChildEnv = (): Record<string, string | undefined> => {
   const env: Record<string, string | undefined> = { ...process.env, ELECTRON_RUN_AS_NODE: "1" }
@@ -112,7 +125,7 @@ export const coldReadSystemPems = (
     const spawner = yield* ProcessSpawner
     const proc = yield* spawner.spawn(
       execPath,
-      ["-p", "JSON.stringify(require('node:tls').getCACertificates('system'))"],
+      ["-e", COLD_READ_SCRIPT],
       { env: coldReadChildEnv() },
     )
     const stdout: string[] = []
