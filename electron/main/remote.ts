@@ -254,13 +254,11 @@ export async function resolveRemoteRunbook(
         : undefined
       const token = sessionToken ?? (yield* vcs.tokenForHost(parsed.host))
       log.info("Token:", token ? "found" : "none")
-      // Both token sources above return a GitHub token only for github.com, so
-      // any other host's token is a GitLab one and gets GitLab's `oauth2`
-      // username — including self-managed hosts the name heuristic (`provider`)
-      // doesn't recognize.
-      const username = gitCredentialUsername(
-        parsed.host.toLowerCase() === "github.com" ? "github" : "gitlab",
-      )
+      // A token exists only for a detected provider (both sources above are
+      // keyed on it), and a GitHub one may belong to github.com, a GHES host
+      // or a ghe.com tenant: send the provider's username, so GitHub gets
+      // `x-access-token` and GitLab (including self-managed) `oauth2`.
+      const username = gitCredentialUsername(provider)
 
       // Resolve ambiguous ref/path for browser-style URLs
       if (needsRefResolution(parsed) && parsed.path) {
