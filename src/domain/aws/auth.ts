@@ -13,7 +13,6 @@ import type {
 import { Environment } from "../../services/Environment.ts"
 import { AwsAuthError, AwsSsoError } from "../../errors/index.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
-import { partitionHomeRegion } from "./partition.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,13 +65,13 @@ const resolveRegion = (region: string | undefined, missing: string) =>
 // ---------------------------------------------------------------------------
 
 /**
- * Validate AWS credentials by calling STS GetCallerIdentity in the home
- * region of the partition `region` belongs to, not in `region` itself.
+ * Validate AWS credentials by calling STS GetCallerIdentity. `region` is the
+ * working region; the client sends the call to its partition's STS.
  */
 export const validateCredentials = (creds: AwsCredentials, region: string) =>
   Effect.gen(function* () {
     const awsClient = yield* AwsClient
-    return yield* awsClient.validateCredentials(creds, partitionHomeRegion(region))
+    return yield* awsClient.validateCredentials(creds, region)
   })
 
 // ---------------------------------------------------------------------------

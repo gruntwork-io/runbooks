@@ -11,6 +11,7 @@
         "@aws-sdk/client-sso-oidc": "^3.1024.0",
         "@aws-sdk/client-sts": "^3.1024.0",
         "@aws-sdk/credential-providers": "^3.1024.0",
+        "@aws-sdk/util-endpoints": "^3.996.5",
         "@headless-tree/core": "^1.4.0",
         "@headless-tree/react": "^1.4.0",
         "@mdx-js/mdx": "^3.1.1",

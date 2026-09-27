@@ -63,6 +63,11 @@ export interface SsoRole {
 }
 
 export interface AwsClientShape {
+  /**
+   * Calls STS GetCallerIdentity for `creds`. `region` is the working region;
+   * the call goes to the home region of its partition, so GovCloud, China and
+   * other non-commercial credentials reach their own STS.
+   */
   readonly validateCredentials: (creds: AwsCredentials, region: string) => Effect.Effect<AwsIdentity, AwsAuthError>
   readonly listProfiles: () => Effect.Effect<ProfileInfo[], AwsConfigError>
   /**
