@@ -24,6 +24,8 @@ const ATTACKS: Array<[string, string]> = [
   ['a template substitution', `<Admonition type="info" title={\`\${${EXEC}}\`} />`],
   // Inline script text can't contain `{`, which MDX would parse as an expression.
   ['a namespaced script element', `<svg><svg:script>window.api.invoke('runbook:executables')</svg:script></svg>`],
+  // React leaves `HREF` unsanitized, so clicking the link would run the URL.
+  ['a javascript: URL in an uppercase HREF', `<a HREF="javascript:${EXEC}">Next step</a>`],
 ]
 
 describe('MDXContainer — runbook code cannot run on open', () => {

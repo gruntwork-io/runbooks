@@ -147,8 +147,22 @@ export function registerExecHandlers(): void {
                     event.sender.send("exec:files-captured", execEvent.event)
                     break
                   case "env_captured": {
-                    const filteredEnv = filterCapturedEnv(execEvent.env)
-                    yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
+                    // Applied as a delta against the env the script started
+                    // with, not a replacement: auth blocks may have written to
+                    // the session while the script ran (see applyCapturedEnv).
+                    // That start env is the session snapshot plus this run's
+                    // block-scoped overrides (awsAuthId, githubAuthId, ...),
+                    // filtered like the capture. Otherwise the per-run
+                    // credentials read as exports and land in the session, and
+                    // keys the filter drops (BASH_*, SHLVL, ...) read as unsets
+                    // and are deleted from it.
+                    yield* sessionManager.applyCapturedEnv({
+                      before: filterCapturedEnv({ ...context.env, ...params.envVarsOverride }),
+                      after: filterCapturedEnv(execEvent.env),
+                      startWorkDir: context.workDir,
+                      pwd: execEvent.pwd,
+                      generation: context.generation,
+                    })
                     break
                   }
                   case "done":

@@ -13,6 +13,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { Effect } from "effect"
+import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // ---------------------------------------------------------------------------
 // Boundary mocks (must be registered before the handler module is imported)
@@ -24,7 +25,7 @@ let userDataDir = ""
 let exposedApi: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } | undefined
 const rendererInvokes: string[] = []
 
-mock.module("electron", () => ({
+mockElectron({
   ipcMain: {
     handle: (channel: string, fn: Handler) => {
       handlers.set(channel, fn)
@@ -50,7 +51,7 @@ mock.module("electron", () => ({
     once: () => {},
     removeListener: () => {},
   },
-}))
+})
 mock.module("../index.ts", () => ({
   refreshSystemTrust: async () => ({ coldReadOk: true }),
 }))

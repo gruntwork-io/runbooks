@@ -6,6 +6,8 @@ export interface CloneOptions {
   readonly ref?: string
   readonly repoPath?: string
   readonly token?: string
+  /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
+  readonly username?: string
   readonly force?: boolean
   /**
    * When set, sparse-checkout only this repo-relative path. A directory is
@@ -23,6 +25,8 @@ export interface CloneResult {
 
 export interface PushOptions {
   readonly token?: string
+  /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
+  readonly username?: string
   readonly setUpstream?: boolean
 }
 

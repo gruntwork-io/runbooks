@@ -9,6 +9,7 @@ import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electro
 import * as path from "path"
 import * as fs from "fs"
 import * as tls from "node:tls"
+import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
 import { openRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
@@ -20,7 +21,7 @@ import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
-import { isContainedIn } from "../../src/path-validation.ts"
+import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
@@ -399,23 +400,20 @@ app.whenReady().then(() => {
   // from the local filesystem. The renderer rewrites ./assets/foo.png to
   // runbook-asset://assets/foo.png which this handler resolves relative to the
   // runbook directory.
-  protocol.handle("runbook-asset", (request) => {
+  protocol.handle("runbook-asset", async (request) => {
     // URL looks like: runbook-asset://assets/foo.png
-    const url = new URL(request.url)
-    // Combine host + pathname to get the relative asset path (e.g. "assets/foo.png")
-    const assetRelative = url.hostname + url.pathname
-    const runbookDir = path.dirname(runbookConfig.localPath)
-    const assetPath = path.join(runbookDir, assetRelative)
-
-    // Security: ensure the resolved path is within the runbook directory.
-    // Uses isContainedIn which appends path.sep to prevent prefix-matching
-    // bypass (e.g. /tmp/my-runbook-evil matching /tmp/my-runbook).
-    const resolved = path.resolve(assetPath)
-    if (!isContainedIn(resolved, path.resolve(runbookDir))) {
+    // Security: resolveRunbookAssetPath returns null unless the file is within
+    // the runbook directory after resolving symlinks, so neither `..` nor a
+    // symlink shipped in the runbook dir can serve a file from outside it.
+    const resolved = await resolveRunbookAssetPath(
+      request.url,
+      path.dirname(runbookConfig.localPath),
+    )
+    if (!resolved) {
       return new Response("Forbidden", { status: 403 })
     }
 
-    return net.fetch(`file://${resolved}`)
+    return net.fetch(pathToFileURL(resolved).href)
   })
 
   // Apply the persisted theme before creating the window so its background

@@ -15,7 +15,8 @@ import { isContainedInReal } from "../../src/path-validation.ts"
 import { GitClient } from "../../src/services/GitClient.ts"
 import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
-import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
+import { gitSpawnEnv } from "../../src/domain/git/env.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import { githubHostKind, isGitHubHost } from "../../src/domain/git/github-host.ts"
 import { makeLogger } from "./logger.ts"
@@ -253,15 +254,21 @@ export async function resolveRemoteRunbook(
           : undefined
       const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
       log.info("Token:", token ? "found" : "none")
-      const authedCloneURL = token
-        ? injectTokenIntoUrl(parsed.cloneURL, token)
-        : parsed.cloneURL
+      // A token exists only for a detected provider (both sources above are
+      // keyed on it), and a GitHub one may belong to github.com, a GHES host
+      // or a ghe.com tenant: send the provider's username, so GitHub gets
+      // `x-access-token` and GitLab (including self-managed) `oauth2`.
+      const username = gitCredentialUsername(provider)
 
       // Browser URLs spell ref and path as one string; split it against the
       // remote's branches and tags.
       if (parsed.refAndPath !== undefined) {
         log.info("Resolving ref from:", parsed.refAndPath)
-        const resolved = yield* resolveRef(authedCloneURL, parsed.refAndPath)
+        const resolved = yield* resolveRef(
+          parsed.cloneURL,
+          parsed.refAndPath,
+          withGitHttpAuth(gitSpawnEnv(), parsed.cloneURL, token, username),
+        )
         parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
         log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
       }
@@ -281,6 +288,7 @@ export async function resolveRemoteRunbook(
         .cloneSimple(parsed.cloneURL, dest, {
           ref,
           token,
+          username,
           sparse: parsed.path,
         })
         .pipe(
