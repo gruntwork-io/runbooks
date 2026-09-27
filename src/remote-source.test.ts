@@ -324,3 +324,99 @@ describe("resolveRef", () => {
     expect(result.path).toBe("README.md")
   })
 })
+
+// ---------------------------------------------------------------------------
+// GitHub Enterprise hosts (GHES / ghe.com)
+// ---------------------------------------------------------------------------
+
+describe("parseRemoteSource — GitHub enterprise hosts", () => {
+  const parseWith = (url: string, githubHosts?: string[]) =>
+    Effect.runSync(parseRemoteSource(url, githubHosts ? { githubHosts } : {}))
+  const parseEither = (url: string, githubHosts?: string[]) =>
+    Effect.runSync(Effect.either(parseRemoteSource(url, githubHosts ? { githubHosts } : {})))
+
+  it("parses a GHES tree URL with that host and clone URL", () => {
+    const result = parseWith("https://ghes.example.com/owner/repo/tree/main/path/to/dir")
+    expect(result).toEqual({
+      host: "ghes.example.com",
+      owner: "owner",
+      repo: "repo",
+      path: "main/path/to/dir",
+      cloneURL: "https://ghes.example.com/owner/repo.git",
+      isBlobURL: false,
+    })
+  })
+
+  it("parses a GHES blob URL (lowercases the host, keeps the port)", () => {
+    const result = parseWith("https://GHES.Example.com:8443/owner/repo/blob/v1.2/runbook.mdx")
+    expect(result.host).toBe("ghes.example.com:8443")
+    expect(result.cloneURL).toBe("https://ghes.example.com:8443/owner/repo.git")
+    expect(result.path).toBe("v1.2/runbook.mdx")
+    expect(result.isBlobURL).toBe(true)
+  })
+
+  it("parses ghe.com tree and blob URLs", () => {
+    const tree = parseWith("https://acme.ghe.com/o/r/tree/main/dir")
+    expect(tree.host).toBe("acme.ghe.com")
+    expect(tree.cloneURL).toBe("https://acme.ghe.com/o/r.git")
+    const blob = parseWith("https://acme.ghe.com/o/r/blob/main/dir/runbook.mdx")
+    expect(blob.host).toBe("acme.ghe.com")
+    expect(blob.isBlobURL).toBe(true)
+  })
+
+  it("an http:// browser URL still clones over https", () => {
+    expect(parseWith("http://ghes.example.com/o/r/tree/main").cloneURL).toBe("https://ghes.example.com/o/r.git")
+  })
+
+  it("plain ghe.com repo URL parses without configuration", () => {
+    for (const url of ["https://acme.ghe.com/o/r", "https://acme.ghe.com/o/r.git", "https://ACME.ghe.com/o/r"]) {
+      const result = parseWith(url)
+      expect(result.host).toBe("acme.ghe.com")
+      expect(result.owner).toBe("o")
+      expect(result.repo).toBe("r")
+      expect(result.cloneURL).toBe("https://acme.ghe.com/o/r.git")
+    }
+  })
+
+  it("plain GHES repo URL parses ONLY when its host is in githubHosts", () => {
+    expect(parseEither("https://ghes.example.com/o/r")._tag).toBe("Left")
+    expect(parseEither("https://ghes.example.com/o/r", ["other.example.com"])._tag).toBe("Left")
+    const result = parseWith("https://ghes.example.com/o/r.git", ["GHES.example.com"])
+    expect(result).toEqual({
+      host: "ghes.example.com",
+      owner: "o",
+      repo: "r",
+      cloneURL: "https://ghes.example.com/o/r.git",
+      isBlobURL: false,
+    })
+  })
+
+  it("plain github.com still parses without githubHosts", () => {
+    expect(parseWith("https://github.com/o/r").cloneURL).toBe("https://github.com/o/r.git")
+  })
+
+  it("a GitLab-named host listed nowhere still parses as GitLab (githubHosts doesn't hijack it)", () => {
+    const result = parseWith("https://gitlab.example.com/group/sub/project", ["ghes.example.com"])
+    expect(result.owner).toBe("group/sub")
+    expect(result.repo).toBe("project")
+  })
+
+  it("GitLab /-/tree/ URLs are not mistaken for GitHub tree URLs", () => {
+    const result = parseWith("https://gitlab.example.com/group/project/-/tree/main/dir")
+    expect(result.owner).toBe("group")
+    expect(result.repo).toBe("project")
+    expect(result.path).toBe("main/dir")
+  })
+
+  // KNOWN BUG (reported): the GitHub tree/blob regexes now match ANY host,
+  // and run before the GitLab plain-repo rule, so a plain URL of a GitLab
+  // project nested under a subgroup literally named `tree`/`blob`
+  // (`group/team/blob/project`) misparses as GitHub `group/team` and would
+  // clone the wrong repository. On main this parsed as GitLab.
+  it("a plain GitLab URL with a `blob`/`tree` subgroup still parses as GitLab", () => {
+    const result = parseWith("https://gitlab.com/group/team/blob/project")
+    expect(result.owner).toBe("group/team/blob")
+    expect(result.repo).toBe("project")
+    expect(result.cloneURL).toBe("https://gitlab.com/group/team/blob/project.git")
+  })
+})

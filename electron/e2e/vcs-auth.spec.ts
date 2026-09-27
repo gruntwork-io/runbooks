@@ -54,7 +54,7 @@ interface LaunchResult {
  *  env vars are always stripped for determinism. */
 async function launchApp(runbook: string, env: Record<string, string>): Promise<LaunchResult> {
   const cleanEnv: Record<string, string> = { ...process.env } as Record<string, string>
-  for (const v of ["GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GH_HOST", "GLAB_CONFIG_DIR", "GH_CONFIG_DIR"]) {
+  for (const v of ["GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GH_HOST", "GLAB_CONFIG_DIR", "GH_CONFIG_DIR"]) {
     delete cleanEnv[v]
   }
   const collected: string[] = []
