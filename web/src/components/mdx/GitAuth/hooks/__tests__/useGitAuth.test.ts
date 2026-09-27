@@ -86,6 +86,7 @@ describe('useGitAuth — GitLab provider', () => {
     expect(registerOutputs).toHaveBeenCalledWith('git', {
       GITLAB_TOKEN: 'glpat-abc',
       GITLAB_USER: 'tanuki',
+      GITLAB_HOST: 'gitlab.com',
       GIT_PROVIDER: 'gitlab',
       __AUTHENTICATED: 'true',
     })
@@ -412,12 +413,13 @@ describe('useGitAuth — GitHub provider (regression)', () => {
       await result.current.handlePatSubmit()
     })
 
-    expect(invoke).toHaveBeenCalledWith('github:validate', { token: 'ghp_abc', registerSession: true })
+    expect(invoke).toHaveBeenCalledWith('github:validate', { token: 'ghp_abc', host: 'github.com', registerSession: true })
     expect(result.current.authStatus).toBe('authenticated')
     expect(result.current.scopeWarning).toContain('repo')
     expect(registerOutputs).toHaveBeenCalledWith('gh', {
       GITHUB_TOKEN: 'ghp_abc',
       GITHUB_USER: 'octocat',
+      GITHUB_HOST: 'github.com',
       GIT_PROVIDER: 'github',
       __AUTHENTICATED: 'true',
     })
@@ -831,6 +833,7 @@ describe('useGitAuth — custody', () => {
       // Metadata-only outputs; main owns the session env.
       expect(registerOutputs).toHaveBeenCalledWith('gh', {
         GITHUB_USER: 'octocat',
+        GITHUB_HOST: 'github.com',
         GIT_PROVIDER: 'github',
         __AUTHENTICATED: 'true',
       })
@@ -841,5 +844,167 @@ describe('useGitAuth — custody', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('useGitAuth — GitHub Enterprise hosts', () => {
+  const GH_HOSTS = {
+    hosts: [
+      { host: 'github.com', sources: [], hasCredential: false },
+      { host: 'ghes.corp', sources: ['gh'], hasCredential: true },
+    ],
+    defaultHost: 'ghes.corp',
+  }
+
+  it("enumerates gh hosts and sends the default host on every detection invoke", async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:enumerate-hosts') return GH_HOSTS
+      if (channel === 'github:cli-credentials') {
+        return { found: true, valid: true, user: { login: 'mona' }, host: 'ghes.corp' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(invoke).toHaveBeenCalledWith('github:enumerate-hosts', {})
+    expect(invoke).toHaveBeenCalledWith('github:env-credentials', expect.objectContaining({ host: 'ghes.corp' }))
+    expect(invoke).toHaveBeenCalledWith('github:cli-credentials', { host: 'ghes.corp' })
+    expect(result.current.selectedHost).toBe('ghes.corp')
+    // The authenticated host is a block output (GitClone builds URLs from it).
+    expect(registerOutputs).toHaveBeenCalledWith('gh', expect.objectContaining({ GITHUB_HOST: 'ghes.corp' }))
+    // Never a gitlab channel.
+    expect(invoke.mock.calls.some((c) => (c[0] as string).startsWith('gitlab:'))).toBe(false)
+  })
+
+  it('an explicit host pick is persisted via github:host-picked and re-detects', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:enumerate-hosts') return { ...GH_HOSTS, defaultHost: 'github.com' }
+      if (channel === 'github:host-picked') return { ok: true }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() => useGitAuth({ id: 'gh', provider: PROVIDERS.github }))
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(invoke).toHaveBeenCalledWith('github:cli-credentials', { host: 'github.com' })
+
+    act(() => result.current.handleHostSelect('ghes.corp'))
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('github:host-picked', { host: 'ghes.corp' })
+      expect(invoke).toHaveBeenCalledWith('github:cli-credentials', { host: 'ghes.corp' })
+    })
+    expect(invoke.mock.calls.some((c) => c[0] === 'gitlab:host-picked')).toBe(false)
+    expect(result.current.selectedHost).toBe('ghes.corp')
+  })
+
+  it('an authored host pins (and normalizes) the host without enumerating', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:validate') return { valid: true, user: { login: 'mona' }, tokenType: 'classic_pat', scopes: ['repo'] }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, host: 'https://GHES.corp/', detectCredentials: false }),
+    )
+
+    act(() => result.current.setPatToken('ghp_abc'))
+    await act(async () => {
+      await result.current.handlePatSubmit()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('github:validate', { token: 'ghp_abc', host: 'ghes.corp', registerSession: true })
+    expect(invoke).not.toHaveBeenCalledWith('github:enumerate-hosts', expect.anything())
+    expect(result.current.hostSelectable).toBe(false)
+    expect(registerOutputs).toHaveBeenCalledWith('gh', expect.objectContaining({ GITHUB_HOST: 'ghes.corp' }))
+  })
+
+  it('disables OAuth for an enterprise host without a client ID (string prop targets github.com only)', async () => {
+    installApi(async () => ({ found: false }))
+
+    const { result } = renderHook(() =>
+      useGitAuth({
+        id: 'gh',
+        provider: PROVIDERS.github,
+        host: 'ghes.corp',
+        oauthClientId: undefined,
+        detectCredentials: false,
+      }),
+    )
+
+    expect(result.current.effectiveClientId).toBeUndefined()
+    expect(result.current.oauthUnavailableReason).toMatch(/isn't set up for ghes\.corp/)
+    expect(result.current.oauthUnavailableReason).toContain('gh auth login --hostname ghes.corp')
+  })
+
+  it('never applies an unscoped string client ID to a picked enterprise host', async () => {
+    installApi(async (channel) => {
+      if (channel === 'github:enumerate-hosts') return GH_HOSTS
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, oauthClientId: 'Iv1.dotcom' }),
+    )
+
+    await waitFor(() => expect(result.current.selectedHost).toBe('ghes.corp'))
+    expect(result.current.effectiveClientId).toBeUndefined()
+    expect(result.current.oauthUnavailableReason).toMatch(/ghes\.corp/)
+  })
+
+  it('resolves a client-ID map by host and sends host + clientId on oauth-start/poll', async () => {
+    vi.useFakeTimers()
+    try {
+      const invoke = installApi(async (channel) => {
+        if (channel === 'github:oauth-start') {
+          return { deviceCode: 'dev', userCode: 'ABCD-1234', verificationUri: 'https://ghes.corp/login/device', interval: 0 }
+        }
+        if (channel === 'github:oauth-poll') return { status: 'complete', user: { login: 'mona' } }
+        return { found: false }
+      })
+
+      const { result } = renderHook(() =>
+        useGitAuth({
+          id: 'gh',
+          provider: PROVIDERS.github,
+          host: 'ghes.corp',
+          oauthClientId: { 'https://GHES.corp': 'Iv1.ghes', 'github.com': 'Iv1.dotcom' },
+          detectCredentials: false,
+        }),
+      )
+
+      expect(result.current.effectiveClientId).toBe('Iv1.ghes')
+      expect(result.current.oauthUnavailableReason).toBeNull()
+      // No "use the default app" warning — there is no default on an enterprise host.
+      expect(result.current.isCustomClientId).toBe(false)
+
+      await act(async () => {
+        await result.current.startOAuth()
+        await vi.runOnlyPendingTimersAsync()
+      })
+
+      expect(invoke).toHaveBeenCalledWith('github:oauth-start', { clientId: 'Iv1.ghes', scopes: ['repo'], host: 'ghes.corp' })
+      expect(invoke).toHaveBeenCalledWith('github:oauth-poll', { clientId: 'Iv1.ghes', deviceCode: 'dev', host: 'ghes.corp' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('github.com keeps OAuth on the main default and sends host github.com', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:oauth-start') return { error: 'stop here' }
+      return { found: false }
+    })
+
+    const { result } = renderHook(() =>
+      useGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: false }),
+    )
+
+    expect(result.current.oauthUnavailableReason).toBeNull()
+    await act(async () => {
+      await result.current.startOAuth()
+    })
+    expect(invoke).toHaveBeenCalledWith('github:oauth-start', { scopes: ['repo'], host: 'github.com' })
   })
 })
