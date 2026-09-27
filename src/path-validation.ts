@@ -82,7 +82,14 @@ async function canonicalizePath(inputPath: string): Promise<string> {
       continue
     }
     const next = path.join(resolved, segment)
-    const stat = await fs.lstat(next).catch(() => null)
+    // Only a genuinely missing component may become literal tail. Any other
+    // failure fails closed: `next` is the fully dereferenced spelling, so it
+    // can exceed PATH_MAX (ENAMETOOLONG) while the kernel still resolves the
+    // caller's shorter, symlinked spelling and follows a link at `next`.
+    const stat = await fs.lstat(next).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") return null
+      throw err
+    })
     if (!stat) {
       tail.push(segment)
       continue
