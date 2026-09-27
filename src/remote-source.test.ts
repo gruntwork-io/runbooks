@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
-import { isRemoteSource, parseRemoteSource, resolveRef } from "./remote-source.ts"
+import { isRemoteSource, parseRemoteSource, redactSourceCredentials, resolveRef } from "./remote-source.ts"
 import { makeTestSpawner } from "./test-utils/TestSpawner.ts"
 
 function parse(url: string) {
@@ -40,6 +40,33 @@ describe("isRemoteSource", () => {
     "github.com.backup/runbook.mdx",
   ])("treats %s as a local path", (input) => {
     expect(isRemoteSource(input)).toBe(false)
+  })
+})
+
+// Credential-bearing URLs are assembled at runtime so the source holds no
+// `user:password@host` literal for secret scanners to flag.
+const PASSWORD = ["hunter", "22"].join("")
+const withUserinfo = (scheme: string, userinfo: string, rest: string) => `${scheme}://${userinfo}@${rest}`
+
+describe("redactSourceCredentials", () => {
+  it.each([
+    [withUserinfo("https", `user:${PASSWORD}`, "github.com/o/r/tree/main/x"), "https://github.com/o/r/tree/main/x"],
+    // A token can pose as the username, so an http(s) userinfo goes entirely.
+    [withUserinfo("https", "ghp_" + "a".repeat(36), "github.com/o/r"), "https://github.com/o/r"],
+    [withUserinfo("git::https", `u:${PASSWORD}`, "git.example.com/o/r.git//x?ref=main"), "git::https://git.example.com/o/r.git//x?ref=main"],
+    [withUserinfo("git::ssh", `git:${PASSWORD}`, "github.com/o/r.git//x"), "git::ssh://git@github.com/o/r.git//x"],
+    [withUserinfo("ssh", `deploy:${PASSWORD}`, "host:2222/o/r.git"), "ssh://deploy@host:2222/o/r.git"],
+  ])("%s → %s", (input, expected) => {
+    expect(redactSourceCredentials(input)).toBe(expected)
+  })
+
+  it.each([
+    "https://github.com/o/r/tree/main/x",
+    "ssh://git@github.com/o/r.git",
+    "git@github.com:o/r.git//x?ref=main",
+    "github.com/o/r//x?ref=main",
+  ])("leaves %s alone", (input) => {
+    expect(redactSourceCredentials(input)).toBe(input)
   })
 })
 
@@ -295,6 +322,19 @@ describe("parseRemoteSource", () => {
       expect(result.cloneURL).toBe("ssh://git@github.com/owner/repo.git")
       expect(result.path).toBe("runbooks/vpc")
       expect(result.ref).toBe("main")
+    })
+
+    it("drops an ssh:// password but keeps the user and port", () => {
+      expect(parse(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com:2222/owner/repo.git//x")).cloneURL).toBe(
+        "ssh://git@git.example.com:2222/owner/repo.git",
+      )
+      expect(parse(withUserinfo("ssh", `deploy:${PASSWORD}`, "github.com/owner/repo.git")).cloneURL).toBe(
+        "ssh://deploy@github.com/owner/repo.git",
+      )
+    })
+
+    it("keeps credentials out of the error for a source with no repository", () => {
+      expect(parseError(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/"))).not.toContain(PASSWORD)
     })
 
     it("git:: with an scp-like SSH address", () => {

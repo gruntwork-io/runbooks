@@ -362,6 +362,21 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
     expect(result.hint).toContain("SSH host key for git.corp.net is not trusted yet")
   })
 
+  it("scrubs tokens from git's stderr before showing it", () => {
+    // Assembled at runtime so no credential-shaped literal sits in the source.
+    const token = "ghp_" + "a".repeat(36)
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "o",
+      repo: "r",
+      stderr: `fatal: unable to update url base from redirection: https://${["x-access-token", token].join(":")}@github.com/o/r.git`,
+      hadToken: true,
+    })
+    expect(result.kind).toBe("unknown")
+    expect(result.hint).not.toContain(token)
+    expect(result.hint).toContain("[REDACTED]")
+  })
+
   it("a repo with no owner reads host/repo", () => {
     const result = classifyCloneError({
       host: "git.corp.net",

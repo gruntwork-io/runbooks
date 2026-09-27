@@ -68,6 +68,21 @@ export function isRemoteSource(input: string): boolean {
   return SCHEME_PREFIX.test(trimmed) || SCP_LIKE.test(trimmed) || SHORTHAND.test(trimmed)
 }
 
+/** The userinfo of a scheme-bearing source, after an optional `git::`. */
+const SOURCE_USERINFO = /^(git::)?(https?|ssh):\/\/([^/@]*)@/i
+
+/**
+ * `source` with any credentials in it removed, for logs and display. An
+ * http(s) URL loses its whole userinfo (a token can pose as the username);
+ * an ssh:// URL keeps its user and loses only a password.
+ */
+export function redactSourceCredentials(source: string): string {
+  return source.trim().replace(SOURCE_USERINFO, (_match, prefix = "", scheme: string, userinfo: string) => {
+    const user = scheme.toLowerCase() === "ssh" ? `${userinfo.split(":")[0]}@` : ""
+    return `${prefix}${scheme}://${user}`
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Browser URL shapes (matched against the URL's pathname)
 // ---------------------------------------------------------------------------
@@ -227,15 +242,14 @@ function parseGitSource(source: string): ParsedRemoteSource {
     host = url.host.toLowerCase()
     repoPath = url.pathname
     // Credentials never ride in the source: tokens come from the host's
-    // configured credentials, and the URL is shown in the app header.
-    cloneURL =
-      protocol === "ssh:"
-        ? address
-        : `${protocol}//${host}${url.pathname.replace(/\/+$/, "")}`
+    // configured credentials, and SSH authenticates with keys. An ssh://
+    // URL keeps its user (`git@`), which is part of the address.
+    const user = protocol === "ssh:" && url.username ? `${url.username}@` : ""
+    cloneURL = `${protocol}//${user}${host}${url.pathname.replace(/\/+$/, "")}`
   }
 
   const { owner, repo } = splitOwnerRepo(decodePath(repoPath))
-  if (!repo || !host) throw new InvalidSource(`no repository in ${source}`)
+  if (!repo || !host) throw new InvalidSource(`no repository in ${redactSourceCredentials(source)}`)
   return { host, owner, repo, cloneURL, ref, path: normalizeRepoPath(subdir) }
 }
 

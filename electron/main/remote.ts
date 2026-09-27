@@ -9,7 +9,7 @@ import * as os from "os"
 import * as path from "path"
 import { Cause, Effect, Exit } from "effect"
 import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
-import { parseRemoteSource, resolveRef } from "../../src/remote-source.ts"
+import { parseRemoteSource, redactSourceCredentials, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
 import { isContainedInReal } from "../../src/path-validation.ts"
 import { GitClient } from "../../src/services/GitClient.ts"
@@ -19,6 +19,7 @@ import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url
 import { gitSpawnEnv } from "../../src/domain/git/env.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import { githubHostKind, isGitHubHost } from "../../src/domain/git/github-host.ts"
+import { redactSecrets } from "../../src/domain/vcs/redact.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("remote")
@@ -169,7 +170,9 @@ export function classifyCloneError(opts: {
   }
   return {
     kind: "unknown",
-    hint: `failed to download runbook: ${stderr || "unknown error"}`,
+    // Shown to the user: git's stderr can echo a URL, so scrub it like every
+    // other error that crosses IPC.
+    hint: `failed to download runbook: ${redactSecrets(stderr) || "unknown error"}`,
   }
 }
 
@@ -219,11 +222,14 @@ export interface RemoteRunbookResult {
 export async function resolveRemoteRunbook(
   rawUrl: string,
 ): Promise<RemoteRunbookResult> {
+  // What leaves this function (logs, errors, the header's remoteSource)
+  // carries the source without any credentials typed into it.
+  const source = redactSourceCredentials(rawUrl)
   const exit = await runtime.runPromiseExit(
     Effect.gen(function* () {
       // Parse the URL. Enterprise GitHub hosts the user configured (gh's
       // hosts.yml, GH_HOST) let a plain GHES repo URL parse as GitHub.
-      log.info("Parsing URL:", rawUrl)
+      log.info("Parsing URL:", source)
       const vcs = yield* VcsCredentials
       const { configHosts, envHost } = yield* vcs.enumerateGitHubHosts()
       let parsed = yield* parseRemoteSource(rawUrl, {
@@ -306,7 +312,7 @@ export async function resolveRemoteRunbook(
               provider,
               ssh,
             })
-            return Effect.fail(new RemoteSourceError({ url: rawUrl, message: classified.hint }))
+            return Effect.fail(new RemoteSourceError({ url: source, message: classified.hint }))
           }),
         )
       log.info("Clone complete")
@@ -318,7 +324,7 @@ export async function resolveRemoteRunbook(
       const target = parsed.path ? path.join(dest, parsed.path) : dest
       if (!fs.existsSync(target)) {
         return yield* Effect.fail(
-          new RemoteSourceError({ url: rawUrl, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
+          new RemoteSourceError({ url: source, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
         )
       }
       log.info("Resolving runbook in:", target)
@@ -326,7 +332,7 @@ export async function resolveRemoteRunbook(
         Effect.mapError(
           () =>
             new RemoteSourceError({
-              url: rawUrl,
+              url: source,
               message: `no runbook.mdx in ${parsed.path ? `"${parsed.path}"` : "the root"} of ${repoLabel}${at}`,
             }),
         ),
@@ -335,14 +341,14 @@ export async function resolveRemoteRunbook(
       // the clone.
       if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
         return yield* Effect.fail(
-          new RemoteSourceError({ url: rawUrl, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
+          new RemoteSourceError({ url: source, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
         )
       }
       log.info("Resolved runbook path:", localPath)
 
       return {
         localPath,
-        remoteSource: rawUrl,
+        remoteSource: source,
       } satisfies RemoteRunbookResult
     }),
   )
