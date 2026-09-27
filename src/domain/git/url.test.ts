@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { gitCredentialUsername, stripUrlCredentials, withGitHttpAuth } from "./url.ts"
+import { gitCredentialUsername, sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "./url.ts"
 
 const TOKEN = "ghp_TESTTOKEN1234567890"
 
@@ -126,5 +126,21 @@ describe("withGitHttpAuth", () => {
   it("returns the environment unchanged when there is no token", () => {
     expect(withGitHttpAuth(base, "https://github.com/owner/repo.git", undefined)).toBe(base)
     expect(withGitHttpAuth(base, "https://github.com/owner/repo.git", "")).toBe(base)
+  })
+})
+
+describe("sameHttpOrigin", () => {
+  it("matches http(s) URLs by scheme, host and port only", () => {
+    expect(sameHttpOrigin("https://github.com/a/b.git", "https://x-access-token:t@GitHub.com:443/c/d")).toBe(true)
+    expect(sameHttpOrigin("http://127.0.0.1:8080/r.git", "http://127.0.0.1:8080/other.git")).toBe(true)
+  })
+
+  it("rejects a different host, port or scheme, and non-http URLs", () => {
+    expect(sameHttpOrigin("https://github.com/a/b.git", "https://ghe.example.com/a/b.git")).toBe(false)
+    expect(sameHttpOrigin("https://host:8443/a.git", "https://host/a.git")).toBe(false)
+    expect(sameHttpOrigin("https://github.com/a.git", "http://github.com/a.git")).toBe(false)
+    expect(sameHttpOrigin("ssh://git@github.com/a.git", "ssh://git@github.com/a.git")).toBe(false)
+    expect(sameHttpOrigin("git@github.com:a/b.git", "https://github.com/a/b.git")).toBe(false)
+    expect(sameHttpOrigin("", "")).toBe(false)
   })
 })

@@ -19,7 +19,7 @@ import type {
 } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
-import { stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
+import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
 import { gitSpawnEnv } from "../domain/git/env.ts"
 
 /**
@@ -156,12 +156,18 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // Authenticate this one push through the environment rather than by
         // rewriting the remote URL, so the token never lands in .git/config and
         // an SSH remote keeps its own user and port. `--push` reads the URL the
-        // push will actually use (pushurl / pushInsteadOf applied).
+        // push will actually use (pushurl / pushInsteadOf applied). Callers
+        // bind the token to the fetch URL's host (e.g. resolveGitHubTokenForRepo
+        // reads getRemoteUrl), so a push URL on another origin gets no token:
+        // that push authenticates the way git would on its own.
         if (options?.token) {
-          const urlLines = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
-          const env = withGitHttpAuth(gitSpawnEnv(), urlLines[0] ?? "", options.token, options.username)
-          yield* runGit(spawner, args, repoPath, undefined, env)
-          return
+          const [pushUrl = ""] = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
+          const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
+          if (sameHttpOrigin(pushUrl, fetchUrl)) {
+            const env = withGitHttpAuth(gitSpawnEnv(), pushUrl, options.token, options.username)
+            yield* runGit(spawner, args, repoPath, undefined, env)
+            return
+          }
         }
 
         yield* runGit(spawner, args, repoPath)
