@@ -42,7 +42,11 @@ const LITERALS_HINT =
  * - namespaced element names, because `<svg><svg:script>` creates a real
  *   script element that slips past a check on the name `script`;
  * - props and object keys that inject raw HTML or replace a prototype (see
- *   BLOCKED_PROPS).
+ *   BLOCKED_PROPS);
+ * - `javascript:` URLs in any prop, because React only neutralizes them in
+ *   props spelled exactly `href`, `src`, `action`, `formAction` or
+ *   `xlinkHref`: `<a HREF="javascript:...">`, `<button formaction=...>` and
+ *   `<animate attributeName="href" values=...>` reach the DOM as written.
  *
  * A literal value is a string, number, boolean, null or regex literal; a
  * template string without `${...}`; a number with a leading `-` or `+`; or an
@@ -95,6 +99,13 @@ const BLOCKED_ELEMENTS = new Set(['script', 'iframe', 'frame', 'frameset', 'obje
 // the prototype of the props (or object) it appears in.
 const BLOCKED_PROPS = new Set(['dangerouslysetinnerhtml', 'srcdoc', '__proto__'])
 
+// A `javascript:` URL as browsers parse one: leading control characters and
+// spaces are skipped, and tabs and newlines inside the scheme are ignored.
+// This is the test React applies to the props it sanitizes; a click on any
+// other element or prop holding such a URL runs it with `window.api` in reach.
+// eslint-disable-next-line no-control-regex
+const JAVASCRIPT_URL = /^[\u0000-\u001F ]*j[\r\n\t]*a[\r\n\t]*v[\r\n\t]*a[\r\n\t]*s[\r\n\t]*c[\r\n\t]*r[\r\n\t]*i[\r\n\t]*p[\r\n\t]*t[\r\n\t]*:/i
+
 function checkElement(element: MdxNode) {
   const name = element.name ?? ''
   const tag = `<${name}>`
@@ -136,6 +147,33 @@ function checkElement(element: MdxNode) {
         `the \`${attribute.name}\` prop of ${tag} must be a literal value, not {${excerpt(value.value)}}. ${LITERALS_HINT}`,
       )
     }
+
+    // An SVG animation's `values` is a `;`-separated list, so test each entry.
+    if (propStrings(value).some((text) => text.split(';').some((entry) => JAVASCRIPT_URL.test(entry)))) {
+      throw notAllowed(attribute, `\`javascript:\` URLs like the \`${attribute.name}\` prop of ${tag} are not allowed in runbooks.`)
+    }
+  }
+}
+
+// The strings a prop value can put in the DOM: a plain string, or the strings
+// in a literal `{...}` value. React writes an array as its comma-joined items,
+// so `HREF={['javascript:...']}` counts too.
+function propStrings(value: MdxNode['value']): string[] {
+  if (typeof value === 'string') return [value]
+  const statement = value?.data?.estree?.body[0]
+  return statement?.type === 'ExpressionStatement' ? literalStrings(statement.expression) : []
+}
+
+function literalStrings(node: EstreeNode | null): string[] {
+  switch (node?.type) {
+    case 'Literal':
+      return typeof node.value === 'string' ? [node.value] : []
+    case 'TemplateLiteral':
+      return node.quasis.map((quasi) => quasi.value.cooked ?? quasi.value.raw)
+    case 'ArrayExpression':
+      return node.elements.flatMap(literalStrings)
+    default:
+      return []
   }
 }
 

@@ -26,6 +26,7 @@ A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runboo
 - Props that inject raw HTML: `dangerouslySetInnerHTML` and `srcDoc`
 - Custom elements (element names with a `-`, such as `<my-widget>`), dotted element names (such as `<Admonition.Title>`) and namespaced element names (such as `<svg:script>`)
 - `__proto__` as a prop name or object key
+- `javascript:` URLs in any prop, such as `<a href="javascript:...">`
 
 You can still use `{...}` for literal values: strings, numbers, booleans, `null`, template strings without `${...}` substitutions, and arrays or objects made only of those. For example, `usePty={false}`, `detectCredentials={['env']}` and `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}` are all allowed, and so are `{/* comments */}`.
 

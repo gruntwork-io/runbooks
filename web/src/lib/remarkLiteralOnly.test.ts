@@ -25,6 +25,7 @@ describe('remarkLiteralOnly', () => {
       ['nested blocks', '<Admonition title="Outer">\n  <Command args={["x"]} />\n</Admonition>'],
       ['plain HTML elements', '<div style="color: red;">\nRed text\n</div>\n\nInline <img src="./x.png" alt="x" /> image'],
       ['object keys that only resemble __proto__', `<X a={{ proto: 1, '__proto': 2, constructor: 3 }} />`],
+      ['links and text that only mention javascript:', '<a href="https://example.com/javascript:">Docs</a>\n\n<Command command="echo javascript: is off" />'],
     ])('%s', async (_name, source) => {
       await expect(compileRunbook(source)).resolves.toBeDefined()
     })
@@ -74,6 +75,16 @@ describe('remarkLiteralOnly', () => {
       ['a __proto__ prop', '<Admonition __proto__={["a=1"]} />'],
       ['a __proto__ object key', '<X a={{ __proto__: ["a=1"] }} />'],
       ['a quoted __proto__ object key', `<X a={[{ '__proto__': { b: 1 } }]} />`],
+      // React only sanitizes `javascript:` URLs in `href`, `src`, `action`,
+      // `formAction` and `xlinkHref` spelled exactly so.
+      ['a javascript: URL in an uppercase HREF', '<a HREF="javascript:alert(1)">Next step</a>'],
+      ['a javascript: URL in a lowercase formaction', '<form><button formaction="javascript:alert(1)">Go</button></form>'],
+      ['a javascript: URL in a namespaced xlink:href', '<svg><a xlink:href="javascript:alert(1)"><text>Go</text></a></svg>'],
+      ['a javascript: URL in an SVG animation value list', '<svg><a><animate attributeName="href" values="#;javascript:alert(1)" /><text>Go</text></a></svg>'],
+      ['an obfuscated javascript: URL', '<a Href=" &#x6A;ava&#x09;script&colon;alert(1)">Go</a>'],
+      ['a javascript: URL in a literal expression', '<a HREF={`javascript:alert(1)`}>Go</a>'],
+      ['a javascript: URL in an array', `<a HREF={['javascript:alert(1)']}>Go</a>`],
+      ['a javascript: URL in an exactly spelled href', '<a href="javascript:alert(1)">Go</a>'],
     ])('%s', async (_name, source) => {
       await expect(compileRunbook(source)).rejects.toThrow(/not allowed in runbooks|must be a literal value/)
     })
@@ -88,6 +99,9 @@ describe('remarkLiteralOnly', () => {
     )
     await expect(compileRunbook('# Title\n\n<div srcDoc="x" />')).rejects.toThrow(
       /^Line 3: the `srcDoc` prop of <div> is not allowed in runbooks\./,
+    )
+    await expect(compileRunbook('# Title\n\n<a HREF="javascript:alert(1)">Go</a>')).rejects.toThrow(
+      /^Line 3: `javascript:` URLs like the `HREF` prop of <a> are not allowed in runbooks\./,
     )
   })
 })
