@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   buildDiffSections,
   diffLineArrays,
+  diskLines,
   generateUnifiedDiff,
   getExpandedLines,
-  toLines,
+  headLines,
   type DiffLine,
 } from './unifiedDiff'
 
@@ -22,16 +23,34 @@ const counts = (lines: DiffLine[] | undefined) => ({
 const modified = (originalContent: string | undefined, newContent: string | undefined) =>
   generateUnifiedDiff({ changeType: 'modified', originalContent, newContent })
 
-describe('toLines', () => {
+describe('headLines', () => {
   it('treats empty content as zero lines', () => {
-    expect(toLines('')).toEqual([])
+    expect(headLines('')).toEqual([])
+  })
+
+  it('treats every newline as a line separator', () => {
+    expect(headLines('a')).toEqual(['a'])
+    expect(headLines('a\nb')).toEqual(['a', 'b'])
+    expect(headLines('a\n')).toEqual(['a', ''])
+  })
+})
+
+describe('diskLines', () => {
+  it('treats empty content as zero lines', () => {
+    expect(diskLines('')).toEqual([])
   })
 
   it('drops one trailing newline', () => {
-    expect(toLines('a')).toEqual(['a'])
-    expect(toLines('a\n')).toEqual(['a'])
-    expect(toLines('a\n\n')).toEqual(['a', ''])
-    expect(toLines('\n')).toEqual([''])
+    expect(diskLines('a')).toEqual(['a'])
+    expect(diskLines('a\n')).toEqual(['a'])
+    expect(diskLines('a\n\n')).toEqual(['a', ''])
+    expect(diskLines('\n')).toEqual([''])
+  })
+
+  it('ends lines at CRLF and a lone CR, as readline does', () => {
+    expect(diskLines('a\r\nb\r\n')).toEqual(['a', 'b'])
+    expect(diskLines('a\r\n\r\n')).toEqual(['a', ''])
+    expect(diskLines('a\rb\r')).toEqual(['a', 'b'])
   })
 })
 
@@ -82,6 +101,28 @@ describe('generateUnifiedDiff', () => {
 
   it('does not report a change for the trailing newline only disk content has', () => {
     expect(rows(modified('a\nb', 'a\nb\n'))).toEqual([' a', ' b'])
+  })
+
+  // A file ending in a blank line ("x\n\n" in HEAD) comes back from `git show`
+  // as the lines ['x', ''], so originalContent is 'x\n': that '\n' separates
+  // two lines rather than ending the file.
+  it('keeps the blank last line of HEAD content', () => {
+    expect(rows(modified('x\n', 'y\n\n'))).toEqual(['-x', '+y', ' '])
+    expect(counts(modified('x\n', 'y\n\n'))).toEqual({ additions: 1, deletions: 1 })
+  })
+
+  it('renders a deleted file ending in a blank line as one deletion per line', () => {
+    expect(rows(generateUnifiedDiff({ changeType: 'deleted', originalContent: 'x\n' }))).toEqual(['-x', '-'])
+  })
+
+  // `git show` lines come through readline, which drops the CR of a CRLF line
+  // ending; disk content keeps it.
+  it('does not report a change for the CRs only disk content has', () => {
+    expect(rows(modified('a\nb\nc', 'a\r\nB\r\nc\r\n'))).toEqual([' a', '-b', '+B', ' c'])
+  })
+
+  it('renders an added CRLF file without the CRs', () => {
+    expect(rows(generateUnifiedDiff({ changeType: 'added', newContent: 'a\r\nb\r\n' }))).toEqual(['+a', '+b'])
   })
 
   // Expected counts are what `git diff --numstat` reported for the same edit,

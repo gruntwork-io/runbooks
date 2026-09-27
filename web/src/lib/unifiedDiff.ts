@@ -37,13 +37,23 @@ export interface DiffOp {
 export const MAX_EDIT_LENGTH = 1000
 
 /**
- * Split file content into lines. An empty string is zero lines, not one blank
- * line. One trailing newline is dropped: originalContent is rebuilt from the
- * lines of `git show`, which loses the final newline, while newContent is read
- * from disk and keeps it.
+ * Split originalContent into lines. The backend rebuilds it by joining the
+ * lines of `git show` with '\n', so it has no line terminator of its own: a
+ * trailing '\n' is a blank last line. An empty string is zero lines.
  */
-export function toLines(content: string): string[] {
-  return content === '' ? [] : content.replace(/\n$/, '').split('\n')
+export function headLines(content: string): string[] {
+  return content === '' ? [] : content.split('\n')
+}
+
+/**
+ * Split newContent (read from disk) into lines the way `git show` output is
+ * split for originalContent: readline ends a line at '\n', '\r\n' or a lone
+ * '\r' and drops the terminator, including the final one. An empty string is
+ * zero lines.
+ */
+export function diskLines(content: string): string[] {
+  const lf = content.replace(/\r\n?/g, '\n')
+  return lf === '' ? [] : lf.replace(/\n$/, '').split('\n')
 }
 
 /**
@@ -60,7 +70,7 @@ export function generateUnifiedDiff(
 
   if (changeType === 'added') {
     if (newContent === undefined) return undefined
-    return toLines(newContent).map((content, i) => ({
+    return diskLines(newContent).map((content, i) => ({
       type: 'addition',
       content,
       newLineNum: i + 1,
@@ -69,7 +79,7 @@ export function generateUnifiedDiff(
 
   if (changeType === 'deleted') {
     if (originalContent === undefined) return undefined
-    return toLines(originalContent).map((content, i) => ({
+    return headLines(originalContent).map((content, i) => ({
       type: 'deletion',
       content,
       oldLineNum: i + 1,
@@ -82,7 +92,7 @@ export function generateUnifiedDiff(
   let oldLineNum = 1
   let newLineNum = 1
 
-  for (const op of diffLineArrays(toLines(originalContent), toLines(newContent))) {
+  for (const op of diffLineArrays(headLines(originalContent), diskLines(newContent))) {
     if (op.type === 'equal') {
       lines.push({
         type: 'context',
