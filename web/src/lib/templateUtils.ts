@@ -164,7 +164,7 @@ function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown
  * top-level key of that exact name, else the nested value (see
  * resolveNestedValue). Undefined when the engine would find no such key.
  */
-function resolveInputPath(inputs: TemplateInputs, path: InputName): unknown {
+export function resolveInputPath(inputs: TemplateInputs, path: InputName): unknown {
   return Object.hasOwn(inputs, path) ? inputs[path] : resolveNestedValue(inputs, path)
 }
 

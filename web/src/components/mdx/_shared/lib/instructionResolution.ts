@@ -16,8 +16,8 @@ import {
   splitDependencies,
 } from '@/lib/extractTemplateDependencies'
 import {
-  computeUnmetInputDependencies,
   extractInputValueReferences,
+  resolveInputPath,
   resolveTemplateReferences,
   type TemplateContext,
   type TemplateInputs,
@@ -106,27 +106,33 @@ export function buildManualOutputs(
 /**
  * The inputs counterpart of buildManualOutputs: give every input the commands
  * use as a plain value (`{{ .inputs.x }}`, optionally piped) that has no value
- * yet (unset or empty) a `<name>` placeholder. The engine renders a missing
- * input as a `[template error: …]` in place of the whole command, so filling
- * the gap first keeps the rest of the command intact and reads as a clear
- * "fill me in" slot. A dotted reference (`{{ .inputs.tags.env }}`) gets a
- * nested placeholder named after its last segment (`<env>`). The given inputs
- * are not mutated.
+ * at all (absent or `undefined`, as an untouched field with no default is) a
+ * `<name>` placeholder. The engine fails on such a missing key and renders a
+ * `[template error: …]` in place of the whole command, so filling the gap first
+ * keeps the rest of the command intact and reads as a clear "fill me in" slot.
+ * A dotted reference (`{{ .inputs.tags.env }}`) gets a nested placeholder named
+ * after its last segment (`<env>`). The given inputs are not mutated.
+ *
+ * Any other value, including `''` and `null`, is left as it is. The engine
+ * renders it, and a placeholder would change what the command's logic decides:
+ * `{{ if .inputs.var_file }}` would take the branch and `| default "x"` would
+ * not apply, so the command would differ from what runs for that value.
  *
  * An input referenced only inside template logic (`{{ if .inputs.x }}`, a
  * function argument) is left unset: a placeholder there would be evaluated as
  * a real value (a truthy string) and silently pick a branch the user never
  * chose. Unset, it makes the engine fail, and the client-side fallback shows
- * that logic as written, with a note. An input that is also used as a plain
- * value does get the placeholder (the engine takes one value per input), so
- * the command shows the visible `<name>` slot.
+ * that logic as written, with a note. An input with no value that is also used
+ * as a plain value does get the placeholder (the engine takes one value per
+ * input, and can't render the command without one), so the command shows the
+ * visible `<name>` slot.
  */
 export function buildInputPlaceholders(
   commands: string[],
   inputs: TemplateInputs,
 ): TemplateInputs {
   const referenced = [...new Set(commands.flatMap(extractInputValueReferences))]
-  const missing = computeUnmetInputDependencies(referenced, inputs)
+  const missing = referenced.filter((name) => resolveInputPath(inputs, name) === undefined)
   if (missing.length === 0) return inputs
 
   const filled: TemplateInputs = { ...inputs }
@@ -135,13 +141,17 @@ export function buildInputPlaceholders(
     const key = segments.pop() as string
     let target: Record<string, unknown> | null = filled
     for (const segment of segments) {
-      const current: unknown = target[segment]
-      // Don't clobber a set scalar that the reference treats as an object.
-      if (current != null && (typeof current !== 'object' || Array.isArray(current))) {
+      const current: unknown = Object.hasOwn(target, segment) ? target[segment] : undefined
+      // Don't clobber a set value (a scalar, or null) that the reference
+      // treats as an object.
+      if (
+        current !== undefined &&
+        (current === null || typeof current !== 'object' || Array.isArray(current))
+      ) {
         target = null
         break
       }
-      const copy = { ...(current as Record<string, unknown> | null) }
+      const copy = { ...(current as Record<string, unknown> | undefined) }
       target[segment] = copy
       target = copy
     }
