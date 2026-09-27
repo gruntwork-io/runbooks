@@ -14,7 +14,7 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, getSessionTokenForProvider } from "./runtime.ts"
+import { runtime, sessionManager, getSessionTokenForProvider, getSessionTokenForHost } from "./runtime.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
@@ -169,12 +169,18 @@ export function registerGitLabHandlers(): void {
         useSessionToken?: boolean
       },
     ) => {
+      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      // Session mode releases the session credential only to the host the
+      // auth block bound it to (as for GitHub), and never over plain http:
+      // it may be an auto-detected env or CLI token.
       const token = params.useSessionToken
-        ? await runtime.runPromise(
-            getSessionTokenForProvider("gitlab", () => new Error("none")).pipe(
-              Effect.orElseSucceed(() => undefined),
-            ),
-          )
+        ? new URL(baseUrl).protocol === "https:"
+          ? await runtime.runPromise(
+              getSessionTokenForHost("gitlab", host, () => new Error("none")).pipe(
+                Effect.orElseSucceed(() => undefined),
+              ),
+            )
+          : undefined
         : params.token
       if (!token) {
         return {
@@ -187,7 +193,6 @@ export function registerGitLabHandlers(): void {
       }
       registerSecret(token)
       const tokenType = detectTokenType(token)
-      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
       const result = await withTlsOrchestration({
         provider: "gitlab",
         host,

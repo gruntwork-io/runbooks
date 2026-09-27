@@ -168,4 +168,25 @@ describe("gitlab:validate", () => {
       "http://git.corp.example/api/v4/user",
     ])
   })
+
+  it("useSessionToken sends the session credential only to its own host, over https", async () => {
+    // Block A: the env token authenticates gitlab.com and lands in the session.
+    process.env.GITLAB_TOKEN = "glpat-env"
+    expect((await invoke("gitlab:env-credentials", { host: "gitlab.com" })).valid).toBe(true)
+    expect((await sessionEnv()).GITLAB_HOST).toBe("gitlab.com")
+    fetchCalls = []
+
+    // Block B chains to A but targets plain http, or another host: refused
+    // without any request.
+    const http = await invoke("gitlab:validate", { useSessionToken: true, instanceUrl: "http://gitlab.com" })
+    const other = await invoke("gitlab:validate", { useSessionToken: true, instanceUrl: "https://evil.example" })
+    expect([http.valid, other.valid]).toEqual([false, false])
+    expect(fetchCalls).toHaveLength(0)
+
+    const same = await invoke("gitlab:validate", { useSessionToken: true, host: "gitlab.com" })
+    expect(same.valid).toBe(true)
+    expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization])).toEqual([
+      ["https://gitlab.com/api/v4/user", "Bearer glpat-env"],
+    ])
+  })
 })
