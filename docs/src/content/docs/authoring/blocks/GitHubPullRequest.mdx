@@ -126,6 +126,33 @@ Both prerequisites are checked automatically, and the block shows amber warnings
 
 The block fetches available labels from the repository and presents them in a searchable multi-select dropdown. Labels can also be pre-selected using the `prefilledPullRequestLabels` prop.
 
+### GitHub Enterprise
+
+The pull request is opened against the host of the cloned repository's `origin` remote — `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com` — using that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`). Labels are fetched from the same host.
+
+That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ — for example, a repository cloned from `github.example.com` while the auth block signed in to `github.com` — the block fails with a clear error instead of sending the token to a host it was not issued for. Links to token settings shown by the block also follow the authenticated host.
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  host="github.example.com"
+/>
+
+<GitClone
+  id="clone-repo"
+  githubAuthId="gh-auth"
+  prefilledUrl="https://github.example.com/platform/infrastructure-live"
+/>
+
+<GitHubPullRequest
+  id="create-pr"
+  githubAuthId="gh-auth"
+  title="Open Pull Request"
+/>
+```
+
+See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
+
 ### Example: Full Workflow
 
 ```mdx
