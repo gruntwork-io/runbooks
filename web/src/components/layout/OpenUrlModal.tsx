@@ -16,6 +16,11 @@ interface OpenUrlModalProps {
   onOpenChange: (open: boolean) => void
 }
 
+/**
+ * "Open from URL" dialog. Hands whatever the user typed to the main process,
+ * which parses the source, clones it and opens the runbook, and shows its
+ * error message inline when that fails.
+ */
 export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
   const api = useApi()
   const [url, setUrl] = useState('')

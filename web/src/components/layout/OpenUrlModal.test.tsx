@@ -12,6 +12,7 @@ vi.mock('@/contexts/ApiContext', async (importOriginal) => {
   return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
 })
 
+/** Render the modal, type `source` and press Open; returns the onOpenChange spy. */
 async function submit(source: string) {
   const onOpenChange = vi.fn()
   render(<OpenUrlModal open onOpenChange={onOpenChange} />)

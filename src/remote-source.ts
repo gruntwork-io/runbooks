@@ -121,6 +121,11 @@ const UNSUPPORTED =
 /** A malformed source; parseRemoteSource turns it into a RemoteSourceError. */
 class InvalidSource extends Error {}
 
+/**
+ * Parse a remote runbook source (any syntax in the module comment) into the
+ * repo to clone, the ref, and the path inside it. Fails with a
+ * RemoteSourceError whose message is fit to show the user.
+ */
 export const parseRemoteSource = (
   raw: string,
   opts: ParseRemoteSourceOptions = {},
@@ -134,6 +139,7 @@ export const parseRemoteSource = (
       }),
   })
 
+/** Dispatch a trimmed source to the parser for its syntax; throws InvalidSource. */
 function parse(input: string, opts: ParseRemoteSourceOptions): ParsedRemoteSource {
   if (!input) throw new InvalidSource("empty URL")
 
@@ -275,6 +281,7 @@ function repoSource(
   }
 }
 
+/** A browser URL's repo, with its `<ref>/<path>` left joined for resolveRef. */
 function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: string): ParsedRemoteSource {
   const source = repoSource(host, ownerRepoPath)
   // A ref can't contain `..` either (git check-ref-format), so the whole
@@ -344,6 +351,7 @@ function decodePath(raw: string): string {
   }
 }
 
+/** `new URL`, throwing InvalidSource (the unsupported-format message) on failure. */
 function parseUrl(raw: string): URL {
   try {
     return new URL(raw)
