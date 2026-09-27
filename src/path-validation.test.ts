@@ -241,6 +241,25 @@ describe("isContainedInReal", () => {
     expect(await isContainedInReal(input, container)).toBe(false)
   })
 
+  // The walk lstats the fully dereferenced spelling, which can exceed
+  // PATH_MAX (4096 on Linux) while the caller's short, symlinked spelling
+  // still resolves, so the kernel follows a link the walk never saw.
+  const itLinux = process.platform === "linux" ? it : it.skip
+  itLinux("fails closed when a dereferenced prefix exceeds PATH_MAX", async () => {
+    const parts: string[] = []
+    let deep = container
+    while (deep.length < 3990) {
+      const name = "d".repeat(Math.min(200, 3995 - deep.length))
+      parts.push(name)
+      deep = path.join(deep, name)
+    }
+    mkdirSync(deep, { recursive: true })
+    symlinkSync(parts.join("/"), path.join(container, "long-alias"))
+    const seg = "x".repeat(120)
+    symlinkSync(path.join(outside, "long-ghost.txt"), path.join(container, "long-alias", seg))
+    expect(await isContainedInReal(path.join(container, "long-alias", seg), container)).toBe(false)
+  })
+
   it("fails closed on a symlink cycle", async () => {
     expect(await isContainedInReal(path.join(container, "loop", "x.txt"), container)).toBe(false)
   })
