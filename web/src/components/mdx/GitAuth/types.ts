@@ -80,8 +80,13 @@ export interface GitAuthProps {
    * validate the token against that instance. Defaults to gitlab.com.
    */
   instanceUrl?: string
-  /** GitHub OAuth App client ID (defaults to Gruntwork's app). GitHub only. */
-  oauthClientId?: string
+  /**
+   * GitHub OAuth App client ID. GitHub only. A string applies to the block's
+   * `host` when set, else to github.com only (where it defaults to Gruntwork's
+   * app). A map is keyed by host (e.g. `{ "ghes.example.com": "Iv1..." }`).
+   * An enterprise host without a client ID has no "Sign in with GitHub" tab.
+   */
+  oauthClientId?: string | Record<string, string>
   /** OAuth scopes to request (GitHub default: ['repo']). */
   oauthScopes?: string[]
   /** Credential detection configuration (default: ['env', 'cli']). */
@@ -94,10 +99,12 @@ export interface GitAuthProps {
    */
   defaultTab?: GitAuthMethod
   /**
-   * GitLab only: pin the GitLab instance to authenticate against (e.g.
-   * "gitlab.gruntwork.io"). When set, the host picker is hidden and detection
-   * targets this host. When omitted, the block enumerates the hosts the user is
-   * logged into via glab and shows a picker if there is more than one.
+   * Pin the host to authenticate against: a GitLab instance (e.g.
+   * "gitlab.gruntwork.io") or a GitHub Enterprise host (e.g.
+   * "github.example.com" or "acme.ghe.com"). Applies to the block's authored
+   * `provider`. When set, the host picker is hidden and detection targets this
+   * host. When omitted, the block enumerates the hosts the user is logged into
+   * via glab/gh and shows a picker if there is more than one.
    */
   host?: string
   /** Reference to one or more Inputs by ID for template expressions in props */
@@ -115,7 +122,7 @@ export interface GitCliCredentialsResponse {
   error?: string
   /** HTTP status when validation failed (e.g. 401/403) — used to flag found-but-invalid. */
   status?: number
-  /** The GitLab host this credential was detected/validated against. */
+  /** The host this credential was detected/validated against. */
   host?: string
   /** Tri-state outcome. */
   outcome?: GitAuthOutcome
@@ -146,11 +153,11 @@ export interface VcsCliStatusResult {
   git?: { sslBackend?: string }
 }
 
-/** One entry of the merged GitLab host union (gitlab:enumerate-hosts). */
-export interface GitLabHostEntry {
+/** One entry of the merged host union (github:/gitlab:enumerate-hosts). */
+export interface GitHostEntry {
   host: string
   /** Provenance badges: where this host is known from. */
-  sources: Array<'glab' | 'env' | 'session' | 'recent'>
+  sources: Array<'gh' | 'glab' | 'env' | 'session' | 'recent'>
   /** Offline-only check: credential FOUND (not yet validated). */
   hasCredential: boolean
 }

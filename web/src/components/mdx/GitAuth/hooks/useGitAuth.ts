@@ -8,7 +8,7 @@ import type {
   GitDetectionStatus,
   GitDetectionSource,
   GitErrorKind,
-  GitLabHostEntry,
+  GitHostEntry,
   GitSuccessMeta,
   GitUnreachableInfo,
   GitUserInfo,
@@ -20,22 +20,27 @@ import type {
 import { isCliAuthFound, OTHER_INSTANCE_SENTINEL } from "../types"
 import type { ProviderConfig } from "../providers"
 import { resolveDefaultAuthMethod } from "../utils"
+import {
+  githubOAuthUnavailableReason,
+  isGitHubEnterpriseHost,
+  resolveGitHubOAuthClientId,
+  tryNormalizeGitHubHost,
+} from "@/components/mdx/_shared/lib/githubHost"
 
 interface UseGitAuthOptions {
   id: string
   provider: ProviderConfig
   /** Self-hosted GitLab instance URL (GitLab only); seeds the editable field. */
   instanceUrl?: string
-  oauthClientId?: string
+  /** GitHub only: a client ID, or a map of host → client ID (see GitAuthProps). */
+  oauthClientId?: string | Record<string, string>
   oauthScopes?: string[]
   detectCredentials?: false | GitCredentialSource[]
   /** Tab to open on; validated against the provider by resolveDefaultAuthMethod. */
   defaultTab?: string
-  /** GitLab only: an authored host that pins the instance and hides the picker. */
+  /** An authored host that pins the instance/GitHub host and hides the picker. */
   host?: string
 }
-
-const DEFAULT_GITLAB_HOST = 'gitlab.com'
 
 /**
  * Extract the bare host from a user-entered GitLab instance URL (bare host or
@@ -62,9 +67,16 @@ export function useGitAuth({
   oauthClientId,
   oauthScopes = ['repo'],
   detectCredentials = ['env', 'cli'],
-  host,
+  host: authoredHost,
   defaultTab,
 }: UseGitAuthOptions) {
+  // A GitHub host is normalized like main does (so `https://GHES.corp/` and
+  // `ghes.corp` agree). An unparseable one is kept raw: main refuses it rather
+  // than falling back to github.com, and GitAuth reports it as a config error.
+  const host = authoredHost && provider.id === 'github'
+    ? (tryNormalizeGitHubHost(authoredHost) ?? authoredHost)
+    : authoredHost
+
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
@@ -106,15 +118,23 @@ export function useGitAuth({
   const detectionRunRef = useRef(0)
 
   // ---------------------------------------------------------------------------
-  // Host selection (GitLab can be logged into several instances via glab).
-  // For providers without host selection (GitHub) or when the author pinned a
-  // `host`, there is nothing to enumerate and we are "ready" immediately.
+  // Host selection (GitLab can be logged into several instances via glab;
+  // GitHub into github.com and Enterprise hosts via gh). When the author
+  // pinned a `host`, there is nothing to enumerate and we are "ready" immediately.
   // ---------------------------------------------------------------------------
   const hostSelectable = Boolean(provider.supportsHostSelection && !host)
-  const [availableHosts, setAvailableHosts] = useState<GitLabHostEntry[]>(
+  const [availableHosts, setAvailableHosts] = useState<GitHostEntry[]>(
     host ? [{ host, sources: [], hasCredential: false }] : [],
   )
-  const [selectedHost, setSelectedHost] = useState<string>(host ?? DEFAULT_GITLAB_HOST)
+  const [selectedHost, setSelectedHost] = useState<string>(host ?? provider.defaultHost)
+  // A provider switch must not carry the other provider's host (a GitLab host
+  // would read as a GitHub Enterprise host) — reset it during render, before
+  // anything derives from it, until enumeration picks the new provider's host.
+  const [selectedHostProvider, setSelectedHostProvider] = useState(provider.id)
+  if (selectedHostProvider !== provider.id) {
+    setSelectedHostProvider(provider.id)
+    setSelectedHost(host ?? provider.defaultHost)
+  }
   // Hosts whose key icon was downgraded after a failed validation this
   // session (the dropdown must never contradict the warning chip).
   const [downgradedHosts, setDowngradedHosts] = useState<ReadonlySet<string>>(new Set())
@@ -141,7 +161,7 @@ export function useGitAuth({
 
   // The instance URL to send over IPC: only for GitLab, and only when non-empty
   // (so GitHub and the gitlab.com default both send nothing).
-  const instanceUrlForIpc = provider.id === 'gitlab' && gitlabInstanceUrl.trim()
+  const instanceUrlForIpc = provider.supportsManualInstance && gitlabInstanceUrl.trim()
     ? gitlabInstanceUrl.trim()
     : undefined
 
@@ -162,10 +182,18 @@ export function useGitAuth({
   const oauthPollingCancelledRef = useRef(false)
   const oauthPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // The author-supplied client ID (GitHub OAuth only). Undefined means main
-  // uses its default Gruntwork app — the renderer never holds that constant.
-  const effectiveClientId = oauthClientId || undefined
-  const isCustomClientId = Boolean(effectiveClientId)
+  // The author-supplied client ID for the active GitHub host (GitHub OAuth
+  // only). Undefined on github.com means main uses its default Gruntwork app —
+  // the renderer never holds that constant. Undefined on an enterprise host
+  // means OAuth is unavailable there (main has no default for it).
+  const oauthHost = effectiveHost ?? provider.defaultHost
+  const effectiveClientId = provider.id === 'github'
+    ? resolveGitHubOAuthClientId(oauthClientId, authoredHost, oauthHost)
+    : undefined
+  const isEnterpriseOAuthHost = provider.id === 'github' && isGitHubEnterpriseHost(oauthHost)
+  // The custom-app warning offers "use the default app", which only exists on
+  // github.com; an enterprise host always uses the author's own app.
+  const isCustomClientId = Boolean(effectiveClientId) && !isEnterpriseOAuthHost
 
   // Whether to warn about a missing required scope. Only warns when the token's
   // scopes are actually known (an unknown/empty list means we can't claim a
@@ -225,6 +253,7 @@ export function useGitAuth({
     registerOutputs(id, {
       [provider.env.tokenVar]: token,
       [provider.env.userVar]: user.login,
+      [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
       GIT_PROVIDER: provider.id,
       __AUTHENTICATED: 'true',
     })
@@ -235,6 +264,7 @@ export function useGitAuth({
   const registerMetadataOutputs = useCallback((user?: GitUserInfo): void => {
     registerOutputs(id, {
       ...(user ? { [provider.env.userVar]: user.login } : {}),
+      [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
       GIT_PROVIDER: provider.id,
       __AUTHENTICATED: 'true',
     })
@@ -248,14 +278,10 @@ export function useGitAuth({
     registerOutputs(id, retainProvider ? { GIT_PROVIDER: retainProvider } : {})
   }, [id, registerOutputs])
 
-  // The host an unreachable card should name: GitHub is single-host; GitLab
-  // uses the effective (picked/entered) host. A backend-reported host wins.
+  // The host an unreachable card should name: the effective (picked/pinned/
+  // entered) host. A backend-reported host wins.
   const unreachableHost = useCallback((reportedHost?: string): string => {
-    return (
-      reportedHost ??
-      effectiveHostRef.current ??
-      (provider.id === 'github' ? 'github.com' : DEFAULT_GITLAB_HOST)
-    )
+    return reportedHost ?? effectiveHostRef.current ?? provider.defaultHost
   }, [provider])
 
   const markUnreachable = useCallback((errorKind: GitErrorKind, reportedHost?: string, coldReadOk?: boolean) => {
@@ -452,13 +478,13 @@ export function useGitAuth({
     return { success: true, user: validation.user, sessionEnvWarning: validation.sessionEnvWarning }
   }, [getBlockCredentials, validateToken, registerCredentials, registerMetadataOutputs])
 
-  // Discover which GitLab hosts the user is logged into via glab, to drive the
-  // host picker. Skipped for GitHub and when the author pinned a `host`. Re-runs
-  // on a manual config reload (hostsReloadNonce).
+  // Discover which hosts the user is logged into via glab/gh, to drive the
+  // host picker. Skipped when the author pinned a `host`. Re-runs on a manual
+  // config reload (hostsReloadNonce).
   useEffect(() => {
     if (!hostSelectable || !provider.channels.enumerateHosts) {
       setAvailableHosts(host ? [{ host, sources: [], hasCredential: false }] : [])
-      setSelectedHost(host ?? DEFAULT_GITLAB_HOST)
+      setSelectedHost(host ?? provider.defaultHost)
       setHostsReady(true)
       return
     }
@@ -473,21 +499,21 @@ export function useGitAuth({
         if (cancelled) return
         // the enumerate result is the annotated merged union (objects);
         // membership checks compare against hosts.map(h => h.host).
-        const hosts = (data.hosts ?? []) as GitLabHostEntry[]
+        const hosts = (data.hosts ?? []) as GitHostEntry[]
         const hostNames = hosts.map((h) => h.host)
         setAvailableHosts(hosts)
-        // Honor the default (persisted pick > env > glab > gitlab.com) on
-        // first load; preserve a user's explicit pick (if still present)
-        // across a config reload.
+        // Honor the default (persisted pick > env > CLI config > the
+        // provider's SaaS host) on first load; preserve a user's explicit
+        // pick (if still present) across a config reload.
         setSelectedHost((prev) =>
           userPickedHostRef.current && hostNames.includes(prev)
             ? prev
-            : (data.defaultHost || hostNames[0] || DEFAULT_GITLAB_HOST),
+            : (data.defaultHost || hostNames[0] || provider.defaultHost),
         )
       } catch {
         if (!cancelled) {
           setAvailableHosts([])
-          setSelectedHost(DEFAULT_GITLAB_HOST)
+          setSelectedHost(provider.defaultHost)
         }
       } finally {
         if (!cancelled) setHostsReady(true)
@@ -768,6 +794,7 @@ export function useGitAuth({
         const data = await window.api.invoke('github:oauth-poll', {
           ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
           deviceCode,
+          host: oauthHost,
         })
 
         if (oauthPollingCancelledRef.current) return
@@ -816,7 +843,7 @@ export function useGitAuth({
     }
 
     poll()
-  }, [effectiveClientId, provider, registerMetadataOutputs, warnIfMissingScope])
+  }, [effectiveClientId, oauthHost, provider, registerMetadataOutputs, warnIfMissingScope])
 
   // Start OAuth device flow
   const startOAuth = useCallback(async () => {
@@ -828,6 +855,7 @@ export function useGitAuth({
       const data = await window.api.invoke('github:oauth-start', {
         ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
         scopes: oauthScopes,
+        host: oauthHost,
       })
 
       if (data.error) {
@@ -847,7 +875,7 @@ export function useGitAuth({
       setAuthStatus('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start OAuth flow')
     }
-  }, [effectiveClientId, oauthScopes, pollOAuthCompletion])
+  }, [effectiveClientId, oauthHost, oauthScopes, pollOAuthCompletion])
 
   // Cancel OAuth polling
   const cancelOAuth = useCallback(() => {
@@ -934,17 +962,19 @@ export function useGitAuth({
     void window.api.invoke('vcs:invalidate-cache').catch(() => {})
   }, [])
 
-  // Switch the selected GitLab host and re-detect against it.
+  // Switch the selected host and re-detect against it.
   const changeHost = useCallback((nextHost: string) => {
     if (nextHost === selectedHost) return
     userPickedHostRef.current = true
     invalidateMainCache()
     // Persist the explicit pick (any source) so it survives restart.
-    void window.api.invoke('gitlab:host-picked', { host: nextHost }).catch(() => {})
+    if (provider.channels.hostPicked) {
+      void window.api.invoke(provider.channels.hostPicked, { host: nextHost }).catch(() => {})
+    }
     setSelectedHost(nextHost)
     beginRedetect()
     setDetectionNonce((n) => n + 1)
-  }, [selectedHost, beginRedetect, invalidateMainCache])
+  }, [selectedHost, provider, beginRedetect, invalidateMainCache])
 
   // HostSelect onChange wrapper: the "Other instance…" row uses a sentinel
   // value intercepted BEFORE changeHost — it reveals the
@@ -952,12 +982,12 @@ export function useGitAuth({
   // selectedHost, and does NOT run detection; the controlled select snaps
   // back to its prior value on the next render.
   const handleHostSelect = useCallback((value: string) => {
-    if (value === OTHER_INSTANCE_SENTINEL) {
+    if (value === OTHER_INSTANCE_SENTINEL && provider.supportsManualInstance) {
       setAuthMethod('pat')
       return
     }
     changeHost(value)
-  }, [changeHost])
+  }, [provider, changeHost])
 
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
@@ -994,8 +1024,7 @@ export function useGitAuth({
   // block replacing the provider's single session credential.
   useEffect(() => {
     if (authStatus === 'authenticated') {
-      authenticatedHostRef.current =
-        provider.id === 'github' ? 'github.com' : (effectiveHostRef.current ?? DEFAULT_GITLAB_HOST)
+      authenticatedHostRef.current = effectiveHostRef.current ?? provider.defaultHost
     } else {
       authenticatedHostRef.current = undefined
       setSessionStale(false)
@@ -1039,7 +1068,9 @@ export function useGitAuth({
     unreachableInfo &&
     (unreachableInfo.errorKind === 'network' || unreachableInfo.errorKind === 'tls')
       ? `${unreachableInfo.host} is unreachable — fix connectivity first`
-      : null
+      : provider.supportsOAuth && isEnterpriseOAuthHost && !effectiveClientId
+        ? githubOAuthUnavailableReason(oauthHost)
+        : null
 
   // Manual-UI hint line: a main-supplied contract copy (keyring
   // cases) wins; otherwise the vcs:cli-status-driven default. Suppressed when
@@ -1050,8 +1081,12 @@ export function useGitAuth({
     const providerCliStatus = cliStatus?.[provider.cli.binary]
     if (!providerCliStatus) return null
     const lead = `No existing credentials found. Sign in below, set ${provider.env.tokenVar}, or`
+    // Both gh and glab take --hostname for a non-default host.
+    const loginCmd = oauthHost !== provider.defaultHost
+      ? `${provider.cli.loginCmd} --hostname ${oauthHost}`
+      : provider.cli.loginCmd
     return providerCliStatus.installed
-      ? `${lead} run '${provider.cli.loginCmd}'.`
+      ? `${lead} run '${loginCmd}'.`
       : `${lead} install the ${provider.label} CLI (${provider.cli.binary}).`
   })()
 
@@ -1085,7 +1120,7 @@ export function useGitAuth({
     successMeta,
     sessionStale,
 
-    // Host selection (GitLab)
+    // Host selection
     hostSelectable,
     availableHosts,
     selectedHost: effectiveHost ?? selectedHost,

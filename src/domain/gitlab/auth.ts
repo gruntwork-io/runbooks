@@ -19,7 +19,7 @@ import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 import { normalizeGitLabHost, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
-import { ENV_PREFIX_PATTERN } from "../github/auth.ts"
+import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
 // Constants

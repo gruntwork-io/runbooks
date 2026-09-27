@@ -26,7 +26,7 @@ import {
   configuredEnvHost,
   hasEnvToken,
 } from "../../../src/domain/gitlab/auth.ts"
-import { ENV_PREFIX_PATTERN } from "../../../src/domain/github/auth.ts"
+import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
 import {
   normalizeGitLabBaseUrl,
   normalizeGitLabHost,
@@ -211,6 +211,7 @@ export function registerGitLabHandlers(): void {
         }
         return {
           valid: true,
+          host,
           user: result.user,
           scopes: result.scopes,
           tokenType,
