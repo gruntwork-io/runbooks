@@ -142,14 +142,14 @@ describe('instruction mode — no unresolved template references', () => {
     expect(screen.queryByText(/simplified resolver/)).toBeNull()
   })
 
-  it('falls back, and says so, when the engine returns a [template error] marker or a raw template', async () => {
+  it('falls back, and says so, when the engine returns a [template error] marker or no result', async () => {
     const invoke = vi.fn().mockResolvedValue({
       renderedFiles: {
         'cmd-0': {
           content:
             '[template error: template: cmd-0:1:12: executing "cmd-0" at <.inputs.bucket>: map has no entry for key "bucket"]',
         },
-        'cmd-1': { content: 'echo {{ .inputs.region }}' },
+        // No 'cmd-1' in the response.
       },
     })
 
@@ -167,6 +167,29 @@ describe('instruction mode — no unresolved template references', () => {
     expect(screen.getByText('echo us-east-1')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('[template error')
     expect(document.body.textContent).not.toContain('{{')
+  })
+
+  it('keeps an engine result that contains {{ on purpose, with no fallback', async () => {
+    // The documented escape for passing `{{ }}` through to a tool. The engine
+    // renders the raw string to a literal `{{.Names}}`; that is the command.
+    const invoke = vi.fn().mockResolvedValue({
+      renderedFiles: { 'cmd-0': { content: "docker ps --format '{{.Names}}' --filter name=web" } },
+    })
+
+    renderWithApi(
+      <Instruction
+        title="Run this:"
+        command={"docker ps --format '{{`{{.Names}}`}}' --filter name={{ .inputs.name }}"}
+        templateContext={{ inputs: { name: 'web' }, outputs: {} }}
+      />,
+      invoke,
+    )
+
+    expect(
+      await screen.findByText("docker ps --format '{{.Names}}' --filter name=web"),
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('{{`')
+    expect(screen.queryByText(/simplified resolver/)).toBeNull()
   })
 
   it('gives no placeholder to an unset input used only in a conditional', async () => {

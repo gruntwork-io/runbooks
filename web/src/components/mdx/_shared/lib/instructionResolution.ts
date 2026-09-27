@@ -73,9 +73,9 @@ export function detectManualFields(
 
 /**
  * Build the `outputs` namespace from the user's manual entries. When a field is
- * still empty we substitute a `<key>` placeholder so the displayed command never
- * contains a raw `{{ … }}` (the hard rule) yet still reads as a clear "fill me
- * in" slot. Each value is stored under both the normalized and original block id
+ * still empty we substitute a `<key>` placeholder so the output reference never
+ * shows as a raw `{{ … }}` yet still reads as a clear "fill me in" slot. Each
+ * value is stored under both the normalized and original block id
  * so the resolver finds it regardless of which form the command used.
  */
 export function buildManualOutputs(
