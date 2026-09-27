@@ -159,6 +159,7 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
 
 const makeStubBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}): BoilerplateRendererShape => ({
   renderFile: (templateContent, _variables) => Effect.succeed(templateContent),
+  renderFileStrict: (templateContent, _variables) => Effect.succeed(templateContent),
   renderTemplate: (_templateDir, _outputDir, _variables) => Effect.void,
   ...overrides,
 })
