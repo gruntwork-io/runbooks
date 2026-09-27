@@ -44,10 +44,19 @@ const liveLayer = Layer.mergeAll(
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
-    return true
   } catch (err) {
     // ESRCH → gone. EPERM → exists but owned by another user (still "alive").
     return (err as NodeJS.ErrnoException).code === "EPERM"
+  }
+  // A killed job whose parent has exited stays a zombie until init reaps it,
+  // which some container inits take a second or more to do. It has exited, so
+  // count it as dead. No procfs (macOS): the signal-0 probe is the answer.
+  if (process.platform !== "linux") return true
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8")
+    return stat[stat.lastIndexOf(")") + 2] !== "Z"
+  } catch {
+    return false // reaped since the probe above
   }
 }
 
@@ -189,9 +198,11 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
   it(
     "kills a script that outlives timeoutMs and reports it as failed",
     async () => {
+      // The deadline leaves bash ample time to print "start" even on a loaded
+      // machine, so the log assertion can't race the kill.
       const { events, elapsedMs } = await runToCompletion(
         "echo start\nsleep 10\necho end\n",
-        { timeoutMs: 300 },
+        { timeoutMs: 2000 },
       )
 
       expect(statusOf(events)).toEqual({ status: "fail", exitCode: -1 })
@@ -199,8 +210,9 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
       expect(lines).toContain("start")
       expect(lines).not.toContain("end")
       expect(lines.some((l) => l.includes("timed out"))).toBe(true)
-      // Well short of the 10 s the script would otherwise run for.
-      expect(elapsedMs).toBeLessThan(5000)
+      // Well short of the 10 s the script would otherwise run for, and of the
+      // 2 s + 5 s SIGKILL escalation, so SIGTERM is what stopped it.
+      expect(elapsedMs).toBeLessThan(6000)
     },
     20000,
   )
@@ -272,9 +284,11 @@ describe("executeScript success path (e2e, real process tree)", () => {
       backgroundPid = Number.parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10)
       expect(backgroundPid).toBeGreaterThan(0)
 
-      // The scope has closed. Wait past the 5 s SIGKILL escalation a group kill
-      // would have scheduled, then check the job is still running.
-      await new Promise((r) => setTimeout(r, 6000))
+      // The scope has closed, so a group kill would already have sent SIGTERM,
+      // which ends `sleep` at once (the SIGKILL escalation only matters for a
+      // job that ignores SIGTERM). Give that a moment to land, then check the
+      // job is still running.
+      await new Promise((r) => setTimeout(r, 1000))
       expect(isAlive(backgroundPid)).toBe(true)
     },
     20000,
