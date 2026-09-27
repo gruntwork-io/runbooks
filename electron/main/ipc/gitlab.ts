@@ -249,7 +249,8 @@ export function registerGitLabHandlers(): void {
 
       const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
 
-      // env-token host binding is enforced inside detectGitLabEnv.
+      // env-token host binding (and the https-only rule) is enforced inside
+      // detectGitLabEnv.
       const result = await withTlsOrchestration({
         provider: "gitlab",
         host,

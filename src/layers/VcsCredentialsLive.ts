@@ -310,9 +310,10 @@ export const VcsCredentialsLive = Layer.effect(
         if (!cred) return absent()
         // binding rule: the env token is bound to exactly ONE host and
         // is never transmitted to any other (a prefixed token by the
-        // prefixed host vars).
+        // prefixed host vars), nor over plain http — so check the instance
+        // origin it would be sent to, not just its host.
         const allEnv = yield* environment.getAll()
-        if (!mayAutoSendEnvToken(host, allEnv, prefix)) return absent()
+        if (!mayAutoSendEnvToken(instance, allEnv, prefix)) return absent()
         const validation = yield* validateGitLabDirect(cred.token, instance)
         const base = { token: cred.token, source: "env" as const, envVar: cred.envVar }
         return toDetection(validation, base, [`${cred.envVar} is not valid for ${host}`])

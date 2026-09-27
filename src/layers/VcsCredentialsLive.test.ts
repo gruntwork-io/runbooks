@@ -136,6 +136,31 @@ describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
     expect(validatedAgainst).toBe("https://git.corp.example")
   })
 
+  it("never sends an env token over plain http, prefixed or not (https unchanged)", async () => {
+    const validated: Array<{ token: string; baseUrl?: string }> = []
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-plain", CI_GITLAB_TOKEN: "glpat-ci" },
+      gitlab: {
+        validateToken: (token, baseUrl) => {
+          validated.push({ token, baseUrl })
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    // A runbook-supplied http:// instance for the bound host: absent, no request.
+    expect((await harness.use((vcs) => vcs.detectGitLabEnv("http://gitlab.com"))).outcome).toBe("absent")
+    expect((await harness.use((vcs) => vcs.detectGitLabEnv("http://gitlab.com", "CI_"))).outcome).toBe("absent")
+    expect(validated).toEqual([])
+
+    const plain = await harness.use((vcs) => vcs.detectGitLabEnv("https://gitlab.com"))
+    const prefixed = await harness.use((vcs) => vcs.detectGitLabEnv("https://gitlab.com", "CI_"))
+    expect([plain.outcome, prefixed.outcome]).toEqual(["valid", "valid"])
+    expect(validated).toEqual([
+      { token: "glpat-plain", baseUrl: "https://gitlab.com" },
+      { token: "glpat-ci", baseUrl: "https://gitlab.com" },
+    ])
+  })
+
   it("{env:{prefix}}: validates <PREFIX>GITLAB_TOKEN, never the unprefixed token", async () => {
     const validated: string[] = []
     const harness = makeHarness({

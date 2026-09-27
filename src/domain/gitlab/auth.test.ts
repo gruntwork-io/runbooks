@@ -213,6 +213,23 @@ describe("envTokenHost — the binding rule", () => {
     expect(mayAutoSendEnvToken("gitlab.com", env, "CI_")).toBe(true)
     expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(false)
   })
+
+  it("never over plain http, even to the bound host (prefixed or not)", () => {
+    // The target can come from a runbook (`instanceUrl`); a bare host means
+    // https, an explicit http:// origin never qualifies.
+    expect(mayAutoSendEnvToken("http://gitlab.com", {})).toBe(false)
+    expect(mayAutoSendEnvToken("http://gitlab.com", {}, "CI_")).toBe(false)
+    expect(mayAutoSendEnvToken("HTTP://GitLab.com/", {})).toBe(false)
+    expect(mayAutoSendEnvToken("https://gitlab.com", {})).toBe(true)
+    expect(mayAutoSendEnvToken("https://gitlab.com", {}, "CI_")).toBe(true)
+
+    // Also when the host var itself names an http:// origin.
+    const env = { GITLAB_HOST: "http://git.corp.example", CI_GITLAB_HOST: "http://git.corp.example" }
+    expect(mayAutoSendEnvToken("http://git.corp.example", env)).toBe(false)
+    expect(mayAutoSendEnvToken("http://git.corp.example", env, "CI_")).toBe(false)
+    expect(mayAutoSendEnvToken("https://git.corp.example", env)).toBe(true)
+    expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(true)
+  })
 })
 
 describe("detectCliCredentialsForHost — the three exit contracts", () => {

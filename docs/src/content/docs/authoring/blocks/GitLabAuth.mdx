@@ -38,6 +38,8 @@ By default, Runbooks automatically detects and uses credentials from, in order:
 
 If no credentials are detected, the user authenticates manually with a Personal Access Token.
 
+Runbooks only sends an environment token (prefixed or not) over HTTPS, so for a plain `http://` instance it is skipped and the user pastes a Personal Access Token instead.
+
 ### Prefixed environment variables
 
 Add `{ env: { prefix: 'PREFIX_' } }` to `detectCredentials` to read a namespaced token instead of the standard variables. For example, you can use a CI token so it is never confused with a personal `GITLAB_TOKEN`:

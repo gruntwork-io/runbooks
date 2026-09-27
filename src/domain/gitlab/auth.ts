@@ -18,7 +18,7 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
-import { normalizeGitLabHost, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
+import { normalizeGitLabBaseUrl, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
@@ -413,16 +413,20 @@ export const configuredEnvHost = (
 
 /**
  * Whether the env token (read under `prefix`, if any) may be auto-validated
- * against (i.e. transmitted to) `host`: exactly when `host` IS that token's
- * bound host.
+ * against (i.e. transmitted to) `target` — a bare host or an instance origin:
+ * exactly when `target` IS that token's bound host AND is reached over https.
+ * A bare host means https; an explicit `http://` origin never qualifies, since
+ * the target can come from a runbook (`instanceUrl`) and the token must never
+ * cross the network in cleartext. (A pasted token still works over http.)
  */
 export const mayAutoSendEnvToken = (
-  host: string,
+  target: string,
   env: Record<string, string | undefined>,
   prefix = "",
 ): boolean => {
   const bound = envTokenHost(env, prefix)
-  return bound !== undefined && normalizeGitLabHost(host) === bound
+  const origin = new URL(normalizeGitLabBaseUrl(target))
+  return bound !== undefined && origin.protocol === "https:" && origin.host === bound
 }
 
 /**
