@@ -7,15 +7,11 @@
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
-import {
-  parseRemoteSource,
-  needsRefResolution,
-  resolveRef,
-  adjustBlobPath,
-} from "../../src/remote-source.ts"
+import { parseRemoteSource, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
+import { isContainedInReal } from "../../src/path-validation.ts"
 import { GitClient } from "../../src/services/GitClient.ts"
 import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
@@ -25,23 +21,6 @@ import { githubHostKind, isGitHubHost } from "../../src/domain/git/github-host.t
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("remote")
-
-// ---------------------------------------------------------------------------
-// URL detection
-// ---------------------------------------------------------------------------
-
-const REMOTE_PREFIXES = ["http://", "https://", "git::"]
-const REMOTE_SHORTHAND = /^(github\.com|gitlab\.com)\//
-
-/**
- * Returns true if the input looks like a remote URL rather than a local path.
- */
-export function isRemoteURL(input: string): boolean {
-  const trimmed = input.trim()
-  if (REMOTE_PREFIXES.some((p) => trimmed.startsWith(p))) return true
-  if (REMOTE_SHORTHAND.test(trimmed)) return true
-  return false
-}
 
 // ---------------------------------------------------------------------------
 // Error classification — give users actionable hints when a clone fails.
@@ -139,10 +118,25 @@ export function classifyCloneError(opts: {
   stderr: string
   hadToken: boolean
   provider?: "github" | "gitlab"
+  /** The clone went over SSH, whose credentials are the user's keys, not a token. */
+  ssh?: boolean
 }): ClassifiedCloneError {
-  const { host, owner, repo, stderr, hadToken, provider } = opts
+  const { host, owner, repo, stderr, hadToken, provider, ssh } = opts
+  // A plain git source can name a repo with no owner (`git.corp.net/infra.git`).
+  const repoPath = [host, owner, repo].filter(Boolean).join("/")
+  if (ssh && (stderr ?? "").toLowerCase().includes("host key verification failed")) {
+    return {
+      kind: "auth",
+      hint: `the SSH host key for ${host} is not trusted yet: connect to it once from a terminal to verify and save its key, or use an https:// URL`,
+    }
+  }
   if (isAuthError(stderr)) {
-    const repoPath = `${host}/${owner}/${repo}`
+    if (ssh) {
+      return {
+        kind: "auth",
+        hint: `SSH authentication failed for ${repoPath}: check that your SSH key is loaded (ssh-add) and has access to the repository, or use an https:// URL`,
+      }
+    }
     const hints = authHintForHost(host, provider)
     if (!hadToken) {
       return {
@@ -217,13 +211,14 @@ export interface RemoteRunbookResult {
 }
 
 /**
- * Parse a remote URL, clone the repo (with sparse checkout if needed),
- * and resolve the runbook file path within the clone.
+ * Parse a remote source, clone the repo (sparse when the source names a
+ * path), and resolve the runbook file within the clone. Rejects with a plain
+ * Error whose message is fit to show the user.
  */
 export async function resolveRemoteRunbook(
   rawUrl: string,
 ): Promise<RemoteRunbookResult> {
-  return runtime.runPromise(
+  const exit = await runtime.runPromiseExit(
     Effect.gen(function* () {
       // Parse the URL. Enterprise GitHub hosts the user configured (gh's
       // hosts.yml, GH_HOST) let a plain GHES repo URL parse as GitHub.
@@ -233,11 +228,15 @@ export async function resolveRemoteRunbook(
       let parsed = yield* parseRemoteSource(rawUrl, {
         githubHosts: envHost ? [...configHosts, envHost] : configHosts,
       })
-      log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path })
+      log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path, refAndPath: parsed.refAndPath })
 
       // Get auth token early — needed for both resolveRef (git ls-remote)
       // and the clone itself. Session env first (a token established by
       // a GitAuth block is reused), then the unified VcsCredentials resolver.
+      // Tokens ride only over https: an ssh clone authenticates with the
+      // user's keys, and an http:// one would send the token in the clear.
+      const overHttps = parsed.cloneURL.startsWith("https://")
+      const ssh = !/^https?:\/\//.test(parsed.cloneURL)
       log.info("Getting auth token...")
       // Provider detection by name AND the user's own config (a GHES host has
       // an arbitrary name): an unknown host is neither provider — never
@@ -246,28 +245,25 @@ export async function resolveRemoteRunbook(
       // Host-bound: the session token is released only to the host the
       // auth block bound it to — `parsed.host` is attacker-controlled input,
       // and the provider detection alone must never gate a credential.
-      const sessionToken = provider
-        ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
-            Effect.orElseSucceed(() => undefined),
-          )
-        : undefined
-      const token = sessionToken ?? (yield* vcs.tokenForHost(parsed.host))
+      const sessionToken =
+        overHttps && provider
+          ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
+              Effect.orElseSucceed(() => undefined),
+            )
+          : undefined
+      const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
       log.info("Token:", token ? "found" : "none")
       const authedCloneURL = token
         ? injectTokenIntoUrl(parsed.cloneURL, token)
         : parsed.cloneURL
 
-      // Resolve ambiguous ref/path for browser-style URLs
-      if (needsRefResolution(parsed) && parsed.path) {
-        log.info("Resolving ref from:", parsed.path)
-        const resolved = yield* resolveRef(authedCloneURL, parsed.path)
-        parsed = { ...parsed, ref: resolved.ref, path: resolved.path }
+      // Browser URLs spell ref and path as one string; split it against the
+      // remote's branches and tags.
+      if (parsed.refAndPath !== undefined) {
+        log.info("Resolving ref from:", parsed.refAndPath)
+        const resolved = yield* resolveRef(authedCloneURL, parsed.refAndPath)
+        parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
         log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
-      }
-
-      // Convert blob URLs to parent directory
-      if (parsed.isBlobURL) {
-        parsed = adjustBlobPath(parsed)
       }
 
       // Create temp directory
@@ -280,10 +276,11 @@ export async function resolveRemoteRunbook(
       // Clone with sparse checkout if a subpath is specified. Failures get
       // the golang-parity classification (remote-open strings).
       const git = yield* GitClient
+      const { host, owner, repo, ref } = parsed
       yield* git
         .cloneSimple(parsed.cloneURL, dest, {
-          ref: parsed.ref,
-          token: token ?? undefined,
+          ref,
+          token,
           sparse: parsed.path,
         })
         .pipe(
@@ -293,22 +290,46 @@ export async function resolveRemoteRunbook(
                 ? (err as { stderr: string }).stderr
                 : String(err)
             const classified = classifyCloneError({
-              host: parsed.host,
-              owner: parsed.owner,
-              repo: parsed.repo,
+              host,
+              owner,
+              repo,
               stderr,
               hadToken: token !== undefined,
               provider,
+              ssh,
             })
             return Effect.fail(new RemoteSourceError({ url: rawUrl, message: classified.hint }))
           }),
         )
       log.info("Clone complete")
 
-      // Resolve the runbook file within the clone
-      const runbookDir = parsed.path ? path.join(dest, parsed.path) : dest
-      log.info("Resolving runbook in:", runbookDir)
-      const localPath = yield* resolveRunbookPath(runbookDir)
+      // Resolve the runbook within the clone: a directory opens its
+      // runbook.mdx, a file opens as-is.
+      const repoLabel = [host, owner, repo].filter(Boolean).join("/")
+      const at = ref ? ` at ${ref}` : ""
+      const target = parsed.path ? path.join(dest, parsed.path) : dest
+      if (!fs.existsSync(target)) {
+        return yield* Effect.fail(
+          new RemoteSourceError({ url: rawUrl, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
+        )
+      }
+      log.info("Resolving runbook in:", target)
+      const localPath = yield* resolveRunbookPath(target).pipe(
+        Effect.mapError(
+          () =>
+            new RemoteSourceError({
+              url: rawUrl,
+              message: `no runbook.mdx in ${parsed.path ? `"${parsed.path}"` : "the root"} of ${repoLabel}${at}`,
+            }),
+        ),
+      )
+      // The repo is untrusted: a symlink in it must not open a file outside
+      // the clone.
+      if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
+        return yield* Effect.fail(
+          new RemoteSourceError({ url: rawUrl, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
+        )
+      }
       log.info("Resolved runbook path:", localPath)
 
       return {
@@ -317,4 +338,10 @@ export async function resolveRemoteRunbook(
       } satisfies RemoteRunbookResult
     }),
   )
+  if (Exit.isSuccess(exit)) return exit.value
+  // Typed failures carry a user-facing message; across IPC a FiberFailure
+  // would reach the renderer as "(FiberFailure) RemoteSourceError: …".
+  const failure = Cause.failureOption(exit.cause)
+  const message = failure._tag === "Some" ? (failure.value as { message?: string }).message : undefined
+  throw new Error(message || Cause.pretty(exit.cause))
 }

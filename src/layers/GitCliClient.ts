@@ -83,49 +83,68 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/** A full or abbreviated commit id (SHA-1 or SHA-256). */
+const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
+
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
         const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
+        const ref = options?.ref
+        // `git clone --branch` takes only a branch or tag name, so a commit
+        // is checked out once the clone is down.
+        const commit = ref !== undefined && COMMIT_SHA.test(ref) ? ref : undefined
+        const sparse = options?.sparse
 
-        if (options?.sparse) {
-          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
-          const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
-          if (options.ref) {
-            cloneArgs.push("--branch", options.ref)
+        const cloneArgs = ["clone", "--progress"]
+        // Blobless: commits and trees arrive up front (enough to inspect the
+        // sparse path below), file contents only for what is checked out.
+        if (sparse) cloneArgs.push("--filter=blob:none")
+        if (sparse || commit) cloneArgs.push("--no-checkout")
+        if (ref && !commit) cloneArgs.push("--branch", ref)
+        cloneArgs.push(effectiveUrl, dest)
+        yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".").pipe(
+          // The URL can carry a token: keep it out of the error.
+          Effect.catchTag("GitError", (e) =>
+            Effect.fail(new GitError({ command: "git clone", stderr: e.stderr, exitCode: e.exitCode })),
+          ),
+        )
+
+        let rev = "HEAD"
+        if (commit) {
+          const fetched = yield* runGit(spawner, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`], dest).pipe(
+            Effect.as(true),
+            Effect.catchTag("GitError", () => Effect.succeed(false)),
+          )
+          if (fetched) {
+            rev = commit
+          } else {
+            // Not reachable from anything the clone fetched (e.g. a pull
+            // request head): ask for it by id.
+            yield* runGit(spawner, ["fetch", "origin", commit], dest)
+            rev = "FETCH_HEAD"
           }
-          cloneArgs.push(effectiveUrl, dest)
-          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".")
+        }
 
-          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
-          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
+        if (sparse) {
+          // The sparse path may name a file. A runbook file needs its whole
+          // directory (templates and assets sit beside it), so a file checks
+          // out its parent. A path that doesn't exist checks out nothing and
+          // is the caller's to report.
+          const entry = yield* runGit(spawner, ["ls-tree", rev, "--", sparse], dest)
+          const isFile = /^\d+ blob /.test(entry[0] ?? "")
+          const dir = isFile ? path.posix.dirname(sparse) : sparse
+          if (dir !== ".") {
+            yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
+            yield* runGit(spawner, ["sparse-checkout", "set", "--", dir], dest)
+          }
+        }
+
+        if (commit) {
+          yield* runGit(spawner, ["checkout", "--detach", rev], dest)
+        } else if (sparse) {
           yield* runGit(spawner, ["checkout"], dest)
-        } else {
-          // Standard full clone
-          const args = ["clone", "--progress"]
-          if (options?.ref) {
-            args.push("--branch", options.ref)
-          }
-          args.push(effectiveUrl, dest)
-
-          const proc = yield* spawner.spawn("git", args, {
-            cwd: options?.repoPath,
-            env: gitSpawnEnv(),
-          })
-          const chunks = yield* Stream.runCollect(proc.output)
-          const code = yield* proc.exitCode
-
-          if (code !== 0) {
-            const lines = Chunk.toArray(chunks)
-            const stderr = lines
-              .filter((l) => l.source === "stderr")
-              .map((l) => l.line)
-              .join("\n")
-            return yield* Effect.fail(
-              new GitError({ command: `git clone`, stderr, exitCode: code }),
-            )
-          }
         }
 
         // Count files in the destination

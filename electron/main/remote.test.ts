@@ -3,53 +3,12 @@ import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
 import {
-  isRemoteURL,
   isAuthError,
   authHintForHost,
   classifyCloneError,
   cleanupTempClones,
   registerTempCloneDir,
 } from "./remote.ts"
-
-describe("isRemoteURL", () => {
-  it("detects HTTPS GitHub URLs", () => {
-    expect(isRemoteURL("https://github.com/owner/repo/tree/main/path")).toBe(true)
-  })
-
-  it("detects HTTPS GitLab URLs", () => {
-    expect(isRemoteURL("https://gitlab.com/owner/repo/-/tree/main/path")).toBe(true)
-  })
-
-  it("detects HTTP URLs", () => {
-    expect(isRemoteURL("http://github.com/owner/repo")).toBe(true)
-  })
-
-  it("detects git:: prefix URLs", () => {
-    expect(isRemoteURL("git::https://github.com/owner/repo.git//path?ref=v1.0")).toBe(true)
-  })
-
-  it("detects GitHub shorthand", () => {
-    expect(isRemoteURL("github.com/owner/repo//path")).toBe(true)
-  })
-
-  it("detects GitLab shorthand", () => {
-    expect(isRemoteURL("gitlab.com/owner/repo//path")).toBe(true)
-  })
-
-  it("rejects local paths", () => {
-    expect(isRemoteURL("./path/to/runbook.mdx")).toBe(false)
-    expect(isRemoteURL("/absolute/path/to/runbook.mdx")).toBe(false)
-    expect(isRemoteURL("relative/path")).toBe(false)
-  })
-
-  it("rejects bare filenames", () => {
-    expect(isRemoteURL("runbook.mdx")).toBe(false)
-  })
-
-  it("handles whitespace", () => {
-    expect(isRemoteURL("  https://github.com/owner/repo  ")).toBe(true)
-  })
-})
 
 // ---------------------------------------------------------------------------
 // isAuthError — the golang parity table (beta-v0.9.0 cmd/remote_open_test.go
@@ -370,5 +329,47 @@ describe("classifyCloneError — threads provider", () => {
     expect(result.hint).toBe(
       "authentication required for acme.ghe.com/o/r: set GITHUB_TOKEN and GH_HOST=acme.ghe.com, or run 'gh auth login --hostname acme.ghe.com'",
     )
+  })
+})
+
+describe("classifyCloneError — SSH and owner-less sources", () => {
+  it("an SSH auth failure points at the user's keys, not a token", () => {
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "o",
+      repo: "r",
+      stderr: "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+      hadToken: false,
+      provider: "github",
+      ssh: true,
+    })
+    expect(result).toEqual({
+      kind: "auth",
+      hint: "SSH authentication failed for github.com/o/r: check that your SSH key is loaded (ssh-add) and has access to the repository, or use an https:// URL",
+    })
+  })
+
+  it("an unknown SSH host key gets its own hint", () => {
+    const result = classifyCloneError({
+      host: "git.corp.net",
+      owner: "o",
+      repo: "r",
+      stderr: "Host key verification failed.\nfatal: Could not read from remote repository.",
+      hadToken: false,
+      ssh: true,
+    })
+    expect(result.kind).toBe("auth")
+    expect(result.hint).toContain("SSH host key for git.corp.net is not trusted yet")
+  })
+
+  it("a repo with no owner reads host/repo", () => {
+    const result = classifyCloneError({
+      host: "git.corp.net",
+      owner: "",
+      repo: "infra",
+      stderr: "fatal: Authentication failed",
+      hadToken: false,
+    })
+    expect(result.hint).toBe("authentication required for git.corp.net/infra: provide an access token for git.corp.net")
   })
 })
