@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import type { Ref } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
 import remarkGfm from 'remark-gfm'
 import type { AppError } from '@/types/error'
+import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly'
 
 // Support MDX components
 import { Inputs } from '@/components/mdx/Inputs'
@@ -39,16 +41,17 @@ import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCh
  * @param props.content - The raw markdown/MDX content string to compile and render
  * @param props.runbookPath - The path to the runbook file
  * @param props.className - Optional additional CSS classes for styling the container
- 
+ * @param props.ref - Receives the scroll container that wraps the rendered document
  */
 interface MDXContainerProps {
   content: string
   className?: string
   runbookPath?: string
   remoteSource?: string
+  ref?: Ref<HTMLDivElement>
 }
 
-function MDXContainer({ content, runbookPath, remoteSource, className }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -100,7 +103,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   }
 
   return (
-    <div data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
         <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
           <CustomMDXComponentErrorBoundary 
@@ -289,6 +292,9 @@ function rehypeTaskListIds() {
 //   title: My Runbook
 //   ---
 //   # Content here
+// The block is replaced with one blank line per line it spanned, so line
+// numbers in compile errors (e.g. remarkLiteralOnly's "Line N: ...") still
+// match the runbook file.
 const stripFrontMatter = (content: string): string => {
   // Front matter must start at the beginning of the file with ---
   if (!content.startsWith('---')) {
@@ -301,8 +307,9 @@ const stripFrontMatter = (content: string): string => {
     return content
   }
   
-  // Remove the front matter block
-  return content.slice(endMatch[0].length)
+  // Replace the front matter block with the same number of line breaks
+  const lineBreaks = endMatch[0].split('\n').length - 1
+  return '\n'.repeat(lineBreaks) + content.slice(endMatch[0].length)
 }
 
 /**
@@ -339,16 +346,20 @@ export const MDX_COMPONENTS = {
 } as const
 
 // Compiles MDX content into a custom React component that can render the MDX content.
-const compileMDX = async (content: string): Promise<React.ComponentType> => {
+// Exported so tests can compile runbooks with the exact production options.
+export const compileMDX = async (content: string): Promise<React.ComponentType> => {
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
 
-  // Compile and evaluate the MDX content
+  // Compile and evaluate the MDX content. No `baseUrl`: runbooks cannot import
+  // modules (remarkLiteralOnly rejects import/export before it would matter).
   const compiledMDX = await evaluate(mdxContent, {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
-    baseUrl: import.meta.url,
-    remarkPlugins: [remarkGfm], // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
+    remarkPlugins: [
+      remarkGfm, // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
+      remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
+    ],
     rehypePlugins: [rehypeTransformAssetPaths, rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })

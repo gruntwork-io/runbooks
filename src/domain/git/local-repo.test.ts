@@ -213,6 +213,47 @@ describe("inspectLocalRepo", () => {
     expect(info.repo).toBe("infra")
   })
 
+  it("never returns a token embedded in the remote URL", async () => {
+    // A checkout cloned with its token in the URL keeps it in .git/config;
+    // the remote URL is shown in the UI, so it must come back clean.
+    const secret = "glpat-SECRET-TOKEN-0123456789"
+    const viaOrigin = await inspect("/home/me/infra", {
+      dirs: ["/home/me/infra"],
+      commands: [lsFiles(["main.tf"])],
+      git: {
+        getRepoRoot: () => Effect.succeed("/home/me/infra"),
+        getInfo: () =>
+          Effect.succeed({
+            branch: "main",
+            refType: "branch" as const,
+            remoteUrl: `https://oauth2:${secret}@gitlab.example.com/acme/infra.git`,
+          }),
+      },
+    })
+    const viaFallback = await inspect("/home/me/fork", {
+      dirs: ["/home/me/fork"],
+      commands: [
+        { command: "git", args: ["remote"], outputLines: ["upstream"], exitCode: 0 },
+        {
+          command: "git",
+          args: ["remote", "get-url", "upstream"],
+          outputLines: [`https://x-access-token:${secret}@github.com/acme/infra.git`],
+          exitCode: 0,
+        },
+        lsFiles(["main.tf"]),
+      ],
+      git: {
+        getRepoRoot: () => Effect.succeed("/home/me/fork"),
+        getInfo: () => Effect.succeed({ branch: "main", refType: "branch" as const }),
+      },
+    })
+
+    expect(viaOrigin.remoteUrl).toBe("https://gitlab.example.com/acme/infra.git")
+    expect(viaFallback.remoteUrl).toBe("https://github.com/acme/infra.git")
+    expect(viaFallback.owner).toBe("acme")
+    expect(viaFallback.repo).toBe("infra")
+  })
+
   it("omits owner/repo when the repo has no remote", async () => {
     const info = await inspect("/home/me/local-only", {
       dirs: ["/home/me/local-only"],

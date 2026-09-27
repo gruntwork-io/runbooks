@@ -49,9 +49,9 @@ const makeStubAwsClient = (overrides: Partial<AwsClientShape> = {}): AwsClientSh
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "pollSsoToken") })),
   completeSsoAuth: (_params) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "completeSsoAuth") })),
-  listSsoAccounts: (_accessToken) =>
+  listSsoAccounts: (_accessToken, _region) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoAccounts") })),
-  listSsoRoles: (_accessToken, _accountId) =>
+  listSsoRoles: (_accessToken, _accountId, _region) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoRoles") })),
   checkRegion: (_region, _creds) =>
     Effect.fail(new AwsAuthError({ message: notConfigured("AwsClient", "checkRegion") })),
@@ -159,6 +159,7 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
 
 const makeStubBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}): BoilerplateRendererShape => ({
   renderFile: (templateContent, _variables) => Effect.succeed(templateContent),
+  renderFileStrict: (templateContent, _variables) => Effect.succeed(templateContent),
   renderTemplate: (_templateDir, _outputDir, _variables) => Effect.void,
   ...overrides,
 })

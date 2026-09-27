@@ -13,6 +13,9 @@ import { ManagedRuntime } from "effect"
 import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
+import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
+import { withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
   resolveScriptRunner,
   wrapBashScript,
@@ -1002,12 +1005,14 @@ export class TestExecutor {
     const result = makeStepResult(`gitHubAuth:${block.id}`, step.expect)
 
     const prefix = step.env_prefix ?? ""
-    let token = ""
-
-    if (prefix) {
-      token = this.getenv(`${prefix}GITHUB_TOKEN`) || this.getenv(`${prefix}GH_TOKEN`)
-    } else {
-      token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || this.getenv("GITHUB_TOKEN") || this.getenv("GH_TOKEN")
+    // The block's `host` (github.com, GHES, or a ghe.com tenant). Env tokens
+    // are read with the app's own host binding (githubEnvCredentialForHost),
+    // so a github.com token is never used for an enterprise host.
+    const host = tryNormalizeGitHubHost(extractProp(block.props, "host")) ?? DEFAULT_GITHUB_HOST
+    const env = { ...process.env, ...this.testEnv }
+    let token = githubEnvCredentialForHost(host, env, prefix)?.token ?? ""
+    if (!prefix && host === DEFAULT_GITHUB_HOST) {
+      token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || token
     }
 
     if (!token) {
@@ -1019,12 +1024,12 @@ export class TestExecutor {
       return result
     }
 
-    const envVars: Record<string, string> = { GITHUB_TOKEN: token }
+    const envVars: Record<string, string> = { GITHUB_TOKEN: token, GITHUB_HOST: host }
     this.authBlockCredentials.set(block.id, envVars)
 
     // Inject into session env
-    this.sessionEnv = this.sessionEnv.filter((e) => !e.startsWith("GITHUB_TOKEN="))
-    this.sessionEnv.push(`GITHUB_TOKEN=${token}`)
+    this.sessionEnv = this.sessionEnv.filter((e) => !e.startsWith("GITHUB_TOKEN=") && !e.startsWith("GITHUB_HOST="))
+    this.sessionEnv.push(`GITHUB_TOKEN=${token}`, `GITHUB_HOST=${host}`)
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
@@ -1302,24 +1307,31 @@ export class TestExecutor {
       destPath = path.join(this.workingDir, repoName)
     }
 
-    // Inject token for GitHub URLs
-    let effectiveURL = cloneURL
-    if (cloneURL.includes("github.com")) {
+    // Authenticate an https clone with a GitHub token — only a token that
+    // belongs to the URL's host (the auth block's host, or the session env
+    // read with the app's host binding), as in the app. The token goes in the
+    // git commands' environment (withGitHttpAuth), never in the clone URL, so
+    // it is not saved to the checkout's .git/config.
+    let cloneEnv: NodeJS.ProcessEnv = process.env
+    const cloneHost = /^https:\/\//i.test(cloneURL) ? tryNormalizeGitHubHost(cloneURL) : undefined
+    if (cloneHost) {
       const githubAuthId = extractProp(block.props, "githubAuthId")
       let token = ""
       if (githubAuthId) {
         const creds = this.authBlockCredentials.get(githubAuthId)
-        if (creds) token = creds["GITHUB_TOKEN"] ?? ""
-      }
-      if (!token) {
-        // Check session env
-        for (const entry of this.sessionEnv) {
-          if (entry.startsWith("GITHUB_TOKEN=")) token = entry.slice(13)
-          else if (entry.startsWith("GH_TOKEN=")) token = entry.slice(9)
+        if (creds && (creds["GITHUB_HOST"] ?? DEFAULT_GITHUB_HOST) === cloneHost) {
+          token = creds["GITHUB_TOKEN"] ?? ""
         }
       }
+      if (!token) {
+        const sessionEnv = envListToRecord(this.sessionEnv)
+        token =
+          githubSessionCredential(sessionEnv, cloneHost, tryNormalizeGitHubHost(sessionEnv.GITHUB_HOST))?.token ?? ""
+      }
       if (token) {
-        effectiveURL = cloneURL.replace("https://github.com/", `https://x-access-token:${token}@github.com/`)
+        // No terminal prompt: a rejected token must fail the step, not wait
+        // for a username on the TTY until the step times out.
+        cloneEnv = withGitHttpAuth({ ...process.env, GIT_TERMINAL_PROMPT: "0" }, cloneURL, token)
       }
     }
 
@@ -1333,25 +1345,28 @@ export class TestExecutor {
       const cloneArgs = ["clone", "--progress"]
       if (repoPath) {
         // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", effectiveURL, destPath)
+        cloneArgs.push("--filter=blob:none", "--no-checkout", cloneURL, destPath)
       } else {
-        cloneArgs.push(effectiveURL, destPath)
+        cloneArgs.push(cloneURL, destPath)
       }
 
       execFileSync("git", cloneArgs, {
         timeout: this.options.timeout,
         stdio: "pipe",
+        env: cloneEnv,
       })
 
       if (repoPath) {
+        // Same auth as the clone: a blobless clone fetches file contents
+        // lazily from origin during checkout.
         execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
         execFileSync("git", ["sparse-checkout", "set", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
         execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
       }
 
