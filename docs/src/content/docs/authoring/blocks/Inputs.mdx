@@ -281,7 +281,7 @@ Now create the repository:
 
 <Command 
     id="create-repo" 
-    command="gh repo create {{ .inputs.OrgName }}/{{ .inputs.RepoName }} --{{ .inputs.Visibility }}"
+    command='gh repo create "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}" "--{{ .inputs.Visibility }}"'
     inputsId="repo-settings"
     title="Create Repository"
     successMessage="Repository {{ .inputs.OrgName }}/{{ .inputs.RepoName }} created!"
@@ -292,7 +292,7 @@ Verify the repository was created:
 
 <Check 
     id="verify-repo" 
-    command="gh repo view {{ .inputs.OrgName }}/{{ .inputs.RepoName }}"
+    command='gh repo view "{{ .inputs.OrgName }}/{{ .inputs.RepoName }}"'
     inputsId="repo-settings"
     title="Verify Repository Exists"
     successMessage="Repository verified!"

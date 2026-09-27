@@ -5,6 +5,8 @@ export interface CloneOptions {
   readonly ref?: string
   readonly repoPath?: string
   readonly token?: string
+  /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
+  readonly username?: string
   readonly force?: boolean
   /** When set, use sparse checkout to only fetch this subpath within the repo. */
   readonly sparse?: string
@@ -18,6 +20,8 @@ export interface CloneResult {
 
 export interface PushOptions {
   readonly token?: string
+  /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
+  readonly username?: string
   readonly setUpstream?: boolean
 }
 

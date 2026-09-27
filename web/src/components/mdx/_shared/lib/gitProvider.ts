@@ -10,6 +10,7 @@
 import type { GitProvider } from "@/components/mdx/GitAuth/types"
 import type { BlockOutputs } from "@/contexts/RunbookContext"
 import { normalizeBlockId } from "@/lib/utils"
+import { isGitHubRepoHost } from "./githubHost"
 
 export type { GitProvider }
 
@@ -103,17 +104,18 @@ export function repoWebUrl(
 
 /**
  * Best-effort provider guess from a clone URL's host. Only the public SaaS
- * hosts (github.com / gitlab.com) are recognized; self-hosted/Enterprise hosts
- * return `undefined` (we can't tell GitHub Enterprise from GitLab self-managed
- * by hostname). Used only for display (the generic block's default provider
- * and the workspace repo icon) — NEVER to gate the wrong-auth-block error.
+ * hosts (github.com / *.ghe.com / gitlab.com) are recognized; self-hosted hosts
+ * return `undefined` (we can't tell GitHub Enterprise Server from GitLab
+ * self-managed by hostname). Used only for display (the generic block's default
+ * provider and the workspace repo icon) — NEVER to gate the wrong-auth-block
+ * error.
  */
 export function deriveProviderFromRepoUrl(
   repoUrl: string | undefined,
 ): GitProvider | undefined {
   if (!repoUrl) return undefined
   const host = hostOf(repoUrl)
-  if (host === 'github.com') return 'github'
+  if (isGitHubRepoHost(host)) return 'github'
   if (host === 'gitlab.com') return 'gitlab'
   return undefined
 }

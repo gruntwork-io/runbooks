@@ -53,6 +53,13 @@ describe('deriveProviderFromRepoUrl', () => {
     expect(deriveProviderFromRepoUrl('git@github.com:org/repo.git')).toBe('github')
   })
 
+  it('recognizes GitHub Enterprise Cloud *.ghe.com tenants', () => {
+    expect(deriveProviderFromRepoUrl('https://acme.ghe.com/org/repo.git')).toBe('github')
+    expect(deriveProviderFromRepoUrl('git@acme.ghe.com:org/repo.git')).toBe('github')
+    // A GHES host has an arbitrary name — still unknown by hostname alone.
+    expect(deriveProviderFromRepoUrl('https://github.example.com/org/repo.git')).toBeUndefined()
+  })
+
   it('recognizes gitlab.com (https, bare host, and ssh)', () => {
     expect(deriveProviderFromRepoUrl('https://gitlab.com/group/sub/project.git')).toBe('gitlab')
     expect(deriveProviderFromRepoUrl('gitlab.com/group/project')).toBe('gitlab')
