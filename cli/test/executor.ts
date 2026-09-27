@@ -15,7 +15,7 @@ import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
 import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
-import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
+import { withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
   detectInterpreter,
   isBashInterpreter,
@@ -1308,10 +1308,12 @@ export class TestExecutor {
       destPath = path.join(this.workingDir, repoName)
     }
 
-    // Inject a GitHub token into an https clone URL — only a token that
+    // Authenticate an https clone with a GitHub token — only a token that
     // belongs to the URL's host (the auth block's host, or the session env
-    // read with the app's host binding), as in the app.
-    let effectiveURL = cloneURL
+    // read with the app's host binding), as in the app. The token goes in the
+    // git commands' environment (withGitHttpAuth), never in the clone URL, so
+    // it is not saved to the checkout's .git/config.
+    let cloneEnv: NodeJS.ProcessEnv = process.env
     const cloneHost = /^https:\/\//i.test(cloneURL) ? tryNormalizeGitHubHost(cloneURL) : undefined
     if (cloneHost) {
       const githubAuthId = extractProp(block.props, "githubAuthId")
@@ -1328,7 +1330,7 @@ export class TestExecutor {
           githubSessionCredential(sessionEnv, cloneHost, tryNormalizeGitHubHost(sessionEnv.GITHUB_HOST))?.token ?? ""
       }
       if (token) {
-        effectiveURL = injectTokenIntoUrl(cloneURL, token)
+        cloneEnv = withGitHttpAuth({ ...process.env }, cloneURL, token)
       }
     }
 
@@ -1342,25 +1344,28 @@ export class TestExecutor {
       const cloneArgs = ["clone", "--progress"]
       if (repoPath) {
         // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", effectiveURL, destPath)
+        cloneArgs.push("--filter=blob:none", "--no-checkout", cloneURL, destPath)
       } else {
-        cloneArgs.push(effectiveURL, destPath)
+        cloneArgs.push(cloneURL, destPath)
       }
 
       execFileSync("git", cloneArgs, {
         timeout: this.options.timeout,
         stdio: "pipe",
+        env: cloneEnv,
       })
 
       if (repoPath) {
+        // Same auth as the clone: a blobless clone fetches file contents
+        // lazily from origin during checkout.
         execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
         execFileSync("git", ["sparse-checkout", "set", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
         execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
       }
 

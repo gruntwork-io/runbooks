@@ -192,6 +192,16 @@ GitClone follows the GitHub host of the linked auth block (its `GITHUB_HOST` out
 
 A `prefilledUrl` on `github.com`, a `*.ghe.com` tenant, or the auth block's host is recognized as a GitHub repository, so its organization and repository are pre-selected in the browser.
 
+The token is passed to git only for the clone itself (through the environment, which requires git 2.31 or later), so it is never saved in the checkout's `.git/config` or shown as part of its remote URL. A script that later runs `git pull`, `git fetch`, or `git push` in the checkout needs its own git credentials, such as a configured credential helper (`gh auth setup-git`), an SSH remote, or a one-off helper that reads the token from the environment:
+
+```bash
+git -c credential.helper= \
+  -c "credential.https://${GITHUB_HOST:-github.com}.helper="'!f() { echo username=x-access-token; echo "password=${GITHUB_TOKEN}"; }; f' \
+  pull
+```
+
+The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, set by the GitHub Auth block), so git never offers the token to another remote or over plain `http://`. For a GitLab checkout, scope it to your GitLab host (e.g. `credential.https://gitlab.com.helper`) and use `username=oauth2` and `${GITLAB_TOKEN}` in the helper instead.
+
 ### Sparse Checkout
 
 Use the `prefilledRepoPath` prop (or the "Repo Path" input field) to clone only a specific subdirectory:
@@ -211,6 +221,8 @@ This uses `git sparse-checkout` under the hood, which is efficient even for larg
 ### Custom Local Path
 
 The `prefilledLocalPath` prop (or the "Local Path" input field) controls where files are cloned, relative to the current working directory. If not set, the repository name is used.
+
+The local path must be a subdirectory of the working directory, because "Delete & Clone" removes an existing directory there before cloning. The block shows an error instead of cloning when the path is the working directory itself (for example `.`), when it leads outside the working directory (including through a symlink), or when it contains the runbook.
 
 ### Environment Variables
 

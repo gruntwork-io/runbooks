@@ -19,7 +19,7 @@ import type {
 } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
-import { injectTokenIntoUrl } from "../domain/git/url.ts"
+import { stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
 import { gitSpawnEnv } from "../domain/git/env.ts"
 
 /**
@@ -87,31 +87,35 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
-        const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
+        // The token rides in the environment, never in the URL, so the clone's
+        // origin (and its .git/config) stays credential-free.
+        const env = withGitHttpAuth(gitSpawnEnv(), url, options?.token, options?.username)
 
         if (options?.sparse) {
-          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
+          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath.
+          // The follow-up commands get the same auth: a blobless clone fetches
+          // file contents lazily from origin during checkout.
           const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
           if (options.ref) {
             cloneArgs.push("--branch", options.ref)
           }
-          cloneArgs.push(effectiveUrl, dest)
-          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".")
+          cloneArgs.push(url, dest)
+          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
 
-          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
-          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
-          yield* runGit(spawner, ["checkout"], dest)
+          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
+          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest, undefined, env)
+          yield* runGit(spawner, ["checkout"], dest, undefined, env)
         } else {
           // Standard full clone
           const args = ["clone", "--progress"]
           if (options?.ref) {
             args.push("--branch", options.ref)
           }
-          args.push(effectiveUrl, dest)
+          args.push(url, dest)
 
           const proc = yield* spawner.spawn("git", args, {
             cwd: options?.repoPath,
-            env: gitSpawnEnv(),
+            env,
           })
           const chunks = yield* Stream.runCollect(proc.output)
           const code = yield* proc.exitCode
@@ -149,20 +153,15 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         }
         args.push(remote, branch)
 
-        // If a token is provided, temporarily set the remote URL with credentials
+        // Authenticate this one push through the environment rather than by
+        // rewriting the remote URL, so the token never lands in .git/config and
+        // an SSH remote keeps its own user and port. `--push` reads the URL the
+        // push will actually use (pushurl / pushInsteadOf applied).
         if (options?.token) {
-          const urlLines = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
-          const originalUrl = urlLines[0] ?? ""
-          const authedUrl = injectTokenIntoUrl(originalUrl, options.token)
-          yield* runGit(spawner, ["remote", "set-url", remote, authedUrl], repoPath)
-          yield* runGit(spawner, args, repoPath).pipe(
-            Effect.ensuring(
-              runGit(spawner, ["remote", "set-url", remote, originalUrl], repoPath).pipe(
-                Effect.catchAll(() => Effect.void),
-              ),
-            ),
-          )
-          return undefined as void
+          const urlLines = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
+          const env = withGitHttpAuth(gitSpawnEnv(), urlLines[0] ?? "", options.token, options.username)
+          yield* runGit(spawner, args, repoPath, undefined, env)
+          return
         }
 
         yield* runGit(spawner, args, repoPath)
@@ -191,7 +190,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     getRemoteUrl: (repoPath: string) =>
       Effect.gen(function* () {
         const lines = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath)
-        return lines[0] ?? ""
+        return stripUrlCredentials(lines[0] ?? "")
       }),
 
     getInfo: (repoPath: string) =>
@@ -213,9 +212,10 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
         }
 
-        // Get remote URL
+        // Get remote URL, minus any token a checkout carries in it: this is
+        // returned to the renderer (git:local-repo, workspace:tree).
         const remoteUrl = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath).pipe(
-          Effect.map((lines) => lines[0]),
+          Effect.map((lines) => lines[0] && stripUrlCredentials(lines[0])),
           Effect.catchAll(() => Effect.succeed(undefined)),
         )
 

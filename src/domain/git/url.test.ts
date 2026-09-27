@@ -1,133 +1,130 @@
 import { describe, it, expect } from "bun:test"
-import { injectTokenIntoUrl } from "./url.ts"
+import { gitCredentialUsername, stripUrlCredentials, withGitHttpAuth } from "./url.ts"
 
-describe("injectTokenIntoUrl", () => {
-  const TOKEN = "ghp_TESTTOKEN1234567890"
+const TOKEN = "ghp_TESTTOKEN1234567890"
 
-  it("injects token into an HTTPS GitHub URL", () => {
-    const result = injectTokenIntoUrl(
-      "https://github.com/owner/repo.git",
-      TOKEN,
-    )
-    expect(result).toBe(
-      `https://x-access-token:${TOKEN}@github.com/owner/repo.git`,
-    )
+/** Decode the basic-auth credentials out of an `Authorization: Basic …` header value. */
+const decodeBasic = (header: string | undefined) =>
+  atob((header ?? "").replace(/^Authorization: Basic /, ""))
+
+describe("gitCredentialUsername", () => {
+  it("uses `oauth2` for GitLab", () => {
+    expect(gitCredentialUsername("gitlab")).toBe("oauth2")
   })
 
-  it("injects token into an HTTPS GitLab URL", () => {
-    // The helper does not differentiate hosts — every HTTPS URL is rewritten
-    // with the GitHub-style `x-access-token` username. Documented here so a
-    // future host-aware change is a deliberate decision, not an accident.
-    const result = injectTokenIntoUrl(
-      "https://gitlab.com/group/project.git",
-      TOKEN,
-    )
-    expect(result).toBe(
-      `https://x-access-token:${TOKEN}@gitlab.com/group/project.git`,
-    )
+  it("uses `x-access-token` for GitHub and when the provider is unknown", () => {
+    expect(gitCredentialUsername("github")).toBe("x-access-token")
+    expect(gitCredentialUsername(undefined)).toBe("x-access-token")
+  })
+})
+
+describe("stripUrlCredentials", () => {
+  it.each([
+    [`https://x-access-token:${TOKEN}@github.com/owner/repo.git`, "https://github.com/owner/repo.git"],
+    [`https://oauth2:${TOKEN}@gitlab.example.com:8443/group/sub/proj.git`, "https://gitlab.example.com:8443/group/sub/proj.git"],
+    [`http://${TOKEN}@git.corp.net/team/repo`, "http://git.corp.net/team/repo"],
+  ])("removes the userinfo from %s", (input, expected) => {
+    const result = stripUrlCredentials(input)
+    expect(result).toBe(expected)
+    expect(result).not.toContain(TOKEN)
   })
 
-  it("preserves the path, including subgroups and .git suffix", () => {
-    const result = injectTokenIntoUrl(
-      "https://gitlab.com/group/sub/project.git",
-      TOKEN,
-    )
-    expect(result).toBe(
-      `https://x-access-token:${TOKEN}@gitlab.com/group/sub/project.git`,
-    )
-  })
-
-  it("uses the GitLab `oauth2` username when requested", () => {
-    // GitLab expects the username `oauth2` with the PAT as the password. The
-    // clone handler passes this for gitlab.com hosts.
-    const result = injectTokenIntoUrl(
-      "https://gitlab.com/group/project.git",
-      TOKEN,
-      "oauth2",
-    )
-    expect(result).toBe(
-      `https://oauth2:${TOKEN}@gitlab.com/group/project.git`,
-    )
-  })
-
-  it("still defaults to `x-access-token` when no username is given", () => {
-    const result = injectTokenIntoUrl(
-      "https://github.com/owner/repo.git",
-      TOKEN,
-    )
-    expect(result).toBe(
-      `https://x-access-token:${TOKEN}@github.com/owner/repo.git`,
-    )
-  })
-
-  it("returns an SSH URL unchanged (no place for userinfo)", () => {
-    const ssh = "git@github.com:owner/repo.git"
-    expect(injectTokenIntoUrl(ssh, TOKEN)).toBe(ssh)
-  })
-
-  it("returns an empty string unchanged", () => {
-    expect(injectTokenIntoUrl("", TOKEN)).toBe("")
-  })
-
-  it("returns a malformed URL unchanged", () => {
-    expect(injectTokenIntoUrl("not a url", TOKEN)).toBe("not a url")
-  })
-
-  it("overwrites — never appends — pre-existing userinfo", () => {
-    const result = injectTokenIntoUrl(
-      "https://olduser:oldpass@github.com/owner/repo.git",
-      TOKEN,
-    )
-    expect(result).toBe(
-      `https://x-access-token:${TOKEN}@github.com/owner/repo.git`,
-    )
-    expect(result).not.toContain("olduser")
-    expect(result).not.toContain("oldpass")
-    // Belt-and-braces regression check: never end up with two userinfo blocks.
-    expect((result.match(/@/g) || []).length).toBe(1)
-  })
-
-  it("does not leak the token outside the returned URL", () => {
-    // For each input variant, capture anything the function writes to
-    // console.error or throws as a stringified Error. None of those
-    // surfaces should ever include the token.
-    const originalError = console.error
-    const originalWarn = console.warn
-    const captured: string[] = []
-    console.error = (...args: unknown[]) => captured.push(args.join(" "))
-    console.warn = (...args: unknown[]) => captured.push(args.join(" "))
-    try {
-      const inputs = [
-        "https://github.com/owner/repo.git",
-        "git@github.com:owner/repo.git",
-        "",
-        "not a url",
-        "https://user:pass@github.com/owner/repo.git",
-      ]
-      for (const input of inputs) {
-        let threw: unknown
-        let returned: string | undefined
-        try {
-          returned = injectTokenIntoUrl(input, TOKEN)
-        } catch (e) {
-          threw = e
-        }
-        // The thrown / logged surface must never contain the token.
-        if (threw) {
-          expect(String(threw)).not.toContain(TOKEN)
-        }
-        // The token is allowed to appear *only* inside the returned URL,
-        // and even then only when the URL was parseable.
-        if (returned !== undefined && returned === input) {
-          expect(returned).not.toContain(TOKEN)
-        }
-      }
-      for (const line of captured) {
-        expect(line).not.toContain(TOKEN)
-      }
-    } finally {
-      console.error = originalError
-      console.warn = originalWarn
+  it("returns a credential-free http(s) URL exactly as given", () => {
+    // No re-serialization: a URL without userinfo round-trips byte for byte.
+    for (const url of ["https://github.com/owner/repo", "https://GitHub.com/owner/repo.git"]) {
+      expect(stripUrlCredentials(url)).toBe(url)
     }
+  })
+
+  it.each([
+    "ssh://git@gitlab.example.com:2222/group/proj.git",
+    "git@github.com:owner/repo.git",
+    "git://example.com/x.git",
+    "/srv/git/repo.git",
+    "",
+    "not a url",
+  ])("leaves %p unchanged", (url) => {
+    expect(stripUrlCredentials(url)).toBe(url)
+  })
+})
+
+describe("withGitHttpAuth", () => {
+  const base = { PATH: "/usr/bin", GIT_TERMINAL_PROMPT: "0" }
+
+  it("authenticates an https URL through env-based git config", () => {
+    const env = withGitHttpAuth(base, "https://gitlab.example.com:8443/group/proj.git", TOKEN, "oauth2")
+
+    expect(env).toEqual({
+      ...base,
+      GIT_CONFIG_COUNT: "3",
+      // Reset the user's credential helpers so a rejected token can't make git
+      // fall back to (and then erase) the user's own saved login.
+      GIT_CONFIG_KEY_0: "credential.helper",
+      GIT_CONFIG_VALUE_0: "",
+      // Reset, then set, the auth header for the URL's origin.
+      GIT_CONFIG_KEY_1: "http.https://gitlab.example.com:8443/.extraHeader",
+      GIT_CONFIG_VALUE_1: "",
+      GIT_CONFIG_KEY_2: "http.https://gitlab.example.com:8443/.extraHeader",
+      GIT_CONFIG_VALUE_2: expect.stringMatching(/^Authorization: Basic /),
+    })
+    expect(decodeBasic(env.GIT_CONFIG_VALUE_2)).toBe(`oauth2:${TOKEN}`)
+  })
+
+  it("defaults the username to `x-access-token`", () => {
+    const env = withGitHttpAuth(base, "https://github.com/owner/repo.git", TOKEN)
+    expect(decodeBasic(env.GIT_CONFIG_VALUE_2)).toBe(`x-access-token:${TOKEN}`)
+  })
+
+  it("keeps the token out of every config key, and scopes the header to the origin alone", () => {
+    const env = withGitHttpAuth(base, `https://olduser:oldpass@github.com/owner/repo.git`, TOKEN)
+
+    const keys = Object.keys(env)
+      .filter((k) => k.startsWith("GIT_CONFIG_KEY_"))
+      .map((k) => env[k])
+    expect(keys).toContain("http.https://github.com/.extraHeader")
+    for (const key of keys) {
+      expect(key).not.toContain(TOKEN)
+      expect(key).not.toContain("olduser")
+    }
+    // The fresh token wins over whatever userinfo the URL carried.
+    expect(decodeBasic(env.GIT_CONFIG_VALUE_2)).toBe(`x-access-token:${TOKEN}`)
+  })
+
+  it("appends after config entries the environment already carries", () => {
+    const withExisting = {
+      ...base,
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "core.autocrlf",
+      GIT_CONFIG_VALUE_0: "false",
+      GIT_CONFIG_KEY_1: "user.name",
+      GIT_CONFIG_VALUE_1: "Someone",
+    }
+
+    const env = withGitHttpAuth(withExisting, "https://github.com/owner/repo.git", TOKEN)
+
+    expect(env.GIT_CONFIG_COUNT).toBe("5")
+    expect(env.GIT_CONFIG_KEY_0).toBe("core.autocrlf")
+    expect(env.GIT_CONFIG_KEY_1).toBe("user.name")
+    expect(env.GIT_CONFIG_KEY_2).toBe("credential.helper")
+    expect(env.GIT_CONFIG_KEY_4).toBe("http.https://github.com/.extraHeader")
+    // The caller's env object is not mutated.
+    expect(withExisting.GIT_CONFIG_COUNT).toBe("2")
+  })
+
+  it.each([
+    // An SSH remote keeps its own user and port; a token has no place there.
+    "ssh://git@gitlab.example.com:2222/group/proj.git",
+    "git@github.com:owner/repo.git",
+    "git://example.com/x.git",
+    "file:///srv/git/repo.git",
+    "/srv/git/repo.git",
+    "not a url",
+  ])("returns the environment unchanged for the non-http(s) URL %p", (url) => {
+    expect(withGitHttpAuth(base, url, TOKEN)).toBe(base)
+  })
+
+  it("returns the environment unchanged when there is no token", () => {
+    expect(withGitHttpAuth(base, "https://github.com/owner/repo.git", undefined)).toBe(base)
+    expect(withGitHttpAuth(base, "https://github.com/owner/repo.git", "")).toBe(base)
   })
 })
