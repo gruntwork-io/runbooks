@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { useEffect } from "react"
 import { render, screen } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
+import { useRunbookContext } from "@/contexts/useRunbook"
 import Inputs from "../Inputs"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 
@@ -203,5 +205,37 @@ describe("Inputs", () => {
     const regionField = screen.getByTestId("field-region")
     const input = regionField.querySelector("input")
     expect(input).toHaveValue("eu-west-1")
+  })
+
+  // --- Values already registered under the id ---
+
+  // Registers values under "test-inputs" before the Inputs mounts, as a
+  // Command's nested Inputs leaves them when instruction mode is toggled (or
+  // another runbook's Inputs with the same id would, under the same context).
+  function mountAfterRegisteredValues(variant: "standard" | "embedded") {
+    function Seed() {
+      const { registerInputs } = useRunbookContext()
+      useEffect(() => {
+        registerInputs("test-inputs", { region: "eu-west-1" }, defaultConfig)
+      }, [registerInputs])
+      return null
+    }
+    const tree = (showInputs: boolean) => (
+      <TestWrapper>
+        <Seed />
+        {showInputs && <Inputs id="test-inputs" path="boilerplate.yml" variant={variant} />}
+      </TestWrapper>
+    )
+    const { rerender } = render(tree(false))
+    rerender(tree(true))
+    return screen.getByTestId("field-region").querySelector("input")
+  }
+
+  it("resumes an embedded Inputs from the values registered under its id", () => {
+    expect(mountAfterRegisteredValues("embedded")).toHaveValue("eu-west-1")
+  })
+
+  it("starts a standalone Inputs from its own defaults, not values registered under its id", () => {
+    expect(mountAfterRegisteredValues("standard")).toHaveValue("us-east-1")
   })
 })

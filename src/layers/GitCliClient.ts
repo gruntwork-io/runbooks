@@ -83,53 +83,73 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/** A full or abbreviated commit id (SHA-1 or SHA-256). */
+const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
+
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
         // The token rides in the environment, never in the URL, so the clone's
-        // origin (and its .git/config) stays credential-free.
+        // origin (and its .git/config) stays credential-free. Every command
+        // below gets the same auth: a blobless clone fetches file contents
+        // lazily from origin during checkout, and a commit may be fetched.
         const env = withGitHttpAuth(gitSpawnEnv(), url, options?.token, options?.username)
+        const ref = options?.ref
+        // `git clone --branch` takes only a branch or tag name, so a commit
+        // is checked out once the clone is down.
+        const commit = ref !== undefined && COMMIT_SHA.test(ref) ? ref : undefined
+        const sparse = options?.sparse
 
-        if (options?.sparse) {
-          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath.
-          // The follow-up commands get the same auth: a blobless clone fetches
-          // file contents lazily from origin during checkout.
-          const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
-          if (options.ref) {
-            cloneArgs.push("--branch", options.ref)
-          }
-          cloneArgs.push(url, dest)
-          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
+        const cloneArgs = ["clone", "--progress"]
+        // Blobless: commits and trees arrive up front (enough to inspect the
+        // sparse path below), file contents only for what is checked out.
+        if (sparse) cloneArgs.push("--filter=blob:none")
+        if (sparse || commit) cloneArgs.push("--no-checkout")
+        if (ref && !commit) cloneArgs.push("--branch", ref)
+        cloneArgs.push(url, dest)
+        yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
 
-          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
-          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest, undefined, env)
-          yield* runGit(spawner, ["checkout"], dest, undefined, env)
-        } else {
-          // Standard full clone
-          const args = ["clone", "--progress"]
-          if (options?.ref) {
-            args.push("--branch", options.ref)
-          }
-          args.push(url, dest)
-
-          const proc = yield* spawner.spawn("git", args, {
-            cwd: options?.repoPath,
+        let rev = "HEAD"
+        if (commit) {
+          const fetched = yield* runGit(
+            spawner,
+            ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`],
+            dest,
+            undefined,
             env,
-          })
-          const chunks = yield* Stream.runCollect(proc.output)
-          const code = yield* proc.exitCode
-
-          if (code !== 0) {
-            const lines = Chunk.toArray(chunks)
-            const stderr = lines
-              .filter((l) => l.source === "stderr")
-              .map((l) => l.line)
-              .join("\n")
-            return yield* Effect.fail(
-              new GitError({ command: `git clone`, stderr, exitCode: code }),
-            )
+          ).pipe(
+            Effect.as(true),
+            Effect.catchTag("GitError", () => Effect.succeed(false)),
+          )
+          if (fetched) {
+            rev = commit
+          } else {
+            // Not reachable from anything the clone fetched (e.g. a pull
+            // request head): ask for it by id.
+            yield* runGit(spawner, ["fetch", "origin", commit], dest, undefined, env)
+            rev = "FETCH_HEAD"
           }
+        }
+
+        if (sparse) {
+          // The sparse path may name a file. A runbook file needs its whole
+          // directory (templates and assets sit beside it), so a file checks
+          // out its parent. A path that doesn't exist checks out nothing and
+          // is the caller's to report.
+          const entry = yield* runGit(spawner, ["ls-tree", rev, "--", sparse], dest, undefined, env)
+          const isFile = /^\d+ blob /.test(entry[0] ?? "")
+          const dir = isFile ? path.posix.dirname(sparse) : sparse
+          if (dir !== ".") {
+            yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
+            yield* runGit(spawner, ["sparse-checkout", "set", "--", dir], dest, undefined, env)
+          }
+        }
+
+        if (commit) {
+          yield* runGit(spawner, ["checkout", "--detach", rev], dest, undefined, env)
+        } else if (sparse) {
+          yield* runGit(spawner, ["checkout"], dest, undefined, env)
         }
 
         // Count files in the destination

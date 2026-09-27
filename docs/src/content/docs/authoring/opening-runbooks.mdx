@@ -19,8 +19,11 @@ There are two ways to open a runbook:
 # Local
 runbooks open ./runbooks/deploy-rds
 
-# Remote (GitHub URL)
+# Remote (GitHub URL copied from the browser)
 runbooks open https://github.com/org/repo/tree/main/runbooks/deploy-rds
+
+# Remote (go-getter source, as used for OpenTofu modules)
+runbooks open github.com/org/repo//runbooks/deploy-rds?ref=v1.0
 ```
 
-For remote sources, Runbooks downloads just the runbook directory via sparse git clone and opens it in the desktop app.
+For remote sources, Runbooks downloads just the runbook directory via sparse git clone and opens it in the desktop app. You can also paste any of these sources into **Open from URL** in the desktop app.

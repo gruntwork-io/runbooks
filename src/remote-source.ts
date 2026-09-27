@@ -1,7 +1,37 @@
 /**
- * Remote URL parsing.
+ * Remote runbook source parsing.
  *
- * Handles OpenTofu-style git:: URLs, GitHub/GitLab shorthand, and browser URLs.
+ * Two families of syntax are accepted.
+ *
+ * 1. Browser URLs — whatever the GitHub or GitLab address bar shows for a
+ *    runbook directory, a runbook file, or a repo:
+ *
+ *      https://github.com/org/repo/tree/main/runbooks/setup-vpc
+ *      https://github.com/org/repo/blob/main/runbooks/setup-vpc/runbook.mdx
+ *      https://gitlab.com/group/sub/repo/-/tree/main/runbooks/setup-vpc?ref_type=heads
+ *      https://github.com/org/repo
+ *
+ *    The ref and the path share one string (`main/runbooks/setup-vpc`) and a
+ *    ref may itself contain slashes, so the split waits for the remote's ref
+ *    list (resolveRef). Query strings and fragments (`?ref_type=heads`,
+ *    `?plain=1`, `#L10`) are page state, not part of the source.
+ *
+ * 2. go-getter / OpenTofu module sources — `//` separates the repository
+ *    from the path inside it, `?ref=` names a branch, tag or commit, and
+ *    no `?ref=` means the remote's default branch:
+ *
+ *      github.com/org/repo//runbooks/setup-vpc?ref=v1.0
+ *      gitlab.com/group/sub/repo//runbooks/setup-vpc
+ *      git::https://git.example.com/org/repo.git//runbooks/setup-vpc?ref=main
+ *      git::ssh://git@github.com/org/repo.git//runbooks/setup-vpc
+ *      git@github.com:org/repo.git//runbooks/setup-vpc?ref=main
+ *      https://github.com/org/repo.git//runbooks/setup-vpc
+ *
+ *    As in go-getter, `github.com/org/repo/runbooks/setup-vpc` (no `//`) also
+ *    works: a GitHub repo is always exactly owner/repo. A GitLab project can
+ *    sit under nested groups, so its path needs the `//`.
+ *
+ * Either way the path may name a runbook directory or a runbook file.
  */
 import { Effect, Stream } from "effect"
 import { ProcessSpawner } from "./services/ProcessSpawner.ts"
@@ -13,78 +43,63 @@ import { isGitHubHost } from "./domain/git/github-host.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
 // ---------------------------------------------------------------------------
-// URL patterns
+// Detection
+// ---------------------------------------------------------------------------
+
+/** Scheme-bearing sources: browser URLs, `git::` sources, ssh:// addresses. */
+const SCHEME_PREFIX = /^(git::|https?:\/\/|ssh:\/\/)/i
+
+/**
+ * scp-like SSH address: `user@host:path`. The user part is required so a
+ * local path is never mistaken for one.
+ */
+const SCP_LIKE = /^([A-Za-z0-9._~-]+)@([A-Za-z0-9][A-Za-z0-9.-]*):(.+)$/
+
+/** go-getter's scheme-less GitHub / GitLab detectors. */
+const SHORTHAND = /^(github\.com|gitlab\.com)\/(.*)$/i
+
+/**
+ * Whether `input` is a remote runbook source rather than a local path. A
+ * true result doesn't promise parseRemoteSource accepts it — it decides
+ * which of the two the user meant.
+ */
+export function isRemoteSource(input: string): boolean {
+  const trimmed = input.trim()
+  return SCHEME_PREFIX.test(trimmed) || SCP_LIKE.test(trimmed) || SHORTHAND.test(trimmed)
+}
+
+/** The userinfo of a scheme-bearing source, after an optional `git::`. */
+const SOURCE_USERINFO = /^(git::)?(https?|ssh):\/\/([^/@]*)@/i
+
+/**
+ * `source` with any credentials in it removed, for logs and display. An
+ * http(s) URL loses its whole userinfo (a token can pose as the username);
+ * an ssh:// URL keeps its user and loses only a password.
+ */
+export function redactSourceCredentials(source: string): string {
+  return source.trim().replace(SOURCE_USERINFO, (_match, prefix = "", scheme: string, userinfo: string) => {
+    const user = scheme.toLowerCase() === "ssh" ? `${userinfo.split(":")[0]}@` : ""
+    return `${prefix}${scheme}://${user}`
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Browser URL shapes (matched against the URL's pathname)
 // ---------------------------------------------------------------------------
 
 /**
- * OpenTofu git:: prefix: git::https://host/owner/.../repo.git//path?ref=v1.0
- * The owner/repo portion (everything between the host and the `//` path
- * delimiter) may be a nested group path on GitLab.
+ * GitHub tree/blob: /owner/repo/(tree|blob)/<ref>/<path>. The host may be
+ * github.com, a GHES host or a ghe.com tenant — the shape (no GitLab `/-/`
+ * marker) is what identifies it.
  */
-const GIT_PREFIX_REGEX =
-  /^git::https?:\/\/([^/]+)\/(.+?)\/\/(.+?)(?:\?ref=(.+))?$/
-
-/** OpenTofu GitHub shorthand: github.com/owner/repo//path?ref=v1.0 */
-const GITHUB_SHORTHAND_REGEX =
-  /^github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/\/(.+?)(?:\?ref=(.+))?$/
+const GITHUB_BROWSER_PATH = /^\/([^/]+)\/([^/]+)\/(?:tree|blob)\/(.+)$/
 
 /**
- * GitHub browser tree URL: https://<host>/owner/repo/tree/ref/path. The host
- * may be github.com, a GHES host or a ghe.com tenant — the `/owner/repo/tree/`
- * shape (no GitLab `/-/` marker) is what identifies it.
+ * GitLab tree/blob: /group/.../project/-/(tree|blob)/<ref>/<path>. The `/-/`
+ * marker is GitLab-specific, so any host qualifies and the owner may be a
+ * nested group path.
  */
-const GITHUB_TREE_REGEX =
-  /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/tree\/(.+)$/
-
-/** GitHub browser blob URL: https://<host>/owner/repo/blob/ref/file */
-const GITHUB_BLOB_REGEX =
-  /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/blob\/(.+)$/
-
-/**
- * GitLab browser tree URL: https://host/group/.../repo/-/tree/ref/path
- * The `/-/` marker is GitLab-specific, so the host may be gitlab.com or a
- * self-hosted instance, and the owner may be a nested group path.
- */
-const GITLAB_TREE_REGEX =
-  /^https?:\/\/([^/]+)\/(.+?)\/-\/tree\/(.+)$/
-
-/** GitLab browser blob URL: https://host/group/.../repo/-/blob/ref/file */
-const GITLAB_BLOB_REGEX =
-  /^https?:\/\/([^/]+)\/(.+?)\/-\/blob\/(.+)$/
-
-/**
- * Plain GitHub repo URL: https://<host>/owner/repo (no nested groups). The
- * caller only accepts it when the host is GitHub (isGitHubHost: github.com,
- * a ghe.com tenant, or a configured enterprise host).
- */
-const PLAIN_GITHUB_REPO_REGEX =
-  /^https?:\/\/([^/]+)\/([^/]+)\/([^/.]+?)(?:\.git)?$/
-
-/**
- * Plain GitLab repo URL: https://<host>/group/.../repo
- * Captures the host so self-hosted instances are supported; the caller only
- * accepts it when the host is recognizably GitLab (isGitLabHost). Supports
- * nested groups — the last path segment is the repo (project) and everything
- * before it is the owner.
- */
-const PLAIN_GITLAB_REPO_REGEX =
-  /^https?:\/\/([^/]+)\/(.+?)(?:\.git)?$/
-
-/**
- * Split a slash-delimited `owner/.../repo` path into its owner and repo parts.
- * The last segment is the repo (project, with any `.git` suffix stripped) and
- * everything before it is the owner. For GitLab nested groups the owner is the
- * full group path, e.g. `group/subgroup/project` → owner "group/subgroup",
- * repo "project".
- */
-const splitOwnerRepo = (
-  ownerRepoPath: string,
-): { owner: string; repo: string } => {
-  const segments = ownerRepoPath.split("/").filter(Boolean)
-  const repo = segments[segments.length - 1].replace(/\.git$/, "")
-  const owner = segments.slice(0, -1).join("/")
-  return { owner, repo }
-}
+const GITLAB_BROWSER_PATH = /^\/(.+?)\/-\/(?:tree|blob)\/(.+)$/
 
 // ---------------------------------------------------------------------------
 // parseRemoteSource
@@ -99,162 +114,250 @@ export interface ParseRemoteSourceOptions {
   readonly githubHosts?: readonly string[]
 }
 
+const UNSUPPORTED =
+  "unsupported URL format: use a GitHub or GitLab link to a runbook directory or runbook.mdx, " +
+  "or a source like github.com/org/repo//path/to/runbook?ref=main"
+
+/** A malformed source; parseRemoteSource turns it into a RemoteSourceError. */
+class InvalidSource extends Error {}
+
+/**
+ * Parse a remote runbook source (any syntax in the module comment) into the
+ * repo to clone, the ref, and the path inside it. Fails with a
+ * RemoteSourceError whose message is fit to show the user.
+ */
 export const parseRemoteSource = (
   raw: string,
   opts: ParseRemoteSourceOptions = {},
 ): Effect.Effect<ParsedRemoteSource, RemoteSourceError> =>
-  Effect.gen(function* () {
-    const trimmed = raw.trim()
-    if (!trimmed) {
-      return yield* Effect.fail(new RemoteSourceError({ url: raw, message: "empty URL" }))
-    }
-
-    // 1) git::https://host/owner/.../repo.git//path?ref=v1.0
-    let match = trimmed.match(GIT_PREFIX_REGEX)
-    if (match) {
-      const [, host, ownerRepoPath, path, ref] = match
-      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
-      return {
-        host,
-        owner,
-        repo,
-        ref,
-        path,
-        cloneURL: `https://${host}/${owner}/${repo}.git`,
-        isBlobURL: false,
-      }
-    }
-
-    // 2) github.com/owner/repo//path?ref=v1.0
-    match = trimmed.match(GITHUB_SHORTHAND_REGEX)
-    if (match) {
-      const [, owner, repo, path, ref] = match
-      return {
-        host: "github.com",
-        owner,
-        repo,
-        ref,
-        path,
-        cloneURL: `https://github.com/${owner}/${repo}.git`,
-        isBlobURL: false,
-      }
-    }
-
-    // 3) GitHub tree URL (github.com, GHES, or a ghe.com tenant)
-    // A GitLab host's `/g/p/tree/...` is a subgroup path, not a GitHub URL.
-    match = trimmed.match(GITHUB_TREE_REGEX)
-    if (match && !isGitLabHost(match[1])) {
-      const [, rawHost, owner, repo, refAndPath] = match
-      const host = rawHost.toLowerCase()
-      return {
-        host,
-        owner,
-        repo,
-        // ref/path split is ambiguous; set path as combined and resolve later
-        path: refAndPath,
-        cloneURL: `https://${host}/${owner}/${repo}.git`,
-        isBlobURL: false,
-      }
-    }
-
-    // 4) GitHub blob URL
-    match = trimmed.match(GITHUB_BLOB_REGEX)
-    if (match && !isGitLabHost(match[1])) {
-      const [, rawHost, owner, repo, refAndPath] = match
-      const host = rawHost.toLowerCase()
-      return {
-        host,
-        owner,
-        repo,
-        path: refAndPath,
-        cloneURL: `https://${host}/${owner}/${repo}.git`,
-        isBlobURL: true,
-      }
-    }
-
-    // 5) GitLab tree URL
-    match = trimmed.match(GITLAB_TREE_REGEX)
-    if (match) {
-      const [, host, ownerRepoPath, refAndPath] = match
-      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
-      return {
-        host,
-        owner,
-        repo,
-        path: refAndPath,
-        cloneURL: `https://${host}/${owner}/${repo}.git`,
-        isBlobURL: false,
-      }
-    }
-
-    // 6) GitLab blob URL
-    match = trimmed.match(GITLAB_BLOB_REGEX)
-    if (match) {
-      const [, host, ownerRepoPath, refAndPath] = match
-      const { owner, repo } = splitOwnerRepo(ownerRepoPath)
-      return {
-        host,
-        owner,
-        repo,
-        path: refAndPath,
-        cloneURL: `https://${host}/${owner}/${repo}.git`,
-        isBlobURL: true,
-      }
-    }
-
-    // 7) Plain GitHub repo URL (GitHub has no nested groups → exactly owner/repo)
-    match = trimmed.match(PLAIN_GITHUB_REPO_REGEX)
-    if (match && isGitHubHost(match[1], opts.githubHosts)) {
-      const [, rawHost, owner, repo] = match
-      const host = rawHost.toLowerCase()
-      return {
-        host,
-        owner,
-        repo,
-        cloneURL: `https://${host}/${owner}/${repo}.git`,
-        isBlobURL: false,
-      }
-    }
-
-    // 8) Plain GitLab repo URL (supports nested groups → last segment is the
-    //    repo). Accepts gitlab.com and self-hosted GitLab hosts recognizable by
-    //    name; other hosts (e.g. bitbucket.org) fall through to "unsupported".
-    match = trimmed.match(PLAIN_GITLAB_REPO_REGEX)
-    if (match) {
-      const [, host, ownerRepoPath] = match
-      if (isGitLabHost(host)) {
-        const { owner, repo } = splitOwnerRepo(ownerRepoPath)
-        // A GitLab project always lives under at least one namespace, so a
-        // single-segment path (no owner) is not a valid repo URL.
-        if (owner) {
-          return {
-            host,
-            owner,
-            repo,
-            cloneURL: `https://${host}/${owner}/${repo}.git`,
-            isBlobURL: false,
-          }
-        }
-      }
-    }
-
-    return yield* Effect.fail(
-      new RemoteSourceError({ url: raw, message: "unsupported URL format" }),
-    )
+  Effect.try({
+    try: () => parse(raw.trim(), opts),
+    catch: (err) =>
+      new RemoteSourceError({
+        url: raw,
+        message: err instanceof InvalidSource ? err.message : UNSUPPORTED,
+      }),
   })
 
-// ---------------------------------------------------------------------------
-// needsRefResolution
-// ---------------------------------------------------------------------------
+/** Dispatch a trimmed source to the parser for its syntax; throws InvalidSource. */
+function parse(input: string, opts: ParseRemoteSourceOptions): ParsedRemoteSource {
+  if (!input) throw new InvalidSource("empty URL")
+
+  // `git::` forces a plain git source, whatever the address looks like.
+  if (/^git::/i.test(input)) return parseGitSource(input.slice("git::".length))
+  if (/^ssh:\/\//i.test(input) || SCP_LIKE.test(input)) return parseGitSource(input)
+  if (/^https?:\/\//i.test(input)) return parseHttpSource(input, opts)
+  if (SHORTHAND.test(input)) return parseShorthand(input, opts)
+  throw new InvalidSource(UNSUPPORTED)
+}
 
 /**
- * Returns true for browser-style URLs where the ref/path boundary is ambiguous
- * (e.g. `/tree/main/some/path` — is the ref "main" or "main/some"?).
+ * `http(s)://` input: a browser URL, a go-getter source over https (a `//`
+ * subdirectory or a `.git` repo address), or a plain repo URL.
  */
-export function needsRefResolution(parsed: ParsedRemoteSource): boolean {
-  // Browser URLs store the combined ref+path in `path` without a separate `ref`.
-  // OpenTofu-style URLs always have an explicit `ref` query parameter.
-  return parsed.ref === undefined && parsed.path !== undefined
+function parseHttpSource(input: string, opts: ParseRemoteSourceOptions): ParsedRemoteSource {
+  const url = parseUrl(input)
+  const host = url.host.toLowerCase()
+
+  // Browser tree/blob URLs. A GitLab host's `/g/p/tree/...` is a subgroup
+  // path, not a GitHub URL.
+  const github = url.pathname.match(GITHUB_BROWSER_PATH)
+  if (github && !isGitLabHost(host)) {
+    const [, owner, repo, refAndPath] = github
+    return browserSource(host, decodePath(`${owner}/${repo}`), refAndPath)
+  }
+  const gitlab = url.pathname.match(GITLAB_BROWSER_PATH)
+  if (gitlab) {
+    const [, ownerRepoPath, refAndPath] = gitlab
+    return browserSource(host, decodePath(ownerRepoPath), refAndPath)
+  }
+
+  const { address, subdir } = splitGoGetter(input)
+  if (subdir !== undefined || /\.git\/?$/i.test(parseUrl(address).pathname)) {
+    return parseGitSource(input)
+  }
+
+  // Plain repo URLs: the repo root on the default branch.
+  const segments = decodePath(url.pathname).split("/").filter(Boolean)
+  if (segments.length === 2 && isGitHubHost(host, opts.githubHosts)) {
+    return repoSource(host, segments.join("/"))
+  }
+  // GitLab supports nested groups, so the last segment is the project and
+  // everything before it the owner. Only hosts recognizably GitLab by name
+  // qualify; others (e.g. bitbucket.org) are unsupported.
+  if (segments.length >= 2 && isGitLabHost(host)) {
+    return repoSource(host, segments.join("/"))
+  }
+  throw new InvalidSource(UNSUPPORTED)
+}
+
+/**
+ * go-getter's scheme-less `github.com/…` and `gitlab.com/…` sources. A
+ * browser URL pasted without its `https://` is taken as the browser URL.
+ */
+function parseShorthand(input: string, opts: ParseRemoteSourceOptions): ParsedRemoteSource {
+  const { address, subdir, ref } = splitGoGetter(input)
+  if (subdir === undefined && ref === undefined) {
+    const url = parseUrl(`https://${input}`)
+    if (GITHUB_BROWSER_PATH.test(url.pathname) || GITLAB_BROWSER_PATH.test(url.pathname)) {
+      return parseHttpSource(`https://${input}`, opts)
+    }
+  }
+
+  const [hostPart, ...rest] = address.split("/")
+  const host = hostPart.toLowerCase()
+  const segments = rest.filter(Boolean)
+  if (segments.length < 2) {
+    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${input}`)
+  }
+  if (host === "github.com") {
+    // go-getter's GitHub detector: segments past owner/repo are the path.
+    const extra = segments.slice(2).join("/")
+    const path = [extra, subdir].filter(Boolean).join("/")
+    return repoSource(host, segments.slice(0, 2).join("/"), {
+      ref,
+      path: path || undefined,
+    })
+  }
+  return repoSource(host, segments.join("/"), { ref, path: subdir })
+}
+
+/**
+ * A plain git source (what follows `git::`): `<address>[//<path>][?ref=…]`,
+ * where the address is an http(s) URL, an ssh:// URL, or scp-like
+ * `user@host:path`. The address is cloned as given (no `.git` is added:
+ * not every git server accepts one).
+ */
+function parseGitSource(source: string): ParsedRemoteSource {
+  const { address, subdir, ref } = splitGoGetter(source)
+
+  const scp = address.match(SCP_LIKE)
+  let host: string
+  let repoPath: string
+  let cloneURL: string
+  if (scp) {
+    host = scp[2].toLowerCase()
+    repoPath = scp[3]
+    cloneURL = address
+  } else {
+    const url = parseUrl(address)
+    const protocol = url.protocol.toLowerCase()
+    if (protocol !== "https:" && protocol !== "http:" && protocol !== "ssh:") {
+      throw new InvalidSource(`unsupported git transport "${url.protocol}" (use https, http or ssh)`)
+    }
+    host = url.host.toLowerCase()
+    repoPath = url.pathname
+    // Credentials never ride in the source: tokens come from the host's
+    // configured credentials, and SSH authenticates with keys. An ssh://
+    // URL keeps its user (`git@`), which is part of the address.
+    const user = protocol === "ssh:" && url.username ? `${url.username}@` : ""
+    cloneURL = `${protocol}//${user}${host}${url.pathname.replace(/\/+$/, "")}`
+  }
+
+  const { owner, repo } = splitOwnerRepo(decodePath(repoPath))
+  if (!repo || !host) throw new InvalidSource(`no repository in ${redactSourceCredentials(source)}`)
+  return { host, owner, repo, cloneURL, ref, path: normalizeRepoPath(subdir) }
+}
+
+// ---------------------------------------------------------------------------
+// Builders and helpers
+// ---------------------------------------------------------------------------
+
+/** A GitHub/GitLab repo cloned over HTTPS. */
+function repoSource(
+  host: string,
+  ownerRepoPath: string,
+  extra: { ref?: string; path?: string } = {},
+): ParsedRemoteSource {
+  const { owner, repo } = splitOwnerRepo(ownerRepoPath)
+  return {
+    host,
+    owner,
+    repo,
+    // An http:// browser URL still clones over https.
+    cloneURL: `https://${host}/${owner}/${repo}.git`,
+    ref: extra.ref,
+    path: normalizeRepoPath(extra.path),
+  }
+}
+
+/** A browser URL's repo, with its `<ref>/<path>` left joined for resolveRef. */
+function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: string): ParsedRemoteSource {
+  const source = repoSource(host, ownerRepoPath)
+  // A ref can't contain `..` either (git check-ref-format), so the whole
+  // string gets the path rules.
+  const refAndPath = normalizeRepoPath(decodePath(rawRefAndPath))
+  return refAndPath ? { ...source, refAndPath } : source
+}
+
+/**
+ * Split a go-getter source into its address, the `//` subdirectory, and the
+ * `?ref=` query parameter — go-getter's SourceDirSubdir. The `://` of a
+ * scheme is skipped so it never reads as the separator. Other query
+ * parameters (`depth`, `sshkey`) don't apply here and are ignored.
+ */
+function splitGoGetter(source: string): { address: string; subdir?: string; ref?: string } {
+  const queryStart = source.indexOf("?")
+  const beforeQuery = queryStart === -1 ? source : source.slice(0, queryStart)
+  const query = new URLSearchParams(queryStart === -1 ? "" : source.slice(queryStart + 1))
+  const ref = query.get("ref") || undefined
+
+  const schemeEnd = beforeQuery.indexOf("://")
+  const separator = beforeQuery.indexOf("//", schemeEnd === -1 ? 0 : schemeEnd + 3)
+  if (separator === -1) return { address: beforeQuery, ref }
+  return {
+    address: beforeQuery.slice(0, separator),
+    subdir: beforeQuery.slice(separator + 2),
+    ref,
+  }
+}
+
+/**
+ * Split a slash-delimited `owner/.../repo` path into its owner and repo parts.
+ * The last segment is the repo (project, with any `.git` suffix stripped) and
+ * everything before it is the owner. For GitLab nested groups the owner is the
+ * full group path, e.g. `group/subgroup/project` → owner "group/subgroup",
+ * repo "project".
+ */
+function splitOwnerRepo(ownerRepoPath: string): { owner: string; repo: string } {
+  const segments = ownerRepoPath.split("/").filter(Boolean)
+  const repo = (segments[segments.length - 1] ?? "").replace(/\.git$/i, "")
+  const owner = segments.slice(0, -1).join("/")
+  return { owner, repo }
+}
+
+/**
+ * A repo-relative path without empty or `.` segments; undefined for the
+ * repo root. `..` and backslashes are rejected: the path is joined onto the
+ * clone directory and must stay inside it.
+ */
+function normalizeRepoPath(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined
+  const segments = raw.split("/").filter((s) => s !== "" && s !== ".")
+  for (const segment of segments) {
+    if (segment === ".." || segment.includes("\\") || segment.includes("\0")) {
+      throw new InvalidSource(`invalid path "${raw}": it must stay inside the repository`)
+    }
+  }
+  return segments.length > 0 ? segments.join("/") : undefined
+}
+
+/** Percent-decode a URL path (browser URLs encode spaces and the like). */
+function decodePath(raw: string): string {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
+
+/** `new URL`, throwing InvalidSource (the unsupported-format message) on failure. */
+function parseUrl(raw: string): URL {
+  try {
+    return new URL(raw)
+  } catch {
+    throw new InvalidSource(UNSUPPORTED)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -318,23 +421,9 @@ export const resolveRef = (
       }
     }
 
-    // Fall back: assume first segment is the ref
+    // Fall back: assume first segment is the ref (a commit SHA from a
+    // permalink lands here — ls-remote lists only branches and tags).
     const ref = segments[0]
     const path = segments.slice(1).join("/") || undefined
     return { ref, path }
   })
-
-// ---------------------------------------------------------------------------
-// adjustBlobPath
-// ---------------------------------------------------------------------------
-
-/**
- * Converts a blob path to its parent directory so the tool fetches the
- * containing folder rather than a single file.
- */
-export function adjustBlobPath(parsed: ParsedRemoteSource): ParsedRemoteSource {
-  if (!parsed.isBlobURL || !parsed.path) return parsed
-  const lastSlash = parsed.path.lastIndexOf("/")
-  const adjustedPath = lastSlash > 0 ? parsed.path.substring(0, lastSlash) : undefined
-  return { ...parsed, path: adjustedPath, isBlobURL: false }
-}
