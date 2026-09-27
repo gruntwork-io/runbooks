@@ -196,11 +196,11 @@ The token is passed to git only for the clone itself (through the environment, w
 
 ```bash
 git -c credential.helper= \
-  -c 'credential.helper=!f() { echo username=x-access-token; echo "password=${GITHUB_TOKEN}"; }; f' \
+  -c "credential.https://${GITHUB_HOST:-github.com}.helper="'!f() { echo username=x-access-token; echo "password=${GITHUB_TOKEN}"; }; f' \
   pull
 ```
 
-For a GitLab checkout, use `username=oauth2` and `${GITLAB_TOKEN}` in the helper instead.
+The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, set by the GitHub Auth block), so git never offers the token to another remote or over plain `http://`. For a GitLab checkout, scope it to your GitLab host (e.g. `credential.https://gitlab.com.helper`) and use `username=oauth2` and `${GITLAB_TOKEN}` in the helper instead.
 
 ### Sparse Checkout
 
