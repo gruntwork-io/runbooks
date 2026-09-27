@@ -556,8 +556,10 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
 
     expect(spawns.some((s) => s.args.includes("set-url"))).toBe(false)
     expect(tokenInAnyArg()).toBe(false)
+    // No auth config appended: the count is whatever the environment already
+    // carried (unset on most machines; some CI/sandbox shells export their own).
     const push = spawns.find((s) => s.args[0] === "push")
-    expect(push?.env?.GIT_CONFIG_COUNT).toBeUndefined()
+    expect(push?.env?.GIT_CONFIG_COUNT).toBe(process.env.GIT_CONFIG_COUNT)
     expect(gitOut(work, "remote", "get-url", "origin").trim()).toBe(sshUrl)
   }, 30_000)
 
