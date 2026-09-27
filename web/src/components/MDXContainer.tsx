@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import type { Ref } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
 import remarkGfm from 'remark-gfm'
@@ -39,16 +40,17 @@ import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCh
  * @param props.content - The raw markdown/MDX content string to compile and render
  * @param props.runbookPath - The path to the runbook file
  * @param props.className - Optional additional CSS classes for styling the container
- 
+ * @param props.ref - Receives the scroll container that wraps the rendered document
  */
 interface MDXContainerProps {
   content: string
   className?: string
   runbookPath?: string
   remoteSource?: string
+  ref?: Ref<HTMLDivElement>
 }
 
-function MDXContainer({ content, runbookPath, remoteSource, className }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -100,7 +102,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   }
 
   return (
-    <div data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
         <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
           <CustomMDXComponentErrorBoundary 

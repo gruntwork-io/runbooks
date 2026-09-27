@@ -71,6 +71,18 @@ export interface MergedGitLabHosts {
   readonly defaultHost: string
 }
 
+/**
+ * The GitHub hosts known from the user's own configuration (no network):
+ * `configHosts` from gh's hosts.yml, `envHost` from GH_HOST (strictly
+ * parsed; absent when unset or unparseable), and `defaultHost` — GH_HOST
+ * when set and parseable, else github.com (gh's own default).
+ */
+export interface GitHubHostsInfo {
+  readonly configHosts: string[]
+  readonly envHost?: string
+  readonly defaultHost: string
+}
+
 export interface VcsCredentialsShape {
   // --- Per-source detection legs (validated direct-fetch; used by the
   //     GitAuth IPC handlers, which orchestrate tri-state on top) -----------
@@ -78,14 +90,17 @@ export interface VcsCredentialsShape {
   // (normalizeGitLabBaseUrl output — a manually-entered `http://` scheme must
   // survive through validation); the legs derive the bare host internally for
   // glab/config reads. A bare host normalizes to its https origin.
-  readonly detectGitHubEnv: (prefix?: string) => Effect.Effect<DetectionResult>
-  readonly detectGitHubCli: () => Effect.Effect<DetectionResult>
+  // The GitHub `host` parameters take a bare host (github.com, a GHES host,
+  // or a `<sub>.ghe.com` tenant); an unparseable host is `absent`, never
+  // github.com.
+  readonly detectGitHubEnv: (host: string, prefix?: string) => Effect.Effect<DetectionResult>
+  readonly detectGitHubCli: (host: string) => Effect.Effect<DetectionResult>
   readonly detectGitLabEnv: (instance: string) => Effect.Effect<DetectionResult>
   readonly detectGitLabCli: (instance: string) => Effect.Effect<DetectionResult>
 
   // --- full chains: first-success-wins; `invalid` warns and continues;
   //     `unreachable` stops without consuming later sources -----------------
-  readonly resolveGitHub: (prefix?: string) => Effect.Effect<DetectionResult>
+  readonly resolveGitHub: (host: string, prefix?: string) => Effect.Effect<DetectionResult>
   readonly resolveGitLab: (instance: string) => Effect.Effect<DetectionResult>
 
   /** Direct (one-transport) validation of an arbitrary token — the PAT path.
@@ -106,6 +121,17 @@ export interface VcsCredentialsShape {
   readonly tokenForHost: (host: string) => Effect.Effect<string | undefined>
 
   readonly enumerateGitLabHosts: () => Effect.Effect<MergedGitLabHosts>
+
+  readonly enumerateGitHubHosts: () => Effect.Effect<GitHubHostsInfo>
+
+  /**
+   * Which provider a host belongs to, from names and the user's own config
+   * only (no network): GitHub for github.com, `*.ghe.com`, a gh hosts.yml
+   * host or GH_HOST; GitLab for gitlab.com, a glab config host, the GitLab
+   * env-bound host, or a `gitlab`-labelled name. Undefined otherwise — an
+   * arbitrary host is never assumed to be either (public repos still clone).
+   */
+  readonly detectProvider: (host: string) => Effect.Effect<VcsProvider | undefined>
 
   /**
    * validation-only CLI fallback probe — narrow and deterministic:

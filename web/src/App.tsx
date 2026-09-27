@@ -16,6 +16,7 @@ import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useIpcWatchMode } from './hooks/useIpcWatchMode'
 import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
+import { useWheelScrollFallback } from './hooks/useWheelScrollFallback'
 import { useErrorReporting } from './contexts/useErrorReporting'
 import { useApi } from './contexts/ApiContext'
 import { cn } from './lib/utils'
@@ -28,6 +29,8 @@ function App() {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+  const runbookScrollRef = useRef<HTMLDivElement>(null)
+  const handleWheel = useWheelScrollFallback(runbookScrollRef)
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke('native:open-runbook-dialog')
@@ -198,7 +201,9 @@ function App() {
 
   return (
     <>
-      <div className="flex flex-col">
+      {/* The runbook scrolls inside its own box, so a wheel gesture over the
+          gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
+      <div className="flex flex-col" onWheel={handleWheel}>
         <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
         
         {/* Error Summary Banner */}
@@ -310,6 +315,7 @@ function App() {
                   }
                 )}>
                   <MDXContainer
+                    ref={runbookScrollRef}
                     content={content}
                     runbookPath={runbookPath}
                     remoteSource={getRunbookResult.data?.remoteSource}

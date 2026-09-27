@@ -21,6 +21,7 @@ import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
 import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
+import { githubHostKind, isGitHubHost } from "../../src/domain/git/github-host.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("remote")
@@ -80,16 +81,32 @@ export function isAuthError(stderr: string): boolean {
  * For a self-hosted GitLab host the env remedy names BOTH halves: per the
  * binding, GITLAB_TOKEN alone is only ever released to GITLAB_HOST's
  * instance (default gitlab.com), so "set GITLAB_TOKEN" without the binding
- * would advise a no-op.
+ * would advise a no-op. The same holds for an enterprise GitHub host: its env
+ * token is released only when GH_HOST names it (GH_ENTERPRISE_TOKEN for GHES,
+ * GITHUB_TOKEN for a ghe.com tenant).
+ *
+ * `provider` is the caller's provider detection for the host (a GHES host
+ * has an arbitrary name, so only detection can place it); without it, only
+ * github.com, `*.ghe.com` and GitLab-named hosts get a hint.
  */
 export function authHintForHost(
   host: string,
+  provider?: "github" | "gitlab",
 ): { envRemedy: string; cliCmd: string } | undefined {
   const lower = host.toLowerCase()
   if (lower === "github.com") {
     return { envRemedy: "GITHUB_TOKEN", cliCmd: "gh auth login" }
   }
-  if (isGitLabHost(lower)) {
+  if (provider === "github" || (provider === undefined && isGitHubHost(lower))) {
+    return {
+      envRemedy:
+        githubHostKind(lower) === "ghes"
+          ? `GH_ENTERPRISE_TOKEN and GH_HOST=${lower}`
+          : `GITHUB_TOKEN and GH_HOST=${lower}`,
+      cliCmd: `gh auth login --hostname ${lower}`,
+    }
+  }
+  if (provider === "gitlab" || isGitLabHost(lower)) {
     return lower === "gitlab.com"
       ? { envRemedy: "GITLAB_TOKEN", cliCmd: "glab auth login" }
       : {
@@ -121,11 +138,12 @@ export function classifyCloneError(opts: {
   repo: string
   stderr: string
   hadToken: boolean
+  provider?: "github" | "gitlab"
 }): ClassifiedCloneError {
-  const { host, owner, repo, stderr, hadToken } = opts
+  const { host, owner, repo, stderr, hadToken, provider } = opts
   if (isAuthError(stderr)) {
     const repoPath = `${host}/${owner}/${repo}`
-    const hints = authHintForHost(host)
+    const hints = authHintForHost(host, provider)
     if (!hadToken) {
       return {
         kind: "auth",
@@ -207,30 +225,32 @@ export async function resolveRemoteRunbook(
 ): Promise<RemoteRunbookResult> {
   return runtime.runPromise(
     Effect.gen(function* () {
-      // Parse the URL
+      // Parse the URL. Enterprise GitHub hosts the user configured (gh's
+      // hosts.yml, GH_HOST) let a plain GHES repo URL parse as GitHub.
       log.info("Parsing URL:", rawUrl)
-      let parsed = yield* parseRemoteSource(rawUrl)
+      const vcs = yield* VcsCredentials
+      const { configHosts, envHost } = yield* vcs.enumerateGitHubHosts()
+      let parsed = yield* parseRemoteSource(rawUrl, {
+        githubHosts: envHost ? [...configHosts, envHost] : configHosts,
+      })
       log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path })
 
       // Get auth token early — needed for both resolveRef (git ls-remote)
       // and the clone itself. Session env first (a token established by
       // a GitAuth block is reused), then the unified VcsCredentials resolver.
       log.info("Getting auth token...")
-      const provider =
-        parsed.host.toLowerCase() === "github.com"
-          ? ("github" as const)
-          : isGitLabHost(parsed.host)
-            ? ("gitlab" as const)
-            : undefined
+      // Provider detection by name AND the user's own config (a GHES host has
+      // an arbitrary name): an unknown host is neither provider — never
+      // "GitLab by default".
+      const provider = yield* vcs.detectProvider(parsed.host)
       // Host-bound: the session token is released only to the host the
       // auth block bound it to — `parsed.host` is attacker-controlled input,
-      // and the provider name-heuristic alone must never gate a credential.
+      // and the provider detection alone must never gate a credential.
       const sessionToken = provider
         ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
             Effect.orElseSucceed(() => undefined),
           )
         : undefined
-      const vcs = yield* VcsCredentials
       const token = sessionToken ?? (yield* vcs.tokenForHost(parsed.host))
       log.info("Token:", token ? "found" : "none")
       const authedCloneURL = token
@@ -278,6 +298,7 @@ export async function resolveRemoteRunbook(
               repo: parsed.repo,
               stderr,
               hadToken: token !== undefined,
+              provider,
             })
             return Effect.fail(new RemoteSourceError({ url: rawUrl, message: classified.hint }))
           }),

@@ -45,6 +45,13 @@ export interface CreatePullRequestParams {
   readonly commitMessage: string
   readonly labels?: string[]
   readonly repoPath: string
+  /**
+   * GitHub host whose API opens the PR (github.com, a GHES host, or a
+   * `<sub>.ghe.com` tenant) — the repo's origin host, which the caller has
+   * already checked the token belongs to. Defaults to github.com. Unused for
+   * GitLab merge requests, which derive their instance from the remote.
+   */
+  readonly host?: string
 }
 
 export interface SeedDefaultBranchParams {
@@ -52,6 +59,8 @@ export interface SeedDefaultBranchParams {
   /** Branch to create and push as the repo's first ref. */
   readonly branch: string
   readonly provider: "github" | "gitlab"
+  /** GitHub host the token belongs to (see CreatePullRequestParams.host). */
+  readonly host?: string
 }
 
 export interface ResolvedClonePaths {
@@ -140,10 +149,10 @@ const toCommitIdentity = (user: {
  * never blocks PR creation. Any failure (network, invalid token) resolves to
  * undefined, and the commit proceeds with whatever identity git already has.
  */
-const resolveGitHubAuthor = (token: string) =>
+const resolveGitHubAuthor = (token: string, host?: string) =>
   Effect.gen(function* () {
     const gh = yield* GitHubClient
-    const validation = yield* gh.validateToken(token)
+    const validation = yield* gh.validateToken(token, host)
     return toCommitIdentity(validation.user)
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
@@ -226,7 +235,7 @@ export const createPullRequest = (
   Effect.gen(function* () {
     // Resolve the authenticated user's identity up front so the commit can be
     // attributed to them when the machine has no git identity configured.
-    const author = yield* resolveGitHubAuthor(token)
+    const author = yield* resolveGitHubAuthor(token, params.host)
     yield* runGitSteps(token, params, author, onProgress)
 
     const ghClient = yield* GitHubClient
@@ -243,7 +252,7 @@ export const createPullRequest = (
       labels: params.labels,
     }
 
-    const pr = yield* ghClient.createPullRequest(token, prParams)
+    const pr = yield* ghClient.createPullRequest(token, prParams, params.host)
 
     if (params.labels && params.labels.length > 0) {
       yield* ghClient.addLabels(
@@ -252,6 +261,7 @@ export const createPullRequest = (
         params.repo,
         pr.number,
         params.labels,
+        params.host,
       )
     }
 
@@ -353,7 +363,7 @@ export const seedDefaultBranch = (
             .pipe(Effect.orElseSucceed(() => ""))
           return yield* resolveGitLabAuthor(token, gitlabBaseUrlFromRemoteUrl(remoteUrl))
         })
-      : resolveGitHubAuthor(token))
+      : resolveGitHubAuthor(token, params.host))
 
     yield* report(`Creating branch ${params.branch}…`)
     yield* gitClient.createBranch(params.repoPath, params.branch)
