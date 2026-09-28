@@ -17,7 +17,8 @@ mockElectron({
 })
 
 const { registerWorkspaceHandlers } = await import("./workspace.ts")
-const { runtime, sessionManager } = await import("./runtime.ts")
+const runtimeModule = await import("./runtime.ts")
+const { runtime, sessionManager, setRunbookConfig } = runtimeModule
 
 describe("workspace IPC handlers", () => {
   let tmpDir = ""
@@ -46,6 +47,27 @@ describe("workspace IPC handlers", () => {
       // The renderer reads `result.dirs`; a bare array here leaves every
       // DirPicker dropdown empty.
       expect(result).toEqual({ dirs: ["alpha", "beta"] })
+    })
+
+    it("lists a relative rootDir against the runbook directory, not the process cwd", async () => {
+      // runbookConfig is module-global and bun runs every test file in one
+      // process: restore it so later files don't inherit this runbook.
+      const originalRunbookConfig = runtimeModule.runbookConfig
+      const runbookDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-workspace-runbook-"))
+      try {
+        fs.mkdirSync(nodePath.join(runbookDir, "dev"))
+        fs.mkdirSync(nodePath.join(runbookDir, "prod"))
+        setRunbookConfig({ ...originalRunbookConfig, localPath: nodePath.join(runbookDir, "runbook.mdx") })
+
+        // <DirPicker rootDir="."> sends the relative path as written.
+        const handler = handlers.get("workspace:dirs")!
+        const result = await handler(undefined, { worktreePath: "." })
+
+        expect(result).toEqual({ dirs: ["dev", "prod"] })
+      } finally {
+        setRunbookConfig(originalRunbookConfig)
+        fs.rmSync(runbookDir, { recursive: true, force: true })
+      }
     })
   })
 })
