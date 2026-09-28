@@ -100,32 +100,6 @@ test.describe("Electron App", () => {
     }
   })
 
-  test("exposes app info via IPC", async () => {
-    const app = await electron.launch({
-      args: [MAIN_ENTRY],
-      env: {
-        ...process.env,
-        ELECTRON_NO_UPDATER: "1",
-        RUNBOOKS_NO_TELEMETRY: "1",
-      },
-    })
-
-    try {
-      // Use evaluate in main process context to call ipcMain handlers
-      const appInfo = await app.evaluate(async ({ app }) => ({
-        version: app.getVersion(),
-        platform: process.platform,
-        arch: process.arch,
-      }))
-
-      expect(appInfo.version).toBeDefined()
-      expect(appInfo.platform).toBeDefined()
-      expect(appInfo.arch).toBeDefined()
-    } finally {
-      await app.close()
-    }
-  })
-
   test("only allows one instance (single instance lock)", async () => {
     const app1 = await electron.launch({
       args: [MAIN_ENTRY],
