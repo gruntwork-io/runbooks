@@ -53,18 +53,16 @@ describe('MDXContainer asset paths', () => {
     expect(video.querySelector('source')?.getAttribute('src')).toBe('runbook-asset://assets/d.webm')
   })
 
-  it('rewrites JSX <audio>, <a>, <embed> and <object> asset URLs', async () => {
+  // <embed> and <object> are rejected by remarkLiteralOnly (see
+  // web/src/lib/remarkLiteralOnly.test.ts), so they never reach the asset plugin.
+  it('rewrites JSX <audio> and <a> asset URLs', async () => {
     renderRunbook(
       '<audio src="./assets/e.mp3" controls />\n\n' +
-        'Download the <a href="./assets/f.pdf">guide</a>.\n\n' +
-        '<embed src="./assets/g.pdf" type="application/pdf" />\n\n' +
-        '<object data="./assets/h.pdf" type="application/pdf" />\n',
+        'Download the <a href="./assets/f.pdf">guide</a>.\n',
     )
 
     expect((await findInRunbook('audio')).getAttribute('src')).toBe('runbook-asset://assets/e.mp3')
     expect((await screen.findByText('guide')).closest('a')?.getAttribute('href')).toBe('runbook-asset://assets/f.pdf')
-    expect((await findInRunbook('embed')).getAttribute('src')).toBe('runbook-asset://assets/g.pdf')
-    expect((await findInRunbook('object')).getAttribute('data')).toBe('runbook-asset://assets/h.pdf')
   })
 
   it('leaves URLs outside ./assets/ unchanged', async () => {

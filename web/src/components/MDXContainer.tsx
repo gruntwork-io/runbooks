@@ -162,14 +162,14 @@ interface RehypeNode {
 // by markdown-generated elements and HTML tags written directly in the MDX so
 // the two can't drift apart. Only lowercase HTML tags are listed, so props on
 // capitalized block components (<Command>, <Template>, ...) are never touched.
+// <embed> and <object> are not listed: remarkLiteralOnly rejects them before
+// this plugin runs, and markdown syntax can't produce them.
 const ASSET_ATTRS = new Map<string, readonly string[]>([
   ['img', ['src']], // <img src="./assets/image.png">
   ['video', ['src', 'poster']], // <video src="./assets/video.mp4" poster="./assets/poster.png">
   ['audio', ['src']], // <audio src="./assets/audio.mp3">
   ['source', ['src']], // <source src="./assets/video.webm"> (child of video/audio)
   ['a', ['href']], // <a href="./assets/document.pdf">
-  ['embed', ['src']], // <embed src="./assets/document.pdf">
-  ['object', ['data']], // <object data="./assets/document.pdf">
 ])
 
 // Custom rehype plugin to transform asset paths for all media types.
