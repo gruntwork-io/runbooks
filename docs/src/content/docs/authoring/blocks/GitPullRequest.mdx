@@ -149,6 +149,8 @@ This section applies to GitHub; GitLab merge requests use the instance of the re
 
 That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ — for example, a repository cloned from `github.example.com` while the auth block signed in to `github.com` — the block fails with a clear error instead of sending the token to a host it was not issued for. Links to token settings shown by the block also follow the authenticated host.
 
+For both providers, Runbooks never assumes `github.com` or `gitlab.com`. If the repository has no `origin` remote, or `origin` names no host Runbooks can read (a local path, or an address it can't parse), the block fails with an error before the token is sent anywhere. Point `origin` at the repository on your GitHub or GitLab host (an `https://` URL or a `git@<host>:<owner>/<repo>.git` address) and try again.
+
 ```mdx
 <GitAuth
   id="git-auth"

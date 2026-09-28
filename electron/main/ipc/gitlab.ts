@@ -326,13 +326,17 @@ export function registerGitLabHandlers(): void {
         )
         // Target the repo's own GitLab instance (passed by the renderer from the
         // repo's remote); fall back to the host the auth block authenticated
-        // against. A bare host or a URL normalizes to the API origin.
+        // against. The client normalizes a bare host or a URL to the API
+        // origin, and refuses one that doesn't parse (an empty list here)
+        // rather than asking gitlab.com with this instance's token.
         const session = yield* sessionManager.getSession()
-        const baseUrl = normalizeGitLabBaseUrl(
+        const client = yield* GitLabClient
+        return yield* client.listLabels(
+          token,
+          params.owner,
+          params.repo,
           params.host ?? session.env.get("GITLAB_HOST"),
         )
-        const client = yield* GitLabClient
-        return yield* client.listLabels(token, params.owner, params.repo, baseUrl)
       })
 
       try {

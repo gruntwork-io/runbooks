@@ -1,6 +1,6 @@
 /**
  * IPC contract tests for the gitlab:* handlers: where an auto-detected
- * credential may be sent.
+ * credential, or the session's token, may be sent.
  *
  * The handlers run against the REAL main-process stack — runtime.ts (AppLive),
  * vcs-tristate.ts, VcsCredentialsLive, GitLabHttpClient, recent-hosts.ts —
@@ -69,7 +69,7 @@ let fetchCalls: Array<{ url: string; authorization?: string }> = []
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
 
-/** Answers GitLab's /user and PAT introspection on any host. */
+/** Answers GitLab's /user, PAT introspection and project labels on any host. */
 const mockGitLab = () => {
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const url = String(input)
@@ -77,6 +77,7 @@ const mockGitLab = () => {
     fetchCalls.push({ url, authorization: headers.Authorization ?? headers["PRIVATE-TOKEN"] })
     if (url.endsWith("/api/v4/user")) return Promise.resolve(json({ username: "tanuki" }))
     if (url.endsWith("/personal_access_tokens/self")) return Promise.resolve(json({ scopes: ["api"] }))
+    if (new URL(url).pathname.endsWith("/labels")) return Promise.resolve(json([{ name: "bug" }]))
     return Promise.resolve(new Response("not found", { status: 404 }))
   }) as typeof fetch
 }
@@ -189,4 +190,43 @@ describe("gitlab:validate", () => {
       ["https://gitlab.com/api/v4/user", "Bearer glpat-env"],
     ])
   })
+})
+
+describe("gitlab:labels — which instance the session's token is sent to", () => {
+  const SECRET = "glpat-SECRETTOKEN"
+  const labels = (params: { owner: string; repo: string; host?: string }) =>
+    invoke("gitlab:labels", params) as Promise<{ labels: string[] }>
+
+  beforeEach(async () => {
+    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.corp" }))
+  })
+
+  it("reads labels from the repo's own instance", async () => {
+    const result = await labels({ owner: "acme", repo: "infra", host: "gitlab.corp:8443" })
+
+    expect(result.labels).toEqual(["bug"])
+    expect(fetchCalls.map((c) => c.url)).toEqual([
+      "https://gitlab.corp:8443/api/v4/projects/acme%2Finfra/labels?include_ancestor_groups=true&per_page=100&page=1",
+    ])
+    expect(fetchCalls[0]?.authorization).toBe(`Bearer ${SECRET}`)
+  })
+
+  it("falls back to the instance the token was issued for when the renderer names none", async () => {
+    await labels({ owner: "acme", repo: "infra" })
+
+    expect(fetchCalls.length).toBeGreaterThan(0)
+    expect(fetchCalls.every((c) => c.url.startsWith("https://gitlab.corp/"))).toBe(true)
+  })
+
+  // A host that doesn't parse used to normalize to gitlab.com, which then got
+  // the gitlab.corp token.
+  it.each(["ho%st", "https://[fe80::1%eth0]", "ftp://gitlab.corp"])(
+    "sends the token nowhere for the unparseable host %s",
+    async (host) => {
+      const result = await labels({ owner: "acme", repo: "infra", host })
+
+      expect(result.labels).toEqual([])
+      expect(fetchCalls).toEqual([])
+    },
+  )
 })

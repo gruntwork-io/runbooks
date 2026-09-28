@@ -183,6 +183,71 @@ describe("GitCliClientLive.stageAll (real repo)", () => {
   })
 })
 
+describe("GitCliClientLive option-like branch names (real repo)", () => {
+  // git reads options anywhere on its command line, so a branch name that
+  // begins with `-` must reach git after `--`, never as an option.
+  let root: string
+  let work: string
+  let marker: string
+  let savedConfigGlobal: string | undefined
+  let savedConfigSystem: string | undefined
+
+  const run = <A, E>(program: (git: GitClient["Type"]) => Effect.Effect<A, E>) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        return yield* program(yield* GitClient)
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
+
+  beforeEach(() => {
+    // Only the defaults apply (push.default=simple), whatever the machine has.
+    savedConfigGlobal = process.env.GIT_CONFIG_GLOBAL
+    savedConfigSystem = process.env.GIT_CONFIG_SYSTEM
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitopts-"))
+    marker = path.join(root, "pwned")
+    const origin = path.join(root, "origin.git")
+    git(root, "init", "--bare", origin)
+    work = path.join(root, "work")
+    git(root, "clone", origin, work)
+    git(work, "commit", "--allow-empty", "-m", "initial")
+    // main now tracks origin/main, so a bare `git push -u origin` pushes it.
+    git(work, "push", "-u", "origin", "main")
+    git(work, "commit", "--allow-empty", "-m", "second")
+  })
+
+  afterEach(() => {
+    restoreEnv("GIT_CONFIG_GLOBAL", savedConfigGlobal)
+    restoreEnv("GIT_CONFIG_SYSTEM", savedConfigSystem)
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it("push takes an option-like branch as a refspec and never runs it", async () => {
+    const branch = `--receive-pack=touch ${marker}; git-receive-pack`
+
+    const result = await run((g) => g.push(work, "origin", branch, { setUpstream: true }))
+
+    if (result._tag !== "Left" || !(result.left instanceof GitError)) {
+      throw new Error("expected the push to fail with a GitError")
+    }
+    expect(result.left.stderr).toContain("invalid refspec")
+    expect(fs.existsSync(marker)).toBe(false)
+    // Nothing reached origin: its main is still the first commit.
+    expect(gitOut(work, "rev-parse", "origin/main")).toBe(gitOut(work, "rev-parse", "HEAD~1"))
+  })
+
+  it("deleteBranch deletes the branch it is given, even one named like an option", async () => {
+    git(work, "update-ref", "refs/heads/-D", "HEAD")
+
+    const result = await run((g) => g.deleteBranch(work, "-D"))
+
+    expect(result._tag).toBe("Right")
+    expect(gitOut(work, "for-each-ref", "refs/heads/-D")).toBe("")
+  })
+})
+
 describe("GitCliClientLive.commit (real repo)", () => {
   let repoPath: string
   let savedConfigGlobal: string | undefined

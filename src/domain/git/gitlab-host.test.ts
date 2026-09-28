@@ -69,6 +69,31 @@ describe("gitHostFromRemoteUrl", () => {
     )
   })
 
+  it.each([
+    ["git@[::1]:group/project.git", "[::1]"],
+    ["[::1]:group/project.git", "[::1]"],
+    ["gitlab.example.com:group/project.git", "gitlab.example.com"],
+    // An SSH port is not the web/API port, so it is dropped
+    ["git@[gitlab.corp:2222]:group/project.git", "gitlab.corp"],
+    ["ssh://git@gitlab.example.com:2222/group/project.git", "gitlab.example.com"],
+    // scp-like: after a plain host the colon starts the path, never a port
+    ["git@gitlab.example.com:2222/group/project.git", "gitlab.example.com"],
+    // An http(s) host is the one a token would be sent to, whatever the path
+    ["https://gitlab.corp/group\\project.git", "gitlab.corp"],
+    ["http://127.0.0.1:8080/group/project\u00a0.git", "127.0.0.1:8080"],
+  ])("reads the host of %s as %s", (url, host) => {
+    expect(gitHostFromRemoteUrl(url)).toBe(host)
+  })
+
+  it.each([
+    "a@b@gitlab.example.com:group/project.git",
+    "git@-oProxyCommand=evil:group/project.git",
+    "git@gitlab[.example.com:group/project.git",
+    "file:///srv/git/group/project.git",
+  ])("finds no host in %s", (url) => {
+    expect(gitHostFromRemoteUrl(url)).toBeUndefined()
+  })
+
   it("returns undefined for empty or unparseable input", () => {
     expect(gitHostFromRemoteUrl("")).toBeUndefined()
     expect(gitHostFromRemoteUrl("   ")).toBeUndefined()
@@ -83,10 +108,32 @@ describe("gitlabBaseUrlFromRemoteUrl", () => {
     expect(gitlabBaseUrlFromRemoteUrl("git@gitlab.example.com:group/project.git")).toBe(
       "https://gitlab.example.com",
     )
+    expect(gitlabBaseUrlFromRemoteUrl("git@[::1]:group/project.git")).toBe("https://[::1]")
+    expect(gitlabBaseUrlFromRemoteUrl("git@[gitlab.corp:2222]:group/project.git")).toBe(
+      "https://gitlab.corp",
+    )
+    expect(gitlabBaseUrlFromRemoteUrl("https://gitlab.corp/group\\project.git")).toBe(
+      "https://gitlab.corp",
+    )
+    // git's bracketed spelling, user inside the brackets: `ssh -p 2222 git@gitlab.corp`
+    expect(gitlabBaseUrlFromRemoteUrl("[git@gitlab.corp:2222]:platform/infra.git")).toBe(
+      "https://gitlab.corp",
+    )
   })
 
-  it("falls back to gitlab.com when the host can't be determined", () => {
-    expect(gitlabBaseUrlFromRemoteUrl("")).toBe(DEFAULT_GITLAB_BASE_URL)
+  // A token must never go to gitlab.com just because the remote didn't say
+  // where else to send it.
+  it.each([
+    ["no remote", ""],
+    ["a local path", "/srv/git/group/project.git"],
+    ["a file URL", "file:///srv/git/group/project.git"],
+    ["an IPv6 zone id", "git@[fe80::1%eth0]:group/project.git"],
+    ["an IPv6 zone id in a URL", "ssh://git@[fe80::1%25eth0]/group/project.git"],
+    ["a host no URL can carry", "git@ho%st:group/project.git"],
+    ["a host the URL parser would cut short", "git@gitlab.corp#.evil:group/project.git"],
+    ["a malformed remote", "a@b@gitlab.corp:group/project.git"],
+  ])("is undefined, never gitlab.com, for %s", (_, url) => {
+    expect(gitlabBaseUrlFromRemoteUrl(url)).toBeUndefined()
   })
 })
 

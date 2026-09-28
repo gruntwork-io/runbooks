@@ -1,5 +1,11 @@
 import { describe, it, expect } from "bun:test"
-import { gitCredentialUsername, sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "./url.ts"
+import {
+  gitCredentialUsername,
+  isHttpRemoteUrl,
+  sameHttpOrigin,
+  stripUrlCredentials,
+  withGitHttpAuth,
+} from "./url.ts"
 
 const TOKEN = "ghp_TESTTOKEN1234567890"
 
@@ -127,6 +133,24 @@ describe("withGitHttpAuth", () => {
     expect(withGitHttpAuth(base, "https://github.com/owner/repo.git", undefined)).toBe(base)
     expect(withGitHttpAuth(base, "https://github.com/owner/repo.git", "")).toBe(base)
   })
+})
+
+describe("isHttpRemoteUrl", () => {
+  it.each(["https://github.com/o/r.git", "http://127.0.0.1:8080/o\\r.git", "HTTPS://GitHub.com/o/r"])(
+    "is true for %s, which withGitHttpAuth attaches a token to",
+    (url) => {
+      expect(isHttpRemoteUrl(url)).toBe(true)
+      expect(withGitHttpAuth({}, url, "tok").GIT_CONFIG_COUNT).toBe("3")
+    },
+  )
+
+  it.each(["git@github.com:o/r.git", "ssh://git@github.com/o/r.git", "/srv/git/o/r.git", ""])(
+    "is false for %j, which never gets a token",
+    (url) => {
+      expect(isHttpRemoteUrl(url)).toBe(false)
+      expect(withGitHttpAuth({}, url, "tok").GIT_CONFIG_COUNT).toBeUndefined()
+    },
+  )
 })
 
 describe("sameHttpOrigin", () => {

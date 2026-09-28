@@ -16,6 +16,7 @@ import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
 import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
 import { withGitHttpAuth } from "../../src/domain/git/url.ts"
+import { gitCloneArgs } from "../../src/domain/git/clone-args.ts"
 import {
   resolveScriptRunner,
   wrapBashScript,
@@ -1342,13 +1343,18 @@ export class TestExecutor {
     }
 
     try {
-      const cloneArgs = ["clone", "--progress"]
-      if (repoPath) {
-        // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", cloneURL, destPath)
-      } else {
-        cloneArgs.push(cloneURL, destPath)
+      // `git checkout <ref>` below has no separator that keeps a ref from
+      // being read as an option (`--orphan=x`): `--` starts pathspecs, and
+      // checkout in git 2.43 (at least) reads `--end-of-options` as one too.
+      // git won't create a branch or tag whose name begins with `-`, and a
+      // commit id is hex, so a ref like that is refused outright.
+      if (ref?.startsWith("-")) {
+        throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
+
+      // With a repo path: a blobless clone without a checkout, then a sparse
+      // checkout of that path.
+      const cloneArgs = gitCloneArgs(cloneURL, destPath, { sparse: !!repoPath })
 
       execFileSync("git", cloneArgs, {
         timeout: this.options.timeout,
@@ -1362,7 +1368,7 @@ export class TestExecutor {
         execFileSync("git", ["sparse-checkout", "init", "--cone"], {
           cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
-        execFileSync("git", ["sparse-checkout", "set", repoPath], {
+        execFileSync("git", ["sparse-checkout", "set", "--", repoPath], {
           cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
         execFileSync("git", ["checkout"], {

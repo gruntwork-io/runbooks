@@ -31,8 +31,10 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
-import { gitCredentialUsername, withGitHttpAuth } from "../../../src/domain/git/url.ts"
+import { gitCredentialUsername, isHttpRemoteUrl, withGitHttpAuth } from "../../../src/domain/git/url.ts"
 import { gitHostFromRemoteUrl } from "../../../src/domain/git/gitlab-host.ts"
+import { parseGitRemoteUrl } from "../../../src/domain/git/remote-url.ts"
+import { gitCloneArgs } from "../../../src/domain/git/clone-args.ts"
 import { isGitHubHost, tryNormalizeGitHubHost } from "../../../src/domain/git/github-host.ts"
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
@@ -58,20 +60,61 @@ const makeSendLog = (event: IpcMainInvokeEvent) => (line: string) =>
  * github.com token is never pushed to an enterprise host or the reverse.
  * Yields the host too — the PR API calls go to that host. Fails with a typed
  * GitError (so it flows through errorMessage() / git:error like every other
- * git failure) naming both hosts on a mismatch. When origin can't be read,
- * the session's own GitHub host is used — the push itself targets origin and
- * fails on its own.
+ * git failure) naming both hosts on a mismatch.
+ *
+ * The host is read the way withGitHttpAuth reads it (gitHostFromRemoteUrl),
+ * so it is the host the token would really go to. When origin has no GitHub
+ * host (SSH to an IPv6 literal or zone id, a local path, or no origin that
+ * could be read):
+ *
+ *  - a push (`callsApi: false`) uses the session's own credential: such a
+ *    push never carries the token, which withGitHttpAuth attaches to http(s)
+ *    remotes only.
+ *  - a flow that calls the GitHub API with the token (`callsApi: true`: a
+ *    pull request, or the commit author lookup) is refused. Its requests
+ *    would otherwise go to the session's host, github.com unless configured
+ *    otherwise, which is not where the repo was shown to live.
+ *
+ * An http(s) origin whose host can't be matched is refused either way.
  */
-const resolveGitHubTokenForRepo = (repoPath: string, purpose: string) =>
+const resolveGitHubTokenForRepo = (
+  repoPath: string,
+  purpose: string,
+  { callsApi }: { readonly callsApi: boolean },
+) =>
   Effect.gen(function* () {
     const failWith = (stderr: string) =>
       new GitError({ command: "resolve github token", stderr, exitCode: 1 })
     const gitClient = yield* GitClient
     const remoteUrl = yield* gitClient.getRemoteUrl(repoPath).pipe(Effect.orElseSucceed(() => ""))
-    const origin = tryNormalizeGitHubHost(gitHostFromRemoteUrl(remoteUrl))
+    const remoteHost = gitHostFromRemoteUrl(remoteUrl)
+    const origin = tryNormalizeGitHubHost(remoteHost)
     const session = yield* getGitHubSessionCredential(undefined, () =>
       failWith(`No GitHub token available in session. Authenticate with the GitHub Auth block before ${purpose}.`),
     )
+    if (origin === undefined && isHttpRemoteUrl(remoteUrl)) {
+      return yield* Effect.fail(
+        failWith(
+          `The GitHub credential in this session is for ${session.host}, but this repository's origin is ` +
+            `${remoteHost ?? "an unknown host"}, which is not a GitHub host. Point origin at a GitHub host before ${purpose}.`,
+        ),
+      )
+    }
+    if (origin === undefined && callsApi) {
+      // The remote itself stays out of the message: one that doesn't parse
+      // may still carry credentials stripUrlCredentials couldn't find.
+      return yield* Effect.fail(
+        failWith(
+          remoteUrl
+            ? "Couldn't tell which GitHub host this repository's origin remote is on" +
+                (remoteHost ? ` (${remoteHost} is not a GitHub host name)` : "") +
+                ", so the GitHub token was not sent anywhere. Point origin at the repository on your " +
+                `GitHub host before ${purpose}.`
+            : "This repository has no origin remote, so there is no GitHub host to send the GitHub token " +
+                `to. Add an origin that points at the repository on your GitHub host before ${purpose}.`,
+        ),
+      )
+    }
     if (origin === undefined || origin === session.host) return session
     return yield* getGitHubSessionCredential(origin, () =>
       failWith(
@@ -326,9 +369,7 @@ export function registerGitHandlers(): void {
           // We avoid the GitClient's stream-based API because
           // Stream.runCollect hangs in Electron's runtime.runPromise.
           const spawner = yield* ProcessSpawner
-          const cloneArgs = ["clone", "--progress"]
-          if (options.ref) cloneArgs.push("--branch", options.ref)
-          cloneArgs.push(params.url, paths.absolutePath)
+          const cloneArgs = gitCloneArgs(params.url, paths.absolutePath, { ref: options.ref })
 
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
@@ -366,16 +407,20 @@ export function registerGitHandlers(): void {
             // known_hosts yet fails with "Host key verification failed." rather
             // than hanging on the interactive prompt. git's bare message gives
             // no remedy, so append the exact command to trust the host. The
-            // host is pulled from the SSH/SCP-form URL (git@host:owner/repo),
-            // for which new URL() yields no hostname.
+            // host and any port come from parseGitRemoteUrl, which also reads
+            // the SSH/SCP form (git@host:owner/repo, git@[::1]:owner/repo)
+            // that new URL() can't. ssh-keyscan takes an IPv6 literal without
+            // its brackets, and the port as -p.
             let stderrOut =
               stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`
             if (/host key verification failed/i.test(stderr)) {
-              const sshHost =
-                params.url.match(/^(?:ssh:\/\/)?(?:[^@/]+@)?([^:/]+)/)?.[1] ?? "<host>"
+              const remote = parseGitRemoteUrl(params.url)
+              const keyscanTarget = remote?.hostname
+                ? `${remote.port ? `-p ${remote.port} ` : ""}${remote.hostname.replace(/^\[(.*)\]$/, "$1")}`
+                : "<host>"
               stderrOut +=
-                `\n\nThe SSH host key for ${sshHost} isn't trusted yet. Add it to ` +
-                `known_hosts, then clone again:\n  ssh-keyscan ${sshHost} >> ~/.ssh/known_hosts`
+                `\n\nThe SSH host key for ${remote?.host || "<host>"} isn't trusted yet. Add it to ` +
+                `known_hosts, then clone again:\n  ssh-keyscan ${keyscanTarget} >> ~/.ssh/known_hosts`
             }
             return yield* Effect.fail(
               new GitError({
@@ -490,9 +535,18 @@ export function registerGitHandlers(): void {
         }
 
         // GitHub numeric IDs, when a token is available — mirrors git:clone.
-        if (params.register && info.owner && info.repo && params.provider !== "gitlab") {
-          // Host-bound to the checkout's own remote host.
-          const remoteHost = tryNormalizeGitHubHost(gitHostFromRemoteUrl(info.remoteUrl ?? ""))
+        // Host-bound to the checkout's own remote host. A remote with no
+        // GitHub host is left alone rather than looked up on the session's
+        // host (github.com by default): the repo was never shown to live
+        // there, and a same-named repo there would report the wrong IDs.
+        const remoteHost = tryNormalizeGitHubHost(gitHostFromRemoteUrl(info.remoteUrl ?? ""))
+        if (
+          params.register &&
+          info.owner &&
+          info.repo &&
+          params.provider !== "gitlab" &&
+          remoteHost !== undefined
+        ) {
           const token = yield* Effect.either(
             getGitHubSessionCredential(
               remoteHost,
@@ -575,7 +629,7 @@ export function registerGitHandlers(): void {
         const provider = params.provider ?? "github"
         const token =
           provider === "github"
-            ? (yield* resolveGitHubTokenForRepo(repoPath, "pushing")).token
+            ? (yield* resolveGitHubTokenForRepo(repoPath, "pushing", { callsApi: false })).token
             : yield* getSessionTokenForProvider(
                 provider,
                 () =>
@@ -637,7 +691,7 @@ export function registerGitHandlers(): void {
         const provider = params.provider ?? "github"
         const { token, host } =
           provider === "github"
-            ? yield* resolveGitHubTokenForRepo(repoPath, "creating the default branch")
+            ? yield* resolveGitHubTokenForRepo(repoPath, "creating the default branch", { callsApi: true })
             : {
                 token: yield* getSessionTokenForProvider(
                   provider,
@@ -684,7 +738,9 @@ export function registerGitHandlers(): void {
       const repoPath = yield* validateSessionPath(params.worktreePath)
       // The token must belong to the repo's origin host, and the PR opens on
       // that host's API (github.com, GHES, or a ghe.com tenant).
-      const { token, host } = yield* resolveGitHubTokenForRepo(repoPath, "creating a pull request")
+      const { token, host } = yield* resolveGitHubTokenForRepo(repoPath, "creating a pull request", {
+        callsApi: true,
+      })
       // sendLog is threaded in as the progress sink so each line is emitted
       // when its step actually runs, not all at once before the work starts.
       return yield* createPullRequest(token, { ...buildPrParams(params, repoPath), host }, sendLog)

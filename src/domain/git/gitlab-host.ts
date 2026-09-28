@@ -10,6 +10,7 @@
  * The auth token is still resolved by PROVIDER (GITLAB_TOKEN), never by host —
  * the host only selects which instance's API/glab-config to talk to.
  */
+import { gitRemoteWebHost } from "./remote-url.ts"
 
 /** The default GitLab instance when no self-hosted instance is specified. */
 export const DEFAULT_GITLAB_BASE_URL = "https://gitlab.com"
@@ -83,33 +84,30 @@ export function hostToBaseUrl(host: string): string {
 }
 
 /**
- * Extract the host (including any port) from a git remote URL in either HTTPS
- * (`https://host/owner/repo.git`) or SSH/SCP (`git@host:owner/repo.git`) form.
- * Returns undefined for input that has no recognizable host.
+ * The web/API host of a git remote (see gitRemoteWebHost): for HTTPS
+ * (`https://host:8443/owner/repo.git`) the host and port a token is sent to;
+ * for SSH/SCP (`git@host:owner/repo.git`, `git@[::1]:owner/repo.git`,
+ * `ssh://git@host:2222/owner/repo.git`) the host alone, since the port there
+ * is the SSH port. Returns undefined for input that has no recognizable host.
  */
 export function gitHostFromRemoteUrl(url: string): string | undefined {
-  const trimmed = url.trim()
-  if (!trimmed) return undefined
-  // SSH/SCP form: [user@]host:owner/repo(.git)
-  const ssh = trimmed.match(/^[^/@]+@([^:/]+):/)
-  if (ssh) return ssh[1]
-  try {
-    const host = new URL(trimmed).host
-    return host || undefined
-  } catch {
-    return undefined
-  }
+  return gitRemoteWebHost(url.trim())
 }
 
 /**
- * Derive the GitLab API origin for a repo from its own remote URL, defaulting
- * to gitlab.com when the host can't be determined. Used by operations that act
- * on a cloned repo (merge requests, labels), where the instance is whatever the
- * repo actually lives on rather than something the user typed.
+ * Derive the GitLab API origin for a repo from its own remote URL. Used by
+ * operations that act on a cloned repo (merge requests, seeding a default
+ * branch), where the instance is whatever the repo actually lives on rather
+ * than something the user typed.
+ *
+ * Undefined when the remote names no host (none at all, a local path, an IPv6
+ * zone id, anything gitHostFromRemoteUrl can't read). Never gitlab.com by
+ * default: the caller holds a token for the repo's own instance, and must
+ * refuse rather than send it somewhere the remote didn't name.
  */
-export function gitlabBaseUrlFromRemoteUrl(url: string): string {
+export function gitlabBaseUrlFromRemoteUrl(url: string): string | undefined {
   const host = gitHostFromRemoteUrl(url)
-  return host ? hostToBaseUrl(host) : DEFAULT_GITLAB_BASE_URL
+  return host ? hostToBaseUrl(host) : undefined
 }
 
 /**

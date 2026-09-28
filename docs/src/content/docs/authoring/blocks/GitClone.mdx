@@ -157,6 +157,7 @@ The GitClone block accepts the following URL formats:
 | HTTPS (no .git) | `https://github.com/org/repo` | Also works without the `.git` suffix. |
 | Any host | `https://gitlab.com/org/repo.git` | Works with any git hosting provider. |
 | SSH | `git@github.com:org/repo.git` | Token auth does **not** apply to SSH URLs. Use HTTPS for token-based auth. |
+| SSH, bracketed host | `git@[2001:db8::1]:org/repo.git`, `git@[git.example.com:2222]:org/repo.git` | As in git, an IPv6 address, or a host with a non-default SSH port, goes in brackets. Without brackets, the text after the colon is always the repository path. |
 
 ### GitHub Authentication
 
