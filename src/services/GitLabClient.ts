@@ -40,8 +40,9 @@ export interface CreateMRParams {
   readonly labels?: string[]
   /**
    * GitLab instance origin to target (e.g. `https://gitlab.example.com`).
-   * Defaults to gitlab.com when omitted. Lets a self-hosted instance receive
-   * the MR instead of gitlab.com.
+   * Defaults to gitlab.com when omitted; one that is given but doesn't parse
+   * fails the call rather than falling back to gitlab.com. Lets a self-hosted
+   * instance receive the MR instead of gitlab.com.
    */
   readonly baseUrl?: string
 }
@@ -61,11 +62,13 @@ export interface GitLabClientShape {
   /**
    * Validate a token against a GitLab instance. `baseUrl` is the instance
    * origin (e.g. `https://gitlab.example.com`); a bare host or a full URL is
-   * accepted (the client normalizes it) and it defaults to gitlab.com.
+   * accepted (the client normalizes it) and it defaults to gitlab.com when
+   * omitted. One that is given but doesn't parse fails with status 400 — never
+   * a fallback to gitlab.com, which would send another instance's token there.
    */
   readonly validateToken: (token: string, baseUrl?: string) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
   readonly createMergeRequest: (token: string, params: CreateMRParams) => Effect.Effect<MergeRequestResult, GitLabApiError>
-  /** `baseUrl` is the instance origin (bare host or full URL); defaults to gitlab.com. */
+  /** `baseUrl` is the instance origin (bare host or full URL); see validateToken. */
   readonly listLabels: (token: string, owner: string, repo: string, baseUrl?: string) => Effect.Effect<string[], GitLabApiError>
 }
 

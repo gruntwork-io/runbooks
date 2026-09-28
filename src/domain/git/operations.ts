@@ -15,6 +15,7 @@ import { GitError } from "../../errors/index.ts"
 import { gitSpawnEnv } from "./env.ts"
 import { gitlabBaseUrlFromRemoteUrl } from "./gitlab-host.ts"
 import { gitCredentialUsername } from "./url.ts"
+import { gitRemoteOwnerRepo, parseGitRemoteUrl } from "./remote-url.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -157,6 +158,40 @@ const resolveGitHubAuthor = (token: string, host?: string) =>
     return toCommitIdentity(validation.user)
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
+/**
+ * The GitLab instance (API origin) of a repo whose `origin` remote is
+ * `remoteUrl` ("" when it has none). Fails with a GitError when there is no
+ * origin, or origin names no host (see gitlabBaseUrlFromRemoteUrl), so the
+ * caller stops before its token goes anywhere: guessing gitlab.com would hand
+ * a self-hosted instance's token to gitlab.com.
+ */
+export const gitlabInstanceForRemoteUrl = (remoteUrl: string, purpose: string) => {
+  const baseUrl = gitlabBaseUrlFromRemoteUrl(remoteUrl)
+  if (baseUrl) return Effect.succeed(baseUrl)
+  // The remote itself stays out of the message: one that doesn't parse
+  // may still carry credentials stripUrlCredentials couldn't find.
+  return Effect.fail(
+    new GitError({
+      command: "resolve gitlab instance",
+      stderr: remoteUrl
+        ? "Couldn't tell which GitLab instance this repository's origin remote is on, so the GitLab " +
+          "token was not sent anywhere. Point origin at the project on your GitLab instance (an " +
+          `https:// URL or git@<host>:<group>/<project>.git) before ${purpose}.`
+        : "This repository has no origin remote, so there is no GitLab instance to send the GitLab " +
+          `token to. Add an origin that points at the project on your GitLab instance before ${purpose}.`,
+      exitCode: 1,
+    }),
+  )
+}
+
+/** gitlabInstanceForRemoteUrl for the repo at `repoPath`, reading its `origin` remote. */
+const gitlabInstanceForRepo = (repoPath: string, purpose: string) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    const remoteUrl = yield* gitClient.getRemoteUrl(repoPath).pipe(Effect.orElseSucceed(() => ""))
+    return yield* gitlabInstanceForRemoteUrl(remoteUrl, purpose)
+  })
+
 /** GitLab equivalent of {@link resolveGitHubAuthor}; validates against the instance. */
 const resolveGitLabAuthor = (token: string, baseUrl: string) =>
   Effect.gen(function* () {
@@ -282,19 +317,15 @@ export const createMergeRequest = (
   onProgress?: (line: string) => void,
 ) =>
   Effect.gen(function* () {
-    const gitClient = yield* GitClient
     const glClient = yield* GitLabClient
     const report = makeReport(onProgress)
 
     // Target the MR at the repo's own GitLab instance (self-hosted or
-    // gitlab.com), derived from its remote rather than assumed to be gitlab.com.
-    // Best-effort: if the remote can't be read, the client falls back to
-    // gitlab.com. Resolved before the git steps so the commit's fallback author
-    // is validated against the same instance the token belongs to.
-    const remoteUrl = yield* gitClient
-      .getRemoteUrl(params.repoPath)
-      .pipe(Effect.orElseSucceed(() => ""))
-    const baseUrl = gitlabBaseUrlFromRemoteUrl(remoteUrl)
+    // gitlab.com), derived from its remote rather than assumed to be gitlab.com;
+    // with no instance to read, stop here. Resolved before the git steps so the
+    // commit's fallback author is validated against the same instance the token
+    // belongs to.
+    const baseUrl = yield* gitlabInstanceForRepo(params.repoPath, "creating a merge request")
 
     // Resolve the authenticated user's identity so the commit can be attributed
     // to them when the machine has no git identity configured.
@@ -358,14 +389,13 @@ export const seedDefaultBranch = (
     }
 
     // Same fallback-author treatment as the PR/MR flows: only used when the
-    // machine has no git identity of its own configured.
+    // machine has no git identity of its own configured. A GitLab token is
+    // validated only at the instance origin names; with none, nothing runs.
     const author = yield* (params.provider === "gitlab"
-      ? Effect.gen(function* () {
-          const remoteUrl = yield* gitClient
-            .getRemoteUrl(params.repoPath)
-            .pipe(Effect.orElseSucceed(() => ""))
-          return yield* resolveGitLabAuthor(token, gitlabBaseUrlFromRemoteUrl(remoteUrl))
-        })
+      ? Effect.flatMap(
+          gitlabInstanceForRepo(params.repoPath, "creating the default branch"),
+          (baseUrl) => resolveGitLabAuthor(token, baseUrl),
+        )
       : resolveGitHubAuthor(token, params.host))
 
     yield* report(`Creating branch ${params.branch}…`)
@@ -469,11 +499,12 @@ export const countFiles = (dir: string) =>
 
 /**
  * Parse owner and repo from a git remote URL.
- * Supports both HTTPS and SSH formats:
+ * Supports every form parseGitRemoteUrl does, e.g.:
  *   https://github.com/owner/repo.git
  *   https://github.com/owner/repo
  *   git@github.com:owner/repo.git
  *   git@github.com:owner/repo
+ *   git@[::1]:owner/repo.git
  *
  * The last path segment is treated as the repo (project) and everything
  * before it as the owner. This keeps GitHub URLs (always `owner/repo`)
@@ -482,50 +513,20 @@ export const countFiles = (dir: string) =>
  *   https://gitlab.com/group/subgroup/project.git → owner "group/subgroup",
  *                                                    repo  "project"
  */
-export const parseOwnerRepoFromURL = (rawURL: string): OwnerRepo | undefined => {
-  // Extract the path portion (everything after the host) for both forms.
-  //   SSH:   git@host:group/.../repo.git → path is the part after the colon
-  //   HTTPS: https://host/group/.../repo → path is the URL pathname
-  let path: string
-  const sshMatch = rawURL.match(/^git@[^:]+:(.+)$/)
-  if (sshMatch) {
-    path = sshMatch[1]
-  } else {
-    try {
-      path = new URL(rawURL).pathname
-    } catch {
-      // Not a valid URL
-      return undefined
-    }
-  }
-
-  const parts = path.split("/").filter(Boolean)
-  if (parts.length < 2) {
-    return undefined
-  }
-
-  const repo = parts[parts.length - 1].replace(/\.git$/, "")
-  const owner = parts.slice(0, -1).join("/")
-  return { owner, repo }
-}
+export const parseOwnerRepoFromURL = (rawURL: string): OwnerRepo | undefined =>
+  gitRemoteOwnerRepo(rawURL)
 
 /**
- * Validate whether a string is a valid git URL (HTTPS or SSH format).
+ * Validate whether a string is a git URL the clone handler accepts: an
+ * http(s) URL, or the scp-like `git@host:path` form, naming an `owner/repo`
+ * path. A URL git or ssh could read as an option (leading `-`) or whose host
+ * is malformed never validates (see parseGitRemoteUrl).
  */
 export const isValidGitURL = (url: string): boolean => {
-  // SSH format
-  if (/^git@[^:]+:.+\/.+$/.test(url)) {
-    return true
-  }
-
-  // HTTPS format
-  try {
-    const parsed = new URL(url)
-    return (
-      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
-      parsed.pathname.split("/").filter(Boolean).length >= 2
-    )
-  } catch {
-    return false
-  }
+  const remote = parseGitRemoteUrl(url)
+  if (!remote) return false
+  const allowed = remote.scpLike
+    ? remote.user === "git"
+    : remote.scheme === "https" || remote.scheme === "http"
+  return allowed && gitRemoteOwnerRepo(url) !== undefined
 }

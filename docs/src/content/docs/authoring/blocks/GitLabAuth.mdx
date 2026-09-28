@@ -38,7 +38,7 @@ By default, Runbooks automatically detects and uses credentials from, in order:
 
 If no credentials are detected, the user authenticates manually with a Personal Access Token.
 
-Runbooks only sends an environment token (prefixed or not) over HTTPS, so for a plain `http://` instance it is skipped and the user pastes a Personal Access Token instead.
+Runbooks only sends an environment token (prefixed or not) over HTTPS, and a `glab` token only to the host glab stored it for, over HTTPS unless glab itself uses HTTP for that host (`api_protocol: http`), so for a plain `http://` instance such a token is skipped and the user pastes a Personal Access Token instead. The block can authenticate to a plain `http://` instance, but [GitClone](/authoring/blocks/gitclone/), [GitLabMergeRequest](/authoring/blocks/gitlabmergerequest/) and its label lookup only send the session token over HTTPS, so there the token is only available to [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts as `GITLAB_TOKEN`.
 
 ### Prefixed environment variables
 

@@ -2,7 +2,8 @@
  * Live implementation of the GitLabClient service using fetch.
  *
  * Mirrors GitHubHttpClient, but targets GitLab's REST API. The instance origin
- * is per-call (`baseUrl`, defaulting to gitlab.com) so a self-hosted GitLab is
+ * is per-call (`baseUrl`: gitlab.com when omitted, an error when it doesn't
+ * parse — see resolveBaseUrl) so a self-hosted GitLab is
  * supported — the auth block supplies either a picked host or a manually-entered
  * instance URL, and operations on a cloned repo derive it from the repo's own
  * remote. A bare host or a full URL is accepted; the client normalizes it.
@@ -23,7 +24,11 @@ import type {
   MergeRequestResult,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
-import { gitlabApiBase, normalizeGitLabBaseUrl } from "../domain/git/gitlab-host.ts"
+import {
+  DEFAULT_GITLAB_BASE_URL,
+  gitlabApiBase,
+  tryNormalizeGitLabBaseUrl,
+} from "../domain/git/gitlab-host.ts"
 import { classifyTlsError } from "../domain/tls/system-ca.ts"
 
 type AuthScheme = "private" | "bearer"
@@ -33,6 +38,22 @@ const toGitLabApiError = (err: unknown): GitLabApiError =>
   err instanceof GitLabApiError
     ? err
     : new GitLabApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
+
+/**
+ * Resolve the caller's `baseUrl` (default gitlab.com) with the STRICT parse,
+ * as GitHubHttpClient resolves its host: one that was given but doesn't parse
+ * throws instead of falling back to gitlab.com, so a token meant for a
+ * self-hosted instance is never sent to gitlab.com (status 400 — a caller
+ * error, not a transport failure).
+ */
+function resolveBaseUrl(baseUrl?: string): string {
+  if (baseUrl === undefined) return DEFAULT_GITLAB_BASE_URL
+  const normalized = tryNormalizeGitLabBaseUrl(baseUrl)
+  if (!normalized) {
+    throw new GitLabApiError({ status: 400, message: `invalid GitLab instance URL: ${JSON.stringify(baseUrl)}` })
+  }
+  return normalized
+}
 
 async function assertOk(resp: Response): Promise<void> {
   if (!resp.ok) {
@@ -187,14 +208,14 @@ const impl: GitLabClientShape = {
   validateToken: (token: string, baseUrl?: string) =>
     Effect.tryPromise({
       try: (): Promise<GitLabTokenValidation> =>
-        validateUserToken(token, normalizeGitLabBaseUrl(baseUrl)),
+        validateUserToken(token, resolveBaseUrl(baseUrl)),
       catch: toGitLabApiError,
     }),
 
   createMergeRequest: (token: string, params: CreateMRParams) =>
     Effect.tryPromise({
       try: async (): Promise<MergeRequestResult> => {
-        const apiBase = gitlabApiBase(normalizeGitLabBaseUrl(params.baseUrl))
+        const apiBase = gitlabApiBase(resolveBaseUrl(params.baseUrl))
         // `:id` is the URL-encoded full project path; encodeURIComponent turns
         // the slashes of a nested group path (group/subgroup/project) into %2F.
         const projectId = encodeURIComponent(`${params.owner}/${params.repo}`)
@@ -234,7 +255,7 @@ const impl: GitLabClientShape = {
   listLabels: (token: string, owner: string, repo: string, baseUrl?: string) =>
     Effect.tryPromise({
       try: async (): Promise<string[]> => {
-        const apiBase = gitlabApiBase(normalizeGitLabBaseUrl(baseUrl))
+        const apiBase = gitlabApiBase(resolveBaseUrl(baseUrl))
         const projectId = encodeURIComponent(`${owner}/${repo}`)
         const labels = await paginateAll<{ name: string }>(
           `${apiBase}/projects/${projectId}/labels?include_ancestor_groups=true`,

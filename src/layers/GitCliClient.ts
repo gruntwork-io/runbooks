@@ -159,7 +159,9 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         if (options?.setUpstream) {
           args.push("-u")
         }
-        args.push(remote, branch)
+        // `--` keeps a branch that looks like an option (e.g.
+        // `--receive-pack=<command>`, which git would run) a refspec.
+        args.push("--", remote, branch)
 
         // Authenticate this one push through the environment rather than by
         // rewriting the remote URL, so the token never lands in .git/config and
@@ -183,7 +185,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     deleteBranch: (repoPath: string, branch: string) =>
       Effect.gen(function* () {
-        yield* runGit(spawner, ["branch", "-d", branch], repoPath)
+        yield* runGit(spawner, ["branch", "-d", "--", branch], repoPath)
       }),
 
     getCurrentBranch: (repoPath: string) =>
