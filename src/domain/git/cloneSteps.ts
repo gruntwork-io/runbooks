@@ -10,6 +10,7 @@
  */
 import { Either } from "effect"
 import { GitError } from "../../errors/index.ts"
+import { gitCloneArgs } from "./clone-args.ts"
 
 export interface CloneStepOptions {
   /** Branch or tag to clone, passed to `git clone --branch`. */
@@ -73,10 +74,12 @@ export function buildCloneSteps(
   options: CloneStepOptions = {},
 ): Either.Either<CloneStep[], GitError> {
   return Either.map(normalizeRepoPath(options.repoPath), (repoPath) => {
-    const branch = options.ref ? ["--branch", options.ref] : []
-    if (!repoPath) return [{ args: ["clone", "--progress", ...branch, "--", url, dest] }]
+    // gitCloneArgs ends option parsing with `--`, so an option-like URL or
+    // destination is never read as an option.
+    const ref = options.ref
+    if (!repoPath) return [{ args: gitCloneArgs(url, dest, { ref }) }]
     return [
-      { args: ["clone", "--filter=blob:none", "--no-checkout", "--progress", ...branch, "--", url, dest] },
+      { args: gitCloneArgs(url, dest, { ref, sparse: true }) },
       // `init --cone` first: before git 2.37, `set` on its own uses
       // non-cone patterns.
       { args: ["-C", dest, "sparse-checkout", "init", "--cone"] },
