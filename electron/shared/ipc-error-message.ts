@@ -4,7 +4,8 @@
  * "Error invoking remote method 'channel': Error: <message>"; we want just
  * "<message>".
  *
- * The preload applies this to every `api.invoke` rejection. MAIN's half of the
+ * The preload applies this to every `api.invoke` rejection, and
+ * web/src/lib/ipcError.ts re-exports it for the renderer. MAIN's half of the
  * contract is toIpcError() (electron/main/ipc/ipc-error.ts), which makes sure
  * "<message>" is the real failure detail rather than a FiberFailure dump.
  */
