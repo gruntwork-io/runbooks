@@ -1137,8 +1137,11 @@ describe("git handler error text", () => {
       expect(message).not.toContain("FiberFailure")
     }
 
-    it("git:delete-branch rejects with the defect's message and no stack frames", async () => {
-      const message = await rejectionOf("git:delete-branch", { worktreePath: 42, branch: "feature" })
+    it.each([
+      ["git:delete-branch", { worktreePath: 42, branch: "feature" }],
+      ["git:clone", { url: "https://github.com/acme/infra.git", localPath: 42 }],
+    ])("%s rejects with the defect's message and no stack frames", async (channel, params) => {
+      const message = await rejectionOf(channel, params)
 
       expectNoFrames(message)
       // Node says "argument", bun "property".
