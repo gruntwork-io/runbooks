@@ -156,14 +156,18 @@ function makeStepResult(
 
 /**
  * Whether the repository at `repoDir` has any commits (its HEAD resolves).
- * `env` is the environment the clone's other git commands run with.
+ * `env` is the environment the clone's other git commands run with. As in the
+ * app, only an unborn HEAD (`rev-parse --verify` exits 1) counts as no
+ * commits. Any other failure (dubious ownership, a corrupt repo, git not
+ * starting) counts as having them, so the checkout runs and fails with the
+ * real error instead of passing an empty clone.
  */
 function hasCommits(repoDir: string, env: NodeJS.ProcessEnv): boolean {
   const proc = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "-q", "HEAD"], {
     stdio: "ignore",
     env,
   })
-  return proc.status === 0
+  return proc.status !== 1
 }
 
 // ---------------------------------------------------------------------------
