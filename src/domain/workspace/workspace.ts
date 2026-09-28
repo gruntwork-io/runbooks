@@ -7,7 +7,7 @@
  */
 
 import path from "path"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 
 import { FileSystem } from "../../services/FileSystem.ts"
 import { GitClient } from "../../services/GitClient.ts"
@@ -464,8 +464,8 @@ export const getWorkspaceChanges = (
     // One diff for the whole batch (a single numstat plus bounded-concurrency
     // HEAD reads) instead of one per file. It runs the first time a modified or
     // deleted entry needs it and is shared by the rest; a batch of only new
-    // files never runs it.
-    const diffs = yield* Effect.cached(loadDiffs(worktreePath))
+    // files never runs it. If it fails, each path is diffed on its own.
+    const diffs = yield* batchDiffLookup(worktreePath)
 
     for (const entry of statusEntries) {
       // For a rename this is already the new path.
@@ -547,38 +547,65 @@ const getSingleFileDiff = (
     }
 
     if (!change.isBinary) {
-      yield* populateDiffContent(worktreePath, change, loadDiffs(worktreePath, filePath))
+      yield* populateDiffContent(worktreePath, change, pathDiffLookup(worktreePath))
     }
 
     return change
   })
 
 /**
- * Worktree-vs-HEAD diff entries keyed by path. Best-effort, like the file
- * reads in populateDiffContent: a git failure leaves entries without an
- * original or line counts instead of failing a batch polled every 3s.
+ * One path's worktree-vs-HEAD diff entry, or undefined when git has none.
+ * Best-effort, like the file reads in populateDiffContent: a git failure
+ * leaves the entry without an original or line counts instead of failing a
+ * batch polled every 3s.
  */
-const loadDiffs = (
-  worktreePath: string,
-  filePath?: string,
-): Effect.Effect<ReadonlyMap<string, DiffEntry>, never, GitClient> =>
+type DiffLookup = (filePath: string) => Effect.Effect<DiffEntry | undefined, never, GitClient>
+
+/** Diff each path on its own. */
+const pathDiffLookup =
+  (worktreePath: string): DiffLookup =>
+  (filePath) =>
+    Effect.gen(function* () {
+      const git = yield* GitClient
+      const entries = yield* git.diff(worktreePath, filePath).pipe(
+        Effect.orElseSucceed((): DiffEntry[] => []),
+      )
+      return entries.find((e) => e.path === filePath)
+    })
+
+/**
+ * Look paths up in one whole-worktree diff, run on the first lookup and
+ * shared by the rest. Should that diff fail, fall back to diffing each path on
+ * its own, so only a path git can't diff loses its counts and original. For
+ * example, in a blobless sparse clone whose remote can't be reached, git
+ * can't fetch the HEAD blob of a file edited outside the cone, and that one
+ * missing blob fails the whole-worktree diff.
+ */
+const batchDiffLookup = (worktreePath: string): Effect.Effect<DiffLookup> =>
   Effect.gen(function* () {
-    const git = yield* GitClient
-    const entries = yield* git.diff(worktreePath, filePath).pipe(
-      Effect.orElseSucceed((): DiffEntry[] => []),
+    const whole = yield* Effect.cached(
+      Effect.gen(function* () {
+        const git = yield* GitClient
+        const entries = yield* git.diff(worktreePath)
+        return new Map(entries.map((e) => [e.path, e]))
+      }).pipe(Effect.option),
     )
-    return new Map(entries.map((e) => [e.path, e]))
+    const perPath = pathDiffLookup(worktreePath)
+    return (filePath) =>
+      Effect.flatMap(whole, (diffs) =>
+        Option.isSome(diffs) ? Effect.succeed(diffs.value.get(filePath)) : perPath(filePath),
+      )
   })
 
 /**
  * Fill in the original/new content and line counts for a file change.
- * Mutates the provided `change` object in-place. `diffs` supplies the git
+ * Mutates the provided `change` object in-place. `diffs` looks up the git
  * diff entries; it only runs for modified/deleted files.
  */
 const populateDiffContent = (
   worktreePath: string,
   change: WorkspaceFileChange,
-  diffs: Effect.Effect<ReadonlyMap<string, DiffEntry>, never, GitClient>,
+  diffs: DiffLookup,
 ): Effect.Effect<
   void,
   FileReadError | FileNotFoundError | GitError | SpawnError,
@@ -615,7 +642,7 @@ const populateDiffContent = (
       case "deleted": {
         // Get original content from HEAD. An empty file's original is "" —
         // still an original, so test for undefined rather than truthiness.
-        const entry = (yield* diffs).get(change.path)
+        const entry = yield* diffs(change.path)
         if (entry?.originalContent !== undefined) {
           ;(change as { originalContent: string }).originalContent =
             entry.originalContent
@@ -628,7 +655,7 @@ const populateDiffContent = (
 
       case "modified": {
         // Try to get original from git
-        const entry = (yield* diffs).get(change.path)
+        const entry = yield* diffs(change.path)
         if (entry) {
           if (entry.originalContent !== undefined) {
             ;(change as { originalContent: string }).originalContent =

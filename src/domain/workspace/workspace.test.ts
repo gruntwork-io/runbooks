@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
-import { Effect, Layer } from "effect"
+import { Effect, Either, Layer } from "effect"
 import {
   getWorkspaceDirs,
   readWorkspaceFile,
@@ -12,6 +12,9 @@ import {
 } from "./workspace.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import { MAX_FILE_CONTENT_SIZE } from "../../types.ts"
+import { GitError } from "../../errors/index.ts"
+import { buildCloneSteps } from "../git/cloneSteps.ts"
+import type { DiffEntry } from "../../services/GitClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import type { ProcessSpawnerShape } from "../../services/ProcessSpawner.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
@@ -530,6 +533,49 @@ describe("getWorkspaceChanges", () => {
     expect(result.changes[0].originalContent).toBeUndefined()
     expect(result.changes[1].newContent).toBe("hello")
   })
+
+  it("diffs each path alone when the whole-worktree diff fails, so only the failing one degrades", async () => {
+    // e.g. a blobless sparse clone that can't reach its remote: git can't
+    // fetch the HEAD blob of the one file edited outside the cone, which fails
+    // the whole-worktree diff but not a diff of any other path.
+    const diffCalls: Array<string | undefined> = []
+    const perPath: Record<string, DiffEntry> = {
+      "a.txt": { path: "a.txt", originalContent: "a1", additions: 1, deletions: 1, changeType: "modified", isBinary: false },
+      "gone.txt": { path: "gone.txt", originalContent: "g1\ng2", additions: 0, deletions: 2, changeType: "modified", isBinary: false },
+    }
+    const layer = makeTestLayer({
+      files: {
+        "/workspace/a.txt": "a2",
+        "/workspace/outside.txt": "o2",
+      },
+      git: {
+        status: () =>
+          Effect.succeed([
+            { path: "a.txt", status: " M" },
+            { path: "outside.txt", status: " M" },
+            { path: "gone.txt", status: " D" },
+          ]),
+        diff: (_repoPath, filePath) => {
+          diffCalls.push(filePath)
+          const entry = filePath === undefined ? undefined : perPath[filePath]
+          return entry
+            ? Effect.succeed([entry])
+            : Effect.fail(new GitError({ command: "diff", stderr: "fatal: could not fetch abc123 from promisor remote", exitCode: 128 }))
+        },
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    expect(diffCalls).toEqual([undefined, "a.txt", "outside.txt", "gone.txt"])
+    expect(result.changes.map((c) => [c.path, c.originalContent, c.additions, c.deletions, c.newContent])).toEqual([
+      ["a.txt", "a1", 1, 1, "a2"],
+      ["outside.txt", undefined, 0, 0, "o2"],
+      ["gone.txt", "g1\ng2", 0, 2, undefined],
+    ])
+  })
 })
 
 describe("getWorkspaceChanges (real repo)", () => {
@@ -558,12 +604,13 @@ describe("getWorkspaceChanges (real repo)", () => {
 
   // `env: process.env` because bun's child_process otherwise starts git with
   // the environment the test process began with, not the sandbox below.
-  const git = (...args: string[]) =>
+  const gitIn = (cwd: string, ...args: string[]) =>
     execFileSync(
       "git",
       ["-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", ...args],
-      { cwd: repoPath, stdio: "pipe", env: process.env },
+      { cwd, stdio: "pipe", env: process.env },
     )
+  const git = (...args: string[]) => gitIn(repoPath, ...args)
   const write = (file: string, content: string) =>
     nodeFs.writeFileSync(nodePath.join(repoPath, file), content)
 
@@ -694,6 +741,51 @@ describe("getWorkspaceChanges (real repo)", () => {
       .filter((args) => args[0] === "show")
       .map((args) => args[1].slice(args[1].indexOf(":") + 1))
     expect(shownPaths.sort()).toEqual(["mod.tf", "old.tf"])
+  })
+
+  it("keeps the other diffs in a blobless sparse clone that can't fetch one blob", async () => {
+    // A GitClone with a repo path: a blobless, cone-mode sparse checkout of
+    // modules/vpc. A later block edits a tracked file outside the cone, whose
+    // HEAD blob was never downloaded, and the remote can't be reached (gone
+    // here; in the app, e.g. a private repo the poll holds no token for).
+    const origin = nodePath.join(root, "origin")
+    for (const dir of ["vpc", "eks"]) {
+      nodeFs.mkdirSync(nodePath.join(origin, "modules", dir), { recursive: true })
+      nodeFs.writeFileSync(nodePath.join(origin, "modules", dir, "main.tf"), `# ${dir}\n`)
+    }
+    gitIn(origin, "init")
+    gitIn(origin, "config", "uploadpack.allowFilter", "true")
+    gitIn(origin, "add", ".")
+    gitIn(origin, "commit", "-m", "initial")
+    const work = nodePath.join(root, "work")
+    const steps = Either.getOrThrow(buildCloneSteps(`file://${origin}`, work, { repoPath: "modules/vpc" }))
+    for (const step of steps) gitIn(root, ...step.args)
+    nodeFs.renameSync(origin, nodePath.join(root, "origin-gone"))
+
+    nodeFs.writeFileSync(nodePath.join(work, "modules", "vpc", "main.tf"), "# vpc, edited\n")
+    nodeFs.mkdirSync(nodePath.join(work, "modules", "eks"))
+    nodeFs.writeFileSync(nodePath.join(work, "modules", "eks", "main.tf"), "# eks, edited\n")
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges(work).pipe(Effect.provide(liveLayer)),
+    )
+    const byPath = Object.fromEntries(result.changes.map((c) => [c.path, c]))
+
+    expect(Object.keys(byPath).sort()).toEqual(["modules/eks/main.tf", "modules/vpc/main.tf"])
+    expect(byPath["modules/vpc/main.tf"]).toMatchObject({
+      changeType: "modified",
+      additions: 1,
+      deletions: 1,
+      originalContent: "# vpc",
+    })
+    // Only the file git can't diff goes without, and it still lists.
+    expect(byPath["modules/eks/main.tf"]).toMatchObject({
+      changeType: "modified",
+      additions: 0,
+      deletions: 0,
+      newContent: "# eks, edited\n",
+    })
+    expect(byPath["modules/eks/main.tf"].originalContent).toBeUndefined()
   })
 })
 
