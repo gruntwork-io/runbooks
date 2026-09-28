@@ -308,6 +308,28 @@ describe('GitAuth — Re-authenticate (real hook)', () => {
     await screen.findByRole('button', { name: 'Re-authenticate' })
     expect(detections()).toBe(2)
   })
+  it('offers Check again on a github.com-only GitHub block, which shows no host picker', async () => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:enumerate-hosts') {
+        return { hosts: [{ host: 'github.com', sources: [], hasCredential: true }], defaultHost: 'github.com' }
+      }
+      if (channel === 'github:env-credentials') {
+        return { found: true, valid: true, user: { login: 'ambient' }, envVar: 'GITHUB_TOKEN' }
+      }
+      if (channel === 'vcs:cli-status') return { gh: { installed: true } }
+      return { found: false }
+    })
+    const detections = () => invoke.mock.calls.filter((c) => c[0] === 'github:env-credentials').length
+
+    renderWithApi(<GitAuth id="git" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-authenticate' }))
+    await screen.findByText(/redirected to authorize/i)
+    expect(screen.queryByRole('button', { name: 'Reload' })).toBeNull()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check again' }))
+    await screen.findByRole('button', { name: 'Re-authenticate' })
+    expect(detections()).toBe(2)
+  })
 })
 
 describe('GitAuth — defaultTab (real hook)', () => {

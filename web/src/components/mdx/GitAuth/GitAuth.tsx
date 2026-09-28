@@ -27,6 +27,7 @@ import { OAuthFlow } from "./components/OAuthFlow"
 import { AutoAuthInfo } from "./components/AutoAuthInfo"
 import { CustomOAuthWarning } from "./components/CustomOAuthWarning"
 import { TlsErrorCard } from "./components/TlsErrorCard"
+import { tryNormalizeGitHubHost } from "@/components/mdx/_shared/lib/githubHost"
 
 type GitAuthInternalProps = GitAuthProps & { __registryType?: BlockComponentType }
 
@@ -61,6 +62,20 @@ function GitAuthInteractive({
     return null
   }, [id, initialProvider, __registryType])
 
+  // An authored GitHub `host` that can't be parsed is a configuration error:
+  // nothing is sent anywhere (never silently to github.com).
+  const hostConfigError = useMemo((): AppError | null => {
+    if (initialProvider !== 'github' || host === undefined || tryNormalizeGitHubHost(host)) return null
+    return {
+      message: `The <${__registryType}> component has an invalid 'host' prop: ${JSON.stringify(host)}.`,
+      details: "Set 'host' to a GitHub host such as \"github.example.com\" or \"acme.ghe.com\", or remove it.",
+    }
+  }, [initialProvider, host, __registryType])
+
+  // Either configuration error renders ErrorDisplay (below) and keeps
+  // detection off.
+  const configError = validationError ?? hostConfigError
+
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
   const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
@@ -87,7 +102,9 @@ function GitAuthInteractive({
   // Per-provider OAuth scopes (GitHub only).
   const effectiveOAuthScopes = oauthScopes ?? providerConfig.defaultOAuthScopes
 
-  // All auth state and handlers from custom hook
+  // All auth state and handlers from custom hook. The authored `host` pins
+  // the authored provider only — switching to the other provider in the
+  // picker falls back to that provider's own host selection.
   const auth = useGitAuth({
     id,
     provider: providerConfig,
@@ -96,8 +113,8 @@ function GitAuthInteractive({
     oauthScopes: effectiveOAuthScopes,
     // No detection behind a configuration error: it would authenticate (and
     // publish outputs for) a block the user can't see.
-    detectCredentials: validationError ? false : detectCredentials,
-    host,
+    detectCredentials: configError ? false : detectCredentials,
+    host: provider === initialProvider ? host : undefined,
     defaultTab,
   })
 
@@ -133,6 +150,15 @@ function GitAuthInteractive({
     instanceFieldRef.current?.focus()
   }, [instanceFieldFocusNonce])
 
+  // Host picker + config reload. GitLab shows it with a single known host too,
+  // for the "Other instance…" row; GitHub only when there is a choice, so
+  // github.com-only users see no picker. Where it is absent, the manual hint
+  // carries "Check again" instead of the picker's Reload.
+  const showHostPicker =
+    auth.hostSelectable &&
+    ((auth.availableHosts?.length ?? 0) > 1 ||
+      (providerConfig.supportsManualInstance && auth.authStatus !== 'authenticated'))
+
   // When the OAuth tab is disabled (unreachable), make sure the PAT form
   // is the one showing rather than a dead OAuth pane.
   const oauthDisabled = auth.oauthUnavailableReason !== null
@@ -152,21 +178,21 @@ function GitAuthInteractive({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
-    } else if (validationError) {
+    } else if (configError) {
       reportError({
         componentId: id,
         componentType: __registryType,
         severity: 'error',
-        message: validationError.message
+        message: configError.message
       })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, validationError, reportError, clearError, __registryType])
+  }, [id, isDuplicate, configError, reportError, clearError, __registryType])
 
-  // Early return for validation errors (e.g. missing id prop)
-  if (validationError) {
-    return <ErrorDisplay error={validationError} />
+  // Early return for validation errors (e.g. missing id prop, invalid host)
+  if (configError) {
+    return <ErrorDisplay error={configError} />
   }
 
   // Early return for duplicate ID
@@ -226,14 +252,17 @@ function GitAuthInteractive({
             <ProviderSelect provider={provider} onSelect={handleSelectProvider} />
           )}
 
-          {/* GitLab host picker + config reload. Auto-detection lands on glab's
+          {/* Host picker + config reload. Auto-detection lands on the CLI's
               default host first, so the switcher stays visible after
               authenticating whenever more than one host is available — that's
-              how the user moves from gitlab.com to a self-managed instance. */}
-          {auth.hostSelectable &&
-            ((auth.availableHosts?.length ?? 0) > 1 || auth.authStatus !== 'authenticated') && (
+              how the user moves from gitlab.com to a self-managed instance
+              (or github.com to GitHub Enterprise). GitLab also shows it with a
+              single host, for the "Other instance…" row; GitHub only when
+              there is a choice, so github.com-only users see no picker. */}
+          {showHostPicker && (
             <HostSelect
               id={id}
+              provider={providerConfig}
               hosts={auth.availableHosts}
               value={auth.selectedHost}
               onChange={auth.handleHostSelect}
@@ -311,17 +340,18 @@ function GitAuthInteractive({
           {/* Authentication form (only show when not authenticated and detection is done) */}
           {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
             <>
-              {/* CLI-status-driven hint + the "Check again" control. The GitLab
-                  host picker carries Reload instead; without the picker (GitHub,
-                  or a `host`-pinned GitLab block) this is the only way to re-run
-                  detection after Re-authenticate turns focus re-detection off. */}
+              {/* CLI-status-driven hint + the "Check again" control. The host
+                  picker carries Reload instead; without the picker (a
+                  github.com-only GitHub block, or a `host`-pinned block) this is
+                  the only way to re-run detection after Re-authenticate turns
+                  focus re-detection off. */}
               {auth.manualHint && (
                 <div
                   data-testid="vcs-cli-hint"
                   className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
                 >
                   <span>{auth.manualHint}</span>
-                  {!auth.hostSelectable && (
+                  {!showHostPicker && (
                     <button
                       type="button"
                       onClick={auth.retryUnreachable}
@@ -336,7 +366,7 @@ function GitAuthInteractive({
               {/* Custom OAuth Warning */}
               {showCustomOAuthWarning && (
                 <CustomOAuthWarning
-                  clientId={oauthClientId!}
+                  clientId={auth.effectiveClientId!}
                   onUseDefault={() => setUseDefaultOAuth(true)}
                   onContinue={() => setCustomOAuthDismissed(true)}
                 />
@@ -374,6 +404,7 @@ function GitAuthInteractive({
                     setShowPatToken={auth.setShowPatToken}
                     onSubmit={auth.handlePatSubmit}
                     provider={providerConfig}
+                    host={auth.selectedHost}
                     instanceUrl={auth.gitlabInstanceUrl}
                     setInstanceUrl={auth.setGitlabInstanceUrl}
                     instanceInputRef={instanceFieldRef}

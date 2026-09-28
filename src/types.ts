@@ -277,6 +277,15 @@ export interface SessionExecContext {
   workDir: string
 }
 
+/**
+ * A SessionExecContext tagged with the session it was taken from. Anything
+ * applied back to the session later (a script's captured env) carries the
+ * generation so it can be dropped if the session was replaced in between.
+ */
+export interface SessionExecSnapshot extends SessionExecContext {
+  generation: number
+}
+
 // ---------------------------------------------------------------------------
 // Runbook config
 // ---------------------------------------------------------------------------
@@ -294,13 +303,22 @@ export interface RunbookConfig {
 // ---------------------------------------------------------------------------
 
 export interface ParsedRemoteSource {
+  /** Lowercased, port kept. Keys credential lookup and error hints. */
   host: string
+  /** Everything before the repo segment; a nested group path on GitLab. */
   owner: string
   repo: string
-  ref?: string
-  path?: string
+  /** What `git clone` fetches: https, or the transport a git source named. */
   cloneURL: string
-  isBlobURL: boolean
+  /** Branch, tag or commit. Undefined means the remote's default branch. */
+  ref?: string
+  /** Repo-relative path to a runbook directory or file. Undefined means the repo root. */
+  path?: string
+  /**
+   * Browser URLs only: `<ref>/<path>` as the URL spells it. A ref can contain
+   * slashes, so resolveRef splits it against the remote's refs.
+   */
+  refAndPath?: string
 }
 
 // ---------------------------------------------------------------------------

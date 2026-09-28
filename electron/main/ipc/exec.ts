@@ -15,45 +15,11 @@ import {
 } from "./runtime.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
-import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
-import { resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"
+import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
-
-// ---------------------------------------------------------------------------
-// Shell escaping for template variable injection prevention
-// ---------------------------------------------------------------------------
-
-function shellEscape(value: string): string {
-  return "'" + value.replace(/'/g, "'\\''") + "'"
-}
-
-/**
- * Recursively shell-escape all string leaf values in a nested object.
- * Non-string values (numbers, booleans, arrays, nested objects) are passed
- * through so the template engine can handle them (e.g. range, toJson).
- */
-function shellEscapeDeep(obj: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "string") {
-      result[key] = shellEscape(value)
-    } else if (Array.isArray(value)) {
-      result[key] = value.map((item) => {
-        if (typeof item === "string") return shellEscape(item)
-        if (item !== null && typeof item === "object") return shellEscapeDeep(item as Record<string, unknown>)
-        return item
-      })
-    } else if (value !== null && typeof value === "object") {
-      result[key] = shellEscapeDeep(value as Record<string, unknown>)
-    } else {
-      result[key] = value
-    }
-  }
-  return result
-}
 
 // ---------------------------------------------------------------------------
 // Active execution tracking for cancellation support
@@ -63,19 +29,31 @@ function shellEscapeDeep(obj: Record<string, unknown>): Record<string, unknown> 
 // exec:cancel can interrupt a *specific* run. Aborting a controller interrupts
 // the Effect fiber (the signal is passed to runPromise below), which closes the
 // execution scope and runs the child-process kill finalizer in executor.ts.
-const activeExecutions = new Map<string, AbortController>()
+// `done` settles once that has happened, so quit can wait for it.
+const activeExecutions = new Map<string, { controller: AbortController; done: Promise<unknown> }>()
 // Fallback target for exec:cancel calls that don't name an executionId.
 let mostRecentExecutionId: string | null = null
 // Counter for synthesizing an id when a caller doesn't supply one.
 let execSeq = 0
 
 function abortExecution(id: string): boolean {
-  const controller = activeExecutions.get(id)
-  if (!controller) return false
-  controller.abort()
+  const execution = activeExecutions.get(id)
+  if (!execution) return false
+  execution.controller.abort()
   activeExecutions.delete(id)
   if (mostRecentExecutionId === id) mostRecentExecutionId = null
   return true
+}
+
+/**
+ * Cancel every running execution and wait until each has been interrupted,
+ * i.e. its kill finalizer has sent SIGTERM to the script's process group.
+ * Called on quit: scripts run detached, so nothing else stops them.
+ */
+export async function cancelAllExecutions(): Promise<void> {
+  const pending = [...activeExecutions.values()]
+  for (const { controller } of pending) controller.abort()
+  await Promise.allSettled(pending.map((e) => e.done))
 }
 
 export function registerExecHandlers(): void {
@@ -84,12 +62,11 @@ export function registerExecHandlers(): void {
     async (event, params: ExecRequest) => {
       log.debug("handler called for:", params.executableId || params.componentId)
       // Only one execution runs at a time: cancel (interrupt + kill) any others.
-      for (const controller of activeExecutions.values()) controller.abort()
+      for (const { controller } of activeExecutions.values()) controller.abort()
       activeExecutions.clear()
 
       const executionId = params.executionId ?? `main-${++execSeq}`
       const abortController = new AbortController()
-      activeExecutions.set(executionId, abortController)
       mostRecentExecutionId = executionId
 
       try {
@@ -103,7 +80,7 @@ export function registerExecHandlers(): void {
         // running child (and its process group). The signal.aborted checks below
         // are a belt-and-suspenders guard against a stray send in the small
         // window before interruption takes effect at the next yield point.
-        return await runtime.runPromise(
+        const run = runtime.runPromise(
           Effect.scoped(
             Effect.gen(function* () {
               // Get execution context from the session
@@ -116,34 +93,15 @@ export function registerExecHandlers(): void {
               const executableId = params.executableId ?? params.componentId ?? ""
               const executable = yield* executableRegistry.getExecutable(executableId)
 
-              // Render template variables using the Go template engine
+              // Render template variables using the Go template engine. Values
+              // go in verbatim and a template error fails the run (see
+              // renderScriptForExec).
               let scriptContent = executable.content
               if (params.templateVarValues) {
-                const renderer = yield* BoilerplateRenderer
-                const rawVars = params.templateVarValues as Record<string, unknown>
-
-                // Resolve nested input templates first. An input value can itself
-                // be a template — e.g. a Template block exposes
-                //   LogsAccountEmail = "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}"
-                // via inputsId. A single renderFile pass would insert that value
-                // verbatim, leaving the inner `{{ .inputs.* }}` unrendered. We
-                // resolve the inputs namespace to a fixed point against the other
-                // inputs/outputs first — mirroring what flattenVariables does for
-                // the Template render path so exec and render behave identically.
-                const rawInputs =
-                  rawVars.inputs &&
-                  typeof rawVars.inputs === "object" &&
-                  !Array.isArray(rawVars.inputs)
-                    ? (rawVars.inputs as Record<string, unknown>)
-                    : {}
-                const resolvedInputs = yield* resolveInputTemplates(
-                  rawInputs,
-                  rawVars.outputs,
+                scriptContent = yield* renderScriptForExec(
+                  scriptContent,
+                  params.templateVarValues as Record<string, unknown>,
                 )
-                const resolvedVars = { ...rawVars, inputs: resolvedInputs }
-
-                const escapedVars = shellEscapeDeep(resolvedVars)
-                scriptContent = yield* renderer.renderFile(scriptContent, escapedVars)
               }
 
               const workTreePath = sessionManager.getActiveWorkTreePath()
@@ -200,8 +158,22 @@ export function registerExecHandlers(): void {
                     event.sender.send("exec:files-captured", execEvent.event)
                     break
                   case "env_captured": {
-                    const filteredEnv = filterCapturedEnv(execEvent.env)
-                    yield* sessionManager.updateSessionEnv(filteredEnv, execEvent.pwd)
+                    // Applied as a delta against the env the script started
+                    // with, not a replacement: auth blocks may have written to
+                    // the session while the script ran (see applyCapturedEnv).
+                    // That start env is the session snapshot plus this run's
+                    // block-scoped overrides (awsAuthId, githubAuthId, ...),
+                    // filtered like the capture. Otherwise the per-run
+                    // credentials read as exports and land in the session, and
+                    // keys the filter drops (BASH_*, SHLVL, ...) read as unsets
+                    // and are deleted from it.
+                    yield* sessionManager.applyCapturedEnv({
+                      before: filterCapturedEnv({ ...context.env, ...params.envVarsOverride }),
+                      after: filterCapturedEnv(execEvent.env),
+                      startWorkDir: context.workDir,
+                      pwd: execEvent.pwd,
+                      generation: context.generation,
+                    })
                     break
                   }
                   case "done":
@@ -215,6 +187,8 @@ export function registerExecHandlers(): void {
           ),
           { signal: abortController.signal },
         )
+        activeExecutions.set(executionId, { controller: abortController, done: run.catch(() => {}) })
+        return await run
       } catch (err) {
         log.debug("caught error:", err)
         if (abortController.signal.aborted) {
@@ -222,8 +196,13 @@ export function registerExecHandlers(): void {
         }
         throw err
       } finally {
-        activeExecutions.delete(executionId)
-        if (mostRecentExecutionId === executionId) mostRecentExecutionId = null
+        // Only remove our own entry. Renderer execution ids restart after a
+        // reload, so a newer run may already be registered under this id, and
+        // deleting it would leave that run unreachable by Stop and by quit.
+        if (activeExecutions.get(executionId)?.controller === abortController) {
+          activeExecutions.delete(executionId)
+          if (mostRecentExecutionId === executionId) mostRecentExecutionId = null
+        }
       }
     },
   )

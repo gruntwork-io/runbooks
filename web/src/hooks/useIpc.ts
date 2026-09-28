@@ -27,7 +27,7 @@ export interface UseIpcReturn<T> {
  * "Error invoking remote method 'channel': Error: <message>"; we want just
  * "<message>".
  */
-function cleanIpcErrorMessage(raw: string): string {
+export function cleanIpcErrorMessage(raw: string): string {
   let msg = raw.replace(/^Error invoking remote method '[^']*':\s*/, '')
   // Serialization can leave one or more leading "Error: " prefixes.
   while (/^Error:\s*/.test(msg)) {
