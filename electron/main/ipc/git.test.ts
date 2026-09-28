@@ -1060,7 +1060,7 @@ describe("git:delete-branch", () => {
 // handler must still give the renderer text that names the failure: an empty
 // rejection shows as "An unknown error occurred", and an empty { error } reads
 // as no error at all (useGitPullRequest checks result.error for truthiness).
-describe("git handler error text for a message-less tagged failure", () => {
+describe("git handler error text", () => {
   const sent: Array<{ channel: string; payload: { message?: string } }> = []
   const recordingEvent = {
     sender: { send: (channel: string, payload: { message?: string }) => sent.push({ channel, payload }) },
@@ -1113,5 +1113,54 @@ describe("git handler error text for a message-less tagged failure", () => {
     const result = await handlers.get("git:local-repo")!(recordingEvent, { path: "/tmp/repo" })
 
     expect(result).toEqual({ status: "fail", error: "SessionNotFoundError" })
+  })
+
+  // A defect (here a non-string path, which makes path/string code throw
+  // inside the Effect) must reach the renderer as its message only: Cause.pretty
+  // stack frames belong in MAIN's log, not inline in a block.
+  describe("a defect", () => {
+    let dir = ""
+
+    beforeEach(async () => {
+      dir = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-defect-")))
+      await Effect.runPromise(sessionManager.createSession(dir).pipe(Effect.provide(makeTestEnvironment({}))))
+    })
+
+    afterEach(() => {
+      sessionManager.deleteSession()
+      fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    const expectNoFrames = (message: string | undefined) => {
+      expect(message).toBeTruthy()
+      expect(message).not.toContain("    at ")
+      expect(message).not.toContain("FiberFailure")
+    }
+
+    it("git:delete-branch rejects with the defect's message and no stack frames", async () => {
+      const message = await rejectionOf("git:delete-branch", { worktreePath: 42, branch: "feature" })
+
+      expectNoFrames(message)
+      // Node says "argument", bun "property".
+      expect(message).toMatch(/^The "path" (argument|property) must be of type string/)
+    })
+
+    it.each([
+      ["git:push", { worktreePath: 42, branchName: "feature" }],
+      ["git:init-default-branch", { worktreePath: 42, branch: "main" }],
+      ["git:pull-request", { ...prParams, worktreePath: 42 }],
+      ["git:merge-request", { ...prParams, worktreePath: 42 }],
+    ])("%s returns and emits the defect's message with no stack frames", async (channel, params) => {
+      const result = (await handlers.get(channel)!(recordingEvent, params)) as { error?: string }
+
+      expectNoFrames(result.error)
+      expect(sent.find((s) => s.channel === "git:error")?.payload.message).toBe(result.error)
+    })
+
+    it("git:local-repo returns the defect's message with no stack frames", async () => {
+      const result = (await handlers.get("git:local-repo")!(recordingEvent, { path: 42 })) as { error?: string }
+
+      expectNoFrames(result.error)
+    })
   })
 })

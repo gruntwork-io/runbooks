@@ -10,6 +10,7 @@ import * as os from "os"
 import * as path from "path"
 import { Cause, Effect, Exit } from "effect"
 import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
+import { describeCause } from "./ipc/ipc-error.ts"
 import { parseRemoteSource, redactSourceCredentials, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
 import { isContainedInReal } from "../../src/path-validation.ts"
@@ -369,14 +370,15 @@ export const openRemoteRunbook = (rawUrl: string) =>
 
 /**
  * The value of a finished run, or a plain Error whose message is fit to show
- * the user. Typed failures carry that message; across IPC a FiberFailure
- * would reach the renderer as "(FiberFailure) RemoteSourceError: …".
+ * the user: describeCause() (ipc/ipc-error.ts), so a typed failure gives its
+ * message and a defect its message without stack frames. Across IPC a
+ * FiberFailure would reach the renderer as "(FiberFailure) RemoteSourceError:
+ * …". A defect is a bug, so its full Cause goes to MAIN's log instead.
  */
 export function valueOrUserError<A, E>(exit: Exit.Exit<A, E>): A {
   if (Exit.isSuccess(exit)) return exit.value
-  const failure = Cause.failureOption(exit.cause)
-  const message = failure._tag === "Some" ? (failure.value as { message?: string }).message : undefined
-  throw new Error(message || Cause.pretty(exit.cause))
+  if (Cause.isDie(exit.cause)) log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
+  throw new Error(describeCause(exit.cause))
 }
 
 /**

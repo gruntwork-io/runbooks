@@ -14,7 +14,7 @@ import {
   resolveRemoteRunbook,
   valueOrUserError,
 } from "./remote.ts"
-import { RemoteSourceError } from "../../src/errors/index.ts"
+import { RemoteSourceError, SessionNotFoundError } from "../../src/errors/index.ts"
 import { ChildProcessSpawnerLive } from "../../src/layers/ChildProcessSpawner.ts"
 import { GitCliClientLive } from "../../src/layers/GitCliClient.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
@@ -639,8 +639,24 @@ describe("valueOrUserError / resolveRemoteRunbook", () => {
     expect(() => valueOrUserError(exit)).toThrow(new Error('"a" was not found in h/o/r'))
   })
 
-  it("falls back to the cause for a defect", () => {
-    expect(() => valueOrUserError(Exit.failCause(Cause.die(new Error("boom"))))).toThrow(/boom/)
+  /** The message valueOrUserError rejects a failed Exit with. */
+  const userErrorOf = (exit: Exit.Exit<unknown, unknown>): string => {
+    try {
+      valueOrUserError(exit)
+    } catch (err) {
+      return (err as Error).message
+    }
+    throw new Error("expected valueOrUserError to throw")
+  }
+
+  it("describes a defect by its message, with no stack frames", () => {
+    const message = userErrorOf(Exit.failCause(Cause.die(new Error("boom"))))
+    expect(message).toBe("boom")
+    expect(message).not.toContain("    at ")
+  })
+
+  it("names a typed failure that has no message", () => {
+    expect(userErrorOf(Exit.fail(new SessionNotFoundError()))).toBe("SessionNotFoundError")
   })
 
   it("resolveRemoteRunbook rejects on the app runtime with the parser's message", async () => {
