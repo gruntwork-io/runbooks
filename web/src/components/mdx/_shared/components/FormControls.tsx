@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
+import { tupleElementKeys, untouchedTupleElement } from '../lib/untouchedValue'
 
 /**
  * Base props interface for all form control components
@@ -157,14 +158,16 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, e
 
 /**
  * Checkbox input component for boolean variables
- * Renders a checkbox with proper boolean value handling
+ * Renders a checkbox with proper boolean value handling. Checked only for true
+ * or 'true': a bool can arrive as a string (e.g. imported from a map field),
+ * and Boolean('false') is true.
  */
 export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => (
   <div className="flex items-center">
     <input
       type="checkbox"
       id={`${id}-${variable.name}`}
-      checked={Boolean(value)}
+      checked={value === true || value === 'true'}
       onChange={(e) => onChange(e.target.checked)}
       onBlur={onBlur}
       disabled={disabled}
@@ -686,11 +689,12 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
-  const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
+  const elementKeys = tupleElementKeys(schema)
   // Missing elements (no value, or a short array) start as '' or, for bool
-  // elements, false (what the select displays), matching the boolean updateElement stores
+  // elements, false (what the select displays), matching the boolean updateElement stores.
+  // useFormState starts an untouched tuple from the same elements.
   const currentTuple = elementKeys.map((k, i) =>
-    (Array.isArray(value) ? value[i] : undefined) ?? (schema[k] === 'bool' ? false : '')
+    (Array.isArray(value) ? value[i] : undefined) ?? untouchedTupleElement(schema[k])
   )
 
   const updateElement = (index: number, newValue: unknown) => {

@@ -206,11 +206,15 @@ export const validateVariableValue = (
 ): string | undefined => {
   // Required field validation (checked first)
   if (variable.required) {
-    const isEmpty = value === undefined || value === null || value === ""
+    const isBlank = (v: unknown) => v === "" || v === undefined || v === null
+    const isEmpty = isBlank(value)
       // For arrays (list/tuple), check if empty or all elements are empty. A
       // tuple's bool element starts as false (what its select shows), so false
-      // alone doesn't fill it; a scalar bool false is a value.
-      || (Array.isArray(value) && value.every(v => v === "" || v === undefined || v === null || v === false))
+      // next to blank elements doesn't fill it (['', false]). A tuple of only
+      // bools ([false, false]) holds a complete value, and a scalar false is a value.
+      || (Array.isArray(value) && (
+        value.length === 0 || (value.some(isBlank) && value.every(v => isBlank(v) || v === false))
+      ))
       // For objects (map), check if no keys
       || (typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0)
     if (isEmpty) {

@@ -129,4 +129,18 @@ describe('FormControls selects match form state', () => {
 
     expect(onChange).toHaveBeenCalledWith(['x', false])
   })
+
+  // Map fields and imported values can hold bools as strings; Boolean('false') is true.
+  it.each([
+    [true, true],
+    ['true', true],
+    [false, false],
+    ['false', false],
+    [undefined, false],
+  ])('checks a bool checkbox for %j only when it is true', (value, checked) => {
+    const variable: BoilerplateVariable = { name: 'Flag', type: 'bool', description: '' }
+    render(<FormControl id="f" variable={variable} value={value} onChange={vi.fn()} />)
+
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(checked)
+  })
 })
