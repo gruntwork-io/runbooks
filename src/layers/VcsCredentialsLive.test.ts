@@ -1,4 +1,4 @@
-import { describe, it, expect, setSystemTime, afterEach } from "bun:test"
+import { describe, it, expect, setSystemTime, afterEach, spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { VcsCredentials } from "../services/VcsCredentials.ts"
 import { VcsCredentialsLive } from "./VcsCredentialsLive.ts"
@@ -57,66 +57,8 @@ const respondWith = (
   return handler ? handler(args) : "ENOENT"
 }
 
-describe("VcsCredentialsLive — chain precedence", () => {
-  it("resolveGitHub: env wins over CLI (first-success-wins)", async () => {
-    const harness = makeHarness({
-      env: { GITHUB_TOKEN: "ghp_env" },
-      github: {
-        validateToken: (token) =>
-          token === "ghp_env"
-            ? Effect.succeed({ user: OCTOCAT, scopes: ["repo"] })
-            : Effect.fail(new GitHubApiError({ status: 401, message: "401" })),
-      },
-    })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
-    expect(result.outcome).toBe("valid")
-    expect(result.source).toBe("env")
-    expect(result.envVar).toBe("GITHUB_TOKEN")
-    expect(result.token).toBe("ghp_env")
-    // The CLI source was never consulted.
-    expect(harness.calls.filter((c) => c.command === "gh" && c.args[0] === "auth")).toHaveLength(0)
-  })
-
-  it("resolveGitHub: an INVALID env token warns and CONTINUES to the CLI source", async () => {
-    const harness = makeHarness({
-      env: { GITHUB_TOKEN: "ghp_bad" },
-      respond: respondWith({
-        "gh auth": (args) =>
-          args[1] === "token"
-            ? { lines: [{ line: "gho_cli", source: "stdout" }], exitCode: 0 }
-            : { lines: [{ line: "  - Token scopes: 'repo'", source: "stdout" }], exitCode: 0 },
-        "gh version": () => ghVersion,
-      }),
-      github: {
-        validateToken: (token) =>
-          token === "gho_cli"
-            ? Effect.succeed({ user: OCTOCAT, scopes: ["repo"] })
-            : Effect.fail(new GitHubApiError({ status: 401, message: "401 Bad credentials" })),
-      },
-    })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
-    expect(result.outcome).toBe("valid")
-    expect(result.source).toBe("cli")
-    // chip copy carried along — never "expired".
-    expect(result.warnings).toEqual(["GITHUB_TOKEN is not valid for github.com"])
-  })
-
-  it("resolveGitHub: an UNREACHABLE outcome stops the chain without consuming the CLI source", async () => {
-    const harness = makeHarness({
-      env: { GITHUB_TOKEN: "ghp_env" },
-      github: {
-        validateToken: () =>
-          Effect.fail(new GitHubApiError({ status: 0, message: "fetch failed", kind: "tls" })),
-      },
-    })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
-    expect(result.outcome).toBe("unreachable")
-    expect(result.errorKind).toBe("tls")
-    expect(result.warnings).toEqual([]) // never a token warning for transport failures
-    expect(harness.calls.filter((c) => c.command === "gh")).toHaveLength(0)
-  })
-
-  it("resolveGitLab: server-cert unreachable carries its kind (handlers skip refresh+probe on it)", async () => {
+describe("VcsCredentialsLive — detection leg outcomes", () => {
+  it("detectGitLabEnv: server-cert unreachable carries its kind (handlers skip refresh+probe on it)", async () => {
     const harness = makeHarness({
       env: { GITLAB_TOKEN: "glpat-x" },
       gitlab: {
@@ -124,7 +66,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
           Effect.fail(new GitLabApiError({ status: 0, message: "cert expired", kind: "server-cert" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.resolveGitLab("gitlab.com"))
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com"))
     expect(result.outcome).toBe("unreachable")
     expect(result.errorKind).toBe("server-cert")
   })
@@ -140,7 +82,7 @@ describe("VcsCredentialsLive — chain precedence", () => {
         validateToken: () => Effect.fail(new GitHubApiError({ status: 0, message: "fetch failed" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.detectGitHubEnv())
+    const result = await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))
     expect(result.outcome).toBe("unreachable")
     expect(result.errorKind).toBe("tls")
     expect(result.warnings).toEqual([]) // never a token warning for a transport failure
@@ -153,19 +95,19 @@ describe("VcsCredentialsLive — chain precedence", () => {
         validateToken: () => Effect.fail(new GitHubApiError({ status: 401, message: "Bad credentials" })),
       },
     })
-    const result = await harness.use((vcs) => vcs.detectGitHubEnv())
+    const result = await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))
     expect(result.outcome).toBe("invalid")
     expect(result.errorKind).toBeUndefined()
   })
 
-  it("resolveGitHub: nothing found is absent — NOT an error (the repo may be public)", async () => {
+  it("detectGitHubCli: nothing found is absent — NOT an error (the repo may be public)", async () => {
     const harness = makeHarness({
       respond: respondWith({
         "gh auth": () => ({ lines: [], exitCode: 1 }),
         "gh version": () => ghVersion,
       }),
     })
-    const result = await harness.use((vcs) => vcs.resolveGitHub())
+    const result = await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
     expect(result.outcome).toBe("absent")
     expect(result.warnings).toEqual([])
   })
@@ -192,6 +134,164 @@ describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
     const bound = await harness.use((vcs) => vcs.detectGitLabEnv("git.corp.example"))
     expect(bound.outcome).toBe("valid")
     expect(validatedAgainst).toBe("https://git.corp.example")
+  })
+
+  it("never sends an env token over plain http, prefixed or not (https unchanged)", async () => {
+    const validated: Array<{ token: string; baseUrl?: string }> = []
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-plain", CI_GITLAB_TOKEN: "glpat-ci" },
+      gitlab: {
+        validateToken: (token, baseUrl) => {
+          validated.push({ token, baseUrl })
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    // A runbook-supplied http:// instance for the bound host: absent, no request.
+    expect((await harness.use((vcs) => vcs.detectGitLabEnv("http://gitlab.com"))).outcome).toBe("absent")
+    expect((await harness.use((vcs) => vcs.detectGitLabEnv("http://gitlab.com", "CI_"))).outcome).toBe("absent")
+    expect(validated).toEqual([])
+
+    const plain = await harness.use((vcs) => vcs.detectGitLabEnv("https://gitlab.com"))
+    const prefixed = await harness.use((vcs) => vcs.detectGitLabEnv("https://gitlab.com", "CI_"))
+    expect([plain.outcome, prefixed.outcome]).toEqual(["valid", "valid"])
+    expect(validated).toEqual([
+      { token: "glpat-plain", baseUrl: "https://gitlab.com" },
+      { token: "glpat-ci", baseUrl: "https://gitlab.com" },
+    ])
+  })
+
+  it("{env:{prefix}}: validates <PREFIX>GITLAB_TOKEN, never the unprefixed token", async () => {
+    const validated: string[] = []
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal", CI_GITLAB_TOKEN: "glpat-ci" },
+      gitlab: {
+        validateToken: (token) => {
+          validated.push(token)
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(result.outcome).toBe("valid")
+    expect(result.token).toBe("glpat-ci")
+    expect(result.envVar).toBe("CI_GITLAB_TOKEN")
+    expect(validated).toEqual(["glpat-ci"])
+  })
+
+  it("{env:{prefix}}: only the unprefixed token set is absent — no validation call", async () => {
+    let validateCalls = 0
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal" },
+      gitlab: {
+        validateToken: () => {
+          validateCalls++
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(result.outcome).toBe("absent")
+    expect(result.token).toBeUndefined()
+    expect(validateCalls).toBe(0)
+  })
+
+  it("{env:{prefix}}: an invalid prefix is absent — no validation call", async () => {
+    let validateCalls = 0
+    const harness = makeHarness({
+      env: { GITLAB_TOKEN: "glpat-personal", "ci-GITLAB_TOKEN": "glpat-ci" },
+      gitlab: {
+        validateToken: () => {
+          validateCalls++
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const result = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "ci-"))
+    expect(result.outcome).toBe("absent")
+    expect(validateCalls).toBe(0)
+  })
+
+  it("{env:{prefix}}: the prefixed token is bound to <PREFIX>GITLAB_HOST only", async () => {
+    let validatedAgainst: string | undefined
+    const harness = makeHarness({
+      env: {
+        CI_GITLAB_TOKEN: "glpat-ci",
+        CI_GITLAB_HOST: "git.corp.example",
+        // The unprefixed host var never rebinds a prefixed token.
+        GITLAB_HOST: "gitlab.com",
+      },
+      gitlab: {
+        validateToken: (_token, baseUrl) => {
+          validatedAgainst = baseUrl
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+    const other = await harness.use((vcs) => vcs.detectGitLabEnv("gitlab.com", "CI_"))
+    expect(other.outcome).toBe("absent")
+    expect(validatedAgainst).toBeUndefined()
+
+    const bound = await harness.use((vcs) => vcs.detectGitLabEnv("git.corp.example", "CI_"))
+    expect(bound.outcome).toBe("valid")
+    expect(validatedAgainst).toBe("https://git.corp.example")
+  })
+})
+
+describe("VcsCredentialsLive — glab token binding in the GitLab CLI leg", () => {
+  const CONFIG = "/home/u/.config/glab-cli/config.yml"
+  const TOKENS: Record<string, string> = { "gitlab.com": "glpat-dotcom", "git.corp.example": "glpat-corp" }
+
+  /** glab stores TOKENS; `glabInstalled: false` exercises the config.yml fallback. */
+  const harnessFor = (config: string, validated: string[], glabInstalled = true) =>
+    makeHarness({
+      env: { HOME: "/home/u" },
+      files: { [CONFIG]: config },
+      respond: respondWith(
+        glabInstalled
+          ? {
+              "glab config": (args) => ({
+                lines: [{ line: TOKENS[args[args.indexOf("--host") + 1]] ?? "", source: "stdout" }],
+                exitCode: 0,
+              }),
+            }
+          : {},
+      ),
+      gitlab: {
+        validateToken: (token, baseUrl) => {
+          validated.push(`${baseUrl} ${token}`)
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+
+  const DOTCOM = "hosts:\n    gitlab.com:\n        token: glpat-dotcom\n"
+
+  for (const glabInstalled of [true, false]) {
+    it(`never sends glab's token over plain http (glab ${glabInstalled ? "installed" : "absent"})`, async () => {
+      const validated: string[] = []
+      const harness = harnessFor(DOTCOM, validated, glabInstalled)
+      const http = await harness.use((vcs) => vcs.detectGitLabCli("http://gitlab.com"))
+      expect(http.outcome).toBe("absent")
+      expect(validated).toEqual([])
+
+      // https, explicit or as a bare host, is unchanged.
+      expect((await harness.use((vcs) => vcs.detectGitLabCli("https://gitlab.com"))).outcome).toBe("valid")
+      expect((await harness.use((vcs) => vcs.detectGitLabCli("gitlab.com"))).outcome).toBe("valid")
+      expect(validated).toEqual(["https://gitlab.com glpat-dotcom", "https://gitlab.com glpat-dotcom"])
+    })
+  }
+
+  it("honors glab's api_protocol: http for that host only", async () => {
+    const validated: string[] = []
+    const harness = harnessFor(
+      `${DOTCOM}    git.corp.example:\n        token: glpat-corp\n        api_protocol: http\n`,
+      validated,
+    )
+    const corp = await harness.use((vcs) => vcs.detectGitLabCli("http://git.corp.example"))
+    const dotcom = await harness.use((vcs) => vcs.detectGitLabCli("http://gitlab.com"))
+    expect([corp.outcome, dotcom.outcome]).toEqual(["valid", "absent"])
+    expect(validated).toEqual(["http://git.corp.example glpat-corp"])
   })
 })
 
@@ -332,6 +432,28 @@ describe("VcsCredentialsLive — probe gating", () => {
   })
 })
 
+describe("VcsCredentialsLive — cliStatus", () => {
+  it("runs the gh/glab version probes with the same hygiene env as every other CLI spawn", async () => {
+    const harness = makeHarness({
+      env: { GH_TOKEN: "ghp_ambient", GH_HOST: "ghes.corp.example", GITLAB_TOKEN: "glpat-ambient", NO_PROMPT: "1" },
+      respond: respondWith({ "gh version": () => ghVersion, "glab version": () => glabVersion }),
+    })
+    const status = await harness.use((vcs) => vcs.cliStatus())
+    expect(status.gh).toEqual({ installed: true, version: "2.40.1", meetsFloor: true })
+    expect(status.glab).toEqual({ installed: true, version: "1.101.0", meetsFloor: true })
+
+    const ghCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "version")
+    expect(ghCall?.env).toMatchObject({ GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" })
+    expect(ghCall?.env?.GH_TOKEN).toBeUndefined()
+    expect(ghCall?.env?.GH_HOST).toBeUndefined()
+
+    const glabCall = harness.calls.find((c) => c.command === "glab" && c.args[0] === "version")
+    expect(glabCall?.env).toMatchObject({ GLAB_CHECK_UPDATE: "false", GLAB_SEND_TELEMETRY: "false" })
+    expect(glabCall?.env?.GITLAB_TOKEN).toBeUndefined()
+    expect(glabCall?.env?.NO_PROMPT).toBeUndefined()
+  })
+})
+
 describe("VcsCredentialsLive — CLI read cache", () => {
   it("caches a successful gh read for 5 minutes and re-reads after TTL", async () => {
     setSystemTime(new Date("2030-01-01T00:00:00Z"))
@@ -384,10 +506,10 @@ describe("VcsCredentialsLive — CLI read cache", () => {
             : Effect.fail(new GitHubApiError({ status: 401, message: "401" })),
       },
     })
-    const first = await harness.use((vcs) => vcs.detectGitHubCli())
+    const first = await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
     expect(first.outcome).toBe("invalid")
     valid = true
-    const second = await harness.use((vcs) => vcs.detectGitHubCli())
+    const second = await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
     expect(second.outcome).toBe("valid")
     // The invalid validation flushed the cache → two real reads.
     expect(harness.calls.filter((c) => c.command === "gh" && c.args[1] === "token")).toHaveLength(2)
@@ -466,13 +588,393 @@ describe("VcsCredentialsLive — tokenForHost classification (golang parity)", (
   })
 })
 
-describe("VcsCredentialsLive — transport-degraded host set", () => {
-  it("marks, reports, and clears degraded hosts", async () => {
-    const harness = makeHarness()
-    await harness.use((vcs) => vcs.markTransportDegraded("git.corp.example", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"))
-    expect(await harness.use((vcs) => vcs.isTransportDegraded("git.corp.example"))).toBe(true)
-    expect(await harness.use((vcs) => vcs.isTransportDegraded("gitlab.com"))).toBe(false)
-    await harness.use((vcs) => vcs.clearTransportDegraded())
-    expect(await harness.use((vcs) => vcs.isTransportDegraded("git.corp.example"))).toBe(false)
+describe("VcsCredentialsLive — transport degraded", () => {
+  it("emits the structured field-canary log line", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const harness = makeHarness()
+      await harness.use((vcs) => vcs.markTransportDegraded("git.corp.example", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"))
+      expect(warn).toHaveBeenCalledWith("transport degraded for git.corp.example: UNABLE_TO_GET_ISSUER_CERT_LOCALLY")
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GitHub Enterprise (GHES / ghe.com) hosts
+// ---------------------------------------------------------------------------
+
+describe("VcsCredentialsLive — GitHub enterprise hosts", () => {
+  const GHES = "ghes.example.com"
+  const GHEC = "acme.ghe.com"
+  const HOSTS_YML = `github.com:\n    user: octocat\n${GHES}:\n    user: alice\n`
+
+  /** gh answers `auth token --hostname <h>` with a per-host token. */
+  const ghPerHost = (tokens: Record<string, string>) =>
+    respondWith({
+      "gh version": () => ghVersion,
+      "gh auth": (args) => {
+        if (args[1] !== "token") return { lines: [], exitCode: 1 }
+        const host = args[args.indexOf("--hostname") + 1]
+        const token = tokens[host]
+        return token ? { lines: [{ line: token, source: "stdout" }], exitCode: 0 } : { lines: [], exitCode: 1 }
+      },
+      "glab config": () => ({ lines: [], exitCode: 0 }),
+      "glab version": () => glabVersion,
+    })
+
+  /** A GitHubClient that records which host each validation targeted. */
+  const recordingGitHub = () => {
+    const validated: Array<{ token: string; host?: string }> = []
+    const github: Partial<GitHubClientShape> = {
+      validateToken: (token, host) => {
+        validated.push({ token, host })
+        return Effect.succeed({ user: OCTOCAT })
+      },
+    }
+    return { validated, github }
+  }
+
+  describe("per-host gh reads", () => {
+    it("detectGitHubCli pins --hostname to the requested host", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({ respond: ghPerHost({ [GHES]: "ghp_ghes" }), github })
+      const result = await harness.use((vcs) => vcs.detectGitHubCli(GHES))
+      expect(result.outcome).toBe("valid")
+      expect(result.token).toBe("ghp_ghes")
+      const read = harness.calls.find((c) => c.command === "gh" && c.args[1] === "token")!
+      expect(read.args).toEqual(["auth", "token", "--hostname", GHES])
+      expect(read.env!.GH_HOST).toBeUndefined()
+      // validated against the SAME host
+      expect(validated).toEqual([{ token: "ghp_ghes", host: GHES }])
+    })
+
+    it("detectGitHubCli normalizes a URL-form host before pinning", async () => {
+      const harness = makeHarness({ respond: ghPerHost({ [GHES]: "ghp_ghes" }), github: recordingGitHub().github })
+      await harness.use((vcs) => vcs.detectGitHubCli(`https://${GHES.toUpperCase()}/o/r`))
+      const read = harness.calls.find((c) => c.command === "gh" && c.args[1] === "token")!
+      expect(read.args).toEqual(["auth", "token", "--hostname", GHES])
+    })
+
+    it("an unparseable host is absent and spawns/validates nothing", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({ env: { GITHUB_TOKEN: "d" }, respond: ghPerHost({ "github.com": "x" }), github })
+      expect((await harness.use((vcs) => vcs.detectGitHubCli("ftp://ghes.example.com"))).outcome).toBe("absent")
+      expect((await harness.use((vcs) => vcs.detectGitHubEnv("ftp://ghes.example.com"))).outcome).toBe("absent")
+      expect(harness.calls.filter((c) => c.command === "gh" && c.args[1] === "token")).toHaveLength(0)
+      expect(validated).toEqual([])
+    })
+
+    it("the gh read cache is keyed per host: a github.com token is never served for a GHES host", async () => {
+      setSystemTime(new Date("2030-01-01T00:00:00Z"))
+      const harness = makeHarness({
+        env: { GH_CONFIG_DIR: "/cfg" },
+        files: { "/cfg/hosts.yml": HOSTS_YML },
+        respond: ghPerHost({ "github.com": "gho_dotcom", [GHES]: "ghp_ghes" }),
+      })
+      expect(await harness.use((vcs) => vcs.tokenForHost("github.com"))).toBe("gho_dotcom")
+      expect(await harness.use((vcs) => vcs.tokenForHost(GHES))).toBe("ghp_ghes")
+      // cached per host on the second round — still the right token each
+      expect(await harness.use((vcs) => vcs.tokenForHost("github.com"))).toBe("gho_dotcom")
+      expect(await harness.use((vcs) => vcs.tokenForHost(GHES))).toBe("ghp_ghes")
+      const reads = harness.calls.filter((c) => c.command === "gh" && c.args[1] === "token")
+      expect(reads.map((c) => c.args[3])).toEqual(["github.com", GHES])
+    })
+
+    it("a GHES host gh isn't logged into gets nothing even when github.com is cached", async () => {
+      setSystemTime(new Date("2030-01-01T00:00:00Z"))
+      const harness = makeHarness({
+        env: { GH_CONFIG_DIR: "/cfg" },
+        files: { "/cfg/hosts.yml": HOSTS_YML },
+        respond: ghPerHost({ "github.com": "gho_dotcom" }),
+      })
+      expect(await harness.use((vcs) => vcs.tokenForHost("github.com"))).toBe("gho_dotcom")
+      expect(await harness.use((vcs) => vcs.tokenForHost(GHES))).toBeUndefined()
+    })
+
+    it("an auth failure on one host flushes only that host's entry", async () => {
+      setSystemTime(new Date("2030-01-01T00:00:00Z"))
+      const harness = makeHarness({
+        respond: ghPerHost({ "github.com": "gho_dotcom", [GHES]: "ghp_ghes" }),
+        github: {
+          validateToken: (_token, host) =>
+            host === GHES
+              ? Effect.fail(new GitHubApiError({ status: 401, message: "401" }))
+              : Effect.succeed({ user: OCTOCAT }),
+        },
+      })
+      await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
+      await harness.use((vcs) => vcs.detectGitHubCli(GHES))
+      await harness.use((vcs) => vcs.detectGitHubCli("github.com"))
+      await harness.use((vcs) => vcs.detectGitHubCli(GHES))
+      const reads = harness.calls.filter((c) => c.command === "gh" && c.args[1] === "token").map((c) => c.args[3])
+      // github.com read once (cached); GHES re-read after its 401 flush
+      expect(reads.filter((h) => h === "github.com")).toHaveLength(1)
+      expect(reads.filter((h) => h === GHES)).toHaveLength(2)
+    })
+
+    it("the invalid-CLI warning names the enterprise host", async () => {
+      const harness = makeHarness({
+        respond: ghPerHost({ [GHES]: "ghp_ghes" }),
+        github: { validateToken: () => Effect.fail(new GitHubApiError({ status: 401, message: "401" })) },
+      })
+      const result = await harness.use((vcs) => vcs.detectGitHubCli(GHES))
+      expect(result.outcome).toBe("invalid")
+      expect(result.warnings).toEqual([`GitHub CLI token for ${GHES} is invalid or expired`])
+    })
+
+    it("hosts.yml fallback (gh absent) reads the requested host's entry only", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({
+        env: { GH_CONFIG_DIR: "/cfg" },
+        files: { "/cfg/hosts.yml": `github.com:\n    oauth_token: gho_dotcom\n${GHES}:\n    oauth_token: ghp_ghes\n` },
+        respond: () => "ENOENT",
+        github,
+      })
+      const result = await harness.use((vcs) => vcs.detectGitHubCli(GHES))
+      expect(result.outcome).toBe("valid")
+      expect(result.source).toBe("config")
+      expect(validated).toEqual([{ token: "ghp_ghes", host: GHES }])
+    })
+  })
+
+  describe("detectGitHubEnv (host-bound)", () => {
+    it("GHES: validates GH_ENTERPRISE_TOKEN against the GHES host", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({
+        env: { GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "e_tok", GITHUB_TOKEN: "d_tok" },
+        github,
+      })
+      const result = await harness.use((vcs) => vcs.detectGitHubEnv(GHES))
+      expect(result.outcome).toBe("valid")
+      expect(result.envVar).toBe("GH_ENTERPRISE_TOKEN")
+      expect(validated).toEqual([{ token: "e_tok", host: GHES }])
+    })
+
+    it("github.com: the enterprise token is never validated against github.com", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({ env: { GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "e_tok" }, github })
+      const result = await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))
+      expect(result.outcome).toBe("absent")
+      expect(validated).toEqual([])
+    })
+
+    it("GHES: a github.com GITHUB_TOKEN is never validated against the GHES host", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({ env: { GITHUB_TOKEN: "d_tok" }, github })
+      expect((await harness.use((vcs) => vcs.detectGitHubEnv(GHES))).outcome).toBe("absent")
+      expect((await harness.use((vcs) => vcs.detectGitHubEnv(GHEC))).outcome).toBe("absent")
+      expect(validated).toEqual([])
+      // ...but it is for github.com
+      await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))
+      expect(validated).toEqual([{ token: "d_tok", host: "github.com" }])
+    })
+
+    it("ghe.com: GITHUB_TOKEN validated against the tenant when GH_HOST names it", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({ env: { GH_HOST: GHEC, GITHUB_TOKEN: "t_tok" }, github })
+      expect((await harness.use((vcs) => vcs.detectGitHubEnv(GHEC))).outcome).toBe("valid")
+      expect((await harness.use((vcs) => vcs.detectGitHubEnv("github.com"))).outcome).toBe("absent")
+      expect(validated).toEqual([{ token: "t_tok", host: GHEC }])
+    })
+
+    it("the invalid-env warning names the host", async () => {
+      const harness = makeHarness({
+        env: { GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "e_tok" },
+        github: { validateToken: () => Effect.fail(new GitHubApiError({ status: 401, message: "401" })) },
+      })
+      const result = await harness.use((vcs) => vcs.detectGitHubEnv(GHES))
+      expect(result.outcome).toBe("invalid")
+      expect(result.warnings).toEqual([`GH_ENTERPRISE_TOKEN is not valid for ${GHES}`])
+    })
+
+    it("prefix variant: <PREFIX>GH_HOST binds the prefixed enterprise token", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({
+        env: { MYAPP_GH_HOST: GHES, MYAPP_GH_ENTERPRISE_TOKEN: "p_ent", GH_HOST: "other.example.com" },
+        github,
+      })
+      const result = await harness.use((vcs) => vcs.detectGitHubEnv(GHES, "MYAPP_"))
+      expect(result.outcome).toBe("valid")
+      expect(result.envVar).toBe("MYAPP_GH_ENTERPRISE_TOKEN")
+      expect(validated).toEqual([{ token: "p_ent", host: GHES }])
+    })
+
+    it("the env and gh legs for one host read only that host's sources", async () => {
+      // The renderer chains the legs (env, then cli) for the picked host; the
+      // github.com GITHUB_TOKEN must not satisfy the GHES env leg.
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({
+        env: { GITHUB_TOKEN: "d_tok" },
+        respond: ghPerHost({ [GHES]: "ghp_ghes" }),
+        github,
+      })
+      expect((await harness.use((vcs) => vcs.detectGitHubEnv(GHES))).outcome).toBe("absent")
+      const result = await harness.use((vcs) => vcs.detectGitHubCli(GHES))
+      expect(result.source).toBe("cli")
+      expect(result.token).toBe("ghp_ghes")
+      expect(validated).toEqual([{ token: "ghp_ghes", host: GHES }])
+    })
+  })
+
+  describe("validateDirect", () => {
+    it("github: validates against the given host", async () => {
+      const { validated, github } = recordingGitHub()
+      const harness = makeHarness({ github })
+      await harness.use((vcs) => vcs.validateDirect("github", GHES, "ghp_pat"))
+      expect(validated).toEqual([{ token: "ghp_pat", host: GHES }])
+    })
+  })
+
+  describe("tokenForHost", () => {
+    const harnessFor = (env: Record<string, string>, files: Record<string, string> = {}, gh: Record<string, string> = {}) =>
+      makeHarness({ env, files, respond: ghPerHost(gh) })
+
+    it("GHES (via GH_HOST): GH_ENTERPRISE_TOKEN, never GITHUB_TOKEN", async () => {
+      const h = harnessFor({ GH_HOST: GHES, GH_ENTERPRISE_TOKEN: "e", GITHUB_TOKEN: "d" })
+      expect(await h.use((vcs) => vcs.tokenForHost(GHES))).toBe("e")
+      expect(await h.use((vcs) => vcs.tokenForHost("github.com"))).toBe("d")
+      const onlyDotcom = harnessFor({ GH_HOST: GHES, GITHUB_TOKEN: "d" })
+      expect(await onlyDotcom.use((vcs) => vcs.tokenForHost(GHES))).toBeUndefined()
+    })
+
+    it("GHES (via hosts.yml): gh's stored token for that host", async () => {
+      const h = harnessFor({ GH_CONFIG_DIR: "/cfg", GITHUB_TOKEN: "d" }, { "/cfg/hosts.yml": HOSTS_YML }, { [GHES]: "ghp_ghes" })
+      expect(await h.use((vcs) => vcs.tokenForHost(GHES))).toBe("ghp_ghes")
+      expect(await h.use((vcs) => vcs.tokenForHost(GHES.toUpperCase()))).toBe("ghp_ghes")
+    })
+
+    it("ghe.com: GITHUB_TOKEN only when GH_HOST names the tenant; else gh's token for it", async () => {
+      expect(await harnessFor({ GITHUB_TOKEN: "d" }).use((vcs) => vcs.tokenForHost(GHEC))).toBeUndefined()
+      expect(await harnessFor({ GITHUB_TOKEN: "d", GH_HOST: GHEC }).use((vcs) => vcs.tokenForHost(GHEC))).toBe("d")
+      expect(await harnessFor({ GITHUB_TOKEN: "d" }, {}, { [GHEC]: "gho_t" }).use((vcs) => vcs.tokenForHost(GHEC))).toBe(
+        "gho_t",
+      )
+    })
+
+    it("github.com: still GITHUB_TOKEN, then gh", async () => {
+      expect(await harnessFor({ GITHUB_TOKEN: "d" }).use((vcs) => vcs.tokenForHost("github.com"))).toBe("d")
+      expect(await harnessFor({}, {}, { "github.com": "gho_x" }).use((vcs) => vcs.tokenForHost("github.com"))).toBe(
+        "gho_x",
+      )
+    })
+
+    it("an unknown host (not github.com/ghe.com/configured) gets nothing — no gh read at all", async () => {
+      const h = harnessFor({ GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e" }, {}, { [GHES]: "ghp_ghes" })
+      expect(await h.use((vcs) => vcs.tokenForHost(GHES))).toBeUndefined()
+      expect(h.calls.filter((c) => c.command === "gh" && c.args[1] === "token")).toHaveLength(0)
+    })
+  })
+
+  describe("detectProvider", () => {
+    const harnessFor = (env: Record<string, string> = {}, files: Record<string, string> = {}) =>
+      makeHarness({
+        env,
+        files,
+        respond: respondWith({
+          "gh version": () => ghVersion,
+          "glab version": () => glabVersion,
+          "glab config": () => ({ lines: [], exitCode: 0 }),
+        }),
+      })
+
+    it("github.com and *.ghe.com → github by name", async () => {
+      const h = harnessFor()
+      expect(await h.use((vcs) => vcs.detectProvider("github.com"))).toBe("github")
+      expect(await h.use((vcs) => vcs.detectProvider("GitHub.com"))).toBe("github")
+      expect(await h.use((vcs) => vcs.detectProvider(GHEC))).toBe("github")
+    })
+
+    it("a hosts.yml host → github", async () => {
+      const h = harnessFor({ GH_CONFIG_DIR: "/cfg" }, { "/cfg/hosts.yml": HOSTS_YML })
+      expect(await h.use((vcs) => vcs.detectProvider(GHES))).toBe("github")
+    })
+
+    it("GH_HOST → github", async () => {
+      const h = harnessFor({ GH_HOST: `https://${GHES}/` })
+      expect(await h.use((vcs) => vcs.detectProvider(GHES))).toBe("github")
+    })
+
+    it("gitlab.com and a glab config host → gitlab", async () => {
+      const h = harnessFor(
+        { HOME: "/home/u" },
+        { "/home/u/.config/glab-cli/config.yml": "hosts:\n    git.corp.net:\n        token: glpat-corp\n" },
+      )
+      expect(await h.use((vcs) => vcs.detectProvider("gitlab.com"))).toBe("gitlab")
+      expect(await h.use((vcs) => vcs.detectProvider("git.corp.net"))).toBe("gitlab")
+    })
+
+    it("an unknown host → undefined (never GitHub or GitLab by default)", async () => {
+      const h = harnessFor()
+      expect(await h.use((vcs) => vcs.detectProvider(GHES))).toBeUndefined()
+      expect(await h.use((vcs) => vcs.detectProvider("bitbucket.org"))).toBeUndefined()
+      expect(await h.use((vcs) => vcs.detectProvider(""))).toBeUndefined()
+    })
+  })
+
+  describe("enumerateGitHubHosts", () => {
+    it("reports hosts.yml hosts, GH_HOST (strictly parsed) and the default host", async () => {
+      const h = makeHarness({ env: { GH_CONFIG_DIR: "/cfg", GH_HOST: "GHES.example.com" }, files: { "/cfg/hosts.yml": HOSTS_YML } })
+      const info = await h.use((vcs) => vcs.enumerateGitHubHosts())
+      expect(info.configHosts.sort()).toEqual(["ghes.example.com", "github.com"])
+      expect(info.envHost).toBe(GHES)
+      expect(info.defaultHost).toBe(GHES)
+    })
+
+    it("no GH_HOST (or an unparseable one) → default github.com, no envHost", async () => {
+      const none = await makeHarness().use((vcs) => vcs.enumerateGitHubHosts())
+      expect(none).toEqual({ configHosts: [], defaultHost: "github.com" })
+      const bad = await makeHarness({ env: { GH_HOST: "ftp://x" } }).use((vcs) => vcs.enumerateGitHubHosts())
+      expect(bad).toEqual({ configHosts: [], defaultHost: "github.com" })
+    })
+  })
+
+  describe("probeGitHub (validateViaCli)", () => {
+    const apiOk = respondWith({
+      "gh version": () => ghVersion,
+      "gh api": () => ({
+        lines: [
+          { line: "HTTP/2.0 200 OK", source: "stdout" },
+          { line: "", source: "stdout" },
+          { line: JSON.stringify({ login: "alice" }), source: "stdout" },
+        ],
+        exitCode: 0,
+      }),
+    })
+
+    it("GHES: pins --hostname and passes the candidate as GH_ENTERPRISE_TOKEN (not GH_TOKEN)", async () => {
+      const harness = makeHarness({
+        env: { GH_TOKEN: "ambient", GH_ENTERPRISE_TOKEN: "ambient_e", GH_HOST: "elsewhere.example.com" },
+        respond: apiOk,
+      })
+      const result = await harness.use((vcs) => Effect.either(vcs.validateViaCli("github", GHES, "ghp_cand", "manual")))
+      expect(result._tag).toBe("Right")
+      const apiCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "api")!
+      expect(apiCall.args).toEqual(["api", "user", "-i", "--hostname", GHES])
+      expect(apiCall.env!.GH_ENTERPRISE_TOKEN).toBe("ghp_cand")
+      expect(apiCall.env!.GH_TOKEN).toBeUndefined()
+      expect(apiCall.env!.GITHUB_TOKEN).toBeUndefined()
+      expect(apiCall.env!.GH_HOST).toBeUndefined()
+    })
+
+    it("ghe.com: pins the tenant and uses GH_TOKEN", async () => {
+      const harness = makeHarness({ env: { GH_ENTERPRISE_TOKEN: "ambient_e" }, respond: apiOk })
+      await harness.use((vcs) => Effect.either(vcs.validateViaCli("github", GHEC, "ghp_cand", "manual")))
+      const apiCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "api")!
+      expect(apiCall.args).toEqual(["api", "user", "-i", "--hostname", GHEC])
+      expect(apiCall.env!.GH_TOKEN).toBe("ghp_cand")
+      expect(apiCall.env!.GH_ENTERPRISE_TOKEN).toBeUndefined()
+    })
+
+    it("an unparseable host fails without spawning gh api", async () => {
+      const harness = makeHarness({ respond: apiOk })
+      const result = await harness.use((vcs) =>
+        Effect.either(vcs.validateViaCli("github", "ftp://ghes.example.com", "ghp_cand", "manual")),
+      )
+      expect(result._tag).toBe("Left")
+      if (result._tag === "Left") expect(result.left.kind).toBe("api")
+      expect(harness.calls.filter((c) => c.command === "gh" && c.args[0] === "api")).toHaveLength(0)
+    })
   })
 })

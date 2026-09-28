@@ -6,7 +6,7 @@ export interface DirPickerProps {
   inputsId?: string | string[]
   /** Absolute path to the root directory to browse. At least one of `rootDir` or `gitCloneId` must be provided. */
   rootDir?: string
-  /** Syntactic sugar: resolves to the `CLONE_PATH` output of the referenced GitClone block. Equivalent to setting `rootDir` to the clone path. */
+  /** Syntactic sugar: resolves to the `clone_path` output of the referenced GitClone block. Equivalent to setting `rootDir` to the clone path. */
   gitCloneId?: string
   /** Display title (supports inline markdown). */
   title?: string

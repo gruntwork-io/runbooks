@@ -9,6 +9,7 @@ import { app, Menu, dialog, shell, type MenuItemConstructorOptions } from "elect
 import { getMainWindow } from "./window.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runbookConfig } from "./ipc/runtime.ts"
+import { closeRunbook } from "./ipc/watch.ts"
 
 const isMac = process.platform === "darwin"
 
@@ -53,8 +54,11 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
       label: "Uninstall 'runbooks' command from PATH",
       click: async () => {
         try {
-          const status = await checkCliInstall()
-          if (!status.installed) {
+          // No status pre-check: uninstallCli decides what is ours, which
+          // includes a launcher left behind by a moved copy of the app that
+          // checkCliInstall reports as not installed.
+          const { removed } = await uninstallCli()
+          if (!removed) {
             dialog.showMessageBox({
               type: "info",
               title: "CLI Not Installed",
@@ -62,7 +66,6 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
             })
             return
           }
-          await uninstallCli()
           dialog.showMessageBox({
             type: "info",
             title: "CLI Uninstalled",
@@ -145,9 +148,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       {
         label: "Close Runbook",
         accelerator: "CmdOrCtrl+Shift+W",
-        click: () => {
-          getMainWindow()?.webContents.send("menu:close-runbook")
-        },
+        click: () => closeRunbook(),
       },
       { type: "separator" },
       isMac ? { role: "close" } : { role: "quit" },
