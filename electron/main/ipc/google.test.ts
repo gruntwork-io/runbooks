@@ -156,4 +156,36 @@ describe("google:set-project after another runbook opened", () => {
     expect(activeCredentialFor("gcp")?.projectId).toBe("b-proj")
     expect((await sessionEnv()).CLOUDSDK_CORE_PROJECT).toBeUndefined()
   })
+
+  it("a block with a registered credential: neither its set nor its delete reaches the new runbook", async () => {
+    // A's access-token block re-points the whole session (set) and drops the
+    // gcloud file override (delete); both must be scoped to A's generation.
+    await registerAuthenticatedCredential(
+      { blockId: "gcp", identity: SA, accessToken: "ya29.from-a" },
+      sessionManager.getGeneration(),
+    )
+    const bCredential = {
+      ref: { kind: "file", path: "/tmp/runbook-b/adc.json" } as const,
+      credentialsPath: "/tmp/runbook-b/adc.json",
+      principal: "b@b-proj.iam.gserviceaccount.com",
+      credentialType: "service_account" as const,
+      projectId: "b-proj",
+    }
+    const spy = openRunbookDuringNextEnvWrite("runbook-b", () => {
+      setActiveCredential("gcp", bCredential)
+      Effect.runSync(
+        sessionManager.appendToEnv({ CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: bCredential.credentialsPath }),
+      )
+    })
+
+    const result = await invoke("google:set-project", { blockId: "gcp", projectId: "a-proj-2" })
+    spy.mockRestore()
+
+    expect(result.ok).toBe(true)
+    expect(activeCredentialFor("gcp")?.projectId).toBe("b-proj")
+    const env = await sessionEnv()
+    expect(env.CLOUDSDK_CORE_PROJECT).toBeUndefined()
+    expect(env.CLOUDSDK_AUTH_ACCESS_TOKEN).toBeUndefined()
+    expect(env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE).toBe(bCredential.credentialsPath)
+  })
 })
