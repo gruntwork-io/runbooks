@@ -36,7 +36,8 @@ export interface GitWorkTreeContextType {
   /** Clear all registered worktrees and the active selection (a different runbook was loaded) */
   resetWorkTrees: () => void
   /** Monotonically increasing counter that signals "the worktree contents changed, re-fetch the tree".
-   *  Any component can call invalidateGitFileTree() to bump this; useGitFileTree watches it. */
+   *  Any component can call invalidateGitFileTree() to bump this; WorkspaceGitDataProvider watches it
+   *  and refetches the tree and the changed files. */
   treeVersion: number
   /** Bump treeVersion to trigger a re-fetch of the workspace file tree */
   invalidateGitFileTree: () => void

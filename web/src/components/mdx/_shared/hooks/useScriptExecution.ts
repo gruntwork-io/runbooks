@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { useApi } from '@/contexts/ApiContext'
 import { useGetFile } from '@/hooks/useApiGetFile'
 import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type TemplateValue } from '@/contexts/useRunbook'
 import { useApiExec } from '@/hooks/useApiExec'
@@ -222,6 +223,9 @@ export function useScriptExecution({
   usePty,
   timeoutMs,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
+  // IPC bridge for rendering the script's template
+  const api = useApi()
+
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, registryVersion } = useExecutableRegistry()
   
@@ -471,8 +475,9 @@ export function useScriptExecution({
   // Track if component is mounted to prevent setState on unmounted component
   const isMountedRef = useRef(true)
   
-  // Track pending fetch to allow cancellation
-  const abortControllerRef = useRef<AbortController | null>(null)
+  // Monotonic render counter: only the latest render may commit. IPC calls
+  // can't be cancelled, so a slower earlier render is dropped instead.
+  const renderSeqRef = useRef(0)
   
   // Determine the actual script content to use
   const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
@@ -523,14 +528,8 @@ export function useScriptExecution({
 
   // Function to render script with inputs
   const renderScript = useCallback(async (inputs: TemplateValue[]) => {
-    // Cancel any pending render request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    
-    // Create new abort controller for this request
-    const abortController = new AbortController()
-    abortControllerRef.current = abortController
+    // Supersede any pending render request
+    const seq = ++renderSeqRef.current
     
     setIsRendering(true)
     setRenderError(null)
@@ -546,13 +545,13 @@ export function useScriptExecution({
     }
     
     try {
-      const responseData = await window.api.invoke('boilerplate:render-inline', {
+      const responseData = await api.invoke('boilerplate:render-inline', {
         templateFiles,
         inputs,
       })
 
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
+      // Check if component is still mounted and this is still the latest render
+      if (!isMountedRef.current || seq !== renderSeqRef.current) return
       const renderedFiles = responseData.renderedFiles
       
       // Check if we got the expected file structure
@@ -568,19 +567,14 @@ export function useScriptExecution({
       setRenderedScript(renderedFiles['script.sh'].content)
       setIsRendering(false)
     } catch (err) {
-      // Check if component is still mounted before updating state
-      if (!isMountedRef.current) return
-      
-      // Don't set error if request was aborted (expected behavior)
-      if (err instanceof Error && err.name === 'AbortError') {
-        return
-      }
+      // Check if component is still mounted and this is still the latest render
+      if (!isMountedRef.current || seq !== renderSeqRef.current) return
       
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
       setIsRendering(false)
     }
-  }, [rawScriptContent])
+  }, [api, rawScriptContent])
   
   // Compute flattened outputs for template context (used by render and prop resolution)
   const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])
@@ -594,11 +588,14 @@ export function useScriptExecution({
   // Auto-update when variables change (debounced).
   // Whenever this effect discards the rendered script it also forgets the last
   // render key, so the next pass with every dependency met renders again even
-  // if the values match the ones rendered before.
+  // if the values match the ones rendered before, and it drops any render
+  // still in flight, which would otherwise land over the raw script.
   useEffect(() => {
     // Only render if we have template dependencies and all input dependencies are available
     if (allDeps.length === 0) {
       // No template dependencies, use raw script
+      renderSeqRef.current++
+      setIsRendering(false)
       setRenderedScript(null)
       lastRenderedVariablesRef.current = null
       return
@@ -618,6 +615,8 @@ export function useScriptExecution({
       // The outputs can come back with the values rendered last time (a failed
       // re-run registers {} for the block, then a later run restores them), so
       // the key must go too or that render would be skipped as a duplicate.
+      renderSeqRef.current++
+      setIsRendering(false)
       setRenderError(null)
       setRenderedScript(null)
       lastRenderedVariablesRef.current = null
@@ -716,11 +715,6 @@ export function useScriptExecution({
     
     return () => {
       isMountedRef.current = false
-      
-      // Cancel any pending render request
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
       
       // Cancel any ongoing execution
       cancelExec()

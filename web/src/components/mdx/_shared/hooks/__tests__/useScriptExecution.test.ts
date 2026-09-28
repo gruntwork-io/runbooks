@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createElement, type ReactNode } from 'react'
 import { renderHook, act, cleanup } from '@testing-library/react'
+import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { useRunbookContext, type TemplateValue } from '@/contexts/useRunbook'
 import { useScriptExecution } from '../useScriptExecution'
@@ -8,7 +9,8 @@ import { useScriptExecution } from '../useScriptExecution'
 // The hook runs inside the real RunbookContextProvider, so inputs and block
 // outputs reach it through registerInputs/registerOutputs exactly as they do in
 // the app. Only the contexts that would need their own providers, and the IPC
-// bridge (window.api), are stubbed.
+// bridge, are stubbed. The bridge is both handed to ApiProvider (renders) and
+// set as window.api (useApiExec runs and cancels through it directly).
 vi.mock('@/hooks/useExecutableRegistry', () => {
   const registry = {
     getExecutableByComponentId: (componentId: string) => ({ id: `exec-${componentId}`, componentId }),
@@ -43,6 +45,7 @@ function fakeRenderInline(args: unknown) {
 }
 
 let invoke: ReturnType<typeof vi.fn>
+let api: RunbooksAPI
 const originalApi = window.api
 
 beforeEach(() => {
@@ -52,7 +55,8 @@ beforeEach(() => {
     if (channel === 'exec:run') return new Promise(() => {})
     return {}
   })
-  window.api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api
+  api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+  window.api = api
 })
 
 afterEach(() => {
@@ -71,7 +75,8 @@ function renderScriptExecution(props: Props) {
     }),
     {
       initialProps: props,
-      wrapper: ({ children }: { children: ReactNode }) => createElement(RunbookContextProvider, { children }),
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(ApiProvider, { api, children: createElement(RunbookContextProvider, { children }) }),
     },
   )
 }

@@ -601,4 +601,66 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       expect(fake.listenerCount()).toBe(0)
     })
   })
+
+  describe('labels', () => {
+    /** Hold every label request until the test settles it. */
+    function holdLabelRequests(fake: ReturnType<typeof createEmittingApi>) {
+      const requests: Array<(value: unknown) => void> = []
+      fake.invoke.mockImplementation((channel: string) =>
+        channel === cfg.channels.labels
+          ? new Promise<unknown>((resolve) => {
+              requests.push(resolve)
+            })
+          : Promise.resolve({}),
+      )
+      return requests
+    }
+
+    it("shows the labels of the repo asked for last when an earlier repo's labels land after them", async () => {
+      const { fake, state } = renderPR(cfg)
+      const labelRequests = holdLabelRequests(fake)
+
+      // The active worktree switched while the first repo's labels loaded
+      act(() => {
+        void state().fetchLabels('acme', 'old-repo')
+      })
+      act(() => {
+        void state().fetchLabels('acme', 'infra')
+      })
+      expect(labelRequests).toHaveLength(2)
+
+      await act(async () => {
+        labelRequests[1]({ labels: ['infra-label'] })
+      })
+      await act(async () => {
+        labelRequests[0]({ labels: ['old-repo-label'] })
+      })
+      expect(state().labels.map((label) => label.name)).toEqual(['infra-label'])
+      expect(state().labelsLoading).toBe(false)
+    })
+
+    it('keeps the labels spinner until the latest request lands', async () => {
+      const { fake, state } = renderPR(cfg)
+      const labelRequests = holdLabelRequests(fake)
+
+      act(() => {
+        void state().fetchLabels('acme', 'old-repo')
+      })
+      act(() => {
+        void state().fetchLabels('acme', 'infra')
+      })
+
+      await act(async () => {
+        labelRequests[0]({ labels: ['old-repo-label'] })
+      })
+      expect(state().labelsLoading).toBe(true)
+      expect(state().labels).toEqual([])
+
+      await act(async () => {
+        labelRequests[1]({ labels: ['infra-label'] })
+      })
+      expect(state().labelsLoading).toBe(false)
+      expect(state().labels.map((label) => label.name)).toEqual(['infra-label'])
+    })
+  })
 })
