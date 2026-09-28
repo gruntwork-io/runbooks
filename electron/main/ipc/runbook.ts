@@ -51,10 +51,22 @@ function describeRunbookOpenError(inputPath: string): string {
   return `This runbook couldn't be opened:\n\n${inputPath}`
 }
 
+/**
+ * Bumped by every runbook:get. The renderer only shows its newest request
+ * (useIpc drops older results), so a load that a newer one overtook while it
+ * awaited ends as superseded instead of pointing the config, session, watcher
+ * or registry back at its runbook.
+ */
+let loadGeneration = 0
+const SUPERSEDED = { superseded: true } as const
+
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
     async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }) => {
+      const generation = ++loadGeneration
+      const superseded = () => generation !== loadGeneration
+
       // An empty path would resolve against the app's cwd below.
       if (!params?.path) {
         throw new Error("runbook path is required")
@@ -77,6 +89,7 @@ export function registerRunbookHandlers(): void {
         log.debug("failed to resolve runbook path", params.path, err)
         throw new Error(describeRunbookOpenError(params.path))
       }
+      if (superseded()) return SUPERSEDED
       const config: RunbookConfig = {
         localPath: runbookPath,
         remoteSourceURL: params.remoteSource,
@@ -85,7 +98,6 @@ export function registerRunbookHandlers(): void {
         disableLiveFileReload: runbookConfig.disableLiveFileReload,
       }
       setRunbookConfig(config)
-      const isSameRunbook = sessionManager.getRunbookPath() === runbookPath
 
       // The session's working dir is always the runbook's parent directory.
       // realpath'ing keeps macOS /var and /private/var paths aligned with
@@ -100,6 +112,8 @@ export function registerRunbookHandlers(): void {
       // Read the runbook file content (before the session is created: whether
       // it has an <AwsAuth> block decides which env vars the session strips)
       const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
+      if (superseded()) return SUPERSEDED
+      const isSameRunbook = sessionManager.getRunbookPath() === runbookPath
 
       // A different runbook than the one the current session belongs to
       // (including "no session yet") gets a fully fresh session: env,
@@ -111,6 +125,11 @@ export function registerRunbookHandlers(): void {
       // Reloading the SAME runbook (watch mode, re-opening the same file)
       // must NOT do this — it would wipe env vars a script exported mid-run.
       if (!isSameRunbook) {
+        // The previous runbook's executables must not stay runnable (or be
+        // kept as this runbook's frozen registry below) if building this
+        // runbook's registry fails. Cleared before the awaits, so a load of
+        // this runbook that overtakes this one can't keep them either.
+        setExecutableRegistry(null)
         // A runbook with <AwsAuth> starts without the inherited AWS keys, so
         // no script sees them until the user confirms an account. Set on every
         // new session (even to []) so one runbook's list can't carry over.
@@ -128,16 +147,14 @@ export function registerRunbookHandlers(): void {
         // baselines, and the file manifests, so its first render starts clean.
         await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
         manifestStore.clear()
-        // The previous runbook's executables must not stay runnable (or be
-        // kept as this runbook's frozen registry below) if building this
-        // runbook's registry fails.
-        setExecutableRegistry(null)
       } else if (params.reload !== "watch") {
         // Re-opening the runbook starts its blocks from its directory again.
         // A watch-mode reload keeps the session as it is, env vars included:
         // saving runbook.mdx must not undo a block's `cd`.
         sessionManager.setWorkingDir(sessionDir)
       }
+      // The new session's resets await: a newer load may have started.
+      if (superseded()) return SUPERSEDED
 
       // Watch mode: reload the renderer when this runbook changes. A no-op if
       // it's already watched; a watcher on a previous runbook is stopped.
@@ -151,7 +168,9 @@ export function registerRunbookHandlers(): void {
       // build the executable registry from the runbook.
       let registry = isSameRunbook && config.disableLiveFileReload ? executableRegistry : null
       if (!registry) {
-        registry = await runtime.runPromise(ExecutableRegistry.create(runbookPath))
+        const built = await runtime.runPromise(ExecutableRegistry.create(runbookPath))
+        if (superseded()) return SUPERSEDED
+        registry = built
         setExecutableRegistry(registry)
 
         // Notify the renderer that the registry has been rebuilt

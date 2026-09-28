@@ -21,6 +21,8 @@ export interface IpcChannelMap {
     /**
      * `reload: "watch"` marks a reload for a watch-mode change: it keeps the
      * session's working dir, which any other load of the same runbook resets.
+     * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
+     * which useIpc ignores.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
     result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string }

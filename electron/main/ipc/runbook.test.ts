@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterEach, mock } from "bun:test"
+import { describe, it, expect, beforeAll, beforeEach, afterEach, mock, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
@@ -75,6 +75,28 @@ async function editUntilReloaded(runbookFile: string, from = sent.length): Promi
     fs.writeFileSync(runbookFile, runbookWith(`echo edit-${edit}`))
     await waitUntil(() => reloadsSince(from).includes(runbookFile), 1_000)
   }
+}
+
+/**
+ * Hold the `callNumber`th runtime.runPromise call from now on (each of
+ * runbook:get's awaits is one) until `release()`, as a slow disk or a slow
+ * registry build would. `held` resolves once that call has been made.
+ */
+function holdRunPromiseCall(callNumber: number) {
+  const runtime = runtimeModule.runtime
+  const runPromise = runtime.runPromise
+  let calls = 0
+  let release!: () => void
+  const released = new Promise<void>((resolve) => (release = resolve))
+  let reached!: () => void
+  const held = new Promise<void>((resolve) => (reached = resolve))
+  const spy = spyOn(runtime, "runPromise").mockImplementation(((...args: Parameters<typeof runPromise>) => {
+    if (++calls !== callNumber) return runPromise.apply(runtime, args)
+    spy.mockRestore()
+    reached()
+    return released.then(() => runPromise.apply(runtime, args))
+  }) as typeof runPromise)
+  return { held, release }
 }
 
 describe("runbook IPC handlers", () => {
@@ -173,6 +195,38 @@ describe("runbook IPC handlers", () => {
       expect(reloadsSince(closed)).toEqual([])
     }, WATCH_TEST_TIMEOUT_MS)
 
+    describe("a load that a newer one overtakes", () => {
+      // A same-path reload awaits resolving the path (call 1), reading the
+      // file (call 2), and building the registry (call 3).
+      for (const [awaiting, heldCall] of [["resolving its path", 1], ["building its registry", 3]] as const) {
+        it(`leaves the runbook opened after it in place (held while ${awaiting})`, async () => {
+          setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+          const a = await getRunbook(dirA)
+
+          // A watch-mode reload of A that is still running when B is opened
+          const hold = holdRunPromiseCall(heldCall)
+          const reloadA = getRunbook(dirA, { reload: "watch" })
+          await hold.held
+          const b = await getRunbook(dirB)
+          const registryB = runtimeModule.executableRegistry
+          const opened = sent.length
+          hold.release()
+
+          // useIpc drops a superseded result; the renderer shows B.
+          expect<unknown>(await reloadA).toEqual({ superseded: true })
+          expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+          expect(sessionManager.getRunbookPath()).toBe(b.path)
+          expect(runtimeModule.executableRegistry).toBe(registryB)
+          expect(registryUpdatesSince(opened)).toBe(0)
+
+          // The watcher stays on B.
+          fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
+          await editUntilReloaded(b.path, opened)
+          expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
+        }, WATCH_TEST_TIMEOUT_MS)
+      }
+    })
+
     describe("session working dir", () => {
       const workingDir = async () =>
         (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir
@@ -257,6 +311,29 @@ describe("runbook IPC handlers", () => {
         expect(runtimeModule.executableRegistry).not.toBe(registryB)
         expect(greetHash()).not.toBe(frozenHash)
         expect(registryUpdatesSince(from)).toBe(1)
+      })
+
+      it("with --disable-live-file-reload, a load that overtakes a switch doesn't keep the previous runbook's registry", async () => {
+        setRunbookConfig({ ...originalRunbookConfig, disableLiveFileReload: true })
+        await getRunbook(dirB)
+        const registryB = runtimeModule.executableRegistry
+        const hashB = greetHash()
+
+        // Opening A awaits resolving its path, reading it, creating its session
+        // and resetting the warm renders (call 4). Load A again meanwhile: the
+        // session already belongs to A, so it keeps the registry it finds.
+        const hold = holdRunPromiseCall(4)
+        const openA = getRunbook(dirA)
+        await hold.held
+        const reopenA = await getRunbook(dirA)
+        hold.release()
+
+        expect<unknown>(await openA).toEqual({ superseded: true })
+        expect(reopenA.path).toBe(path.join(dirA, "runbook.mdx"))
+        expect(runtimeModule.executableRegistry).not.toBeNull()
+        expect(runtimeModule.executableRegistry).not.toBe(registryB)
+        // A's `echo a`, not B's `echo b`
+        expect(greetHash()).not.toBe(hashB)
       })
     })
   })
