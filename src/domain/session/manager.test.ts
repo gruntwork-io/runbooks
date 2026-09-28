@@ -593,4 +593,62 @@ describe("SessionManager", () => {
       expect(mgr.getActiveWorkTreePath()).toBe("")
     })
   })
+
+  describe("generation-scoped writes", () => {
+    it("getGeneration changes with every createSession, and only the live one is current", async () => {
+      await run(mgr.createSession("/a", "/a/runbook.mdx"), {})
+      const a = mgr.getGeneration()
+      expect(mgr.isCurrentGeneration(a)).toBe(true)
+
+      await run(mgr.createSession("/b", "/b/runbook.mdx"), {})
+      expect(mgr.getGeneration()).not.toBe(a)
+      expect(mgr.isCurrentGeneration(a)).toBe(false)
+      expect(mgr.isCurrentGeneration(mgr.getGeneration())).toBe(true)
+
+      mgr.deleteSession()
+      expect(mgr.isCurrentGeneration(mgr.getGeneration())).toBe(false)
+    })
+
+    it("a write started in runbook A that lands after runbook B opened changes nothing in B", async () => {
+      // Runbook A: an auth handler or clone captures the generation, then awaits.
+      await run(mgr.createSession("/a", "/a/runbook.mdx"), { SHARED: "a" })
+      const a = mgr.getGeneration()
+
+      // The user opens runbook B before A's request finishes.
+      await run(mgr.createSession("/b", "/b/runbook.mdx"), { SHARED: "b" })
+
+      await run(mgr.appendToEnv({ GITHUB_TOKEN: "token-from-a" }, a))
+      await run(mgr.removeFromEnv(["SHARED"], a))
+      mgr.registerWorkTreePath("/a/clone", a)
+      mgr.setActiveWorkTreePath("/a/clone", a)
+
+      const ctx = await run(mgr.getExecContext())
+      expect(ctx.env).toEqual({ SHARED: "b" })
+      expect(mgr.getActiveWorkTreePath()).toBe("")
+    })
+
+    it("writes scoped to the live generation apply as usual", async () => {
+      await run(mgr.createSession("/b", "/b/runbook.mdx"), { SHARED: "b" })
+      const b = mgr.getGeneration()
+
+      await run(mgr.appendToEnv({ GITHUB_TOKEN: "token-from-b" }, b))
+      await run(mgr.removeFromEnv(["SHARED"], b))
+      mgr.registerWorkTreePath("/b/clone-1", b)
+      mgr.registerWorkTreePath("/b/clone-2", b)
+      mgr.setActiveWorkTreePath("/b/clone-1", b)
+
+      const ctx = await run(mgr.getExecContext())
+      expect(ctx.env).toEqual({ GITHUB_TOKEN: "token-from-b" })
+      expect(mgr.getActiveWorkTreePath()).toBe("/b/clone-1")
+    })
+
+    it("a stale env write still fails, not no-ops, when there is no session at all", async () => {
+      await run(mgr.createSession("/a"), {})
+      const a = mgr.getGeneration()
+      mgr.deleteSession()
+
+      await expect(run(mgr.appendToEnv({ X: "1" }, a))).rejects.toThrow()
+      await expect(run(mgr.removeFromEnv(["X"], a))).rejects.toThrow()
+    })
+  })
 })

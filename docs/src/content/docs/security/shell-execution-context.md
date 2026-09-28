@@ -91,7 +91,7 @@ When a script finishes, Runbooks applies only what that script changed to the se
 
 Everything else in the session is left as it is. If the session changed while the script was running — for example, an auth block authenticated and added credentials, or you reset the session — those changes are kept, and the script's own changes are applied on top of them. If the script and something else both changed the same variable, the script's value wins, because it is applied last.
 
-If you open a different runbook while a script is running, the finished script's changes are discarded instead of being applied to the new runbook's session.
+If you open a different runbook while a script is running, the finished script's changes are discarded instead of being applied to the new runbook's session. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
 
 ### One Script at a Time
 

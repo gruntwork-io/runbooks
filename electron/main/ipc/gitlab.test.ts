@@ -190,3 +190,56 @@ describe("gitlab:validate", () => {
     ])
   })
 })
+
+describe("a sign-in that finishes after another runbook opened", () => {
+  /**
+   * Hold every /user validation until the returned release() is called: the
+   * window in which the user opens a different runbook.
+   */
+  const holdValidation = () => {
+    let release!: () => void
+    const released = new Promise<void>((resolve) => (release = resolve))
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input)
+      fetchCalls.push({ url })
+      if (url.endsWith("/api/v4/user")) {
+        await released
+        return json({ username: "tanuki" })
+      }
+      if (url.endsWith("/personal_access_tokens/self")) return json({ scopes: ["api"] })
+      return new Response("not found", { status: 404 })
+    }) as typeof fetch
+    return release
+  }
+
+  /** What runbook:get does when a different runbook is opened. */
+  const openAnotherRunbook = async () => {
+    await Effect.runPromise(
+      sessionManager.createSession("/tmp/runbook-b", "/tmp/runbook-b/runbook.mdx").pipe(
+        Effect.provide(makeTestEnvironment({})),
+      ),
+    )
+    vcsSessionMeta.clear()
+  }
+
+  it.each([
+    ["gitlab:validate", { token: "glpat-from-a", host: "gitlab.com", registerSession: true }],
+    ["gitlab:env-credentials", { host: "gitlab.com" }],
+  ] as const)("%s writes nothing to the new runbook's session", async (channel, params) => {
+    process.env.GITLAB_TOKEN = "glpat-env-from-a"
+    const release = holdValidation()
+
+    const pending = invoke(channel, params)
+    await openAnotherRunbook()
+    release()
+    const result = await pending
+
+    // Runbook A's (now unmounted) block still gets its answer...
+    expect(result.valid).toBe(true)
+    // ...but runbook B's session has no credential and no GitLab host binding.
+    const env = await sessionEnv()
+    expect(env.GITLAB_TOKEN).toBeUndefined()
+    expect(env.GITLAB_HOST).toBeUndefined()
+    expect(vcsSessionMeta.get("gitlab")).toBeUndefined()
+  })
+})

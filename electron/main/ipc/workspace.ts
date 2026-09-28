@@ -86,6 +86,7 @@ export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
     "workspace:register",
     async (_event, params: { worktreePath: string }) => {
+      const generation = sessionManager.getGeneration()
       return runtime.runPromise(
         Effect.gen(function* () {
           // Registered worktrees pass wherever they live (git:local-repo
@@ -93,7 +94,7 @@ export function registerWorkspaceHandlers(): void {
           // other path must resolve into the session with symlinks followed,
           // so a symlink planted there can't register a root outside it.
           const resolved = yield* validateSessionPath(params.worktreePath)
-          sessionManager.registerWorkTreePath(resolved)
+          sessionManager.registerWorkTreePath(resolved, generation)
           return { ok: true as const }
         }),
       )
@@ -103,10 +104,11 @@ export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
     "workspace:set-active",
     async (_event, params: { worktreePath: string }) => {
+      const generation = sessionManager.getGeneration()
       return runtime.runPromise(
         Effect.gen(function* () {
           const resolved = yield* validateSessionPath(params.worktreePath)
-          sessionManager.setActiveWorkTreePath(resolved)
+          sessionManager.setActiveWorkTreePath(resolved, generation)
           return { ok: true as const }
         }),
       )
