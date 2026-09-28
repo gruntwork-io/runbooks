@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { useApi } from '@/contexts/ApiContext'
 import { useGetFile } from '@/hooks/useApiGetFile'
 import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type TemplateValue } from '@/contexts/useRunbook'
 import { useApiExec } from '@/hooks/useApiExec'
@@ -222,6 +223,9 @@ export function useScriptExecution({
   usePty,
   timeoutMs,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
+  // IPC bridge for rendering the script's template
+  const api = useApi()
+
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, registryVersion } = useExecutableRegistry()
   
@@ -541,7 +545,7 @@ export function useScriptExecution({
     }
     
     try {
-      const responseData = await window.api.invoke('boilerplate:render-inline', {
+      const responseData = await api.invoke('boilerplate:render-inline', {
         templateFiles,
         inputs,
       })
@@ -570,7 +574,7 @@ export function useScriptExecution({
       setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
       setIsRendering(false)
     }
-  }, [rawScriptContent])
+  }, [api, rawScriptContent])
   
   // Compute flattened outputs for template context (used by render and prop resolution)
   const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])

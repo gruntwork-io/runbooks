@@ -79,16 +79,13 @@ async function typeName(result: ReturnType<typeof renderCommand>['result'], name
   })
 }
 
-const originalApi = window.api
 beforeEach(() => {
   renders.length = 0
   invoke.mockClear()
-  window.api = api
   vi.useFakeTimers()
 })
 afterEach(() => {
   vi.useRealTimers()
-  window.api = originalApi
 })
 
 describe('useScriptExecution render ordering', () => {
