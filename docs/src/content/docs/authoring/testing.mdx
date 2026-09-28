@@ -290,8 +290,8 @@ The `fuzz` object specifies how to generate random values.
 | `suffix` | string | `string` | Suffix to append to the generated string. |
 | `includeSpaces` | boolean | `string` | Include space characters. Default: `false`. |
 | `includeSpecialChars` | boolean | `string` | Include special characters. Default: `false`. |
-| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0, or `max - 100` when only a zero or negative `max` is set. |
-| `max` | integer | `int`, `float` | Maximum numeric value. Must be at least `min`; equal to `min` for a fixed value. Default: `min + 100`. |
+| `min` | number | `int`, `float` | Minimum numeric value. Default: 0, or `max - 100` when only a zero or negative `max` is set. |
+| `max` | number | `int`, `float` | Maximum numeric value. Must be at least `min`; equal to `min` for a fixed value. Default: `min + 100`. For `int`, fractional bounds narrow to the integers between them, and the test case fails if there are none. |
 | `options` | array | `enum` | Array of valid enum options. Required for `enum` type. |
 | `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
 | `minDate` | string | `date`, `timestamp` | Minimum date (supports RFC3339, YYYY-MM-DD). Default: 365 days ago. |

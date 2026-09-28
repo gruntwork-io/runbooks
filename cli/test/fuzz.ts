@@ -121,7 +121,11 @@ function numericRange(config: FuzzConfig): [number, number] {
 
 function generateInt(config: FuzzConfig): number {
   const [min, max] = numericRange(config)
-  return randomInt(min, max)
+  // Fractional bounds narrow to the whole numbers between them.
+  const lo = Math.ceil(min)
+  const hi = Math.floor(max)
+  if (hi < lo) throw new Error(`fuzz int: no integer between min (${min}) and max (${max})`)
+  return randomInt(lo, hi)
 }
 
 function generateFloat(config: FuzzConfig): number {

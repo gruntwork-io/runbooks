@@ -118,6 +118,24 @@ describe("generateFuzzValue", () => {
     )
   })
 
+  it("int: fractional bounds narrow to the whole numbers between them", () => {
+    const seen = new Set<number>()
+    for (let i = 0; i < SAMPLES; i++) {
+      const v = generateFuzzValue({ type: "int", min: 0.5, max: 2.5 }) as number
+      expect(Number.isInteger(v)).toBe(true)
+      expect(v).toBeGreaterThanOrEqual(1)
+      expect(v).toBeLessThanOrEqual(2)
+      seen.add(v)
+    }
+    expect(seen).toEqual(new Set([1, 2]))
+  })
+
+  it("int: throws when no integer lies between min and max", () => {
+    expect(() => generateFuzzValue({ type: "int", min: 0.2, max: 0.8 })).toThrow(
+      "fuzz int: no integer between min (0.2) and max (0.8)",
+    )
+  })
+
   it("bool: returns a boolean", () => {
     for (let i = 0; i < SAMPLES; i++) {
       const v = generateFuzzValue({ type: "bool" })
