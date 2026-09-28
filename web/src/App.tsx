@@ -30,10 +30,10 @@ import type { AppError } from './types/error'
  * end up in the "download logs" zip.
  *
  * A separate child so App itself doesn't read LogsContext: its value changes
- * on every streamed log line, and App re-rendering would re-render the whole
- * runbook each time. Its effect runs before App's in the same commit, which is
- * fine, because the next runbook's blocks only register logs once its MDX has
- * compiled.
+ * whenever hasLogs flips (e.g. on the first log line, or a clear), and App
+ * re-rendering would re-render the whole runbook. Its effect runs before App's
+ * in the same commit, which is fine, because the next runbook's blocks only
+ * register logs once its MDX has compiled.
  */
 function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string }) {
   const { clearLogs } = useLogs()
