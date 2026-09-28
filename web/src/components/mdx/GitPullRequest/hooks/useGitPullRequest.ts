@@ -149,18 +149,25 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     [authId, authDerivedProvider, cfg],
   )
 
+  // Monotonic label request counter: only the latest request may commit, so a
+  // slow response for the previous repo can't replace the current repo's labels.
+  const labelsSeqRef = useRef(0)
+
   // Fetch labels for a repo. `host` targets the repo's own instance (GitLab
   // self-hosted or gitlab.com; GitHub Enterprise or github.com).
   const fetchLabels = useCallback(async (owner: string, repo: string, host?: string) => {
     if (!owner || !repo) return
+    const seq = ++labelsSeqRef.current
     setLabelsLoading(true)
     try {
       const data = await api.invoke(cfg.channels.labels, { owner, repo, host })
+      if (seq !== labelsSeqRef.current) return
       setLabels((data.labels ?? []).map(name => ({ name, color: '', description: undefined })))
     } catch {
       // Non-critical
     } finally {
-      setLabelsLoading(false)
+      // A superseded request must not clear the spinner of the one that replaced it
+      if (seq === labelsSeqRef.current) setLabelsLoading(false)
     }
   }, [api, cfg])
 
