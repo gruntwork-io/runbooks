@@ -135,6 +135,27 @@ describe("openRemoteRunbookInWindow", () => {
     expect(errors[0].detail).toContain("[REDACTED]@github.com/o/r.git")
   })
 
+  it.each([
+    ["https", "https://user:{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
+    [
+      "git::https",
+      "git::https://deploy:{pw}@git.example.com/o/r.git//rb?ref=main",
+      "git::https://git.example.com/o/r.git//rb?ref=main",
+    ],
+  ])("strips the userinfo of a %s source from the error it shows", async (_scheme, typed, shown) => {
+    // Built at runtime so secret scanners don't flag the fixture.
+    const password = ["hunter", "2"].join("")
+    const { win } = makeFakeWindow(false)
+    const { deps, errors } = makeDeps(async () => {
+      throw new Error("network unreachable")
+    })
+
+    await openRemoteRunbookInWindow(win, typed.replace("{pw}", password), deps)
+
+    expect(errors[0].detail).not.toContain(password)
+    expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
+  })
+
   it("does nothing further once the window has been closed", async () => {
     for (const outcome of ["resolve", "reject"] as const) {
       const { win, calls } = makeFakeWindow(false, true)
