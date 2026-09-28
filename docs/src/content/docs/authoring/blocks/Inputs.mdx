@@ -42,7 +42,7 @@ Use `<Inputs>` when you need to collect variable values without generating files
 
 You must provide variables using exactly one of the following methods (but not both):
 
-- **Inline YAML** - Write the variable definitions directly inside the `<Inputs>` tags in the style of a `boilerplate.yml` file.
+- **Inline YAML** - Write the variable definitions directly inside the `<Inputs>` tags in the style of a `boilerplate.yml` file, wrapped in a ` ```yaml ` code fence.
 - `path` (string) - Path to a directory containing a `boilerplate.yml` file, relative to the runbook.
 
 ### Optional Props
@@ -59,7 +59,7 @@ There are two ways to declare the variables you want to collect from users. Use 
 
 ### Inline YAML
 
-Define variables directly in the Inputs block:
+Define variables directly in the Inputs block, inside a ` ```yaml ` code fence:
 
 `````mdx
 <Inputs id="user-settings">
@@ -77,6 +77,8 @@ variables:
 ```
 </Inputs>
 `````
+
+The code fence is required. Without it, MDX parses the YAML as Markdown paragraphs and lists and loses its indentation, so the block shows an "Invalid inline boilerplate configuration format" error asking you to wrap the YAML in a code fence.
 
 ## Loading from Path
 

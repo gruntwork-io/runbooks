@@ -296,6 +296,36 @@ variables:
     expect(ok).toHaveLength(0)
   })
 
+  // The app's Inputs block rejects these: MDX turns unfenced YAML on its own
+  // lines into paragraphs and lists, with or without a wrapper element.
+  it.each([
+    ["multi-line YAML", "<Inputs id=\"i1\">\nvariables:\n  - name: Region\n    type: string\n</Inputs>\n"],
+    ["YAML inside a wrapper element", "<Inputs id=\"i1\">\n<div>\nvariables:\n  - name: Region\n</div>\n</Inputs>\n"],
+    ["one line of YAML between the tags", "<Inputs id=\"i1\">\nvariables: []\n</Inputs>\n"],
+  ])("reports unfenced inline YAML (%s) as the app's code-fence config error", (_label, runbook) => {
+    const v = new InputValidator(writeRunbook(runbook))
+    v.init()
+    const err = v.getConfigErrors().find((e) => e.componentId === "i1")
+    expect(err?.message).toContain("Invalid inline boilerplate configuration format")
+    expect(err?.message).toContain("code fence")
+    expect(v.getAllSchemas().get("i1")?.variables.size).toBe(0)
+  })
+
+  it("accepts inline YAML on the same line as the tags, which the app passes through as text", () => {
+    const v = new InputValidator(writeRunbook("<Inputs id=\"i1\">variables: []</Inputs>\n"))
+    v.init()
+    expect(v.getConfigErrors()).toEqual([])
+  })
+
+  it("accepts inline YAML in a fence with any language hint, as the app does", () => {
+    const v = new InputValidator(
+      writeRunbook("<Inputs id=\"i1\">\n```json\n{\"variables\": [{\"name\": \"Region\"}]}\n```\n</Inputs>\n"),
+    )
+    v.init()
+    expect(v.getConfigErrors()).toEqual([])
+    expect([...v.getAllSchemas().get("i1")!.variables.keys()]).toEqual(["Region"])
+  })
+
   it("lists components in document order, not grouped by type", () => {
     const p = writeRunbook(`
 # Order

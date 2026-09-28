@@ -215,14 +215,18 @@ export class InputValidator {
           })
         }
       } else {
-        const inlineContent = comp.content.trim()
-        if (inlineContent) {
+        const yamlContent = comp.content.trim() ? extractInlineYAML(comp.content) : ""
+        if (yamlContent === null) {
+          this.configErrors.push({
+            componentType: "Inputs",
+            componentId: comp.id,
+            message: MISSING_FENCE_MESSAGE,
+          })
+        } else if (yamlContent) {
           try {
-            const cfg = parseInlineYAML(inlineContent)
-            if (cfg) {
-              for (const v of cfg.variables) {
-                schema.variables.set(v.name, v)
-              }
+            const cfg = parseConfig(yamlContent)
+            for (const v of cfg.variables) {
+              schema.variables.set(v.name, v)
             }
           } catch (e: unknown) {
             this.configErrors.push({
@@ -499,13 +503,21 @@ function loadBoilerplateConfig(configPath: string): BoilerplateConfig {
   return parseConfig(content)
 }
 
-function parseInlineYAML(content: string): BoilerplateConfig {
-  let yamlContent = content
-  const codeFenceRe = /```(?:yaml|yml)?\s*\n([\s\S]+?)```/
-  const match = codeFenceRe.exec(content)
-  if (match?.[1]) yamlContent = match[1]
+/** The Inputs block's error for unfenced inline YAML (extractYamlFromChildren). */
+const MISSING_FENCE_MESSAGE =
+  "Invalid inline boilerplate configuration format: please wrap your YAML content in a code fence (```yaml ... ```)"
 
-  return parseConfig(yamlContent)
+/**
+ * Returns the YAML inside an Inputs block's code fence, or null when the app
+ * would reject the content as unfenced. The app reads any fence, whatever its
+ * language hint. Without a fence, MDX turns YAML on its own lines into
+ * paragraphs and lists, which the block rejects; only content on the same
+ * line as the tags reaches it as plain text.
+ */
+function extractInlineYAML(content: string): string | null {
+  const match = /```[^\n]*\n([\s\S]+?)```/.exec(content)
+  if (match?.[1]) return match[1]
+  return content.includes("\n") ? null : content.trim()
 }
 
 /**
