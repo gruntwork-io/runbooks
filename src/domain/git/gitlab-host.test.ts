@@ -67,6 +67,14 @@ describe("gitHostFromRemoteUrl", () => {
     expect(gitHostFromRemoteUrl("git@gitlab.example.com:group/project.git")).toBe(
       "gitlab.example.com",
     )
+    // Any SSH user, not just `git` (self-managed GitLab)
+    expect(gitHostFromRemoteUrl("gitlab@gitlab.corp.net:group/project.git")).toBe(
+      "gitlab.corp.net",
+    )
+  })
+
+  it("does not read a host out of an option-like string", () => {
+    expect(gitHostFromRemoteUrl("--upload-pack=x@h:a/b")).toBeUndefined()
   })
 
   it.each([
@@ -124,6 +132,22 @@ describe("gitlabBaseUrlFromRemoteUrl", () => {
     expect(gitlabBaseUrlFromRemoteUrl("ssh://git@gitlab.example.com:2222/group/project.git")).toBe(
       "https://gitlab.example.com",
     )
+    expect(gitlabBaseUrlFromRemoteUrl("ssh://gitlab.example.com/group/project.git")).toBe(
+      "https://gitlab.example.com",
+    )
+    // Any SSH user, not just `git`
+    expect(gitlabBaseUrlFromRemoteUrl("gitlab@gitlab.corp.net:group/project.git")).toBe(
+      "https://gitlab.corp.net",
+    )
+  })
+
+  it("keeps an https remote's port and drops credentials embedded in it", () => {
+    expect(gitlabBaseUrlFromRemoteUrl("https://gitlab.example.com:8443/group/project.git")).toBe(
+      "https://gitlab.example.com:8443",
+    )
+    expect(
+      gitlabBaseUrlFromRemoteUrl("https://oauth2:glpat-secret@gitlab.example.com/group/project.git"),
+    ).toBe("https://gitlab.example.com")
   })
 
   // A token must never go to gitlab.com just because the remote didn't say

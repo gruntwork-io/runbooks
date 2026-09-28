@@ -84,6 +84,15 @@ describe("parseOwnerRepoFromURL", () => {
     expect(result).toEqual({ owner: "group/subgroup", repo: "project" })
   })
 
+  it("parses an SSH URL whose user is not git (self-managed GitLab)", () => {
+    const result = parseOwnerRepoFromURL("gitlab@gitlab.corp.net:group/proj.git")
+    expect(result).toEqual({ owner: "group", repo: "proj" })
+  })
+
+  it("does not parse an option-like string as an SSH URL", () => {
+    expect(parseOwnerRepoFromURL("--upload-pack=x@h:a/b")).toBeUndefined()
+  })
+
   it("strips .git suffix from HTTPS URL with trailing slash absent", () => {
     const result = parseOwnerRepoFromURL("https://github.com/owner/repo.git")
     expect(result).toEqual({ owner: "owner", repo: "repo" })
@@ -124,6 +133,7 @@ describe("isValidGitURL", () => {
     "git@github.com:owner/repo.git",
     "git@github.com:owner/repo",
     "git@gitlab.com:group/project",
+    "gitlab@gitlab.corp.net:group/proj.git",
   ])("returns true for %s", (url) => {
     expect(isValidGitURL(url)).toBe(true)
   })
@@ -134,6 +144,11 @@ describe("isValidGitURL", () => {
     "https://github.com",
     "https://github.com/owner",
     "ftp://github.com/owner/repo",
+    "gitlab@gitlab.corp.net:proj.git",
+    // Option-like and remote-helper strings must never reach `git clone`.
+    "--upload-pack=x@h:a/b",
+    "-oProxyCommand=x@h:a/b",
+    "ext::sh@h:a/b",
     // Option-like or malformed hosts and users
     "-u@github.com:owner/repo",
     "git@-oProxyCommand=evil:owner/repo",
@@ -141,8 +156,8 @@ describe("isValidGitURL", () => {
     "git@github.com@evil.example:owner/repo",
     "git@[evil:owner/repo",
     "git@github.com]:owner/repo",
-    // Only the git@ user is accepted in the scp-like form, as before
-    "deploy@github.com:owner/repo",
+    // The scp-like form needs a user (any user, not only git@)
+    "github.com:owner/repo",
   ])("returns false for %s", (url) => {
     expect(isValidGitURL(url)).toBe(false)
   })
@@ -199,6 +214,28 @@ describe("deleteBranch", () => {
       ),
     )
     expect(result._tag).toBe("Right")
+  })
+
+  it("refuses to delete the checked-out branch with a clear message", async () => {
+    let deleted = false
+    const layer = makeTestLayer({
+      git: {
+        getCurrentBranch: () => Effect.succeed("runbook/123"),
+        deleteBranch: () => Effect.sync(() => void (deleted = true)),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      deleteBranch("/repo", "runbook/123").pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        stderr: "Cannot delete branch runbook/123 because it is currently checked out",
+      })
+    }
+    expect(deleted).toBe(false)
   })
 })
 
@@ -317,7 +354,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed("git@gitlab.com:group/subgroup/project.git"),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -337,7 +374,7 @@ describe("createMergeRequest", () => {
     )
 
     // git half ran in order, then the MR was opened
-    expect(steps).toEqual(["createBranch", "stageAll", "commit", "push"])
+    expect(steps).toEqual(["stageAll", "createBranch", "commit", "push"])
     // iid surfaces as the user-facing number
     expect(result.number).toBe(7)
     expect(result.url).toContain("/merge_requests/7")
@@ -351,7 +388,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed("https://gitlab.acme.com/group/subgroup/project.git"),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -383,7 +420,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed(remoteUrl),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -455,6 +492,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed("git@gitlab.com:group/subgroup/project.git"),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -487,9 +525,10 @@ describe("createMergeRequest", () => {
       files: { "/repo/sub/.git": "gitdir: ..." },
       git: {
         getRemoteUrl: () => Effect.succeed("git@gitlab.com:group/subgroup/project.git"),
+        // stageAll adds file.txt; the embedded repo stays untracked.
         status: () =>
-          Effect.succeed([
-            { path: "file.txt", status: "??" },
+          Effect.sync(() => [
+            { path: "file.txt", status: stagedExcludes ? "A" : "??" },
             { path: "sub/", status: "??" },
           ]),
         createBranch: () => Effect.void,
@@ -635,12 +674,16 @@ describe("seedDefaultBranch", () => {
     expect(pushToken).toBe("ghp_secret")
   })
 
-  it("validates a GitLab token at the instance its origin names", async () => {
+  it.each([
+    ["[git@gitlab.corp:2222]:platform/infra.git", "https://gitlab.corp"],
+    // A self-managed instance whose SSH server runs as `gitlab`, not `git`
+    ["gitlab@gitlab.corp.net:group/project.git", "https://gitlab.corp.net"],
+  ])("validates a GitLab token at the instance its origin names (%s)", async (remoteUrl, expected) => {
     let validatedAt: string | undefined
 
     const layer = makeTestLayer({
       git: {
-        getRemoteUrl: () => Effect.succeed("[git@gitlab.corp:2222]:platform/infra.git"),
+        getRemoteUrl: () => Effect.succeed(remoteUrl),
         hasCommits: () => Effect.succeed(false),
         createBranch: () => Effect.void,
         commit: () => Effect.void,
@@ -661,7 +704,7 @@ describe("seedDefaultBranch", () => {
       ),
     )
 
-    expect(validatedAt).toBe("https://gitlab.corp")
+    expect(validatedAt).toBe(expected)
   })
 
   it.each([
@@ -725,7 +768,7 @@ describe("push credential username", () => {
 
   const recordPush = (onPush: (username: string | undefined) => void) => ({
     getRemoteUrl: () => Effect.succeed("git@gitlab.com:acme/infra.git"),
-    status: () => Effect.succeed([]),
+    status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
     hasCommits: () => Effect.succeed(false),
     createBranch: () => Effect.void,
     stageAll: () => Effect.void,

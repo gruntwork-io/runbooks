@@ -11,7 +11,7 @@ import type { CreatePRParams } from "../../services/GitHubClient.ts"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { CreateMRParams } from "../../services/GitLabClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
-import { GitError } from "../../errors/index.ts"
+import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { gitSpawnEnv } from "./env.ts"
 import { gitlabBaseUrlFromRemoteUrl } from "./gitlab-host.ts"
 import { gitCredentialUsername } from "./url.ts"
@@ -21,7 +21,10 @@ import { gitRemoteOwnerRepo, parseGitRemoteUrl } from "./remote-url.ts"
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Branches that cannot be deleted via deleteBranch. */
+/**
+ * Branches that cannot be deleted via deleteBranch, nor used as the head branch
+ * of a PR/MR (see runGitSteps).
+ */
 const PROTECTED_BRANCHES = new Set([
   "main",
   "master",
@@ -81,19 +84,35 @@ export interface OwnerRepo {
 
 /**
  * Delete a local branch. Refuses to delete protected branches (main, master,
- * develop, dev, staging, release, prod, production).
+ * develop, dev, staging, release, prod, production) and the branch that is
+ * currently checked out. The delete itself is `git branch -d`, so a branch with
+ * commits not merged into its upstream (or HEAD) is refused, not discarded.
  */
 export const deleteBranch = (repoPath: string, branch: string) =>
   Effect.gen(function* () {
     if (PROTECTED_BRANCHES.has(branch)) {
       return yield* new GitError({
-        command: "branch -D",
+        command: "branch -d",
         stderr: `Refusing to delete protected branch: ${branch}`,
         exitCode: 1,
       })
     }
 
     const gitClient = yield* GitClient
+
+    // git's own refusal ("used by worktree at …") doesn't say what to do.
+    // Best-effort: if HEAD can't be read, let `git branch -d` decide.
+    const current = yield* gitClient
+      .getCurrentBranch(repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    if (current === branch) {
+      return yield* new GitError({
+        command: "branch -d",
+        stderr: `Cannot delete branch ${branch} because it is currently checked out`,
+        exitCode: 1,
+      })
+    }
+
     return yield* gitClient.deleteBranch(repoPath, branch)
   })
 
@@ -200,6 +219,42 @@ const resolveGitLabAuthor = (token: string, baseUrl: string) =>
     return toCommitIdentity(validation.user)
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
+/**
+ * Whether HEAD has commits that the base branch doesn't, i.e. anything a PR/MR
+ * from HEAD would carry. Compared with origin's copy of the base when there is
+ * one (what the provider compares with), else the local base branch; false
+ * when neither resolves.
+ */
+const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    return yield* gitClient.hasCommitsNotIn(repoPath, `refs/remotes/origin/${baseBranch}`).pipe(
+      Effect.orElse(() => gitClient.hasCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
+      Effect.orElseSucceed(() => false),
+    )
+  })
+
+/**
+ * The provider's "already exists" rejection of a PR/MR (GitHub's 422, GitLab's
+ * 409), restated for where runGitSteps has left things: the push to the head
+ * branch landed first, so the commits are on the open PR/MR now. The
+ * provider's own text follows, since GitLab's names the open MR.
+ */
+const alreadyOpenMessage = (noun: string, headBranch: string, providerMessage: string) =>
+  `A ${noun} for ${headBranch} already exists. The commits were pushed to its branch, so they are part of it now. (${providerMessage})`
+
+/**
+ * Why runGitSteps refuses a new head branch name when nothing is staged and
+ * the commits HEAD's `branch` has over the base are all on origin already:
+ * typically `branch` is the one a PR/MR was just opened from ("create
+ * another" fills in a new name), and a PR/MR from `headBranch` would repeat
+ * its commits. Creating with `branch`'s own name resumes on it, which also
+ * covers a push that landed before the PR/MR call failed.
+ */
+const alreadyPushedMessage = (noun: string, branch: string, baseBranch: string, headBranch: string) =>
+  `Nothing to commit: no files changed, and the commits on ${branch} that ${baseBranch} doesn't have are already on origin, so a ${noun} from ${headBranch} would only repeat them. ` +
+  `To add changes to the ${noun} open from ${branch}, make them and use Git Push, or create again with ${branch} as the branch name (which also opens a ${noun} from ${branch} if there is none yet).`
+
 /** Wrap an optional progress callback as an Effect-returning reporter. */
 const makeReport =
   (onProgress?: (line: string) => void) =>
@@ -207,13 +262,33 @@ const makeReport =
     Effect.sync(() => onProgress?.(line))
 
 /**
- * Shared local-git half of opening a PR/MR: create + switch to the head branch,
- * stage all changes, commit, and push to origin. The push authenticates with
+ * Shared local-git half of opening a PR/MR: stage all changes, create + switch
+ * to the head branch, commit, and push to origin. The push authenticates with
  * the token the caller resolved, sent with `provider`'s credential username
  * (`oauth2` for GitLab, `x-access-token` for GitHub; see gitCredentialUsername).
  *
  * `author` is the authenticated user's identity, applied to the commit only as a
  * fallback when the machine has no git identity configured (see CommitOptions).
+ *
+ * Resumable: an attempt that fails after `checkout -b` (a failed push, a failed
+ * API call) leaves HEAD on the head branch. Running again with the same branch
+ * name picks up there instead of failing on "a branch named … already exists":
+ * it skips the branch creation, commits only if there is something new, and
+ * pushes. Running again under a new name branches off HEAD, so the commits the
+ * failed attempt made are pushed on the new branch.
+ *
+ * With nothing staged it fails with "Nothing to commit", before any branch is
+ * created or checked out, when HEAD has no commits the base lacks, and, under
+ * a new name, also when all of those commits are on origin already (see
+ * alreadyPushedMessage): only commits that never reached origin, such as a
+ * failed push's, are worth a PR/MR under a new name. Resuming goes on in that
+ * case, since a push that landed before a failed PR/MR call still needs its
+ * PR/MR.
+ *
+ * Resuming keys on HEAD alone, and HEAD also stays on the head branch after a
+ * PR/MR was opened from it. Running again with that name then pushes to the
+ * open PR/MR's branch before the provider rejects the duplicate, which the
+ * callers report as such (see alreadyOpenMessage).
  */
 const runGitSteps = (
   token: string,
@@ -226,8 +301,24 @@ const runGitSteps = (
     const gitClient = yield* GitClient
     const report = makeReport(onProgress)
 
-    yield* report(`Creating branch ${params.headBranch}…`)
-    yield* gitClient.createBranch(params.repoPath, params.headBranch)
+    // Resuming skips `checkout -b`, whose failure on an existing branch was
+    // the only thing stopping a commit and push straight to the base branch.
+    if (params.headBranch === params.baseBranch || PROTECTED_BRANCHES.has(params.headBranch)) {
+      const reason =
+        params.headBranch === params.baseBranch ? "it is the base branch" : "it is a protected branch"
+      return yield* new GitError({
+        command: "checkout -b",
+        stderr: `Refusing to commit to ${params.headBranch}: ${reason}. Choose a new branch name for the changes.`,
+        exitCode: 1,
+      })
+    }
+
+    // Best-effort: an unreadable HEAD (e.g. an empty repo) just means "not
+    // resuming", and `checkout -b` reports whatever is actually wrong.
+    const current = yield* gitClient
+      .getCurrentBranch(params.repoPath)
+      .pipe(Effect.orElseSucceed(() => ""))
+    const resuming = current === params.headBranch
 
     // Keep embedded git repos out of the commit: `git add -A` would otherwise
     // stage them as broken submodule gitlinks pointing at commits the target
@@ -243,9 +334,56 @@ const runGitSteps = (
       )
     }
 
-    yield* report("Staging and committing changes…")
+    // Staged before the branch step, which carries the index over, so that an
+    // attempt with nothing to push stops before it moves HEAD.
+    yield* report("Staging changes…")
     yield* gitClient.stageAll(params.repoPath, embedded)
-    yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
+
+    // An earlier attempt, under this name or another, may already have
+    // committed everything; commit only what is staged now. (Not hasChanges:
+    // the embedded repos left out of staging still show as untracked.) status()
+    // trims the XY code, so a worktree-only change (a tracked submodule with
+    // modified content) also counts here, and the commit then fails with git's
+    // own error.
+    const hasStaged = (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
+    if (!hasStaged) {
+      if (!(yield* hasCommitsNotOnBase(params.repoPath, params.baseBranch))) {
+        return yield* new GitError({
+          command: "commit",
+          stderr: `Nothing to commit: no files changed, and there are no commits that ${params.baseBranch} doesn't already have.`,
+          exitCode: 1,
+        })
+      }
+      // Under a new name, push HEAD's commits only if they never reached
+      // origin (a failed push). `push -u` records a pushed branch under
+      // refs/remotes/origin/, so after a PR/MR was opened this is false.
+      if (!resuming && !(yield* gitClient.hasCommitsNotOnRemote(params.repoPath, "origin"))) {
+        return yield* new GitError({
+          command: "commit",
+          stderr: alreadyPushedMessage(
+            provider === "github" ? "pull request" : "merge request",
+            current || "HEAD",
+            params.baseBranch,
+            params.headBranch,
+          ),
+          exitCode: 1,
+        })
+      }
+    }
+
+    if (resuming) {
+      yield* report(`Resuming on existing branch ${params.headBranch}…`)
+    } else {
+      yield* report(`Creating branch ${params.headBranch}…`)
+      yield* gitClient.createBranch(params.repoPath, params.headBranch)
+    }
+
+    if (hasStaged) {
+      yield* report("Committing changes…")
+      yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
+    } else {
+      yield* report("No new changes to commit; pushing the existing commits…")
+    }
 
     yield* report(`Pushing ${params.headBranch} to origin…`)
     yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
@@ -258,7 +396,8 @@ const runGitSteps = (
 /**
  * Create a pull request by orchestrating: the shared git steps (branch, stage,
  * commit, push), then create the PR via the GitHub API and optionally add
- * labels.
+ * labels. Labels are best-effort: once the PR exists, a labeling failure is
+ * reported as a progress warning and the PR is still returned.
  */
 export const createPullRequest = (
   token: string,
@@ -287,20 +426,32 @@ export const createPullRequest = (
       body: params.body,
       baseBranch: params.baseBranch,
       headBranch: params.headBranch,
-      labels: params.labels,
     }
 
-    const pr = yield* ghClient.createPullRequest(token, prParams, params.host)
+    const pr = yield* ghClient.createPullRequest(token, prParams, params.host).pipe(
+      Effect.mapError((e) =>
+        e.status === 422 && /pull request already exists/i.test(e.message)
+          ? new GitHubApiError({
+              status: e.status,
+              message: alreadyOpenMessage("pull request", params.headBranch, e.message),
+            })
+          : e,
+      ),
+    )
 
     if (params.labels && params.labels.length > 0) {
-      yield* ghClient.addLabels(
-        token,
-        params.owner,
-        params.repo,
-        pr.number,
-        params.labels,
-        params.host,
-      )
+      yield* report("Adding labels…")
+      yield* ghClient
+        .addLabels(token, params.owner, params.repo, pr.number, params.labels, params.host)
+        .pipe(
+          Effect.catchAll((e) =>
+            report(
+              `Warning: PR #${pr.number} was created but labels could not be applied: ${
+                e.message || `status ${e.status}`
+              }`,
+            ),
+          ),
+        )
     }
 
     return pr
@@ -345,7 +496,16 @@ export const createMergeRequest = (
       baseUrl,
     }
 
-    return yield* glClient.createMergeRequest(token, mrParams)
+    return yield* glClient.createMergeRequest(token, mrParams).pipe(
+      Effect.mapError((e) =>
+        e.status === 409
+          ? new GitLabApiError({
+              status: e.status,
+              message: alreadyOpenMessage("merge request", params.headBranch, e.message),
+            })
+          : e,
+      ),
+    )
   })
 
 /**
@@ -499,12 +659,13 @@ export const countFiles = (dir: string) =>
 
 /**
  * Parse owner and repo from a git remote URL.
- * Supports every form parseGitRemoteUrl does, e.g.:
+ * Supports every form parseGitRemoteUrl does, with any SSH user, e.g.:
  *   https://github.com/owner/repo.git
  *   https://github.com/owner/repo
  *   git@github.com:owner/repo.git
  *   git@github.com:owner/repo
  *   git@[::1]:owner/repo.git
+ *   gitlab@gitlab.corp.net:group/project.git
  *
  * The last path segment is treated as the repo (project) and everything
  * before it as the owner. This keeps GitHub URLs (always `owner/repo`)
@@ -518,15 +679,17 @@ export const parseOwnerRepoFromURL = (rawURL: string): OwnerRepo | undefined =>
 
 /**
  * Validate whether a string is a git URL the clone handler accepts: an
- * http(s) URL, or the scp-like `git@host:path` form, naming an `owner/repo`
- * path. A URL git or ssh could read as an option (leading `-`) or whose host
- * is malformed never validates (see parseGitRemoteUrl).
+ * http(s) URL, or the scp-like `user@host:path` form, naming an `owner/repo`
+ * path. Any SSH user is accepted, not just `git`: self-managed GitLab can run
+ * its SSH server under another name (`gitlab@gitlab.corp.net:group/project.git`).
+ * A URL git or ssh could read as an option (leading `-`, including in the
+ * user) or whose host is malformed never validates (see parseGitRemoteUrl).
  */
 export const isValidGitURL = (url: string): boolean => {
   const remote = parseGitRemoteUrl(url)
   if (!remote) return false
   const allowed = remote.scpLike
-    ? remote.user === "git"
+    ? remote.user !== undefined
     : remote.scheme === "https" || remote.scheme === "http"
   return allowed && gitRemoteOwnerRepo(url) !== undefined
 }

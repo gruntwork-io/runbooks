@@ -20,7 +20,7 @@ import type {
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
 import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
-import { gitSpawnEnv } from "../domain/git/env.ts"
+import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
 
 /**
  * Run a git command, collect all output, and return stdout lines.
@@ -64,6 +64,18 @@ function runGit(
 
     return lines.filter((l) => l.source === "stdout").map((l) => l.line)
   })
+}
+
+/**
+ * Spawn environment for a git command that may start ssh (clone, push): the
+ * no-prompt guards wrapped around the user's core.sshCommand as seen from
+ * `cwd`. See gitSpawnEnv.
+ */
+function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
+  return resolveSshCommand(cwd).pipe(
+    Effect.provideService(ProcessSpawner, spawner),
+    Effect.map((sshCommand) => gitSpawnEnv(sshCommand)),
+  )
 }
 
 /**
@@ -161,7 +173,14 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // origin (and its .git/config) stays credential-free. Every command
         // below gets the same auth: a blobless clone fetches file contents
         // lazily from origin during checkout, and a commit may be fetched.
-        const env = withGitHttpAuth(gitSpawnEnv(), url, options?.token, options?.username)
+        // No repo exists yet, so the user's core.sshCommand is looked up from
+        // dest's parent; the follow-up commands reuse the env for the same
+        // reason they reuse the auth.
+        const sshEnv = yield* sshSpawnEnv(
+          spawner,
+          path.dirname(path.resolve(options?.repoPath ?? "", dest)),
+        )
+        const env = withGitHttpAuth(sshEnv, url, options?.token, options?.username)
         const ref = options?.ref
         // `git clone --branch` takes only a branch or tag name, so a commit
         // is checked out once the clone is down.
@@ -230,6 +249,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // `--` keeps a branch that looks like an option (e.g.
         // `--receive-pack=<command>`, which git would run) a refspec.
         args.push("--", remote, branch)
+        const env = yield* sshSpawnEnv(spawner, repoPath)
 
         // Authenticate this one push through the environment rather than by
         // rewriting the remote URL, so the token never lands in .git/config and
@@ -242,13 +262,13 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           const [pushUrl = ""] = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
           const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
           if (sameHttpOrigin(pushUrl, fetchUrl)) {
-            const env = withGitHttpAuth(gitSpawnEnv(), pushUrl, options.token, options.username)
-            yield* runGit(spawner, args, repoPath, undefined, env)
+            const authEnv = withGitHttpAuth(env, pushUrl, options.token, options.username)
+            yield* runGit(spawner, args, repoPath, undefined, authEnv)
             return
           }
         }
 
-        yield* runGit(spawner, args, repoPath)
+        yield* runGit(spawner, args, repoPath, undefined, env)
       }),
 
     deleteBranch: (repoPath: string, branch: string) =>
@@ -390,6 +410,16 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       runGit(spawner, ["rev-parse", "HEAD"], repoPath).pipe(
         Effect.map(() => true),
         Effect.catchAll(() => Effect.succeed(false)),
+      ),
+
+    hasCommitsNotIn: (repoPath: string, ref: string) =>
+      runGit(spawner, ["rev-list", "--count", `${ref}..HEAD`, "--"], repoPath).pipe(
+        Effect.map((lines) => Number(lines[0]) > 0),
+      ),
+
+    hasCommitsNotOnRemote: (repoPath: string, remote: string) =>
+      runGit(spawner, ["rev-list", "--count", "HEAD", "--not", `--remotes=${remote}`, "--"], repoPath).pipe(
+        Effect.map((lines) => Number(lines[0]) > 0),
       ),
 
     checkIgnored: (repoPath: string, paths: string[]) =>

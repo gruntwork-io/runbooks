@@ -550,6 +550,28 @@ describe("openRemoteRunbook (real git)", () => {
     expect(tokenInAnyArg()).toBe(false)
   }, 30_000)
 
+  it("the ref lookup and the clone both run the user's core.sshCommand, in batch mode", async () => {
+    // A url.<ssh>.insteadOf rewrite sends even an https browser URL over ssh,
+    // so the ls-remote must wrap the same ssh client as the clone.
+    const count = Number(process.env.GIT_CONFIG_COUNT)
+    const inheritedSshCommand = process.env.GIT_SSH_COMMAND
+    delete process.env.GIT_SSH_COMMAND
+    setEnv(`GIT_CONFIG_KEY_${count}`, "core.sshCommand")
+    setEnv(`GIT_CONFIG_VALUE_${count}`, "ssh -i /keys/id_work")
+    setEnv("GIT_CONFIG_COUNT", String(count + 1))
+    try {
+      await open("https://git.example.com/org/repo/tree/main/runbooks/vpc")
+    } finally {
+      setEnv("GIT_CONFIG_COUNT", String(count))
+      if (inheritedSshCommand !== undefined) process.env.GIT_SSH_COMMAND = inheritedSshCommand
+    }
+
+    const sshCommandOf = (subcommand: string) =>
+      spawns.find((s) => s.args[0] === subcommand)?.env?.GIT_SSH_COMMAND
+    expect(sshCommandOf("ls-remote")).toBe("ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes")
+    expect(sshCommandOf("clone")).toBe("ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes")
+  }, 30_000)
+
   it("http:// never looks up or sends a token", async () => {
     const result = await open("git::http://git.example.com/org/repo.git//runbooks/vpc")
 

@@ -62,7 +62,6 @@ export interface CreatePRParams {
   readonly body?: string
   readonly baseBranch: string
   readonly headBranch: string
-  readonly labels?: string[]
 }
 
 export interface PullRequestResult {

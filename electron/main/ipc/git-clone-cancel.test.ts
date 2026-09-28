@@ -34,13 +34,17 @@ beforeAll(async () => {
   // repository over a slow link, or one that has written the checkout but not
   // exited yet. It writes into the destination (its last argument), which a
   // cancelled git is not trusted to remove. `exec` keeps its pid, which it
-  // records so the test can check whether the process is still alive.
+  // records so the test can check whether the process is still alive. Only
+  // the clone behaves so: any other git command the handler runs before it
+  // (the core.sshCommand lookup) exits 1 at once, as git does for an unset
+  // key, rather than hang or write into the test's working directory.
   const binDir = path.join(tmpDir, "bin")
   fs.mkdirSync(binDir)
   fs.writeFileSync(
     path.join(binDir, "git"),
     [
       "#!/bin/sh",
+      '[ "$1" = clone ] || exit 1',
       `echo $$ > "${pidFile}"`,
       'for dest; do :; done',
       'mkdir -p "$dest" && echo partial > "$dest/partial"',
