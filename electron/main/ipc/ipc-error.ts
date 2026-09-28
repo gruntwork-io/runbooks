@@ -25,6 +25,7 @@
 import { Cause, Option, Runtime } from "effect"
 import type { IpcMain } from "electron"
 import type { GitError } from "../../../src/errors/index.ts"
+import { redactSecrets } from "../../../src/domain/vcs/redact.ts"
 
 /** Fields a Data.TaggedError from src/errors may carry, all optional. */
 interface TaggedFailure {
@@ -88,12 +89,16 @@ export function describeCause(cause: Cause.Cause<unknown>): string {
  * "Error occurred in handler for '<channel>'" log in MAIN still shows the full
  * FiberFailure; only `toString()` crosses to the renderer, and it ignores
  * `cause`.
+ *
+ * The message goes through redactSecrets() (src/domain/vcs/redact.ts) as
+ * defense in depth: git stderr or a handler's own message could otherwise
+ * carry a token to the renderer.
  */
 export function toIpcError(err: unknown): Error {
   // A FiberFailure's toString() is Cause.pretty, frames and all, so describe
   // its Cause instead.
   const message = Runtime.isFiberFailure(err) ? describeCause(err[Runtime.FiberFailureCauseId]) : describeFailure(err)
-  return new Error(message, { cause: err })
+  return new Error(redactSecrets(message), { cause: err })
 }
 
 /**

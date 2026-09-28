@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "bun:test"
+import { describe, it, expect, afterAll, afterEach } from "bun:test"
 import { Cause, Effect, FiberId, Layer, ManagedRuntime } from "effect"
 import type { IpcMain, IpcMainInvokeEvent } from "electron"
 import {
@@ -10,6 +10,7 @@ import {
   RenderError,
   SessionNotFoundError,
 } from "../../../src/errors/index.ts"
+import { clearRegisteredSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { cleanIpcErrorMessage } from "../../shared/ipc-error-message.ts"
 import { describeCause, describeFailure, installIpcErrorNormalization, toIpcError } from "./ipc-error.ts"
 
@@ -127,6 +128,35 @@ describe("toIpcError", () => {
   it("keeps the original rejection as the cause for MAIN's own log", async () => {
     const err = await rejectionOf(Effect.fail(new FileReadError({ path: "/x", cause: enoent() })))
     expect(toIpcError(err).cause).toBe(err)
+  })
+
+  describe("secret redaction", () => {
+    afterEach(() => clearRegisteredSecrets())
+
+    it("redacts a registered secret from a GitError's stderr", async () => {
+      registerSecret("supersecrettoken123")
+      const err = await rejectionOf(
+        Effect.fail(
+          new GitError({
+            command: "git push",
+            stderr: "fatal: unable to access 'https://supersecrettoken123@git.example.com/o/r.git/'",
+            exitCode: 128,
+          }),
+        ),
+      )
+      expect(toIpcError(err).message).toBe("fatal: unable to access 'https://[REDACTED]@git.example.com/o/r.git/'")
+    })
+
+    it("redacts every message it passes through: a plain Error, a defect and a token shape", async () => {
+      registerSecret("supersecrettoken123")
+      expect(toIpcError(new Error("bad token supersecrettoken123")).message).toBe("bad token [REDACTED]")
+
+      const defect = await rejectionOf(Effect.die(new Error("bad token supersecrettoken123")))
+      expect(toIpcError(defect).message).toBe("bad token [REDACTED]")
+
+      const pat = "ghp_" + "a".repeat(36)
+      expect(toIpcError(new RenderError({ message: `template saw ${pat}` })).message).toBe("template saw [REDACTED]")
+    })
   })
 })
 
