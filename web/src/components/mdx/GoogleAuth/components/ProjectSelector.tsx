@@ -59,7 +59,7 @@ export function ProjectSelector({
       {error && (
         <div className="text-destructive text-sm flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-          <div>
+          <div className="min-w-0">
             <strong>Could not list projects:</strong> {error}
           </div>
         </div>

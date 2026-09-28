@@ -652,7 +652,7 @@ function GitCloneInteractive({
               {errorMessage && cloneStatus === 'fail' && (
                 <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
                   <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-destructive m-0">
                       {isLocalSource ? "Couldn't use that repository" : 'Clone failed'}
                     </p>

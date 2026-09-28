@@ -7,8 +7,9 @@
  * (and everything it holds) overflows the block and the runbook pane grows a
  * horizontal scrollbar. This launches the real app at a ~900px window on a
  * runbook generated at test time — Admonitions, Command/Check descriptions,
- * every auth block's description, and a GitClone local-checkout completion for
- * a repo under a long temp path — and measures the rendered layout.
+ * every auth block's description, a GitClone local-checkout completion for a
+ * repo under a long temp path, and a "Can't use this directory" error panel —
+ * and measures the rendered layout.
  *
  * git runs with a sandboxed HOME and GIT_CONFIG_GLOBAL/SYSTEM=/dev/null, both
  * for the fixture repo (every spawn gets that env explicitly) and for the app.
@@ -87,6 +88,8 @@ The plan is written to \`${longPath}\`. Read more at ${LONG_URL}.
 <GitLabAuth id="gitlab-long" title="GitLab" description="Tokens come from \`${longPath}\`. See ${LONG_URL}." />
 
 <GitClone id="local-long" title="Use the long checkout" source="local" prefilledRepoDir="${repoDir}" />
+
+<GitClone id="missing-long" title="Use a missing checkout" source="local" prefilledRepoDir="${path.join(repoDir, SEGMENT)}" />
 `
 }
 
@@ -218,6 +221,11 @@ test("long paths and URLs stay inside their blocks at a narrow window", async ()
   await expect(content).toBeVisible()
   await expect(local.getByText("Using local checkout")).toBeVisible({ timeout: 20_000 })
   await expect(local.getByText(REMOTE_URL)).toBeVisible()
+
+  // Error panel: a missing directory under the same long path.
+  const missing = page.getByTestId("missing-long")
+  await expect(missing.getByText("Can't use this directory")).toBeVisible({ timeout: 20_000 })
+  await expect(missing.getByText(/Directory not found:/)).toBeVisible()
 
   // Every auth block has rendered its description.
   for (const id of ["aws-long", "gcp-long", "git-long", "github-long", "gitlab-long"]) {

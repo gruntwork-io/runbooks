@@ -133,7 +133,7 @@ export function AuthSuccess({
           {sessionEnvWarning && (
             <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
               <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
-              <div>{sessionEnvWarning}</div>
+              <div className="min-w-0">{sessionEnvWarning}</div>
             </div>
           )}
         </div>
@@ -357,7 +357,7 @@ export function AuthSuccess({
         {sessionEnvWarning && (
           <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
             <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
-            <div>{sessionEnvWarning}</div>
+            <div className="min-w-0">{sessionEnvWarning}</div>
           </div>
         )}
       </div>

@@ -279,7 +279,7 @@ function GoogleAuthInteractive({
           {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
             <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
                 <span className="text-warning-foreground">Please authenticate manually below.</span>
@@ -291,7 +291,7 @@ function GoogleAuthInteractive({
           {auth.authStatus === 'failed' && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Authentication failed:</strong> {auth.errorMessage}
               </div>
             </div>

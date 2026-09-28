@@ -125,7 +125,7 @@ export function LocalRepoForm({
       {previewStatus === 'invalid' && (
         <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
           <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-destructive m-0">Can&apos;t use this directory</p>
             <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{previewError}</p>
           </div>

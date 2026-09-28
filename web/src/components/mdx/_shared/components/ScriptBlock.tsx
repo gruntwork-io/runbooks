@@ -507,7 +507,7 @@ export function ScriptBlock({
           {renderError && hasAllOutputDependencies && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
                 {renderError.details && <div className="text-xs mt-1 text-destructive">{renderError.details}</div>}
               </div>
@@ -517,7 +517,7 @@ export function ScriptBlock({
           {execError && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>{execError.message}</strong>
                 {execError.details && <div className="text-xs mt-1 text-destructive">{execError.details}</div>}
               </div>
