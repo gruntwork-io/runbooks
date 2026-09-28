@@ -536,6 +536,9 @@ describe("getWorkspaceChanges (real repo)", () => {
   // The mocked tests above hand back clean paths and whatever diff data they
   // like; these run the live git and file-system layers against a real repo.
   // The spawner is wrapped to record every git invocation.
+  const SANDBOX_VARS = ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] as const
+  const savedEnv: Record<string, string | undefined> = {}
+  let root: string
   let repoPath: string
   let gitCalls: string[][]
 
@@ -553,23 +556,38 @@ describe("getWorkspaceChanges (real repo)", () => {
     GitCliClientLive.pipe(Layer.provide(recordingSpawner)),
   )
 
+  // `env: process.env` because bun's child_process otherwise starts git with
+  // the environment the test process began with, not the sandbox below.
   const git = (...args: string[]) =>
     execFileSync(
       "git",
       ["-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", ...args],
-      { cwd: repoPath, stdio: "pipe" },
+      { cwd: repoPath, stdio: "pipe", env: process.env },
     )
   const write = (file: string, content: string) =>
     nodeFs.writeFileSync(nodePath.join(repoPath, file), content)
 
   beforeEach(() => {
-    repoPath = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-workspace-changes-"))
+    root = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-workspace-changes-"))
+    // git runs with a sandboxed HOME and no global or system config, here and
+    // in the live layer, so the machine's git config can't change its output.
+    for (const key of SANDBOX_VARS) savedEnv[key] = process.env[key]
+    nodeFs.mkdirSync(nodePath.join(root, "home"))
+    process.env.HOME = nodePath.join(root, "home")
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+    repoPath = nodePath.join(root, "repo")
+    nodeFs.mkdirSync(repoPath)
     gitCalls = []
     git("init")
   })
 
   afterEach(() => {
-    nodeFs.rmSync(repoPath, { recursive: true, force: true })
+    for (const key of SANDBOX_VARS) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    nodeFs.rmSync(root, { recursive: true, force: true })
   })
 
   it("reports unusual paths verbatim and diffs staged changes against HEAD", async () => {

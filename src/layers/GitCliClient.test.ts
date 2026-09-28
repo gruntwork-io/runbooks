@@ -126,8 +126,33 @@ function restoreEnv(key: string, saved: string | undefined): void {
   }
 }
 
+/**
+ * Run every test in the calling describe with a sandboxed HOME and no global
+ * or system git config, for the helpers above and the layer under test alike,
+ * so the machine's git config can't change what git prints.
+ */
+function sandboxGitConfig(): void {
+  const keys = ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] as const
+  const saved: Record<string, string | undefined> = {}
+  let home: string
+
+  beforeEach(() => {
+    for (const key of keys) saved[key] = process.env[key]
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githome-"))
+    process.env.HOME = home
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+  })
+
+  afterEach(() => {
+    for (const key of keys) restoreEnv(key, saved[key])
+    fs.rmSync(home, { recursive: true, force: true })
+  })
+}
+
 describe("GitCliClientLive.diff (real repo)", () => {
   let repoPath: string
+  sandboxGitConfig()
 
   beforeEach(() => {
     repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitdiff-"))
@@ -255,6 +280,7 @@ describe("GitCliClientLive.diff (real repo)", () => {
 
 describe("GitCliClientLive.status (real repo)", () => {
   let repoPath: string
+  sandboxGitConfig()
 
   beforeEach(() => {
     repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitstatus-"))
@@ -307,6 +333,7 @@ describe("GitCliClientLive.status (real repo)", () => {
 
 describe("GitCliClientLive.getInfo (real repo)", () => {
   let repoPath: string
+  sandboxGitConfig()
 
   beforeEach(() => {
     repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitinfo-"))
@@ -344,6 +371,7 @@ describe("GitCliClientLive.getInfo (real repo)", () => {
 describe("GitCliClientLive.hasCommits (real repo)", () => {
   let dir: string
   let savedCeiling: string | undefined
+  sandboxGitConfig()
 
   beforeEach(() => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githascommits-")))
@@ -393,6 +421,7 @@ describe("GitCliClientLive.hasCommits (real repo)", () => {
 
 describe("GitCliClientLive.checkIgnored (real repo)", () => {
   let repoPath: string
+  sandboxGitConfig()
 
   beforeEach(() => {
     repoPath = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gitignore-"))
