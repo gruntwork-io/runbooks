@@ -17,11 +17,11 @@ export function registerSessionHandlers(): void {
   })
 
   ipcMain.handle("session:reset", async () => {
-    const result = await runtime.runPromise(sessionManager.resetSession())
+    await runtime.runPromise(sessionManager.resetSession())
     // The reset restores the initial env, dropping every credential an auth
     // block wrote — drop their host bindings with them.
     vcsSessionMeta.clear()
-    return result
+    return { ok: true as const }
   })
 
   ipcMain.handle("session:delete", async () => {
@@ -32,7 +32,8 @@ export function registerSessionHandlers(): void {
   ipcMain.handle(
     "session:set-env",
     async (_event, params: { env: Record<string, string> }) => {
-      return runtime.runPromise(sessionManager.appendToEnv(params.env))
+      await runtime.runPromise(sessionManager.appendToEnv(params.env))
+      return { ok: true as const }
     },
   )
 }

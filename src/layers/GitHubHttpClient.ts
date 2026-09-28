@@ -255,25 +255,40 @@ const impl: GitHubClientShape = {
     Effect.tryPromise({
       try: async (): Promise<GitHubRepo[]> => {
         const API_BASE = apiBaseFor(host)
-        // Determine if owner is an org or user
-        let url: string
-        try {
-          const resp = await githubFetch(`${API_BASE}/orgs/${owner}`, { token })
-          url = resp.ok
-            ? `${API_BASE}/orgs/${owner}/repos`
-            : `${API_BASE}/user/repos`
-        } catch {
-          url = `${API_BASE}/user/repos`
-        }
-
-        const repos = await paginateAll<{
+        type RawRepo = {
           id: number
           name: string
           full_name: string
           private: boolean
           default_branch: string
-          owner: { id: number }
-        }>(url, token)
+          owner: { id: number; login: string }
+        }
+
+        // Determine if owner is an org or user. Only a 404 means "not an
+        // org"; any other failure is reported rather than listing some other
+        // owner's repos under this one.
+        const ownerPath = encodeURIComponent(owner)
+        const probe = await githubFetch(`${API_BASE}/orgs/${ownerPath}`, { token })
+        let repos: RawRepo[]
+        if (probe.ok) {
+          repos = await paginateAll<RawRepo>(`${API_BASE}/orgs/${ownerPath}/repos`, token)
+        } else if (probe.status === 404) {
+          // A user account. /user/repos covers the caller's own private repos
+          // plus every repo they can reach elsewhere, so keep only the ones
+          // this owner owns. For another user those are just the repos shared
+          // with the caller, so add the owner's public repos, each repo once.
+          const o = owner.toLowerCase()
+          const [reachable, pub] = await Promise.all([
+            paginateAll<RawRepo>(`${API_BASE}/user/repos`, token),
+            paginateAll<RawRepo>(`${API_BASE}/users/${ownerPath}/repos`, token),
+          ])
+          const owned = reachable.filter((r) => r.owner.login.toLowerCase() === o)
+          const ownedIds = new Set(owned.map((r) => r.id))
+          repos = [...owned, ...pub.filter((r) => !ownedIds.has(r.id))]
+        } else {
+          await assertOk(probe)
+          repos = []
+        }
 
         let filtered = repos
         if (query) {

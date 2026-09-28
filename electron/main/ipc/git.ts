@@ -33,6 +33,7 @@ import {
   type CreatePullRequestParams,
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
+import { buildCloneSteps, normalizeRepoPath } from "../../../src/domain/git/cloneSteps.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
 import {
   gitCredentialUsername,
@@ -42,7 +43,6 @@ import {
 } from "../../../src/domain/git/url.ts"
 import { gitHostFromRemoteUrl } from "../../../src/domain/git/gitlab-host.ts"
 import { parseGitRemoteUrl } from "../../../src/domain/git/remote-url.ts"
-import { gitCloneArgs } from "../../../src/domain/git/clone-args.ts"
 import { isGitHubHost, tryNormalizeGitHubHost } from "../../../src/domain/git/github-host.ts"
 import { gitSpawnEnv, resolveSshCommand } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
@@ -51,7 +51,7 @@ import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "..
 import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
-import type { GitLocalRepoResponse } from "../../shared/channels.ts"
+import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
 
 const log = makeLogger("ipc:git:clone")
 
@@ -228,8 +228,9 @@ function errorMessage(err: unknown): string {
  */
 async function runAndUnwrap<A, E extends { _tag: string }>(
   program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
+  signal?: AbortSignal,
 ): Promise<A> {
-  const exit = await runtime.runPromiseExit(program)
+  const exit = await runtime.runPromiseExit(program, { signal })
   if (Exit.isSuccess(exit)) return exit.value
 
   const failure = Cause.failureOption(exit.cause)
@@ -240,6 +241,47 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
     throw new Error(errorMessage(failure.value))
   }
   throw new Error(Cause.pretty(exit.cause))
+}
+
+// Clones in flight, keyed by the renderer-supplied cloneId so git:clone-cancel
+// can stop a specific one. Aborting a controller interrupts that clone's fiber
+// (the signal is passed to runAndUnwrap), and interruption kills git — see the
+// release registered where the git process is spawned. `settled` resolves once
+// the clone has returned, its clean-up included.
+interface ActiveClone {
+  controller: AbortController
+  settled: Promise<void>
+}
+const activeClones = new Map<string, ActiveClone>()
+
+// How long git:clone-cancel waits for the cancelled clone to finish cleaning
+// up before it replies anyway. The clean-up waits for git to exit, which
+// ChildProcessSpawner's kill forces with SIGKILL 5 seconds after its SIGTERM,
+// then removes the checkout.
+const CLONE_CANCEL_REPLY_WAIT_MS = 10_000
+
+/**
+ * Run a clone so that git:clone-cancel can stop it. A cancelled clone resolves
+ * to `{ status: "cancelled" }` rather than rejecting with the interruption:
+ * the user asked for it, so it is not an error.
+ */
+async function runCancellableClone<A>(
+  cloneId: string | undefined,
+  run: (signal: AbortSignal) => Promise<A>,
+): Promise<A | { status: "cancelled" }> {
+  const controller = new AbortController()
+  let settle = () => {}
+  const clone: ActiveClone = { controller, settled: new Promise((resolve) => (settle = resolve)) }
+  if (cloneId) activeClones.set(cloneId, clone)
+  try {
+    return await run(controller.signal)
+  } catch (err) {
+    if (controller.signal.aborted) return { status: "cancelled" }
+    throw err
+  } finally {
+    settle()
+    if (cloneId && activeClones.get(cloneId) === clone) activeClones.delete(cloneId)
+  }
 }
 
 /** Renderer payload shared by the git:pull-request and git:merge-request handlers. */
@@ -311,21 +353,11 @@ function respondToGitPrExit<A extends { url: string; number: number; branch: str
 export function registerGitHandlers(): void {
   ipcMain.handle(
     "git:clone",
-    async (
-      event,
-      params: {
-        url: string
-        localPath?: string
-        ref?: string
-        credentials?: { token: string }
-        force?: boolean
-        provider?: "github" | "gitlab"
-      },
-    ) => {
+    async (event, params: GitCloneRequest) => {
       // A clone can take minutes; if a different runbook opens meanwhile, the
       // finished checkout must not become that runbook's active worktree.
       const generation = sessionManager.getGeneration()
-      return runAndUnwrap(
+      return runCancellableClone(params.cloneId, (signal) => runAndUnwrap(
         Effect.scoped(
         Effect.gen(function* () {
           // Validate the clone URL before any other processing
@@ -338,6 +370,10 @@ export function registerGitHandlers(): void {
               }),
             )
           }
+
+          // Validate the sparse-checkout path too, before a forced clone
+          // deletes the destination below.
+          const repoPath = yield* normalizeRepoPath(params.repo_path)
 
           // Resolve clone destination paths
           const session = yield* sessionManager.getSession()
@@ -420,24 +456,37 @@ export function registerGitHandlers(): void {
             token: resolvedToken,
           }
 
-          // Clone the repository using direct process spawning.
-          // We avoid the GitClient's stream-based API because
-          // Stream.runCollect hangs in Electron's runtime.runPromise.
+          // Spawn git directly instead of going through GitClient.cloneSimple:
+          //  - cloneSimple buffers all output, but this handler forwards each
+          //    `--progress` line to the renderer (git:clone-progress) as it
+          //    arrives;
+          //  - each step is spawned in its own scope, so git:clone-cancel can
+          //    kill the one that is running (see the release below);
+          //  - the stderr lines are kept so host-key failures can get a remedy
+          //    added.
           const spawner = yield* ProcessSpawner
-          // `--` (inside gitCloneArgs) backs up isValidGitURL: the URL is never
-          // read as a git option.
-          const cloneArgs = gitCloneArgs(params.url, paths.absolutePath, { ref: options.ref })
 
-          log.debug("spawning git process...")
+          // One `git clone`, or a sparse clone of `repo_path` in several steps
+          // (see buildCloneSteps). Each step streams its progress and fails the
+          // clone the same way. `--` (inside gitCloneArgs, which builds the
+          // clone step) backs up isValidGitURL: the URL is never read as a git
+          // option.
+          const cloneSteps = yield* buildCloneSteps(params.url, paths.absolutePath, {
+            ref: options.ref,
+            repoPath,
+          })
+
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
           // host-key verification prompt. The repo doesn't exist yet (nor may a
           // nested localPath's parent), so the user's core.sshCommand is looked
-          // up from the working dir the clone lands in. The token goes in the
-          // environment, not the URL, so it is never saved as the checkout's
-          // origin URL in .git/config. The credential username is keyed on
-          // provider so a self-hosted GitLab (non-gitlab.com host) still gets
-          // `oauth2`.
+          // up once, from the working dir the clone lands in. The token goes in
+          // the environment, not the URL, so it is never saved as the
+          // checkout's origin URL in .git/config. The credential username is
+          // keyed on provider so a self-hosted GitLab (non-gitlab.com host)
+          // still gets `oauth2`. Every step gets the same env, ssh command and
+          // auth: a sparse clone is blobless, so its final checkout fetches
+          // file contents from origin.
           const sshCommand = yield* resolveSshCommand(session.workingDir)
           const env = withGitHttpAuth(
             gitSpawnEnv(sshCommand),
@@ -445,56 +494,118 @@ export function registerGitHandlers(): void {
             options.token,
             gitCredentialUsername(cloneProvider),
           )
-          const proc = yield* spawner.spawn("git", cloneArgs, { env })
 
-          log.debug("draining output stream...")
-          const stderrLines: string[] = []
-          yield* Stream.runForEach(proc.output, (line) =>
-            Effect.sync(() => {
-              if (line.source === "stderr") stderrLines.push(line.line)
-              event.sender.send("git:clone-progress", {
-                line: line.line,
-                timestamp: new Date().toISOString(),
-              })
-            }),
-          )
+          // Whether this clone creates the destination. The check above returned
+          // or deleted an existing one, so it only exists here if something
+          // made it since, and a cancel then leaves it alone.
+          const createsDestination = !existsSync(paths.absolutePath)
 
-          log.debug("getting exit code...")
-          const exitCode = yield* proc.exitCode
-          log.debug("exit code:", exitCode)
-          if (exitCode !== 0) {
-            const stderr = stderrLines.join("\n").trim()
-            // With strict host-key checking, cloning a host that isn't in
-            // known_hosts yet fails with "Host key verification failed." rather
-            // than hanging on the interactive prompt. git's bare message gives
-            // no remedy, so append the exact command to trust the host. The
-            // host and any port come from parseGitRemoteUrl, which also reads
-            // the SSH/SCP form (git@host:owner/repo, git@[::1]:owner/repo)
-            // that new URL() can't. ssh-keyscan takes an IPv6 literal without
-            // its brackets, and the port as -p.
-            let stderrOut =
-              stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`
-            if (/host key verification failed/i.test(stderr)) {
-              const remote = parseGitRemoteUrl(params.url)
-              const keyscanTarget = remote?.hostname
-                ? `${remote.port ? `-p ${remote.port} ` : ""}${remote.hostname.replace(/^\[(.*)\]$/, "$1")}`
-                : "<host>"
-              stderrOut +=
-                `\n\nThe SSH host key for ${remote?.host || "<host>"} isn't trusted yet. Add it to ` +
-                `known_hosts, then clone again:\n  ssh-keyscan ${keyscanTarget} >> ~/.ssh/known_hosts`
-            }
-            return yield* Effect.fail(
-              new GitError({
-                command: "git clone",
-                stderr: stderrOut,
-                exitCode,
-              }),
+          // A cancelled clone takes its checkout with it, from the first git
+          // step until the result is returned (a cancel during the lookups
+          // below would otherwise leave a full checkout behind). Only a
+          // directory this clone created is removed, never one that was there
+          // before. This scope closes after each step's own scope, and a
+          // step's release waits for the git it killed to exit, so no git is
+          // still writing into the directory when it goes.
+          if (createsDestination) {
+            yield* Effect.addFinalizer((exit) =>
+              Exit.isInterrupted(exit)
+                ? Effect.tryPromise(() => rm(paths.absolutePath, { recursive: true, force: true })).pipe(
+                    Effect.catchAll((e) =>
+                      Effect.sync(() => log.warn("failed to remove cancelled clone:", e)),
+                    ),
+                  )
+                : Effect.void,
             )
+          }
+
+          for (const step of cloneSteps) {
+            // A repository with no commits has nothing to check out: skip the
+            // sparse clone's checkout, so the clone is reported as empty below
+            // (hasCommits: false) just as it is without a repo path.
+            if (step.skipIfNoCommits) {
+              const client = yield* GitClient
+              const cloned = yield* client
+                .hasCommits(paths.absolutePath)
+                .pipe(Effect.orElseSucceed(() => true))
+              if (!cloned) continue
+            }
+
+            // Each step gets its own scope, so the kill below is tied to the
+            // step that is running: a step that already exited is not signalled.
+            yield* Effect.scoped(Effect.gen(function* () {
+              log.debug("spawning git process...")
+              // git:clone-cancel interrupts this fiber. Kill git when that happens,
+              // or it keeps writing into the destination after the renderer has
+              // moved on (and races a "Delete & Clone" of the same directory).
+              // Then wait for it to exit (the kill escalates to SIGKILL after 5
+              // seconds; a timeout here could not cut the wait short, because a
+              // release runs uninterruptibly), so the finalizer
+              // above removes the directory only once git is done with it.
+              const proc = yield* Effect.acquireRelease(
+                spawner.spawn("git", step.args, { env }),
+                (spawned, exit) =>
+                  Exit.isInterrupted(exit)
+                    ? spawned.kill.pipe(
+                        Effect.zipRight(
+                          spawned.exitCode.pipe(Effect.ignore),
+                        ),
+                      )
+                    : Effect.void,
+              )
+
+              log.debug("draining output stream...")
+              const stderrLines: string[] = []
+              yield* Stream.runForEach(proc.output, (line) =>
+                Effect.sync(() => {
+                  if (line.source === "stderr") stderrLines.push(line.line)
+                  event.sender.send("git:clone-progress", {
+                    line: line.line,
+                    timestamp: new Date().toISOString(),
+                    cloneId: params.cloneId,
+                  })
+                }),
+              )
+
+              log.debug("getting exit code...")
+              const exitCode = yield* proc.exitCode
+              log.debug("exit code:", exitCode)
+              if (exitCode !== 0) {
+                const stderr = stderrLines.join("\n").trim()
+                // With strict host-key checking, cloning a host that isn't in
+                // known_hosts yet fails with "Host key verification failed." rather
+                // than hanging on the interactive prompt. git's bare message gives
+                // no remedy, so append the exact command to trust the host. The
+                // host and any port come from parseGitRemoteUrl, which also reads
+                // the SSH/SCP form (git@host:owner/repo, git@[::1]:owner/repo)
+                // that new URL() can't. ssh-keyscan takes an IPv6 literal without
+                // its brackets, and the port as -p.
+                let stderrOut =
+                  stderr || `clone to ${paths.absolutePath} failed (exit ${exitCode})`
+                if (/host key verification failed/i.test(stderr)) {
+                  const remote = parseGitRemoteUrl(params.url)
+                  const keyscanTarget = remote?.hostname
+                    ? `${remote.port ? `-p ${remote.port} ` : ""}${remote.hostname.replace(/^\[(.*)\]$/, "$1")}`
+                    : "<host>"
+                  stderrOut +=
+                    `\n\nThe SSH host key for ${remote?.host || "<host>"} isn't trusted yet. Add it to ` +
+                    `known_hosts, then clone again:\n  ssh-keyscan ${keyscanTarget} >> ~/.ssh/known_hosts`
+                }
+                return yield* Effect.fail(
+                  new GitError({
+                    command: "git clone",
+                    stderr: stderrOut,
+                    exitCode,
+                  }),
+                )
+              }
+            }))
           }
 
           event.sender.send("git:clone-progress", {
             line: "Clone complete. Counting files...",
             timestamp: new Date().toISOString(),
+            cloneId: params.cloneId,
           })
 
           // Count tracked files using `git ls-files` (fast, ~10ms)
@@ -523,10 +634,6 @@ export function registerGitHandlers(): void {
               // become.
               ((yield* unbornBranchName(paths.absolutePath)) ?? "")
 
-          // Register the worktree path
-          sessionManager.registerWorkTreePath(paths.absolutePath, generation)
-          log.debug("registered worktree, returning result")
-
           // Surface org/repo from the clone URL so downstream templates can
           // reference {{ .outputs.<id>.repo_owner }} / .repo_name. For GitHub
           // clones with a token, also resolve immutable numeric IDs (stable
@@ -552,6 +659,12 @@ export function registerGitHandlers(): void {
             }
           }
 
+          // Register the worktree path last, with nothing that can be
+          // interrupted between it and the return: a cancelled clone must not
+          // stay registered, where it would become the active worktree.
+          sessionManager.registerWorkTreePath(paths.absolutePath, generation)
+          log.debug("registered worktree, returning result")
+
           return {
             absolutePath: paths.absolutePath,
             relativePath: paths.relativePath,
@@ -563,9 +676,28 @@ export function registerGitHandlers(): void {
           }
         }),
         ),
-      )
+        signal,
+      ))
     },
   )
+
+  ipcMain.handle("git:clone-cancel", async (_event, params: { cloneId: string }) => {
+    // A clone that already finished (or never started) has nothing to stop.
+    const clone = activeClones.get(params.cloneId)
+    if (!clone) return { ok: true as const }
+    clone.controller.abort()
+    // Reply once the clone has stopped: git has exited and the checkout it
+    // made is removed, so the renderer, which re-enables Clone and Delete &
+    // Clone on this reply, never starts one while that is still going on. The
+    // wait is bounded, so a clean-up that hangs can't hold the block forever.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      clone.settled,
+      new Promise<void>((resolve) => (timer = setTimeout(resolve, CLONE_CANCEL_REPLY_WAIT_MS))),
+    ])
+    clearTimeout(timer)
+    return { ok: true as const }
+  })
 
   // Select an existing local checkout instead of cloning. The user picks the
   // directory (native dialog or by typing a path), so registering it as a
@@ -820,7 +952,8 @@ export function registerGitHandlers(): void {
       return runAndUnwrap(
         Effect.gen(function* () {
           const repoPath = yield* validateSessionPath(params.worktreePath)
-          return yield* deleteBranch(repoPath, params.branch)
+          yield* deleteBranch(repoPath, params.branch)
+          return { ok: true as const }
         }),
       )
     },

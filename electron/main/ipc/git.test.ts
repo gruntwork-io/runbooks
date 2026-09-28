@@ -1024,3 +1024,33 @@ describe("session token binding (local http and https remotes)", () => {
     })
   })
 })
+
+describe("git:delete-branch", () => {
+  let repo = ""
+
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd: repo,
+      stdio: "pipe",
+    }).toString()
+
+  beforeEach(async () => {
+    repo = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-delete-branch-")))
+    git("init", "-q", "-b", "main")
+    git("commit", "-q", "--allow-empty", "-m", "initial")
+    git("branch", "feature")
+    await Effect.runPromise(sessionManager.createSession(repo).pipe(Effect.provide(makeTestEnvironment({}))))
+  })
+
+  afterEach(() => {
+    sessionManager.deleteSession()
+    fs.rmSync(repo, { recursive: true, force: true })
+  })
+
+  it("deletes the branch and returns { ok: true }, matching the channel contract", async () => {
+    const result = await handlers.get("git:delete-branch")!(event, { worktreePath: repo, branch: "feature" })
+
+    expect(result).toEqual({ ok: true })
+    expect(git("branch", "--list", "feature").trim()).toBe("")
+  })
+})
