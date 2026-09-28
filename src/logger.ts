@@ -116,17 +116,25 @@ function redactString(value: string): string {
  * credential document, its PEM private key) would no longer match exactly
  * in the inspected text. Plain objects and arrays are rebuilt with redacted
  * leaves down to the depth inspect prints (deeper ones show as [Object]);
- * the copies map keeps a cycle a cycle. An Error cause goes through
- * formatError instead; an Error or other object (class instance, Map) inside
- * a field is printed as it is, and only the whole-text pass sees it.
+ * the copies map keeps a cycle a cycle. A copy keeps the objects below that
+ * depth as they are, so it is reused only at the level it was made at or
+ * deeper: reused higher up, inspect would print those objects unredacted.
+ * An Error cause goes through formatError instead; an Error or other object
+ * (class instance, Map) inside a field is printed as it is, and only the
+ * whole-text pass sees it.
  */
-function redactDeep(value: unknown, level = 0, copies = new WeakMap<object, unknown>()): unknown {
+function redactDeep(
+  value: unknown,
+  level = 0,
+  copies = new WeakMap<object, { readonly copy: unknown; readonly level: number }>(),
+): unknown {
   if (typeof value === "string") return redactString(value)
   if (typeof value !== "object" || value === null || level > INSPECT_OPTIONS.depth) return value
-  if (copies.has(value)) return copies.get(value)
+  const seen = copies.get(value)
+  if (seen !== undefined && seen.level <= level) return seen.copy
   if (Array.isArray(value)) {
     const copy: unknown[] = []
-    copies.set(value, copy)
+    copies.set(value, { copy, level })
     // forEach skips holes, so a sparse array stays sparse.
     copy.length = value.length
     value.forEach((item, i) => {
@@ -137,7 +145,7 @@ function redactDeep(value: unknown, level = 0, copies = new WeakMap<object, unkn
   const proto: unknown = Object.getPrototypeOf(value)
   if (proto !== Object.prototype && proto !== null) return value
   const copy: Record<string, unknown> = proto === null ? Object.create(null) : {}
-  copies.set(value, copy)
+  copies.set(value, { copy, level })
   for (const [key, item] of Object.entries(value)) copy[key] = redactDeep(item, level + 1, copies)
   return copy
 }

@@ -85,6 +85,13 @@ describe("makeLogger", () => {
 
 describe("makeLogger error formatting", () => {
   const SECRET = "s3cr3t-token-value"
+  const PRIVATE_KEY = [
+    "-----BEGIN PRIVATE KEY-----",
+    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj",
+    "MzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu",
+    "-----END PRIVATE KEY-----",
+    "",
+  ].join("\n")
 
   afterEach(() => {
     clearRegisteredSecrets()
@@ -169,13 +176,7 @@ describe("makeLogger error formatting", () => {
     // document and its private_key. inspect would print the key as
     // '...\n' + '...' lines and the document with doubled backslashes, so
     // neither would match exactly in the inspected text.
-    const privateKey = [
-      "-----BEGIN PRIVATE KEY-----",
-      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj",
-      "MzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu",
-      "-----END PRIVATE KEY-----",
-      "",
-    ].join("\n")
+    const privateKey = PRIVATE_KEY
     const document = JSON.stringify({ type: "service_account", private_key: privateKey })
     registerSecret(document)
     registerSecret(privateKey)
@@ -190,6 +191,23 @@ describe("makeLogger error formatting", () => {
     expect(out).toContain("[cause]")
     expect(out).toContain("[REDACTED]")
     for (const line of privateKey.split("\n").filter((l) => l.length > 0)) {
+      expect(out).not.toContain(line)
+    }
+  })
+
+  it("redacts a multi-line secret in an object shared between two depths of the fields", () => {
+    registerSecret(PRIVATE_KEY)
+    // Reached first at level 4 of the fields, where the copy keeps its object
+    // children as they are (inspect shows them as [Object] there), then at
+    // level 2, where inspect prints those children in full.
+    const shared = { credentials: { private_key: PRIVATE_KEY } }
+    class SharedError extends Data.TaggedError("SharedError")<{
+      readonly deep: unknown
+      readonly near: unknown
+    }> {}
+    const out = logged(new SharedError({ deep: { l2: { l3: { shared } } }, near: { shared } }))
+    expect(out).toContain("[REDACTED]")
+    for (const line of PRIVATE_KEY.split("\n").filter((l) => l.length > 0)) {
       expect(out).not.toContain(line)
     }
   })
