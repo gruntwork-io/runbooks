@@ -222,7 +222,7 @@ export interface IpcChannelMap {
     // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
     // registered the secrets for redaction, materialised the ADC file and
     // written the session env. No token crosses IPC.
-    params: { flowId: string; blockId?: string }
+    params: { flowId: string; blockId?: string; region?: string; zone?: string }
     result: {
       status: "pending" | "complete" | "expired" | "failed"
       account?: GoogleAccountInfo
@@ -230,6 +230,9 @@ export interface IpcChannelMap {
       credentialsPath?: string
       projects?: GoogleProjectIpc[]
       scopes?: string[]
+      /** Region/zone MAIN wrote on "complete". What the block publishes. */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
     }
@@ -264,6 +267,12 @@ export interface IpcChannelMap {
       /** The EXISTING ADC path — nothing is copied for this tab. */
       credentialsPath?: string
       projects?: GoogleProjectIpc[]
+      /**
+       * Region/zone MAIN wrote: the requested ones, else the configuration's
+       * own. What the block publishes.
+       */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
       /** Present when the credential validated but lacks author-required scopes. */
@@ -327,6 +336,12 @@ export interface IpcChannelMap {
       projectId?: string
       credentialsPath?: string
       credentialType?: GoogleCredentialTypeIpc
+      /**
+       * Region/zone MAIN wrote: the requested ones, else the gcloud
+       * configuration's or env's own. What the block publishes.
+       */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
       insufficientScopes?: boolean
@@ -342,10 +357,24 @@ export interface IpcChannelMap {
     params: { blockId?: string; flowId?: string; query?: string; pageSize?: number }
     result: { projects: GoogleProjectIpc[]; error?: string }
   }
-  // Project selection happens after auth; MAIN owns the session-env write.
+  // Project selection happens after auth; MAIN owns the session-env write,
+  // which re-points the session at the CALLING block's credential, account
+  // and new project together. Keys that credential does not carry can survive
+  // from another block; see google-session-env.ts.
   "google:set-project": {
     params: { blockId?: string; projectId: string; region?: string; zone?: string }
-    result: { ok: boolean; projectName?: string; error?: string; sessionEnvWarning?: string }
+    result: {
+      ok: boolean
+      projectName?: string
+      /**
+       * Region/zone MAIN wrote: the requested ones, else those the block
+       * authenticated with. What the block publishes.
+       */
+      region?: string
+      zone?: string
+      error?: string
+      sessionEnvWarning?: string
+    }
   }
   // <- aws:check-region, and it fails OPEN like one: `enabled: false` only for
   // a project the credential definitively cannot read. An inconclusive answer

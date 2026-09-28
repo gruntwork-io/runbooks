@@ -1,6 +1,10 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import * as fs from "node:fs"
 import * as http from "node:http"
+import * as os from "node:os"
+import * as path from "node:path"
 import { Effect, Either } from "effect"
+import { gaxios as gaxiosLib } from "google-auth-library"
 import {
   GoogleSdkClientLive,
   classifyProjectAccessError,
@@ -88,13 +92,74 @@ describe("describeCredentialFailure", () => {
  * or forbidden may become `denied`.
  */
 describe("classifyProjectAccessError", () => {
-  const gaxios = (status: number, reason?: string): unknown => ({
+  /**
+   * Google's error body: the google.rpc.Code name goes in `error.status`, and
+   * the machine-readable reason (SERVICE_DISABLED, ...) in an ErrorInfo under
+   * `error.details`. SERVICE_DISABLED is never an `error.status`.
+   */
+  const gaxios = (status: number, rpcCode?: string, reason?: string): unknown => ({
     status,
     response: {
       status,
-      data: reason ? { error: { status: reason, message: "boom" } } : {},
+      data: rpcCode
+        ? {
+            error: {
+              code: status,
+              status: rpcCode,
+              message: "boom",
+              ...(reason
+                ? {
+                    details: [
+                      { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason, domain: "googleapis.com" },
+                    ],
+                  }
+                : {}),
+            },
+          }
+        : {},
     },
   })
+
+  /**
+   * The error the real transport throws for a canned 403, so the fixture
+   * cannot drift from the library's error shape. Only the HTTP exchange is
+   * faked.
+   */
+  const realGaxios403 = async (reason: string): Promise<unknown> => {
+    const body = {
+      error: {
+        code: 403,
+        message: "boom",
+        status: "PERMISSION_DENIED",
+        details: [
+          { "@type": "type.googleapis.com/google.rpc.Help", links: [] },
+          {
+            "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+            reason,
+            domain: "googleapis.com",
+            metadata: { service: "cloudresourcemanager.googleapis.com", consumer: "projects/123" },
+          },
+        ],
+      },
+    }
+    const transport = new gaxiosLib.Gaxios({
+      fetchImplementation: (() =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )) as unknown as typeof fetch,
+    })
+    const err = await transport
+      .request({ url: "https://cloudresourcemanager.googleapis.com/v3/projects/p" })
+      .then(
+        () => undefined,
+        (e: unknown) => e,
+      )
+    expect(err).toBeInstanceOf(gaxiosLib.GaxiosError)
+    return err
+  }
 
   it("treats a 404 on the project as denied", () => {
     expect(classifyProjectAccessError(gaxios(404, "NOT_FOUND"))).toBe("denied")
@@ -108,11 +173,33 @@ describe("classifyProjectAccessError", () => {
     expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED"))).toBe("denied")
   })
 
+  it("treats a PERMISSION_DENIED that IAM names as denied", () => {
+    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "IAM_PERMISSION_DENIED"))).toBe(
+      "denied",
+    )
+  })
+
   it("does NOT blame the project when the Resource Manager API is disabled", () => {
     // Google's default for a brand-new project: cloudresourcemanager.googleapis.com
     // is off, the call 403s, and every gcloud/OpenTofu command in the runbook
     // still works fine.
-    expect(classifyProjectAccessError(gaxios(403, "SERVICE_DISABLED"))).toBe("unknown")
+    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "SERVICE_DISABLED"))).toBe(
+      "unknown",
+    )
+  })
+
+  it("does NOT blame the project for a refusal aimed at the token or quota project", () => {
+    expect(
+      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT")),
+    ).toBe("unknown")
+    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "USER_PROJECT_DENIED"))).toBe(
+      "unknown",
+    )
+  })
+
+  it("reads the reason off the error gaxios actually throws", async () => {
+    expect(classifyProjectAccessError(await realGaxios403("SERVICE_DISABLED"))).toBe("unknown")
+    expect(classifyProjectAccessError(await realGaxios403("IAM_PERMISSION_DENIED"))).toBe("denied")
   })
 
   it("does NOT blame the project for an unauthenticated or throttled call", () => {
@@ -131,6 +218,26 @@ describe("classifyProjectAccessError", () => {
   it("reads the status off a legacy response-only error shape", () => {
     expect(classifyProjectAccessError({ response: { status: 404 } })).toBe("denied")
   })
+
+  it("does not throw on a malformed details list, and ignores entries it cannot read", () => {
+    // A proxy or a future API can put anything here. Unreadable entries carry
+    // no reason, so this is the bare 403 verdict rather than a throw.
+    const malformed = (details: unknown): unknown => ({
+      status: 403,
+      response: { status: 403, data: { error: { code: 403, status: "PERMISSION_DENIED", details } } },
+    })
+    expect(classifyProjectAccessError(malformed([{ "@type": 1 }, null, "x"]))).toBe("denied")
+    expect(
+      classifyProjectAccessError(malformed([{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: 7 }])),
+    ).toBe("denied")
+    expect(classifyProjectAccessError(malformed("not-a-list"))).toBe("denied")
+    // A readable ErrorInfo next to junk still decides the verdict.
+    expect(
+      classifyProjectAccessError(
+        malformed([{ "@type": 1 }, { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" }]),
+      ),
+    ).toBe("unknown")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -144,6 +251,70 @@ const runEither = <A, E>(
   f: (client: GoogleClientShape) => Effect.Effect<A, E>,
 ): Promise<Either.Either<A, E>> =>
   Effect.runPromise(Effect.provide(Effect.either(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive))
+
+/**
+ * The 'adc' detection source is the well-known file under the gcloud config
+ * root, and nothing else. GOOGLE_APPLICATION_CREDENTIALS belongs to the 'env'
+ * source, which honours the author's prefix: reading it here offered an
+ * unprefixed credential under the 'adc' label, and let a stale key in that
+ * variable shadow a good `gcloud auth application-default login` file.
+ */
+describe("readApplicationDefaultCredentials", () => {
+  const ENV_KEYS = ["CLOUDSDK_CONFIG", "GOOGLE_APPLICATION_CREDENTIALS"] as const
+  let saved: Partial<Record<(typeof ENV_KEYS)[number], string>>
+  let root: string
+
+  beforeEach(() => {
+    saved = {}
+    for (const key of ENV_KEYS) saved[key] = process.env[key]
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-google-adc-"))
+    process.env.CLOUDSDK_CONFIG = root
+  })
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = saved[key]
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  const writeDocument = (name: string, doc: Record<string, string>): string => {
+    const file = path.join(root, name)
+    fs.writeFileSync(file, JSON.stringify(doc))
+    return file
+  }
+
+  it("reads the well-known file even when GOOGLE_APPLICATION_CREDENTIALS names another credential", async () => {
+    const wellKnown = writeDocument("application_default_credentials.json", {
+      type: "authorized_user",
+      client_id: "id.apps.googleusercontent.com",
+      client_secret: "secret",
+      refresh_token: "1//refresh",
+    })
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = writeDocument("dev-sa.json", {
+      type: "service_account",
+      client_email: "dev@p.iam.gserviceaccount.com",
+    })
+
+    const adc = await run((client) => client.readApplicationDefaultCredentials())
+    expect(adc?.path).toBe(wellKnown)
+    expect(adc?.type).toBe("authorized_user")
+  })
+
+  it("finds nothing when only GOOGLE_APPLICATION_CREDENTIALS is set", async () => {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = writeDocument("dev-sa.json", {
+      type: "service_account",
+      client_email: "dev@p.iam.gserviceaccount.com",
+    })
+
+    expect(await run((client) => client.readApplicationDefaultCredentials())).toBeUndefined()
+  })
+})
 
 /** A single request against the loopback listener, with full control of headers. */
 function probe(

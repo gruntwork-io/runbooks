@@ -1,5 +1,5 @@
-import { Loader2, Check } from "lucide-react"
-import { SearchInput } from "./SearchInput"
+import { Loader2, Check, AlertTriangle } from "lucide-react"
+import { SearchInput } from "@/components/mdx/_shared/components/SearchInput"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { GoogleProjectInfo } from "../types"
@@ -8,11 +8,19 @@ interface ProjectSelectorProps {
   projects: GoogleProjectInfo[]
   selectedProject: GoogleProjectInfo | null
   loadingProjects: boolean
+  /**
+   * Why the project list could not be loaded. Shown in place of the empty-list
+   * copy, which would otherwise claim the credential can see no projects.
+   */
+  error?: string | null
   searchValue: string
   setSearchValue: (value: string) => void
   /** hook: `handleProjectSelect` */
   onProjectSelect: (project: GoogleProjectInfo) => void
-  /** hook: `handleManualAuth` — abandons the sub-flow and starts over. */
+  /**
+   * hook: `handleCancelProjectSelect` — returns to the success card when opened
+   * via "Change project", otherwise abandons the sub-flow and starts over.
+   */
   onCancel: () => void
 }
 
@@ -26,6 +34,7 @@ export function ProjectSelector({
   projects,
   selectedProject,
   loadingProjects,
+  error,
   searchValue,
   setSearchValue,
   onProjectSelect,
@@ -46,6 +55,15 @@ export function ProjectSelector({
       <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         <p>Select a Google Cloud project to continue:</p>
       </div>
+
+      {error && (
+        <div className="text-destructive text-sm flex items-start gap-2">
+          <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+          <div>
+            <strong>Could not list projects:</strong> {error}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         {/* Search input */}
@@ -108,7 +126,7 @@ export function ProjectSelector({
               No projects match "{searchValue}"
             </div>
           )}
-          {projects.length === 0 && !loadingProjects && (
+          {projects.length === 0 && !loadingProjects && !error && (
             <div className="text-muted-foreground text-sm py-4 text-center">
               No projects are visible to these credentials.
             </div>

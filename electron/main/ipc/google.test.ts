@@ -1,17 +1,19 @@
 /**
- * GoogleAuth's session writes against a runbook switch mid-sign-in.
+ * GoogleAuth's session writes against a runbook switch mid-sign-in, and the
+ * region/zone a sign-in writes against the ones it returns.
  *
  * Runs the real session manager, credential registry and credential-file
- * custody; only `electron` is replaced. A sign-in that finishes after a
- * different runbook opened must leave that runbook's session env and
- * credential registry exactly as they were, even when both runbooks have a
- * `<GoogleAuth>` block with the same id.
+ * custody; only `electron` is replaced, plus the Google SDK boundary where a
+ * handler calls it. A sign-in that finishes after a different runbook opened
+ * must leave that runbook's session env and credential registry exactly as
+ * they were, even when both runbooks have a `<GoogleAuth>` block with the same
+ * id.
  */
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import { Effect } from "effect"
-import type { GoogleIdentity } from "../../../src/services/GoogleClient.ts"
+import type { GoogleClient, GoogleClientShape, GoogleIdentity } from "../../../src/services/GoogleClient.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 type Handler = (event: unknown, params?: unknown) => unknown
@@ -26,12 +28,13 @@ mockElectron({
 })
 
 const { registerAuthenticatedCredential, registerGoogleHandlers } = await import("./google.ts")
-const { sessionManager } = await import("./runtime.ts")
+const { runtime, sessionManager } = await import("./runtime.ts")
 const { activeCredentialFor, resetGoogleCredentialRegistry, setActiveCredential } = await import(
   "./google-credential-registry.ts"
 )
 const { cleanupGoogleCredentialFiles } = await import("./google-credentials.ts")
 const { makeTestEnvironment } = await import("../../../src/test-utils/TestEnvironment.ts")
+const { makeTestGoogleClient } = await import("../../../src/test-utils/TestLayer.ts")
 
 registerGoogleHandlers()
 
@@ -155,5 +158,141 @@ describe("google:set-project after another runbook opened", () => {
     expect(result.ok).toBe(true)
     expect(activeCredentialFor("gcp")?.projectId).toBe("b-proj")
     expect((await sessionEnv()).CLOUDSDK_CORE_PROJECT).toBeUndefined()
+  })
+
+  it("a block with a registered credential: neither its set nor its delete reaches the new runbook", async () => {
+    // A's access-token block re-points the whole session (set) and drops the
+    // gcloud file override (delete); both must be scoped to A's generation.
+    await registerAuthenticatedCredential(
+      { blockId: "gcp", identity: SA, accessToken: "ya29.from-a" },
+      sessionManager.getGeneration(),
+    )
+    const bCredential = {
+      ref: { kind: "file", path: "/tmp/runbook-b/adc.json" } as const,
+      credentialsPath: "/tmp/runbook-b/adc.json",
+      principal: "b@b-proj.iam.gserviceaccount.com",
+      credentialType: "service_account" as const,
+      projectId: "b-proj",
+    }
+    const spy = openRunbookDuringNextEnvWrite("runbook-b", () => {
+      setActiveCredential("gcp", bCredential)
+      Effect.runSync(
+        sessionManager.appendToEnv({ CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: bCredential.credentialsPath }),
+      )
+    })
+
+    const result = await invoke("google:set-project", { blockId: "gcp", projectId: "a-proj-2" })
+    spy.mockRestore()
+
+    expect(result.ok).toBe(true)
+    expect(activeCredentialFor("gcp")?.projectId).toBe("b-proj")
+    const env = await sessionEnv()
+    expect(env.CLOUDSDK_CORE_PROJECT).toBeUndefined()
+    expect(env.CLOUDSDK_AUTH_ACCESS_TOKEN).toBeUndefined()
+    expect(env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE).toBe(bCredential.credentialsPath)
+  })
+})
+
+describe("the region/zone a sign-in writes is the one it returns", () => {
+  const USER: GoogleIdentity = {
+    email: "dev@example.com",
+    accountType: "user",
+    credentialType: "authorized_user",
+  }
+  const ADC_JSON = JSON.stringify({
+    type: "authorized_user",
+    client_id: "cid.apps.googleusercontent.com",
+    client_secret: "csecret",
+    refresh_token: "1//refresh",
+  })
+  const ADC_PATH = "/home/u/.config/gcloud/application_default_credentials.json"
+
+  /** The Google SDK boundary; the session, registry and handlers are real. */
+  let google: Partial<GoogleClientShape> = {}
+  let runPromise: ReturnType<typeof spyOn<typeof runtime, "runPromise">>
+
+  beforeEach(() => {
+    google = {
+      validateAccessToken: () => Effect.succeed(USER),
+      validateAdcDocument: () => Effect.succeed(USER),
+      // A user who can list no projects, so no set-project follows.
+      listProjects: () => Effect.succeed([]),
+      pollOAuthFlow: () =>
+        Effect.succeed({ status: "complete" as const, adcJson: ADC_JSON, accessToken: "ya29.fresh" }),
+      listGcloudConfigurations: () =>
+        Effect.succeed({
+          configurations: [
+            {
+              name: "default",
+              isActive: true,
+              account: USER.email,
+              project: "proj-a",
+              region: "us-west1",
+              zone: "us-west1-a",
+              authType: "adc-user" as const,
+            },
+          ],
+          activeConfiguration: "default",
+          configRoot: "/home/u/.config/gcloud",
+          adc: { path: ADC_PATH, type: "authorized_user" as const },
+        }),
+      readCredentialFileContents: () => Effect.succeed(ADC_JSON),
+    }
+    runPromise = spyOn(runtime, "runPromise").mockImplementation(
+      (<A, E>(effect: Effect.Effect<A, E, GoogleClient>) =>
+        Effect.runPromise(Effect.provide(effect, makeTestGoogleClient(google)))) as typeof runtime.runPromise,
+    )
+  })
+
+  afterEach(() => {
+    runPromise.mockRestore()
+  })
+
+  it("google:oauth-poll writes the region/zone the block sent, and returns them", async () => {
+    const result = await invoke("google:oauth-poll", {
+      flowId: "flow-1",
+      blockId: "gcp",
+      region: "europe-west1",
+      zone: "europe-west1-b",
+    })
+
+    expect(result).toMatchObject({ status: "complete", region: "europe-west1", zone: "europe-west1-b" })
+    const env = await sessionEnv()
+    expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
+    expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
+    // A later "Change project" keeps them.
+    expect(activeCredentialFor("gcp")).toMatchObject({ region: "europe-west1", zone: "europe-west1-b" })
+  })
+
+  it("google:oauth-poll with no region/zone writes and returns none", async () => {
+    const result = await invoke("google:oauth-poll", { flowId: "flow-2", blockId: "gcp" })
+
+    expect(result.status).toBe("complete")
+    expect(result.region).toBeUndefined()
+    expect(result.zone).toBeUndefined()
+    expect((await sessionEnv()).GOOGLE_CLOUD_REGION).toBeUndefined()
+  })
+
+  it("google:gcloud-auth returns the configuration's region/zone when the block sent none", async () => {
+    const result = await invoke("google:gcloud-auth", { blockId: "gcp", configuration: "default" })
+
+    expect(result).toMatchObject({ valid: true, region: "us-west1", zone: "us-west1-a" })
+    const env = await sessionEnv()
+    expect(env.GOOGLE_CLOUD_REGION).toBe("us-west1")
+    expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("us-west1-a")
+  })
+
+  it("google:gcloud-auth returns the region/zone the block sent over the configuration's", async () => {
+    const result = await invoke("google:gcloud-auth", {
+      blockId: "gcp",
+      configuration: "default",
+      region: "europe-west1",
+      zone: "europe-west1-b",
+    })
+
+    expect(result).toMatchObject({ valid: true, region: "europe-west1", zone: "europe-west1-b" })
+    const env = await sessionEnv()
+    expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
+    expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
   })
 })
