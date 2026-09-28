@@ -223,7 +223,6 @@ describe("getWorkspaceChanges", () => {
               deletions: 2,
               changeType: "modified",
               isBinary: false,
-              diffTruncated: false,
             },
           ]),
       },
