@@ -158,6 +158,7 @@ describe("openRemoteRunbookInWindow", () => {
 
   it.each([
     ["https", "https://user:{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
+    ["https (an @ in the password)", "https://user:p@{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
     [
       "git::https",
       "git::https://deploy:{pw}@git.example.com/o/r.git//rb?ref=main",
@@ -175,6 +176,18 @@ describe("openRemoteRunbookInWindow", () => {
 
     expect(errors[0].detail).not.toContain(password)
     expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
+  })
+
+  it("redacts go-getter's sshkey (a private key) from the error it shows", async () => {
+    const sshKey = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
+    const { win } = makeFakeWindow(false)
+    const { deps, errors } = makeDeps(async () => {
+      throw new Error("network unreachable")
+    })
+
+    await openRemoteRunbookInWindow(win, `git::ssh://git@git.example.com/o/r.git//rb?sshkey=${sshKey}`, deps)
+
+    expect(errors[0].detail).toBe("git::ssh://git@git.example.com/o/r.git//rb?sshkey=[REDACTED]\n\nnetwork unreachable")
   })
 
   it("waits for a cold launch's window to be shown before showing the error", async () => {

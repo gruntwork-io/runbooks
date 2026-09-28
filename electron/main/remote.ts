@@ -31,11 +31,26 @@ const log = makeLogger("remote")
 // ---------------------------------------------------------------------------
 
 /**
+ * An HTTP 401/403 as git reports it: "The requested URL returned error: 403",
+ * "error: RPC failed; HTTP 401 curl 22 ...". A bare "401"/"403" also matches
+ * the --progress counters ("Receiving objects: 89% (403/452)"), the temp
+ * clone path and repo names.
+ */
+const HTTP_AUTH_STATUS = /(?:returned error:\s*|\bhttp\s+)40[13]\b/
+
+/**
  * Returns true if a git stderr string looks like an authentication failure.
  * Golang-parity semantics (beta-v0.9.0 cmd/remote_open.go isAuthError —
  * note that an HTTP 404 / "repository not found" IS an auth signal: private
  * repos present as 404 to unauthenticated clients), plus a few extra
  * patterns git emits on this side.
+ *
+ * Deliberate divergence: golang matched a bare "401"/"403" and any
+ * "permission denied". The stderr scanned here includes the `--progress`
+ * counters and the `Cloning into '<tmp path>'` line, so 401/403 must appear
+ * as an HTTP status, and "permission denied" only in SSH's
+ * `Permission denied (<methods>)` form — a filesystem error ends in
+ * `: Permission denied`.
  */
 export function isAuthError(stderr: string): boolean {
   if (!stderr) return false
@@ -47,11 +62,10 @@ export function isAuthError(stderr: string): boolean {
     lower.includes("http 404") ||
     lower.includes("repository not found") ||
     lower.includes("fatal: could not read") ||
-    lower.includes("403") ||
-    lower.includes("401") ||
+    HTTP_AUTH_STATUS.test(lower) ||
     lower.includes("invalid credentials") ||
     lower.includes("bad credentials") ||
-    lower.includes("permission denied") ||
+    lower.includes("permission denied (") ||
     lower.includes("terminal prompts disabled")
   )
 }
@@ -132,10 +146,26 @@ export function classifyCloneError(opts: {
   const ssh = transport === "ssh"
   // A plain git source can name a repo with no owner (`git.corp.net/infra.git`).
   const repoPath = [host, owner, repo].filter(Boolean).join("/")
-  if (ssh && (stderr ?? "").toLowerCase().includes("host key verification failed")) {
+  const lower = (stderr ?? "").toLowerCase()
+  if (ssh && lower.includes("host key verification failed")) {
     return {
       kind: "auth",
       hint: `the SSH host key for ${host} is not trusted yet: connect to it once from a terminal to verify and save its key, or use an https:// URL`,
+    }
+  }
+  // Before the auth check: after any ssh failure, a DNS error or a refused
+  // connection included, git adds "fatal: Could not read from remote
+  // repository.", which isAuthError counts.
+  if (
+    lower.includes("could not resolve host") ||
+    lower.includes("connection refused") ||
+    lower.includes("connection timed out") ||
+    lower.includes("connect to host") ||
+    lower.includes("network is unreachable")
+  ) {
+    return {
+      kind: "network",
+      hint: `Could not reach ${host}. Check your internet connection.`,
     }
   }
   if (isAuthError(stderr)) {
@@ -165,19 +195,6 @@ export function classifyCloneError(opts: {
       hint: hints
         ? `authentication failed for ${repoPath} (token may be invalid or expired): verify ${hints.envRemedy}, or re-run '${hints.cliCmd}'`
         : `authentication failed for ${repoPath} (token may be invalid or expired)`,
-    }
-  }
-  const lower = (stderr ?? "").toLowerCase()
-  if (
-    lower.includes("could not resolve host") ||
-    lower.includes("connection refused") ||
-    lower.includes("connection timed out") ||
-    lower.includes("connect to host") ||
-    lower.includes("network is unreachable")
-  ) {
-    return {
-      kind: "network",
-      hint: `Could not reach ${host}. Check your internet connection.`,
     }
   }
   return {
@@ -280,6 +297,27 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // `x-access-token` and GitLab (including self-managed) `oauth2`.
     const username = gitCredentialUsername(provider)
 
+    // A failed git step — the ls-remote that splits a browser URL's ref and
+    // path, or the clone — gets the golang-parity classification
+    // (remote-open strings), never a guessed ref or raw git output.
+    const { host, owner, repo } = parsed
+    const failWithCloneHint = (err: unknown) => {
+      const stderr =
+        typeof (err as { stderr?: unknown }).stderr === "string"
+          ? (err as { stderr: string }).stderr
+          : String(err)
+      const classified = classifyCloneError({
+        host,
+        owner,
+        repo,
+        stderr,
+        hadToken: token !== undefined,
+        provider,
+        transport,
+      })
+      return Effect.fail(new RemoteSourceError({ url: source, message: classified.hint }))
+    }
+
     // Browser URLs spell ref and path as one string; split it against the
     // remote's branches and tags. The ls-remote runs the user's own ssh
     // client (core.sshCommand) like the clone below does: a url.insteadOf
@@ -290,7 +328,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         parsed.cloneURL,
         parsed.refAndPath,
         withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
-      )
+      ).pipe(Effect.catchAll(failWithCloneHint))
       parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
     }
@@ -302,10 +340,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const dest = path.join(tempDir, "repo")
     log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
 
-    // Clone with sparse checkout if a subpath is specified. Failures get
-    // the golang-parity classification (remote-open strings).
+    // Clone with sparse checkout if a subpath is specified.
     const git = yield* GitClient
-    const { host, owner, repo, ref } = parsed
+    const { ref } = parsed
     yield* git
       .cloneSimple(parsed.cloneURL, dest, {
         ref,
@@ -313,24 +350,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         username,
         sparse: parsed.path,
       })
-      .pipe(
-        Effect.catchAll((err) => {
-          const stderr =
-            typeof (err as { stderr?: unknown }).stderr === "string"
-              ? (err as { stderr: string }).stderr
-              : String(err)
-          const classified = classifyCloneError({
-            host,
-            owner,
-            repo,
-            stderr,
-            hadToken: token !== undefined,
-            provider,
-            transport,
-          })
-          return Effect.fail(new RemoteSourceError({ url: source, message: classified.hint }))
-        }),
-      )
+      .pipe(Effect.catchAll(failWithCloneHint))
     log.info("Clone complete")
 
     // Resolve the runbook within the clone: a directory opens its

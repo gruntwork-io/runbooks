@@ -42,6 +42,8 @@ describe("isAuthError (golang parity)", () => {
     "fatal: unable to access 'https://...': The requested URL returned error: 401",
     "remote: Invalid credentials",
     "fatal: Permission denied (publickey)",
+    "error: RPC failed; HTTP 403 curl 22 The requested URL returned error: 403",
+    "git@github.com: Permission denied (publickey,password).",
   ])("classifies %s as auth", (stderr) => {
     expect(isAuthError(stderr)).toBe(true)
   })
@@ -51,6 +53,11 @@ describe("isAuthError (golang parity)", () => {
     "fatal: not a git repository", // normal git error
     "fatal: unable to access: connection timed out", // timeout error
     "fatal: unable to find a suitable file for index pack",
+    // 401/403 outside an HTTP status: --progress counters, temp path, repo name
+    "Cloning into '/tmp/runbooks-remote-ab403c/repo'...\nReceiving objects:  89% (403/452)\nfatal: early EOF",
+    "fatal: unable to access 'https://github.com/acme/svc-4013.git/': Could not resolve host: github.com",
+    // a filesystem permission error, not SSH's "Permission denied (<methods>)"
+    "fatal: could not create work tree dir '/tmp/x/repo': Permission denied",
   ])("returns false for non-auth stderr: %s", (stderr) => {
     expect(isAuthError(stderr)).toBe(false)
   })
@@ -174,6 +181,17 @@ describe("classifyCloneError (golang parity)", () => {
       owner: "o",
       repo: "r",
       stderr: "fatal: unable to access 'https://github.com/o/r': Could not resolve host: github.com",
+      hadToken: false,
+    })
+    expect(result.kind).toBe("network")
+  })
+
+  it("classifies a DNS error as network even when the repo name contains 401/403", () => {
+    const result = classifyCloneError({
+      host: "github.com",
+      owner: "acme",
+      repo: "svc-4013",
+      stderr: "fatal: unable to access 'https://github.com/acme/svc-4013.git/': Could not resolve host: github.com",
       hadToken: false,
     })
     expect(result.kind).toBe("network")
@@ -375,6 +393,25 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
     expect(result.hint).toContain("SSH host key for git.corp.net is not trusted yet")
   })
 
+  it.each([
+    "ssh: Could not resolve hostname git.corp.net: nodename nor servname provided, or not known",
+    "ssh: connect to host git.corp.net port 22: Connection refused",
+  ])("an SSH network failure is a network error, not a key problem: %s", (sshStderr) => {
+    // After any ssh failure git adds "Could not read from remote repository",
+    // which on its own reads as an auth failure.
+    const result = classifyCloneError({
+      host: "git.corp.net",
+      owner: "o",
+      repo: "r",
+      stderr:
+        `${sshStderr}\nfatal: Could not read from remote repository.\n\n` +
+        "Please make sure you have the correct access rights\nand the repository exists.",
+      hadToken: false,
+      transport: "ssh",
+    })
+    expect(result).toEqual({ kind: "network", hint: "Could not reach git.corp.net. Check your internet connection." })
+  })
+
   it("scrubs tokens from git's stderr before showing it", () => {
     // Assembled at runtime so no credential-shaped literal sits in the source.
     const token = "ghp_" + "a".repeat(36)
@@ -550,6 +587,23 @@ describe("openRemoteRunbook (real git)", () => {
     expect(tokenInAnyArg()).toBe(false)
   }, 30_000)
 
+  it("reports the source without a password typed into it, even one holding an @", async () => {
+    // Built at runtime so secret scanners don't flag the fixture.
+    const password = ["p@hunter", "22"].join("")
+    const result = await open(`https://user:${password}@git.example.com/org/repo/tree/main/runbooks/vpc`)
+
+    expect(result.remoteSource).toBe("https://git.example.com/org/repo/tree/main/runbooks/vpc")
+    expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
+  }, 30_000)
+
+  it("reports the source without go-getter's sshkey (a private key)", async () => {
+    const sshKey = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
+    const result = await open(`git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=${sshKey}`)
+
+    expect(result.remoteSource).toBe("git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=[REDACTED]")
+    expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
+  }, 30_000)
+
   it("the ref lookup and the clone both run the user's core.sshCommand, in batch mode", async () => {
     // A url.<ssh>.insteadOf rewrite sends even an https browser URL over ssh,
     // so the ls-remote must wrap the same ssh client as the clone.
@@ -607,6 +661,32 @@ describe("openRemoteRunbook (real git)", () => {
     expect(err.message).toContain(hint)
     expect(tokenLookups).toEqual([])
     expect(sentToken("clone")).toBe(false)
+  }, 30_000)
+
+  it.each([
+    [
+      "git@git.example.com:org/repo.git//runbooks/vpc",
+      "ssh: Could not resolve hostname git.example.com: nodename nor servname provided, or not known",
+    ],
+    ["ssh://git@git.example.com/org/repo.git//runbooks/vpc", "ssh: connect to host git.example.com port 22: Connection refused"],
+  ])("%s: an ssh network failure says the host is unreachable, not to check the SSH key", async (source, sshStderr) => {
+    setEnv("FAKE_SSH_STDERR", sshStderr)
+    const err = await openError(source)
+
+    expect(err.message).toBe("Could not reach git.example.com. Check your internet connection.")
+  }, 30_000)
+
+  it("a failed ref lookup gets the classified hint and never clones on a guessed ref", async () => {
+    // The fixture has no such repo, so the ls-remote that splits the browser
+    // URL's ref and path fails ("Could not read from remote repository").
+    const err = await openError("https://git.example.com/org/missing/tree/main/runbooks/vpc")
+
+    expect(err.message).toBe(
+      "authentication failed for git.example.com/org/missing (token may be invalid or expired): " +
+        "verify GH_ENTERPRISE_TOKEN and GH_HOST=git.example.com, or re-run 'gh auth login --hostname git.example.com'",
+    )
+    expect(spawns.some((s) => s.args[0] === "ls-remote")).toBe(true)
+    expect(spawns.some((s) => s.args[0] === "clone")).toBe(false)
   }, 30_000)
 
   it("a path that isn't in the repo is reported as not found at its ref", async () => {

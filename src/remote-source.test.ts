@@ -49,6 +49,8 @@ describe("isRemoteSource", () => {
 // `user:password@host` literal for secret scanners to flag.
 const PASSWORD = ["hunter", "22"].join("")
 const withUserinfo = (scheme: string, userinfo: string, rest: string) => `${scheme}://${userinfo}@${rest}`
+// A stand-in for go-getter's `?sshkey=`, a base64 private key.
+const SSH_KEY = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
 
 describe("redactSourceCredentials", () => {
   it.each([
@@ -58,6 +60,30 @@ describe("redactSourceCredentials", () => {
     [withUserinfo("git::https", `u:${PASSWORD}`, "git.example.com/o/r.git//x?ref=main"), "git::https://git.example.com/o/r.git//x?ref=main"],
     [withUserinfo("git::ssh", `git:${PASSWORD}`, "github.com/o/r.git//x"), "git::ssh://git@github.com/o/r.git//x"],
     [withUserinfo("ssh", `deploy:${PASSWORD}`, "host:2222/o/r.git"), "ssh://deploy@host:2222/o/r.git"],
+    // The URL parser ends the userinfo at the last `@` before the path.
+    [withUserinfo("https", `user:p@${PASSWORD}`, "github.com/o/r/tree/main/x"), "https://github.com/o/r/tree/main/x"],
+    [withUserinfo("git::https", `u:p@${PASSWORD}`, "git.example.com/o/r.git//x"), "git::https://git.example.com/o/r.git//x"],
+    [withUserinfo("ssh", `git:p@${PASSWORD}`, "host/o/r.git"), "ssh://git@host/o/r.git"],
+    // A `?` or `#` before the path leaves no repository, so it can't hide one.
+    [withUserinfo("https", `user:p#${PASSWORD}`, "git.example.com/o/r"), "https://git.example.com/o/r"],
+    [withUserinfo("https", `user:p?${PASSWORD}`, "git.example.com/o/r"), "https://git.example.com/o/r"],
+    // Transports parseRemoteSource rejects still reach its error's url field.
+    [withUserinfo("ftp", `user:${PASSWORD}`, "host/o/r"), "ftp://host/o/r"],
+    [withUserinfo("git::ftp", `user:${PASSWORD}`, "host/o/r"), "git::ftp://host/o/r"],
+    [withUserinfo("git+https", `user:${PASSWORD}`, "host/o/r"), "git+https://host/o/r"],
+    [withUserinfo("git::git+https", `user:${PASSWORD}`, "host/o/r"), "git::git+https://host/o/r"],
+    // http(s) may drop or double its `//`: the URL parser reads userinfo either way.
+    [`git::https:/user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:/git.example.com/o/r.git//x"],
+    [`git::https:user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:git.example.com/o/r.git//x"],
+    [`git::https:\\\\user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:\\\\git.example.com/o/r.git//x"],
+    // Scheme-less credentials, as git's own URLs spell them.
+    [`user:${PASSWORD}@github.com/o/r`, "github.com/o/r"],
+    [`git::oauth2:p@${PASSWORD}@gitlab.com/g/p.git//x`, "git::gitlab.com/g/p.git//x"],
+    [`${PASSWORD}@github.com/o/r`, "github.com/o/r"],
+    // Typos: one `/` after another scheme; a tab the URL parser drops.
+    [`git::ssh:/git:${PASSWORD}@host/o/r.git`, "git::ssh:/git@host/o/r.git"],
+    [`git+https:/user:${PASSWORD}@host/o/r`, "git+https:/host/o/r"],
+    [`git::ht\ttps://user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https://git.example.com/o/r.git//x"],
   ])("%s → %s", (input, expected) => {
     expect(redactSourceCredentials(input)).toBe(expected)
   })
@@ -66,9 +92,40 @@ describe("redactSourceCredentials", () => {
     "https://github.com/o/r/tree/main/x",
     "ssh://git@github.com/o/r.git",
     "git@github.com:o/r.git//x?ref=main",
+    "git::git@github.com:o/r.git//x?ref=main",
     "github.com/o/r//x?ref=main",
+    "https://github.com/o/r/tree/main/a@b",
   ])("leaves %s alone", (input) => {
     expect(redactSourceCredentials(input)).toBe(input)
+  })
+
+  it("keeps the `\\@` of an https URL, whose host ends at the `\\`", () => {
+    // Taking `evil.example\` for userinfo would show a github.com source
+    // for a clone of evil.example.
+    const source = "https://evil.example\\@github.com/o/tree/main/x"
+    expect(parse(source).host).toBe("evil.example")
+    expect(redactSourceCredentials(source)).toBe(source)
+  })
+
+  it("drops tabs and newlines as the URL parser does: a git:: source with one still opens", () => {
+    const source = withUserinfo("git::ht\ttps", `user:${PASSWORD}`, "git.example.com/o/r.git//x")
+    expect(parse(source).cloneURL).toBe("https://git.example.com/o/r.git")
+    expect(redactSourceCredentials(source)).toBe("git::https://git.example.com/o/r.git//x")
+  })
+
+  it.each([
+    [`git::ssh://git@host/o/r.git//x?ref=main&sshkey=${SSH_KEY}`, "git::ssh://git@host/o/r.git//x?ref=main&sshkey=[REDACTED]"],
+    [`git@host:o/r.git?sshkey=${SSH_KEY}&ref=main`, "git@host:o/r.git?sshkey=[REDACTED]&ref=main"],
+    [`github.com/o/r//x?sshkey=${SSH_KEY}#readme`, "github.com/o/r//x?sshkey=[REDACTED]#readme"],
+    // go-getter decodes the parameter's name.
+    [`git::ssh://git@host/o/r.git?ssh%6Bey=${SSH_KEY}`, "git::ssh://git@host/o/r.git?ssh%6Bey=[REDACTED]"],
+    [withUserinfo("git::ssh", `git:${PASSWORD}`, `host/o/r.git?sshkey=${SSH_KEY}`), "git::ssh://git@host/o/r.git?sshkey=[REDACTED]"],
+  ])("redacts go-getter's sshkey (a private key): %s", (input, expected) => {
+    expect(redactSourceCredentials(input)).toBe(expected)
+  })
+
+  it("leaves the other query parameters alone", () => {
+    expect(redactSourceCredentials("github.com/o/r//x?ref=main&depth=1")).toBe("github.com/o/r//x?ref=main&depth=1")
   })
 })
 
@@ -165,6 +222,16 @@ describe("parseRemoteSource", () => {
       const result = parse("gitlab.com/group/project/-/tree/main/runbooks/vpc")
       expect(result.owner).toBe("group")
       expect(result.refAndPath).toBe("main/runbooks/vpc")
+    })
+
+    it.each([
+      "https://gitlab.com/group/project/-/raw/main/runbooks/vpc/runbook.mdx",
+      "https://gitlab.example.com/group/sub/project/-/commits/main",
+      "gitlab.com/group/project/-/raw/main/runbooks/vpc",
+      "gitlab.com/group/project/-/commits/main//runbooks/vpc",
+    ])("rejects a GitLab page other than tree/blob instead of reading it as nested groups: %s", (url) => {
+      // `-` is reserved by GitLab: no group or project path can be `-`.
+      expect(parseError(url)).toContain("unsupported URL format")
     })
   })
 
@@ -307,6 +374,22 @@ describe("parseRemoteSource", () => {
       expect(result.ref).toBe("main")
     })
 
+    it("ignores go-getter's sshkey parameter", () => {
+      const result = parse(`git::ssh://git@github.com/owner/repo.git//modules/vpc?ref=main&sshkey=${SSH_KEY}`)
+      expect(result.cloneURL).toBe("ssh://git@github.com/owner/repo.git")
+      expect(result.path).toBe("modules/vpc")
+      expect(result.ref).toBe("main")
+    })
+
+    it.each([
+      "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0+build.1",
+      "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0%2Bbuild.1",
+      "github.com/owner/repo//modules/vpc?ref=v1.0.0+build.1",
+      "https://github.com/owner/repo?ref=v1.0.0+build.1",
+    ])("keeps a + in ?ref= (semver build metadata), never a space: %s", (url) => {
+      expect(parse(url).ref).toBe("v1.0.0+build.1")
+    })
+
     it("GitLab nested groups", () => {
       const result = parse("git::https://gitlab.com/group/subgroup/project.git//modules/vpc?ref=v1.0")
       expect(result.owner).toBe("group/subgroup")
@@ -425,6 +508,17 @@ describe("parseRemoteSource", () => {
       expect(parseError("github.com/owner")).toContain("github.com/<owner>/<repo>")
     })
 
+    it.each([`github.com/owner?sshkey=${SSH_KEY}`, `git::https://git.example.com/?sshkey=${SSH_KEY}`])(
+      "keeps an sshkey out of the error's url field and message: %s",
+      (input) => {
+        const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
+        if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
+        expect(result.left.url).toBe(redactSourceCredentials(input))
+        expect(result.left.url).toContain("sshkey=[REDACTED]")
+        expect(result.left.message).not.toContain(SSH_KEY)
+      },
+    )
+
     it("rejects a git transport other than https, http or ssh", () => {
       expect(parseError("git::file:///srv/repo.git//x")).toContain("unsupported git transport")
     })
@@ -432,6 +526,31 @@ describe("parseRemoteSource", () => {
     it("rejects an scp-like address whose user starts with -", () => {
       expect(parseError("-u@host:repo")).toContain("unsupported URL format")
       expect(parseError("git::-u@host:repo")).toContain("unsupported URL format")
+    })
+
+    it.each([
+      withUserinfo("https", `user:${PASSWORD}`, "bitbucket.org/owner/repo"),
+      withUserinfo("https", `user:${PASSWORD}`, "gitlab.com/group/project/-/raw/main/x"),
+      withUserinfo("git::https", `user:${PASSWORD}`, "git.example.com/"),
+      withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/"),
+      withUserinfo("https", `user:p@${PASSWORD}`, "bitbucket.org/owner/repo"),
+      withUserinfo("ftp", `user:${PASSWORD}`, "host/o/r"),
+      withUserinfo("git::ftp", `user:${PASSWORD}`, "host/o/r"),
+      withUserinfo("git+https", `user:${PASSWORD}`, "host/o/r"),
+      withUserinfo("git::git+https", `user:${PASSWORD}`, "host/o/r"),
+      `user:${PASSWORD}@github.com/o/r`,
+      `git::user:${PASSWORD}@host/o/r`,
+      // A token posing as the user, which the URL parser reads as a scheme.
+      `git::${PASSWORD}:x-oauth-basic@github.com/o/r`,
+      // One `/`: the URL parser finds no host ("no repository in …").
+      `git::ssh:/git:${PASSWORD}@host/o/r.git`,
+    ])("keeps credentials out of the error's url field and message: %s", (input) => {
+      // The url field ends up in logs, like the message.
+      const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
+      if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
+      expect(result.left.url).not.toContain(PASSWORD)
+      expect(result.left.url).toBe(redactSourceCredentials(input))
+      expect(result.left.message).not.toContain(PASSWORD)
     })
   })
 })
@@ -527,6 +646,33 @@ describe("resolveRef", () => {
 
     expect(result.ref).toBe("v1.0.0")
     expect(result.path).toBe("README.md")
+  })
+
+  it("fails with a redacted GitError instead of guessing a ref when ls-remote fails", async () => {
+    const url = "https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r.git"
+    const spawner = makeTestSpawner([
+      {
+        command: "git",
+        args: ["ls-remote", "--refs", "--", url],
+        outputLines: [`fatal: unable to access '${url}/': Could not resolve host: github.com`],
+        source: "stderr",
+        exitCode: 128,
+      },
+    ])
+
+    const result = await Effect.runPromise(
+      resolveRef(url, "feature/foo/runbooks/x").pipe(Effect.provide(spawner), Effect.either),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left._tag).toBe("GitError")
+      if (result.left._tag === "GitError") {
+        expect(result.left.exitCode).toBe(128)
+        expect(result.left.stderr).toContain("Could not resolve host")
+        expect(result.left.stderr).not.toContain("ghp_")
+      }
+    }
   })
 })
 

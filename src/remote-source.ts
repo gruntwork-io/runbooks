@@ -36,10 +36,11 @@
 import { Effect, Stream } from "effect"
 import { ProcessSpawner } from "./services/ProcessSpawner.ts"
 import type { SpawnError } from "./errors/index.ts"
-import { RemoteSourceError } from "./errors/index.ts"
+import { GitError, RemoteSourceError } from "./errors/index.ts"
 import { gitSpawnEnv, resolveSshCommand } from "./domain/git/env.ts"
 import { isGitLabHost } from "./domain/git/gitlab-host.ts"
 import { isGitHubHost } from "./domain/git/github-host.ts"
+import { redactSecrets } from "./domain/vcs/redact.ts"
 import type { ParsedRemoteSource } from "./types.ts"
 
 // ---------------------------------------------------------------------------
@@ -69,19 +70,70 @@ export function isRemoteSource(input: string): boolean {
   return SCHEME_PREFIX.test(trimmed) || SCP_LIKE.test(trimmed) || SHORTHAND.test(trimmed)
 }
 
-/** The userinfo of a scheme-bearing source, after an optional `git::`. */
-const SOURCE_USERINFO = /^(git::)?(https?|ssh):\/\/([^/@]*)@/i
+/**
+ * The URL parser's "special" schemes (file aside): any run of `/` and `\`
+ * may follow the colon, and a `\` ends the host as a `/` does, so
+ * `https://evil.example\@github.com/…` is a request to evil.example.
+ */
+const SPECIAL_SCHEME = /^(?:https?|ftp|wss?):/i
+const SPECIAL_USERINFO = /^((?:https?|ftp|wss?):[/\\]*)[^/\\]*@/i
 
 /**
- * `source` with any credentials in it removed, for logs and display. An
- * http(s) URL loses its whole userinfo (a token can pose as the username);
- * an ssh:// URL keeps its user and loses only a password.
+ * The userinfo of any other scheme's URL, which has a host only after `//`.
+ * After a single `/` there is no host and the source never parses, but a
+ * message may still echo it (`no repository in ssh:/git:<password>@…`).
+ */
+const URL_USERINFO = /^(([a-z][a-z0-9+.-]*):\/\/?)([^/]*)@/i
+
+/**
+ * A scheme-less `user:password@` or `user@` before a host. An scp-like
+ * address (`git@host:path`) keeps its user, which is part of the address.
+ */
+const SCHEMELESS_USERINFO = /^(?:[^:/@]+:[^/]*@|[^:/@]+@(?![^/]*:))/
+
+/** A `name=value` query parameter, for the sshkey scrub. */
+const QUERY_PARAM = /([?&])([^?&#=]*)=([^&#]*)/g
+
+/**
+ * `source` with any credentials in it removed, for logs and display. A URL
+ * or a scheme-less `user:password@host` loses its whole userinfo (a token
+ * can pose as the username); an ssh:// URL keeps its user and loses only a
+ * password. go-getter's `sshkey` parameter, a base64 private key, keeps its
+ * name and loses its value (splitGoGetter ignores it).
+ *
+ * The userinfo runs to the last `@` before the path, as it does for the URL
+ * parser that finds the host, so a password holding an `@` goes whole. The
+ * parser also ends the host at a `?` or `#`, but a source with one before
+ * its path has no repository and never parses, so the userinfo runs past
+ * them: a password holding one goes whole too.
  */
 export function redactSourceCredentials(source: string): string {
-  return source.trim().replace(SOURCE_USERINFO, (_match, prefix = "", scheme: string, userinfo: string) => {
-    const user = scheme.toLowerCase() === "ssh" ? `${userinfo.split(":")[0]}@` : ""
-    return `${prefix}${scheme}://${user}`
-  })
+  // The URL parser drops tabs and newlines wherever they are (`ht\ttps://`).
+  const trimmed = source.replace(/[\t\n\r]/g, "").trim()
+  const prefix = /^git::/i.test(trimmed) ? trimmed.slice(0, "git::".length) : ""
+  const address = trimmed.slice(prefix.length)
+  const redacted = SPECIAL_SCHEME.test(address)
+    ? address.replace(SPECIAL_USERINFO, "$1")
+    : address
+        .replace(URL_USERINFO, (_match, lead: string, scheme: string, userinfo: string) =>
+          scheme.toLowerCase() === "ssh" ? `${lead}${userinfo.split(":")[0]}@` : lead,
+        )
+        .replace(SCHEMELESS_USERINFO, "")
+  return (
+    prefix +
+    redacted.replace(QUERY_PARAM, (param, separator: string, name: string) =>
+      isSshKeyParam(name) ? `${separator}${name}=[REDACTED]` : param,
+    )
+  )
+}
+
+/** Whether a query parameter's name is `sshkey`, decoded as go-getter decodes it. */
+function isSshKeyParam(name: string): boolean {
+  try {
+    return decodeURIComponent(name.replace(/\+/g, " ")).toLowerCase() === "sshkey"
+  } catch {
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +177,8 @@ class InvalidSource extends Error {}
 /**
  * Parse a remote runbook source (any syntax in the module comment) into the
  * repo to clone, the ref, and the path inside it. Fails with a
- * RemoteSourceError whose message is fit to show the user.
+ * RemoteSourceError whose message is fit to show the user and whose url is
+ * the source without any credentials typed into it.
  */
 export const parseRemoteSource = (
   raw: string,
@@ -135,7 +188,7 @@ export const parseRemoteSource = (
     try: () => parse(raw.trim(), opts),
     catch: (err) =>
       new RemoteSourceError({
-        url: raw,
+        url: redactSourceCredentials(raw),
         message: err instanceof InvalidSource ? err.message : UNSUPPORTED,
       }),
   })
@@ -187,9 +240,19 @@ function parseHttpSource(input: string, opts: ParseRemoteSourceOptions): ParsedR
   // everything before it the owner. Only hosts recognizably GitLab by name
   // qualify; others (e.g. bitbucket.org) are unsupported.
   if (segments.length >= 2 && isGitLabHost(host)) {
-    return repoSource(host, segments.join("/"), { ref })
+    return repoSource(host, gitLabProjectPath(segments), { ref })
   }
   throw new InvalidSource(UNSUPPORTED)
+}
+
+/**
+ * A GitLab `group/.../project` path. GitLab reserves the `-` segment for its
+ * own pages (no group or project path may start with `-`), so a path holding
+ * one is a page such as `/-/raw/…` or `/-/commits/…`, never nested groups.
+ */
+function gitLabProjectPath(segments: readonly string[]): string {
+  if (segments.includes("-")) throw new InvalidSource(UNSUPPORTED)
+  return segments.join("/")
 }
 
 /**
@@ -209,7 +272,7 @@ function parseShorthand(input: string, opts: ParseRemoteSourceOptions): ParsedRe
   const host = hostPart.toLowerCase()
   const segments = rest.filter(Boolean)
   if (segments.length < 2) {
-    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${input}`)
+    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${redactSourceCredentials(input)}`)
   }
   if (host === "github.com") {
     // go-getter's GitHub detector: segments past owner/repo are the path.
@@ -220,7 +283,7 @@ function parseShorthand(input: string, opts: ParseRemoteSourceOptions): ParsedRe
       path: path || undefined,
     })
   }
-  return repoSource(host, segments.join("/"), { ref, path: subdir })
+  return repoSource(host, gitLabProjectPath(segments), { ref, path: subdir })
 }
 
 /**
@@ -244,7 +307,13 @@ function parseGitSource(source: string): ParsedRemoteSource {
     const url = parseUrl(address)
     const protocol = url.protocol.toLowerCase()
     if (protocol !== "https:" && protocol !== "http:" && protocol !== "ssh:") {
-      throw new InvalidSource(`unsupported git transport "${url.protocol}" (use https, http or ssh)`)
+      // Named only when spelled as one (`file://…`): in `user:password@host`
+      // the "scheme" is the user, which may be a token.
+      throw new InvalidSource(
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(address)
+          ? `unsupported git transport "${url.protocol}" (use https, http or ssh)`
+          : UNSUPPORTED,
+      )
     }
     host = url.host.toLowerCase()
     repoPath = url.pathname
@@ -295,15 +364,20 @@ function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: strin
  * Split a go-getter source into its address, the `//` subdirectory, and the
  * `?ref=` query parameter — go-getter's SourceDirSubdir. The `://` of a
  * scheme is skipped so it never reads as the separator. Other query
- * parameters (`depth`, `sshkey`) don't apply here and are ignored, and a
- * `#fragment` is page state, not part of the source.
+ * parameters (`depth`, `sshkey`) don't apply here and are ignored (an echo
+ * of the source goes through redactSourceCredentials, which scrubs the
+ * sshkey), and a `#fragment` is page state, not part of the source.
+ *
+ * A `+` in the query stays a `+`: URLSearchParams (like go-getter) reads it
+ * as a space, which no git ref can contain, while a tag can hold one (semver
+ * build metadata, `v1.0.0+build.1`). `%2B` still decodes to `+`.
  */
 function splitGoGetter(raw: string): { address: string; subdir?: string; ref?: string } {
   const hashStart = raw.indexOf("#")
   const source = hashStart === -1 ? raw : raw.slice(0, hashStart)
   const queryStart = source.indexOf("?")
   const beforeQuery = queryStart === -1 ? source : source.slice(0, queryStart)
-  const query = new URLSearchParams(queryStart === -1 ? "" : source.slice(queryStart + 1))
+  const query = new URLSearchParams(queryStart === -1 ? "" : source.slice(queryStart + 1).replace(/\+/g, "%2B"))
   const ref = query.get("ref") || undefined
 
   const schemeEnd = beforeQuery.indexOf("://")
@@ -374,6 +448,10 @@ function parseUrl(raw: string): URL {
  *
  * `env` overrides the spawn environment (defaults to `gitSpawnEnv()`), e.g. to
  * authenticate a private repo with withGitHttpAuth.
+ *
+ * A failed ls-remote (auth, network, missing repo) fails with a GitError
+ * carrying git's redacted stderr rather than guessing a ref, so the caller
+ * can classify it as it does a failed clone.
  */
 export const resolveRef = (
   cloneURL: string,
@@ -381,7 +459,7 @@ export const resolveRef = (
   env?: Record<string, string | undefined>,
 ): Effect.Effect<
   { ref: string; path: string | undefined },
-  RemoteSourceError | SpawnError,
+  GitError | SpawnError,
   ProcessSpawner
 > =>
   Effect.gen(function* () {
@@ -396,13 +474,21 @@ export const resolveRef = (
       env: env ?? gitSpawnEnv(yield* resolveSshCommand()),
     })
     const lines: string[] = []
+    const stderr: string[] = []
     yield* Stream.runForEach(proc.output, (line) => {
-      if (line.source === "stdout" && line.line.trim()) {
+      if (line.source === "stderr") {
+        stderr.push(line.line)
+      } else if (line.line.trim()) {
         lines.push(line.line)
       }
       return Effect.void
     })
-    yield* proc.exitCode
+    const code = yield* proc.exitCode
+    if (code !== 0) {
+      return yield* Effect.fail(
+        new GitError({ command: "git ls-remote", stderr: redactSecrets(stderr.join("\n")), exitCode: code }),
+      )
+    }
 
     // Build set of known ref names (strip refs/heads/ and refs/tags/)
     const knownRefs = new Set<string>()
