@@ -38,10 +38,16 @@ export function GitCloneInstruction({
     () => resolveTemplateReferences(description ?? defaultDescription(isLocalSource ? 'local' : 'clone'), templateContext),
     [description, isLocalSource, templateContext],
   )
-  const resolvedRepoPath = useMemo(
-    () => resolveTemplateReferences(prefilledRepoPath, templateContext),
-    [prefilledRepoPath, templateContext],
-  )
+  // Normalized as the app's clone does (src/domain/git/cloneSteps.ts): ""
+  // and "." (or "./") name the whole repository, so they get no sparse note.
+  const sparsePath = useMemo(() => {
+    const path = resolveTemplateReferences(prefilledRepoPath, templateContext)
+      .trim()
+      .replace(/\\/g, '/')
+      .replace(/^(?:\.\/+)+/, '')
+      .replace(/\/+$/, '')
+    return path === '.' ? '' : path
+  }, [prefilledRepoPath, templateContext])
 
   // Build from the RAW prefilled props so <Instruction> resolves templates and
   // surfaces manual fields for any {{ .outputs.* }} references.
@@ -72,9 +78,9 @@ export function GitCloneInstruction({
       command={command}
       templateContext={templateContext}
       note={
-        resolvedRepoPath && !isLocalSource ? (
+        sparsePath && !isLocalSource ? (
           <span>
-            Only the sub-path <code className="font-mono">{resolvedRepoPath}</code>{' '}
+            Only the sub-path <code className="font-mono">{sparsePath}</code>{' '}
             is needed — use a{' '}
             <a
               href="https://git-scm.com/docs/git-sparse-checkout"
@@ -84,7 +90,7 @@ export function GitCloneInstruction({
             >
               sparse checkout
             </a>{' '}
-            to fetch just that directory.
+            to check out that directory instead of the whole repository.
           </span>
         ) : undefined
       }

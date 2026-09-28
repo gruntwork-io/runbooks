@@ -2,42 +2,53 @@ import { Context, Effect } from "effect"
 import type { GitError, SpawnError } from "../errors/index.ts"
 
 export interface CloneOptions {
+  /** Branch, tag or commit SHA to check out. Defaults to the remote's default branch. */
   readonly ref?: string
   readonly repoPath?: string
   readonly token?: string
+  /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
+  readonly username?: string
   readonly force?: boolean
-  /** When set, use sparse checkout to only fetch this subpath within the repo. */
+  /**
+   * When set, sparse-checkout only this repo-relative path. A directory is
+   * checked out with everything under it; a file brings its whole parent
+   * directory.
+   */
   readonly sparse?: string
-}
-
-export interface CloneResult {
-  readonly fileCount: number
-  readonly absolutePath: string
-  readonly relativePath: string
 }
 
 export interface PushOptions {
   readonly token?: string
+  /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
+  readonly username?: string
   readonly setUpstream?: boolean
 }
 
+/** One file's worktree-vs-HEAD line counts (`git diff HEAD --numstat`). */
 export interface DiffEntry {
   readonly path: string
   readonly changeType: string
   readonly additions: number
   readonly deletions: number
+  /** The file's content at HEAD; undefined when it has none (new file, unborn branch, binary). */
   readonly originalContent?: string
-  readonly newContent?: string
   readonly isBinary: boolean
-  readonly diffTruncated: boolean
 }
 
 export interface StatusEntry {
+  /** Repo-relative path, verbatim (never C-quoted). For a rename/copy, the new path. */
   readonly path: string
+  /** Porcelain v1 XY code, trimmed (e.g. "M", "??", "R"). */
   readonly status: string
+  /** For a rename/copy (R/C), the path it came from. */
+  readonly origPath?: string
 }
 
 export interface GitInfo {
+  /**
+   * The checked-out ref: the branch name, the tag name when `refType` is
+   * "tag", or "HEAD" when `refType` is "detached".
+   */
   readonly branch: string
   readonly refType: "branch" | "tag" | "detached"
   readonly remoteUrl?: string
@@ -65,7 +76,7 @@ export interface CommitOptions {
 }
 
 export interface GitClientShape {
-  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<CloneResult, GitError | SpawnError>
+  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<void, GitError | SpawnError>
   readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError | SpawnError>
   readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly getCurrentBranch: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
@@ -73,10 +84,30 @@ export interface GitClientShape {
   readonly getRepoRoot: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   readonly getRemoteUrl: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   readonly getInfo: (repoPath: string) => Effect.Effect<GitInfo, GitError | SpawnError>
+  /**
+   * Changed tracked files, worktree vs HEAD (staged and unstaged alike), with
+   * HEAD content for text files. Omit `filePath` to diff the whole worktree in
+   * one pass. On an unborn branch it falls back to worktree vs index.
+   */
   readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
   readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
+  /**
+   * Whether HEAD resolves to a commit. False only for an unborn HEAD (a fresh
+   * `git init` or an empty clone); fails when the repo can't be queried.
+   */
   readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
-  readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
+  /**
+   * Whether HEAD has commits that `ref` (a full refname, `refs/…`) doesn't
+   * (`git rev-list <ref>..HEAD`). Fails when either can't be resolved.
+   */
+  readonly hasCommitsNotIn: (repoPath: string, ref: string) => Effect.Effect<boolean, GitError | SpawnError>
+  /**
+   * Whether HEAD has commits that no remote-tracking branch of `remote` has
+   * (`git rev-list HEAD --not --remotes=<remote>`): commits that, as far as
+   * the last fetch or push knows, were never pushed there. Fails when HEAD
+   * can't be resolved.
+   */
+  readonly hasCommitsNotOnRemote: (repoPath: string, remote: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>
   readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError | SpawnError>

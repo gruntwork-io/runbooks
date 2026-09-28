@@ -7,7 +7,8 @@
  */
 import { Effect, ManagedRuntime } from "effect"
 import { AppLive } from "../../../src/layers/AppLayer.ts"
-import { DEFAULT_GITLAB_HOST } from "../../../src/domain/gitlab/auth.ts"
+import { gitlabSessionTokenHost } from "../../../src/domain/gitlab/auth.ts"
+import { githubSessionCredential } from "../../../src/domain/github/auth.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { FileManifestStore, getManifestStore } from "../../../src/domain/files/manifest.ts"
@@ -39,6 +40,27 @@ export type GitProvider = "github" | "gitlab"
 export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: string }>()
 
 /**
+ * Resolve the GitHub session credential for `host` (undefined = the
+ * session's GitHub host), HOST-BOUND: a token is released only for the host
+ * it belongs to (githubSessionCredential), so a github.com token never
+ * reaches an enterprise host or the reverse. Yields the token and the host it
+ * belongs to, so API calls target that host.
+ */
+export const getGitHubSessionCredential = <E>(host: string | undefined, onMissing: () => E) =>
+  Effect.gen(function* () {
+    const session = yield* sessionManager.getSession()
+    const credential = githubSessionCredential(
+      Object.fromEntries(session.env),
+      host,
+      vcsSessionMeta.get("github")?.host,
+    )
+    if (!credential) {
+      return yield* Effect.fail(onMissing())
+    }
+    return credential
+  })
+
+/**
  * Resolve an auth token for a git PROVIDER from the current session's
  * environment.
  *
@@ -46,23 +68,26 @@ export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: stri
  * session:set-env) and are the single source of truth for "which token do git
  * and API calls use" — the renderer never holds them directly. The PROVIDER —
  * NOT the remote hostname — selects which env var to read:
- *   - github -> GITHUB_TOKEN, then GH_TOKEN
+ *   - github -> the session's GitHub host credential (GITHUB_TOKEN, then
+ *     GH_TOKEN, or GH_ENTERPRISE_TOKEN for a GHES GH_HOST — see
+ *     getGitHubSessionCredential)
  *   - gitlab -> GITLAB_TOKEN
  *
  * Keying on the provider (rather than parsing the remote host) is what makes
- * self-hosted GitHub/GitLab work: those instances live on arbitrary hostnames,
- * so the host tells us nothing about which credential to use — the linked auth
- * block does. Callers supply `onMissing` so each can fail with the error type
- * its pipeline expects (a typed GitError for git handlers, a plain Error for
- * API handlers).
+ * self-hosted GitLab work: those instances live on arbitrary hostnames, so
+ * the host tells us nothing about which credential to use — the linked auth
+ * block does. Callers that send the token to a host they know (a clone URL,
+ * a repo's origin) should use getSessionTokenForHost instead. Callers supply
+ * `onMissing` so each can fail with the error type its pipeline expects (a
+ * typed GitError for git handlers, a plain Error for API handlers).
  */
 export const getSessionTokenForProvider = <E>(provider: GitProvider, onMissing: () => E) =>
   Effect.gen(function* () {
+    if (provider === "github") {
+      return (yield* getGitHubSessionCredential(undefined, onMissing)).token
+    }
     const session = yield* sessionManager.getSession()
-    const token =
-      provider === "gitlab"
-        ? session.env.get("GITLAB_TOKEN")
-        : session.env.get("GITHUB_TOKEN") ?? session.env.get("GH_TOKEN")
+    const token = session.env.get("GITLAB_TOKEN")
     if (!token) {
       return yield* Effect.fail(onMissing())
     }
@@ -70,18 +95,23 @@ export const getSessionTokenForProvider = <E>(provider: GitProvider, onMissing: 
   })
 
 /**
- * Resolve the GitHub token from the current session's environment. Thin
- * GitHub-pinned wrapper over getSessionTokenForProvider for existing callers
- * (e.g. github:* API handlers and the pull-request flow, which are GitHub-only).
+ * The host the session's GitLab token is bound to (gitlabSessionTokenHost):
+ * the auth block's host while the session's GITLAB_HOST still names it, else
+ * (no auth block) the host glab's env vars name. Undefined when the token may
+ * go nowhere, e.g. a script moved GITLAB_HOST after the auth block ran.
  */
-export const getSessionToken = <E>(onMissing: () => E) =>
-  getSessionTokenForProvider("github", onMissing)
+export const getGitLabSessionBoundHost = () =>
+  Effect.map(sessionManager.getSession(), (session) =>
+    gitlabSessionTokenHost(Object.fromEntries(session.env), vcsSessionMeta.get("gitlab")?.host),
+  )
 
 /**
- * Host-bound variant of getSessionTokenForProvider for callers whose target
- * host comes from UNTRUSTED input (a remote runbook URL): the session
- * credential is released only for the host the auth block established it for
- * (binding — github.com, or the GITLAB_HOST written alongside the token).
+ * Host-bound variant of getSessionTokenForProvider for callers that send the
+ * token to a specific host (a clone URL, a repo's origin — possibly from
+ * UNTRUSTED input like a remote runbook URL): the session credential is
+ * released only for the host the auth block established it for (binding —
+ * the GitHub session host, or getGitLabSessionBoundHost), so a script that
+ * rewrites GITLAB_HOST or GITHUB_HOST cannot move it.
  */
 export const getSessionTokenForHost = <E>(
   provider: GitProvider,
@@ -89,15 +119,29 @@ export const getSessionTokenForHost = <E>(
   onMissing: () => E,
 ) =>
   Effect.gen(function* () {
-    const session = yield* sessionManager.getSession()
-    const boundHost =
-      provider === "gitlab"
-        ? (session.env.get("GITLAB_HOST") ?? DEFAULT_GITLAB_HOST).toLowerCase()
-        : "github.com"
-    if (host.trim().toLowerCase() !== boundHost) {
+    if (provider === "github") {
+      return (yield* getGitHubSessionCredential(host, onMissing)).token
+    }
+    const boundHost = yield* getGitLabSessionBoundHost()
+    if (boundHost === undefined || host.trim().toLowerCase() !== boundHost) {
       return yield* Effect.fail(onMissing())
     }
     return yield* getSessionTokenForProvider(provider, onMissing)
+  })
+
+/**
+ * The GitLab session token for a request to `origin`, an instance origin
+ * (`https://gitlab.example.com`): host-bound like getSessionTokenForHost, and
+ * never over plain http. The token may be an auto-detected env or CLI
+ * credential, and `origin` may come from a runbook or a cloned repo's remote.
+ */
+export const getGitLabSessionTokenForOrigin = <E>(origin: string, onMissing: () => E) =>
+  Effect.gen(function* () {
+    const url = URL.canParse(origin) ? new URL(origin) : undefined
+    if (url?.protocol !== "https:") {
+      return yield* Effect.fail(onMissing())
+    }
+    return yield* getSessionTokenForHost("gitlab", url.host, onMissing)
   })
 
 /** Executable registry -- populated when a runbook is loaded. */
@@ -111,7 +155,6 @@ export function setExecutableRegistry(reg: ExecutableRegistry | null): void {
 export let runbookConfig: RunbookConfig = {
   localPath: "",
   isWatchMode: false,
-  useExecutableRegistry: true,
 }
 
 export function setRunbookConfig(config: RunbookConfig): void {

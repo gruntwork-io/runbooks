@@ -155,7 +155,7 @@ Numeric input field.
 
 ### `bool`
 
-Checkbox toggle.
+Checkbox toggle. Without a `default`, the checkbox starts unchecked, which is the value `false`.
 
 ```yaml
 - name: EnableLogging
@@ -166,7 +166,7 @@ Checkbox toggle.
 
 ### `enum`
 
-Dropdown select from predefined options.
+Dropdown select from predefined options. Without a `default`, the dropdown starts empty ("Select…") and the variable has no value until the user picks one. With the `required` validation, the form asks for a pick before it can be submitted. Boilerplate itself needs a value for every variable without a default, so give an optional enum a `default` (`""` works if `""` is one of the options).
 
 ```yaml
 - name: Region

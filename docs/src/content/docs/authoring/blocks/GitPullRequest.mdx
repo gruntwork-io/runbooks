@@ -39,7 +39,7 @@ Pair with `<GitAuth>` and `<GitClone>` to create a complete workflow. The provid
 
 1. An explicit `provider` prop, if set.
 2. The `GIT_PROVIDER` output of the block referenced by `gitAuthId` (or `githubAuthId`).
-3. The host of the cloned repository's remote URL.
+3. The host of the cloned repository's remote URL (`github.com` and `*.ghe.com` tenants are recognized as GitHub; a GitHub Enterprise Server host is only recognized through the linked auth block).
 4. Otherwise, defaults to `github`.
 
 This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks/gitauth/): the provider comes from the linked auth block, not the remote hostname, so self-hosted instances resolve correctly.
@@ -47,6 +47,16 @@ This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks
 <Aside type="note">
 If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error instead of silently using the wrong credentials.
 </Aside>
+
+### GitLab Instance
+
+A merge request is opened on the GitLab instance that the repository's `origin` remote points at, whether that is gitlab.com or a self-managed host:
+
+- An `https://` remote keeps its port.
+- An SSH remote (`git@gitlab.example.com:group/repo.git`, `gitlab@gitlab.example.com:group/repo.git` or `ssh://git@gitlab.example.com:2222/group/repo.git`) maps to `https://gitlab.example.com`. The port in an SSH URL belongs to the SSH server, not the web server.
+- A plain `http://` remote is refused: the GitLab token is only sent over HTTPS (see [GitHub Enterprise Hosts](#github-enterprise-hosts) below).
+
+The block never falls back to gitlab.com. If the checkout has no `origin` remote, or its URL has no host, the block fails before your GitLab token is sent anywhere.
 
 ### Pre-filled Values
 
@@ -127,6 +137,26 @@ Reference outputs in downstream blocks using template variables:
 
 After creating a PR/MR, the block displays a "Git Push" button. This allows you to push additional changes made after it was created (for example, by running more Command or Template blocks). Each push stages all changes, commits them with the message "Additional changes", and pushes to the same branch.
 
+### Retrying After a Failure
+
+If creation fails after the branch was created (for example, the push is rejected or the API call fails), fix the cause and create again with the same branch name. The block picks up on the existing branch: it commits any new changes and pushes, then opens the PR/MR.
+
+You can also retry under a new branch name. The new branch starts from the branch the failed attempt left checked out, so if that attempt's push failed, its commits are pushed under the new name, along with any new changes.
+
+If a local branch with that name already exists but isn't checked out (for example, one left over from an earlier run), the block offers to delete it and retry. The delete is refused if the branch has commits that haven't been pushed or merged; choose a new branch name instead.
+
+The branch name can't be the base branch or a protected name (`main`, `master`, `develop`, `dev`, `staging`, `release`, `prod`, `production`).
+
+### Creating Another PR/MR
+
+After a PR/MR is created, its branch stays checked out, and "create another" fills in a new branch name such as `runbook/<timestamp>`. What the next create does depends on the branch name and on whether anything changed since:
+
+- **A new name, with new changes:** the new branch starts from the open PR/MR's branch, so the new PR/MR also contains the open one's commits.
+- **A new name, with no new changes:** refused with "Nothing to commit". The open PR/MR's commits are already on the remote, and a new PR/MR would only repeat them. Nothing is pushed, and the open PR/MR's branch stays checked out.
+- **The open PR/MR's branch name:** the block picks up on that branch, commits any new changes and pushes them to it, so they become part of the open PR/MR, and then reports that the PR/MR already exists.
+
+To add changes to an open PR/MR, use "Git Push", which the block shows until you choose "create another".
+
 ### Prerequisites
 
 The block requires two prerequisites:
@@ -142,6 +172,38 @@ Both prerequisites are checked automatically, and the block shows amber warnings
 ### Labels
 
 The block fetches available labels from the repository and presents them in a searchable multi-select dropdown. Labels can also be pre-selected using the `prefilledPullRequestLabels` prop.
+
+On GitHub, labels are applied after the pull request opens. If applying them fails, the pull request is still created and the logs show a warning.
+
+### GitHub Enterprise Hosts
+
+This section applies to GitHub; GitLab merge requests use the instance of the repository's remote. On GitHub, the pull request is opened against the host of the cloned repository's `origin` remote — `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com` — using that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`). Labels are fetched from the same host.
+
+That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ — for example, a repository cloned from `github.example.com` while the auth block signed in to `github.com` — the block fails with a clear error instead of sending the token to a host it was not issued for. Links to token settings shown by the block also follow the authenticated host.
+
+For both providers, the token is sent only over HTTPS, and only to the host the linked auth block authenticated to (the `GITHUB_HOST` or `GITLAB_HOST` it set); Runbooks never assumes `github.com` or `gitlab.com`. If `origin` is on another host or is a plain `http://` URL, the repository has no `origin` remote, or `origin` names no host Runbooks can read (a local path, or an address it can't parse), the block fails with an error before the token is sent anywhere. Point `origin` at the repository on your GitHub or GitLab host (an `https://` URL or a `git@<host>:<owner>/<repo>.git` address) and try again.
+
+```mdx
+<GitAuth
+  id="git-auth"
+  provider="github"
+  host="github.example.com"
+/>
+
+<GitClone
+  id="clone-repo"
+  gitAuthId="git-auth"
+  prefilledUrl="https://github.example.com/platform/infrastructure-live"
+/>
+
+<GitPullRequest
+  id="create-pr"
+  gitAuthId="git-auth"
+  title="Open Pull Request"
+/>
+```
+
+See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
 
 ## Provider-locked aliases
 

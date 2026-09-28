@@ -13,10 +13,6 @@ export type {
   GitDetectionSource,
   GitTokenType,
   GitUserInfo,
-  GitCredentials,
-  GitCliCredentialsResponse,
   // Backward-compatible GitHub* alias
   GitHubAuthProps,
 } from './types'
-
-export { isCliAuthFound } from './types'

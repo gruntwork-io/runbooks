@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { CircleCheck, Loader2, CircleX } from 'lucide-react'
 
-type FormStatusState = 'valid' | 'updating' | 'error'
+type FormStatusState = 'valid' | 'updating' | 'error' | 'failed'
 
 interface FormStatusProps {
   /** Whether the form is currently valid */
@@ -10,6 +10,8 @@ interface FormStatusProps {
   isUpdating: boolean
   /** Whether this is for inline mode (variables) vs file generation mode */
   isInlineMode?: boolean
+  /** Whether the latest render failed (the parent displays the error itself) */
+  hasRenderError?: boolean
   /** Additional CSS classes */
   className?: string
 }
@@ -17,10 +19,11 @@ interface FormStatusProps {
 /**
  * FormStatus component that shows the current state of the form after initial generation.
  * 
- * Displays one of three states:
+ * Displays one of four states:
  * - Valid: Green checkmark with "Fields will update automatically" message
  * - Updating: Spinner with "Updating..." message (shown briefly during auto-render)
  * - Error: Red X with "Fix validation errors above" message
+ * - Failed: Red X with "Generation failed" message (the latest render failed)
  * 
  * The updating state lingers for a minimum duration to provide visual feedback
  * even when updates are nearly instantaneous.
@@ -29,12 +32,14 @@ interface FormStatusProps {
  * @param props.isValid - Whether the form currently passes validation
  * @param props.isUpdating - Whether an auto-render is in progress
  * @param props.isInlineMode - Whether using inline mode (updates variables) vs file generation
+ * @param props.hasRenderError - Whether the latest render failed
  * @param props.className - Additional CSS classes
  */
 export const FormStatus: React.FC<FormStatusProps> = ({
   isValid,
   isUpdating,
   isInlineMode = false,
+  hasRenderError = false,
   className = ''
 }) => {
   // Track the visual state with minimum display duration for updating
@@ -52,6 +57,9 @@ export const FormStatus: React.FC<FormStatusProps> = ({
       updateTimeoutRef.current = null
     }
 
+    // Where the display settles once no update is in progress
+    const settledState: FormStatusState = hasRenderError ? 'failed' : 'valid'
+
     if (!isValid) {
       // Error state takes precedence
       setDisplayState('error')
@@ -60,20 +68,20 @@ export const FormStatus: React.FC<FormStatusProps> = ({
       updateStartTimeRef.current = Date.now()
       setDisplayState('updating')
     } else if (displayState === 'updating') {
-      // Transitioning from updating to valid - ensure minimum duration
+      // Transitioning from updating to settled - ensure minimum duration
       const elapsed = Date.now() - updateStartTimeRef.current
       const remaining = Math.max(0, MIN_UPDATE_DURATION - elapsed)
       
       if (remaining > 0) {
         updateTimeoutRef.current = setTimeout(() => {
-          setDisplayState('valid')
+          setDisplayState(settledState)
         }, remaining)
       } else {
-        setDisplayState('valid')
+        setDisplayState(settledState)
       }
     } else {
-      // Just valid
-      setDisplayState('valid')
+      // Just valid (or failed)
+      setDisplayState(settledState)
     }
 
     return () => {
@@ -81,7 +89,7 @@ export const FormStatus: React.FC<FormStatusProps> = ({
         clearTimeout(updateTimeoutRef.current)
       }
     }
-  }, [isValid, isUpdating, displayState])
+  }, [isValid, isUpdating, hasRenderError, displayState])
 
   const autoUpdateMessage = isInlineMode 
     ? 'Variable values will update automatically as you type.'
@@ -104,6 +112,15 @@ export const FormStatus: React.FC<FormStatusProps> = ({
             <Loader2 className="size-5 text-primary flex-shrink-0 animate-spin" />
             <span className="text-sm text-primary font-medium">
               Updating...
+            </span>
+          </>
+        )}
+
+        {displayState === 'failed' && (
+          <>
+            <CircleX className="size-5 text-destructive flex-shrink-0" />
+            <span className="text-sm text-destructive font-medium">
+              Generation failed. See the error above.
             </span>
           </>
         )}

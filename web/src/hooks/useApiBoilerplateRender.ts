@@ -9,7 +9,8 @@ interface BoilerplateRenderResult {
   message:      string,
   outputDir:    string,
   templatePath: string,
-  fileTree:     FileTreeNode[],
+  /** Omitted when the render changed nothing (main's no-change shortcut). */
+  fileTree?:    FileTreeNode[],
   totalFiles?:  number,
   truncatedTree?: boolean,
   heavyDirs?: HeavyDir[],
@@ -93,9 +94,10 @@ export function useApiBoilerplateRender(
   // after (or two) without blocking the visible result.
   const renderData = apiResult.data;
   useEffect(() => {
-    if (renderData?.fileTree && Array.isArray(renderData.fileTree)) {
+    const fileTree = renderData?.fileTree;
+    if (renderData && Array.isArray(fileTree)) {
       startTransition(() => {
-        applyFileTreeUpdate(renderData);
+        applyFileTreeUpdate({ ...renderData, fileTree });
       });
     }
   }, [renderData, applyFileTreeUpdate]);
