@@ -64,8 +64,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Ref to the progress listener unsubscriber so cancel() can clean up
   const unsubLogRef = useRef<(() => void) | null>(null)
 
-  // The current clone run. clone() and cancel() both bump it, so a run that
-  // was cancelled (or superseded) can't apply its late result or clean-up.
+  // The current clone run. clone(), cancel() and reset() bump it, so a run
+  // that was cancelled (or superseded) can't apply its late result or
+  // clean-up, and neither can a default-branch seed started for it.
   const cloneRunRef = useRef(0)
   // Backend id of the clone in flight, so cancel() can stop git itself.
   const cloneIdRef = useRef<string | null>(null)
@@ -335,6 +336,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // would have if the repo had arrived with commits.
   const initDefaultBranch = useCallback(async (branch: string) => {
     if (!cloneResult?.absolutePath) return
+    // 'Clone again' (or another clone) while this runs moves the block on to
+    // another repo, whose held-back outputs this seed must not release.
+    const runId = cloneRunRef.current
     setSeedStatus('running')
     setSeedError(null)
 
@@ -344,6 +348,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         branch,
         ...(authProvider ? { provider: authProvider } : {}),
       })
+      if (runId !== cloneRunRef.current) return
 
       if ('error' in result) {
         setSeedError(result.error)
@@ -362,6 +367,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       )
       setSeedStatus('idle')
     } catch (error) {
+      if (runId !== cloneRunRef.current) return
       setSeedError(error instanceof Error ? error.message : 'Failed to create the default branch')
       setSeedStatus('fail')
     }
@@ -390,8 +396,10 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
   // Start over ('Clone again' / 'Choose a different repo'). The previous
   // repo's outputs are withdrawn, so downstream blocks wait for the next one
-  // instead of carrying on against a repo the user moved away from.
+  // instead of carrying on against a repo the user moved away from. A seed
+  // still in flight for that repo goes stale too.
   const reset = useCallback(() => {
+    cloneRunRef.current++
     setCloneStatus('ready')
     setLogs([])
     setCloneResult(null)

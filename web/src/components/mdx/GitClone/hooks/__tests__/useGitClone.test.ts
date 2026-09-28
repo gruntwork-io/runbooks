@@ -234,6 +234,57 @@ describe('useGitClone — reset', () => {
     expect(registerOutputs).toHaveBeenLastCalledWith('clone', {})
     expect(result.current.cloneStatus).toBe('ready')
   })
+
+  describe('with a default-branch seed still in flight', () => {
+    const emptyRepo = (name: string): CloneReply => ({
+      status: 'success',
+      absolutePath: `/work/${name}`,
+      hasCommits: false,
+      outputs: { clone_path: `/work/${name}` },
+    })
+
+    /**
+     * Clone empty repo one and start seeding it, then "Clone again" and clone
+     * empty repo two. Returns the seed call, still unanswered.
+     */
+    async function seedThenCloneAnother() {
+      const clones = [emptyRepo('one'), emptyRepo('two')]
+      const seed = deferred<{ branch: string }>()
+      invoke.mockImplementation(async (channel: string) => {
+        if (channel === 'git:clone') return clones.shift()
+        if (channel === 'git:init-default-branch') return seed.promise
+        return {}
+      })
+      const hook = renderHook(() => useGitClone({ id: 'clone' }))
+
+      await act(async () => { await hook.result.current.clone('https://github.com/acme/one.git', '', '', '') })
+      act(() => { void hook.result.current.initDefaultBranch('main') })
+      act(() => hook.result.current.reset())
+      await act(async () => { await hook.result.current.clone('https://github.com/acme/two.git', '', '', '') })
+      registerOutputs.mockClear()
+      return { ...hook, seed }
+    }
+
+    it("doesn't publish the next repo's held-back outputs when it succeeds", async () => {
+      const { result, seed } = await seedThenCloneAnother()
+
+      await act(async () => { seed.resolve({ branch: 'main' }) })
+
+      // Repo two has no commits of its own, so it stays held back.
+      expect(registerOutputs).not.toHaveBeenCalled()
+      expect(result.current.cloneResult).toMatchObject({ absolutePath: '/work/two', hasCommits: false })
+      expect(result.current.seedStatus).toBe('idle')
+    })
+
+    it("doesn't report its failure against the next repo", async () => {
+      const { result, seed } = await seedThenCloneAnother()
+
+      await act(async () => { seed.reject(new Error('push rejected')) })
+
+      expect(result.current.seedStatus).toBe('idle')
+      expect(result.current.seedError).toBeNull()
+    })
+  })
 })
 
 describe('useGitClone — GitHub host of the linked auth block', () => {
