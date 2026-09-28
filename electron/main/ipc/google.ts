@@ -194,12 +194,17 @@ const toAdcInfoIpc = (adc: AdcInfo): AdcInfoIpc => ({
  * Append to the session env, reproducing appendSessionEnvAndRecord's failure
  * semantics without its GitProvider typing or its vcs:session-changed push: a
  * failed write returns the success-card warning copy instead of failing the
- * authentication. Undefined on success.
+ * authentication. Undefined on success. `generation` is the session
+ * generation captured when the request arrived; the write is dropped if a
+ * different runbook opened since.
  */
-async function appendGoogleSessionEnv(env: Record<string, string>): Promise<string | undefined> {
+async function appendGoogleSessionEnv(
+  env: Record<string, string>,
+  generation: number,
+): Promise<string | undefined> {
   if (Object.keys(env).length === 0) return undefined
   try {
-    await runtime.runPromise(sessionManager.appendToEnv(env))
+    await runtime.runPromise(sessionManager.appendToEnv(env, generation))
     return undefined
   } catch (err) {
     return `Authenticated, but the credential could not be saved to the session (${toErrorMessage(err)}). Blocks that consume it may not see it.`
@@ -217,12 +222,15 @@ async function appendGoogleSessionEnv(env: Record<string, string>): Promise<stri
  * sibling — surfaced as `sessionEnvWarning` copy, never a failed
  * authentication — because a swallowed failure here is worse than a swallowed
  * append: it leaves a WRONG credential silently active for `gcloud` instead of
- * merely a missing one.
+ * merely a missing one. `generation` works as for `appendGoogleSessionEnv`.
  */
-async function clearGoogleSessionEnv(keys: string[]): Promise<string | undefined> {
+async function clearGoogleSessionEnv(
+  keys: string[],
+  generation: number,
+): Promise<string | undefined> {
   if (keys.length === 0) return undefined
   try {
-    await runtime.runPromise(sessionManager.removeFromEnv(keys))
+    await runtime.runPromise(sessionManager.removeFromEnv(keys, generation))
     return undefined
   } catch (err) {
     return `Authenticated, but a stale gcloud CLI credential override could not be cleared from the session (${toErrorMessage(err)}). Bare gcloud commands may keep using a previous credential until this block re-authenticates.`
@@ -231,15 +239,20 @@ async function clearGoogleSessionEnv(keys: string[]): Promise<string | undefined
 
 /**
  * Apply a change `./google-session-env.ts` worked out: set, then delete.
- * Returns the success-card warning, if any.
+ * Returns the success-card warning, if any. `generation` works as for
+ * `appendGoogleSessionEnv`: both writes are dropped once a different runbook
+ * has opened.
  */
-async function applyGoogleSessionEnv(change: GoogleSessionEnvChange): Promise<string | undefined> {
-  const warning = await appendGoogleSessionEnv(change.set)
+async function applyGoogleSessionEnv(
+  change: GoogleSessionEnvChange,
+  generation: number,
+): Promise<string | undefined> {
+  const warning = await appendGoogleSessionEnv(change.set, generation)
   // The delete is skipped once the append already warned: that means the
   // session write failed wholesale, so a second attempt against the same
   // broken session would only duplicate the warning for one root cause.
   if (warning) return warning
-  return clearGoogleSessionEnv([...change.clear])
+  return clearGoogleSessionEnv([...change.clear], generation)
 }
 
 // ---------------------------------------------------------------------------
@@ -291,12 +304,29 @@ interface AuthSuccess {
   readonly sessionEnvWarning?: string
 }
 
+/** Why a sign-in that outlived its runbook is refused. */
+const RUNBOOK_CHANGED_ERROR =
+  "A different runbook was opened while this sign-in was in progress. Sign in again from this runbook."
+
 /**
  * The shared success path for every tab: materialise (unless the credential is
  * already a file we can point at), write the session env, and remember the
  * credential so the project channels can use it. Returns metadata only.
+ *
+ * `generation` is the session generation the handler captured before its
+ * first await. A sign-in that finishes after a different runbook opened
+ * throws instead of registering: the new runbook's session and credential
+ * registry start empty, and must not inherit a credential for a block (maybe
+ * one with the same id) that it never authenticated.
+ *
+ * Exported for tests.
  */
-async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise<AuthSuccess> {
+export async function registerAuthenticatedCredential(
+  input: AuthSuccessInput,
+  generation: number,
+): Promise<AuthSuccess> {
+  if (!sessionManager.isCurrentGeneration(generation)) throw new Error(RUNBOOK_CHANGED_ERROR)
+
   const projectId = input.projectId ?? input.identity.projectId
   const credentialsPath =
     input.existingPath ??
@@ -322,8 +352,14 @@ async function registerAuthenticatedCredential(input: AuthSuccessInput): Promise
     zone: input.zone,
     configuration: input.configuration,
   }
+  const sessionEnvWarning = await applyGoogleSessionEnv(sessionEnvForCredential(active), generation)
+
+  // The session writes above were dropped if the runbook changed while they
+  // ran; the registry entry must be too. A file materialised above stays on
+  // disk until the will-quit sweep, like any other abandoned flow's.
+  if (!sessionManager.isCurrentGeneration(generation)) throw new Error(RUNBOOK_CHANGED_ERROR)
+
   setActiveCredential(input.blockId, active)
-  const sessionEnvWarning = await applyGoogleSessionEnv(sessionEnvForCredential(active))
 
   return {
     ref,
@@ -604,6 +640,7 @@ export function registerGoogleHandlers(): void {
         scopes?: string[]
       },
     ) => {
+      const generation = sessionManager.getGeneration()
       try {
         let identity: GoogleIdentity
         let documentJson: string | undefined
@@ -662,7 +699,7 @@ export function registerGoogleHandlers(): void {
           ...(params.projectId ? { projectId: params.projectId } : {}),
           ...(params.region ? { region: params.region } : {}),
           ...(params.zone ? { zone: params.zone } : {}),
-        })
+        }, generation)
 
         const projects = await listProjectsSafe(success.ref)
 
@@ -746,6 +783,7 @@ export function registerGoogleHandlers(): void {
   )
 
   ipcMain.handle("google:oauth-poll", async (_event, params: { flowId: string; blockId?: string }) => {
+    const generation = sessionManager.getGeneration()
     try {
       const result = await runtime.runPromise(pollOAuthFlow(params.flowId))
 
@@ -774,7 +812,7 @@ export function registerGoogleHandlers(): void {
         ...(params.blockId ? { blockId: params.blockId } : {}),
         identity,
         documentJson: result.adcJson,
-      })
+      }, generation)
 
       flowCredentials.clear()
       flowCredentials.set(params.flowId, success.ref)
@@ -841,6 +879,7 @@ export function registerGoogleHandlers(): void {
         scopes?: string[]
       },
     ) => {
+      const generation = sessionManager.getGeneration()
       try {
         const resolved = await resolveGcloudConfiguration(params.configuration)
         if (!resolved.configuration) {
@@ -882,7 +921,7 @@ export function registerGoogleHandlers(): void {
           ...(region ? { region } : {}),
           ...(zone ? { zone } : {}),
           configuration: configuration.name,
-        })
+        }, generation)
 
         const projects = await listProjectsSafe(success.ref)
 
@@ -1004,6 +1043,7 @@ export function registerGoogleHandlers(): void {
         scopes?: string[]
       } = {},
     ) => {
+      const generation = sessionManager.getGeneration()
       const prefix = params.prefix || undefined
       const prefixError = invalidPrefixError(prefix)
       if (prefixError) return { valid: false, error: prefixError }
@@ -1046,7 +1086,7 @@ export function registerGoogleHandlers(): void {
           ...(region ? { region } : {}),
           ...(zone ? { zone } : {}),
           ...(resolved.configuration ? { configuration: resolved.configuration } : {}),
-        })
+        }, generation)
 
         return {
           valid: true,
@@ -1100,11 +1140,16 @@ export function registerGoogleHandlers(): void {
       params: { blockId?: string; projectId: string; region?: string; zone?: string },
     ) => {
       if (!params.projectId) return { ok: false, error: "No project selected" }
+      const generation = sessionManager.getGeneration()
       try {
         // Re-points the session at the CALLING block's credential, account
-        // and new project together; see commitBlockProject.
+        // and new project together; see commitBlockProject. It runs before
+        // the first await, so the registry entry it re-points is this
+        // runbook's; the session write is scoped to `generation`, so a
+        // different runbook opened while it runs keeps its env, and its
+        // same-id block's entry, as they were.
         const { env, region, zone } = commitBlockProject(params)
-        const sessionEnvWarning = await applyGoogleSessionEnv(env)
+        const sessionEnvWarning = await applyGoogleSessionEnv(env, generation)
 
         const projectName = projectDisplayNames.get(params.projectId)
         return {

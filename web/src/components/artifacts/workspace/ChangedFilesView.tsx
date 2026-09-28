@@ -32,6 +32,7 @@ import { useResizablePanel } from '@/hooks/useResizablePanel'
 import { ResizeHandle } from '@/components/ui/ResizeHandle'
 import type { WorkspaceFileChange } from '@/hooks/useGitFileChanges'
 import { ChangeProportionBar } from './ChangeProportionBar'
+import { buildDiffSections, generateUnifiedDiff, getExpandedLines, type DiffLine } from '@/lib/unifiedDiff'
 
 type ChangeType = WorkspaceFileChange['changeType']
 
@@ -499,8 +500,10 @@ function isSvgFile(path: string): boolean {
   return path.toLowerCase().endsWith('.svg')
 }
 
+// Percent-encode rather than btoa(): btoa throws on any character above U+00FF
+// and encodes U+0080-U+00FF as Latin-1 bytes, but the SVG is parsed as UTF-8.
 function svgToDataUri(svgText: string): string {
-  return `data:image/svg+xml;base64,${btoa(svgText)}`
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgText)}`
 }
 
 const SvgPreview = ({ change }: { change: WorkspaceFileChange }) => {
@@ -547,111 +550,14 @@ interface DiffContentProps {
   change: WorkspaceFileChange;
 }
 
-interface DiffLine {
-  type: 'context' | 'addition' | 'deletion' | 'hunk-header';
-  content: string;
-  oldLineNum?: number;
-  newLineNum?: number;
-}
-
-interface DiffSection {
-  type: 'lines' | 'collapsed';
-  lines?: DiffLine[];
-  collapsedCount?: number;
-  startOldLine?: number;
-  startNewLine?: number;
-  position?: 'top' | 'middle' | 'bottom'; // For collapsed sections
-}
-
 const DiffContent = ({ change }: DiffContentProps) => {
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set())
   
-  // Generate unified diff lines
+  // Generate unified diff lines (undefined when a needed side is unavailable)
   const diffLines = useMemo(() => generateUnifiedDiff(change), [change])
   
   // Create sections with collapsed context
-  const sections = useMemo(() => {
-    const result: DiffSection[] = []
-    const contextSize = 3
-    
-    // Find all change indices
-    const changeIndices: number[] = []
-    diffLines.forEach((line, i) => {
-      if (line.type !== 'context') {
-        changeIndices.push(i)
-      }
-    })
-    
-    if (changeIndices.length === 0) {
-      // No changes - collapse entire file (reaches both beginning and end)
-      if (diffLines.length > 0) {
-        result.push({
-          type: 'collapsed',
-          collapsedCount: diffLines.length,
-          startOldLine: diffLines[0].oldLineNum,
-          startNewLine: diffLines[0].newLineNum,
-          position: 'top', // Starts at beginning, use ArrowUpToLine
-        })
-      }
-      return result
-    }
-    
-    let currentPos = 0
-    
-    for (let i = 0; i < changeIndices.length; i++) {
-      const changeStart = changeIndices[i]
-      
-      // Find the end of this change block (consecutive changes)
-      let changeEnd = changeStart
-      while (i + 1 < changeIndices.length && changeIndices[i + 1] <= changeEnd + contextSize * 2 + 1) {
-        i++
-        changeEnd = changeIndices[i]
-      }
-      
-      const contextStart = Math.max(currentPos, changeStart - contextSize)
-      const contextEnd = Math.min(diffLines.length - 1, changeEnd + contextSize)
-      
-      // Add collapsed section before this change (if there's a gap)
-      if (contextStart > currentPos) {
-        const collapsedLines = diffLines.slice(currentPos, contextStart)
-        if (collapsedLines.length > 0) {
-          // Determine position based on whether it reaches beginning of file
-          const startsAtBeginning = currentPos === 0
-          
-          result.push({
-            type: 'collapsed',
-            collapsedCount: collapsedLines.length,
-            startOldLine: collapsedLines[0].oldLineNum,
-            startNewLine: collapsedLines[0].newLineNum,
-            position: startsAtBeginning ? 'top' : 'middle',
-          })
-        }
-      }
-      
-      // Add the visible lines (context + changes)
-      result.push({
-        type: 'lines',
-        lines: diffLines.slice(contextStart, contextEnd + 1),
-      })
-      
-      currentPos = contextEnd + 1
-    }
-    
-    // Add trailing collapsed section if needed
-    if (currentPos < diffLines.length) {
-      const collapsedLines = diffLines.slice(currentPos)
-      // This section reaches the end of the file
-      result.push({
-        type: 'collapsed',
-        collapsedCount: collapsedLines.length,
-        startOldLine: collapsedLines[0].oldLineNum,
-        startNewLine: collapsedLines[0].newLineNum,
-        position: 'bottom',
-      })
-    }
-    
-    return result
-  }, [diffLines])
+  const sections = useMemo(() => (diffLines ? buildDiffSections(diffLines) : []), [diffLines])
   
   const toggleSection = (index: number) => {
     setExpandedSections(prev => {
@@ -665,20 +571,20 @@ const DiffContent = ({ change }: DiffContentProps) => {
     })
   }
   
-  // Get the full lines for an expanded section
-  const getExpandedLines = (sectionIndex: number): DiffLine[] => {
-    // Find the section boundaries in diffLines
-    let lineStart = 0
-    for (let i = 0; i < sectionIndex; i++) {
-      const section = sections[i]
-      if (section.type === 'lines') {
-        lineStart += section.lines?.length || 0
-      } else {
-        lineStart += section.collapsedCount || 0
-      }
-    }
-    const section = sections[sectionIndex]
-    return diffLines.slice(lineStart, lineStart + (section.collapsedCount || 0))
+  if (!diffLines) {
+    return (
+      <div className="p-4 text-center text-sm text-muted-foreground">
+        Diff unavailable for this file
+      </div>
+    )
+  }
+
+  if (diffLines.length === 0) {
+    return (
+      <div className="p-4 text-center text-sm text-muted-foreground">
+        Empty file
+      </div>
+    )
   }
   
   return (
@@ -691,7 +597,7 @@ const DiffContent = ({ change }: DiffContentProps) => {
               
               if (isExpanded) {
                 // Show the expanded lines
-                const expandedLines = getExpandedLines(sectionIndex)
+                const expandedLines = getExpandedLines(diffLines, sections, sectionIndex)
                 return expandedLines.map((line, lineIndex) => (
                   <DiffLineRow key={`${sectionIndex}-exp-${lineIndex}`} line={line} />
                 ))
@@ -778,121 +684,6 @@ const DiffLineRow = ({ line }: DiffLineRowProps) => {
       </td>
     </tr>
   )
-}
-
-// ============================================================================
-// Diff Generation
-// ============================================================================
-
-function generateUnifiedDiff(change: WorkspaceFileChange): DiffLine[] {
-  const lines: DiffLine[] = []
-  
-  if (change.changeType === 'added' && change.newContent) {
-    // All lines are additions
-    const newLines = change.newContent.split('\n')
-    newLines.forEach((content, i) => {
-      lines.push({
-        type: 'addition',
-        content,
-        newLineNum: i + 1,
-      })
-    })
-  } else if (change.changeType === 'deleted' && change.originalContent) {
-    // All lines are deletions
-    const oldLines = change.originalContent.split('\n')
-    oldLines.forEach((content, i) => {
-      lines.push({
-        type: 'deletion',
-        content,
-        oldLineNum: i + 1,
-      })
-    })
-  } else if (change.changeType === 'modified' && change.originalContent && change.newContent) {
-    // Generate a simple unified diff
-    const oldLines = change.originalContent.split('\n')
-    const newLines = change.newContent.split('\n')
-    
-    // Use a simple LCS-based diff algorithm
-    const diffResult = computeSimpleDiff(oldLines, newLines)
-    
-    let oldLineNum = 1
-    let newLineNum = 1
-    
-    for (const item of diffResult) {
-      if (item.type === 'equal') {
-        lines.push({
-          type: 'context',
-          content: item.value,
-          oldLineNum: oldLineNum++,
-          newLineNum: newLineNum++,
-        })
-      } else if (item.type === 'delete') {
-        lines.push({
-          type: 'deletion',
-          content: item.value,
-          oldLineNum: oldLineNum++,
-        })
-      } else if (item.type === 'insert') {
-        lines.push({
-          type: 'addition',
-          content: item.value,
-          newLineNum: newLineNum++,
-        })
-      }
-    }
-  }
-  
-  return lines
-}
-
-interface DiffItem {
-  type: 'equal' | 'delete' | 'insert';
-  value: string;
-}
-
-function computeSimpleDiff(oldLines: string[], newLines: string[]): DiffItem[] {
-  // Simple Myers diff algorithm approximation
-  const result: DiffItem[] = []
-  
-  let oldIndex = 0
-  let newIndex = 0
-  
-  while (oldIndex < oldLines.length || newIndex < newLines.length) {
-    if (oldIndex >= oldLines.length) {
-      // Remaining new lines are insertions
-      result.push({ type: 'insert', value: newLines[newIndex] })
-      newIndex++
-    } else if (newIndex >= newLines.length) {
-      // Remaining old lines are deletions
-      result.push({ type: 'delete', value: oldLines[oldIndex] })
-      oldIndex++
-    } else if (oldLines[oldIndex] === newLines[newIndex]) {
-      // Lines match
-      result.push({ type: 'equal', value: oldLines[oldIndex] })
-      oldIndex++
-      newIndex++
-    } else {
-      // Lines differ - check if old line appears later in new
-      const oldLineInNew = newLines.slice(newIndex + 1).indexOf(oldLines[oldIndex])
-      const newLineInOld = oldLines.slice(oldIndex + 1).indexOf(newLines[newIndex])
-      
-      if (oldLineInNew !== -1 && (newLineInOld === -1 || oldLineInNew <= newLineInOld)) {
-        // Old line appears later in new - insert new lines until we reach it
-        result.push({ type: 'insert', value: newLines[newIndex] })
-        newIndex++
-      } else if (newLineInOld !== -1) {
-        // New line appears later in old - delete old lines until we reach it
-        result.push({ type: 'delete', value: oldLines[oldIndex] })
-        oldIndex++
-      } else {
-        // Neither line appears in the other - delete then insert
-        result.push({ type: 'delete', value: oldLines[oldIndex] })
-        oldIndex++
-      }
-    }
-  }
-  
-  return result
 }
 
 // ============================================================================

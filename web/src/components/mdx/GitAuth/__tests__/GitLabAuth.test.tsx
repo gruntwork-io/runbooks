@@ -1,6 +1,9 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, afterEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
+
+// Per-test overrides of the mocked hook's return (e.g. an authenticated state).
+let hookOverrides: Record<string, unknown> = {}
 
 // The <GitLabAuth> wrapper renders the generic <GitAuth> locked to GitLab.
 // Mock the shared hook to a stable shape so this test focuses on the wrapper's
@@ -21,18 +24,18 @@ vi.mock("../hooks/useGitAuth", () => ({
     startOAuth: vi.fn(),
     cancelOAuth: vi.fn(),
     resetAuth: vi.fn(),
+    reAuthenticate: vi.fn(),
     resetDetectionState: vi.fn(),
     clearRegisteredOutputs: vi.fn(),
+    applySchannel: vi.fn(),
     effectiveClientId: "client-id",
     isCustomClientId: false,
+    ...hookOverrides,
   }),
 }))
 
 vi.mock("../components/AuthTabs", () => ({
   AuthTabs: () => null,
-}))
-vi.mock("../components/AuthSuccess", () => ({
-  AuthSuccess: () => <div>Auth Success</div>,
 }))
 vi.mock("../components/PatForm", () => ({
   PatForm: () => <div>PAT Form</div>,
@@ -45,6 +48,10 @@ vi.mock("../components/GitLabLogo", () => ({
 }))
 
 import { GitLabAuth } from "../../GitLabAuth"
+
+afterEach(() => {
+  hookOverrides = {}
+})
 
 function renderGitLabAuth(props: Record<string, unknown> = {}) {
   return render(
@@ -90,5 +97,19 @@ describe("GitLabAuth (GitLab-locked alias)", () => {
     renderGitLabAuth()
     const block = screen.getByTestId("test-gl")
     expect(block.querySelector('[data-testid^="error-"]')).toBeNull()
+  })
+
+  it("words the missing-scope warning for GitLab, not GitHub", () => {
+    hookOverrides = {
+      authStatus: "authenticated",
+      userInfo: { login: "tanuki" },
+      detectedScopes: ["read_user", "read_repository"],
+      missingScope: true,
+    }
+    renderGitLabAuth()
+    expect(screen.getByText('Missing "write_repository" scope')).toBeInTheDocument()
+    expect(screen.getByText(/Pushing branches and opening merge requests may fail\./)).toBeInTheDocument()
+    expect(screen.getByTestId("test-gl")).not.toHaveTextContent(/\bPRs\b/)
+    expect(screen.getByRole("button", { name: "Re-authenticate with full permissions" })).toBeInTheDocument()
   })
 })

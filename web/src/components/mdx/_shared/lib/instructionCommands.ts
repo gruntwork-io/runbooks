@@ -91,7 +91,7 @@ export function buildBoilerplateInvocation({
   variables,
   target,
 }: BoilerplateArgs): string {
-  const outputFolder = target === 'worktree' ? '<repo-directory>' : './output'
+  const outputFolder = target === 'worktree' ? '<repo-directory>' : './generated'
   const parts = [
     `boilerplate --template-url ${shellQuote(path || '<template-path>')} --output-folder ${shellQuote(outputFolder)} --non-interactive`,
   ]
