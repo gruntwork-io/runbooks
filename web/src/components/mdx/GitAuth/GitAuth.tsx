@@ -232,7 +232,7 @@ function GitAuthInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Title row with provider icon */}
           <div className="flex items-center gap-1 mb-2">
             <providerConfig.Logo className="size-6 text-foreground" />
@@ -308,7 +308,7 @@ function GitAuthInteractive({
           {auth.authStatus === 'failed' && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Authentication failed:</strong> {auth.errorMessage}
               </div>
             </div>
@@ -318,7 +318,7 @@ function GitAuthInteractive({
           {auth.detectionWarning && auth.authStatus !== 'authenticated' && (
             <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
                 <span className="text-warning-foreground">Please authenticate manually below, or fix the credentials and reload.</span>

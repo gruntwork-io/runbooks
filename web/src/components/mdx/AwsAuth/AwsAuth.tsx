@@ -168,7 +168,7 @@ function AwsAuthInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Title row with AWS logo */}
           <div className="flex items-center gap-3 mb-2">
             <img src={resolvedTheme === 'dark' ? awsLogoLight : awsLogo} alt="AWS" className="h-6" />
@@ -220,7 +220,7 @@ function AwsAuthInteractive({
           {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
             <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
                 <span className="text-warning-foreground">Please authenticate manually below.</span>
@@ -232,7 +232,7 @@ function AwsAuthInteractive({
           {auth.authStatus === 'failed' && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Authentication failed:</strong> {auth.errorMessage}
               </div>
             </div>

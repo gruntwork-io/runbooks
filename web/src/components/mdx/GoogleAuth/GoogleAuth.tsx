@@ -212,7 +212,7 @@ function GoogleAuthInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Title row with the Google Cloud lockup. The wordmark uses
               currentColor, so light and dark surfaces need no asset swap. */}
           <div className="flex items-center gap-3 mb-2">
@@ -279,7 +279,7 @@ function GoogleAuthInteractive({
           {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
             <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
                 <span className="text-warning-foreground">Please authenticate manually below.</span>
@@ -291,7 +291,7 @@ function GoogleAuthInteractive({
           {auth.authStatus === 'failed' && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>Authentication failed:</strong> {auth.errorMessage}
               </div>
             </div>

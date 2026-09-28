@@ -221,6 +221,13 @@ export function ScriptBlock({
   const resolvedFailMessage = useMemo(() => resolveTemplateReferences(failMessage, templateContext), [failMessage, templateContext])
   const resolvedRunningMessage = useMemo(() => resolveTemplateReferences(runningMessage ?? variant.defaultRunningMessage, templateContext), [runningMessage, variant.defaultRunningMessage, templateContext])
 
+  // The ID label is pinned to the block's top-right corner. Without a title
+  // row beside it, the full-width command box (or, with `path`, the separator)
+  // can be the first row: a pending Check has no placeholder line. Keep both
+  // clear of the label, as the drift Admonition does. Keyed on the title alone
+  // so the width stays put as status lines come and go.
+  const clearIdLabel = resolvedTitle ? '' : 'mr-12'
+
   // Check if component requires variables but none are configured. Only Inputs
   // blocks supply `.inputs` values; an auth block reference never does.
   const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
@@ -374,9 +381,8 @@ export function ScriptBlock({
           <IconComponent data-testid={`icon-${status}`} className={`size-6 ${iconClasses} ${status === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="">
         {/* Main body */}
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {variant.showPendingPlaceholder && status === 'pending' && command && !title && (
             <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
           )}
@@ -461,13 +467,13 @@ export function ScriptBlock({
 
           {/* Display inline command if present */}
           {displayCommand && (
-            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap`}>
+            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}>
               {displayCommand.content}
             </div>
           )}
 
           {/* Separator */}
-          <div className="border-b border-border"></div>
+          <div className={`border-b border-border ${clearIdLabel}`}></div>
 
           {/* Show unmet input/output dependencies */}
           {!isRendering && (
@@ -508,7 +514,7 @@ export function ScriptBlock({
           {renderError && hasAllOutputDependencies && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
                 {renderError.details && <div className="text-xs mt-1 text-destructive">{renderError.details}</div>}
               </div>
@@ -518,7 +524,7 @@ export function ScriptBlock({
           {execError && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>{execError.message}</strong>
                 {execError.details && <div className="text-xs mt-1 text-destructive">{execError.details}</div>}
               </div>
@@ -547,7 +553,6 @@ export function ScriptBlock({
               </Button>
             </div>
           </div>
-        </div>
         </div>
       </div>
 

@@ -65,7 +65,7 @@ export function AuthSuccess({
       {warningMessage && (
         <div className="mt-3 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-          <div>{warningMessage}</div>
+          <div className="min-w-0">{warningMessage}</div>
         </div>
       )}
       {/* Action buttons */}

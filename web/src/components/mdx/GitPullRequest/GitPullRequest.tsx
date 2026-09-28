@@ -357,7 +357,7 @@ function GitPullRequestInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {/* Title and description */}
           <div className="flex items-center gap-1 text-md font-bold text-foreground">
             <cfg.Logo className="size-6 text-foreground" />
@@ -412,7 +412,7 @@ function GitPullRequestInteractive({
           {errorMessage && effectiveStatus === 'fail' && (
             <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
               <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-destructive m-0">{cfg.noun.singular} creation failed</p>
                 <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
                 {errorCode === 'branch_exists' && conflictBranchName && (
