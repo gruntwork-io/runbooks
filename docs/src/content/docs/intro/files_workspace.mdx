@@ -44,7 +44,7 @@ Initially, the files are cloned from a git repository via a [\<GitClone\>](/auth
 Any subsequent changes in the files come from a [\<Template\>](/authoring/blocks/template/) block that sets `target="worktree"`, or [\<Command\>](/authoring/blocks/command/), and [\<Check\>](/authoring/blocks/check/) blocks that run scripts that write to the `$REPO_FILES` environment variable.
 
 ##### Where they're stored
-The files are stored in a local path (relative to the working directory, the folder that contains `runbook.mdx`) specified in the [\<GitClone\>](/authoring/blocks/gitclone/) block.
+The files are stored in a local path specified in the [\<GitClone\>](/authoring/blocks/gitclone/) block, relative to the working directory. The working directory starts as the folder that contains `runbook.mdx`, and it [follows any `cd`](/authoring/blocks/command/#execution-context) that an earlier script made.
 
 ##### When you see them
 After a \<GitClone\> block successfully clones a repository, the files workspace automatically switches to the **Repository** tab to show the cloned files.
