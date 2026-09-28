@@ -23,6 +23,8 @@ describe("isLocalBranchConflict", () => {
     'Validation Failed: {"message":"A pull request already exists for acme:runbook/1."}',
     // GitLab 409 on a second MR for the same source branch
     '["Another open merge request already exists for this source branch: !7"]',
+    // Either one as createPullRequest / createMergeRequest restate it
+    "A pull request for runbook/1 already exists. The commits were pushed to its branch, so they are part of it now. (…)",
   ])("does not match a remote PR/MR conflict: %s", (message) => {
     expect(isLocalBranchConflict(message)).toBe(false)
   })

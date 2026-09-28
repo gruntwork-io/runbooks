@@ -141,6 +141,8 @@ After creating a PR/MR, the block displays a "Git Push" button. This allows you 
 
 If creation fails after the branch was created (for example, the push is rejected or the API call fails), fix the cause and create again with the same branch name. The block picks up on the existing branch: it commits any new changes and pushes, then opens the PR/MR.
 
+The block picks up on the branch whenever it is checked out, and it still is after a PR/MR was created from it. Creating again with the same branch name (for example, after "create another") commits any new changes and pushes them to that PR/MR's branch, so they become part of the open PR/MR, and then fails because the PR/MR already exists. To add changes to an open PR/MR, use "Git Push".
+
 If a local branch with that name already exists but isn't checked out (for example, one left over from an earlier run), the block offers to delete it and retry. The delete is refused if the branch has commits that haven't been pushed or merged; choose a new branch name instead.
 
 The branch name can't be the base branch or a protected name (`main`, `master`, `develop`, `dev`, `staging`, `release`, `prod`, `production`).

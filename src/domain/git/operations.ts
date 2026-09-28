@@ -11,7 +11,7 @@ import type { CreatePRParams } from "../../services/GitHubClient.ts"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { CreateMRParams } from "../../services/GitLabClient.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
-import { GitError } from "../../errors/index.ts"
+import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { gitSpawnEnv } from "./env.ts"
 import { gitlabBaseUrlFromRemoteUrl } from "./gitlab-host.ts"
 import { gitCredentialUsername } from "./url.ts"
@@ -234,6 +234,15 @@ const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
     )
   })
 
+/**
+ * The provider's "already exists" rejection of a PR/MR (GitHub's 422, GitLab's
+ * 409), restated for where runGitSteps has left things: the push to the head
+ * branch landed first, so the commits are on the open PR/MR now. The
+ * provider's own text follows, since GitLab's names the open MR.
+ */
+const alreadyOpenMessage = (noun: string, headBranch: string, providerMessage: string) =>
+  `A ${noun} for ${headBranch} already exists. The commits were pushed to its branch, so they are part of it now. (${providerMessage})`
+
 /** Wrap an optional progress callback as an Effect-returning reporter. */
 const makeReport =
   (onProgress?: (line: string) => void) =>
@@ -257,6 +266,11 @@ const makeReport =
  * failed attempt made are pushed on the new branch. Only when nothing is staged
  * and HEAD has no commits the base lacks does it fail, with "Nothing to
  * commit", and then before any branch is created or checked out.
+ *
+ * Resuming keys on HEAD alone, and HEAD also stays on the head branch after a
+ * PR/MR was opened from it. Running again with that name then pushes to the
+ * open PR/MR's branch before the provider rejects the duplicate, which the
+ * callers report as such (see alreadyOpenMessage).
  */
 const runGitSteps = (
   token: string,
@@ -379,7 +393,16 @@ export const createPullRequest = (
       headBranch: params.headBranch,
     }
 
-    const pr = yield* ghClient.createPullRequest(token, prParams, params.host)
+    const pr = yield* ghClient.createPullRequest(token, prParams, params.host).pipe(
+      Effect.mapError((e) =>
+        e.status === 422 && /pull request already exists/i.test(e.message)
+          ? new GitHubApiError({
+              status: e.status,
+              message: alreadyOpenMessage("pull request", params.headBranch, e.message),
+            })
+          : e,
+      ),
+    )
 
     if (params.labels && params.labels.length > 0) {
       yield* report("Adding labels…")
@@ -438,7 +461,16 @@ export const createMergeRequest = (
       baseUrl,
     }
 
-    return yield* glClient.createMergeRequest(token, mrParams)
+    return yield* glClient.createMergeRequest(token, mrParams).pipe(
+      Effect.mapError((e) =>
+        e.status === 409
+          ? new GitLabApiError({
+              status: e.status,
+              message: alreadyOpenMessage("merge request", params.headBranch, e.message),
+            })
+          : e,
+      ),
+    )
   })
 
 /**

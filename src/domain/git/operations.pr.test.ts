@@ -17,7 +17,7 @@ import { createPullRequest, createMergeRequest } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
-import { GitError, GitHubApiError } from "../../errors/index.ts"
+import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { GitCliClientLive } from "../../layers/GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
@@ -199,6 +199,100 @@ describe("runGitSteps", () => {
     await Effect.runPromise(createMergeRequest("tok", params).pipe(Effect.provide(layer)))
 
     expect(steps).toEqual(["stageAll", "push"])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A PR/MR that is already open for the head branch
+// ---------------------------------------------------------------------------
+
+describe("head branch with an open PR/MR", () => {
+  // HEAD is still on the branch a PR/MR was opened from (e.g. "Create another"
+  // with the same name), so the run resumes and pushes onto that branch.
+  const onOpenBranch = (steps: string[]) => ({
+    getRemoteUrl: () => Effect.succeed("https://gitlab.com/acme/infra.git"),
+    getCurrentBranch: () => Effect.succeed("runbook/123"),
+    status: () => Effect.succeed([{ path: "more.tf", status: "A" }]),
+    stageAll: () => Effect.void,
+    commit: () => Effect.void,
+    push: () => Effect.sync(() => void steps.push("push")),
+  })
+
+  it("says the pull request already exists and that the commits went to its branch", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: onOpenBranch(steps),
+      github: {
+        createPullRequest: () =>
+          Effect.fail(
+            new GitHubApiError({
+              status: 422,
+              message:
+                '{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"A pull request already exists for acme:runbook/123."}]}',
+            }),
+          ),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createPullRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(steps).toEqual(["push"])
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(GitHubApiError)
+      expect(result.left.message).toStartWith(
+        "A pull request for runbook/123 already exists. The commits were pushed to its branch, so they are part of it now.",
+      )
+    }
+  })
+
+  it("says the merge request already exists and that the commits went to its branch", async () => {
+    const steps: string[] = []
+    const layer = makeTestLayer({
+      git: onOpenBranch(steps),
+      gitlab: {
+        createMergeRequest: () =>
+          Effect.fail(
+            new GitLabApiError({
+              status: 409,
+              message: '{"message":["Another open merge request already exists for this source branch: !7"]}',
+            }),
+          ),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(steps).toEqual(["push"])
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(GitLabApiError)
+      expect(result.left.message).toStartWith(
+        "A merge request for runbook/123 already exists. The commits were pushed to its branch, so they are part of it now.",
+      )
+      // GitLab's own text still names the open MR.
+      expect(result.left.message).toContain("!7")
+    }
+  })
+
+  it("leaves other API failures as they are", async () => {
+    const layer = makeTestLayer({
+      git: onOpenBranch([]),
+      github: {
+        createPullRequest: () =>
+          Effect.fail(new GitHubApiError({ status: 422, message: "Validation Failed: base is invalid" })),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createPullRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result).toMatchObject({ _tag: "Left", left: { message: "Validation Failed: base is invalid" } })
   })
 })
 
