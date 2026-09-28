@@ -485,6 +485,12 @@ export function registerGitHandlers(): void {
             gitCredentialUsername(cloneProvider),
           )
 
+          // Whether this clone creates the destination. The check above returned
+          // or deleted an existing one, so it only exists here if something
+          // made it since; a cancel then leaves it alone (see the finalizer
+          // below the steps).
+          const createsDestination = !existsSync(paths.absolutePath)
+
           for (const step of cloneSteps) {
             // A repository with no commits has nothing to check out: skip the
             // sparse clone's checkout, so the clone is reported as empty below
@@ -560,6 +566,23 @@ export function registerGitHandlers(): void {
             }))
           }
 
+          // The checkout is complete, but the clone isn't until the result is
+          // returned: a cancel during the lookups below would otherwise leave
+          // a full checkout behind. Remove it then, but only a directory this
+          // clone created (never one that was there before), and only once
+          // every git step has exited, so no git process is still writing.
+          if (createsDestination) {
+            yield* Effect.addFinalizer((exit) =>
+              Exit.isInterrupted(exit)
+                ? Effect.tryPromise(() => rm(paths.absolutePath, { recursive: true, force: true })).pipe(
+                    Effect.catchAll((e) =>
+                      Effect.sync(() => log.warn("failed to remove cancelled clone:", e)),
+                    ),
+                  )
+                : Effect.void,
+            )
+          }
+
           event.sender.send("git:clone-progress", {
             line: "Clone complete. Counting files...",
             timestamp: new Date().toISOString(),
@@ -592,10 +615,6 @@ export function registerGitHandlers(): void {
               // become.
               ((yield* unbornBranchName(paths.absolutePath)) ?? "")
 
-          // Register the worktree path
-          sessionManager.registerWorkTreePath(paths.absolutePath, generation)
-          log.debug("registered worktree, returning result")
-
           // Surface org/repo from the clone URL so downstream templates can
           // reference {{ .outputs.<id>.repo_owner }} / .repo_name. For GitHub
           // clones with a token, also resolve immutable numeric IDs (stable
@@ -620,6 +639,12 @@ export function registerGitHandlers(): void {
               )
             }
           }
+
+          // Register the worktree path last, with nothing that can be
+          // interrupted between it and the return: a cancelled clone must not
+          // stay registered, where it would become the active worktree.
+          sessionManager.registerWorkTreePath(paths.absolutePath, generation)
+          log.debug("registered worktree, returning result")
 
           return {
             absolutePath: paths.absolutePath,
