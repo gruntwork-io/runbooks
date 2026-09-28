@@ -43,6 +43,8 @@ If no credentials are detected, users authenticate manually.
 
 To read namespaced variables instead (for example `CI_GITHUB_TOKEN` or `CI_GITLAB_TOKEN`), add `{ env: { prefix: 'CI_' } }` to `detectCredentials`. See [`<GitHubAuth>`](/authoring/blocks/githubauth/#detection-sources) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/#prefixed-environment-variables) for the variables each provider reads.
 
+`detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. If that block has not run yet, the block shows *Waiting for "block-id" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order. If the block ran without leaving a usable token, detection moves on to the next source.
+
 ### Providers
 
 | Provider | Methods | CLI | Token env var | OAuth |
@@ -51,7 +53,7 @@ To read namespaced variables instead (for example `CI_GITHUB_TOKEN` or `CI_GITLA
 | `gitlab` | PAT, CLI, env | `glab` | `GITLAB_TOKEN` | No |
 
 <Aside type="note">
-GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so GitLab authenticates via a Personal Access Token, the `glab` CLI, or the `GITLAB_TOKEN` environment variable. GitLab's API exposes no token scopes, so Runbooks does not display or warn about GitLab scopes.
+GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so GitLab authenticates via a Personal Access Token, the `glab` CLI, or the `GITLAB_TOKEN` environment variable. When GitLab reports a token's scopes, the success card lists them and warns if the token has neither `api` nor `write_repository`, since pushing branches and opening merge requests may fail.
 </Aside>
 
 ### Hosts
@@ -79,6 +81,18 @@ The Gruntwork OAuth app only exists on `github.com`. On an enterprise host, **Si
 
 See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for the full host, environment variable, API URL, and OAuth details.
 
+### Self-managed GitLab
+
+A GitLab block can authenticate to your own GitLab instance in three ways:
+
+- **Host picker.** The block lists the GitLab hosts it knows about: the hosts you are logged into with glab (`glab auth login --hostname gitlab.example.com`), the host your environment names (see below), and instances you entered before. It detects credentials for the host you pick and remembers the pick.
+- **Instance URL field.** The Personal Access Token form has an editable *GitLab Instance URL* field, e.g. `https://gitlab.example.com`. Leave it blank for `gitlab.com`. Picking *Other instance…* in the host picker takes you to it.
+- **Props.** `host` pins the block to one instance and hides the host picker. `instanceUrl` pre-fills the Instance URL field. See [Props](#props).
+
+A filled-in instance URL, whether typed or set with `instanceUrl`, takes precedence over `host` and the host picker. Picking a host in the picker clears the field.
+
+The `GITLAB_TOKEN` environment variable is used for one instance only: the host named by `GITLAB_HOST`, `GITLAB_URI` or `GL_HOST` (checked in that order), or `gitlab.com` when none is set. Runbooks never sends it to any other host, or over plain `http://`, so to have it detected for a self-managed instance, also set `GITLAB_HOST`. A prefixed token (`{ env: { prefix } }`) is bound by the prefixed host variables instead; see [`<GitLabAuth>`](/authoring/blocks/gitlabauth/#prefixed-environment-variables).
+
 ## Props
 
 | Prop | Type | Required | Default | Description |
@@ -91,6 +105,7 @@ See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/
 | `host` | `string` | No | — | Pins the host and hides the host picker. GitHub: `github.com`, a GitHub Enterprise Server host (`github.example.com`), or a GHE.com tenant (`acme.ghe.com`). GitLab: `gitlab.com` or a self-managed instance. See [Hosts](#hosts). |
 | `oauthClientId` | `string \| Record<string, string>` | No | Gruntwork's app (`github.com` only) | Custom GitHub OAuth App client ID. A string applies to `host` when set, otherwise to `github.com`; a map is keyed by host. Required for OAuth on GitHub Enterprise hosts. GitHub only. |
 | `oauthScopes` | `string[]` | No | `['repo']` (GitHub) | OAuth scopes to request. |
+| `instanceUrl` | `string` | No | — | GitLab only. The starting value of the editable *GitLab Instance URL* field, such as `https://gitlab.example.com`. Credentials are detected and tokens validated against this instance. Takes precedence over `host`. |
 | `detectCredentials` | `false \| GitCredentialSource[]` | No | `['env', 'cli']` | Credential auto-detection sources, applied to the selected provider. Set to `false` to disable. |
 | `defaultTab` | `'oauth' \| 'pat'` | No | `'oauth'` (GitHub), `'pat'` (GitLab) | Which authentication tab the block opens on. GitLab has no OAuth flow, so `'oauth'` falls back to `'pat'` there. Re-applied when the user switches providers. |
 | `inputsId` | `string \| string[]` | No | — | Reference one or more `<Inputs>` blocks for template expressions in props. |
@@ -102,9 +117,11 @@ On successful authentication, the block sets these session environment variables
 | Provider | Variables |
 | --- | --- |
 | `github` | `GITHUB_TOKEN`, `GITHUB_USER`, `GITHUB_HOST`, `GH_HOST` (plus `GH_ENTERPRISE_TOKEN` on GitHub Enterprise Server) |
-| `gitlab` | `GITLAB_TOKEN`, `GITLAB_USER` |
+| `gitlab` | `GITLAB_TOKEN`, `GITLAB_USER`, `GITLAB_HOST` |
 
-A `git clone` of a private `gitlab.com` repository automatically uses the session `GITLAB_TOKEN` (and `github.com` uses `GITHUB_TOKEN`), so no extra wiring is needed. For GitHub, `GITHUB_HOST` and `GH_HOST` record which host the token belongs to, so `gh` commands in later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts target the same host.
+`GITLAB_HOST` is the instance the token belongs to (`gitlab.com` or your self-managed host).
+
+A [`<GitClone>`](/authoring/blocks/gitclone/) of a private `github.com` or `gitlab.com` repository automatically uses the session `GITHUB_TOKEN` or `GITLAB_TOKEN`, so no extra wiring is needed. To clone from a self-managed GitLab instance, set `gitAuthId` on the GitClone block so it uses the session `GITLAB_TOKEN`. For GitHub, `GITHUB_HOST` and `GH_HOST` record which host the token belongs to, so `gh` commands in later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts target the same host.
 
 ### Explicit block references
 

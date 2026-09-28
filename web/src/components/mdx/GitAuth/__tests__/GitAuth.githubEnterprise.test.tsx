@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import type { ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TestWrapper } from '@/test/test-utils'
+import { ApiProvider } from '@/contexts/ApiContext'
 
 // Exercises the REAL useGitAuth hook for GitHub Enterprise host handling.
 vi.mock('@/contexts/useSession', () => ({
@@ -27,6 +29,15 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+// GitAuth reaches IPC through useApi(); hand it the installed fake.
+function renderWithApi(ui: ReactNode) {
+  return render(
+    <TestWrapper>
+      <ApiProvider api={window.api}>{ui}</ApiProvider>
+    </TestWrapper>,
+  )
+}
+
 const TWO_HOSTS = {
   hosts: [
     { host: 'github.com', sources: [], hasCredential: false },
@@ -44,7 +55,7 @@ describe('GitAuth (GitHub) — host picker', () => {
       return { found: false }
     })
 
-    render(<TestWrapper><GitAuth id="git" /></TestWrapper>)
+    renderWithApi(<GitAuth id="git" />)
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith('github:cli-credentials', { host: 'github.com' })
@@ -61,7 +72,7 @@ describe('GitAuth (GitHub) — host picker', () => {
       return { found: false }
     })
 
-    render(<TestWrapper><GitAuth id="git" /></TestWrapper>)
+    renderWithApi(<GitAuth id="git" />)
 
     const select = await screen.findByLabelText('GitHub host:')
     expect(screen.getByRole('option', { name: 'ghes.corp' })).toBeInTheDocument()
@@ -89,7 +100,7 @@ describe('GitAuth (GitHub) — host picker', () => {
       return { found: false }
     })
 
-    render(<TestWrapper><GitHubAuth id="gh" host="ghes.corp" /></TestWrapper>)
+    renderWithApi(<GitHubAuth id="gh" host="ghes.corp" />)
 
     await screen.findByText(/Authenticated to GitHub \(ghes\.corp\)/)
   })
@@ -99,7 +110,7 @@ describe('GitAuth (GitHub) — authored host', () => {
   it('pins the host: no picker, PAT link follows the GHES host', async () => {
     const invoke = installApi(() => ({ found: false }))
 
-    render(<TestWrapper><GitHubAuth id="gh" host="https://ghes.corp/" defaultTab="pat" detectCredentials={false} /></TestWrapper>)
+    renderWithApi(<GitHubAuth id="gh" host="https://ghes.corp/" defaultTab="pat" detectCredentials={false} />)
 
     expect(screen.queryByRole('combobox')).toBeNull()
     fireEvent.click(screen.getByText('How do I create a token?'))
@@ -113,10 +124,8 @@ describe('GitAuth (GitHub) — authored host', () => {
   it('keeps the OAuth tab for an enterprise host with a client ID from the map', async () => {
     installApi(() => ({ found: false }))
 
-    render(
-      <TestWrapper>
-        <GitHubAuth id="gh" host="acme.ghe.com" oauthClientId={{ 'acme.ghe.com': 'Iv1.acme' }} detectCredentials={false} />
-      </TestWrapper>,
+    renderWithApi(
+      <GitHubAuth id="gh" host="acme.ghe.com" oauthClientId={{ 'acme.ghe.com': 'Iv1.acme' }} detectCredentials={false} />,
     )
 
     for (const button of screen.getAllByRole('button', { name: /Sign in with GitHub/ })) {
@@ -130,7 +139,7 @@ describe('GitAuth (GitHub) — authored host', () => {
   it('reports an unparseable host as a configuration error and sends nothing', async () => {
     const invoke = installApi(() => ({ found: false }))
 
-    render(<TestWrapper><GitHubAuth id="gh" host="ftp://ghes.corp" /></TestWrapper>)
+    renderWithApi(<GitHubAuth id="gh" host="ftp://ghes.corp" />)
 
     expect(screen.getByText(/invalid 'host' prop/)).toBeInTheDocument()
     expect(invoke.mock.calls.some((c) => (c[0] as string).startsWith('github:'))).toBe(false)

@@ -1,6 +1,6 @@
 import { Eye, EyeOff, Loader2, HelpCircle, ChevronDown, ChevronUp, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useState } from "react"
+import { useState, type Ref } from "react"
 import type { GitAuthStatus } from "../types"
 import type { ProviderConfig } from "../providers"
 import { normalizeInstanceBaseUrl } from "../utils"
@@ -19,6 +19,8 @@ interface PatFormProps {
   /** GitLab self-hosted instance URL (GitLab only). */
   instanceUrl?: string
   setInstanceUrl?: (value: string) => void
+  /** Attached to the instance-URL input so the block can focus it. */
+  instanceInputRef?: Ref<HTMLInputElement>
 }
 
 export function PatForm({
@@ -32,6 +34,7 @@ export function PatForm({
   host,
   instanceUrl = '',
   setInstanceUrl,
+  instanceInputRef,
 }: PatFormProps) {
   const isAuthenticating = authStatus === 'authenticating'
   const [showSetupGuide, setShowSetupGuide] = useState(false)
@@ -66,6 +69,7 @@ export function PatForm({
             GitLab Instance URL
           </label>
           <input
+            ref={instanceInputRef}
             type="text"
             value={instanceUrl}
             onChange={(e) => setInstanceUrl?.(e.target.value)}

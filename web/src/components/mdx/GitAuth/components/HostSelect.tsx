@@ -77,8 +77,14 @@ export function HostSelect({
                 {h.host}
               </option>
             ))}
-            {/* A never-configured instance is one click away instead of
-                buried in the PAT tab (GitLab only). */}
+            {/* An entered (or prop-seeded) instance URL can target a host the
+                union doesn't list. Show it, or the select would display the
+                first host while detection targets another — and picking that
+                host would fire no change. */}
+            {!selected && value && <option value={value}>{value}</option>}
+            {/* A never-configured instance is one click away (GitLab only):
+                this leaves the success card if needed and focuses the PAT
+                form's instance-URL field. */}
             {provider.supportsManualInstance && (
               <option value={OTHER_INSTANCE_SENTINEL}>Other instance…</option>
             )}

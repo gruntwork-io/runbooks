@@ -380,11 +380,11 @@ test("gitlab: Other instance… sentinel, PAT success, recent persisted across r
     await expect(select).toHaveValue("gitlab.com")
 
     // The sentinel never changes the host and never runs detection — the
-    // select snaps back and the PAT form (with the instance-URL field) shows.
+    // select snaps back and the PAT form's instance-URL field takes focus.
     await select.selectOption("__other__")
     await expect(select).toHaveValue("gitlab.com")
     const instanceField = first.window.getByPlaceholder("https://gitlab.com")
-    await expect(instanceField).toBeVisible()
+    await expect(instanceField).toBeFocused()
 
     await instanceField.fill(`https://${stub.host}`)
     await first.window.locator('input[type="password"]').fill("glpat-e2e-manual-pat")
