@@ -259,7 +259,7 @@ describe('WorkspaceGitDataProvider', () => {
     expect(renders.at(-1)).toEqual({ path: '/repos/a-2', tree: ['new-clone.tf'] })
   })
 
-  it('refetches changes immediately when the tree is invalidated mid-poll, and drops the older response', async () => {
+  it('keeps one changes poll in flight across invalidations, then refetches once and drops the older response', async () => {
     const { api, callsTo } = createApi()
     const { result } = renderWorkspaceData(api)
 
@@ -268,17 +268,26 @@ describe('WorkspaceGitDataProvider', () => {
     })
     const [beforeWrite] = callsTo('workspace:changes')
 
-    await act(async () => {
-      result.current.workTrees.invalidateGitFileTree()
-    })
+    // A template form auto-rendering over and over while git status still runs
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        result.current.workTrees.invalidateGitFileTree()
+      })
+    }
+    expect(callsTo('workspace:changes')).toHaveLength(1)
+
+    // The older response is dropped, and exactly one fetch follows it
+    await settle([beforeWrite], { changes: [modified('before-the-write.tf')], totalChanges: 1 })
+    expect(result.current.changes.changes).toEqual([])
+    expect(result.current.changes.isLoading).toBe(true)
     const pending = callsTo('workspace:changes')
     expect(pending).toHaveLength(2)
 
     await settle([pending[1]], { changes: [modified('written-by-script.tf')], totalChanges: 1 })
-    await settle([beforeWrite], { changes: [], totalChanges: 0 })
     expect(result.current.changes.changes.map(c => c.path)).toEqual(['written-by-script.tf'])
     expect(result.current.changes.totalChanges).toBe(1)
     expect(result.current.changes.isLoading).toBe(false)
+    expect(callsTo('workspace:changes')).toHaveLength(2)
   })
 
   it('skips an interval tick while the previous poll is still running', async () => {
@@ -314,16 +323,16 @@ describe('WorkspaceGitDataProvider', () => {
     await act(async () => {
       result.current.workTrees.invalidateGitFileTree()
     })
-    const [, current] = callsTo('workspace:changes')
 
     await settle([beforeWrite], { changes: [], totalChanges: 0 })
     expect(result.current.changes.isLoading).toBe(true)
 
+    const [, current] = callsTo('workspace:changes')
     await settle([current], { changes: [modified('written-by-script.tf')], totalChanges: 1 })
     expect(result.current.changes.isLoading).toBe(false)
   })
 
-  it("polls the new worktree right after a switch and drops the old worktree's late response", async () => {
+  it("polls the new worktree as soon as the old worktree's poll lands after a switch, and drops that response", async () => {
     const { api, callsTo } = createApi()
     const { result } = renderWorkspaceData(api)
 
@@ -334,10 +343,15 @@ describe('WorkspaceGitDataProvider', () => {
     await act(async () => {
       result.current.workTrees.setActiveWorkTree('b')
     })
+    // One poll at a time: b's waits for a's
+    expect(callsTo('workspace:changes', '/repos/b')).toHaveLength(0)
+
+    await settle(callsTo('workspace:changes', '/repos/a'), { changes: [modified('a.tf'), modified('a2.tf')], totalChanges: 2 })
+    expect(result.current.changes.changes).toEqual([])
+    expect(result.current.changes.isLoading).toBe(true)
     expect(callsTo('workspace:changes', '/repos/b')).toHaveLength(1)
 
     await settle(callsTo('workspace:changes', '/repos/b'), { changes: [modified('b.tf')], totalChanges: 1 })
-    await settle(callsTo('workspace:changes', '/repos/a'), { changes: [modified('a.tf'), modified('a2.tf')], totalChanges: 2 })
     expect(result.current.changes.changes.map(c => c.path)).toEqual(['b.tf'])
     expect(result.current.changes.totalChanges).toBe(1)
     expect(result.current.changes.isLoading).toBe(false)
@@ -364,6 +378,9 @@ describe('WorkspaceGitDataProvider', () => {
     await act(async () => {
       result.current.workTrees.setActiveWorkTree('b')
     })
+    // The poll a started when b registered lands first; b's follows it
+    const pollsOfA = callsTo('workspace:changes', '/repos/a').filter(c => c.params.singleFile === undefined)
+    await settle(pollsOfA.slice(1), { changes: [modified('main.tf', { diffTruncated: true })], totalChanges: 1 })
     await settle(callsTo('workspace:changes', '/repos/b'), { changes: [modified('main.tf', { diffTruncated: true })], totalChanges: 1 })
 
     await settle([diffForA], { changes: [modified('main.tf', { originalContent: 'a-old', newContent: 'a-new' })], totalChanges: 1 })
@@ -431,6 +448,10 @@ describe('WorkspaceGitDataProvider', () => {
     await act(async () => {
       result.current.workTrees.registerWorkTree(worktree('a'))
     })
+    // A script wrote to the repo while its first poll was running
+    await act(async () => {
+      result.current.workTrees.invalidateGitFileTree()
+    })
     expect(result.current.tree.isLoading).toBe(true)
     expect(result.current.changes.isLoading).toBe(true)
 
@@ -447,6 +468,8 @@ describe('WorkspaceGitDataProvider', () => {
     expect(result.current.tree.totalFiles).toBe(0)
     expect(result.current.changes.changes).toEqual([])
     expect(result.current.changes.totalChanges).toBe(0)
+    // Nothing is left to poll, so the invalidation's fetch never runs
+    expect(callsTo('workspace:changes')).toHaveLength(1)
   })
 
   it('throws a clear error when read outside the provider', () => {
