@@ -68,12 +68,14 @@ describe('buildInputPlaceholders', () => {
     expect(inputs).toEqual({ src: './dist', bucket: '<bucket>' })
   })
 
-  it('treats undefined, null, and empty values as unset', () => {
+  it('fills only inputs with no value: absent or undefined, not null, empty or false', () => {
+    // An untouched field with no default registers as undefined. The engine
+    // renders '' and null as they are, so a placeholder would change the command.
     const inputs = buildInputPlaceholders(
-      ['{{ .inputs.a }} {{ .inputs.b }} {{ .inputs.c }} {{ .inputs.d }}'],
+      ['{{ .inputs.a }} {{ .inputs.b }} {{ .inputs.c }} {{ .inputs.d }} {{ .inputs.e }}'],
       { a: undefined, b: null, c: '', d: false },
     )
-    expect(inputs).toEqual({ a: '<a>', b: '<b>', c: '<c>', d: false })
+    expect(inputs).toEqual({ a: '<a>', b: null, c: '', d: false, e: '<e>' })
   })
 
   it('fills a piped value reference', () => {
@@ -97,12 +99,28 @@ describe('buildInputPlaceholders', () => {
     expect(inputs).toBe(base)
   })
 
-  it('fills an input used both as a value and in template logic', () => {
+  it('fills an input with no value used both as a value and in template logic', () => {
+    // With no value the engine can't render the command at all, so the
+    // placeholder decides nothing the engine would have decided.
     const inputs = buildInputPlaceholders(
       ['{{ if .inputs.var_file }}-var-file={{ .inputs.var_file }}{{ end }}'],
-      {},
+      { var_file: undefined },
     )
     expect(inputs).toEqual({ var_file: '<var_file>' })
+  })
+
+  it('never fills an empty value, so logic and pipes decide as they would for that value', () => {
+    // `if` on '' is false and `default` replaces ''; a truthy `<name>` would
+    // flip both.
+    const base = { var_file: '', suffix: '' }
+    const inputs = buildInputPlaceholders(
+      [
+        'terraform apply {{ if .inputs.var_file }}-var-file={{ .inputs.var_file }}{{ end }}',
+        'echo {{ .inputs.suffix | default "none" }}',
+      ],
+      base,
+    )
+    expect(inputs).toBe(base)
   })
 
   it('nests the placeholder for a dotted reference without mutating the input', () => {
@@ -123,9 +141,13 @@ describe('buildInputPlaceholders', () => {
     expect(buildInputPlaceholders(['{{ .inputs._module.source }}'], base)).toBe(base)
   })
 
-  it('does not replace a scalar that a dotted reference treats as an object', () => {
-    const inputs = buildInputPlaceholders(['{{ .inputs.tags.env }}'], { tags: 'infra' })
-    expect(inputs).toEqual({ tags: 'infra' })
+  it('does not replace a scalar or null that a dotted reference treats as an object', () => {
+    expect(buildInputPlaceholders(['{{ .inputs.tags.env }}'], { tags: 'infra' })).toEqual({
+      tags: 'infra',
+    })
+    expect(buildInputPlaceholders(['{{ .inputs.tags.env }}'], { tags: null })).toEqual({
+      tags: null,
+    })
   })
 })
 

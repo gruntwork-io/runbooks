@@ -137,16 +137,35 @@ export function flattenBlockOutputs(
 
 /**
  * Resolve a potentially nested path (e.g., "_module.source") against an object.
- * Returns the value at the path, or undefined if any segment is missing.
+ * Returns the value at the path, or undefined if any segment is missing. Like
+ * the template engine's map lookup, only own properties of plain objects count:
+ * `tags.constructor` or `list.length` is missing, not an inherited or built-in
+ * member.
  */
 function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const segments = path.split('.')
   let current: unknown = obj
   for (const segment of segments) {
-    if (current === null || current === undefined || typeof current !== 'object') return undefined
+    if (
+      current === null ||
+      typeof current !== 'object' ||
+      Array.isArray(current) ||
+      !Object.hasOwn(current, segment)
+    ) {
+      return undefined
+    }
     current = (current as Record<string, unknown>)[segment]
   }
   return current
+}
+
+/**
+ * The value an input reference path (`region`, `tags.env`) resolves to: a
+ * top-level key of that exact name, else the nested value (see
+ * resolveNestedValue). Undefined when the engine would find no such key.
+ */
+export function resolveInputPath(inputs: TemplateInputs, path: InputName): unknown {
+  return Object.hasOwn(inputs, path) ? inputs[path] : resolveNestedValue(inputs, path)
 }
 
 /**
@@ -222,7 +241,7 @@ export function resolveTemplateReferences(
       if (namespace === 'inputs') {
         // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
         // through nested objects, like computeUnmetInputDependencies.
-        const value = ctx.inputs[path] ?? resolveNestedValue(ctx.inputs, path)
+        const value = resolveInputPath(ctx.inputs, path)
         return value != null ? String(value) : `\`${match}\``
       }
       if (namespace === 'outputs') {

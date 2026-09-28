@@ -96,6 +96,15 @@ describe('computeUnmetInputDependencies', () => {
       computeUnmetInputDependencies(['count', 'enabled'], { count: 0, enabled: false })
     ).toEqual([])
   })
+
+  it('should treat inherited or built-in members on a nested path as unmet', () => {
+    expect(
+      computeUnmetInputDependencies(
+        ['tags.constructor', 'list.length', 'tags.env'],
+        { tags: { env: 'prod' }, list: ['a'] }
+      )
+    ).toEqual(['tags.constructor', 'list.length'])
+  })
 })
 
 describe('resolveTemplateReferences', () => {
@@ -158,6 +167,26 @@ describe('resolveTemplateReferences', () => {
     expect(resolveTemplateReferences('{{ .inputs.tags.env }}', nestedCtx)).toBe('prod')
     expect(resolveTemplateReferences('{{ .inputs._module.source }}', nestedCtx)).toBe('git::x')
     expect(resolveTemplateReferences('{{ .inputs.tags.team }}', nestedCtx)).toBe('`{{ .inputs.tags.team }}`')
+  })
+
+  it('should not resolve inherited or built-in members as input values', () => {
+    // The engine looks up map keys: an object's prototype members and an
+    // array's length are not keys, so these stay unresolved.
+    const nestedCtx: TemplateContext = {
+      inputs: { tags: { env: 'prod' }, list: ['a', 'b'] },
+      outputs: {},
+    }
+    for (const ref of [
+      '{{ .inputs.tags.constructor }}',
+      '{{ .inputs.tags.toString }}',
+      '{{ .inputs.list.length }}',
+      '{{ .inputs.constructor }}',
+    ]) {
+      expect(resolveTemplateReferences(ref, nestedCtx)).toBe(`\`${ref}\``)
+    }
+    // An own key with such a name still resolves.
+    const ownCtx: TemplateContext = { inputs: { tags: { constructor: 'mine' } }, outputs: {} }
+    expect(resolveTemplateReferences('{{ .inputs.tags.constructor }}', ownCtx)).toBe('mine')
   })
 
   it('should wrap missing input values in backticks for inline-code rendering', () => {

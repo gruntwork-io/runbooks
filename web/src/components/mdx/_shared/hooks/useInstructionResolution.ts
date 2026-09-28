@@ -29,7 +29,8 @@ export interface UseInstructionResolutionResult {
   isResolving: boolean
   /**
    * True when the lower-fidelity client-side resolver was used for any command
-   * (engine unavailable, errored, or returned a broken result).
+   * (engine unavailable or errored, or it returned no result or a
+   * `[template error: …]` for that command).
    */
   usedFallback: boolean
 }
@@ -155,15 +156,17 @@ export function useInstructionResolution({
       .then((response: { renderedFiles?: Record<string, { content: string }> }) => {
         if (cancelled || !isMountedRef.current) return
         const rendered = response?.renderedFiles
-        const out = commands.map((c, i) => rendered?.[`cmd-${i}`]?.content ?? c)
-        // If the engine left a raw template behind, or returned its inline
-        // `[template error: …]` marker in place of the command, fall back to
-        // the client-side resolver for that entry and flag it.
-        const isBroken = (text: string) =>
-          text.includes('{{') || text.startsWith('[template error:')
-        const safe = out.map((text, i) => (isBroken(text) ? clientResolved[i] : text))
-        setResolvedCommands(safe)
-        setUsedFallback(out.some(isBroken))
+        const out = commands.map((_, i) => rendered?.[`cmd-${i}`]?.content)
+        // The engine either renders a command in full or, on any template
+        // failure, returns its inline `[template error: …]` marker instead; it
+        // never leaves an action unrendered. A `{{` in its output is text the
+        // command produces on purpose (e.g. the ``{{`{{.Names}}`}}`` escape),
+        // so keep it. Fall back to the client-side resolver, and flag it, only
+        // for an entry the engine didn't return or returned as that marker.
+        const isRendered = (text: string | undefined): text is string =>
+          text !== undefined && !text.startsWith('[template error:')
+        setResolvedCommands(out.map((text, i) => (isRendered(text) ? text : clientResolved[i])))
+        setUsedFallback(!out.every(isRendered))
         setIsResolving(false)
       })
       .catch(() => {

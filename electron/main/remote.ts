@@ -1,8 +1,9 @@
 /**
- * Remote URL resolution for the Electron app.
+ * Remote runbook resolution for the Electron app.
  *
- * Detects remote URLs, clones them to temp directories, and resolves
- * the local runbook path within the clone.
+ * Clones a remote source (parsed by src/remote-source.ts, which also decides
+ * whether an input is remote at all) to a temp directory and resolves the
+ * local runbook path within the clone.
  */
 import * as fs from "fs"
 import * as os from "os"
@@ -120,10 +121,14 @@ export function classifyCloneError(opts: {
   stderr: string
   hadToken: boolean
   provider?: "github" | "gitlab"
-  /** The clone went over SSH, whose credentials are the user's keys, not a token. */
-  ssh?: boolean
+  /**
+   * How the clone reached the host (default https). Tokens go only over
+   * https: ssh authenticates with the user's keys, and http gets no token.
+   */
+  transport?: "https" | "http" | "ssh"
 }): ClassifiedCloneError {
-  const { host, owner, repo, stderr, hadToken, provider, ssh } = opts
+  const { host, owner, repo, stderr, hadToken, provider, transport } = opts
+  const ssh = transport === "ssh"
   // A plain git source can name a repo with no owner (`git.corp.net/infra.git`).
   const repoPath = [host, owner, repo].filter(Boolean).join("/")
   if (ssh && (stderr ?? "").toLowerCase().includes("host key verification failed")) {
@@ -137,6 +142,12 @@ export function classifyCloneError(opts: {
       return {
         kind: "auth",
         hint: `SSH authentication failed for ${repoPath}: check that your SSH key is loaded (ssh-add) and has access to the repository, or use an https:// URL`,
+      }
+    }
+    if (transport === "http") {
+      return {
+        kind: "auth",
+        hint: `authentication required for ${repoPath}: access tokens are sent only over https, so use an https:// URL`,
       }
     }
     const hints = authHintForHost(host, provider)
@@ -216,146 +227,160 @@ export interface RemoteRunbookResult {
 
 /**
  * Parse a remote source, clone the repo (sparse when the source names a
- * path), and resolve the runbook file within the clone. Rejects with a plain
- * Error whose message is fit to show the user.
+ * path), and resolve the runbook file within the clone. Typed failures carry
+ * a message fit to show the user.
  */
-export async function resolveRemoteRunbook(
-  rawUrl: string,
-): Promise<RemoteRunbookResult> {
-  // What leaves this function (logs, errors, the header's remoteSource)
-  // carries the source without any credentials typed into it.
-  const source = redactSourceCredentials(rawUrl)
-  const exit = await runtime.runPromiseExit(
-    Effect.gen(function* () {
-      // Parse the URL. Enterprise GitHub hosts the user configured (gh's
-      // hosts.yml, GH_HOST) let a plain GHES repo URL parse as GitHub.
-      log.info("Parsing URL:", source)
-      const vcs = yield* VcsCredentials
-      const { configHosts, envHost } = yield* vcs.enumerateGitHubHosts()
-      let parsed = yield* parseRemoteSource(rawUrl, {
-        githubHosts: envHost ? [...configHosts, envHost] : configHosts,
-      })
-      log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path, refAndPath: parsed.refAndPath })
+export const openRemoteRunbook = (rawUrl: string) =>
+  Effect.gen(function* () {
+    // What leaves this Effect (logs, errors, the header's remoteSource)
+    // carries the source without any credentials typed into it.
+    const source = redactSourceCredentials(rawUrl)
 
-      // Get auth token early — needed for both resolveRef (git ls-remote)
-      // and the clone itself. Session env first (a token established by
-      // a GitAuth block is reused), then the unified VcsCredentials resolver.
-      // Tokens ride only over https: an ssh clone authenticates with the
-      // user's keys, and an http:// one would send the token in the clear.
-      const overHttps = parsed.cloneURL.startsWith("https://")
-      const ssh = !/^https?:\/\//.test(parsed.cloneURL)
-      log.info("Getting auth token...")
-      // Provider detection by name AND the user's own config (a GHES host has
-      // an arbitrary name): an unknown host is neither provider — never
-      // "GitLab by default".
-      const provider = yield* vcs.detectProvider(parsed.host)
-      // Host-bound: the session token is released only to the host the
-      // auth block bound it to — `parsed.host` is attacker-controlled input,
-      // and the provider detection alone must never gate a credential.
-      const sessionToken =
-        overHttps && provider
-          ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
-              Effect.orElseSucceed(() => undefined),
-            )
-          : undefined
-      const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
-      log.info("Token:", token ? "found" : "none")
-      // A token exists only for a detected provider (both sources above are
-      // keyed on it), and a GitHub one may belong to github.com, a GHES host
-      // or a ghe.com tenant: send the provider's username, so GitHub gets
-      // `x-access-token` and GitLab (including self-managed) `oauth2`.
-      const username = gitCredentialUsername(provider)
+    // Parse the URL. Enterprise GitHub hosts the user configured (gh's
+    // hosts.yml, GH_HOST) let a plain GHES repo URL parse as GitHub.
+    log.info("Parsing URL:", source)
+    const vcs = yield* VcsCredentials
+    const { configHosts, envHost } = yield* vcs.enumerateGitHubHosts()
+    let parsed = yield* parseRemoteSource(rawUrl, {
+      githubHosts: envHost ? [...configHosts, envHost] : configHosts,
+    })
+    log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path, refAndPath: parsed.refAndPath })
 
-      // Browser URLs spell ref and path as one string; split it against the
-      // remote's branches and tags.
-      if (parsed.refAndPath !== undefined) {
-        log.info("Resolving ref from:", parsed.refAndPath)
-        const resolved = yield* resolveRef(
-          parsed.cloneURL,
-          parsed.refAndPath,
-          withGitHttpAuth(gitSpawnEnv(), parsed.cloneURL, token, username),
-        )
-        parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
-        log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
-      }
+    // Get auth token early — needed for both resolveRef (git ls-remote)
+    // and the clone itself. Session env first (a token established by
+    // a GitAuth block is reused), then the unified VcsCredentials resolver.
+    // Tokens ride only over https: an ssh clone authenticates with the
+    // user's keys, and an http:// one would send the token in the clear.
+    const transport = parsed.cloneURL.startsWith("https://")
+      ? "https"
+      : parsed.cloneURL.startsWith("http://")
+        ? "http"
+        : "ssh"
+    const overHttps = transport === "https"
+    log.info("Getting auth token...")
+    // Provider detection by name AND the user's own config (a GHES host has
+    // an arbitrary name): an unknown host is neither provider — never
+    // "GitLab by default".
+    const provider = yield* vcs.detectProvider(parsed.host)
+    // Host-bound: the session token is released only to the host the
+    // auth block bound it to — `parsed.host` is attacker-controlled input,
+    // and the provider detection alone must never gate a credential.
+    const sessionToken =
+      overHttps && provider
+        ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
+            Effect.orElseSucceed(() => undefined),
+          )
+        : undefined
+    const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
+    log.info("Token:", token ? "found" : "none")
+    // A token exists only for a detected provider (both sources above are
+    // keyed on it), and a GitHub one may belong to github.com, a GHES host
+    // or a ghe.com tenant: send the provider's username, so GitHub gets
+    // `x-access-token` and GitLab (including self-managed) `oauth2`.
+    const username = gitCredentialUsername(provider)
 
-      // Create temp directory
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-remote-"))
-      registerTempCloneDir(tempDir)
-
-      const dest = path.join(tempDir, "repo")
-      log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
-
-      // Clone with sparse checkout if a subpath is specified. Failures get
-      // the golang-parity classification (remote-open strings).
-      const git = yield* GitClient
-      const { host, owner, repo, ref } = parsed
-      yield* git
-        .cloneSimple(parsed.cloneURL, dest, {
-          ref,
-          token,
-          username,
-          sparse: parsed.path,
-        })
-        .pipe(
-          Effect.catchAll((err) => {
-            const stderr =
-              typeof (err as { stderr?: unknown }).stderr === "string"
-                ? (err as { stderr: string }).stderr
-                : String(err)
-            const classified = classifyCloneError({
-              host,
-              owner,
-              repo,
-              stderr,
-              hadToken: token !== undefined,
-              provider,
-              ssh,
-            })
-            return Effect.fail(new RemoteSourceError({ url: source, message: classified.hint }))
-          }),
-        )
-      log.info("Clone complete")
-
-      // Resolve the runbook within the clone: a directory opens its
-      // runbook.mdx, a file opens as-is.
-      const repoLabel = [host, owner, repo].filter(Boolean).join("/")
-      const at = ref ? ` at ${ref}` : ""
-      const target = parsed.path ? path.join(dest, parsed.path) : dest
-      if (!fs.existsSync(target)) {
-        return yield* Effect.fail(
-          new RemoteSourceError({ url: source, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
-        )
-      }
-      log.info("Resolving runbook in:", target)
-      const localPath = yield* resolveRunbookPath(target).pipe(
-        Effect.mapError(
-          () =>
-            new RemoteSourceError({
-              url: source,
-              message: `no runbook.mdx in ${parsed.path ? `"${parsed.path}"` : "the root"} of ${repoLabel}${at}`,
-            }),
-        ),
+    // Browser URLs spell ref and path as one string; split it against the
+    // remote's branches and tags.
+    if (parsed.refAndPath !== undefined) {
+      log.info("Resolving ref from:", parsed.refAndPath)
+      const resolved = yield* resolveRef(
+        parsed.cloneURL,
+        parsed.refAndPath,
+        withGitHttpAuth(gitSpawnEnv(), parsed.cloneURL, token, username),
       )
-      // The repo is untrusted: a symlink in it must not open a file outside
-      // the clone.
-      if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
-        return yield* Effect.fail(
-          new RemoteSourceError({ url: source, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
-        )
-      }
-      log.info("Resolved runbook path:", localPath)
+      parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
+      log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
+    }
 
-      return {
-        localPath,
-        remoteSource: source,
-      } satisfies RemoteRunbookResult
-    }),
-  )
+    // Create temp directory
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-remote-"))
+    registerTempCloneDir(tempDir)
+
+    const dest = path.join(tempDir, "repo")
+    log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
+
+    // Clone with sparse checkout if a subpath is specified. Failures get
+    // the golang-parity classification (remote-open strings).
+    const git = yield* GitClient
+    const { host, owner, repo, ref } = parsed
+    yield* git
+      .cloneSimple(parsed.cloneURL, dest, {
+        ref,
+        token,
+        username,
+        sparse: parsed.path,
+      })
+      .pipe(
+        Effect.catchAll((err) => {
+          const stderr =
+            typeof (err as { stderr?: unknown }).stderr === "string"
+              ? (err as { stderr: string }).stderr
+              : String(err)
+          const classified = classifyCloneError({
+            host,
+            owner,
+            repo,
+            stderr,
+            hadToken: token !== undefined,
+            provider,
+            transport,
+          })
+          return Effect.fail(new RemoteSourceError({ url: source, message: classified.hint }))
+        }),
+      )
+    log.info("Clone complete")
+
+    // Resolve the runbook within the clone: a directory opens its
+    // runbook.mdx, a file opens as-is.
+    const repoLabel = [host, owner, repo].filter(Boolean).join("/")
+    const at = ref ? ` at ${ref}` : ""
+    const target = parsed.path ? path.join(dest, parsed.path) : dest
+    if (!fs.existsSync(target)) {
+      return yield* Effect.fail(
+        new RemoteSourceError({ url: source, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
+      )
+    }
+    log.info("Resolving runbook in:", target)
+    const localPath = yield* resolveRunbookPath(target).pipe(
+      Effect.mapError(
+        () =>
+          new RemoteSourceError({
+            url: source,
+            message: `no runbook.mdx in ${parsed.path ? `"${parsed.path}"` : "the root"} of ${repoLabel}${at}`,
+          }),
+      ),
+    )
+    // The repo is untrusted: a symlink in it must not open a file outside
+    // the clone.
+    if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
+      return yield* Effect.fail(
+        new RemoteSourceError({ url: source, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
+      )
+    }
+    log.info("Resolved runbook path:", localPath)
+
+    return {
+      localPath,
+      remoteSource: source,
+    } satisfies RemoteRunbookResult
+  })
+
+/**
+ * The value of a finished run, or a plain Error whose message is fit to show
+ * the user. Typed failures carry that message; across IPC a FiberFailure
+ * would reach the renderer as "(FiberFailure) RemoteSourceError: …".
+ */
+export function valueOrUserError<A, E>(exit: Exit.Exit<A, E>): A {
   if (Exit.isSuccess(exit)) return exit.value
-  // Typed failures carry a user-facing message; across IPC a FiberFailure
-  // would reach the renderer as "(FiberFailure) RemoteSourceError: …".
   const failure = Cause.failureOption(exit.cause)
   const message = failure._tag === "Some" ? (failure.value as { message?: string }).message : undefined
   throw new Error(message || Cause.pretty(exit.cause))
+}
+
+/**
+ * openRemoteRunbook on the app runtime. Rejects with a plain Error whose
+ * message is fit to show the user.
+ */
+export async function resolveRemoteRunbook(rawUrl: string): Promise<RemoteRunbookResult> {
+  return valueOrUserError(await runtime.runPromiseExit(openRemoteRunbook(rawUrl)))
 }

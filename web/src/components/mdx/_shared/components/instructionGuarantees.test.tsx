@@ -14,7 +14,9 @@ import type { TemplateContext } from '@/lib/templateUtils'
  *    displayed command resolves to a value or a `<name>` placeholder, whether or
  *    not the engine is available;
  *  - an input referenced only inside template logic is never given a
- *    placeholder, so that logic is never evaluated against one.
+ *    placeholder, so that logic is never evaluated against one;
+ *  - an input that has a value, even `''`, is never given a placeholder, so
+ *    the command's logic decides as it would when the command runs.
  */
 
 const FORBIDDEN_CHANNELS = [
@@ -140,14 +142,14 @@ describe('instruction mode — no unresolved template references', () => {
     expect(screen.queryByText(/simplified resolver/)).toBeNull()
   })
 
-  it('falls back, and says so, when the engine returns a [template error] marker or a raw template', async () => {
+  it('falls back, and says so, when the engine returns a [template error] marker or no result', async () => {
     const invoke = vi.fn().mockResolvedValue({
       renderedFiles: {
         'cmd-0': {
           content:
             '[template error: template: cmd-0:1:12: executing "cmd-0" at <.inputs.bucket>: map has no entry for key "bucket"]',
         },
-        'cmd-1': { content: 'echo {{ .inputs.region }}' },
+        // No 'cmd-1' in the response.
       },
     })
 
@@ -165,6 +167,29 @@ describe('instruction mode — no unresolved template references', () => {
     expect(screen.getByText('echo us-east-1')).toBeInTheDocument()
     expect(document.body.textContent).not.toContain('[template error')
     expect(document.body.textContent).not.toContain('{{')
+  })
+
+  it('keeps an engine result that contains {{ on purpose, with no fallback', async () => {
+    // The documented escape for passing `{{ }}` through to a tool. The engine
+    // renders the raw string to a literal `{{.Names}}`; that is the command.
+    const invoke = vi.fn().mockResolvedValue({
+      renderedFiles: { 'cmd-0': { content: "docker ps --format '{{.Names}}' --filter name=web" } },
+    })
+
+    renderWithApi(
+      <Instruction
+        title="Run this:"
+        command={"docker ps --format '{{`{{.Names}}`}}' --filter name={{ .inputs.name }}"}
+        templateContext={{ inputs: { name: 'web' }, outputs: {} }}
+      />,
+      invoke,
+    )
+
+    expect(
+      await screen.findByText("docker ps --format '{{.Names}}' --filter name=web"),
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('{{`')
+    expect(screen.queryByText(/simplified resolver/)).toBeNull()
   })
 
   it('gives no placeholder to an unset input used only in a conditional', async () => {
@@ -199,5 +224,38 @@ describe('instruction mode — no unresolved template references', () => {
     expect(params.inputs).toContainEqual(
       expect.objectContaining({ name: 'inputs', value: { auto_approve: undefined } }),
     )
+  })
+
+  it('renders an empty optional input as empty, not as a placeholder that takes the branch', async () => {
+    // A stand-in for the engine: a missing key is an error; '' is falsy.
+    const invoke = vi.fn().mockImplementation(async (_channel, params) => {
+      const inputs = params.inputs.find((v: { name: string }) => v.name === 'inputs')?.value ?? {}
+      const content = !('var_file' in inputs)
+        ? '[template error: template: cmd-0:1:21: executing "cmd-0" at <.inputs.var_file>: map has no entry for key "var_file"]'
+        : inputs.var_file
+          ? `terraform apply -var-file=${inputs.var_file}`
+          : 'terraform apply '
+      return { renderedFiles: { 'cmd-0': { content } } }
+    })
+
+    renderWithApi(
+      <Instruction
+        title="Run this:"
+        command="terraform apply {{ if .inputs.var_file }}-var-file={{ .inputs.var_file }}{{ end }}"
+        templateContext={{ inputs: { var_file: '' }, outputs: {} }}
+      />,
+      invoke,
+    )
+
+    await waitFor(() => expect(invoke).toHaveBeenCalled())
+    const [, params] = invoke.mock.calls[0]
+    expect(params.inputs).toContainEqual(
+      expect.objectContaining({ name: 'inputs', value: { var_file: '' } }),
+    )
+    await waitFor(() =>
+      expect(document.querySelector('code')?.textContent).toBe('terraform apply '),
+    )
+    expect(document.body.textContent).not.toContain('<var_file>')
+    expect(screen.queryByText(/simplified resolver/)).toBeNull()
   })
 })

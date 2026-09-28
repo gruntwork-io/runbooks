@@ -38,6 +38,8 @@ describe("isRemoteSource", () => {
     "runbook.mdx",
     "C:\\runbooks\\setup",
     "github.com.backup/runbook.mdx",
+    // git would read it as an option (`-u` is clone's --upload-pack)
+    "-u@host:repo",
   ])("treats %s as a local path", (input) => {
     expect(isRemoteSource(input)).toBe(false)
   })
@@ -182,6 +184,20 @@ describe("parseRemoteSource", () => {
       for (const url of ["https://github.com/owner/repo/", "https://github.com/owner/repo?tab=readme", "https://github.com/owner/repo#readme"]) {
         expect(parse(url).cloneURL).toBe("https://github.com/owner/repo.git")
       }
+    })
+
+    it("keeps ?ref=, as the shorthand and .git forms do", () => {
+      expect(parse("https://github.com/owner/repo?ref=v1.0")).toEqual({
+        host: "github.com",
+        owner: "owner",
+        repo: "repo",
+        cloneURL: "https://github.com/owner/repo.git",
+        ref: "v1.0",
+        path: undefined,
+      })
+      const gitlab = parse("https://gitlab.com/group/sub/project?ref=v1.0")
+      expect(gitlab.owner).toBe("group/sub")
+      expect(gitlab.ref).toBe("v1.0")
     })
 
     it("GitLab repo URL", () => {
@@ -376,6 +392,15 @@ describe("parseRemoteSource", () => {
       expect(result.cloneURL).toBe("ssh://git@git.example.com:2222/owner/repo.git")
       expect(result.path).toBeUndefined()
     })
+
+    it("drops a #fragment rather than reading it into the ref or path", () => {
+      const withRef = parse("git::https://git.example.com/owner/repo.git//runbooks/vpc?ref=main#readme")
+      expect(withRef.ref).toBe("main")
+      expect(withRef.path).toBe("runbooks/vpc")
+      const noRef = parse("github.com/owner/repo//runbooks/vpc#readme")
+      expect(noRef.ref).toBeUndefined()
+      expect(noRef.path).toBe("runbooks/vpc")
+    })
   })
 
   describe("invalid sources", () => {
@@ -403,6 +428,11 @@ describe("parseRemoteSource", () => {
     it("rejects a git transport other than https, http or ssh", () => {
       expect(parseError("git::file:///srv/repo.git//x")).toContain("unsupported git transport")
     })
+
+    it("rejects an scp-like address whose user starts with -", () => {
+      expect(parseError("-u@host:repo")).toContain("unsupported URL format")
+      expect(parseError("git::-u@host:repo")).toContain("unsupported URL format")
+    })
   })
 })
 
@@ -419,7 +449,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput([
           "refs/heads/main",
           "refs/heads/release/v1",
@@ -443,7 +473,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput(["refs/heads/main"]),
         exitCode: 0,
       },
@@ -463,7 +493,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput(["refs/heads/main"]),
         exitCode: 0,
       },
@@ -483,7 +513,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput(["refs/tags/v1.0.0"]),
         exitCode: 0,
       },
