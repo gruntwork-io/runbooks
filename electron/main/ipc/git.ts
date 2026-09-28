@@ -839,7 +839,8 @@ export function registerGitHandlers(): void {
       return runAndUnwrap(
         Effect.gen(function* () {
           const repoPath = yield* validateSessionPath(params.worktreePath)
-          return yield* deleteBranch(repoPath, params.branch)
+          yield* deleteBranch(repoPath, params.branch)
+          return { ok: true as const }
         }),
       )
     },

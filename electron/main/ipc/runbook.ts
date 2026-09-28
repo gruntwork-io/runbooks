@@ -54,13 +54,14 @@ export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
     async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
-      // If no path provided, return current config without loading a runbook
+      // If no path provided, report the current registry mode without loading
+      // a runbook
       if (!params?.path) {
         return {
           content: "",
           contentHash: "",
-          config: runbookConfig,
           warnings: [],
+          useExecutableRegistry: runbookConfig.useExecutableRegistry,
         }
       }
 
