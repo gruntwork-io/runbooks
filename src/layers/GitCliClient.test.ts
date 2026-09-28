@@ -64,9 +64,14 @@ const GIT_CONFIG = [
   "-c", "init.defaultBranch=main",
 ]
 
-/** Run git in the repo with deterministic, environment-independent config. */
+/**
+ * Run git in the repo with deterministic, environment-independent config.
+ * `env: process.env` is explicit because bun's child_process otherwise hands
+ * the child the environment the test process started with, not the sandboxed
+ * HOME and GIT_CONFIG_* a test sets (the layer under test passes its env).
+ */
 function git(repoPath: string, ...args: string[]): void {
-  execFileSync("git", [...GIT_CONFIG, ...args], { cwd: repoPath, stdio: "pipe" })
+  execFileSync("git", [...GIT_CONFIG, ...args], { cwd: repoPath, stdio: "pipe", env: process.env })
 }
 
 /** Like `git`, but returns stdout (for inspecting the index, etc.). */
@@ -74,6 +79,7 @@ function gitOut(repoPath: string, ...args: string[]): string {
   return execFileSync("git", [...GIT_CONFIG, ...args], {
     cwd: repoPath,
     stdio: ["pipe", "pipe", "pipe"],
+    env: process.env,
   }).toString()
 }
 
@@ -187,7 +193,15 @@ describe("GitCliClientLive.stageAll (real repo)", () => {
 describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
   // A GitClone with a repo path: a cone-mode sparse checkout of modules/vpc.
   // The blocks that run after it may still write anywhere in the checkout.
-  const SANDBOX_VARS = ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] as const
+  // Nothing writes modules/rds, so it stays out of the checkout.
+  const SANDBOX_VARS = [
+    "HOME",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0",
+  ] as const
   const savedEnv: Record<string, string | undefined> = {}
   let root: string
   let work: string
@@ -202,7 +216,7 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
     process.env.GIT_CONFIG_SYSTEM = "/dev/null"
 
     const origin = path.join(root, "origin")
-    for (const dir of ["vpc", "eks"]) {
+    for (const dir of ["vpc", "eks", "rds"]) {
       fs.mkdirSync(path.join(origin, "modules", dir), { recursive: true })
       fs.writeFileSync(path.join(origin, "modules", dir, "main.tf"), `# ${dir}\n`)
     }
@@ -241,6 +255,26 @@ describe("GitCliClientLive.stageAll in a sparse checkout (real repo)", () => {
   it("stages them all when embedded repos are excluded too", async () => {
     await runStageAll(work, ["vendor/lib"])
     expect(staged()).toEqual(EVERY_CHANGE)
+  })
+
+  it("stages an edit outside the cone whose skip-worktree bit git kept (git 2.34, 2.35)", async () => {
+    // git 2.34 and 2.35 keep the skip-worktree bit on a file outside the cone
+    // after a block writes it, and `add` passes over such entries, with
+    // `--sparse` or without. git 2.36 clears the bit for files on disk when it
+    // reads the index; sparse.expectFilesOutsideOfPatterns turns that off, so
+    // this git behaves like the older ones.
+    process.env.GIT_CONFIG_COUNT = "1"
+    process.env.GIT_CONFIG_KEY_0 = "sparse.expectFilesOutsideOfPatterns"
+    process.env.GIT_CONFIG_VALUE_0 = "true"
+    const flags = () => gitOut(work, "ls-files", "-t", "--", "modules/eks/main.tf", "modules/rds/main.tf")
+    expect(flags()).toBe("S modules/eks/main.tf\nS modules/rds/main.tf\n")
+
+    await runStageAll(work)
+
+    expect(staged()).toEqual(EVERY_CHANGE)
+    // The file that is not on disk keeps its bit, so neither this `add` nor a
+    // later one stages it as a deletion.
+    expect(flags()).toBe("H modules/eks/main.tf\nS modules/rds/main.tf\n")
   })
 
   it("names the git it needs when git has no `add --sparse` (before 2.34)", async () => {

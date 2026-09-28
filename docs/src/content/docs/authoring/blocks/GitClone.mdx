@@ -223,7 +223,7 @@ Cone mode checks out more than the directory itself: it also includes the files 
 
 The path is relative to the repository root. An absolute path or one containing `..` fails the clone, and an empty path or `.` clones the whole repository.
 
-[`<GitPullRequest>`](/authoring/blocks/gitpullrequest) commits every file that later blocks write in the checkout, including files outside the sparse checkout. It stages them with `git add --sparse`, which needs git 2.34 or later. With an older git, a pull request from a sparse checkout fails with a message that says so.
+[`<GitPullRequest>`](/authoring/blocks/gitpullrequest) commits every file that later blocks write in the checkout, including files outside the sparse checkout: new files, and changes to files the repository already has there. Files outside the sparse checkout that no block wrote stay out of the commit, and are not committed as deleted. Staging uses `git add --sparse`, which needs git 2.34 or later. With an older git, a pull request from a sparse checkout fails with a message that says so.
 
 ### Custom Local Path
 
