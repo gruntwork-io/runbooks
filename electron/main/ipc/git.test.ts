@@ -1054,3 +1054,64 @@ describe("git:delete-branch", () => {
     expect(git("branch", "--list", "feature").trim()).toBe("")
   })
 })
+
+// A Data.TaggedError without a `message` field (SessionNotFoundError,
+// SpawnError, FileReadError, ...) has an empty Error.message. Every git
+// handler must still give the renderer text that names the failure: an empty
+// rejection shows as "An unknown error occurred", and an empty { error } reads
+// as no error at all (useGitPullRequest checks result.error for truthiness).
+describe("git handler error text for a message-less tagged failure", () => {
+  const sent: Array<{ channel: string; payload: { message?: string } }> = []
+  const recordingEvent = {
+    sender: { send: (channel: string, payload: { message?: string }) => sent.push({ channel, payload }) },
+  }
+  const prParams = {
+    worktreePath: "/tmp/repo",
+    owner: "o",
+    repo: "r",
+    title: "t",
+    baseBranch: "main",
+    headBranch: "feature",
+    commitMessage: "m",
+  }
+
+  beforeEach(() => {
+    sent.length = 0
+    // No session, so every handler fails with SessionNotFoundError.
+    sessionManager.deleteSession()
+  })
+
+  const rejectionOf = async (channel: string, params: unknown): Promise<string> => {
+    try {
+      await handlers.get(channel)!(recordingEvent, params)
+    } catch (err) {
+      return (err as Error).message
+    }
+    throw new Error(`expected ${channel} to reject`)
+  }
+
+  it("git:delete-branch and git:clone reject with a message that names the error", async () => {
+    expect(await rejectionOf("git:delete-branch", { worktreePath: "/tmp/repo", branch: "feature" })).toBe(
+      "SessionNotFoundError",
+    )
+    expect(await rejectionOf("git:clone", { url: "https://github.com/acme/infra.git" })).toBe("SessionNotFoundError")
+  })
+
+  it.each([
+    ["git:push", { worktreePath: "/tmp/repo", branchName: "feature" }],
+    ["git:init-default-branch", { worktreePath: "/tmp/repo", branch: "main" }],
+    ["git:pull-request", prParams],
+    ["git:merge-request", prParams],
+  ])("%s never returns { error: '' }, and its git:error event says the same", async (channel, params) => {
+    const result = await handlers.get(channel)!(recordingEvent, params)
+
+    expect(result).toEqual({ error: "SessionNotFoundError" })
+    expect(sent.find((s) => s.channel === "git:error")?.payload.message).toBe("SessionNotFoundError")
+  })
+
+  it("git:local-repo returns a fail status whose error names the error", async () => {
+    const result = await handlers.get("git:local-repo")!(recordingEvent, { path: "/tmp/repo" })
+
+    expect(result).toEqual({ status: "fail", error: "SessionNotFoundError" })
+  })
+})
