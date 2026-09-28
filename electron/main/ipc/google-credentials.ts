@@ -49,9 +49,9 @@ export function materializeCredentialFile(json: string): string {
 /**
  * Overwrite with zeros, unlink, then drop the containing directory.
  *
- * Called when the same identity re-authenticates, so a rotated key does not
- * linger on disk. Best-effort throughout: a file that is already gone is the
- * outcome we wanted.
+ * Called when a block commits a replacement credential, so superseded key
+ * material does not linger on disk. Best-effort throughout: a file that is
+ * already gone is the outcome we wanted.
  */
 export function releaseCredentialFile(filePath: string): void {
   const dir = path.dirname(filePath)

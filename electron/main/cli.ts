@@ -5,7 +5,7 @@
  * we parse argv to extract configuration that gets forwarded to the IPC runtime.
  */
 import path from "path"
-import { isRemoteURL } from "./remote.ts"
+import { isRemoteSource } from "../../src/remote-source.ts"
 
 export interface CliConfig {
   /** Path to a runbook file to open on launch, if provided. */
@@ -48,7 +48,7 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
 
     if (arg === "--runbook" && i + 1 < args.length) {
       const val = args[++i]
-      if (isRemoteURL(val)) {
+      if (isRemoteSource(val)) {
         config.remoteUrl = val
       } else {
         config.runbookPath = path.resolve(val)
@@ -61,6 +61,10 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
       config.noTelemetry = true
     } else if (arg === "--disable-live-file-reload") {
       config.disableLiveFileReload = true
+    } else if (isRemoteSource(arg)) {
+      // Checked before the filters below, which would drop a source whose
+      // repo name merely contains "electron".
+      config.remoteUrl = arg
     } else if (
       !arg.startsWith("-") &&
       !arg.endsWith(".js") &&
@@ -69,12 +73,8 @@ export function parseCliArgs(argv: string[] = process.argv): CliConfig {
       !arg.includes("node_modules") &&
       arg !== "."
     ) {
-      // Treat bare positional arguments as a runbook path or remote URL.
-      if (isRemoteURL(arg)) {
-        config.remoteUrl = arg
-      } else {
-        config.runbookPath = path.resolve(arg)
-      }
+      // Treat bare positional arguments as a runbook path.
+      config.runbookPath = path.resolve(arg)
     }
   }
 

@@ -9,6 +9,10 @@ import { Effect } from "effect"
 import { sessionManager, runbookConfig } from "./runtime.ts"
 import { isContainedInReal } from "../../../src/path-validation.ts"
 import { PathTraversalError } from "../../../src/errors/index.ts"
+import {
+  DEFAULT_GENERATED_DIR,
+  resolveToAbsolutePath,
+} from "../../../src/domain/files/generated.ts"
 
 /**
  * Resolve a path that may be relative to the runbook directory.
@@ -66,4 +70,84 @@ export const validateSessionPath = (p: string) =>
         message: `path is outside session working directory and registered worktrees`,
       }),
     )
+  })
+
+/**
+ * Validate a git:clone destination. The clone handler may `rm -rf` it (from
+ * "Delete & Clone"), so this is stricter than validateSessionPath. The
+ * destination must be:
+ *   - inside the working directory once symlinks are resolved, so a
+ *     symlinked segment (`link/sub`, where link points outside) can't aim
+ *     the rm outside the session;
+ *   - a strict subdirectory: ".", "./", "sub/.." and the working directory's
+ *     own absolute path would otherwise delete the working directory itself;
+ *   - not an ancestor of the open runbook. A Command block's `cd ..` moves the
+ *     working directory (the script's final pwd is stored as the session
+ *     working dir), and then the runbook's own directory passes both checks.
+ */
+export const validateCloneDestination = (
+  absolutePath: string,
+  workingDir: string,
+  runbookPath: string,
+) =>
+  Effect.gen(function* () {
+    const reject = (message: string) =>
+      Effect.fail(new PathTraversalError({ path: absolutePath, message }))
+
+    if (!(yield* Effect.promise(() => isContainedInReal(absolutePath, workingDir)))) {
+      return yield* reject("clone destination is outside session working directory")
+    }
+    // Contained both ways means it is the working directory itself.
+    if (yield* Effect.promise(() => isContainedInReal(workingDir, absolutePath))) {
+      return yield* reject("clone destination must be a subdirectory of the session working directory")
+    }
+    if (runbookPath && (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))) {
+      return yield* reject("clone destination must not contain the open runbook")
+    }
+  })
+
+/**
+ * Map a runbook-asset:// request URL to the file it names in the runbook
+ * directory, or null if it must not be served. The URL's host + path
+ * (runbook-asset://assets/foo.png -> assets/foo.png) is percent-decoded
+ * before the check, so the path that is checked is the path that is served.
+ * Containment is checked on the symlink-resolved path, so a symlink in the
+ * runbook directory (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file
+ * from outside it.
+ */
+export async function resolveRunbookAssetPath(
+  requestUrl: string,
+  runbookDir: string,
+): Promise<string | null> {
+  let assetRelative: string
+  try {
+    const url = new URL(requestUrl)
+    assetRelative = decodeURIComponent(url.hostname + url.pathname)
+  } catch {
+    return null
+  }
+  const resolved = path.resolve(path.join(runbookDir, assetRelative))
+  return (await isContainedInReal(resolved, runbookDir)) ? resolved : null
+}
+
+/**
+ * Resolve the generated-files directory. Template renders, `$GENERATED_FILES`
+ * capture, and the existing-files check and Delete action all go through
+ * here so they agree on one directory.
+ *
+ * A relative `outputPath` resolves against the session's `initialWorkDir` (the
+ * realpath'd runbook directory), never the live `workingDir`: that follows a
+ * script's `cd`, which would scatter output across whatever directories the
+ * runbook's scripts happened to leave the session in.
+ *
+ * Returns the base directory and relative path alongside the absolute path so
+ * callers of `checkGeneratedFiles` / `deleteGeneratedFiles` can pass the same
+ * pair and report paths consistent with this one.
+ */
+export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) =>
+  Effect.gen(function* () {
+    const session = yield* sessionManager.getSession()
+    const baseDir = session.initialWorkDir
+    const absolutePath = yield* resolveToAbsolutePath(baseDir, outputPath)
+    return { baseDir, outputPath, absolutePath }
   })

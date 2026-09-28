@@ -10,7 +10,7 @@ const defaultScriptExecution = {
   language: "bash",
   fileError: null,
   inputValues: {},
-  inputDependencies: [],
+  inputDependencies: [] as string[],
   unmetInputDependencies: [],
   hasAllInputDependencies: true,
   inlineInputsId: null,
@@ -164,6 +164,20 @@ describe("Check", () => {
   })
 
   // --- Error states ---
+
+  it("shows Configuration Required for input references with only an awsAuthId", () => {
+    // An AwsAuth block supplies credentials, never `.inputs` values.
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      inputDependencies: ["region"],
+      hasAllInputDependencies: false,
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCheck({ awsAuthId: "aws-auth" })
+    expect(screen.getByText(/Configuration Required/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Check" })).toBeNull()
+  })
 
   it("shows error for missing id", () => {
     render(

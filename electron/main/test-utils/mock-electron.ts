@@ -6,8 +6,8 @@
  * not add names. A file that mocks only the names it needs therefore breaks
  * the named imports of any later file that needs different ones. Every
  * electron mock goes through here so each call declares the same names — one
- * inert stub for every export the main process imports. Add a name below when
- * main starts importing a new one.
+ * inert stub for every export the main process and preload import. Add a name
+ * below when either starts importing a new one.
  *
  * Call it before importing the module under test.
  */
@@ -16,8 +16,10 @@ import { mock } from "bun:test"
 const inertElectron = {
   app: {},
   BrowserWindow: class {},
+  contextBridge: {},
   dialog: {},
   ipcMain: { handle: () => {}, on: () => {}, removeHandler: () => {} },
+  ipcRenderer: {},
   Menu: {},
   nativeTheme: {},
   net: {},

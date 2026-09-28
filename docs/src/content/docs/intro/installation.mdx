@@ -52,6 +52,21 @@ Download the latest version of Runbooks from the [GitHub releases page](https://
   </TabItem>
 </Tabs>
 
+### Installing the `runbooks` command
+
+To open runbooks from a terminal with the [`runbooks` command](/commands/overview/), click **Install command line tool** on the welcome screen. You can also choose **Install 'runbooks' command in PATH** from the **Runbooks** menu on macOS, or from the **Help** menu on Linux and Windows.
+
+- **macOS and Linux:** Runbooks writes a small launcher script to `/usr/local/bin/runbooks`. If you can't write to that folder, you're asked for your administrator password.
+- **Windows:** Runbooks writes `runbooks.cmd` to `%LOCALAPPDATA%\Runbooks\bin` and adds that folder to your user `PATH`. Open a new terminal to pick up the change.
+
+The launcher records where the app is installed. If you move Runbooks, or switch to a different AppImage file, install the command again to update it. On macOS, move Runbooks to your **Applications** folder before you install the command.
+
+To remove the command, choose **Uninstall 'runbooks' command from PATH** from the same menu.
+
+<Aside type="caution">
+  If `/usr/local/bin/runbooks` already exists and Runbooks didn't create it (for example, an older Runbooks CLI), Runbooks won't overwrite or remove it. Installing shows an error instead. To install the command, remove or rename the existing file first.
+</Aside>
+
 ### Building from source
 
 If you prefer to build the app yourself, you will need [mise](https://mise.jdx.dev/) and [just](https://github.com/casey/just) installed as prerequisites.

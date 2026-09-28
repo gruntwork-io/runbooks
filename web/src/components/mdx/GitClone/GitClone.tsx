@@ -11,6 +11,9 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
+import { isGitHubRepoHost } from "@/components/mdx/_shared/lib/githubHost"
 import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
@@ -28,35 +31,16 @@ import { resolveInitialSource, defaultDescription } from "./utils"
 import type { GitCloneProps, GitCloneSource, LocalRepoInfo } from "./types"
 
 /**
- * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted).
+ * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted),
+ * in any form git accepts (see gitRemoteOwnerRepo).
  *
  * The last path segment is the repo (project) and everything before it is the
  * owner. This handles GitHub's `owner/repo` as well as GitLab nested groups,
  * where the owner is the full group path (e.g. `group/subgroup`).
  */
 function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | null {
-  // Extract the path after the host for both SSH (git@host:path) and HTTPS forms.
-  let path: string
-  const sshMatch = url.trim().match(/^git@[^:]+:(.+)$/)
-  if (sshMatch) {
-    path = sshMatch[1]
-  } else {
-    try {
-      path = new URL(url.trim()).pathname
-    } catch {
-      // Not a parseable URL
-      return null
-    }
-  }
-
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length < 2) {
-    return null
-  }
-
-  const repo = parts[parts.length - 1].replace(/\.git$/, '')
-  const org = parts.slice(0, -1).join('/')
-  return { org, repo }
+  const parsed = gitRemoteOwnerRepo(url.trim())
+  return parsed ? { org: parsed.owner, repo: parsed.repo } : null
 }
 
 function GitCloneInteractive({
@@ -155,6 +139,7 @@ function GitCloneInteractive({
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    githubHost,
     workingDir,
     localPreview,
     localPreviewStatus,
@@ -353,14 +338,16 @@ function GitCloneInteractive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloneStatus, cloneResult, selectedLocalInfo])
 
-  // Seed the GitHub browser's org/repo, but only from GitHub URLs — feeding a
-  // GitLab owner/repo into the GitHub browser would be meaningless.
+  // Seed the GitHub browser's org/repo, but only from GitHub URLs (github.com,
+  // *.ghe.com, or the linked auth block's host) — feeding a GitLab owner/repo
+  // into the GitHub browser would be meaningless.
   const prefilledGitHub = useMemo(() => {
-    if (resolvedUrl && /(?:\/\/|@)github\.com[/:]/.test(resolvedUrl)) {
+    const urlHost = hostFromRepoUrl(resolvedUrl)?.toLowerCase()
+    if (resolvedUrl && urlHost && (isGitHubRepoHost(urlHost) || urlHost === githubHost)) {
       return parseOwnerRepoFromURL(resolvedUrl)
     }
     return null
-  }, [resolvedUrl])
+  }, [resolvedUrl, githubHost])
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
@@ -531,7 +518,7 @@ function GitCloneInteractive({
                       type="text"
                       value={gitUrl}
                       onChange={(e) => setGitUrl(e.target.value)}
-                      placeholder="https://github.com/org/repo.git"
+                      placeholder={`https://${githubHost}/org/repo.git`}
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
@@ -540,6 +527,8 @@ function GitCloneInteractive({
                   {/* GitHub Browser (only if token available) */}
                   {tokenChecked && hasGitHubToken && (
                     <GitHubBrowser
+                      key={githubHost}
+                      host={githubHost}
                       onRepoSelected={handleRepoSelected}
                       onRefSelected={handleRefSelected}
                       fetchOrgs={fetchOrgs}

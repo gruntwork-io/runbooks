@@ -424,20 +424,46 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
 
     expect(urls).toContain("https://gitlab.com/api/v4/user")
   })
-})
 
-describe("GitLabHttpClient.detectTokenType", () => {
-  it("classifies glpat- tokens as pat, others as unknown", async () => {
-    const types = await Effect.runPromise(
-      Effect.gen(function* () {
-        const client = yield* GitLabClient
-        return {
-          pat: client.detectTokenType("glpat-xyz"),
-          unknown: client.detectTokenType("random"),
+  // Mirrors GitHubHttpClient's resolveHost: a base URL that was given but
+  // doesn't parse is a caller error, never a reason to use gitlab.com.
+  it.each(["https://ho%st", "ftp://gitlab.corp", "https://[fe80::1%eth0]"])(
+    "refuses the unparseable base URL %s without sending the token anywhere",
+    async (baseUrl) => {
+      const urls: string[] = []
+      mockFetch((url) => {
+        urls.push(url)
+        return json({ username: "tanuki", iid: 1, web_url: "", source_branch: "b" })
+      })
+
+      const results = await Effect.runPromise(
+        Effect.gen(function* () {
+          const client = yield* GitLabClient
+          return [
+            yield* Effect.either(client.validateToken("glpat-abc", baseUrl)),
+            yield* Effect.either(client.listLabels("glpat-abc", "g", "p", baseUrl)),
+            yield* Effect.either(
+              client.createMergeRequest("glpat-abc", {
+                owner: "g",
+                repo: "p",
+                title: "t",
+                baseBranch: "main",
+                headBranch: "b",
+                baseUrl,
+              }),
+            ),
+          ]
+        }).pipe(Effect.provide(GitLabHttpClientLive)),
+      )
+
+      for (const result of results) {
+        expect(result._tag).toBe("Left")
+        if (result._tag === "Left") {
+          expect(result.left).toBeInstanceOf(GitLabApiError)
+          expect(result.left.message).toContain("invalid GitLab instance URL")
         }
-      }).pipe(Effect.provide(GitLabHttpClientLive)),
-    )
-    expect(types.pat).toBe("pat")
-    expect(types.unknown).toBe("unknown")
-  })
+      }
+      expect(urls).toEqual([])
+    },
+  )
 })

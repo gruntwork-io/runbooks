@@ -221,6 +221,28 @@ describe("GitClone — local checkout", () => {
     expect(screen.getByText(/42 tracked files/)).toBeInTheDocument()
   })
 
+  it.each([
+    ["git@[::1]:acme/infra.git", "acme", "infra"],
+    ["deploy@git.example.com:platform/sub/infra.git", "platform/sub", "infra"],
+    ["ssh://git@[::1]:2222/acme/infra.git", "acme", "infra"],
+  ])("registers the owner and repo of a %s remote", async (remoteUrl, repoOwner, repoName) => {
+    mockIpc({ ...REPO, remoteUrl })
+    const user = userEvent.setup()
+    renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
+
+    const confirm = screen.getByRole("button", { name: /Use This Repo/i })
+    await waitFor(() => expect(confirm).toBeEnabled(), { timeout: 2000 })
+    await user.click(confirm)
+
+    await waitFor(() => expect(registerWorkTree).toHaveBeenCalled())
+    expect(registerWorkTree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoUrl: remoteUrl,
+        gitInfo: expect.objectContaining({ repoOwner, repoName }),
+      }),
+    )
+  })
+
   it("explains why a directory can't be used and blocks the confirm", async () => {
     mockIpc({ status: "fail", error: "Not a git repository: /home/me/notes" })
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/notes" })

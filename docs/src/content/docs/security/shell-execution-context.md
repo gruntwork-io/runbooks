@@ -36,6 +36,8 @@ Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or
 
 **Why?** Environment persistence works by wrapping your script in a Bash wrapper that captures environment changes after execution. This wrapper is Bash-specific and can't be applied to other interpreters. Additionally, environment changes in subprocesses (like a Python script) can't propagate back to the parent process — this is a fundamental limitation of how Unix processes work.
 
+Because the wrapper is Bash code, scripts with a `#!/bin/sh` shebang run under `bash`, not your system's `sh`. On Debian and Ubuntu, `sh` is `dash`, which can't run the wrapper at all. Bash runs POSIX `sh` scripts as they are. For `#!/bin/sh` scripts Runbooks also turns on Bash's `xpg_echo` option, so `echo "a\nb"` prints two lines, just as `sh` does on macOS, Debian, and Ubuntu. Scripts with a `#!/bin/bash` shebang keep Bash's default, where `echo` prints `\n` literally unless you pass `-e`.
+
 ### Multiline Environment Variables
 
 Environment variables can contain embedded newlines — RSA keys, JSON configs, multiline strings, etc. These values are correctly preserved across blocks:
@@ -67,7 +69,7 @@ trap "rm -rf $TEMP_DIR" EXIT
 export RESULT="computed value"
 ```
 
-Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. When your script exits:
+Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. The usual `trap` forms all work: `trap -- cleanup EXIT`, `trap cleanup INT EXIT` (the `INT` handler is installed as usual), and resets such as `trap - EXIT` or `trap EXIT`. When your script exits:
 
 1. Your trap handler runs first (cleanup happens)
 2. Runbooks captures the final environment state
@@ -79,22 +81,28 @@ This means you can write scripts with proper cleanup logic and still have enviro
 
 The Runbooks app uses a single window and a single session. All scripts within a runbook share the same environment state.
 
-### Concurrent Script Execution
+### Starting Environment
 
-:::caution[Environment changes may be lost when scripts run concurrently]
-If you run multiple scripts at the same time (for example, clicking "Run" on two different blocks before the first completes), environment changes from one script may silently overwrite changes from the other.
-:::
+The session starts from the environment the Runbooks app was started with:
 
-**Why this happens:** When a script starts, it captures the current environment as a snapshot. When it finishes, it replaces the session environment with whatever the script ended with. If two scripts run concurrently:
+- **Started from a terminal** (any terminal or SSH session that sets `TERM`): Runbooks uses that terminal's environment as it is. A variable you set on the command line that starts Runbooks, such as `AWS_PROFILE=prod`, is the value your scripts see.
+- **Started from Finder, the Dock, or a desktop launcher** (macOS and Linux): Runbooks first loads the environment from your login shell, so your `PATH` and the variables your shell profile exports are available to scripts.
 
-1. Script A and Script B both start with environment `{X=1}`
-2. Script A sets `X=2`
-3. Script B sets `Y=3`
-4. Whichever finishes last overwrites the other's changes
+### How Script Changes Are Applied
 
-For example, if Script B finishes last, the session ends up with `{X=1, Y=3}` — losing Script A's change to `X`.
+When a script finishes, Runbooks applies only what that script changed to the session:
 
-**Recommendation:** If your scripts depend on environment changes from previous scripts, wait for each script to complete before running the next one. The environment model is designed for sequential, step-by-step execution, similar to typing commands in a terminal one at a time.
+- Variables the script exported or changed are set to their new values.
+- Variables the script unset are removed from the session.
+- The working directory changes only if the script changed directory.
+
+Everything else in the session is left as it is. If the session changed while the script was running — for example, an auth block authenticated and added credentials, or you reset the session — those changes are kept, and the script's own changes are applied on top of them. If the script and something else both changed the same variable, the script's value wins, because it is applied last.
+
+If you open a different runbook while a script is running, the finished script's changes are discarded instead of being applied to the new runbook's session. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
+
+### One Script at a Time
+
+Only one script runs at a time. Starting a script (for example, clicking "Run" on another block before the first one finishes) cancels the script that is already running, and the cancelled script's environment changes are discarded. If your scripts depend on environment changes from earlier scripts, wait for each script to complete before running the next one. The environment model is designed for sequential, step-by-step execution, similar to typing commands in a terminal one at a time.
 
 ### Implementation Notes
 
@@ -226,6 +234,7 @@ Runbooks determines which interpreter to use for your script:
 | Shebang | Interpreter |
 |---------|-------------|
 | `#!/bin/bash` | Bash shell |
+| `#!/bin/sh` | Bash shell (see [Bash Scripts Only](#bash-scripts-only)) |
 | `#!/bin/zsh` | Zsh shell |
 | `#!/usr/bin/env python3` | Python 3 |
 | `#!/usr/bin/env node` | Node.js |
