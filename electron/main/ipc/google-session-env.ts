@@ -18,7 +18,14 @@
  * from a gcloud-tab block, and region/zone. The OpenTofu `google` provider
  * prefers GOOGLE_OAUTH_ACCESS_TOKEN over GOOGLE_APPLICATION_CREDENTIALS, so a
  * file-backed block that follows an access-token block still shares the
- * session with that token.
+ * session with that token. The reverse holds too: under an access-token owner,
+ * GOOGLE_APPLICATION_CREDENTIALS still names the file-backed credential before
+ * it (another block's, or the same block's earlier one, which
+ * ./google-credential-registry.ts keeps on disk for that reason), and Google
+ * client libraries reading ADC use that file. A `googleAuthId` step does not
+ * close any of this: it overlays the block's published outputs on the session
+ * env, and those carry none of these keys, nor a blank region, zone or
+ * GOOGLE_APPLICATION_CREDENTIALS.
  */
 import { activeCredentialFor, type ActiveGoogleCredential } from "./google-credential-registry.ts"
 
@@ -136,8 +143,9 @@ export interface ProjectCommit {
  * configuration's compute defaults, say).
  *
  * A project pick commits the block the way an authentication does, so the
- * session is re-pointed at the block's WHOLE credential, not just its project.
- * Writing the project alone left bare commands running with whichever block
+ * session is re-pointed at the block's WHOLE credential, not just its project,
+ * with the same known gap as an authentication (see the module doc). Writing
+ * the project alone left bare commands running with whichever block
  * authenticated last's credential and account, against this block's project.
  */
 export function commitBlockProject(params: {
