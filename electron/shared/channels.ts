@@ -19,7 +19,7 @@ export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
     params: { path: string; watchMode?: boolean; remoteSource?: string }
-    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string; useExecutableRegistry?: boolean }
+    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string }
   }
   "runbook:open-remote": {
     params: { url: string }
