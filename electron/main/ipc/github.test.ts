@@ -357,6 +357,68 @@ describe("github:env-credentials / github:cli-credentials", () => {
   })
 })
 
+describe("a sign-in that finishes after another runbook opened", () => {
+  /**
+   * Hold every /user validation until the returned release() is called: the
+   * window in which the user opens a different runbook.
+   */
+  const holdValidation = () => {
+    let release!: () => void
+    const released = new Promise<void>((resolve) => (release = resolve))
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input)
+      fetchCalls.push({ url, method: "GET" })
+      if (url.endsWith("/user")) await released
+      return url.endsWith("/login/oauth/access_token")
+        ? json({ access_token: "gho_from_a" })
+        : githubResponder(url)
+    }) as typeof fetch
+    return release
+  }
+
+  /** What runbook:get does when a different runbook is opened. */
+  const openAnotherRunbook = async () => {
+    await Effect.runPromise(
+      sessionManager.createSession("/tmp/runbook-b", "/tmp/runbook-b/runbook.mdx").pipe(
+        Effect.provide(makeTestEnvironment({})),
+      ),
+    )
+    vcsSessionMeta.clear()
+  }
+
+  it.each([
+    ["github:validate", { token: "ghp_from_a", registerSession: true }, "valid"],
+    ["github:oauth-poll", { deviceCode: "dc" }, "status"],
+    ["github:env-credentials", {}, "valid"],
+  ] as const)("%s writes nothing to the new runbook's session", async (channel, params, okKey) => {
+    process.env.GITHUB_TOKEN = "ghp_env_from_a"
+    const release = holdValidation()
+
+    const pending = invoke(channel, params)
+    await openAnotherRunbook()
+    release()
+    const result = await pending
+
+    // Runbook A's (now unmounted) block still gets its answer...
+    expect(result[okKey]).toBe(okKey === "status" ? "complete" : true)
+    // ...but runbook B's session has no credential and no GitHub host binding.
+    const env = await sessionEnv()
+    expect(env.GITHUB_TOKEN).toBeUndefined()
+    expect(env.GH_TOKEN).toBeUndefined()
+    expect(env.GITHUB_HOST).toBeUndefined()
+    expect(vcsSessionMeta.get("github")).toBeUndefined()
+  })
+
+  it("without a runbook switch, the same held validation still writes the session", async () => {
+    const release = holdValidation()
+    const pending = invoke("github:validate", { token: "ghp_same_runbook", registerSession: true })
+    release()
+    expect((await pending).valid).toBe(true)
+    expect((await sessionEnv()).GITHUB_TOKEN).toBe("ghp_same_runbook")
+    expect(vcsSessionMeta.get("github")?.host).toBe("github.com")
+  })
+})
+
 describe("github:orgs (session credential per host)", () => {
   it("uses the session credential for the requested host and calls that host's API", async () => {
     await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })

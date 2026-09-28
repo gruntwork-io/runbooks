@@ -13,7 +13,7 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, vcsSessionMeta, getGitHubSessionCredential } from "./runtime.ts"
+import { runtime, sessionManager, vcsSessionMeta, getGitHubSessionCredential } from "./runtime.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
   validateToken,
@@ -89,14 +89,16 @@ function rememberGitHubHost(host: string): void {
 /**
  * Write a validated GitHub credential to the session env (githubSessionEnv:
  * token, user, and the host it belongs to) and record the host binding.
+ * `generation` is the session generation captured when the request arrived.
  */
 const writeGitHubSession = (
+  generation: number,
   host: string,
   source: string | undefined,
   token: string,
   login?: string,
 ): Promise<string | undefined> =>
-  appendSessionEnvAndRecord("github", host, source, githubSessionEnv(host, token, login))
+  appendSessionEnvAndRecord("github", host, source, githubSessionEnv(host, token, login), generation)
 
 /**
  * Build the merged host union for the picker: gh's hosts.yml hosts, GH_HOST,
@@ -173,6 +175,7 @@ export function registerGitHubHandlers(): void {
       _event,
       params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean },
     ) => {
+      const generation = sessionManager.getGeneration()
       const host = resolveRequestedGitHubHost(params.host)
       if (!host) {
         return { valid: false, outcome: "invalid" as const, error: invalidHostError(params.host) }
@@ -206,7 +209,7 @@ export function registerGitHubHandlers(): void {
       if (result.outcome === "valid") {
         let sessionEnvWarning: string | undefined
         if (params.registerSession && !params.useSessionToken && result.user) {
-          sessionEnvWarning = await writeGitHubSession(host, "manual", token, result.user.login)
+          sessionEnvWarning = await writeGitHubSession(generation, host, "manual", token, result.user.login)
         }
         rememberGitHubHost(host)
         return {
@@ -245,6 +248,7 @@ export function registerGitHubHandlers(): void {
   ipcMain.handle(
     "github:oauth-poll",
     async (_event, params: { clientId?: string; deviceCode: string; host?: string }) => {
+      const generation = sessionManager.getGeneration()
       const host = resolveRequestedGitHubHost(params.host)
       if (!host) return { status: "failed" as const, error: invalidHostError(params.host) }
       const clientId = resolveOAuthClientId(host, params.clientId)
@@ -271,7 +275,7 @@ export function registerGitHubHandlers(): void {
           validateToken(result.token, host),
         )
 
-        const sessionEnvWarning = await writeGitHubSession(host, "oauth", result.token, user.login)
+        const sessionEnvWarning = await writeGitHubSession(generation, host, "oauth", result.token, user.login)
         rememberGitHubHost(host)
 
         // the completion result is METADATA-ONLY — the session env above
@@ -299,6 +303,7 @@ export function registerGitHubHandlers(): void {
   ipcMain.handle(
     "github:env-credentials",
     async (_event, params: { prefix?: string; host?: string } = {}) => {
+      const generation = sessionManager.getGeneration()
       // The {env:{prefix}} variant: the renderer-supplied prefix is
       // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
       const prefix = params.prefix || undefined
@@ -324,7 +329,7 @@ export function registerGitHubHandlers(): void {
 
       let sessionEnvWarning: string | undefined
       if (result.outcome === "valid" && result.token) {
-        sessionEnvWarning = await writeGitHubSession(host, result.source, result.token, result.user?.login)
+        sessionEnvWarning = await writeGitHubSession(generation, host, result.source, result.token, result.user?.login)
         rememberGitHubHost(host)
       }
 
@@ -337,6 +342,7 @@ export function registerGitHubHandlers(): void {
   )
 
   ipcMain.handle("github:cli-credentials", async (_event, params: { host?: string } = {}) => {
+    const generation = sessionManager.getGeneration()
     const host = resolveRequestedGitHubHost(params?.host)
     if (!host) {
       return { found: false as const, outcome: "absent" as const, error: invalidHostError(params?.host) }
@@ -349,7 +355,7 @@ export function registerGitHubHandlers(): void {
 
     let sessionEnvWarning: string | undefined
     if (result.outcome === "valid" && result.token) {
-      sessionEnvWarning = await writeGitHubSession(host, result.source, result.token, result.user?.login)
+      sessionEnvWarning = await writeGitHubSession(generation, host, result.source, result.token, result.user?.login)
       rememberGitHubHost(host)
     }
 

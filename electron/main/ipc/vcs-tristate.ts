@@ -40,19 +40,27 @@ export interface OrchestratedDetection extends DetectionResult {
  * and broadcast vcs:session-changed. A failed write must never void a
  * credential the API just validated — it returns the success-card warning
  * copy (`sessionEnvWarning`) instead of failing; undefined on success.
+ *
+ * `generation` is the session generation the handler captured before its
+ * first await. If a different runbook opened while the credential was being
+ * validated, nothing is written, recorded or broadcast: the credential
+ * belongs to a block that is no longer on screen, and must not become the
+ * new runbook's session credential.
  */
 export async function appendSessionEnvAndRecord(
   provider: GitProvider,
   host: string,
   source: string | undefined,
   env: Record<string, string>,
+  generation: number,
 ): Promise<string | undefined> {
   try {
-    await runtime.runPromise(sessionManager.appendToEnv(env))
+    await runtime.runPromise(sessionManager.appendToEnv(env, generation))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return `Authenticated, but the credential could not be saved to the session (${redactSecrets(message)}). Blocks that consume it may not see it.`
   }
+  if (!sessionManager.isCurrentGeneration(generation)) return undefined
   recordSessionAuth(provider, host, source)
   return undefined
 }

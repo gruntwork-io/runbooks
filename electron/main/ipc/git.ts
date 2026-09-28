@@ -332,6 +332,9 @@ export function registerGitHandlers(): void {
         provider?: "github" | "gitlab"
       },
     ) => {
+      // A clone can take minutes; if a different runbook opens meanwhile, the
+      // finished checkout must not become that runbook's active worktree.
+      const generation = sessionManager.getGeneration()
       return runAndUnwrap(
         Effect.scoped(
         Effect.gen(function* () {
@@ -525,7 +528,7 @@ export function registerGitHandlers(): void {
               ((yield* unbornBranchName(paths.absolutePath)) ?? "")
 
           // Register the worktree path
-          sessionManager.registerWorkTreePath(paths.absolutePath)
+          sessionManager.registerWorkTreePath(paths.absolutePath, generation)
           log.debug("registered worktree, returning result")
 
           // Surface org/repo from the clone URL so downstream templates can
@@ -578,12 +581,13 @@ export function registerGitHandlers(): void {
       _event,
       params: { path: string; register?: boolean; provider?: "github" | "gitlab" },
     ): Promise<GitLocalRepoResponse> => {
+      const generation = sessionManager.getGeneration()
       const program = Effect.gen(function* () {
         const session = yield* sessionManager.getSession()
         const info = yield* inspectLocalRepo(params.path, session.workingDir)
 
         if (params.register) {
-          sessionManager.registerWorkTreePath(info.absolutePath)
+          sessionManager.registerWorkTreePath(info.absolutePath, generation)
           log.debug("registered local checkout as worktree:", info.absolutePath)
         }
 

@@ -175,6 +175,7 @@ export function registerGitLabHandlers(): void {
         useSessionToken?: boolean
       },
     ) => {
+      const generation = sessionManager.getGeneration()
       const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
       // Session mode releases the session credential only to the host the
       // auth block bound it to (as for GitHub), and never over plain http:
@@ -210,7 +211,7 @@ export function registerGitLabHandlers(): void {
             GITLAB_TOKEN: token,
             GITLAB_USER: result.user.login,
             GITLAB_HOST: host,
-          })
+          }, generation)
         }
         // every successful GitLab auth persists the pick; a
         // manually-typed instance URL additionally enters the recents.
@@ -243,6 +244,7 @@ export function registerGitLabHandlers(): void {
         instanceUrl?: string
       } = {},
     ) => {
+      const generation = sessionManager.getGeneration()
       // The {env:{prefix}} variant: the renderer-supplied prefix is
       // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
       const prefix = params.prefix || undefined
@@ -270,7 +272,7 @@ export function registerGitLabHandlers(): void {
           GITLAB_TOKEN: result.token,
           GITLAB_HOST: host,
           ...(result.user ? { GITLAB_USER: result.user.login } : {}),
-        })
+        }, generation)
         setLastSelectedGitLabHost(host)
       }
 
@@ -285,6 +287,7 @@ export function registerGitLabHandlers(): void {
   ipcMain.handle(
     "gitlab:cli-credentials",
     async (_event, params: { host?: string; instanceUrl?: string } = {}) => {
+      const generation = sessionManager.getGeneration()
       // No requested host → fall back to glab's own default. Always an origin
       // (contract).
       const requested = params.instanceUrl ?? params.host
@@ -304,7 +307,7 @@ export function registerGitLabHandlers(): void {
           GITLAB_TOKEN: result.token,
           GITLAB_HOST: host,
           ...(result.user ? { GITLAB_USER: result.user.login } : {}),
-        })
+        }, generation)
         setLastSelectedGitLabHost(host)
       }
 

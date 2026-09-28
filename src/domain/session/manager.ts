@@ -243,6 +243,30 @@ export class SessionManager {
   }
 
   /**
+   * The current session's generation, bumped by every `createSession`.
+   *
+   * An operation that writes to the session after an await (an auth handler
+   * validating a token, an OAuth poll, a clone) captures this before its
+   * first await and passes it to the write. If a different runbook opened in
+   * the meantime, the write is dropped instead of landing in that runbook's
+   * fresh session: one runbook's credentials or checkout must never become
+   * the next one's.
+   */
+  getGeneration(): number {
+    return this.generation
+  }
+
+  /** Whether `generation` still names the live session. */
+  isCurrentGeneration(generation: number): boolean {
+    return this.session !== null && generation === this.generation
+  }
+
+  /** A write scoped to `generation` whose session has since been replaced. */
+  private isStale(generation: number | undefined): boolean {
+    return generation !== undefined && generation !== this.generation
+  }
+
+  /**
    * The runbook the current session belongs to, or null if no session exists.
    * Callers use this to detect when a load targets a different runbook than
    * the one the session was created for.
@@ -375,7 +399,7 @@ export class SessionManager {
     generation: number
   }): Effect.Effect<void> {
     return Effect.sync(() => {
-      if (this.session === null || params.generation !== this.generation) {
+      if (this.session === null || !this.isCurrentGeneration(params.generation)) {
         return
       }
 
@@ -398,12 +422,17 @@ export class SessionManager {
    * Merge additional environment variables into the session without replacing
    * the whole environment. Used by UI components (e.g. AwsAuth) to inject
    * credentials after user confirmation.
+   *
+   * `generation` (from `getGeneration`, captured before the caller's first
+   * await) makes this a no-op once the session it names has been replaced.
+   * Omit it only when the write happens in the same tick the request arrived.
    */
-  appendToEnv(env: Record<string, string>) {
+  appendToEnv(env: Record<string, string>, generation?: number) {
     return Effect.gen(this, function* () {
       if (this.session === null) {
         return yield* new SessionError({ message: "no active session" })
       }
+      if (this.isStale(generation)) return
 
       for (const [key, value] of Object.entries(env)) {
         this.session.env.set(key, value)
@@ -420,12 +449,15 @@ export class SessionManager {
    * value is not "absent" to every downstream CLI, and leaving the previous
    * value standing after a credential that no longer has one authenticates
    * is exactly the stale-env bug this exists to prevent.
+   *
+   * `generation` works as for `appendToEnv`.
    */
-  removeFromEnv(keys: string[]) {
+  removeFromEnv(keys: string[], generation?: number) {
     return Effect.gen(this, function* () {
       if (this.session === null) {
         return yield* new SessionError({ message: "no active session" })
       }
+      if (this.isStale(generation)) return
 
       for (const key of keys) {
         this.session.env.delete(key)
@@ -464,10 +496,11 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Register a git worktree path. No-op if already registered.
+   * Register a git worktree path. No-op if already registered, or if
+   * `generation` (as for `appendToEnv`) names a replaced session.
    */
-  registerWorkTreePath(path: string): void {
-    if (this.session === null) return
+  registerWorkTreePath(path: string, generation?: number): void {
+    if (this.session === null || this.isStale(generation)) return
 
     if (!this.session.registeredWorkTreePaths.includes(path)) {
       this.session.registeredWorkTreePaths.push(path)
@@ -476,9 +509,10 @@ export class SessionManager {
 
   /**
    * Set the explicitly selected active worktree path (user switches in UI).
+   * No-op if `generation` (as for `appendToEnv`) names a replaced session.
    */
-  setActiveWorkTreePath(path: string): void {
-    if (this.session === null) return
+  setActiveWorkTreePath(path: string, generation?: number): void {
+    if (this.session === null || this.isStale(generation)) return
     this.session.activeWorkTreePath = path
   }
 
