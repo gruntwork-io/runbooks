@@ -130,10 +130,81 @@ describe("getSessionTokenForProvider — github", () => {
   })
 })
 
-describe("getSessionTokenForHost — gitlab (unchanged binding)", () => {
-  it("releases GITLAB_TOKEN only for GITLAB_HOST (default gitlab.com)", async () => {
+describe("getSessionTokenForHost — gitlab", () => {
+  const CORP = "gitlab.corp.example"
+
+  /** What a GitLab auth block writes for `host` (appendSessionEnvAndRecord). */
+  const authGitLab = async (host: string, token: string) => {
+    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: token, GITLAB_USER: "tanuki", GITLAB_HOST: host }))
+    vcsSessionMeta.set("gitlab", { host, source: "manual" })
+  }
+
+  /** A Command script's `export GITLAB_HOST=<value>`, captured into the session. */
+  const scriptExportsGitLabHost = (value: string) =>
+    Effect.runPromise(sessionManager.appendToEnv({ GITLAB_HOST: value }))
+
+  it("without an auth block: releases GITLAB_TOKEN only for GITLAB_HOST (default gitlab.com)", async () => {
     await setup({ GITLAB_TOKEN: "gl" })
     expect(await tokenForHost("gitlab", "gitlab.com")).toBe("gl")
     expect(await tokenForHost("gitlab", "gitlab.example.com")).toBeUndefined()
+  })
+
+  it("without an auth block: the session env is bound by glab's host vars, normalized", async () => {
+    const hostVarSets: Array<Record<string, string>> = [
+      { GITLAB_HOST: `https://${CORP}/` }, // glab's documented URL form
+      { GITLAB_URI: CORP },
+      { GL_HOST: CORP },
+    ]
+    for (const hostVars of hostVarSets) {
+      await setup({ GITLAB_TOKEN: "gl", ...hostVars })
+      expect(await tokenForHost("gitlab", CORP)).toBe("gl")
+      expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+    }
+  })
+
+  it("without an auth block: an unparseable host var binds nowhere (never gitlab.com)", async () => {
+    await setup({ GITLAB_TOKEN: "gl", GITLAB_HOST: `${CORP}:badport` })
+    expect(await tokenForHost("gitlab", CORP)).toBeUndefined()
+    expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+  })
+
+  it("an auth block's token is released for its host only", async () => {
+    await setup({})
+    await authGitLab(CORP, "t_block")
+    expect(await tokenForHost("gitlab", CORP)).toBe("t_block")
+    expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+  })
+
+  it("a script that points GITLAB_HOST at another host releases nothing (fail closed)", async () => {
+    await setup({})
+    await authGitLab("gitlab.com", "t_block")
+    await scriptExportsGitLabHost("gitlab.attacker.example")
+    expect(vcsSessionMeta.get("gitlab")?.host).toBe("gitlab.com")
+    expect(await tokenForHost("gitlab", "gitlab.attacker.example")).toBeUndefined()
+    expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+  })
+
+  it("a script that removes GITLAB_HOST releases nothing, even for gitlab.com", async () => {
+    await setup({})
+    await authGitLab("gitlab.com", "t_block")
+    await Effect.runPromise(sessionManager.removeFromEnv(["GITLAB_HOST"]))
+    expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+  })
+
+  it("a script that names the same host in URL form keeps the binding", async () => {
+    await setup({})
+    await authGitLab(CORP, "t_block")
+    await scriptExportsGitLabHost(`https://${CORP.toUpperCase()}/`)
+    expect(await tokenForHost("gitlab", CORP)).toBe("t_block")
+    expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+  })
+
+  it("after a session reset (which clears the host bindings) the ambient env binding applies", async () => {
+    await setup({ GITLAB_TOKEN: "ambient", GL_HOST: CORP })
+    await authGitLab("gitlab.com", "t_block")
+    await Effect.runPromise(sessionManager.resetSession())
+    vcsSessionMeta.clear() // what the session:reset handler does
+    expect(await tokenForHost("gitlab", "gitlab.com")).toBeUndefined()
+    expect(await tokenForHost("gitlab", CORP)).toBe("ambient")
   })
 })

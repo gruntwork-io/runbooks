@@ -76,6 +76,7 @@ describe("gitHostFromRemoteUrl", () => {
     // An SSH port is not the web/API port, so it is dropped
     ["git@[gitlab.corp:2222]:group/project.git", "gitlab.corp"],
     ["ssh://git@gitlab.example.com:2222/group/project.git", "gitlab.example.com"],
+    ["ssh://git@gitlab.example.com/group/project.git", "gitlab.example.com"],
     // scp-like: after a plain host the colon starts the path, never a port
     ["git@gitlab.example.com:2222/group/project.git", "gitlab.example.com"],
     // An http(s) host is the one a token would be sent to, whatever the path
@@ -118,6 +119,10 @@ describe("gitlabBaseUrlFromRemoteUrl", () => {
     // git's bracketed spelling, user inside the brackets: `ssh -p 2222 git@gitlab.corp`
     expect(gitlabBaseUrlFromRemoteUrl("[git@gitlab.corp:2222]:platform/infra.git")).toBe(
       "https://gitlab.corp",
+    )
+    // The SSH port is never the API's: the API stays on the https default.
+    expect(gitlabBaseUrlFromRemoteUrl("ssh://git@gitlab.example.com:2222/group/project.git")).toBe(
+      "https://gitlab.example.com",
     )
   })
 

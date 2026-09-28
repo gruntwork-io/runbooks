@@ -7,7 +7,7 @@
  */
 import { Effect, ManagedRuntime } from "effect"
 import { AppLive } from "../../../src/layers/AppLayer.ts"
-import { DEFAULT_GITLAB_HOST } from "../../../src/domain/gitlab/auth.ts"
+import { gitlabSessionTokenHost } from "../../../src/domain/gitlab/auth.ts"
 import { githubSessionCredential } from "../../../src/domain/github/auth.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
@@ -95,11 +95,23 @@ export const getSessionTokenForProvider = <E>(provider: GitProvider, onMissing: 
   })
 
 /**
+ * The host the session's GitLab token is bound to (gitlabSessionTokenHost):
+ * the auth block's host while the session's GITLAB_HOST still names it, else
+ * (no auth block) the host glab's env vars name. Undefined when the token may
+ * go nowhere, e.g. a script moved GITLAB_HOST after the auth block ran.
+ */
+export const getGitLabSessionBoundHost = () =>
+  Effect.map(sessionManager.getSession(), (session) =>
+    gitlabSessionTokenHost(Object.fromEntries(session.env), vcsSessionMeta.get("gitlab")?.host),
+  )
+
+/**
  * Host-bound variant of getSessionTokenForProvider for callers that send the
  * token to a specific host (a clone URL, a repo's origin — possibly from
  * UNTRUSTED input like a remote runbook URL): the session credential is
  * released only for the host the auth block established it for (binding —
- * the GitHub session host, or the GITLAB_HOST written alongside the token).
+ * the GitHub session host, or getGitLabSessionBoundHost), so a script that
+ * rewrites GITLAB_HOST or GITHUB_HOST cannot move it.
  */
 export const getSessionTokenForHost = <E>(
   provider: GitProvider,
@@ -110,12 +122,26 @@ export const getSessionTokenForHost = <E>(
     if (provider === "github") {
       return (yield* getGitHubSessionCredential(host, onMissing)).token
     }
-    const session = yield* sessionManager.getSession()
-    const boundHost = (session.env.get("GITLAB_HOST") ?? DEFAULT_GITLAB_HOST).toLowerCase()
-    if (host.trim().toLowerCase() !== boundHost) {
+    const boundHost = yield* getGitLabSessionBoundHost()
+    if (boundHost === undefined || host.trim().toLowerCase() !== boundHost) {
       return yield* Effect.fail(onMissing())
     }
     return yield* getSessionTokenForProvider(provider, onMissing)
+  })
+
+/**
+ * The GitLab session token for a request to `origin`, an instance origin
+ * (`https://gitlab.example.com`): host-bound like getSessionTokenForHost, and
+ * never over plain http. The token may be an auto-detected env or CLI
+ * credential, and `origin` may come from a runbook or a cloned repo's remote.
+ */
+export const getGitLabSessionTokenForOrigin = <E>(origin: string, onMissing: () => E) =>
+  Effect.gen(function* () {
+    const url = URL.canParse(origin) ? new URL(origin) : undefined
+    if (url?.protocol !== "https:") {
+      return yield* Effect.fail(onMissing())
+    }
+    return yield* getSessionTokenForHost("gitlab", url.host, onMissing)
   })
 
 /** Executable registry -- populated when a runbook is loaded. */

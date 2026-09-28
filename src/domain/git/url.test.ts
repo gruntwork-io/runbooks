@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test"
 import {
   gitCredentialUsername,
   isHttpRemoteUrl,
+  isPlainHttpRemoteUrl,
   sameHttpOrigin,
   stripUrlCredentials,
   withGitHttpAuth,
@@ -149,6 +150,29 @@ describe("isHttpRemoteUrl", () => {
     (url) => {
       expect(isHttpRemoteUrl(url)).toBe(false)
       expect(withGitHttpAuth({}, url, "tok").GIT_CONFIG_COUNT).toBeUndefined()
+    },
+  )
+})
+
+describe("isPlainHttpRemoteUrl", () => {
+  // Read the way withGitHttpAuth reads a URL, not by its spelling: each of
+  // these gets a token header for the cleartext origin http://gitlab.corp.
+  it.each([
+    "http://gitlab.corp/g/p.git",
+    "HTTP://GitLab.corp/g/p.git",
+    "http:gitlab.corp/g/p.git",
+    "http:/gitlab.corp/g/p.git",
+    "ht\ttp://gitlab.corp/g/p.git",
+  ])("is true for %j", (url) => {
+    expect(isPlainHttpRemoteUrl(url)).toBe(true)
+    const env = withGitHttpAuth({}, url, "tok")
+    expect(env.GIT_CONFIG_KEY_1).toBe("http.http://gitlab.corp/.extraHeader")
+  })
+
+  it.each(["https://gitlab.corp/g/p.git", "git@gitlab.corp:g/p.git", "ssh://git@gitlab.corp/g/p.git", ""])(
+    "is false for %j",
+    (url) => {
+      expect(isPlainHttpRemoteUrl(url)).toBe(false)
     },
   )
 })

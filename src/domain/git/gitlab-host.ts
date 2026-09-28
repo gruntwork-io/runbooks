@@ -7,8 +7,9 @@
  * instance URL (from the GitAuth block) or a repo's own remote URL into the
  * base URL the API client builds requests against.
  *
- * The auth token is still resolved by PROVIDER (GITLAB_TOKEN), never by host —
- * the host only selects which instance's API/glab-config to talk to.
+ * The auth token is resolved by PROVIDER (GITLAB_TOKEN) and sent only to the
+ * host it is bound to — the host selects which instance's API/glab-config to
+ * talk to.
  */
 import { gitRemoteWebHost } from "./remote-url.ts"
 

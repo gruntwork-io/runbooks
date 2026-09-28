@@ -44,6 +44,7 @@ import {
   runGlabForHost,
   glabAuthStatusForHost,
   mayAutoSendEnvToken,
+  mayAutoSendGlabToken,
   envTokenHost,
   DEFAULT_GITLAB_HOST,
   GLAB_ENV_OVERRIDES,
@@ -322,6 +323,9 @@ export const VcsCredentialsLive = Layer.effect(
     const detectGitLabCli = (instance: string): Effect.Effect<DetectionResult> =>
       Effect.gen(function* () {
         const host = normalizeGitLabHost(instance)
+        // glab's token for `host` is sent only to that host, and over plain
+        // http only when glab itself uses http for it (its api_protocol).
+        if (!(yield* run(mayAutoSendGlabToken(instance, host)))) return absent()
         const read = yield* glabReadCached(host)
         let token: string | undefined
         let source: "cli" | "config" = "cli"

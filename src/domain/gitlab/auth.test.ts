@@ -15,7 +15,9 @@ import {
   readGlabHostMeta,
   enumerateGlabHosts,
   envTokenHost,
+  gitlabSessionTokenHost,
   mayAutoSendEnvToken,
+  mayAutoSendGlabToken,
 } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeRecordingSpawner } from "../../test-utils/TestSpawner.ts"
@@ -245,6 +247,31 @@ describe("envTokenHost — the binding rule", () => {
     expect(mayAutoSendEnvToken("http://git.corp.example", env, "CI_")).toBe(false)
     expect(mayAutoSendEnvToken("https://git.corp.example", env)).toBe(true)
     expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(true)
+  })
+})
+
+describe("gitlabSessionTokenHost", () => {
+  const CORP = "git.corp.example"
+
+  it("with an auth host: bound to it while GITLAB_HOST still names it, bare or as a URL", () => {
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: CORP }, CORP)).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `https://${CORP}/` }, CORP)).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.com" }, "gitlab.com")).toBe("gitlab.com")
+  })
+
+  it("with an auth host: a changed, removed or unparseable GITLAB_HOST binds nowhere", () => {
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.attacker.example" }, "gitlab.com")).toBeUndefined()
+    expect(gitlabSessionTokenHost({}, "gitlab.com")).toBeUndefined()
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` }, CORP)).toBeUndefined()
+    // GITLAB_HOST wins in glab's precedence, so the other vars never rebind it.
+    expect(gitlabSessionTokenHost({ GL_HOST: CORP, GITLAB_URI: CORP }, CORP)).toBeUndefined()
+  })
+
+  it("without an auth host: glab's env binding (envTokenHost)", () => {
+    expect(gitlabSessionTokenHost({})).toBe("gitlab.com")
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `https://${CORP}` })).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GL_HOST: CORP })).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` })).toBeUndefined()
   })
 })
 
@@ -675,6 +702,12 @@ describe("readGlabHostMeta", () => {
     expect(readGlabHostMeta(yaml, "keyringhost.example").useKeyring).toBe(true)
   })
 
+  it("reads api_protocol (lowercased), unset when the host has none", () => {
+    const http = "hosts:\n    git.corp.example:\n        api_protocol: HTTP\n"
+    expect(readGlabHostMeta(http, "git.corp.example").apiProtocol).toBe("http")
+    expect(readGlabHostMeta(yaml, "gitlab.com").apiProtocol).toBeUndefined()
+  })
+
   it("returns inert defaults for unknown hosts and malformed yaml", () => {
     expect(readGlabHostMeta(yaml, "missing.example")).toEqual({
       isOAuth2: false,
@@ -788,6 +821,40 @@ describe("readGlabTokenForHost — OAuth staleness (fake clock)", () => {
     )
     expect(result).toEqual({ kind: "token", token: "glpat-pat-token" })
     expect(calls.every((c) => c.args[0] === "config")).toBe(true)
+  })
+})
+
+describe("mayAutoSendGlabToken", () => {
+  const config = `hosts:
+    gitlab.com:
+        token: glpat-a
+    git.corp.example:
+        token: glpat-b
+        api_protocol: http
+`
+  const layer = Layer.merge(
+    makeTestEnvironment({ HOME: "/home/u" }),
+    makeTestFileSystem({ "/home/u/.config/glab-cli/config.yml": config }),
+  )
+  const may = (target: string, host: string) =>
+    Effect.runPromise(mayAutoSendGlabToken(target, host).pipe(Effect.provide(layer)))
+
+  it("https (explicit or a bare host) to the host glab stored the token for", async () => {
+    expect(await may("https://gitlab.com", "gitlab.com")).toBe(true)
+    expect(await may("gitlab.com", "gitlab.com")).toBe(true)
+  })
+
+  it("never over plain http unless glab's api_protocol for that host is http", async () => {
+    expect(await may("http://gitlab.com", "gitlab.com")).toBe(false)
+    expect(await may("http://git.corp.example", "git.corp.example")).toBe(true)
+    expect(await may("http://unknown.example", "unknown.example")).toBe(false)
+  })
+
+  it("never to a host other than the one glab stored it for", async () => {
+    expect(await may("https://evil.example", "gitlab.com")).toBe(false)
+    expect(await may("https://gitlab.com:8443", "gitlab.com")).toBe(false)
+    // The http allowance is the stored host's, not the target's.
+    expect(await may("http://git.corp.example", "gitlab.com")).toBe(false)
   })
 })
 

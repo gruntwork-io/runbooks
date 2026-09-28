@@ -159,32 +159,37 @@ const resolveGitHubAuthor = (token: string, host?: string) =>
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
 /**
- * The GitLab instance (API origin) a repo lives on, read from its `origin`
- * remote. Fails with a GitError when there is no origin, or origin names no
- * host (see gitlabBaseUrlFromRemoteUrl), so the caller stops before its token
- * goes anywhere: guessing gitlab.com would hand a self-hosted instance's
- * token to gitlab.com.
+ * The GitLab instance (API origin) of a repo whose `origin` remote is
+ * `remoteUrl` ("" when it has none). Fails with a GitError when there is no
+ * origin, or origin names no host (see gitlabBaseUrlFromRemoteUrl), so the
+ * caller stops before its token goes anywhere: guessing gitlab.com would hand
+ * a self-hosted instance's token to gitlab.com.
  */
+export const gitlabInstanceForRemoteUrl = (remoteUrl: string, purpose: string) => {
+  const baseUrl = gitlabBaseUrlFromRemoteUrl(remoteUrl)
+  if (baseUrl) return Effect.succeed(baseUrl)
+  // The remote itself stays out of the message: one that doesn't parse
+  // may still carry credentials stripUrlCredentials couldn't find.
+  return Effect.fail(
+    new GitError({
+      command: "resolve gitlab instance",
+      stderr: remoteUrl
+        ? "Couldn't tell which GitLab instance this repository's origin remote is on, so the GitLab " +
+          "token was not sent anywhere. Point origin at the project on your GitLab instance (an " +
+          `https:// URL or git@<host>:<group>/<project>.git) before ${purpose}.`
+        : "This repository has no origin remote, so there is no GitLab instance to send the GitLab " +
+          `token to. Add an origin that points at the project on your GitLab instance before ${purpose}.`,
+      exitCode: 1,
+    }),
+  )
+}
+
+/** gitlabInstanceForRemoteUrl for the repo at `repoPath`, reading its `origin` remote. */
 const gitlabInstanceForRepo = (repoPath: string, purpose: string) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
     const remoteUrl = yield* gitClient.getRemoteUrl(repoPath).pipe(Effect.orElseSucceed(() => ""))
-    const baseUrl = gitlabBaseUrlFromRemoteUrl(remoteUrl)
-    if (baseUrl) return baseUrl
-    // The remote itself stays out of the message: one that doesn't parse
-    // may still carry credentials stripUrlCredentials couldn't find.
-    return yield* Effect.fail(
-      new GitError({
-        command: "resolve gitlab instance",
-        stderr: remoteUrl
-          ? "Couldn't tell which GitLab instance this repository's origin remote is on, so the GitLab " +
-            "token was not sent anywhere. Point origin at the project on your GitLab instance (an " +
-            `https:// URL or git@<host>:<group>/<project>.git) before ${purpose}.`
-          : "This repository has no origin remote, so there is no GitLab instance to send the GitLab " +
-            `token to. Add an origin that points at the project on your GitLab instance before ${purpose}.`,
-        exitCode: 1,
-      }),
-    )
+    return yield* gitlabInstanceForRemoteUrl(remoteUrl, purpose)
   })
 
 /** GitLab equivalent of {@link resolveGitHubAuthor}; validates against the instance. */
