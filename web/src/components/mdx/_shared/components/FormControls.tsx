@@ -175,24 +175,44 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
 
 /**
  * Select dropdown component for enum variables
- * Renders a dropdown with predefined options from the variable configuration
+ * Renders a dropdown with predefined options from the variable configuration.
+ * The display always matches form state instead of letting the browser fall
+ * back to the first option:
+ *   - With no value (an enum with no default), a disabled placeholder is shown,
+ *     so picking any option, including the first, fires onChange.
+ *   - A value that is not one of the options (e.g. imported from an upstream
+ *     string field) is shown as its own disabled option.
  */
-export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => (
-  <select
-    id={`${id}-${variable.name}`}
-    value={String(value || '')}
-    onChange={(e) => onChange(e.target.value)}
-    onBlur={onBlur}
-    disabled={disabled}
-    className={getInputClassName(error, 'min-w-56', disabled)}
-  >
-    {variable.options?.map(option => (
-      <option key={option} value={option}>
-        {option}
-      </option>
-    ))}
-  </select>
-)
+export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+  const current = value == null ? '' : String(value)
+  const isUnlistedValue = current !== '' && !variable.options?.includes(current)
+  return (
+    <select
+      id={`${id}-${variable.name}`}
+      value={current}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      disabled={disabled}
+      className={getInputClassName(error, 'min-w-56', disabled)}
+    >
+      {current === '' && (
+        <option value="" disabled>
+          Select…
+        </option>
+      )}
+      {isUnlistedValue && (
+        <option value={current} disabled>
+          {current}
+        </option>
+      )}
+      {variable.options?.map(option => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  )
+}
 
 /**
  * List input component for array variables
@@ -413,7 +433,12 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
 
   const addEntry = () => {
     if (entryKey.trim()) {
-      onChange({ ...currentMap, [entryKey.trim()]: entryFields })
+      // Bool fields display 'false' until touched; store that default so an
+      // untouched field is saved as 'false' rather than omitted.
+      const boolDefaults = Object.fromEntries(
+        schemaFields.filter(f => schema[f] === 'bool').map(f => [f, 'false'])
+      )
+      onChange({ ...currentMap, [entryKey.trim()]: { ...boolDefaults, ...entryFields } })
       resetEntryForm()
     }
   }
@@ -657,7 +682,11 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
   const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
-  const currentTuple = Array.isArray(value) ? value : Array.from({ length: elementKeys.length }, () => '')
+  // Missing elements (no value, or a short array) start as '' or, for bool
+  // elements, false (what the select displays), matching the boolean updateElement stores
+  const currentTuple = elementKeys.map((k, i) =>
+    (Array.isArray(value) ? value[i] : undefined) ?? (schema[k] === 'bool' ? false : '')
+  )
 
   const updateElement = (index: number, newValue: unknown) => {
     const updated = [...currentTuple]
@@ -695,7 +724,7 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
             ) : elemType === 'bool' ? (
               <select
                 id={`${id}-${variable.name}-${key}`}
-                value={String(elemValue || 'false')}
+                value={String(elemValue === '' ? false : elemValue)}
                 onChange={(e) => updateElement(index, e.target.value === 'true')}
                 onBlur={onBlur}
                 disabled={disabled}
