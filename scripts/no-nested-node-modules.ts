@@ -15,6 +15,7 @@
 // tsc or `bun test`, which have no config file to hook.
 import { readdirSync } from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 
 const NESTED = ["web/node_modules", "cli/node_modules"]
 
@@ -36,9 +37,10 @@ export function assertNoNestedNodeModules(repoRoot: string): void {
   )
 }
 
+// import.meta.url rather than Bun's import.meta.dir, so `node` can run it too.
 if (import.meta.main) {
   try {
-    assertNoNestedNodeModules(path.resolve(import.meta.dir, ".."))
+    assertNoNestedNodeModules(fileURLToPath(new URL("..", import.meta.url)))
   } catch (err) {
     console.error(`error: ${(err as Error).message}`)
     process.exit(1)

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { assertNoNestedNodeModules } from "./no-nested-node-modules.ts"
@@ -56,5 +57,35 @@ describe("assertNoNestedNodeModules", () => {
     expect(() => assertNoNestedNodeModules(root)).toThrow(
       "rm -rf web/node_modules cli/node_modules",
     )
+  })
+})
+
+// Run directly, the script takes the repo root from its own location, so each
+// case runs a copy of it placed in the temp root's scripts/ directory.
+describe.each([
+  ["bun", process.execPath],
+  ["node", "node"],
+])("run directly with %s", (_name, runtime) => {
+  const run = () => {
+    mkdir("scripts")
+    const script = path.join(root, "scripts/no-nested-node-modules.ts")
+    copyFileSync(path.join(import.meta.dirname, "no-nested-node-modules.ts"), script)
+    const proc = spawnSync(runtime, [script], { encoding: "utf-8", env: process.env })
+    expect(proc.error).toBeUndefined()
+    return proc
+  }
+
+  it("exits 0 on a clean tree", () => {
+    mkdir("web/src")
+    const proc = run()
+    expect(proc.stderr).not.toContain("error:")
+    expect(proc.status).toBe(0)
+  })
+
+  it("exits 1 with the removal hint when web/node_modules holds a package", () => {
+    mkdir("web/node_modules/react")
+    const proc = run()
+    expect(proc.stderr).toContain("rm -rf web/node_modules")
+    expect(proc.status).toBe(1)
   })
 })
