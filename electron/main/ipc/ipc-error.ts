@@ -101,6 +101,9 @@ export function toIpcError(err: unknown): Error {
   return new Error(redactSecrets(message), { cause: err })
 }
 
+/** The ipcMain objects installIpcErrorNormalization() has wrapped. */
+const normalizedIpcs = new WeakSet<object>()
+
 /**
  * Wrap `ipc.handle` so every handler registered through it afterwards rethrows
  * failures via toIpcError(). Handlers keep calling `ipcMain.handle` directly
@@ -109,10 +112,13 @@ export function toIpcError(err: unknown): Error {
  * build theirs with describeCause() too, and runbook.ts's
  * describeRunbookOpenError writes its own.
  *
- * Must run before the first `ipcMain.handle` call: main/index.ts installs it
- * ahead of its native handlers and registerAllIpcHandlers().
+ * Must run before the first `ipcMain.handle` call: ipc/index.ts installs it
+ * when it is imported, ahead of main/index.ts's native handlers and
+ * registerAllIpcHandlers(). Installing it again is a no-op.
  */
 export function installIpcErrorNormalization(ipc: Pick<IpcMain, "handle">): void {
+  if (normalizedIpcs.has(ipc)) return
+  normalizedIpcs.add(ipc)
   const register = ipc.handle.bind(ipc)
   ipc.handle = (channel, listener) =>
     register(channel, async (event, ...args) => {

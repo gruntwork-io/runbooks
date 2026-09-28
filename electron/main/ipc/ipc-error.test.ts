@@ -119,10 +119,14 @@ describe("toIpcError", () => {
     expect(toIpcError(new FileReadError({ path: "/x", cause: enoent() })).message).toMatch(/^FileReadError \(\/x\): ENOENT/)
   })
 
-  it("passes an already-clean Error through unchanged", () => {
+  it("keeps an already-clean Error's message, in a new Error that has the original as its cause", () => {
     // git.ts's runAndUnwrap and runbook.ts's describeRunbookOpenError throw these.
     const msg = "This path no longer exists:\n\n/tmp/gone"
-    expect(toIpcError(new Error(msg)).message).toBe(msg)
+    const thrown = new Error(msg)
+    const sent = toIpcError(thrown)
+    expect(sent).not.toBe(thrown)
+    expect(sent.message).toBe(msg)
+    expect(sent.cause).toBe(thrown)
   })
 
   it("keeps the original rejection as the cause for MAIN's own log", async () => {
@@ -245,6 +249,14 @@ describe("installIpcErrorNormalization", () => {
     })
 
     expect(await rendererMessage(listeners, "native:open-external")).toBe("Invalid URL")
+  })
+
+  it("is a no-op when installed again, so a handler is wrapped once", () => {
+    const { ipc } = makeFakeIpc()
+    installIpcErrorNormalization(ipc)
+    const wrapped = ipc.handle
+    installIpcErrorNormalization(ipc)
+    expect(ipc.handle).toBe(wrapped)
   })
 
   it("passes arguments through and resolves with the handler's result", async () => {
