@@ -5,6 +5,7 @@ import * as runtime from 'react/jsx-runtime'
 import remarkGfm from 'remark-gfm'
 import type { AppError } from '@/types/error'
 import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly'
+import { rewriteAssetUrl } from '@/lib/assetPaths'
 
 // Support MDX components
 import { Inputs } from '@/components/mdx/Inputs'
@@ -158,36 +159,13 @@ interface RehypeNode {
   [key: string]: unknown
 }
 
-// The URL attributes, per HTML tag, that may reference a runbook asset. Shared
-// by markdown-generated elements and HTML tags written directly in the MDX so
-// the two can't drift apart. Only lowercase HTML tags are listed, so props on
-// capitalized block components (<Command>, <Template>, ...) are never touched.
-// <embed> and <object> are not listed: remarkLiteralOnly rejects them before
-// this plugin runs, and markdown syntax can't produce them.
-const ASSET_ATTRS = new Map<string, readonly string[]>([
-  ['img', ['src']], // <img src="./assets/image.png">
-  ['video', ['src', 'poster']], // <video src="./assets/video.mp4" poster="./assets/poster.png">
-  ['audio', ['src']], // <audio src="./assets/audio.mp3">
-  ['source', ['src']], // <source src="./assets/video.webm"> (child of video/audio)
-  ['a', ['href']], // <a href="./assets/document.pdf">
-])
-
 // Custom rehype plugin to transform asset paths for all media types.
 // Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
 // Electron's custom protocol handler can serve them from the local filesystem.
-// Exported for tests.
+// Which tags and attributes are rewritten is decided by rewriteAssetUrl, which
+// InlineMarkdown shares. Exported for tests.
 export function rehypeTransformAssetPaths() {
   return (tree: RehypeNode) => {
-    // Helper function to transform a path if it starts with ./assets/
-    const transformPath = (path: string): string => {
-      if (!path.startsWith('./assets/')) {
-        return path
-      }
-      // Remove the ./ prefix and use the runbook-asset:// protocol
-      const assetPath = path.substring('./'.length)
-      return `runbook-asset://${assetPath}`
-    }
-
     // Walk through the tree and transform asset references. Markdown syntax
     // (![alt](./assets/a.png), [text](./assets/a.pdf)) produces hast `element`
     // nodes with a `properties` object. HTML written directly in the MDX
@@ -195,26 +173,23 @@ export function rehypeTransformAssetPaths() {
     // (block) or mdxJsxTextElement (inline) nodes with an `attributes` array.
     const visit = (node: RehypeNode) => {
       if (node.type === 'element' && node.tagName && node.properties) {
-        for (const attr of ASSET_ATTRS.get(node.tagName) ?? []) {
-          const value = node.properties[attr]
+        for (const [key, value] of Object.entries(node.properties)) {
           if (typeof value === 'string') {
-            node.properties[attr] = transformPath(value)
+            node.properties[key] = rewriteAssetUrl(node.tagName, key, value)
           }
         }
       } else if (
         (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') &&
         typeof node.name === 'string'
       ) {
-        const attrs = ASSET_ATTRS.get(node.name) ?? []
         // Only string literals are rewritten; `src={expr}` is left as written.
         for (const attribute of node.attributes ?? []) {
           if (
             attribute.type === 'mdxJsxAttribute' &&
             attribute.name !== undefined &&
-            attrs.includes(attribute.name) &&
             typeof attribute.value === 'string'
           ) {
-            attribute.value = transformPath(attribute.value)
+            attribute.value = rewriteAssetUrl(node.name, attribute.name, attribute.value)
           }
         }
       }
