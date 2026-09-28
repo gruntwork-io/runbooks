@@ -85,11 +85,13 @@ describe("makeLogger", () => {
 
 describe("makeLogger error formatting", () => {
   const SECRET = "s3cr3t-token-value"
+  // Multi-line like a PEM private key, which is what matters here, but not
+  // shaped like one, so secret scanners don't flag the fixture.
   const PRIVATE_KEY = [
-    "-----BEGIN PRIVATE KEY-----",
-    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj",
-    "MzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu",
-    "-----END PRIVATE KEY-----",
+    "-----BEGIN TEST FIXTURE-----",
+    "bm90LWEtcmVhbC1rZXk6IGxpbmUgb25lIG9mIGEgbG9nZ2VyIHRlc3QgZml4dHVyZQ==",
+    "bm90LWEtcmVhbC1rZXk6IGxpbmUgdHdvIG9mIGEgbG9nZ2VyIHRlc3QgZml4dHVyZQ==",
+    "-----END TEST FIXTURE-----",
     "",
   ].join("\n")
 
