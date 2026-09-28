@@ -10,7 +10,6 @@ import { GitClient } from "../services/GitClient.ts"
 import type {
   GitClientShape,
   CloneOptions,
-  CloneResult,
   PushOptions,
   DiffEntry,
   StatusEntry,
@@ -19,7 +18,7 @@ import type {
 } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
-import { injectTokenIntoUrl } from "../domain/git/url.ts"
+import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
 import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
 
 /**
@@ -95,70 +94,82 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/** A full or abbreviated commit id (SHA-1 or SHA-256). */
+const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
+
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
-        const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
-        // No repo exists yet, so core.sshCommand comes from dest's parent. The
-        // sparse steps below reuse the env: `checkout` in a blobless clone
-        // fetches the missing blobs from the remote.
-        const env = yield* sshSpawnEnv(
+        // The token rides in the environment, never in the URL, so the clone's
+        // origin (and its .git/config) stays credential-free. Every command
+        // below gets the same auth: a blobless clone fetches file contents
+        // lazily from origin during checkout, and a commit may be fetched.
+        // No repo exists yet, so the user's core.sshCommand is looked up from
+        // dest's parent; the follow-up commands reuse the env for the same
+        // reason they reuse the auth.
+        const sshEnv = yield* sshSpawnEnv(
           spawner,
           path.dirname(path.resolve(options?.repoPath ?? "", dest)),
         )
+        const env = withGitHttpAuth(sshEnv, url, options?.token, options?.username)
+        const ref = options?.ref
+        // `git clone --branch` takes only a branch or tag name, so a commit
+        // is checked out once the clone is down.
+        const commit = ref !== undefined && COMMIT_SHA.test(ref) ? ref : undefined
+        const sparse = options?.sparse
 
-        if (options?.sparse) {
-          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
-          const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
-          if (options.ref) {
-            cloneArgs.push("--branch", options.ref)
-          }
-          // `--` so a URL can never be read as a git option (--upload-pack=…).
-          cloneArgs.push("--", effectiveUrl, dest)
-          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
+        const cloneArgs = ["clone", "--progress"]
+        // Blobless: commits and trees arrive up front (enough to inspect the
+        // sparse path below), file contents only for what is checked out.
+        if (sparse) cloneArgs.push("--filter=blob:none")
+        if (sparse || commit) cloneArgs.push("--no-checkout")
+        if (ref && !commit) cloneArgs.push("--branch", ref)
+        // `--` so a URL starting with `-` can never read as an option.
+        cloneArgs.push("--", url, dest)
+        yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
 
-          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
-          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest, undefined, env)
-          yield* runGit(spawner, ["checkout"], dest, undefined, env)
-        } else {
-          // Standard full clone
-          const args = ["clone", "--progress"]
-          if (options?.ref) {
-            args.push("--branch", options.ref)
-          }
-          args.push("--", effectiveUrl, dest)
-
-          const proc = yield* spawner.spawn("git", args, {
-            cwd: options?.repoPath,
+        let rev = "HEAD"
+        if (commit) {
+          const fetched = yield* runGit(
+            spawner,
+            ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`],
+            dest,
+            undefined,
             env,
-          })
-          const chunks = yield* Stream.runCollect(proc.output)
-          const code = yield* proc.exitCode
-
-          if (code !== 0) {
-            const lines = Chunk.toArray(chunks)
-            const stderr = lines
-              .filter((l) => l.source === "stderr")
-              .map((l) => l.line)
-              .join("\n")
-            return yield* Effect.fail(
-              new GitError({ command: `git clone`, stderr, exitCode: code }),
-            )
+          ).pipe(
+            Effect.as(true),
+            Effect.catchTag("GitError", () => Effect.succeed(false)),
+          )
+          if (fetched) {
+            rev = commit
+          } else {
+            // Not reachable from anything the clone fetched (e.g. a pull
+            // request head): ask for it by id.
+            yield* runGit(spawner, ["fetch", "origin", commit], dest, undefined, env)
+            rev = "FETCH_HEAD"
           }
         }
 
-        // Count files in the destination
-        const lsProc = yield* spawner.spawn("find", [".", "-type", "f"], { cwd: dest })
-        const lsChunks = yield* Stream.runCollect(lsProc.output)
-        const fileCount = Chunk.toArray(lsChunks).filter((l) => l.source === "stdout").length
-        const absolutePath = path.resolve(dest)
+        if (sparse) {
+          // The sparse path may name a file. A runbook file needs its whole
+          // directory (templates and assets sit beside it), so a file checks
+          // out its parent. A path that doesn't exist checks out nothing and
+          // is the caller's to report.
+          const entry = yield* runGit(spawner, ["ls-tree", rev, "--", sparse], dest, undefined, env)
+          const isFile = /^\d+ blob /.test(entry[0] ?? "")
+          const dir = isFile ? path.posix.dirname(sparse) : sparse
+          if (dir !== ".") {
+            yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
+            yield* runGit(spawner, ["sparse-checkout", "set", "--", dir], dest, undefined, env)
+          }
+        }
 
-        return {
-          fileCount,
-          absolutePath,
-          relativePath: dest,
-        } satisfies CloneResult
+        if (commit) {
+          yield* runGit(spawner, ["checkout", "--detach", rev], dest, undefined, env)
+        } else if (sparse) {
+          yield* runGit(spawner, ["checkout"], dest, undefined, env)
+        }
       }),
 
     push: (repoPath: string, remote: string, branch: string, options?: PushOptions) =>
@@ -167,23 +178,26 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         if (options?.setUpstream) {
           args.push("-u")
         }
-        args.push(remote, branch)
+        // `--` keeps a branch that looks like an option (e.g.
+        // `--receive-pack=<command>`, which git would run) a refspec.
+        args.push("--", remote, branch)
         const env = yield* sshSpawnEnv(spawner, repoPath)
 
-        // If a token is provided, temporarily set the remote URL with credentials
+        // Authenticate this one push through the environment rather than by
+        // rewriting the remote URL, so the token never lands in .git/config and
+        // an SSH remote keeps its own user and port. `--push` reads the URL the
+        // push will actually use (pushurl / pushInsteadOf applied). Callers
+        // bind the token to the fetch URL's host (e.g. resolveGitHubTokenForRepo
+        // reads getRemoteUrl), so a push URL on another origin gets no token:
+        // that push authenticates the way git would on its own.
         if (options?.token) {
-          const urlLines = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
-          const originalUrl = urlLines[0] ?? ""
-          const authedUrl = injectTokenIntoUrl(originalUrl, options.token)
-          yield* runGit(spawner, ["remote", "set-url", remote, authedUrl], repoPath)
-          yield* runGit(spawner, args, repoPath, undefined, env).pipe(
-            Effect.ensuring(
-              runGit(spawner, ["remote", "set-url", remote, originalUrl], repoPath).pipe(
-                Effect.catchAll(() => Effect.void),
-              ),
-            ),
-          )
-          return undefined as void
+          const [pushUrl = ""] = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
+          const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
+          if (sameHttpOrigin(pushUrl, fetchUrl)) {
+            const authEnv = withGitHttpAuth(env, pushUrl, options.token, options.username)
+            yield* runGit(spawner, args, repoPath, undefined, authEnv)
+            return
+          }
         }
 
         yield* runGit(spawner, args, repoPath, undefined, env)
@@ -191,7 +205,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     deleteBranch: (repoPath: string, branch: string) =>
       Effect.gen(function* () {
-        yield* runGit(spawner, ["branch", "-d", branch], repoPath)
+        yield* runGit(spawner, ["branch", "-d", "--", branch], repoPath)
       }),
 
     getCurrentBranch: (repoPath: string) =>
@@ -212,7 +226,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     getRemoteUrl: (repoPath: string) =>
       Effect.gen(function* () {
         const lines = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath)
-        return lines[0] ?? ""
+        return stripUrlCredentials(lines[0] ?? "")
       }),
 
     getInfo: (repoPath: string) =>
@@ -234,9 +248,10 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
         }
 
-        // Get remote URL
+        // Get remote URL, minus any token a checkout carries in it: this is
+        // returned to the renderer (git:local-repo, workspace:tree).
         const remoteUrl = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath).pipe(
-          Effect.map((lines) => lines[0]),
+          Effect.map((lines) => lines[0] && stripUrlCredentials(lines[0])),
           Effect.catchAll(() => Effect.succeed(undefined)),
         )
 
@@ -328,12 +343,6 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         Effect.map(() => true),
         Effect.catchAll(() => Effect.succeed(false)),
       ),
-
-    hasChanges: (repoPath: string) =>
-      Effect.gen(function* () {
-        const lines = yield* runGit(spawner, ["status", "--porcelain", "--untracked-files=all"], repoPath)
-        return lines.some((l) => l.trim().length > 0)
-      }),
 
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {

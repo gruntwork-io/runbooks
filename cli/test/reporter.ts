@@ -10,7 +10,8 @@ import type { RunbookTestSuite } from "./config.ts"
 // ---------------------------------------------------------------------------
 
 export interface Reporter {
-  report(suites: RunbookTestSuite[]): void
+  /** Render the whole report as one string. */
+  render(suites: RunbookTestSuite[]): string
 }
 
 // ---------------------------------------------------------------------------
@@ -18,12 +19,16 @@ export interface Reporter {
 // ---------------------------------------------------------------------------
 
 export class TextReporter implements Reporter {
+  private buf: string[] = []
+
   constructor(
-    private out: NodeJS.WritableStream,
     private verbose: boolean,
+    /** When false, drop every ANSI escape, including any in captured script output. */
+    private color = true,
   ) {}
 
-  report(suites: RunbookTestSuite[]): void {
+  render(suites: RunbookTestSuite[]): string {
+    this.buf = []
     let totalPassed = 0
     let totalFailed = 0
     let totalSkipped = 0
@@ -99,10 +104,11 @@ export class TextReporter implements Reporter {
     this.write(
       `${summaryColor}Results: ${totalPassed} passed, ${totalFailed} failed, ${totalSkipped} skipped${reset} (total: ${formatDuration(totalDuration)})\n`,
     )
+    return this.buf.join("")
   }
 
   private write(s: string): void {
-    this.out.write(s)
+    this.buf.push(this.color ? s : stripAnsi(s))
   }
 }
 
@@ -111,9 +117,7 @@ export class TextReporter implements Reporter {
 // ---------------------------------------------------------------------------
 
 export class JUnitReporter implements Reporter {
-  constructor(private out: NodeJS.WritableStream) {}
-
-  report(suites: RunbookTestSuite[]): void {
+  render(suites: RunbookTestSuite[]): string {
     let totalTests = 0
     let totalFailures = 0
     let totalSkipped = 0
@@ -164,10 +168,8 @@ export class JUnitReporter implements Reporter {
     }
 
     const totalTimeStr = (totalTime / 1000).toFixed(3)
-    this.out.write(`<?xml version="1.0" encoding="UTF-8"?>\n`)
-    this.out.write(
-      `<testsuites tests="${totalTests}" failures="${totalFailures}" skipped="${totalSkipped}" time="${totalTimeStr}">\n${suiteXmls.join("\n")}\n</testsuites>\n`,
-    )
+    return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<testsuites tests="${totalTests}" failures="${totalFailures}" skipped="${totalSkipped}" time="${totalTimeStr}">\n${suiteXmls.join("\n")}\n</testsuites>\n`
   }
 }
 
@@ -175,18 +177,19 @@ export class JUnitReporter implements Reporter {
 // Write results to file
 // ---------------------------------------------------------------------------
 
+/**
+ * Write the report to `filePath` synchronously, so the file is complete
+ * before the caller exits and any open/write error throws to the caller.
+ */
 export function reportToFile(
   reporter: Reporter,
   suites: RunbookTestSuite[],
   filePath: string,
 ): void {
-  const stream = fs.createWriteStream(filePath)
-  if (reporter instanceof TextReporter) {
-    new TextReporter(stream, false).report(suites)
-  } else if (reporter instanceof JUnitReporter) {
-    new JUnitReporter(stream).report(suites)
-  }
-  stream.end()
+  const fileReporter = reporter instanceof TextReporter
+    ? new TextReporter(false, false)
+    : reporter
+  fs.writeFileSync(filePath, fileReporter.render(suites))
 }
 
 // ---------------------------------------------------------------------------
@@ -208,8 +211,23 @@ function formatDuration(ms: number): string {
   return `${(ms / 60000).toFixed(1)}m`
 }
 
+// ANSI CSI sequences (colors, cursor movement) and OSC sequences (titles,
+// hyperlinks), as emitted by colored script output.
+// eslint-disable-next-line no-control-regex
+const ANSI_REGEX = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g
+
+// Characters XML 1.0 does not allow, even escaped. Strict JUnit parsers
+// reject the whole file if one appears.
+// eslint-disable-next-line no-control-regex
+const XML_INVALID_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\uFFFE\uFFFF]/g
+
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_REGEX, "")
+}
+
 function escapeXml(s: string): string {
-  return s
+  return stripAnsi(s)
+    .replace(XML_INVALID_CHARS, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

@@ -239,7 +239,7 @@ describe("client wrappers", () => {
   })
 
   it("checkProject reports an inconclusive answer as 'unknown', never 'denied'", async () => {
-    // The AwsAuth analogue fails OPEN (AwsSdkClient.checkRegion: `catch: () => true`).
+    // The AwsAuth analogue fails OPEN (AwsSdkClient.checkRegion: any error reads as enabled).
     // A disabled Resource Manager API or a network blip says nothing about the
     // project, and must not put "not accessible" on the success card.
     const layer = makeTestGoogleClient({

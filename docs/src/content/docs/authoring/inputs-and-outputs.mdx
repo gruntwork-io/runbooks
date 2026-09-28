@@ -18,14 +18,14 @@ Variables are the keys in the global context. You reference them in templates, s
 ```mdx
 <Command
   id="create-account"
-  command="aws organizations create-account --email {{ .inputs.Email }} --account-name {{ .inputs.AccountName }}"
+  command='aws organizations create-account --email "{{ .inputs.Email }}" --account-name "{{ .inputs.AccountName }}"'
 />
 ```
 
 When this block runs, Runbooks resolves `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` from the global context, producing a command like:
 
 ```bash
-aws organizations create-account --email alice@example.com --account-name my-account
+aws organizations create-account --email "alice@example.com" --account-name "my-account"
 ```
 
 ### Boilerplate variables
@@ -101,7 +101,7 @@ variables:
 ```
 </Inputs>
 
-<Command inputsId="config" command="mkdir {{ .inputs.ProjectName }}" />
+<Command inputsId="config" command='mkdir "{{ .inputs.ProjectName }}"' />
 `````
 
 ### Multiple Sources
@@ -113,7 +113,7 @@ In this example, the Command will use the variables collected from the `<Inputs>
 ```mdx
 <Command
   inputsId={["global-config", "local-config"]}
-  command="deploy --env {{ .inputs.Environment }} --name {{ .inputs.AppName }}"
+  command='deploy --env "{{ .inputs.Environment }}" --name "{{ .inputs.AppName }}"'
 />
 ```
 

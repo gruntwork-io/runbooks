@@ -19,10 +19,16 @@ const CapturedFileSchema = z.object({
   size: z.number(),
 })
 
+// fileTree is the whole generated-files tree after the capture; main omits it
+// when the tree could not be read. The truncation fields sit beside it, as in
+// a boilerplate:render response.
 const FilesCapturedEventSchema = z.object({
   files: z.array(CapturedFileSchema),
   count: z.number(),
-  fileTree: FileTreeNodeArraySchema,
+  fileTree: FileTreeNodeArraySchema.optional(),
+  truncatedTree: z.boolean().optional(),
+  totalFiles: z.number().optional(),
+  heavyDirs: z.array(z.object({ path: z.string(), fileCount: z.number() })).optional(),
 })
 
 const BlockOutputsEventSchema = z.object({
