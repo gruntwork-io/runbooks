@@ -1,34 +1,19 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
 import YAML from 'yaml';
-import { evaluate } from '@mdx-js/mdx';
-import * as runtime from 'react/jsx-runtime';
 import type { ReactNode } from 'react';
-import remarkGfm from 'remark-gfm';
-import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly';
+import { compileMDX } from '@/components/MDXContainer';
 import { extractYamlFromChildren } from './extractYamlFromChildren';
-import { CodeBlock } from '../components/CodeBlock';
 
 /**
- * Compiles MDX containing a single <Inputs> block with the same evaluate
- * options and remark plugins as compileMDX in MDXContainer, and returns the
- * children MDX passes to it. The app's rehype plugins (asset paths, task-list
- * ids) are left out; they don't touch Inputs content.
+ * Compiles MDX containing a single <Inputs> block with the app's compileMDX,
+ * and returns the children MDX passes to it. The block itself isn't rendered.
  */
-async function compileInputsChildren(
-  mdxContent: string,
-  components: Record<string, unknown> = {},
-): Promise<ReactNode> {
-  const compiledMDX = await evaluate(mdxContent, {
-    ...runtime,
-    development: false,
-    remarkPlugins: [remarkGfm, remarkLiteralOnly],
-    useMDXComponents: () => ({
-      Inputs: () => React.createElement('div', {}, 'Test component'),
-      ...components,
-    }),
-  });
-  return compiledMDX.default({}).props.children;
+async function compileInputsChildren(mdxContent: string): Promise<ReactNode> {
+  const Content = (await compileMDX(mdxContent)) as (
+    props: object,
+  ) => React.ReactElement<{ children?: ReactNode }>;
+  return Content({}).props.children;
 }
 
 const MISSING_FENCE_ERROR = 'Invalid inline boilerplate configuration format';
@@ -55,7 +40,7 @@ variables:
 \`\`\`
 </Inputs>`;
 
-    // Compile the MDX with the app's evaluate options
+    // Compile the MDX as the app does
     const capturedChildren = await compileInputsChildren(mdxContent);
 
     const extractedYaml = extractYamlFromChildren(capturedChildren);
@@ -92,7 +77,7 @@ variables:
   - name: Region
     default: us-east-1
 \`\`\`
-</Inputs>`, { pre: CodeBlock });
+</Inputs>`);
 
     // The fence's trailing newline is trimmed only when CodeBlock is recognized as a pre element
     expect(extractYamlFromChildren(children)).toEqual({
@@ -172,7 +157,7 @@ variables:
     default: us-east-1
 \`\`\`
 </div>
-</Inputs>`, { pre: CodeBlock });
+</Inputs>`);
 
     const result = extractYamlFromChildren(children);
 
