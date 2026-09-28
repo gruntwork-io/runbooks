@@ -16,10 +16,10 @@ import { makeRunbookWatcher } from "./runbook-watcher.ts"
 import { validateSessionPath } from "./path-guard.ts"
 import { getMainWindow } from "../window.ts"
 
-const runbookWatcher = makeRunbookWatcher(runtime, () => {
+const runbookWatcher = makeRunbookWatcher(runtime, (runbookPath) => {
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
-  win.webContents.send("watch:file-change", { type: "reload" })
+  win.webContents.send("watch:file-change", { type: "reload", path: runbookPath })
 })
 
 /** Watch the runbook at `runbookPath` (a no-op if it's already watched). */

@@ -39,16 +39,16 @@ async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
 
-let reloads = 0
+let reloads: string[] = []
 let watcher: RunbookWatcher
 
 beforeEach(() => {
   opened = []
   closed = 0
   emitters = []
-  reloads = 0
-  watcher = makeRunbookWatcher(watchRuntime, () => {
-    reloads++
+  reloads = []
+  watcher = makeRunbookWatcher(watchRuntime, (runbookPath) => {
+    reloads.push(runbookPath)
   })
 })
 
@@ -107,17 +107,17 @@ describe("makeRunbookWatcher", () => {
     await waitFor(() => opened.length === 2)
   })
 
-  it("reloads once per debounced change to the runbook file", async () => {
+  it("reloads the runbook once per debounced change to its file", async () => {
     watcher.start("/work/a/runbook.mdx")
     await waitFor(() => emitters.length === 1)
 
     emitters[0]({ type: "change", path: "/work/a/generated/out.txt" })
     emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
     emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
-    await waitFor(() => reloads > 0)
+    await waitFor(() => reloads.length > 0)
     await new Promise((resolve) => setTimeout(resolve, 400))
 
-    expect(reloads).toBe(1)
+    expect(reloads).toEqual(["/work/a/runbook.mdx"])
   })
 
   it("drops a pending change once the watcher is stopped", async () => {
@@ -128,7 +128,7 @@ describe("makeRunbookWatcher", () => {
     await watcher.stop()
     await new Promise((resolve) => setTimeout(resolve, 400))
 
-    expect(reloads).toBe(0)
+    expect(reloads).toEqual([])
   })
 
   it("replaces a watcher that failed instead of treating it as still running", async () => {

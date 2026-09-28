@@ -691,7 +691,11 @@ export interface IpcEventMap {
   "exec:status": { status: string; exitCode: number }
   "exec:outputs": { outputs: Record<string, string> }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
-  "watch:file-change": { type: "reload" }
+  /**
+   * `path` is the runbook the watcher watches (as runbook:get resolved it), so
+   * after a failed open the renderer reloads that runbook, not the failed one.
+   */
+  "watch:file-change": { type: "reload"; path: string }
   /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
   "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }

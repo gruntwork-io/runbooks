@@ -20,16 +20,19 @@ export interface WatcherRuntime {
 
 export interface RunbookWatcher {
   /**
-   * Watch `runbookPath` and call `onReload` whenever it changes. A no-op when
-   * that runbook is already being watched; a watcher for any other runbook is
-   * stopped first.
+   * Watch `runbookPath` and call `onReload` with it whenever it changes. A
+   * no-op when that runbook is already being watched; a watcher for any other
+   * runbook is stopped first.
    */
   start: (runbookPath: string) => void
   /** Stop the running watcher, if any. Resolves once its file watcher is closed. */
   stop: () => Promise<void>
 }
 
-export function makeRunbookWatcher(runtime: WatcherRuntime, onReload: () => void): RunbookWatcher {
+export function makeRunbookWatcher(
+  runtime: WatcherRuntime,
+  onReload: (runbookPath: string) => void,
+): RunbookWatcher {
   let active: { runbookPath: string; fiber: Fiber.RuntimeFiber<void> } | null = null
 
   const watchRunbook = (runbookPath: string) =>
@@ -39,7 +42,7 @@ export function makeRunbookWatcher(runtime: WatcherRuntime, onReload: () => void
         Effect.sync(() => {
           // A replaced or stopped watcher can deliver one last event before
           // its interruption lands; only the runbook being watched reloads.
-          if (active?.runbookPath === runbookPath) onReload()
+          if (active?.runbookPath === runbookPath) onReload(runbookPath)
         }),
       )
     }).pipe(

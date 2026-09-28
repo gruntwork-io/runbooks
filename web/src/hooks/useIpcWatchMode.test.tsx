@@ -19,7 +19,7 @@ function createWatchApi() {
     api,
     on,
     listeners,
-    fileChanged: () => listeners.forEach((cb) => cb({ type: 'reload' })),
+    fileChanged: (path: string) => listeners.forEach((cb) => cb({ type: 'reload', path })),
   }
 }
 
@@ -39,7 +39,7 @@ describe('useIpcWatchMode', () => {
     expect(watch.on).not.toHaveBeenCalled()
   })
 
-  it('subscribes once across re-renders with a new callback and calls the latest one', () => {
+  it('subscribes once across re-renders with a new callback and calls the latest one with the runbook path', () => {
     const watch = createWatchApi()
     const first = vi.fn()
     const { rerender } = renderWatchHook(watch.api, { onFileChange: first, isWatchMode: true })
@@ -52,8 +52,9 @@ describe('useIpcWatchMode', () => {
     expect(watch.on).toHaveBeenCalledTimes(1)
     expect(watch.listeners.size).toBe(1)
 
-    watch.fileChanged()
+    watch.fileChanged('/work/a/runbook.mdx')
     expect(latest).toHaveBeenCalledTimes(1)
+    expect(latest).toHaveBeenCalledWith('/work/a/runbook.mdx')
     expect(first).not.toHaveBeenCalled()
   })
 

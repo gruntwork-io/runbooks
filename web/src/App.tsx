@@ -91,8 +91,19 @@ function App() {
   }, [getRunbookResult.data?.content, clearAllErrors])
   
   // Watch mode: reload the runbook, without a loading flash, when the main
-  // process reports that the runbook file changed
-  useIpcWatchMode(getRunbookResult.silentRefetch, getRunbookResult.data?.isWatchMode ?? false);
+  // process reports that the runbook it watches changed. A failed open leaves
+  // the previous runbook on screen, and main keeps watching it, while the last
+  // request is the failed one: re-sending that would raise its error again on
+  // every save, so reload the displayed runbook instead.
+  const { data: displayedRunbook, error: runbookError, silentRefetch, openRunbook } = getRunbookResult
+  const handleRunbookFileChange = useCallback((changedPath: string) => {
+    if (runbookError && displayedRunbook?.path === changedPath) {
+      openRunbook(displayedRunbook.path, displayedRunbook.remoteSource)
+    } else {
+      silentRefetch()
+    }
+  }, [runbookError, displayedRunbook, openRunbook, silentRefetch])
+  useIpcWatchMode(handleRunbookFileChange, displayedRunbook?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
