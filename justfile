@@ -280,9 +280,12 @@ test-e2e-run: _no-nested-node-modules fetch-boilerplate
 test-runbooks: build compile-test-cli
     resources/bin/runbooks-test test testdata/...
 
-# Run docs tests (spellcheck + link check)
+# Run docs tests (spellcheck + link check). --frozen-lockfile, like every other
+# CI install: a docs/package.json change that docs/bun.lock doesn't record (a
+# Dependabot bump edits only package.json) fails here instead of CI silently
+# building with versions the lockfile doesn't pin.
 test-docs:
-    cd docs && mise x bun -- bun install && mise x bun -- bun run spellcheck && mise x bun -- bun run build && mise x bun -- bun run linkcheck
+    cd docs && mise x bun -- bun install --frozen-lockfile && mise x bun -- bun run spellcheck && mise x bun -- bun run build && mise x bun -- bun run linkcheck
 
 # --- Code Quality ---
 
