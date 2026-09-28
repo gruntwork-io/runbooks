@@ -6,9 +6,9 @@
  * with the true boundaries replaced: `electron` (ipcMain capture +
  * app.getPath → a temp userData dir), global `fetch`, process.env / the gh
  * config dir, and the two main-process modules vcs-tristate pulls in only
- * for TLS recovery / window broadcasts (index.ts, window.ts).
+ * for TLS recovery / window broadcasts (system-trust.ts, window.ts).
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, mock } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, mock, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
@@ -52,18 +52,13 @@ mockElectron({
     removeListener: () => {},
   },
 })
-// Same export names as gitlab.test.ts's mock of this module (bun fixes a
-// mocked module's export names on the first mock.module call).
-mock.module("../index.ts", () => ({
-  refreshSystemTrust: async () => ({ coldReadOk: true }),
-  registerExtraCaPems: () => {},
-}))
 mock.module("../window.ts", () => ({
   getMainWindow: () => null,
 }))
 
 const { registerGitHubHandlers, resolveRequestedGitHubHost } = await import("./github.ts")
 const { sessionManager, vcsSessionMeta } = await import("./runtime.ts")
+const systemTrust = await import("../system-trust.ts")
 const { makeTestEnvironment } = await import("../../../src/test-utils/TestEnvironment.ts")
 const { DEFAULT_GITHUB_OAUTH_CLIENT_ID } = await import("../../../src/domain/github/auth.ts")
 
@@ -123,11 +118,21 @@ const ENV_KEYS = [
 const savedEnv: Record<string, string | undefined> = {}
 let ghConfigDir = ""
 
+// TLS recovery and the glab ca_cert harvest are stubbed with spies scoped to
+// this file, not a module mock: Bun module mocks outlive the test file, and
+// system-trust.test.ts needs the real module.
+let trustSpies: Array<{ mockRestore: () => void }> = []
+
 beforeAll(() => {
   for (const key of ENV_KEYS) savedEnv[key] = process.env[key]
+  trustSpies = [
+    spyOn(systemTrust, "refreshSystemTrust").mockResolvedValue({ coldReadOk: true }),
+    spyOn(systemTrust, "registerExtraCaPems").mockImplementation(() => {}),
+  ]
 })
 
 afterAll(() => {
+  for (const spy of trustSpies) spy.mockRestore()
   for (const key of ENV_KEYS) {
     if (savedEnv[key] === undefined) delete process.env[key]
     else process.env[key] = savedEnv[key]

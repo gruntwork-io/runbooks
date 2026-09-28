@@ -38,7 +38,7 @@ import {
   tryNormalizeGitLabBaseUrl,
   tryNormalizeGitLabHost,
 } from "../../../src/domain/git/gitlab-host.ts"
-import { registerExtraCaPems } from "../index.ts"
+import { registerExtraCaPems } from "../system-trust.ts"
 import {
   withTlsOrchestration,
   withVcs,
