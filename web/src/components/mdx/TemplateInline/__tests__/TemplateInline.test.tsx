@@ -115,7 +115,7 @@ function renderBlock(initial: BlockProps = {}) {
     </ApiProvider>
   )
   const utils = render(ui(initial))
-  return { invoke, rerender: (next: BlockProps) => utils.rerender(ui(next)) }
+  return { invoke, rerender: (next: BlockProps) => utils.rerender(ui(next)), unmount: utils.unmount }
 }
 
 /** Wait out the 300ms render debounce, so "no call" assertions mean something. */
@@ -224,6 +224,16 @@ describe("TemplateInline", () => {
 
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
     expect(renderInlineCalls(invoke)[0]).toMatchObject({ generateFile: true, target: "worktree" })
+  })
+
+  it("generateFile: unmounting before the render debounce elapses sends no write", async () => {
+    // With generateFile, main writes the rendered file, so a render request
+    // sent after unmount would write a file for a block that's gone.
+    const { invoke, unmount } = renderBlock({ values: WORLD, generateFile: true })
+    unmount()
+    await settle()
+
+    expect(renderInlineCalls(invoke)).toHaveLength(0)
   })
 
   it("instruction mode forces generateFile off and leaves the Generated tree alone", async () => {
