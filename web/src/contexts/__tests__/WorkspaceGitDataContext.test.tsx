@@ -187,6 +187,78 @@ describe('WorkspaceGitDataProvider', () => {
     expect(result.current.tree.tree?.map(n => n.id)).toEqual(['b-file'])
   })
 
+  it("clears the previous repo's tree until the next one loads when 'Clone again' hands over the active role", async () => {
+    const { api, callsTo } = createApi()
+    const { result } = renderWorkspaceData(api)
+
+    await act(async () => {
+      result.current.workTrees.registerWorkTree(worktree('a'))
+      result.current.workTrees.registerWorkTree(worktree('b'))
+    })
+    await settle(callsTo('workspace:tree', '/repos/a'), { tree: [lazyFolder('node_modules')], totalFiles: 3 })
+    await act(async () => {
+      void result.current.tree.fetchSubtree('node_modules')
+    })
+    const [subtreeOfA] = callsTo('workspace:tree', '/repos/a/node_modules')
+
+    // 'Clone again' on a: b takes the active role and the tree is invalidated
+    // in the same batch, so the path and treeVersion change together.
+    await act(async () => {
+      result.current.workTrees.unregisterWorkTree('a')
+    })
+    expect(result.current.workTrees.activeWorkTree?.id).toBe('b')
+    expect(result.current.tree.tree).toBeNull()
+    expect(result.current.tree.totalFiles).toBe(0)
+    expect(result.current.tree.isLoading).toBe(true)
+
+    // Neither a's late folder nor an expand issued in the gap grafts anything
+    await settle([subtreeOfA], { tree: [file('left-pad')], totalFiles: 1 })
+    await act(async () => {
+      void result.current.tree.fetchSubtree('node_modules')
+    })
+    await settle(callsTo('workspace:tree', '/repos/b/node_modules'), { tree: [file('is-odd')], totalFiles: 1 })
+    expect(result.current.tree.tree).toBeNull()
+    expect(result.current.tree.isLoading).toBe(true)
+
+    await settle(callsTo('workspace:tree', '/repos/b'), { tree: [lazyFolder('node_modules')], totalFiles: 2 })
+    expect(result.current.tree.tree).toEqual([lazyFolder('node_modules')])
+    expect(result.current.tree.totalFiles).toBe(2)
+    expect(result.current.tree.isLoading).toBe(false)
+  })
+
+  it("never renders the previous clone's tree under a worktree re-registered at a new path", async () => {
+    const { api, callsTo } = createApi()
+    let workTrees!: GitWorkTreeContextType
+    const renders: Array<{ path?: string; tree?: string[] }> = []
+    function Consumer() {
+      workTrees = useGitWorkTree()
+      const { tree } = useGitFileTree()
+      renders.push({ path: workTrees.activeWorkTree?.localPath, tree: tree?.map(n => n.id) })
+      return null
+    }
+    render(
+      <Providers api={api}>
+        <Consumer />
+      </Providers>,
+    )
+
+    await act(async () => {
+      workTrees.registerWorkTree(worktree('a'))
+    })
+    await settle(callsTo('workspace:tree', '/repos/a'), { tree: [file('old-clone.tf')], totalFiles: 1 })
+
+    // The block cloned again, into a new directory
+    renders.length = 0
+    await act(async () => {
+      workTrees.registerWorkTree({ ...worktree('a'), localPath: '/repos/a-2' })
+    })
+    expect(renders.some(r => r.path === '/repos/a-2')).toBe(true)
+    expect(renders.filter(r => r.path === '/repos/a-2' && r.tree !== undefined)).toEqual([])
+
+    await settle(callsTo('workspace:tree', '/repos/a-2'), { tree: [file('new-clone.tf')], totalFiles: 1 })
+    expect(renders.at(-1)).toEqual({ path: '/repos/a-2', tree: ['new-clone.tf'] })
+  })
+
   it('refetches changes immediately when the tree is invalidated mid-poll, and drops the older response', async () => {
     const { api, callsTo } = createApi()
     const { result } = renderWorkspaceData(api)

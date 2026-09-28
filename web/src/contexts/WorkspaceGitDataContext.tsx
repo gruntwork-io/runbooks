@@ -177,7 +177,8 @@ function useChangesPoller(api: RunbooksAPI, localPath: string | null, treeVersio
 
 /**
  * Fetches the structure-only file tree for the active worktree. Re-fetches
- * when the worktree switches (with a spinner) or treeVersion bumps (silently).
+ * when the worktree's path changes (dropping the previous tree, with a
+ * spinner) or treeVersion bumps for the same path (silently).
  */
 function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: number): GitFileTreeContextType {
   const [tree, setTree] = useState<WorkspaceTreeNode[] | null>(null)
@@ -191,6 +192,21 @@ function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: nu
   // The active worktree as of the latest render, read after an await.
   const localPathRef = useRef(localPath)
   localPathRef.current = localPath
+
+  // The worktree path the tree state belongs to. When the active path changes
+  // (a switch, 'Clone again' handing the role to another worktree, or a
+  // re-clone into a new directory), drop the previous repo's tree during this
+  // render, so no consumer shows, opens or lazy-expands it under the new path
+  // while the new walk loads. The path often changes together with
+  // treeVersion, which alone would make the refetch a silent one.
+  const [treePath, setTreePath] = useState(localPath)
+  if (treePath !== localPath) {
+    setTreePath(localPath)
+    setTree(null)
+    setTotalFiles(0)
+    setError(null)
+    setIsLoading(localPath !== null)
+  }
 
   const fetchTree = useCallback(async (path: string, silent = false) => {
     const seq = ++seqRef.current
@@ -229,7 +245,8 @@ function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: nu
       return
     }
 
-    // If treeVersion changed but path didn't, this is a background refresh — skip the spinner
+    // If treeVersion changed but path didn't, this is a background refresh — skip the spinner.
+    // A path change already cleared `tree` during render, so it always shows one.
     const silent = prevTreeVersionRef.current !== treeVersion && tree !== null
     prevTreeVersionRef.current = treeVersion
 
