@@ -29,6 +29,10 @@ interface PushRequestBody {
   provider?: GitProvider
 }
 
+/** What a create or push invoke resolves with: the PR/MR's url and number
+ *  after a create, `error` after a failure. */
+type OperationResult = { error?: string; url?: string; number?: number } | undefined
+
 // Zod schemas for IPC events
 const LogEventSchema = z.object({
   line: z.string(),
@@ -103,7 +107,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   // new operation waits (up to CANCELED_RUN_WAIT_MS) for it to settle before
   // subscribing: the events carry no operation id, so overlapping runs' events
   // would be indistinguishable.
-  const inFlightRef = useRef<Promise<unknown> | null>(null)
+  const inFlightRef = useRef<Promise<OperationResult> | null>(null)
   const isMountedRef = useRef(true)
   // Store active event unsubscribers so unmount can clean them up
   const activeUnsubscribersRef = useRef<Array<() => void>>([])
@@ -185,17 +189,22 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       setLogs(prev => [...prev, createLogEntry('Waiting for the canceled operation to finish…')])
       let timer: ReturnType<typeof setTimeout> | undefined
       const finished = await Promise.race([
-        canceledRun.then(() => true, () => true),
-        new Promise<false>(resolve => {
-          timer = setTimeout(() => resolve(false), CANCELED_RUN_WAIT_MS)
+        canceledRun.then(result => ({ result }), () => ({ result: undefined })),
+        new Promise<null>(resolve => {
+          timer = setTimeout(() => resolve(null), CANCELED_RUN_WAIT_MS)
         }),
       ])
       clearTimeout(timer)
       if (!isCurrent()) return
+      // Its PR/MR and outputs stay out of this run, but the user should know it
+      // was opened rather than lose it silently.
+      const openedUrl = finished?.result?.url
       if (!finished) {
         setLogs(prev => [...prev, createLogEntry(
           'The canceled operation is still running in the background. Starting anyway; its output may still appear here.',
         )])
+      } else if (openedUrl) {
+        setLogs(prev => [...prev, createLogEntry(`The canceled operation finished and opened ${openedUrl}`)])
       }
     }
 
@@ -254,9 +263,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       // Invoke the IPC command. The channel is one of a fixed set whose params
       // are PullRequestRequest (create) or the push payload; `as never` bridges
       // the union without widening to `any`.
-      const invocation = api.invoke(opts.channel, opts.body as never) as Promise<
-        { error?: string; url?: string; number?: number } | undefined
-      >
+      const invocation = api.invoke(opts.channel, opts.body as never) as Promise<OperationResult>
       inFlightRef.current = invocation
       const result = await invocation.finally(() => {
         if (inFlightRef.current === invocation) inFlightRef.current = null

@@ -476,6 +476,24 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       expect(logLines()).toEqual([WAITING_LINE, 'Canceled.'])
     })
 
+    it('logs the PR the canceled run opened, without adopting it in the retry', async () => {
+      const { fake, state, outputs, logLines, create } = renderPR(cfg)
+      const stale = testPR(1, CREATE_PARAMS.headBranch)
+
+      const first = create()
+      act(() => state().cancel())
+      void create({ ...CREATE_PARAMS, headBranch: 'runbook/add-vpc-2' })
+      await act(async () => {
+        fake.createSucceeds(0, stale)
+        await first
+      })
+
+      expect(logLines()).toEqual([WAITING_LINE, `The canceled operation finished and opened ${stale.url}`])
+      expect(state().status).toBe('creating')
+      expect(state().prResult).toBeNull()
+      expect(outputs()).toBeUndefined()
+    })
+
     it("still unsubscribes a retry after the canceled run's cleanup timer fires", async () => {
       vi.useFakeTimers()
       const { fake, state, create } = renderPR(cfg)
