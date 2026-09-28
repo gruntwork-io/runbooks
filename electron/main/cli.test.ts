@@ -249,11 +249,12 @@ describe("parseCliArgs", () => {
 
 describe("secondInstanceArgv", () => {
   const EXE = "/Applications/Runbooks.app/Contents/MacOS/Runbooks"
-  const START = "--original-process-start-time=13401234567890123"
+  /** Switches Chromium adds to the second instance (seen with Electron 41 on macOS). */
+  const ADDED = ["--allow-file-access-from-files", "--enable-avfoundation"]
   /** `runbooks open my-runbook --working-dir /path/to/project`, as typed. */
   const typed = [EXE, "open", "my-runbook", "--working-dir", "/path/to/project"]
   /** The same command as Electron's argv delivers it to the first instance. */
-  const reordered = [EXE, "--working-dir", START, "open", "my-runbook", "/path/to/project"]
+  const reordered = [EXE, "--working-dir", ...ADDED, "open", "my-runbook", "/path/to/project"]
 
   it("prefers the argv the second instance forwarded", () => {
     const argv = secondInstanceArgv(reordered, { argv: typed })
@@ -275,14 +276,14 @@ describe("secondInstanceArgv", () => {
   // no additionalData). These shapes still come out right.
 
   it("still finds positionals, --flag=value and --runbook values in a reordered argv", () => {
-    const opts = parseCliArgs([EXE, "--working-dir=::tmp", START, "open", "my-runbook"], "/home/me")
+    const opts = parseCliArgs([EXE, "--working-dir=::tmp", ...ADDED, "open", "my-runbook"], "/home/me")
     expect(opts.runbookPath).toBe("/home/me/my-runbook")
 
-    const local = parseCliArgs([EXE, "--runbook", START, "rb/runbook.mdx"], "/home/me")
+    const local = parseCliArgs([EXE, "--runbook", ...ADDED, "rb/runbook.mdx"], "/home/me")
     expect(local.runbookPath).toBe("/home/me/rb/runbook.mdx")
 
     const url = "https://github.com/o/r/tree/main/rb"
-    expect(parseCliArgs([EXE, "--runbook", START, url], "/home/me").remoteUrl).toBe(url)
+    expect(parseCliArgs([EXE, "--runbook", ...ADDED, url], "/home/me").remoteUrl).toBe(url)
   })
 
   it("cannot pair a space-separated unsupported flag with its value in a reordered argv", () => {
