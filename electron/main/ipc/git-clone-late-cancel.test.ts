@@ -131,6 +131,9 @@ describe("git:clone-cancel after git has finished", () => {
 
     await cancel("late-1")
 
+    // The reply waits for the clone to stop, so the checkout is already gone
+    // when the renderer offers Clone and Delete & Clone again.
+    expect(fs.existsSync(dest)).toBe(false)
     await expect(clone).resolves.toEqual({ status: "cancelled" })
     // A cancelled clone must not become the fallback active worktree, which
     // $REPO_FILES and target="worktree" writes would then use.

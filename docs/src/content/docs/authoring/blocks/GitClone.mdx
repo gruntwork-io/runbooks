@@ -287,13 +287,11 @@ Reference outputs in downstream blocks using template variables:
 
 ### Cancelling and Starting Over
 
-**Cancel** stops the running `git` process. A cancelled clone produces no outputs and is not added to the workspace. What happens to the directory depends on when you cancel:
+**Cancel** stops the running `git` process. A cancelled clone produces no outputs and is not added to the workspace. Once `git` has exited, the block removes the directory the clone created, including a [sparse checkout](#sparse-checkout) stopped partway and a checkout that `git` had already finished. The block shows **Cancelling...** until that is done, or for at most about ten seconds, and then offers **Clone** again.
 
-- While `git clone` runs: on macOS and Linux, git removes its partially cloned directory. On Windows it may not.
-- During a [sparse checkout](#sparse-checkout)'s later `git` commands (after the clone itself): the directory stays in place on every platform.
-- After `git` has finished, while the block reads the checkout and looks up the repository: the block removes the directory.
+The block only removes a directory that the clone created. **Delete & Clone** deletes the old directory before the clone starts, so that directory is gone either way.
 
-The block only removes a directory that the clone created. **Delete & Clone** deletes the old directory before the clone starts, so that directory is gone either way. When a directory is left behind, cloning to the same path again offers **Delete & Clone** to replace it.
+A directory can still be left behind. A cancel that arrives just as the clone completes is too late to undo it: the checkout stays and, as after any completed clone, `$REPO_FILES` may point at it. And a directory that can't be removed stays, as can happen on Windows while a process still has a file in it open. Cloning to the same path again offers **Delete & Clone** to replace it.
 
 **Clone again** (or **Choose a different repo** for a local checkout) withdraws the block's outputs and takes the repository out of the workspace panel until the next clone or checkout completes. Blocks that read this block's outputs wait for that next clone rather than using the previous repository's values. [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) stops targeting the previous repository too: it waits, or uses the repository of another `<GitClone>` block in the runbook until this one completes again. A repository with no commits chosen next is held back as described in [Repositories With No Commits](#repositories-with-no-commits).
 

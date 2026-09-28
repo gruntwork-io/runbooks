@@ -119,7 +119,7 @@ describe('useGitClone — cancel', () => {
     act(() => { void result.current.clone('https://github.com/acme/infra.git', '', '', '') })
     expect(result.current.cloneStatus).toBe('running')
 
-    act(() => result.current.cancel())
+    await act(async () => result.current.cancel())
     expect(invoke).toHaveBeenCalledWith('git:clone-cancel', { cloneId: cloneIds[0] })
     expect(result.current.cloneStatus).toBe('ready')
 
@@ -129,6 +129,44 @@ describe('useGitClone — cancel', () => {
     expect(result.current.cloneStatus).toBe('ready')
     expect(result.current.cloneResult).toBeNull()
     expect(registerOutputs).not.toHaveBeenCalled()
+  })
+
+  it('stays busy until main has finished cancelling', async () => {
+    // main replies to git:clone-cancel once git has exited and the checkout
+    // it made is removed. Until then Clone and Delete & Clone must stay off.
+    const { cloneIds } = scriptClones(1)
+    const cloneReply = invoke.getMockImplementation()!
+    const cancelReply = deferred<{ ok: true }>()
+    invoke.mockImplementation(async (channel: string, params?: { cloneId?: string }) =>
+      channel === 'git:clone-cancel' ? cancelReply.promise : cloneReply(channel, params))
+    const { result } = renderHook(() => useGitClone({ id: 'clone' }))
+
+    act(() => { void result.current.clone('https://github.com/acme/infra.git', '', '', '') })
+    await act(async () => result.current.cancel())
+    expect(invoke).toHaveBeenCalledWith('git:clone-cancel', { cloneId: cloneIds[0] })
+    expect(result.current.cloneStatus).toBe('running')
+    expect(result.current.cancelling).toBe(true)
+
+    await act(async () => { cancelReply.resolve({ ok: true }) })
+    expect(result.current.cloneStatus).toBe('ready')
+    expect(result.current.cancelling).toBe(false)
+    expect(result.current.logs.map(l => l.line)).toContain('Clone cancelled by user')
+  })
+
+  it('comes back from cancelling when the cancel call itself fails', async () => {
+    scriptClones(1)
+    const cloneReply = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, params?: { cloneId?: string }) => {
+      if (channel === 'git:clone-cancel') throw new Error('no handler')
+      return cloneReply(channel, params)
+    })
+    const { result } = renderHook(() => useGitClone({ id: 'clone' }))
+
+    act(() => { void result.current.clone('https://github.com/acme/infra.git', '', '', '') })
+    await act(async () => result.current.cancel())
+
+    expect(result.current.cloneStatus).toBe('ready')
+    expect(result.current.cancelling).toBe(false)
   })
 
   it('does not turn a cancelled clone into a failure when its call rejects', async () => {

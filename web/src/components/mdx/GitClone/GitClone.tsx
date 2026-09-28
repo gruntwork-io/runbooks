@@ -132,6 +132,7 @@ function GitCloneInteractive({
 
   const {
     cloneStatus,
+    cancelling,
     logs,
     cloneResult,
     errorMessage,
@@ -719,7 +720,7 @@ function GitCloneInteractive({
                         {cloneStatus === 'running' ? (
                           <>
                             <Loader2 className="size-4 mr-1 animate-spin" />
-                            Cloning...
+                            {cancelling ? 'Cancelling...' : 'Cloning...'}
                           </>
                         ) : (
                           'Clone'
@@ -729,6 +730,7 @@ function GitCloneInteractive({
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={cancelling}
                           onClick={cancel}
                           className="text-destructive hover:text-destructive hover:bg-destructive-muted"
                         >

@@ -31,13 +31,23 @@ beforeAll(async () => {
   pidFile = path.join(tmpDir, "git.pid")
 
   // A stand-in `git` that never finishes on its own, like a clone of a large
-  // repository over a slow link. `exec` keeps its pid, which it records so
-  // the test can check whether the process is still alive.
+  // repository over a slow link, or one that has written the checkout but not
+  // exited yet. It writes into the destination (its last argument), which a
+  // cancelled git is not trusted to remove. `exec` keeps its pid, which it
+  // records so the test can check whether the process is still alive.
   const binDir = path.join(tmpDir, "bin")
   fs.mkdirSync(binDir)
   fs.writeFileSync(
     path.join(binDir, "git"),
-    `#!/bin/sh\necho $$ > "${pidFile}"\necho "Cloning into 'infra'..." >&2\nexec sleep 30\n`,
+    [
+      "#!/bin/sh",
+      `echo $$ > "${pidFile}"`,
+      'for dest; do :; done',
+      'mkdir -p "$dest" && echo partial > "$dest/partial"',
+      `echo "Cloning into 'infra'..." >&2`,
+      "exec sleep 30",
+      "",
+    ].join("\n"),
     { mode: 0o755 },
   )
   process.env.PATH = `${binDir}${path.delimiter}${originalPath}`
@@ -71,7 +81,7 @@ async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<void> {
 
 describe("git:clone-cancel", () => {
   it.skipIf(process.platform === "win32")(
-    "kills the running git process and resolves the clone as cancelled",
+    "kills git, removes what it wrote, and replies only once both are done",
     async () => {
       const progress: unknown[] = []
       const event = {
@@ -95,15 +105,20 @@ describe("git:clone-cancel", () => {
       const pid = Number(fs.readFileSync(pidFile, "utf-8").trim())
       gitPid = pid
       expect(isAlive(pid)).toBe(true)
+      const dest = path.join(tmpDir, "work", "infra")
+      expect(fs.existsSync(path.join(dest, "partial"))).toBe(true)
 
       await expect(handlers.get("git:clone-cancel")!(null, { cloneId: "clone-1" })).resolves.toEqual({
         ok: true,
       })
 
+      // By the reply, git is gone rather than still writing, and so is the
+      // directory it made: the renderer offers Clone and Delete & Clone again
+      // as soon as the reply lands.
+      expect(isAlive(pid)).toBe(false)
+      expect(fs.existsSync(dest)).toBe(false)
       // The user asked for this, so it is not reported as a failure.
       await expect(clone).resolves.toEqual({ status: "cancelled" })
-      // And git itself is gone, rather than still writing into the directory.
-      await waitFor(() => !isAlive(pid))
     },
     15_000,
   )

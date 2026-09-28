@@ -37,6 +37,8 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
   // State
   const [cloneStatus, setCloneStatus] = useState<GitCloneStatus>('pending')
+  // A cancelled clone still being stopped in main; cloneStatus stays 'running'.
+  const [cancelling, setCancelling] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [cloneResult, setCloneResult] = useState<CloneResult | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -162,6 +164,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     const cloneId = crypto.randomUUID()
     cloneIdRef.current = cloneId
     setCloneStatus('running')
+    setCancelling(false)
     setLogs([])
     setCloneResult(null)
     setErrorMessage(null)
@@ -377,22 +380,30 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Cancel an in-progress clone: stop git in the main process, and detach
   // this run so its late result can't land on the block afterwards.
   const cancel = useCallback(() => {
-    cloneRunRef.current++
+    const runId = ++cloneRunRef.current
     if (unsubLogRef.current) {
       unsubLogRef.current()
       unsubLogRef.current = null
     }
     const cloneId = cloneIdRef.current
     cloneIdRef.current = null
-    if (cloneId) {
-      api.invoke('git:clone-cancel', { cloneId }).catch(() => {
-        // The cancel call itself failed (main resolves it even for a clone
-        // that already finished). This run is detached either way, so there
-        // is nothing more to do here.
-      })
+    const cancelled = () => {
+      // A clone or reset since then owns the block.
+      if (runId !== cloneRunRef.current) return
+      setCancelling(false)
+      setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
+      setCloneStatus('ready')
     }
-    setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
-    setCloneStatus('ready')
+    if (!cloneId) {
+      cancelled()
+      return
+    }
+    // The block stays busy until main replies, which it does once git has
+    // exited and the checkout it made is removed (or after a few seconds), so
+    // Clone and Delete & Clone never start while that is still going on. A
+    // failed cancel call ends it too: this run is detached either way.
+    setCancelling(true)
+    api.invoke('git:clone-cancel', { cloneId }).catch(() => {}).finally(cancelled)
   }, [api])
 
   // Start over ('Clone again' / 'Choose a different repo'). The previous
@@ -402,6 +413,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const reset = useCallback(() => {
     cloneRunRef.current++
     setCloneStatus('ready')
+    setCancelling(false)
     setLogs([])
     setCloneResult(null)
     setErrorMessage(null)
@@ -423,6 +435,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   return {
     // State
     cloneStatus,
+    cancelling,
     logs,
     cloneResult,
     errorMessage,

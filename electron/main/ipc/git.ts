@@ -245,8 +245,22 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
 // Clones in flight, keyed by the renderer-supplied cloneId so git:clone-cancel
 // can stop a specific one. Aborting a controller interrupts that clone's fiber
 // (the signal is passed to runAndUnwrap), and interruption kills git — see the
-// release registered where the git process is spawned.
-const activeClones = new Map<string, AbortController>()
+// release registered where the git process is spawned. `settled` resolves once
+// the clone has returned, its clean-up included.
+interface ActiveClone {
+  controller: AbortController
+  settled: Promise<void>
+}
+const activeClones = new Map<string, ActiveClone>()
+
+// How long git:clone-cancel waits for the cancelled clone to finish cleaning
+// up before it replies anyway. The clean-up waits up to CLONE_KILL_WAIT for
+// git to exit, then removes the checkout.
+const CLONE_CANCEL_REPLY_WAIT_MS = 10_000
+// How long a cancelled git step may take to exit before the clone moves on
+// without it: just past the SIGKILL that follows the SIGTERM after 5 seconds
+// (see ChildProcessSpawner's kill).
+const CLONE_KILL_WAIT = "6 seconds"
 
 /**
  * Run a clone so that git:clone-cancel can stop it. A cancelled clone resolves
@@ -258,14 +272,17 @@ async function runCancellableClone<A>(
   run: (signal: AbortSignal) => Promise<A>,
 ): Promise<A | { status: "cancelled" }> {
   const controller = new AbortController()
-  if (cloneId) activeClones.set(cloneId, controller)
+  let settle = () => {}
+  const clone: ActiveClone = { controller, settled: new Promise((resolve) => (settle = resolve)) }
+  if (cloneId) activeClones.set(cloneId, clone)
   try {
     return await run(controller.signal)
   } catch (err) {
     if (controller.signal.aborted) return { status: "cancelled" }
     throw err
   } finally {
-    if (cloneId && activeClones.get(cloneId) === controller) activeClones.delete(cloneId)
+    settle()
+    if (cloneId && activeClones.get(cloneId) === clone) activeClones.delete(cloneId)
   }
 }
 
@@ -487,9 +504,27 @@ export function registerGitHandlers(): void {
 
           // Whether this clone creates the destination. The check above returned
           // or deleted an existing one, so it only exists here if something
-          // made it since; a cancel then leaves it alone (see the finalizer
-          // below the steps).
+          // made it since, and a cancel then leaves it alone.
           const createsDestination = !existsSync(paths.absolutePath)
+
+          // A cancelled clone takes its checkout with it, from the first git
+          // step until the result is returned (a cancel during the lookups
+          // below would otherwise leave a full checkout behind). Only a
+          // directory this clone created is removed, never one that was there
+          // before. This scope closes after each step's own scope, and a
+          // step's release waits for the git it killed to exit, so no git is
+          // still writing into the directory when it goes.
+          if (createsDestination) {
+            yield* Effect.addFinalizer((exit) =>
+              Exit.isInterrupted(exit)
+                ? Effect.tryPromise(() => rm(paths.absolutePath, { recursive: true, force: true })).pipe(
+                    Effect.catchAll((e) =>
+                      Effect.sync(() => log.warn("failed to remove cancelled clone:", e)),
+                    ),
+                  )
+                : Effect.void,
+            )
+          }
 
           for (const step of cloneSteps) {
             // A repository with no commits has nothing to check out: skip the
@@ -509,13 +544,19 @@ export function registerGitHandlers(): void {
               log.debug("spawning git process...")
               // git:clone-cancel interrupts this fiber. Kill git when that happens,
               // or it keeps writing into the destination after the renderer has
-              // moved on (and races a "Delete & Clone" of the same directory). On
-              // POSIX a terminated git clone cleans up its partial clone itself; on
-              // Windows, or for a sparse clone stopped in a later step, the
-              // directory is left for "Delete & Clone".
+              // moved on (and races a "Delete & Clone" of the same directory).
+              // Then wait for it to exit, up to CLONE_KILL_WAIT, so the finalizer
+              // above removes the directory only once git is done with it.
               const proc = yield* Effect.acquireRelease(
                 spawner.spawn("git", step.args, { env }),
-                (spawned, exit) => (Exit.isInterrupted(exit) ? spawned.kill : Effect.void),
+                (spawned, exit) =>
+                  Exit.isInterrupted(exit)
+                    ? spawned.kill.pipe(
+                        Effect.zipRight(
+                          spawned.exitCode.pipe(Effect.timeout(CLONE_KILL_WAIT), Effect.ignore),
+                        ),
+                      )
+                    : Effect.void,
               )
 
               log.debug("draining output stream...")
@@ -564,23 +605,6 @@ export function registerGitHandlers(): void {
                 )
               }
             }))
-          }
-
-          // The checkout is complete, but the clone isn't until the result is
-          // returned: a cancel during the lookups below would otherwise leave
-          // a full checkout behind. Remove it then, but only a directory this
-          // clone created (never one that was there before), and only once
-          // every git step has exited, so no git process is still writing.
-          if (createsDestination) {
-            yield* Effect.addFinalizer((exit) =>
-              Exit.isInterrupted(exit)
-                ? Effect.tryPromise(() => rm(paths.absolutePath, { recursive: true, force: true })).pipe(
-                    Effect.catchAll((e) =>
-                      Effect.sync(() => log.warn("failed to remove cancelled clone:", e)),
-                    ),
-                  )
-                : Effect.void,
-            )
           }
 
           event.sender.send("git:clone-progress", {
@@ -664,7 +688,19 @@ export function registerGitHandlers(): void {
 
   ipcMain.handle("git:clone-cancel", async (_event, params: { cloneId: string }) => {
     // A clone that already finished (or never started) has nothing to stop.
-    activeClones.get(params.cloneId)?.abort()
+    const clone = activeClones.get(params.cloneId)
+    if (!clone) return { ok: true as const }
+    clone.controller.abort()
+    // Reply once the clone has stopped: git has exited and the checkout it
+    // made is removed, so the renderer, which re-enables Clone and Delete &
+    // Clone on this reply, never starts one while that is still going on. The
+    // wait is bounded, so a clean-up that hangs can't hold the block forever.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      clone.settled,
+      new Promise<void>((resolve) => (timer = setTimeout(resolve, CLONE_CANCEL_REPLY_WAIT_MS))),
+    ])
+    clearTimeout(timer)
     return { ok: true as const }
   })
 
