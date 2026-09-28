@@ -49,6 +49,8 @@ describe("isRemoteSource", () => {
 // `user:password@host` literal for secret scanners to flag.
 const PASSWORD = ["hunter", "22"].join("")
 const withUserinfo = (scheme: string, userinfo: string, rest: string) => `${scheme}://${userinfo}@${rest}`
+// A stand-in for go-getter's `?sshkey=`, a base64 private key.
+const SSH_KEY = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
 
 describe("redactSourceCredentials", () => {
   it.each([
@@ -99,6 +101,21 @@ describe("redactSourceCredentials", () => {
     const source = "https://evil.example\\@github.com/o/tree/main/x"
     expect(parse(source).host).toBe("evil.example")
     expect(redactSourceCredentials(source)).toBe(source)
+  })
+
+  it.each([
+    [`git::ssh://git@host/o/r.git//x?ref=main&sshkey=${SSH_KEY}`, "git::ssh://git@host/o/r.git//x?ref=main&sshkey=[REDACTED]"],
+    [`git@host:o/r.git?sshkey=${SSH_KEY}&ref=main`, "git@host:o/r.git?sshkey=[REDACTED]&ref=main"],
+    [`github.com/o/r//x?sshkey=${SSH_KEY}#readme`, "github.com/o/r//x?sshkey=[REDACTED]#readme"],
+    // go-getter decodes the parameter's name.
+    [`git::ssh://git@host/o/r.git?ssh%6Bey=${SSH_KEY}`, "git::ssh://git@host/o/r.git?ssh%6Bey=[REDACTED]"],
+    [withUserinfo("git::ssh", `git:${PASSWORD}`, `host/o/r.git?sshkey=${SSH_KEY}`), "git::ssh://git@host/o/r.git?sshkey=[REDACTED]"],
+  ])("redacts go-getter's sshkey (a private key): %s", (input, expected) => {
+    expect(redactSourceCredentials(input)).toBe(expected)
+  })
+
+  it("leaves the other query parameters alone", () => {
+    expect(redactSourceCredentials("github.com/o/r//x?ref=main&depth=1")).toBe("github.com/o/r//x?ref=main&depth=1")
   })
 })
 
@@ -347,6 +364,13 @@ describe("parseRemoteSource", () => {
       expect(result.ref).toBe("main")
     })
 
+    it("ignores go-getter's sshkey parameter", () => {
+      const result = parse(`git::ssh://git@github.com/owner/repo.git//modules/vpc?ref=main&sshkey=${SSH_KEY}`)
+      expect(result.cloneURL).toBe("ssh://git@github.com/owner/repo.git")
+      expect(result.path).toBe("modules/vpc")
+      expect(result.ref).toBe("main")
+    })
+
     it.each([
       "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0+build.1",
       "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0%2Bbuild.1",
@@ -473,6 +497,17 @@ describe("parseRemoteSource", () => {
     it("rejects a shorthand with no repo", () => {
       expect(parseError("github.com/owner")).toContain("github.com/<owner>/<repo>")
     })
+
+    it.each([`github.com/owner?sshkey=${SSH_KEY}`, `git::https://git.example.com/?sshkey=${SSH_KEY}`])(
+      "keeps an sshkey out of the error's url field and message: %s",
+      (input) => {
+        const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
+        if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
+        expect(result.left.url).toBe(redactSourceCredentials(input))
+        expect(result.left.url).toContain("sshkey=[REDACTED]")
+        expect(result.left.message).not.toContain(SSH_KEY)
+      },
+    )
 
     it("rejects a git transport other than https, http or ssh", () => {
       expect(parseError("git::file:///srv/repo.git//x")).toContain("unsupported git transport")

@@ -596,6 +596,14 @@ describe("openRemoteRunbook (real git)", () => {
     expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
   }, 30_000)
 
+  it("reports the source without go-getter's sshkey (a private key)", async () => {
+    const sshKey = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
+    const result = await open(`git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=${sshKey}`)
+
+    expect(result.remoteSource).toBe("git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=[REDACTED]")
+    expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
+  }, 30_000)
+
   it("the ref lookup and the clone both run the user's core.sshCommand, in batch mode", async () => {
     // A url.<ssh>.insteadOf rewrite sends even an https browser URL over ssh,
     // so the ls-remote must wrap the same ssh client as the clone.

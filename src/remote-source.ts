@@ -86,11 +86,15 @@ const URL_USERINFO = /^(([a-z][a-z0-9+.-]*):\/\/)([^/]*)@/i
  */
 const SCHEMELESS_USERINFO = /^(?:[^:/@]+:[^/]*@|[^:/@]+@(?![^/]*:))/
 
+/** A `name=value` query parameter, for the sshkey scrub. */
+const QUERY_PARAM = /([?&])([^?&#=]*)=([^&#]*)/g
+
 /**
  * `source` with any credentials in it removed, for logs and display. A URL
  * or a scheme-less `user:password@host` loses its whole userinfo (a token
  * can pose as the username); an ssh:// URL keeps its user and loses only a
- * password.
+ * password. go-getter's `sshkey` parameter, a base64 private key, keeps its
+ * name and loses its value (splitGoGetter ignores it).
  *
  * The userinfo runs to the last `@` before the path, as it does for the URL
  * parser that finds the host, so a password holding an `@` goes whole. The
@@ -102,13 +106,28 @@ export function redactSourceCredentials(source: string): string {
   const trimmed = source.trim()
   const prefix = /^git::/i.test(trimmed) ? trimmed.slice(0, "git::".length) : ""
   const address = trimmed.slice(prefix.length)
-  if (SPECIAL_SCHEME.test(address)) return prefix + address.replace(SPECIAL_USERINFO, "$1")
-  const redacted = address
-    .replace(URL_USERINFO, (_match, lead: string, scheme: string, userinfo: string) =>
-      scheme.toLowerCase() === "ssh" ? `${lead}${userinfo.split(":")[0]}@` : lead,
+  const redacted = SPECIAL_SCHEME.test(address)
+    ? address.replace(SPECIAL_USERINFO, "$1")
+    : address
+        .replace(URL_USERINFO, (_match, lead: string, scheme: string, userinfo: string) =>
+          scheme.toLowerCase() === "ssh" ? `${lead}${userinfo.split(":")[0]}@` : lead,
+        )
+        .replace(SCHEMELESS_USERINFO, "")
+  return (
+    prefix +
+    redacted.replace(QUERY_PARAM, (param, separator: string, name: string) =>
+      isSshKeyParam(name) ? `${separator}${name}=[REDACTED]` : param,
     )
-    .replace(SCHEMELESS_USERINFO, "")
-  return prefix + redacted
+  )
+}
+
+/** Whether a query parameter's name is `sshkey`, decoded as go-getter decodes it. */
+function isSshKeyParam(name: string): boolean {
+  try {
+    return decodeURIComponent(name.replace(/\+/g, " ")).toLowerCase() === "sshkey"
+  } catch {
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +266,7 @@ function parseShorthand(input: string, opts: ParseRemoteSourceOptions): ParsedRe
   const host = hostPart.toLowerCase()
   const segments = rest.filter(Boolean)
   if (segments.length < 2) {
-    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${input}`)
+    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${redactSourceCredentials(input)}`)
   }
   if (host === "github.com") {
     // go-getter's GitHub detector: segments past owner/repo are the path.
@@ -339,8 +358,9 @@ function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: strin
  * Split a go-getter source into its address, the `//` subdirectory, and the
  * `?ref=` query parameter — go-getter's SourceDirSubdir. The `://` of a
  * scheme is skipped so it never reads as the separator. Other query
- * parameters (`depth`, `sshkey`) don't apply here and are ignored, and a
- * `#fragment` is page state, not part of the source.
+ * parameters (`depth`, `sshkey`) don't apply here and are ignored (an echo
+ * of the source goes through redactSourceCredentials, which scrubs the
+ * sshkey), and a `#fragment` is page state, not part of the source.
  *
  * A `+` in the query stays a `+`: URLSearchParams (like go-getter) reads it
  * as a space, which no git ref can contain, while a tag can hold one (semver

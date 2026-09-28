@@ -178,6 +178,18 @@ describe("openRemoteRunbookInWindow", () => {
     expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
   })
 
+  it("redacts go-getter's sshkey (a private key) from the error it shows", async () => {
+    const sshKey = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
+    const { win } = makeFakeWindow(false)
+    const { deps, errors } = makeDeps(async () => {
+      throw new Error("network unreachable")
+    })
+
+    await openRemoteRunbookInWindow(win, `git::ssh://git@git.example.com/o/r.git//rb?sshkey=${sshKey}`, deps)
+
+    expect(errors[0].detail).toBe("git::ssh://git@git.example.com/o/r.git//rb?sshkey=[REDACTED]\n\nnetwork unreachable")
+  })
+
   it("waits for a cold launch's window to be shown before showing the error", async () => {
     // A clone can fail (e.g. an unsupported host) before the window, created
     // hidden, is shown at ready-to-show.
