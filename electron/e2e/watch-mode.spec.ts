@@ -91,6 +91,37 @@ test.describe("Watch mode", () => {
     }
   })
 
+  test("saving runbook.mdx unchanged after a script edit shows and runs the edited script", async () => {
+    // A path-based block: the runbook's own text never changes, so the MDX
+    // isn't recompiled and the block stays mounted across the reload.
+    const scriptPath = path.join(path.dirname(runbookPath), "greet.sh")
+    const content = `# Before edit\n\n<Command id="greet" path="greet.sh" />\n`
+    fs.writeFileSync(scriptPath, "#!/bin/bash\necho script-before\n")
+    fs.writeFileSync(runbookPath, content)
+    const { app, page } = await launch(["--watch"])
+    try {
+      const block = page.locator('[data-testid="greet"]')
+      // The metadata row's "View Source Code" opens the collapsed source.
+      await block.getByRole("button", { name: "View Source Code" }).first().click()
+      await expect(block.getByText("script-before")).toBeVisible()
+
+      fs.writeFileSync(scriptPath, "#!/bin/bash\necho script-after\n")
+      // Save runbook.mdx with the same bytes; save again if the first save
+      // landed before the watcher was ready.
+      await expect(async () => {
+        fs.writeFileSync(runbookPath, content)
+        await expect(block.getByText("script-after")).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 15_000 })
+      await expect(block.getByText("Script changed")).toHaveCount(0)
+
+      await runGreet(page)
+      // The run's log output, not the source view
+      await expect(block.locator(".terminal-text", { hasText: /^script-after$/ })).toBeVisible()
+    } finally {
+      await app.close()
+    }
+  })
+
   test("--disable-live-file-reload reloads the view but keeps running the command approved at open", async () => {
     const { app, page } = await launch(["--watch", "--disable-live-file-reload"])
     try {
