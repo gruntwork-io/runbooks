@@ -19,7 +19,7 @@ export interface UseIpcReturn<T> {
   error: AppError | null
   debouncedRequest?: (newParams?: unknown) => void
   refetch: () => void
-  silentRefetch: () => void
+  silentRefetch: (extraParams?: Record<string, unknown>) => void
 }
 
 /**
@@ -118,10 +118,14 @@ export function useIpc<T>(
     performInvoke(paramsRef.current)
   }, [performInvoke])
 
-  // Silent refetch - re-invokes without showing loading state
-  const silentRefetch = useCallback(() => {
+  // Silent refetch - re-invokes without showing loading state. `extraParams`
+  // are added to the current params for this one request.
+  const silentRefetch = useCallback((extraParams?: Record<string, unknown>) => {
     setError(null)
-    performInvoke(paramsRef.current)
+    const current = paramsRef.current
+    performInvoke(
+      extraParams && current && typeof current === 'object' ? { ...current, ...extraParams } : current
+    )
   }, [performInvoke])
 
   useEffect(() => {

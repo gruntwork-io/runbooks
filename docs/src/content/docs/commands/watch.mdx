@@ -74,3 +74,4 @@ Then in your editor:
 - Uses IPC (inter-process communication) events to notify the renderer process of file changes
 - When the file changes, the main process sends a `watch:file-change` event via IPC
 - The renderer receives the event and reloads the runbook, which re-reads the file and rebuilds the executable registry
+- A reload keeps the session: environment variables that blocks exported, and the directory a block moved to with `cd`, stay as they were. Re-opening the runbook starts its blocks from the runbook's directory again.

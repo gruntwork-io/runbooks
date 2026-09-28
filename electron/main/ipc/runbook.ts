@@ -54,7 +54,7 @@ function describeRunbookOpenError(inputPath: string): string {
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
+    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }) => {
       // An empty path would resolve against the app's cwd below.
       if (!params?.path) {
         throw new Error("runbook path is required")
@@ -132,7 +132,10 @@ export function registerRunbookHandlers(): void {
         // kept as this runbook's frozen registry below) if building this
         // runbook's registry fails.
         setExecutableRegistry(null)
-      } else {
+      } else if (params.reload !== "watch") {
+        // Re-opening the runbook starts its blocks from its directory again.
+        // A watch-mode reload keeps the session as it is, env vars included:
+        // saving runbook.mdx must not undo a block's `cd`.
         sessionManager.setWorkingDir(sessionDir)
       }
 

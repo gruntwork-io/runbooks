@@ -35,8 +35,9 @@ const runtimeModule = await import("./runtime.ts")
 const { setRunbookConfig, setExecutableRegistry, sessionManager } = runtimeModule
 
 type RunbookGetResult = { path: string; isWatchMode?: boolean }
-const getRunbook = (runbookPath: string) =>
-  handlers.get("runbook:get")!(undefined, { path: runbookPath }) as Promise<RunbookGetResult>
+/** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
+const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
+  handlers.get("runbook:get")!(undefined, { path: runbookPath, ...extra }) as Promise<RunbookGetResult>
 
 /** The runbook paths of the watch:file-change events sent since `from`. */
 const reloadsSince = (from: number) =>
@@ -171,6 +172,40 @@ describe("runbook IPC handlers", () => {
       await new Promise((resolve) => setTimeout(resolve, 1_000))
       expect(reloadsSince(closed)).toEqual([])
     }, WATCH_TEST_TIMEOUT_MS)
+
+    describe("session working dir", () => {
+      const workingDir = async () =>
+        (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir
+
+      /** What a block that ran `cd <dir>` leaves in the session. */
+      const cdInSession = (from: string, to: string) =>
+        runtimeModule.runtime.runPromise(
+          sessionManager.applyCapturedEnv({
+            before: {},
+            after: {},
+            startWorkDir: from,
+            pwd: to,
+            generation: sessionManager.getGeneration(),
+          }),
+        )
+
+      it("keeps a block's cd across a watch-mode reload, and resets it on a re-open", async () => {
+        await getRunbook(dirA)
+        const sub = path.join(dirA, "sub")
+        fs.mkdirSync(sub)
+        await cdInSession(dirA, sub)
+
+        await getRunbook(dirA, { reload: "watch" })
+        expect(await workingDir()).toBe(sub)
+        // resetSession goes back to where the session started, not the cd.
+        await runtimeModule.runtime.runPromise(sessionManager.resetSession())
+        expect(await workingDir()).toBe(dirA)
+
+        await cdInSession(dirA, sub)
+        await getRunbook(dirA)
+        expect(await workingDir()).toBe(dirA)
+      })
+    })
 
     describe("executable registry", () => {
       const greetHash = () =>

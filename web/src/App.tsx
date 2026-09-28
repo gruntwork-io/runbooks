@@ -94,15 +94,16 @@ function App() {
   // process reports that the runbook it watches changed. A failed open leaves
   // the previous runbook on screen, and main keeps watching it, while the last
   // request is the failed one: re-sending that would raise its error again on
-  // every save, so reload the displayed runbook instead.
-  const { data: displayedRunbook, error: runbookError, silentRefetch, openRunbook } = getRunbookResult
+  // every save, so reload the displayed runbook instead. Either way the reload
+  // keeps the session's working dir, unlike re-opening the runbook.
+  const { data: displayedRunbook, error: runbookError, reloadForWatch } = getRunbookResult
   const handleRunbookFileChange = useCallback((changedPath: string) => {
     if (runbookError && displayedRunbook?.path === changedPath) {
-      openRunbook(displayedRunbook.path, displayedRunbook.remoteSource)
+      reloadForWatch(displayedRunbook.path, displayedRunbook.remoteSource)
     } else {
-      silentRefetch()
+      reloadForWatch()
     }
-  }, [runbookError, displayedRunbook, openRunbook, silentRefetch])
+  }, [runbookError, displayedRunbook, reloadForWatch])
   useIpcWatchMode(handleRunbookFileChange, displayedRunbook?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
