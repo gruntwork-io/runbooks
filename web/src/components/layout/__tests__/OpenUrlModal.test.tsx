@@ -51,7 +51,7 @@ function renderModal() {
 }
 
 function submit(url: string) {
-  fireEvent.change(screen.getByPlaceholderText(/github\.com\/owner/), { target: { value: url } })
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: url } })
   fireEvent.click(screen.getByRole('button', { name: 'Open' }))
 }
 
@@ -103,7 +103,7 @@ describe('OpenUrlModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reopen' }))
     expect(await screen.findByText('Open from URL')).toBeInTheDocument()
     expect(screen.queryByText('repository not found')).not.toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/github\.com\/owner/)).toHaveValue('')
+    expect(screen.getByRole('textbox')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
   })
 

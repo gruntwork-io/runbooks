@@ -16,3 +16,16 @@ if (!window.matchMedia) {
     dispatchEvent: vi.fn(),
   }))
 }
+
+// jsdom implements neither ResizeObserver nor scrollIntoView. cmdk (the command
+// palette behind the region pickers) calls both on mount, so give it no-ops.
+if (!window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {}
+}

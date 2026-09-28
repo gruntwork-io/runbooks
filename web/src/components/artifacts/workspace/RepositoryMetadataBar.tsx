@@ -6,8 +6,8 @@
  * - worktree switcher (when 2+ worktrees)
  */
 
-import { cn } from '@/lib/utils'
-import { GitHubIcon } from '@/components/icons/GitHubIcon'
+import { FolderGit2 } from 'lucide-react'
+import { basename, cn } from '@/lib/utils'
 import { WorktreeSwitcherRow } from './rows/WorktreeSwitcherRow'
 import { WorktreeStaticRow } from './rows/WorktreeStaticRow'
 import { LocalPathRow } from './rows/LocalPathRow'
@@ -43,7 +43,7 @@ export const RepositoryMetadataBar = ({
       return (
         <div className={cn("py-2.5 text-sm", className)}>
           <div className="flex items-center gap-2 text-muted-foreground">
-            <GitHubIcon className="w-4 h-4" />
+            <FolderGit2 className="w-4 h-4" />
             <span className="italic">No repository connected</span>
           </div>
         </div>
@@ -80,7 +80,7 @@ export const RepositoryMetadataBar = ({
       {/* Row 2: Local path */}
       {localPath && (
         <LocalPathRow
-          displayText={`./${localPath.split('/').pop()}`}
+          displayText={`./${basename(localPath)}`}
           copyPath={localPath}
           className={(hasSwitcher || gitInfo) ? "mt-1.5" : undefined}
         />

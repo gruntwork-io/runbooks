@@ -29,9 +29,7 @@ import { withVcs } from "./vcs-tristate.ts"
 function registerVcsStatusHandler(): void {
   ipcMain.handle("vcs:cli-status", () => withVcs((vcs) => vcs.cliStatus()))
   ipcMain.handle("vcs:invalidate-cache", async () => {
-    await withVcs((vcs) =>
-      Effect.zipRight(vcs.invalidateCache(), vcs.clearTransportDegraded()),
-    )
+    await withVcs((vcs) => vcs.invalidateCache())
     return { ok: true as const }
   })
   // The ONLY consented write Runbooks ever offers: explicit button

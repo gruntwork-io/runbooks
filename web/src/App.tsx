@@ -17,6 +17,7 @@ import { useGeneratedFiles } from './hooks/useGeneratedFiles'
 import { useGitWorkTree } from './contexts/useGitWorkTree'
 import { useIpcWatchMode } from './hooks/useIpcWatchMode'
 import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
+import { useWheelScrollFallback } from './hooks/useWheelScrollFallback'
 import { useErrorReporting } from './contexts/useErrorReporting'
 import { useLogs } from './contexts/useLogs'
 import { useApi } from './contexts/ApiContext'
@@ -53,6 +54,8 @@ function App() {
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
   const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null);
+  const runbookScrollRef = useRef<HTMLDivElement>(null)
+  const handleWheel = useWheelScrollFallback(runbookScrollRef)
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke('native:open-runbook-dialog')
@@ -248,7 +251,9 @@ function App() {
   return (
     <>
       <ClearLogsOnRunbookChange runbookPath={getRunbookResult.data?.path} />
-      <div className="flex flex-col">
+      {/* The runbook scrolls inside its own box, so a wheel gesture over the
+          gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
+      <div className="flex flex-col" onWheel={handleWheel}>
         <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
         
         {/* Failed-open and Error Summary banners, stacked in one fixed
@@ -361,6 +366,7 @@ function App() {
                       banner, while same-path reloads keep them. */}
                   <MDXContainer
                     key={getRunbookResult.data?.path}
+                    ref={runbookScrollRef}
                     content={content}
                     runbookPath={runbookPath}
                     remoteSource={getRunbookResult.data?.remoteSource}

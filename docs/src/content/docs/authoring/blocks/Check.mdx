@@ -43,7 +43,7 @@ Check blocks and [Command](/authoring/blocks/command/) blocks share many feature
 - `failMessage` (string) - Message shown when check fails (default: "Failed"). Supports inline markdown.
 - `runningMessage` (string) - Message shown while running (default: "Checking..."). Supports inline markdown.
 - `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
-- `timeoutMs` (number) - Maximum time, in milliseconds, the check script is allowed to run before it is killed and the block is marked as failed. Defaults to `300000` (5 minutes). Use this for checks that legitimately take longer than the default — for example, `timeoutMs={1800000}` for a 30-minute probe.
+- `timeoutMs` (number) - Maximum time, in milliseconds, the check script is allowed to run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Lower it so a hung check fails sooner — for example, `timeoutMs={120000}` for a 2-minute probe — or raise it for checks that legitimately run longer.
 
 ### Inline content
 
@@ -204,7 +204,7 @@ variables:
 
 <Check 
     id="check-region" 
-    command="aws ec2 describe-availability-zones --region {{ .inputs.AwsRegion }}"
+    command='aws ec2 describe-availability-zones --region "{{ .inputs.AwsRegion }}"'
     inputsId="region-config"
     title="Check AWS Region Accessibility"
     successMessage="Region {{ .inputs.AwsRegion }} is accessible!"
@@ -261,6 +261,20 @@ variables:
 ```
 
 In this example, the check has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
+
+#### How Values Are Inserted
+
+Variable values are inserted into the script verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
+
+:::caution
+Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run: double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, have the upstream block `export` an environment variable and read that instead.
+:::
+
+If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
+
+:::note
+[Runbook tests](/authoring/testing/) use a simpler template renderer that doesn't handle `eq` comparisons or the raw-string form yet. It leaves `{{ if eq ... }}` unrendered and reports `{{.Names}}` as an undefined variable, so a script that uses either works in the app but not under test.
+:::
 
 ### Execution Context
 
