@@ -14,8 +14,8 @@ default:
 # shadow the root tree for imports from that directory, silently giving stale
 # versions or two copies of react/effect. Dot-directories (.vite, .tmp) are tool
 # caches, not packages, and are allowed. The check lives in
-# scripts/no-nested-node-modules.ts, which electron.vite.config.ts and
-# web/vitest.config.ts also call.
+# scripts/no-nested-node-modules.ts, which electron.vite.config.ts,
+# web/vitest.config.ts and web/playwright.config.ts also call.
 _no-nested-node-modules:
     @mise x bun -- bun scripts/no-nested-node-modules.ts
 

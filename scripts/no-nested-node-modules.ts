@@ -7,8 +7,9 @@
 // two copies of react/effect. Entries starting with "." (.vite, .vite-temp,
 // .tmp) are tool caches, not packages, so they are allowed.
 //
-// Called from electron.vite.config.ts and web/vitest.config.ts, so `bun run
-// dev|build|test:web` and a bare `bunx electron-vite`/`bunx vitest` are guarded.
+// Called from electron.vite.config.ts, web/vitest.config.ts and
+// web/playwright.config.ts, so `bun run dev|build|test:web|test:e2e` and a bare
+// `bunx electron-vite`/`bunx vitest`/`bunx playwright` on web/ are guarded.
 // Run directly (`bun scripts/no-nested-node-modules.ts`) by the justfile's
 // _no-nested-node-modules recipe and by the package.json scripts that start
 // tsc or `bun test`, which have no config file to hook.

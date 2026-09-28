@@ -88,7 +88,7 @@ The app has one `package.json` and one `bun.lock`, both at the repo root. They c
 If your checkout has a `web/node_modules` or `cli/node_modules` with packages in it (left over from a `bun install` run in that directory back when it had its own `package.json`), delete it. Otherwise it shadows the root packages for imports from that directory. These commands stop with an error until it is gone:
 
 - `just dev`, `just dev-runbook`, `just build`, `just typecheck`, `just compile-test-cli`, `just test-backend`, `just test-web` and `just test-e2e-run`, and every recipe that depends on one of them, such as `just package` and `just test`.
-- `bun run dev`, `bun run build`, `bun run typecheck`, `bun run test`, `bun run test:backend` and `bun run test:web`. Running `electron-vite` directly, or `vitest` on the web tests, is covered too, because their config files (`electron.vite.config.ts` and `web/vitest.config.ts`) run the check.
+- `bun run dev`, `bun run build`, `bun run typecheck`, `bun run test`, `bun run test:backend`, `bun run test:web` and `bun run test:e2e`. Running `electron-vite` directly, or `vitest` or Playwright on the tests in `web/`, is covered too, because their config files (`electron.vite.config.ts`, `web/vitest.config.ts` and `web/playwright.config.ts`) run the check.
 
 Running `tsc`, `bun test` or `bun cli/index.ts` directly skips the check. `bun scripts/no-nested-node-modules.ts` runs it on its own.
 
