@@ -1,6 +1,6 @@
 /**
  * Pure helpers for resolving a runbook command into a flattened, copy-pasteable
- * instruction (instruction mode). See plans/non-interactive-mode-spec.md §5/§6.5.
+ * instruction (instruction mode).
  *
  * The mode runs nothing, so a command's `{{ .outputs.<id>.<key> }}` references
  * can't be computed from app state. Instead we auto-detect them, prompt the user
@@ -16,8 +16,11 @@ import {
   splitDependencies,
 } from '@/lib/extractTemplateDependencies'
 import {
+  extractInputValueReferences,
+  resolveInputPath,
   resolveTemplateReferences,
   type TemplateContext,
+  type TemplateInputs,
   type TemplateOutputs,
 } from '@/lib/templateUtils'
 import { normalizeBlockId } from '@/lib/utils'
@@ -70,9 +73,9 @@ export function detectManualFields(
 
 /**
  * Build the `outputs` namespace from the user's manual entries. When a field is
- * still empty we substitute a `<key>` placeholder so the displayed command never
- * contains a raw `{{ … }}` (the hard rule) yet still reads as a clear "fill me
- * in" slot. Each value is stored under both the normalized and original block id
+ * still empty we substitute a `<key>` placeholder so the output reference never
+ * shows as a raw `{{ … }}` yet still reads as a clear "fill me in" slot. Each
+ * value is stored under both the normalized and original block id
  * so the resolver finds it regardless of which form the command used.
  */
 export function buildManualOutputs(
@@ -98,6 +101,64 @@ export function buildManualOutputs(
   }
 
   return outputs
+}
+
+/**
+ * The inputs counterpart of buildManualOutputs: give every input the commands
+ * use as a plain value (`{{ .inputs.x }}`, optionally piped) that has no value
+ * at all (absent or `undefined`, as an untouched field with no default is) a
+ * `<name>` placeholder. The engine fails on such a missing key and renders a
+ * `[template error: …]` in place of the whole command, so filling the gap first
+ * keeps the rest of the command intact and reads as a clear "fill me in" slot.
+ * A dotted reference (`{{ .inputs.tags.env }}`) gets a nested placeholder named
+ * after its last segment (`<env>`). The given inputs are not mutated.
+ *
+ * Any other value, including `''` and `null`, is left as it is. The engine
+ * renders it, and a placeholder would change what the command's logic decides:
+ * `{{ if .inputs.var_file }}` would take the branch and `| default "x"` would
+ * not apply, so the command would differ from what runs for that value.
+ *
+ * An input referenced only inside template logic (`{{ if .inputs.x }}`, a
+ * function argument) is left unset: a placeholder there would be evaluated as
+ * a real value (a truthy string) and silently pick a branch the user never
+ * chose. Unset, it makes the engine fail, and the client-side fallback shows
+ * that logic as written, with a note. An input with no value that is also used
+ * as a plain value does get the placeholder (the engine takes one value per
+ * input, and can't render the command without one), so the command shows the
+ * visible `<name>` slot.
+ */
+export function buildInputPlaceholders(
+  commands: string[],
+  inputs: TemplateInputs,
+): TemplateInputs {
+  const referenced = [...new Set(commands.flatMap(extractInputValueReferences))]
+  const missing = referenced.filter((name) => resolveInputPath(inputs, name) === undefined)
+  if (missing.length === 0) return inputs
+
+  const filled: TemplateInputs = { ...inputs }
+  for (const name of missing) {
+    const segments = name.split('.')
+    const key = segments.pop() as string
+    let target: Record<string, unknown> | null = filled
+    for (const segment of segments) {
+      const current: unknown = Object.hasOwn(target, segment) ? target[segment] : undefined
+      // Don't clobber a set value (a scalar, or null) that the reference
+      // treats as an object.
+      if (
+        current !== undefined &&
+        (current === null || typeof current !== 'object' || Array.isArray(current))
+      ) {
+        target = null
+        break
+      }
+      const copy = { ...(current as Record<string, unknown> | undefined) }
+      target[segment] = copy
+      target = copy
+    }
+    if (target) target[key] = `<${key}>`
+  }
+
+  return filled
 }
 
 /**
@@ -130,12 +191,15 @@ export function fieldsNeedingPrompt(
 /**
  * Merge form inputs and manually-supplied output values into a single template
  * context (§5 step 2). Existing context outputs are kept (e.g. a DirPicker's
- * published path), with the prompted manual values layered on top.
+ * published path), with the prompted manual values layered on top. Inputs the
+ * `commands` use as plain values but no form has set get a `<name>`
+ * placeholder (see buildInputPlaceholders).
  */
 export function buildMergedContext(
   baseContext: TemplateContext,
   fields: ManualFieldSpec[],
   values: Record<string, string>,
+  commands: string[],
 ): TemplateContext {
   const manualOutputs = buildManualOutputs(fields, values)
 
@@ -147,7 +211,7 @@ export function buildMergedContext(
   }
 
   return {
-    inputs: baseContext.inputs,
+    inputs: buildInputPlaceholders(commands, baseContext.inputs),
     outputs: mergedOutputs,
   }
 }
@@ -155,8 +219,10 @@ export function buildMergedContext(
 /**
  * Client-side fallback resolver (§5 step 3 fallback). Lower fidelity than the Go
  * engine — it does no conditionals/functions — but it fills `{{ .inputs.* }}` /
- * `{{ .outputs.*.* }}` references and is the backstop guaranteeing no raw `{{ }}`
- * survives in the displayed command.
+ * `{{ .outputs.*.* }}` value references. Given a buildMergedContext context,
+ * every such reference resolves to a value or a `<name>` placeholder; template
+ * logic (`{{ if … }}`, functions) is left as written, since only the engine can
+ * evaluate it.
  */
 export function resolveCommandClientSide(
   command: string,

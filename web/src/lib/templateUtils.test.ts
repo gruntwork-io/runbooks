@@ -3,6 +3,7 @@ import {
   buildRenderVariables,
   flattenBlockOutputs,
   computeUnmetInputDependencies,
+  extractInputValueReferences,
   resolveTemplateReferences,
 } from './templateUtils'
 import type { TemplateContext } from './templateUtils'
@@ -95,6 +96,15 @@ describe('computeUnmetInputDependencies', () => {
       computeUnmetInputDependencies(['count', 'enabled'], { count: 0, enabled: false })
     ).toEqual([])
   })
+
+  it('should treat inherited or built-in members on a nested path as unmet', () => {
+    expect(
+      computeUnmetInputDependencies(
+        ['tags.constructor', 'list.length', 'tags.env'],
+        { tags: { env: 'prod' }, list: ['a'] }
+      )
+    ).toEqual(['tags.constructor', 'list.length'])
+  })
 })
 
 describe('resolveTemplateReferences', () => {
@@ -149,6 +159,36 @@ describe('resolveTemplateReferences', () => {
     expect(resolveTemplateReferences('{{ .inputs.region | upper }}', ctx)).toBe('us-west-2')
   })
 
+  it('should resolve dotted input paths through nested objects', () => {
+    const nestedCtx: TemplateContext = {
+      inputs: { tags: { env: 'prod' }, _module: { source: 'git::x' } },
+      outputs: {},
+    }
+    expect(resolveTemplateReferences('{{ .inputs.tags.env }}', nestedCtx)).toBe('prod')
+    expect(resolveTemplateReferences('{{ .inputs._module.source }}', nestedCtx)).toBe('git::x')
+    expect(resolveTemplateReferences('{{ .inputs.tags.team }}', nestedCtx)).toBe('`{{ .inputs.tags.team }}`')
+  })
+
+  it('should not resolve inherited or built-in members as input values', () => {
+    // The engine looks up map keys: an object's prototype members and an
+    // array's length are not keys, so these stay unresolved.
+    const nestedCtx: TemplateContext = {
+      inputs: { tags: { env: 'prod' }, list: ['a', 'b'] },
+      outputs: {},
+    }
+    for (const ref of [
+      '{{ .inputs.tags.constructor }}',
+      '{{ .inputs.tags.toString }}',
+      '{{ .inputs.list.length }}',
+      '{{ .inputs.constructor }}',
+    ]) {
+      expect(resolveTemplateReferences(ref, nestedCtx)).toBe(`\`${ref}\``)
+    }
+    // An own key with such a name still resolves.
+    const ownCtx: TemplateContext = { inputs: { tags: { constructor: 'mine' } }, outputs: {} }
+    expect(resolveTemplateReferences('{{ .inputs.tags.constructor }}', ownCtx)).toBe('mine')
+  })
+
   it('should wrap missing input values in backticks for inline-code rendering', () => {
     expect(resolveTemplateReferences('{{ .inputs.nonexistent }}', ctx)).toBe('`{{ .inputs.nonexistent }}`')
   })
@@ -193,6 +233,31 @@ describe('resolveTemplateReferences', () => {
       outputs: { block_only: { key: 'val' } },
     }
     expect(resolveTemplateReferences('{{ .outputs.block_only }}', outCtx)).toBe('`{{ .outputs.block_only }}`')
+  })
+})
+
+describe('extractInputValueReferences', () => {
+  it('returns each input used as a plain value action, once', () => {
+    expect(
+      extractInputValueReferences(
+        '{{ .inputs.a }} {{- .inputs.b -}} {{ .inputs.a }} {{ .inputs.tags.env | upper }} {{ .outputs.step.arn }}',
+      ),
+    ).toEqual(['a', 'b', 'tags.env'])
+  })
+
+  it('skips inputs referenced only inside template logic', () => {
+    expect(
+      extractInputValueReferences(
+        '{{ if .inputs.x }}-x{{ end }} {{ eq .inputs.y "a" }} {{ printf "%s" .inputs.z }}',
+      ),
+    ).toEqual([])
+  })
+
+  it('matches exactly what resolveTemplateReferences substitutes', () => {
+    const text = '{{ if .inputs.x }}{{ .inputs.y }}{{ end }} {{ .inputs.z | quote }}'
+    const ctx: TemplateContext = { inputs: { x: 'X', y: 'Y', z: 'Z' }, outputs: {} }
+    expect(extractInputValueReferences(text)).toEqual(['y', 'z'])
+    expect(resolveTemplateReferences(text, ctx)).toBe('{{ if .inputs.x }}Y{{ end }} Z')
   })
 })
 

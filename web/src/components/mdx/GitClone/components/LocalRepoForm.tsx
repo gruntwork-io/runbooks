@@ -1,3 +1,4 @@
+import { useId } from "react"
 import { FolderGit2, FolderOpen, Loader2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
@@ -31,11 +32,15 @@ export function LocalRepoForm({
   previewError,
   disabled,
 }: LocalRepoFormProps) {
+  // A runbook can hold several GitClone blocks; a shared literal id would point
+  // every label at the first input.
+  const inputId = useId()
+
   return (
     <div className="space-y-3">
       <div>
         <label
-          htmlFor="git-clone-repo-dir"
+          htmlFor={inputId}
           className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5"
         >
           Repository directory
@@ -47,7 +52,7 @@ export function LocalRepoForm({
         </label>
         <div className="flex items-center gap-2">
           <input
-            id="git-clone-repo-dir"
+            id={inputId}
             type="text"
             value={repoDir}
             onChange={(e) => onRepoDirChange(e.target.value)}
@@ -120,7 +125,7 @@ export function LocalRepoForm({
       {previewStatus === 'invalid' && (
         <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
           <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-destructive m-0">Can&apos;t use this directory</p>
             <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{previewError}</p>
           </div>

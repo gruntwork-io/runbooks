@@ -7,7 +7,7 @@ import * as os from "node:os"
 import { Effect, Layer, Stream } from "effect"
 import { watch as chokidarWatch } from "chokidar"
 import { FileSystem } from "../services/FileSystem.ts"
-import type { FileSystemShape, WalkEntry, FileChangeEvent } from "../services/FileSystem.ts"
+import type { FileSystemShape, WalkEntry, FileChangeEvent, WatchOptions } from "../services/FileSystem.ts"
 import {
   FileNotFoundError,
   FileReadError,
@@ -130,7 +130,10 @@ const impl: FileSystemShape = {
         for (const entry of entries) {
           const fullPath = path.join(currentDir, entry.name)
           const relativePath = path.relative(dir, fullPath)
-          const stat = await fs.stat(fullPath)
+          // lstat, not stat: entries are classified by their Dirent (so
+          // symlinks are neither files nor directories here), and following a
+          // dangling or looping link would fail the whole walk.
+          const stat = await fs.lstat(fullPath)
           await emit.single({
             path: fullPath,
             relativePath,
@@ -149,11 +152,11 @@ const impl: FileSystemShape = {
       )
     }, "unbounded"),
 
-  watch: (paths: string[]) =>
+  watch: (paths: string[], options?: WatchOptions) =>
     Stream.async<FileChangeEvent, FileWatchError>((emit) => {
       let watcher: ReturnType<typeof chokidarWatch> | null = null
       try {
-        watcher = chokidarWatch(paths, { ignoreInitial: true })
+        watcher = chokidarWatch(paths, { ignoreInitial: true, depth: options?.depth })
 
         const handler = (type: FileChangeEvent["type"]) => (filePath: string) => {
           emit.single({ type, path: filePath })

@@ -76,7 +76,7 @@ export interface ScriptBlockProps {
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
   usePty?: boolean
-  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (5 minutes) applies. */
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
   timeoutMs?: number
   /** Distinguishes the Command vs Check presentation. */
   variant: ScriptBlockVariant
@@ -221,8 +221,16 @@ export function ScriptBlock({
   const resolvedFailMessage = useMemo(() => resolveTemplateReferences(failMessage, templateContext), [failMessage, templateContext])
   const resolvedRunningMessage = useMemo(() => resolveTemplateReferences(runningMessage ?? variant.defaultRunningMessage, templateContext), [runningMessage, variant.defaultRunningMessage, templateContext])
 
-  // Check if component requires variables but none are configured
-  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
+  // The ID label is pinned to the block's top-right corner. Without a title
+  // row beside it, the full-width command box (or, with `path`, the separator)
+  // can be the first row: a pending Check has no placeholder line. Keep both
+  // clear of the label, as the drift Admonition does. Keyed on the title alone
+  // so the width stays put as status lines come and go.
+  const clearIdLabel = resolvedTitle ? '' : 'mr-12'
+
+  // Check if component requires variables but none are configured. Only Inputs
+  // blocks supply `.inputs` values; an auth block reference never does.
+  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
 
   // Track block render on mount
   useEffect(() => {
@@ -320,6 +328,8 @@ export function ScriptBlock({
   // Instruction mode: flatten to a copy-pasteable instruction. Nothing runs —
   // no exec:run, no logs/outputs, no disabled Run button (spec §6.4). Resolve
   // from the raw script content so it works regardless of dependency state.
+  // A nested <Inputs> stays a form: it is how the user supplies the values
+  // substituted into the displayed command.
   if (instructionMode) {
     return (
       <Instruction
@@ -334,6 +344,7 @@ export function ScriptBlock({
             : undefined
         }
         templateContext={templateContext}
+        inputs={childrenWithVariant}
       />
     )
   }
@@ -359,8 +370,8 @@ export function ScriptBlock({
       {/* Script drift warning - mr-12 leaves room for the ID label */}
       {hasScriptDrift && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
-          <p>This script has changed since the runbook was opened. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was first opened.</p>
-          <p>To execute the latest version, reload the runbook (e.g. <code className="bg-warning-muted px-1 rounded text-xs">runbooks open</code>). If you are authoring this runbook, consider using <code className="bg-warning-muted px-1 rounded text-xs">runbooks watch</code> to automatically load script changes. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
+          <p>This script has changed since the runbook was loaded. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was last opened or reloaded, or, if Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, when it was opened in this app session (opening another runbook and coming back rebuilds it).</p>
+          <p>To execute the latest version, close and reopen the runbook (in watch mode, saving <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also reloads it). If Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, quit and restart the app instead. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
         </Admonition>
       )}
 
@@ -370,9 +381,8 @@ export function ScriptBlock({
           <IconComponent data-testid={`icon-${status}`} className={`size-6 ${iconClasses} ${status === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="">
         {/* Main body */}
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {variant.showPendingPlaceholder && status === 'pending' && command && !title && (
             <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
           )}
@@ -457,13 +467,13 @@ export function ScriptBlock({
 
           {/* Display inline command if present */}
           {displayCommand && (
-            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap`}>
+            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}>
               {displayCommand.content}
             </div>
           )}
 
           {/* Separator */}
-          <div className="border-b border-border"></div>
+          <div className={`border-b border-border ${clearIdLabel}`}></div>
 
           {/* Show unmet input/output dependencies */}
           {!isRendering && (
@@ -504,7 +514,7 @@ export function ScriptBlock({
           {renderError && hasAllOutputDependencies && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
                 {renderError.details && <div className="text-xs mt-1 text-destructive">{renderError.details}</div>}
               </div>
@@ -514,7 +524,7 @@ export function ScriptBlock({
           {execError && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
-              <div>
+              <div className="min-w-0">
                 <strong>{execError.message}</strong>
                 {execError.details && <div className="text-xs mt-1 text-destructive">{execError.details}</div>}
               </div>
@@ -543,7 +553,6 @@ export function ScriptBlock({
               </Button>
             </div>
           </div>
-        </div>
         </div>
       </div>
 
