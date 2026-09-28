@@ -259,6 +259,41 @@ describe('WorkspaceGitDataProvider', () => {
     expect(renders.at(-1)).toEqual({ path: '/repos/a-2', tree: ['new-clone.tf'] })
   })
 
+  it('keeps the current tree on screen, without a spinner, while a same-path invalidation refetches it', async () => {
+    const { api, callsTo } = createApi()
+    let workTrees!: GitWorkTreeContextType
+    const renders: Array<{ tree?: string[]; isLoading: boolean }> = []
+    function Consumer() {
+      workTrees = useGitWorkTree()
+      const { tree, isLoading } = useGitFileTree()
+      renders.push({ tree: tree?.map(n => n.id), isLoading })
+      return null
+    }
+    render(
+      <Providers api={api}>
+        <Consumer />
+      </Providers>,
+    )
+
+    await act(async () => {
+      workTrees.registerWorkTree(worktree('a'))
+    })
+    await settle(callsTo('workspace:tree', '/repos/a'), { tree: [file('main.tf')], totalFiles: 1 })
+    expect(renders.at(-1)).toEqual({ tree: ['main.tf'], isLoading: false })
+
+    // A script wrote to the repo: treeVersion bumps, the path stays the same
+    renders.length = 0
+    await act(async () => {
+      workTrees.invalidateGitFileTree()
+    })
+    expect(callsTo('workspace:tree', '/repos/a')).toHaveLength(2)
+    expect(renders.length).toBeGreaterThan(0)
+    expect(renders.filter(r => r.isLoading || r.tree?.join() !== 'main.tf')).toEqual([])
+
+    await settle(callsTo('workspace:tree', '/repos/a').slice(-1), { tree: [file('main.tf'), file('written-by-script.tf')], totalFiles: 2 })
+    expect(renders.at(-1)).toEqual({ tree: ['main.tf', 'written-by-script.tf'], isLoading: false })
+  })
+
   it('keeps one changes poll in flight across invalidations, then refetches once and drops the older response', async () => {
     const { api, callsTo } = createApi()
     const { result } = renderWorkspaceData(api)
