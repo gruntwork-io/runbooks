@@ -60,7 +60,7 @@ export function registerExecHandlers(): void {
   ipcMain.handle(
     "exec:run",
     async (event, params: ExecRequest) => {
-      log.debug("handler called for:", params.executableId || params.componentId)
+      log.debug("handler called for:", params.executableId)
       // Only one execution runs at a time: cancel (interrupt + kill) any others.
       for (const { controller } of activeExecutions.values()) controller.abort()
       activeExecutions.clear()
@@ -90,7 +90,7 @@ export function registerExecHandlers(): void {
                 throw new Error("No runbook loaded")
               }
 
-              const executableId = params.executableId ?? params.componentId ?? ""
+              const executableId = params.executableId ?? ""
               const executable = yield* executableRegistry.getExecutable(executableId)
 
               // Render template variables using the Go template engine. Values

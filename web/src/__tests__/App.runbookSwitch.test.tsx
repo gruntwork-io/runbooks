@@ -44,6 +44,8 @@ interface ApiOptions {
   generatedFiles?: Record<string, number>
   /** Make `generated-files:delete` reject, as a permissions error would. */
   deleteFails?: boolean
+  /** Report `isWatchMode` from `runbook:get`, as a `--watch` launch does. */
+  watchMode?: boolean
 }
 
 /**
@@ -52,7 +54,7 @@ interface ApiOptions {
  * `generated-files:delete` act on whichever runbook was loaded last, like the
  * real session-scoped handlers, with the file count from `generatedFiles`.
  */
-function makeApi({ generatedFiles = {}, deleteFails = false }: ApiOptions = {}) {
+function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
 
@@ -61,7 +63,10 @@ function makeApi({ generatedFiles = {}, deleteFails = false }: ApiOptions = {}) 
       case 'native:get-cli-config':
         return {}
       case 'runbook:get': {
-        const fixture = params?.path ? RUNBOOKS[params.path] : undefined
+        // A runbook's directory or its runbook.mdx, like resolveRunbookPath
+        const fixture = params?.path
+          ? RUNBOOKS[params.path] ?? Object.values(RUNBOOKS).find((r) => r.path === params.path)
+          : undefined
         if (!fixture) throw new Error(NO_RUNBOOK_MESSAGE(params?.path ?? ''))
         current = fixture
         return {
@@ -70,7 +75,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false }: ApiOptions = {}) 
           contentHash: fixture.path,
           language: 'mdx',
           size: fixture.content.length,
-          isWatchMode: false,
+          isWatchMode: watchMode,
           warnings: [],
           remoteSource: params?.remoteSource,
         }
@@ -391,5 +396,49 @@ describe('App failed runbook opens', () => {
     expect(screen.queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Choose Another Folder' }))
     expect(callsTo(invoke, 'native:open-runbook-dialog')).toHaveLength(1)
+  })
+})
+
+describe('App watch mode', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => {
+    window.api = originalApi
+  })
+
+  /** The main process's watcher reporting a change to the runbook it watches. */
+  const fileChanged = (emit: ReturnType<typeof makeApi>['emit'], path: string) =>
+    emit('watch:file-change', { type: 'reload', path })
+
+  it('reloads the open runbook when its file changes', async () => {
+    const { invoke, emit } = renderApp({ watchMode: true })
+    await openRunbook(emit, '/work/a', 'Runbook A')
+    const callsBefore = callsTo(invoke, 'runbook:get').length
+
+    await fileChanged(emit, '/work/a/runbook.mdx')
+
+    await waitFor(() => expect(callsTo(invoke, 'runbook:get').length).toBe(callsBefore + 1))
+    expect(callsTo(invoke, 'runbook:get').at(-1)?.[1]).toMatchObject({ path: '/work/a' })
+  })
+
+  it('reloads the displayed runbook, not a failed open, and keeps a dismissed error dismissed', async () => {
+    const { invoke, emit } = renderApp({ watchMode: true })
+    await openRunbook(emit, '/work/a', 'Runbook A')
+    // A failed open leaves A on screen; main keeps watching A.
+    await emit('file:open-runbook', { path: '/work/empty' })
+    await screen.findByText(/This folder doesn't contain a runbook\.mdx file/)
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+
+    await fileChanged(emit, '/work/a/runbook.mdx')
+
+    await waitFor(() => expect(runbookGetCallsFor(invoke, '/work/a/runbook.mdx')).toBe(1))
+    // Every save used to re-send the failed open and raise its banner again.
+    expect(runbookGetCallsFor(invoke, '/work/empty')).toBe(1)
+    expect(screen.queryByText(/This folder doesn't contain a runbook\.mdx file/)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Runbook A' })).toBeInTheDocument()
+
+    // The request is now the displayed runbook again, so later saves reload it.
+    await fileChanged(emit, '/work/a/runbook.mdx')
+    await waitFor(() => expect(runbookGetCallsFor(invoke, '/work/a/runbook.mdx')).toBe(2))
+    expect(runbookGetCallsFor(invoke, '/work/empty')).toBe(1)
   })
 })

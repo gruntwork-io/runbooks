@@ -11,8 +11,8 @@ import { useScriptExecution } from '../useScriptExecution'
 // bridge (window.api), are stubbed.
 vi.mock('@/hooks/useExecutableRegistry', () => {
   const registry = {
-    useExecutableRegistry: true,
     getExecutableByComponentId: (componentId: string) => ({ id: `exec-${componentId}`, componentId }),
+    registryVersion: 0,
   }
   return { useExecutableRegistry: () => registry }
 })

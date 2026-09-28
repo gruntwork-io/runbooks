@@ -1,7 +1,7 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { BookOpen, Code, AlertTriangle } from "lucide-react"
+import { BookOpen, Code } from "lucide-react"
 import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
 import { OpenUrlModal } from './components/layout/OpenUrlModal'
@@ -90,19 +90,20 @@ function App() {
     }
   }, [getRunbookResult.data?.content, clearAllErrors])
   
-  // Enable watch mode - refetch runbook when file changes
-  const handleFileChange = useCallback(() => {
-    console.log('[App] Runbook file changed, reloading...');
-    
-    // Use silent refetch for watch mode, regular refetch for open mode
-    if (getRunbookResult.data?.isWatchMode) {
-      getRunbookResult.silentRefetch();
+  // Watch mode: reload the runbook, without a loading flash, when the main
+  // process reports that the runbook it watches changed. A failed open leaves
+  // the previous runbook on screen, and main keeps watching it, while the last
+  // request is the failed one: re-sending that would raise its error again on
+  // every save, so reload the displayed runbook instead.
+  const { data: displayedRunbook, error: runbookError, silentRefetch, openRunbook } = getRunbookResult
+  const handleRunbookFileChange = useCallback((changedPath: string) => {
+    if (runbookError && displayedRunbook?.path === changedPath) {
+      openRunbook(displayedRunbook.path, displayedRunbook.remoteSource)
     } else {
-      getRunbookResult.refetch();
+      silentRefetch()
     }
-  }, [getRunbookResult]);
-  
-  useIpcWatchMode(handleFileChange, getRunbookResult.data?.isWatchMode ?? false);
+  }, [runbookError, displayedRunbook, openRunbook, silentRefetch])
+  useIpcWatchMode(handleRunbookFileChange, displayedRunbook?.isWatchMode ?? false);
   
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
@@ -292,32 +293,6 @@ function App() {
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
               <p className="text-muted-foreground">Loading runbook...</p>
-            </div>
-          </div>
-        ) : generatedFilesCheck.error && !hasEverLoadedRef.current ? (
-          <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
-            <div className="text-center max-w-xl mx-auto p-6">
-              <div className="bg-destructive-muted border border-destructive/30 rounded-lg p-6 text-left">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-destructive-muted rounded-full">
-                  <AlertTriangle className="w-6 h-6 text-destructive" />
-                </div>
-                <h3 className="text-lg font-medium text-destructive mb-2 text-center">Invalid Output Path</h3>
-                <p className="text-destructive mb-4 text-center">{generatedFilesCheck.error.message}</p>
-                <div className="bg-destructive-muted rounded-md p-4 text-sm text-destructive">
-                  <p className="mb-2">
-                    When you launched Runbooks, you specified an <code className="bg-destructive-muted px-1 rounded">--output-path</code> of{' '}
-                    <code className="bg-destructive-muted px-1 rounded font-mono">
-                      {generatedFilesCheck.error.context?.specifiedPath || '(unknown)'}
-                    </code>, but the path must be within the current working directory.
-                  </p>
-                  <p>
-                    Your current working directory is{' '}
-                    <code className="bg-destructive-muted px-1 rounded font-mono">
-                      {generatedFilesCheck.error.context?.currentWorkingDir || '(unknown)'}
-                    </code>
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
         ) : getRunbookResult.error && !hasEverLoadedRef.current ? (

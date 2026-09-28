@@ -6,18 +6,20 @@ if (process.env.ELECTRON_RENDERER_URL) {
 }
 
 import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
+import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
 import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
-import { openRunbookInWindow } from "./open-runbook.ts"
+import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
@@ -130,28 +132,42 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
-const gotLock = app.requestSingleInstanceLock()
+// A second instance sends its unmodified argv along: the `argv` Electron
+// hands to "second-instance" has been reordered by Chromium (see
+// secondInstanceArgv).
+const gotLock = app.requestSingleInstanceLock({ argv: process.argv })
 
 if (!gotLock) {
   app.quit()
 } else {
-  app.on("second-instance", (_event, argv) => {
+  app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
     const win = focusOrCreateWindow()
-    const secondArgs = parseCliArgs(argv)
+    // Resolve relative paths against the directory the second instance was
+    // launched from, not this (first) instance's cwd.
+    const secondArgs = parseCliArgs(
+      secondInstanceArgv(argv, additionalData),
+      workingDirectory,
+      app.getAppPath(),
+    )
     if (secondArgs.remoteUrl) {
-      resolveRemoteRunbook(secondArgs.remoteUrl)
-        .then((result) => {
-          win.webContents.send("file:open-runbook", {
-            path: result.localPath,
-            remoteSource: result.remoteSource,
-          })
-        })
-        .catch((err) => {
-          log.error("Failed to resolve remote URL:", err)
-        })
+      openRemoteRunbook(win, secondArgs.remoteUrl)
     } else if (secondArgs.runbookPath) {
-      win.webContents.send("file:open-runbook", { path: secondArgs.runbookPath })
+      // focusOrCreateWindow may return a window that is still loading.
+      openRunbookInWindow(win, { path: secondArgs.runbookPath })
     }
+  })
+}
+
+/**
+ * Clone and open a remote runbook named on the command line, showing an error
+ * dialog if that fails (see openRemoteRunbookInWindow).
+ */
+function openRemoteRunbook(win: BrowserWindow, url: string): void {
+  void openRemoteRunbookInWindow(win, url, {
+    resolveRemote: resolveRemoteRunbook,
+    showError: (parent, message, detail) => {
+      void dialog.showMessageBox(parent, { type: "error", message, detail })
+    },
   })
 }
 
@@ -159,7 +175,7 @@ if (!gotLock) {
 // Parse CLI arguments
 // ---------------------------------------------------------------------------
 
-const cliConfig = parseCliArgs()
+const cliConfig = parseCliArgs(process.argv, process.cwd(), app.getAppPath())
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -170,8 +186,9 @@ const cliConfig = parseCliArgs()
 // leaving `localPath` as a directory would make `path.dirname` return its
 // *parent*, causing asset 404s on any image request that races ahead of the
 // renderer's `runbook:get` IPC call (which later re-resolves the path).
+let resolvedPath = runbookConfig.localPath
 if (cliConfig.runbookPath) {
-  let resolvedPath = cliConfig.runbookPath
+  resolvedPath = cliConfig.runbookPath
   try {
     if (fs.statSync(resolvedPath).isDirectory()) {
       const candidate = path.join(resolvedPath, "runbook.mdx")
@@ -183,19 +200,23 @@ if (cliConfig.runbookPath) {
     // stat may fail (e.g. path doesn't exist yet); leave as-is and let the
     // renderer's runbook:get call surface the error.
   }
-  setRunbookConfig({
-    ...runbookConfig,
-    localPath: resolvedPath,
-    isWatchMode: cliConfig.watch,
-    disableLiveFileReload: cliConfig.disableLiveFileReload,
-  })
 }
-if (cliConfig.watch) {
-  setRunbookConfig({ ...runbookConfig, isWatchMode: true, disableLiveFileReload: cliConfig.disableLiveFileReload })
-}
+// --watch and --disable-live-file-reload apply to every runbook opened in this
+// app instance: runbook:get carries them over when it rebuilds the config.
+setRunbookConfig({
+  ...runbookConfig,
+  localPath: resolvedPath,
+  isWatchMode: cliConfig.watch,
+  disableLiveFileReload: cliConfig.disableLiveFileReload,
+})
 
 // ---------------------------------------------------------------------------
 // Native IPC handlers (Electron-only, no backend dependency)
+//
+// Importing ./ipc/index.ts above already wrapped ipcMain.handle with
+// installIpcErrorNormalization() (ipc/ipc-error.ts), so a rejection from
+// these handlers, like every other, crosses to the renderer as a clean
+// message instead of a FiberFailure dump.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
@@ -252,7 +273,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
 // Routes through main so it uses the same channel as the native menu item —
 // renderers listen for "menu:close-runbook" regardless of origin.
 ipcMain.handle("native:close-runbook", () => {
-  getMainWindow()?.webContents.send("menu:close-runbook")
+  closeRunbook()
   return { ok: true } as const
 })
 
@@ -271,7 +292,6 @@ ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
-  outputPath: cliConfig.outputPath,
   noTelemetry: cliConfig.noTelemetry,
   disableLiveFileReload: cliConfig.disableLiveFileReload,
 }))
@@ -356,20 +376,11 @@ app.whenReady().then(() => {
   eagerLoadBoilerplateWasm()
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
+  // openRunbookInWindow waits for the page to load, so a remote clone can
+  // start right away.
   if (cliConfig.remoteUrl) {
     const win = getMainWindow()
-    win?.webContents.once("did-finish-load", () => {
-      resolveRemoteRunbook(cliConfig.remoteUrl!)
-        .then((result) => {
-          win.webContents.send("file:open-runbook", {
-            path: result.localPath,
-            remoteSource: result.remoteSource,
-          })
-        })
-        .catch((err) => {
-          log.error("Failed to resolve remote URL:", err)
-        })
-    })
+    if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
   } else if (cliConfig.runbookPath) {
     const runbookPath = cliConfig.runbookPath
     const win = getMainWindow()
@@ -420,6 +431,9 @@ app.on("will-quit", (event) => {
 
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
+
+      // Close the watch-mode file watcher (runtime.dispose doesn't reach it)
+      void stopWatcher()
 
       // Dispose the Effect managed runtime to clean up background fibers,
       // file watchers, etc.
