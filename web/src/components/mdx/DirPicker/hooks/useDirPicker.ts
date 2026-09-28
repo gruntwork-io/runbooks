@@ -33,6 +33,10 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   // Track whether we've already initialized the root level
   const initializedRootRef = useRef<string | null>(null)
 
+  // Monotonic stamp to discard stale fetch results: taken by every selectDir
+  // call and by every root (re)initialization or reset
+  const selectVersionRef = useRef(0)
+
   // Resolve the root path: prefer explicit rootDir, fall back to GitClone output
   const rootPath = useMemo((): string | null => {
     if (rootDir) return rootDir
@@ -65,23 +69,38 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     return parts.join('/')
   }, [levels])
 
-  // Initialize root level when workspace becomes ready
+  // Initialize root level when workspace becomes ready, and start over when
+  // the root changes or goes away. The path, typed or selected, was relative
+  // to the old root: clearing it lets the PATH effect below withdraw the
+  // output. The old root's dropdowns go away until the new root is listed,
+  // and a root that comes back is listed again.
   useEffect(() => {
-    if (!isWorkspaceReady || !rootPath || !sessionReady) return
+    if (!rootPath) {
+      if (initializedRootRef.current !== null) {
+        initializedRootRef.current = null
+        selectVersionRef.current++
+        setLevels([])
+        setManualPath('')
+      }
+      return
+    }
+    if (!isWorkspaceReady || !sessionReady) return
     // Don't re-initialize if we already did for this root
     if (initializedRootRef.current === rootPath) return
     initializedRootRef.current = rootPath
+    const version = ++selectVersionRef.current
 
     setError(null)
+    setLevels([])
+    setManualPath('')
     const init = async () => {
       const dirs = await fetchDirs(rootPath)
+      // Discard if the root changed or went away while we were fetching
+      if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
       setLevels([{ path: rootPath, selected: '', dirs }])
     }
     init()
   }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
-
-  // Monotonic stamp to discard stale fetch results from superseded selectDir calls
-  const selectVersionRef = useRef(0)
 
   // Handle selection at a given dropdown level
   const selectDir = useCallback(async (levelIndex: number, dirName: string) => {
@@ -110,8 +129,9 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
 
     // Fetch children and add a new level
     const childDirs = await fetchDirs(nextAbsPath)
-    // Discard if a newer selectDir call has been made while we were fetching
-    if (selectVersionRef.current !== version) return
+    // Discard if a newer selectDir call has been made, or the root changed,
+    // while we were fetching
+    if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
     if (childDirs.length > 0) {
       setLevels(prev => [
         ...prev,

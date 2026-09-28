@@ -58,13 +58,31 @@ function PublishedOutputs() {
 
 const publishedValues = () => JSON.parse(screen.getByTestId('dp-outputs').textContent!)
 
-/** Registers a GitClone-style `clone_path` output for block `clone`. */
-function CloneOutput({ clonePath }: { clonePath: string }) {
+/**
+ * Registers a GitClone-style `clone_path` output for block `clone`, or
+ * withdraws it (an entry with no values) when `clonePath` is null.
+ */
+function CloneOutput({ clonePath }: { clonePath: string | null }) {
   const { registerOutputs } = useRunbookContext()
   useEffect(() => {
-    registerOutputs('clone', { clone_path: clonePath })
+    registerOutputs('clone', clonePath ? { clone_path: clonePath } : {})
   }, [clonePath, registerOutputs])
   return null
+}
+
+/**
+ * Render a gitCloneId-backed picker. `setClonePath` re-renders it with a new
+ * clone_path, or none.
+ */
+function renderClonePicker(clonePath: string | null, api = makeApi().api) {
+  const ui = (path: string | null) => (
+    <Harness api={api}>
+      <CloneOutput clonePath={path} />
+      <DirPicker id="dp" gitCloneId="clone" dirLabels={['Env', 'Region']} />
+    </Harness>
+  )
+  const { rerender } = render(ui(clonePath))
+  return { setClonePath: (path: string | null) => rerender(ui(path)) }
 }
 
 function InstructionModeToggle() {
@@ -346,5 +364,108 @@ describe('DirPicker — PATH output', () => {
     await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
     expect(pathInput().value).toBe('')
     await waitFor(() => expect(publishedValues()).toEqual({}))
+  })
+})
+
+describe('DirPicker — GitClone root changes', () => {
+  const rootFetches = (invoke: ReturnType<typeof makeApi>['invoke'], path: string) =>
+    invoke.mock.calls.filter(([channel, params]) => channel === 'workspace:dirs' && params?.worktreePath === path)
+
+  it('publishes no output entry until a path is chosen', async () => {
+    renderClonePicker('/root')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+
+    expect(publishedValues()).toBeNull()
+  })
+
+  it('removes PATH when clone_path is withdrawn', async () => {
+    const { setClonePath } = renderClonePicker('/root')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    await select(0, 'prod')
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+
+    setClonePath(null)
+
+    expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
+    await waitFor(() => expect(publishedValues()).toEqual({}))
+  })
+
+  it('re-lists the root when the same clone_path comes back, with PATH still removed', async () => {
+    const { api, invoke } = makeApi()
+    const { setClonePath } = renderClonePicker('/root', api)
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    await select(0, 'prod')
+    await waitFor(() => expect(selects()).toHaveLength(2))
+
+    setClonePath(null)
+    setClonePath('/root')
+
+    await waitFor(() => expect(rootFetches(invoke, '/root')).toHaveLength(2))
+    await waitFor(() => expect(selects()).toHaveLength(1))
+    expect(selects()[0].value).toBe('')
+    expect(pathInput().value).toBe('')
+    await waitFor(() => expect(publishedValues()).toEqual({}))
+  })
+
+  it('clears a typed path when clone_path changes', async () => {
+    const { setClonePath } = renderClonePicker('/root')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    fireEvent.change(pathInput(), { target: { value: 'typed' } })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'typed' }))
+
+    setClonePath('/root2')
+
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+    expect(pathInput().value).toBe('')
+    await waitFor(() => expect(publishedValues()).toEqual({}))
+  })
+
+  it('hides the old root\'s dropdowns until the new root is listed', async () => {
+    const root2Fetch = deferred<DirsResult>()
+    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root2': root2Fetch.promise }).api)
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+
+    setClonePath('/root2')
+
+    // A selection in the old root's dropdown would be joined onto the new root.
+    expect(screen.queryAllByRole('combobox')).toHaveLength(0)
+    await act(async () => {
+      root2Fetch.resolve({ dirs: TREE['/root2'] })
+    })
+    expect(optionValues(selects()[0])).toEqual(['alpha'])
+  })
+
+  it('discards a root listing that resolves after clone_path changed', async () => {
+    const rootFetch = deferred<DirsResult>()
+    const { api, invoke } = makeApi({ '/root': rootFetch.promise })
+    const { setClonePath } = renderClonePicker('/root', api)
+    expect(rootFetches(invoke, '/root')).toHaveLength(1)
+
+    setClonePath('/root2')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+
+    await act(async () => {
+      rootFetch.resolve({ dirs: TREE['/root'] })
+    })
+
+    expect(selects()).toHaveLength(1)
+    expect(optionValues(selects()[0])).toEqual(['alpha'])
+  })
+
+  it('discards a subdirectory listing that resolves after clone_path changed', async () => {
+    const prodFetch = deferred<DirsResult>()
+    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root/prod': prodFetch.promise }).api)
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    await select(0, 'prod')
+
+    setClonePath('/root2')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+
+    await act(async () => {
+      prodFetch.resolve({ dirs: TREE['/root/prod'] })
+    })
+
+    expect(selects()).toHaveLength(1)
+    expect(optionValues(selects()[0])).toEqual(['alpha'])
   })
 })
