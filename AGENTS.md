@@ -42,7 +42,7 @@ just test-unit        # Vitest (src/ + web/)
 just test-e2e         # Playwright
 just test-runbooks    # CLI integration tests
 just lint             # oxlint
-just typecheck        # tsc --noEmit
+just typecheck        # tsc -b
 ```
 
 ## Conventions

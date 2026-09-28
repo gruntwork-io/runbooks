@@ -109,7 +109,7 @@ just test            # Run all tests
 just test-unit       # Vitest unit tests
 just test-e2e        # Playwright E2E tests
 just lint            # oxlint
-just typecheck       # tsc --noEmit
+just typecheck       # tsc -b
 just check           # lint + typecheck
 ```
 
