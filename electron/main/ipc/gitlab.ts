@@ -55,12 +55,16 @@ type HostSource = "glab" | "env" | "session" | "recent"
  * Resolve a GitLab instance string (a bare host or a scheme-qualified URL) to
  * the API ORIGIN (scheme preserved — plain-http instances exist) that feeds
  * validation, plus the bare HOST that keys probe/session/recents/copy. Both
- * default to gitlab.com.
+ * default to gitlab.com when no instance is given. One that is given but
+ * doesn't parse resolves to undefined, never to gitlab.com: a token meant for
+ * a self-managed instance must not be sent there.
  */
-function resolveGitLabInstance(input?: string | null): { baseUrl: string; host: string } {
-  const baseUrl = normalizeGitLabBaseUrl(input)
-  return { baseUrl, host: new URL(baseUrl).host }
+function resolveGitLabInstance(input?: string | null): { baseUrl: string; host: string } | undefined {
+  const baseUrl = input?.trim() ? tryNormalizeGitLabBaseUrl(input) : normalizeGitLabBaseUrl(undefined)
+  return baseUrl ? { baseUrl, host: new URL(baseUrl).host } : undefined
 }
+
+const invalidInstanceError = (raw?: string | null) => `Invalid GitLab instance: ${JSON.stringify(raw ?? "")}`
 
 /**
  * Build the merged host union: glab config hosts, env hosts, the session
@@ -175,7 +179,15 @@ export function registerGitLabHandlers(): void {
         useSessionToken?: boolean
       },
     ) => {
-      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      const instance = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      if (!instance) {
+        return {
+          valid: false,
+          outcome: "invalid" as const,
+          error: invalidInstanceError(params.instanceUrl ?? params.host),
+        }
+      }
+      const { baseUrl, host } = instance
       // Session mode releases the session credential only to the host the
       // auth block bound it to (as for GitHub), and never over plain http:
       // it may be an auto-detected env or CLI token.
@@ -254,7 +266,15 @@ export function registerGitLabHandlers(): void {
         }
       }
 
-      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      const instance = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      if (!instance) {
+        return {
+          found: false as const,
+          outcome: "absent" as const,
+          error: invalidInstanceError(params.instanceUrl ?? params.host),
+        }
+      }
+      const { baseUrl, host } = instance
 
       // env-token host binding (and the https-only rule) is enforced inside
       // detectGitLabEnv.
@@ -287,10 +307,13 @@ export function registerGitLabHandlers(): void {
     async (_event, params: { host?: string; instanceUrl?: string } = {}) => {
       // No requested host → fall back to glab's own default. Always an origin
       // (contract).
-      const requested = params.instanceUrl ?? params.host
-      const { baseUrl: instance, host } = resolveGitLabInstance(
-        requested || (await withVcs((vcs) => vcs.enumerateGitLabHosts())).defaultHost,
-      )
+      const requested =
+        (params.instanceUrl ?? params.host) || (await withVcs((vcs) => vcs.enumerateGitLabHosts())).defaultHost
+      const resolved = resolveGitLabInstance(requested)
+      if (!resolved) {
+        return { found: false as const, outcome: "absent" as const, error: invalidInstanceError(requested) }
+      }
+      const { baseUrl: instance, host } = resolved
 
       const result = await withTlsOrchestration({
         provider: "gitlab",

@@ -192,6 +192,41 @@ describe("gitlab:validate", () => {
   })
 })
 
+describe("a given instance that doesn't parse is refused, never read as gitlab.com", () => {
+  const MALFORMED = ["ftp://git.corp.example", "https://git corp.example", "https://[git.corp.example"]
+
+  it.each(MALFORMED)("gitlab:validate with a pasted token: %s", async (instanceUrl) => {
+    const result = await invoke("gitlab:validate", { token: "glpat-selfmanaged", instanceUrl })
+    expect(result.valid).toBe(false)
+    expect(result.error).toBe(`Invalid GitLab instance: ${JSON.stringify(instanceUrl)}`)
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it.each(MALFORMED)("gitlab:env-credentials: %s", async (instanceUrl) => {
+    process.env.GITLAB_TOKEN = "glpat-env"
+    const result = await invoke("gitlab:env-credentials", { instanceUrl })
+    expect([result.found, result.outcome]).toEqual([false, "absent"])
+    expect(result.error).toMatch(/^Invalid GitLab instance/)
+    expect(fetchCalls).toHaveLength(0)
+    expect((await sessionEnv()).GITLAB_TOKEN).toBeUndefined()
+  })
+
+  it.each(MALFORMED)("gitlab:cli-credentials: %s", async (instanceUrl) => {
+    const result = await invoke("gitlab:cli-credentials", { instanceUrl })
+    expect([result.found, result.outcome]).toEqual([false, "absent"])
+    expect(result.error).toMatch(/^Invalid GitLab instance/)
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it("no instance at all still means gitlab.com", async () => {
+    const result = await invoke("gitlab:validate", { token: "glpat-manual" })
+    expect(result.valid).toBe(true)
+    expect(fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => c.url)).toEqual([
+      "https://gitlab.com/api/v4/user",
+    ])
+  })
+})
+
 describe("gitlab:labels — which instance the session's token is sent to", () => {
   const SECRET = "glpat-SECRETTOKEN"
   const labels = (params: { owner: string; repo: string; host?: string }) =>
