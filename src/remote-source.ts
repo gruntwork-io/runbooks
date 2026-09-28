@@ -72,13 +72,18 @@ export function isRemoteSource(input: string): boolean {
 
 /**
  * The URL parser's "special" schemes (file aside): any run of `/` and `\`
- * may follow the colon, and a `\` ends the host as a `/` does.
+ * may follow the colon, and a `\` ends the host as a `/` does, so
+ * `https://evil.example\@github.com/…` is a request to evil.example.
  */
 const SPECIAL_SCHEME = /^(?:https?|ftp|wss?):/i
 const SPECIAL_USERINFO = /^((?:https?|ftp|wss?):[/\\]*)[^/\\]*@/i
 
-/** The userinfo of any other scheme's URL, which has a host only after `//`. */
-const URL_USERINFO = /^(([a-z][a-z0-9+.-]*):\/\/)([^/]*)@/i
+/**
+ * The userinfo of any other scheme's URL, which has a host only after `//`.
+ * After a single `/` there is no host and the source never parses, but a
+ * message may still echo it (`no repository in ssh:/git:<password>@…`).
+ */
+const URL_USERINFO = /^(([a-z][a-z0-9+.-]*):\/\/?)([^/]*)@/i
 
 /**
  * A scheme-less `user:password@` or `user@` before a host. An scp-like
@@ -103,7 +108,8 @@ const QUERY_PARAM = /([?&])([^?&#=]*)=([^&#]*)/g
  * them: a password holding one goes whole too.
  */
 export function redactSourceCredentials(source: string): string {
-  const trimmed = source.trim()
+  // The URL parser drops tabs and newlines wherever they are (`ht\ttps://`).
+  const trimmed = source.replace(/[\t\n\r]/g, "").trim()
   const prefix = /^git::/i.test(trimmed) ? trimmed.slice(0, "git::".length) : ""
   const address = trimmed.slice(prefix.length)
   const redacted = SPECIAL_SCHEME.test(address)

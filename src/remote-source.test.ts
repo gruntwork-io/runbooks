@@ -80,6 +80,10 @@ describe("redactSourceCredentials", () => {
     [`user:${PASSWORD}@github.com/o/r`, "github.com/o/r"],
     [`git::oauth2:p@${PASSWORD}@gitlab.com/g/p.git//x`, "git::gitlab.com/g/p.git//x"],
     [`${PASSWORD}@github.com/o/r`, "github.com/o/r"],
+    // Typos: one `/` after another scheme; a tab the URL parser drops.
+    [`git::ssh:/git:${PASSWORD}@host/o/r.git`, "git::ssh:/git@host/o/r.git"],
+    [`git+https:/user:${PASSWORD}@host/o/r`, "git+https:/host/o/r"],
+    [`git::ht\ttps://user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https://git.example.com/o/r.git//x"],
   ])("%s → %s", (input, expected) => {
     expect(redactSourceCredentials(input)).toBe(expected)
   })
@@ -101,6 +105,12 @@ describe("redactSourceCredentials", () => {
     const source = "https://evil.example\\@github.com/o/tree/main/x"
     expect(parse(source).host).toBe("evil.example")
     expect(redactSourceCredentials(source)).toBe(source)
+  })
+
+  it("drops tabs and newlines as the URL parser does: a git:: source with one still opens", () => {
+    const source = withUserinfo("git::ht\ttps", `user:${PASSWORD}`, "git.example.com/o/r.git//x")
+    expect(parse(source).cloneURL).toBe("https://git.example.com/o/r.git")
+    expect(redactSourceCredentials(source)).toBe("git::https://git.example.com/o/r.git//x")
   })
 
   it.each([
@@ -532,6 +542,8 @@ describe("parseRemoteSource", () => {
       `git::user:${PASSWORD}@host/o/r`,
       // A token posing as the user, which the URL parser reads as a scheme.
       `git::${PASSWORD}:x-oauth-basic@github.com/o/r`,
+      // One `/`: the URL parser finds no host ("no repository in …").
+      `git::ssh:/git:${PASSWORD}@host/o/r.git`,
     ])("keeps credentials out of the error's url field and message: %s", (input) => {
       // The url field ends up in logs, like the message.
       const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
