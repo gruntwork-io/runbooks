@@ -84,6 +84,13 @@ export interface GitClientShape {
    * (`git rev-list <ref>..HEAD`). Fails when either can't be resolved.
    */
   readonly hasCommitsNotIn: (repoPath: string, ref: string) => Effect.Effect<boolean, GitError | SpawnError>
+  /**
+   * Whether HEAD has commits that no remote-tracking branch of `remote` has
+   * (`git rev-list HEAD --not --remotes=<remote>`): commits that, as far as
+   * the last fetch or push knows, were never pushed there. Fails when HEAD
+   * can't be resolved.
+   */
+  readonly hasCommitsNotOnRemote: (repoPath: string, remote: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>
   readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError | SpawnError>

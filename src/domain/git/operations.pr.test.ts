@@ -126,6 +126,8 @@ describe("runGitSteps", () => {
               ? Effect.fail(new GitError({ command: "git rev-list", stderr: "bad revision", exitCode: 128 }))
               : Effect.succeed(true)
           }),
+        // A failed push's commits: not on origin.
+        hasCommitsNotOnRemote: () => Effect.succeed(true),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -138,6 +140,48 @@ describe("runGitSteps", () => {
 
     expect(refs).toEqual(["refs/remotes/origin/main", "refs/heads/main"])
     expect(steps).toEqual(["stageAll", "createBranch", "push"])
+  })
+
+  it("under a new name with nothing staged, refuses commits that are on origin already, before creating the branch", async () => {
+    const steps: string[] = []
+    const remotes: string[] = []
+
+    const layer = makeTestLayer({
+      git: {
+        getRemoteUrl: () => Effect.succeed("https://gitlab.com/acme/infra.git"),
+        // HEAD is on the branch an MR was opened from.
+        getCurrentBranch: () => Effect.succeed("runbook/122"),
+        status: () => Effect.succeed([]),
+        hasCommitsNotIn: () => Effect.succeed(true),
+        hasCommitsNotOnRemote: (_repoPath, remote) =>
+          Effect.sync(() => void remotes.push(remote)).pipe(Effect.as(false)),
+        createBranch: () => Effect.sync(() => void steps.push("createBranch")),
+        stageAll: () => Effect.sync(() => void steps.push("stageAll")),
+        commit: () => Effect.sync(() => void steps.push("commit")),
+        push: () => Effect.sync(() => void steps.push("push")),
+      },
+      gitlab: {
+        createMergeRequest: (_token, p) =>
+          Effect.sync(() => void steps.push("createMergeRequest")).pipe(
+            Effect.as({ url: "https://gitlab.com/acme/infra/-/merge_requests/8", number: 8, branch: p.headBranch }),
+          ),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({
+        stderr: expect.stringMatching(
+          /^Nothing to commit: .*commits on runbook\/122 that main doesn't have are already on origin.*merge request open from runbook\/122.*Git Push/,
+        ),
+      })
+    }
+    expect(remotes).toEqual(["origin"])
+    expect(steps).toEqual(["stageAll"])
   })
 
   it.each([
@@ -423,16 +467,45 @@ describe("createPullRequest retry (real git)", () => {
   let work: string
   let remote: string
 
+  // git (the helper above and the live GitCliClient alike) runs with a
+  // sandboxed HOME and no global or system config.
+  const SANDBOX_VARS = ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] as const
+  const originalEnv: Record<string, string | undefined> = {}
+
+  // The head branch of each PR the stubbed GitHub API opened, in order.
+  let opened: string[] = []
+  // Makes the next PR call fail, as a flaky API would, after the push.
+  let failNextPr = false
+
   // Live git and filesystem; only the GitHub API is stubbed. validateToken is
   // left unconfigured, so the commit uses the repo's own identity below.
   const layer = Layer.mergeAll(
     GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive)),
     NodeFileSystemLive,
-    makeTestGitHubClient({ createPullRequest: (_token, p) => openedPr(p) }),
+    makeTestGitHubClient({
+      createPullRequest: (_token, p) =>
+        Effect.suspend(() => {
+          if (failNextPr) {
+            failNextPr = false
+            return Effect.fail(new GitHubApiError({ status: 502, message: "Bad Gateway" }))
+          }
+          opened.push(p.headBranch)
+          return openedPr(p)
+        }),
+    }),
   )
 
   beforeEach(() => {
+    opened = []
+    failNextPr = false
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-pr-retry-"))
+    for (const name of SANDBOX_VARS) originalEnv[name] = process.env[name]
+    const home = path.join(tmp, "home")
+    fs.mkdirSync(home)
+    process.env.HOME = home
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+
     remote = path.join(tmp, "remote.git")
     work = path.join(tmp, "work")
     fs.mkdirSync(work)
@@ -447,6 +520,10 @@ describe("createPullRequest retry (real git)", () => {
   })
 
   afterEach(() => {
+    for (const name of SANDBOX_VARS) {
+      if (originalEnv[name] === undefined) delete process.env[name]
+      else process.env[name] = originalEnv[name]
+    }
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
@@ -505,6 +582,68 @@ describe("createPullRequest retry (real git)", () => {
     expect(git(remote, "show", "--name-only", "--format=", "runbook/124").trim()).toBe(
       "generated.tf",
     )
+  })
+
+  it("after a PR was opened, refuses a new branch name with nothing new instead of repeating its commits", async () => {
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "-u", "origin", "main")
+    fs.writeFileSync(path.join(work, "generated.tf"), "resource {}\n")
+
+    // Attempt 1 succeeds: runbook/123 is pushed and its PR opened. HEAD stays
+    // on runbook/123.
+    const first = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+    )
+    expect(first).toMatchObject({ _tag: "Right", right: { branch: "runbook/123" } })
+
+    // "Create another" fills in a new name; nothing changed since.
+    const second = await Effect.runPromise(
+      createPullRequest("tok", { ...params, headBranch: "runbook/124", repoPath: work }).pipe(
+        Effect.either,
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(second._tag).toBe("Left")
+    if (second._tag === "Left") {
+      expect(second.left).toBeInstanceOf(GitError)
+      const stderr = (second.left as GitError).stderr
+      expect(stderr).toStartWith("Nothing to commit")
+      expect(stderr).toContain("already on origin")
+      // Points at the open PR's branch and at Git Push.
+      expect(stderr).toContain("runbook/123")
+      expect(stderr).toContain("Git Push")
+    }
+    // No second PR, nothing pushed, and HEAD where it was.
+    expect(opened).toEqual(["runbook/123"])
+    expect(git(remote, "branch", "--list", "runbook/124").trim()).toBe("")
+    expect(git(work, "branch", "--list", "runbook/124").trim()).toBe("")
+    expect(git(work, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("runbook/123")
+  })
+
+  it("opens the PR on a same-name retry after the push landed but the API call failed", async () => {
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "-u", "origin", "main")
+    fs.writeFileSync(path.join(work, "generated.tf"), "resource {}\n")
+
+    // Attempt 1: the push lands on origin, then opening the PR fails.
+    failNextPr = true
+    const first = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+    )
+    expect(first._tag).toBe("Left")
+    expect(git(remote, "show", "--name-only", "--format=", "runbook/123").trim()).toBe(
+      "generated.tf",
+    )
+
+    // Attempt 2, same name: nothing to commit and nothing unpushed, yet the PR
+    // still has to be opened.
+    const second = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(second).toMatchObject({ _tag: "Right", right: { branch: "runbook/123" } })
+    expect(opened).toEqual(["runbook/123"])
   })
 
   it("with nothing new, fails with nothing to commit before creating the branch", async () => {

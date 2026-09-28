@@ -243,6 +243,18 @@ const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
 const alreadyOpenMessage = (noun: string, headBranch: string, providerMessage: string) =>
   `A ${noun} for ${headBranch} already exists. The commits were pushed to its branch, so they are part of it now. (${providerMessage})`
 
+/**
+ * Why runGitSteps refuses a new head branch name when nothing is staged and
+ * the commits HEAD's `branch` has over the base are all on origin already:
+ * typically `branch` is the one a PR/MR was just opened from ("create
+ * another" fills in a new name), and a PR/MR from `headBranch` would repeat
+ * its commits. Creating with `branch`'s own name resumes on it, which also
+ * covers a push that landed before the PR/MR call failed.
+ */
+const alreadyPushedMessage = (noun: string, branch: string, baseBranch: string, headBranch: string) =>
+  `Nothing to commit: no files changed, and the commits on ${branch} that ${baseBranch} doesn't have are already on origin, so a ${noun} from ${headBranch} would only repeat them. ` +
+  `To add changes to the ${noun} open from ${branch}, make them and use Git Push, or create again with ${branch} as the branch name (which also opens a ${noun} from ${branch} if there is none yet).`
+
 /** Wrap an optional progress callback as an Effect-returning reporter. */
 const makeReport =
   (onProgress?: (line: string) => void) =>
@@ -263,9 +275,15 @@ const makeReport =
  * name picks up there instead of failing on "a branch named … already exists":
  * it skips the branch creation, commits only if there is something new, and
  * pushes. Running again under a new name branches off HEAD, so the commits the
- * failed attempt made are pushed on the new branch. Only when nothing is staged
- * and HEAD has no commits the base lacks does it fail, with "Nothing to
- * commit", and then before any branch is created or checked out.
+ * failed attempt made are pushed on the new branch.
+ *
+ * With nothing staged it fails with "Nothing to commit", before any branch is
+ * created or checked out, when HEAD has no commits the base lacks, and, under
+ * a new name, also when all of those commits are on origin already (see
+ * alreadyPushedMessage): only commits that never reached origin, such as a
+ * failed push's, are worth a PR/MR under a new name. Resuming goes on in that
+ * case, since a push that landed before a failed PR/MR call still needs its
+ * PR/MR.
  *
  * Resuming keys on HEAD alone, and HEAD also stays on the head branch after a
  * PR/MR was opened from it. Running again with that name then pushes to the
@@ -328,12 +346,29 @@ const runGitSteps = (
     // modified content) also counts here, and the commit then fails with git's
     // own error.
     const hasStaged = (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
-    if (!hasStaged && !(yield* hasCommitsNotOnBase(params.repoPath, params.baseBranch))) {
-      return yield* new GitError({
-        command: "commit",
-        stderr: `Nothing to commit: no files changed, and there are no commits that ${params.baseBranch} doesn't already have.`,
-        exitCode: 1,
-      })
+    if (!hasStaged) {
+      if (!(yield* hasCommitsNotOnBase(params.repoPath, params.baseBranch))) {
+        return yield* new GitError({
+          command: "commit",
+          stderr: `Nothing to commit: no files changed, and there are no commits that ${params.baseBranch} doesn't already have.`,
+          exitCode: 1,
+        })
+      }
+      // Under a new name, push HEAD's commits only if they never reached
+      // origin (a failed push). `push -u` records a pushed branch under
+      // refs/remotes/origin/, so after a PR/MR was opened this is false.
+      if (!resuming && !(yield* gitClient.hasCommitsNotOnRemote(params.repoPath, "origin"))) {
+        return yield* new GitError({
+          command: "commit",
+          stderr: alreadyPushedMessage(
+            provider === "github" ? "pull request" : "merge request",
+            current || "HEAD",
+            params.baseBranch,
+            params.headBranch,
+          ),
+          exitCode: 1,
+        })
+      }
     }
 
     if (resuming) {
