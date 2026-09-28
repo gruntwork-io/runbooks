@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
-import { ExecutableRegistryContext } from '@/contexts/ExecutableRegistryContext.types'
+import { ExecutableRegistryContext, type ExecutableRegistryContextValue } from '@/contexts/ExecutableRegistryContext.types'
 import { GeneratedFilesProvider } from '@/contexts/GeneratedFilesContext'
 import { IpcGitWorkTreeProvider } from '@/contexts/IpcGitWorkTreeContext'
 import { LogsProvider } from '@/contexts/LogsContext'
@@ -30,13 +30,9 @@ const invoke = vi.fn((channel: string) => {
 })
 const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
 
-const registry = {
-  registry: null,
-  warnings: [],
-  loading: false,
-  error: null,
-  useExecutableRegistry: false,
+const registry: ExecutableRegistryContextValue = {
   getExecutableByComponentId: () => null,
+  registryVersion: 0,
 }
 
 function Providers({ children }: { children: ReactNode }) {
