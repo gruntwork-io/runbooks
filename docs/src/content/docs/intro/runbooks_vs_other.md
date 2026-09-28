@@ -28,7 +28,7 @@ For template authors, the authoring experience can be challenging, requiring rep
 
 By contrast, Runbooks offers a self-contained first-class templating experience for both end users and template authors. For consumers, they install runbooks from GitHub and run `runbooks open /path/to/runbook` (or `runbooks open https://github.com/org/repo/tree/main/path/to/runbook` for a remote URL) and can instantly read rich documentation, see the files they will generate in real-time, run a customized set of commands, and validate that everything is working correctly.
 
-For authors, there is nothing to configure. You download the `runbooks` binary and author a Runbook by writing a `runbook.mdx` file, and seeing real-time changes with `runbooks watch /path/to/runbook`. Authors can test template generation locally using the Runbooks tool itself, or for even more control over the feedback loop, authors can opt to directly use the [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) templating engine. As a result, authors have real-time feedback loops on everything they create.
+For authors, there is nothing to configure. You download the `runbooks` binary and author a Runbook by writing a `runbook.mdx` file, and seeing real-time changes with `runbooks --watch /path/to/runbook`. Authors can test template generation locally using the Runbooks tool itself, or for even more control over the feedback loop, authors can opt to directly use the [Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) templating engine. As a result, authors have real-time feedback loops on everything they create.
 
 ## Vs. Jupyter Notebooks
 

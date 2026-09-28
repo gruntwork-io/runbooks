@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react'
 import { formatVariableLabel } from '../lib/formatVariableLabel'
-import { applyValidationRule } from '../lib/validators'
+import { validateVariableValue } from '../lib/validators'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 
@@ -50,31 +50,7 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
     const variable = variablesByName.get(fieldName)
     if (!variable) return undefined
 
-    const stringValue = value === undefined || value === null ? '' : String(value)
-
-    // Required field validation (checked first)
-    if (variable.required) {
-      const isEmpty = value === undefined || value === null || value === ''
-        // For arrays (list/tuple), check if empty or all elements are empty
-        || (Array.isArray(value) && value.every(v => v === '' || v === undefined || v === null))
-        // For objects (map), check if no keys
-        || (typeof value === 'object' && value !== null && !Array.isArray(value) && Object.keys(value).length === 0)
-      if (isEmpty) {
-        return `${formatVariableLabel(variable.name)} is required`
-      }
-    }
-
-    // Apply additional validation rules from the variable definition
-    if (variable.validations && variable.validations.length > 0) {
-      for (const rule of variable.validations) {
-        const error = applyValidationRule(stringValue, rule)
-        if (error) {
-          return error
-        }
-      }
-    }
-
-    return undefined
+    return validateVariableValue(variable, value, formatVariableLabel(variable.name))
   }, [variablesByName])
 
   /**

@@ -1,5 +1,5 @@
 import { Loader2, Check, Info, Asterisk } from "lucide-react"
-import { SearchInput } from "./SearchInput"
+import { SearchInput } from "@/components/mdx/_shared/components/SearchInput"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { DefaultRegionPicker } from "./DefaultRegionPicker"

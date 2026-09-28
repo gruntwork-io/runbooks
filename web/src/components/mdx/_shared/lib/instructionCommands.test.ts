@@ -77,6 +77,8 @@ describe('buildBoilerplateInvocation', () => {
     })
     expect(cmd).toContain("--template-url 'templates/vpc'")
     expect(cmd).toContain("--non-interactive")
+    // Matches the folder the Generate button writes to (next to the runbook).
+    expect(cmd).toContain("--output-folder './generated'")
     expect(cmd).toContain("--var 'region=us-east-1'")
     expect(cmd).toContain('--var \'tags={"team":"infra"}\'')
     expect(cmd).not.toContain('empty=')

@@ -186,16 +186,16 @@ import type { FileTreeNode } from './FileTree.types'
 export type { File, FileTreeNode } from './FileTree.types'
 
 /**
- * Props for the FileTree component.
- * This component renders a hierarchical file tree with expand/collapse functionality.
- */
-/**
  * Indentation (px) added per nesting level. Exported so sibling trees that
  * deliberately reimplement their own renderer (e.g. the changed-files tree)
  * stay visually aligned. 8px base + this = the level-1 inset.
  */
 export const FILE_TREE_INDENT = 11
 
+/**
+ * Props for the FileTree component.
+ * This component renders a hierarchical file tree with expand/collapse functionality.
+ */
 export interface FileTreeProps {
   /** Array of file/folder items to display in the tree */
   items: FileTreeNode[];
