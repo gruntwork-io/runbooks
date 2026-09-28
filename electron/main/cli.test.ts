@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 
 describe("parseCliArgs", () => {
   it("parses a local runbook path", () => {
@@ -236,5 +236,58 @@ describe("parseCliArgs", () => {
     ])
     expect(config.runbookPath?.endsWith("/runbook.mdx")).toBe(true)
     expect(config.remoteUrl).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Second instance. Electron's "second-instance" argv is Chromium's parsed copy
+// of the second instance's command line: every switch is moved ahead of the
+// positionals, and Chromium adds switches of its own. A space-separated flag
+// no longer sits next to its value, so the second instance forwards its own
+// process.argv as the single-instance lock's additionalData.
+// ---------------------------------------------------------------------------
+
+describe("secondInstanceArgv", () => {
+  const EXE = "/Applications/Runbooks.app/Contents/MacOS/Runbooks"
+  const START = "--original-process-start-time=13401234567890123"
+  /** `runbooks open my-runbook --working-dir /path/to/project`, as typed. */
+  const typed = [EXE, "open", "my-runbook", "--working-dir", "/path/to/project"]
+  /** The same command as Electron's argv delivers it to the first instance. */
+  const reordered = [EXE, "--working-dir", START, "open", "my-runbook", "/path/to/project"]
+
+  it("prefers the argv the second instance forwarded", () => {
+    const argv = secondInstanceArgv(reordered, { argv: typed })
+    expect(argv).toEqual(typed)
+    expect(parseCliArgs(argv, "/home/me").runbookPath).toBe("/home/me/my-runbook")
+  })
+
+  it.each([
+    ["no additionalData", undefined],
+    ["null", null],
+    ["an object without argv", {}],
+    ["a string argv", { argv: "open my-runbook" }],
+    ["a non-string entry", { argv: [EXE, 42] }],
+  ])("falls back to Electron's argv for %s", (_label, additionalData) => {
+    expect(secondInstanceArgv(reordered, additionalData)).toBe(reordered)
+  })
+
+  // The fallback parses the reordered argv (e.g. a second instance that sent
+  // no additionalData). These shapes still come out right.
+
+  it("still finds positionals, --flag=value and --runbook values in a reordered argv", () => {
+    const opts = parseCliArgs([EXE, "--working-dir=::tmp", START, "open", "my-runbook"], "/home/me")
+    expect(opts.runbookPath).toBe("/home/me/my-runbook")
+
+    const local = parseCliArgs([EXE, "--runbook", START, "rb/runbook.mdx"], "/home/me")
+    expect(local.runbookPath).toBe("/home/me/rb/runbook.mdx")
+
+    const url = "https://github.com/o/r/tree/main/rb"
+    expect(parseCliArgs([EXE, "--runbook", START, url], "/home/me").remoteUrl).toBe(url)
+  })
+
+  it("cannot pair a space-separated unsupported flag with its value in a reordered argv", () => {
+    // Why the forwarded argv is preferred: the flag's value is now just the
+    // last positional, so it is taken as the runbook path.
+    expect(parseCliArgs(reordered, "/home/me").runbookPath).toBe("/path/to/project")
   })
 })

@@ -15,7 +15,7 @@ import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.t
 import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
@@ -131,16 +131,23 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
-const gotLock = app.requestSingleInstanceLock()
+// A second instance sends its unmodified argv along: the `argv` Electron
+// hands to "second-instance" has been reordered by Chromium (see
+// secondInstanceArgv).
+const gotLock = app.requestSingleInstanceLock({ argv: process.argv })
 
 if (!gotLock) {
   app.quit()
 } else {
-  app.on("second-instance", (_event, argv, workingDirectory) => {
+  app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
     const win = focusOrCreateWindow()
     // Resolve relative paths against the directory the second instance was
     // launched from, not this (first) instance's cwd.
-    const secondArgs = parseCliArgs(argv, workingDirectory, app.getAppPath())
+    const secondArgs = parseCliArgs(
+      secondInstanceArgv(argv, additionalData),
+      workingDirectory,
+      app.getAppPath(),
+    )
     if (secondArgs.remoteUrl) {
       openRemoteRunbook(win, secondArgs.remoteUrl)
     } else if (secondArgs.runbookPath) {

@@ -37,9 +37,9 @@ const UNSUPPORTED_VALUE_FLAGS = new Set(["--working-dir", "--output-path"])
  * Electron passes its own flags in argv, so we skip anything that looks like
  * an Electron/Chromium internal flag (starts with `--` and is not one of ours).
  *
- * @param argv    The arguments to parse: this process's argv, or the argv a
- *                second instance forwards through Electron's "second-instance"
- *                event.
+ * @param argv    The arguments to parse: this process's argv, or a second
+ *                instance's argv from the "second-instance" event (see
+ *                secondInstanceArgv).
  * @param cwd     The directory relative paths are resolved against. For a
  *                second instance this is the directory it was launched from
  *                (Electron's `workingDirectory`), not this process's cwd.
@@ -109,4 +109,21 @@ export function parseCliArgs(
   }
 
   return config
+}
+
+/**
+ * The argv to parse for a second instance. Electron's "second-instance" `argv`
+ * is not the list the second instance was started with: Chromium moves every
+ * switch ahead of the positionals and adds switches of its own, so
+ * `--working-dir /path` no longer sits next to its value. The second instance
+ * therefore forwards its own process.argv as the lock's additionalData
+ * (`app.requestSingleInstanceLock({ argv: process.argv })`). Use that when it
+ * is a string array, and fall back to Electron's `argv` otherwise.
+ */
+export function secondInstanceArgv(argv: string[], additionalData: unknown): string[] {
+  const forwarded = (additionalData as { argv?: unknown } | null | undefined)?.argv
+  if (Array.isArray(forwarded) && forwarded.every((a) => typeof a === "string")) {
+    return forwarded
+  }
+  return argv
 }
