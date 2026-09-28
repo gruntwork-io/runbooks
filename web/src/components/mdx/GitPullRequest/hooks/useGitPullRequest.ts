@@ -29,6 +29,10 @@ interface PushRequestBody {
   provider?: GitProvider
 }
 
+/** What a create or push invoke resolves with: the PR/MR's url and number
+ *  after a create, `error` after a failure. */
+type OperationResult = { error?: string; url?: string; number?: number } | undefined
+
 // Zod schemas for IPC events
 const LogEventSchema = z.object({
   line: z.string(),
@@ -50,6 +54,14 @@ const PRResultEventSchema = z.object({
 const OutputsEventSchema = z.object({
   outputs: z.record(z.string(), z.string()),
 })
+
+/**
+ * How long a new operation waits for a canceled one to finish before starting
+ * anyway. The main-process git/API work has no timeout, so without a bound a
+ * hung canceled run would block every later operation until the runbook is
+ * reopened.
+ */
+export const CANCELED_RUN_WAIT_MS = 30_000
 
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
@@ -87,11 +99,16 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   const [labels, setLabels] = useState<GitLabel[]>([])
   const [labelsLoading, setLabelsLoading] = useState(false)
 
-  // Track whether an operation is in progress for cancellation
-  const isRunningRef = useRef(false)
-  // Set when the user cancels mid-flight so the pending invoke's continuation
-  // (and any late events) don't clobber the reset UI state.
-  const canceledRef = useRef(false)
+  // Token of the current operation. Every executeIPCRequest takes a new one and
+  // cancel() bumps it, so a superseded run's continuation (and any late events)
+  // can't clobber the reset UI state or a newer run's state.
+  const opRef = useRef(0)
+  // The latest run's pending invoke, if any. Cancel can't abort the
+  // main-process work, so a new operation waits (up to CANCELED_RUN_WAIT_MS)
+  // for it to settle before subscribing: the events carry no operation id, so
+  // overlapping runs' events would be indistinguishable. Only the latest
+  // invoke is tracked; see executeIPCRequest for what that leaves open.
+  const inFlightRef = useRef<Promise<OperationResult> | null>(null)
   const isMountedRef = useRef(true)
   // Store active event unsubscribers so unmount can clean them up
   const activeUnsubscribersRef = useRef<Array<() => void>>([])
@@ -132,18 +149,25 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     [authId, authDerivedProvider, cfg],
   )
 
-  // Fetch labels for a repo. `host` targets the repo's own GitLab instance
-  // (self-hosted or gitlab.com); GitHub's labels channel ignores it.
+  // Monotonic label request counter: only the latest request may commit, so a
+  // slow response for the previous repo can't replace the current repo's labels.
+  const labelsSeqRef = useRef(0)
+
+  // Fetch labels for a repo. `host` targets the repo's own instance (GitLab
+  // self-hosted or gitlab.com; GitHub Enterprise or github.com).
   const fetchLabels = useCallback(async (owner: string, repo: string, host?: string) => {
     if (!owner || !repo) return
+    const seq = ++labelsSeqRef.current
     setLabelsLoading(true)
     try {
       const data = await api.invoke(cfg.channels.labels, { owner, repo, host })
+      if (seq !== labelsSeqRef.current) return
       setLabels((data.labels ?? []).map(name => ({ name, color: '', description: undefined })))
     } catch {
       // Non-critical
     } finally {
-      setLabelsLoading(false)
+      // A superseded request must not clear the spinner of the one that replaced it
+      if (seq === labelsSeqRef.current) setLabelsLoading(false)
     }
   }, [api, cfg])
 
@@ -155,18 +179,57 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     errorStatus: PRBlockStatus
     errorPrefix: string
   }) => {
+    const op = ++opRef.current
+    const isCurrent = () => isMountedRef.current && op === opRef.current
+
     // Clear any stale unsubscribers from a previous run
     for (const unsub of activeUnsubscribersRef.current) unsub()
     activeUnsubscribersRef.current = []
     const unsubscribers: Array<() => void> = []
-    isRunningRef.current = true
-    canceledRef.current = false
+
+    // A canceled run may still be working in the main process. Wait for it so
+    // its events and result can't land in this run, and so two runs don't
+    // touch the worktree at once. Canceling again while waiting still works.
+    //
+    // Known limit: the wait is bounded. Past CANCELED_RUN_WAIT_MS this run
+    // starts anyway and replaces inFlightRef with its own invoke, so the
+    // canceled run is no longer tracked: it can run git in the worktree
+    // alongside this run, and no later operation waits for it either. Whenever
+    // it does return, its git:log, git:pr-result, git:outputs, git:error and
+    // git:status events reach whichever operation is listening at that moment
+    // (this run, or a later one, such as a Push after this run succeeds). They
+    // can switch the displayed PR/MR, replace the block's registered outputs
+    // with its own and flip the status. Only its invoke result stays ignored.
+    // Closing this needs an operation id on every git:* event.
+    const canceledRun = inFlightRef.current
+    if (canceledRun) {
+      setLogs(prev => [...prev, createLogEntry('Waiting for the canceled operation to finish…')])
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const finished = await Promise.race([
+        canceledRun.then(result => ({ result }), () => ({ result: undefined })),
+        new Promise<null>(resolve => {
+          timer = setTimeout(() => resolve(null), CANCELED_RUN_WAIT_MS)
+        }),
+      ])
+      clearTimeout(timer)
+      if (!isCurrent()) return
+      // Its PR/MR and outputs stay out of this run, but the user should know it
+      // was opened rather than lose it silently.
+      const openedUrl = finished?.result?.url
+      if (!finished) {
+        setLogs(prev => [...prev, createLogEntry(
+          'The canceled operation is still running in the background. Starting anyway; its output may still appear here.',
+        )])
+      } else if (openedUrl) {
+        setLogs(prev => [...prev, createLogEntry(`The canceled operation finished and opened ${openedUrl}`)])
+      }
+    }
 
     try {
       // Subscribe to IPC events BEFORE invoking the command
       unsubscribers.push(
         api.on('git:log', (data: unknown) => {
-          if (!isMountedRef.current) return
+          if (!isCurrent()) return
           const parsed = LogEventSchema.safeParse(data)
           if (parsed.success) {
             const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
@@ -178,36 +241,38 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
             })
           }
         }),
+        // A failure maps to the operation's errorStatus: 'fail' for create,
+        // but a failed push leaves the created PR/MR on screen ('success').
         api.on('git:status', (data: unknown) => {
-          if (!isMountedRef.current) return
+          if (!isCurrent()) return
           const parsed = StatusEventSchema.safeParse(data)
           if (parsed.success) {
-            setStatus(parsed.data.status === 'success' ? 'success' : 'fail')
+            setStatus(parsed.data.status === 'success' ? 'success' : opts.errorStatus)
           }
         }),
         api.on('git:pr-result', (data: unknown) => {
-          if (!isMountedRef.current) return
+          if (!isCurrent()) return
           const parsed = PRResultEventSchema.safeParse(data)
           if (parsed.success) {
             setPRResult(parsed.data)
           }
         }),
         api.on('git:outputs', (data: unknown) => {
-          if (!isMountedRef.current) return
+          if (!isCurrent()) return
           const parsed = OutputsEventSchema.safeParse(data)
           if (parsed.success) {
             registerOutputs(id, parsed.data.outputs)
           }
         }),
         api.on('git:error', (data: unknown) => {
-          if (!isMountedRef.current) return
+          if (!isCurrent()) return
           const errorData = data as { message?: string; code?: string; branchName?: string }
-          setErrorMessage(errorData.message || 'Operation failed')
+          opts.onError(errorData.message || 'Operation failed')
           setErrorCode(errorData.code || null)
           if (errorData.code === 'branch_exists' && errorData.branchName) {
             setConflictBranchName(errorData.branchName)
           }
-          setStatus('fail')
+          setStatus(opts.errorStatus)
         }),
       )
       activeUnsubscribersRef.current = unsubscribers
@@ -215,26 +280,28 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       // Invoke the IPC command. The channel is one of a fixed set whose params
       // are PullRequestRequest (create) or the push payload; `as never` bridges
       // the union without widening to `any`.
-      const result = await api.invoke(opts.channel, opts.body as never) as
-        | { error?: string; url?: string; number?: number }
-        | undefined
-
-      isRunningRef.current = false
+      const invocation = api.invoke(opts.channel, opts.body as never) as Promise<OperationResult>
+      inFlightRef.current = invocation
+      const result = await invocation.finally(() => {
+        if (inFlightRef.current === invocation) inFlightRef.current = null
+      })
 
       // Resolve final status IMMEDIATELY from the invoke return value — the
-      // invoke promise is the most reliable completion signal. The git:status
-      // and git:error IPC events are sent by the main handler before returning,
-      // so they may have already fired (great), or they may arrive within the
-      // next few hundred ms (the 500ms listener window below). Either way the
-      // status is correct now and the spinner is never permanently stuck.
-      if (isMountedRef.current && !canceledRef.current) {
+      // invoke promise is the most reliable completion signal, so the spinner
+      // is never permanently stuck. The main handler sends git:status and
+      // git:error before returning, so the listeners above have usually applied
+      // them already; any that arrive later (within the 500ms listener window
+      // below) go through the same operation-aware mapping.
+      if (isCurrent()) {
         if (result && 'error' in result && result.error) {
           opts.onError(result.error)
           setStatus(prev =>
             prev === 'creating' || prev === 'pushing' ? opts.errorStatus : prev,
           )
-          // Surface branch-exists code if the git:error event didn't arrive yet
-          if (/already exists/i.test(result.error)) {
+          // Surface branch-exists code if the git:error event didn't arrive yet.
+          // Only a local branch-name collision qualifies (mirrors
+          // isLocalBranchConflict in electron/main/ipc/git-pr-result.ts).
+          if (/a branch named .* already exists/i.test(result.error)) {
             setErrorCode(prev => prev ?? 'branch_exists')
             if ('headBranch' in opts.body) {
               setConflictBranchName(prev => prev ?? (opts.body as CreateRequestBody).headBranch)
@@ -249,12 +316,13 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
 
       // Keep listeners alive briefly so late-arriving git:pr-result and
       // git:outputs events (URL / outputs registration) can still be processed.
+      // Leave the ref alone if a newer operation has replaced these listeners.
       setTimeout(() => {
         for (const unsub of unsubscribers) unsub()
-        activeUnsubscribersRef.current = []
+        if (activeUnsubscribersRef.current === unsubscribers) activeUnsubscribersRef.current = []
       }, 500)
     } catch (error) {
-      if (isMountedRef.current && !canceledRef.current) {
+      if (isCurrent()) {
         const msg = error instanceof Error ? error.message : `${opts.errorPrefix} failed`
         opts.onError(msg)
         setStatus(opts.errorStatus)
@@ -262,8 +330,7 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       }
       // Clean up listeners immediately on error (no more events expected)
       for (const unsub of unsubscribers) unsub()
-      activeUnsubscribersRef.current = []
-      isRunningRef.current = false
+      if (activeUnsubscribersRef.current === unsubscribers) activeUnsubscribersRef.current = []
     }
   }, [api, id, registerOutputs])
 
@@ -312,7 +379,8 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       channel: cfg.channels.push,
       body: { worktreePath: localPath, branchName, provider: cfg.id },
       onError: setPushError,
-      errorStatus: 'success',  // Stay in success state with inline error
+      // The PR/MR already exists: keep showing it, with the push error inline.
+      errorStatus: 'success',
       errorPrefix: 'Push error',
     })
   }, [executeIPCRequest, cfg])
@@ -320,12 +388,12 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   // Cancel operation.
   //
   // We can't abort the main-process git work over the existing invoke (there's
-  // no cancel channel), but we stop listening for its events and return the UI
-  // to a usable state so the user is never trapped on a spinner — previously
-  // this only flipped a ref and left `status` stuck at 'creating'/'pushing'.
+  // no cancel channel), but we stop listening for its events, ignore its result
+  // and return the UI to a usable state so the user is never trapped on a
+  // spinner. The next operation waits, for a bounded time, for the canceled
+  // one to finish.
   const cancel = useCallback(() => {
-    canceledRef.current = true
-    isRunningRef.current = false
+    opRef.current++
     for (const unsub of activeUnsubscribersRef.current) unsub()
     activeUnsubscribersRef.current = []
     setStatus('ready')
@@ -336,8 +404,9 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     setLogs(prev => prev.length > 0 ? [...prev, createLogEntry('Canceled.')] : prev)
   }, [])
 
-  // Delete a local branch and reset to ready state
-  const deleteBranch = useCallback(async (localPath: string, branchName: string) => {
+  // Delete a local branch and reset to ready state. Resolves true when the
+  // branch was deleted, so the caller can retry the create.
+  const deleteBranch = useCallback(async (localPath: string, branchName: string): Promise<boolean> => {
     try {
       await api.invoke(cfg.channels.deleteBranch, { worktreePath: localPath, branch: branchName })
 
@@ -346,11 +415,13 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
       setConflictBranchName(null)
       setStatus('ready')
       setLogs([])
+      return true
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Failed to delete branch'
       setErrorMessage(msg)
       setErrorCode(null)
       setConflictBranchName(null)
+      return false
     }
   }, [api, cfg])
 

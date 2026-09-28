@@ -28,7 +28,9 @@ import type { BlockOutput } from '@/lib/templateUtils'
  *   - `submitButtonText`: Text for the submit button (default: 'Generate')
  *   - `showSubmitButton`: Whether to show submit button (default: true)
  *   - `isGenerating`: Whether form is in loading state (default: false)
- *   - `hasGeneratedSuccessfully`: Whether to show success message (default: false)
+ *   - `hasGeneratedSuccessfully`: Whether the parent has generated successfully (default: false).
+ *     Controlled by the parent: the Generate button stays until this is true.
+ *   - `hasRenderError`: Whether the parent's latest render failed (default: false)
  * @returns JSX element representing the form
  */
 interface BoilerplateInputsFormProps {
@@ -44,6 +46,8 @@ interface BoilerplateInputsFormProps {
   isAutoRendering?: boolean
   enableAutoRender?: boolean
   hasGeneratedSuccessfully?: boolean
+  /** Whether the parent's latest render failed. Blocks the success styling while set. */
+  hasRenderError?: boolean
   variant?: 'standard' | 'embedded'
   /** When true, uses inline YAML mode which updates variables instead of generating files */
   isInlineMode?: boolean
@@ -121,6 +125,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   isAutoRendering = false,
   enableAutoRender = true,
   hasGeneratedSuccessfully = false,
+  hasRenderError = false,
   variant = 'standard',
   isInlineMode = false,
   sharedVarNames = new Set(),
@@ -130,8 +135,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? 'Submit' : 'Generate')
   
-  // Track whether the form has been generated at least once
-  const [hasGenerated, setHasGenerated] = useState(hasGeneratedSuccessfully)
+  // Whether the form has been generated at least once. Controlled by the parent,
+  // which only knows after the render (or submit) has actually succeeded.
+  const hasGenerated = hasGeneratedSuccessfully
   // Track whether submit was attempted (to show validation error summary near button)
   const [submitAttempted, setSubmitAttempted] = useState(false)
   
@@ -214,9 +220,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       return
     }
 
-    // Mark as generated after first successful submission
+    // The parent reports success via hasGeneratedSuccessfully; until then the
+    // Generate button stays so a failed render can be retried.
     setSubmitAttempted(false)
-    setHasGenerated(true)
 
     if (onGenerate) {
       onGenerate(formData)
@@ -307,8 +313,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Once the form has generated successfully, highlight the block green to
   // match the success styling of run-based blocks (Command, Check, etc.).
   // Only applies to the standard variant, and reverts to neutral if the form
-  // later becomes invalid.
-  const showSuccess = variant === 'standard' && hasGenerated && formIsValid
+  // later becomes invalid or the latest render failed.
+  const showSuccess = variant === 'standard' && hasGenerated && formIsValid && !hasRenderError
 
   // Determine container classes based on variant and success state
   const containerClasses = variant === 'embedded'
@@ -332,7 +338,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         {shouldShowSubmitButton && (
           <div className="pt-4 border-t border-border">
             {!hasGenerated ? (
-              // Before first generation: show the Generate button
+              // Until the parent reports a successful generation: show the Generate button
               <>
                 <Button
                   type="submit"
@@ -362,6 +368,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 isValid={formIsValid}
                 isUpdating={isAutoRendering}
                 isInlineMode={isInlineMode}
+                hasRenderError={hasRenderError}
               />
             )}
           </div>

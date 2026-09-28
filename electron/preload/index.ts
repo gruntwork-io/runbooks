@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
 import type { IpcChannelMap, IpcEventMap, InvokeChannel, EventChannel } from "../shared/channels.ts"
+import { cleanIpcErrorMessage } from "../shared/ipc-error-message.ts"
 
 // Channels the renderer may use. `satisfies Record<InvokeChannel, true>` (and
 // `Record<EventChannel, true>` below) makes tsc fail if a channel declared in
@@ -19,10 +20,11 @@ const INVOKE_CHANNELS = {
   "google:credential-committed": true,
   "github:validate": true, "github:oauth-start": true, "github:oauth-poll": true, "github:env-credentials": true,
   "github:cli-credentials": true, "github:orgs": true, "github:repos": true, "github:refs": true, "github:labels": true,
+  "github:enumerate-hosts": true, "github:host-picked": true,
   "gitlab:validate": true, "gitlab:env-credentials": true, "gitlab:cli-credentials": true, "gitlab:labels": true, "gitlab:enumerate-hosts": true,
   "gitlab:host-picked": true,
   "vcs:cli-status": true, "vcs:invalidate-cache": true, "vcs:apply-git-schannel": true,
-  "git:clone": true, "git:local-repo": true, "git:push": true, "git:init-default-branch": true, "git:pull-request": true, "git:merge-request": true, "git:delete-branch": true,
+  "git:clone": true, "git:clone-cancel": true, "git:local-repo": true, "git:push": true, "git:init-default-branch": true, "git:pull-request": true, "git:merge-request": true, "git:delete-branch": true,
   "workspace:tree": true, "workspace:dirs": true, "workspace:file": true, "workspace:changes": true,
   "workspace:register": true, "workspace:set-active": true,
   "generated-files:check": true, "generated-files:delete": true,
@@ -60,7 +62,12 @@ contextBridge.exposeInMainWorld("api", {
     if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
       return Promise.reject(new Error(`Blocked IPC invoke on unknown channel: ${channel}`))
     }
-    return ipcRenderer.invoke(channel, ...args)
+    // Strip Electron's "Error invoking remote method '<channel>': Error: "
+    // wrapper once here, so every caller (useIpc and direct api.invoke catch
+    // blocks alike) gets just the handler's message.
+    return ipcRenderer.invoke(channel, ...args).catch((err: unknown) => {
+      throw new Error(cleanIpcErrorMessage(err instanceof Error ? err.message : String(err)))
+    })
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {

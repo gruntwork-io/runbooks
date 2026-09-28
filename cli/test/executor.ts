@@ -2,22 +2,39 @@
  * Test execution engine.
  *
  * Runs runbook tests in headless mode: parses the MDX, executes blocks in
- * document order, captures outputs, and validates assertions.
+ * document order (or in the order a test's steps list them), captures
+ * outputs, and validates assertions.
  */
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { ManagedRuntime } from "effect"
+import { Either, ManagedRuntime } from "effect"
 
 import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
+import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
+import { DEFAULT_GITHUB_HOST, isGitHubHost, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
-  detectInterpreter,
-  isBashInterpreter,
+  parseBlockOutputsContent,
+  parseEnvCaptureContent,
+  resolveScriptRunner,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
+import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
+import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
+import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
+import {
+  GITLAB_TOKEN_ENV_VARS,
+  envTokenHost,
+  gitlabSessionTokenHost,
+  mayAutoSendEnvToken,
+} from "../../src/domain/gitlab/auth.ts"
+import { redactSecrets } from "../../src/domain/vcs/redact.ts"
+import { untouchedValue } from "../../src/domain/boilerplate/untouchedValue.ts"
 import type { Executable } from "../../src/types.ts"
 
 import type {
@@ -40,11 +57,11 @@ import {
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
   lowercaseFirst,
-  AUTH_BLOCK_TYPES,
   type TemplateInlineBlock,
   type TemplateBlock,
   type AuthDependency,
 } from "./validation.ts"
+import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 
 // ---------------------------------------------------------------------------
@@ -53,7 +70,10 @@ import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 
 type BlockState = "success" | "skipped"
 
+type GitProvider = "github" | "gitlab"
+
 const AUTH_BLOCK_SET = new Set<string>(AUTH_BLOCK_TYPES)
+const PR_BLOCK_SET = new Set<string>(PR_BLOCK_TYPES)
 
 function isAuthBlock(blockType: string): boolean {
   return AUTH_BLOCK_SET.has(blockType)
@@ -110,6 +130,14 @@ const GOOGLE_REGION_WRITE_VARS = [
 ] as const
 const GOOGLE_ZONE_WRITE_VARS = ["CLOUDSDK_COMPUTE_ZONE", "GOOGLE_ZONE"] as const
 
+/**
+ * A git auth block's env lookup: the token and the session vars to write, or
+ * why the block skips.
+ */
+type GitAuthLookup =
+  | { token: string; vars: Record<string, string> }
+  | { skipReason: string }
+
 /** Build a StepResult with its mutable fields freshly initialized per call. */
 function makeStepResult(
   block: string,
@@ -125,6 +153,22 @@ function makeStepResult(
     duration: 0,
     assertionResults: [],
   }
+}
+
+/**
+ * Whether the repository at `repoDir` has any commits (its HEAD resolves).
+ * `env` is the environment the clone's other git commands run with. As in the
+ * app, only an unborn HEAD (`rev-parse --verify` exits 1) counts as no
+ * commits. Any other failure (dubious ownership, a corrupt repo, git not
+ * starting) counts as having them, so the checkout runs and fails with the
+ * real error instead of passing an empty clone.
+ */
+function hasCommits(repoDir: string, env: NodeJS.ProcessEnv): boolean {
+  const proc = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "-q", "HEAD"], {
+    stdio: "ignore",
+    env,
+  })
+  return proc.status !== 1
 }
 
 // ---------------------------------------------------------------------------
@@ -210,25 +254,36 @@ export class TestExecutor {
   private templates!: Map<string, TemplateBlock>
   private authDeps!: Map<string, AuthDependency>
 
-  // Per-session state
-  private sessionEnv: string[] = []
-  private sessionWorkDir: string
+  // process.env as captured by init(); every test starts from a copy
+  private initialSessionEnv: string[] = []
 
   // Per-test state (reset each test)
+  private workingDir: string
+  private sessionEnv: string[] = []
+  private sessionWorkDir: string
   private blockOutputs = new Map<string, Map<string, string>>()
+  // Files each block wrote this test case, by block ID, for files_generated
+  private generatedFileCounts = new Map<string, number>()
   private testInputs: Record<string, unknown> = {}
   private testEnv: Record<string, string> = {}
   private blockStates = new Map<string, BlockState>()
   private authBlockCredentials = new Map<string, Record<string, string>>()
+  // The token each git auth block found, and for which provider, for GitClone
+  private gitAuthTokens = new Map<string, { provider: GitProvider; token: string }>()
   private activeWorkTreePath = ""
 
+  /**
+   * `defaultWorkingDir` is where a test case runs when runTest isn't given a
+   * working directory of its own.
+   */
   constructor(
     private runbookPath: string,
-    private workingDir: string,
+    private defaultWorkingDir: string,
     private outputPath: string,
     private options: ExecutorOptions,
   ) {
-    this.sessionWorkDir = workingDir
+    this.workingDir = defaultWorkingDir
+    this.sessionWorkDir = defaultWorkingDir
   }
 
   /** Initialize the executor: parse runbook, build registry, validate config. */
@@ -255,7 +310,7 @@ export class TestExecutor {
     this.authDeps = parseAuthDependencies(this.runbookPath)
 
     // Capture initial environment
-    this.sessionEnv = Object.entries(process.env)
+    this.initialSessionEnv = Object.entries(process.env)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${k}=${v}`)
   }
@@ -286,6 +341,15 @@ export class TestExecutor {
     return path.join(this.workingDir, this.outputPath)
   }
 
+  /**
+   * The session env with the test case's `env` on top, as every block and
+   * script assertion sees it. The test's `env` always wins, so it can blank a
+   * variable whether or not an earlier bash block has captured it yet.
+   */
+  private sessionEnvWithTestEnv(): Record<string, string> {
+    return { ...envListToRecord(this.sessionEnv), ...this.testEnv }
+  }
+
   private getenv(key: string): string {
     if (this.testEnv[key] !== undefined) return this.testEnv[key]
     return process.env[key] ?? ""
@@ -309,7 +373,14 @@ export class TestExecutor {
   // Run a test case
   // -----------------------------------------------------------------------
 
-  runTest(tc: TestCase): TestResult {
+  /**
+   * Run one test case. Each test case starts clean: block outputs, the session
+   * env and the cwd start over, so nothing an earlier test case exported,
+   * cd'd into or authenticated carries into this one. With
+   * use_temp_working_dir, runTestSuite also passes a fresh `workingDir` per
+   * test case, so files and clones don't carry over either.
+   */
+  runTest(tc: TestCase, workingDir = this.defaultWorkingDir): TestResult {
     const start = Date.now()
     const result: TestResult = {
       testCase: tc.name,
@@ -340,15 +411,10 @@ export class TestExecutor {
       return result
     }
 
-    // Backfill defaults from Inputs block schemas
-    for (const [inputsId, schema] of this.validator.getAllSchemas()) {
-      for (const [varName, variable] of schema.variables) {
-        const key = `${inputsId}.${varName}`
-        if (!(key in resolvedInputs) && variable.default !== undefined) {
-          resolvedInputs[key] = variable.default
-        }
-      }
-    }
+    // Fill in the variables the test doesn't set, first, so the test's own
+    // values come after them and win where buildTemplateVars flattens every
+    // block into one `.inputs` map (a later key replaces an earlier one).
+    resolvedInputs = { ...this.fillUnsetInputs(resolvedInputs), ...resolvedInputs }
 
     // 2. Validate inputs against schemas
     const validationErrors = this.validator.validateInputValues(resolvedInputs)
@@ -372,75 +438,90 @@ export class TestExecutor {
 
     this.testInputs = resolvedInputs
     this.testEnv = tc.env ?? {}
+    this.workingDir = workingDir
+    this.sessionEnv = [...this.initialSessionEnv]
+    this.sessionWorkDir = workingDir
     this.blockOutputs = new Map()
+    this.generatedFileCounts = new Map()
     this.blockStates = new Map()
     this.authBlockCredentials = new Map()
+    this.gitAuthTokens = new Map()
     this.activeWorkTreePath = ""
 
     // 3. Get all blocks in document order
     const allBlocks = this.validator.getComponents()
 
-    // 4. Build step maps
-    const expectsConfigError = new Set<string>()
-    const stepsToRun = new Map<string, TestStep>()
-    const hasExplicitSteps = (tc.steps?.length ?? 0) > 0
-
-    for (const step of tc.steps ?? []) {
-      if (step.expect === "config_error") expectsConfigError.add(step.block)
-      stepsToRun.set(step.block, step)
+    // 4. Pair each block to run with its step. Explicit steps run in the order
+    // listed, so a block can run more than once with a different expectation
+    // each time; without steps, every block runs once in document order,
+    // expected to succeed, except PR blocks, which never run in test mode.
+    const plan: Array<{ block: ParsedComponent; step: TestStep }> = []
+    if (tc.steps && tc.steps.length > 0) {
+      for (const [i, step] of tc.steps.entries()) {
+        const block = allBlocks.find((b) => b.id === step.block)
+        if (!block) {
+          result.status = "failed"
+          result.error = `Test step ${i + 1} references unknown block "${step.block}"`
+          result.duration = Date.now() - start
+          return result
+        }
+        plan.push({ block, step })
+      }
+    } else {
+      for (const block of allBlocks) {
+        const expect = PR_BLOCK_SET.has(block.type) ? "skip" : "success"
+        plan.push({ block, step: { block: block.id, expect } })
+      }
     }
 
     const registryWarnings = this.registry.getWarnings()
 
-    // 5. Process each block in document order
-    for (const block of allBlocks) {
-      const stepResult = this.processBlock(
-        block, stepsToRun, expectsConfigError, registryWarnings, hasExplicitSteps,
-      )
-      result.stepResults.push(stepResult)
+    // Cleanup runs however the test ends (a failed block or assertion, or an
+    // unexpected throw) so teardown is never skipped.
+    try {
+      // 5. Process each planned step
+      for (const { block, step } of plan) {
+        const stepResult = this.processBlock(block, step, registryWarnings)
+        result.stepResults.push(stepResult)
 
-      if (!stepResult.passed) {
-        const isRequested = stepsToRun.has(block.id) || !hasExplicitSteps
-        if (isRequested) {
+        if (!stepResult.passed) {
           result.status = "failed"
           result.error = this.formatBlockError(block, stepResult)
           break
         }
+
+        // Per-step assertions
+        if (step.assertions) {
+          for (const assertion of step.assertions) {
+            const ar = runAssertion(assertion, this.makeAssertionCtx())
+            stepResult.assertionResults.push(ar)
+            if (!ar.passed) {
+              result.status = "failed"
+              result.error = `${block.type} block "${block.id}" assertion failed: ${ar.message}`
+              break
+            }
+          }
+          if (result.status === "failed") break
+        }
       }
 
-      // Per-step assertions
-      const step = stepsToRun.get(block.id)
-      if (step?.assertions && stepResult.passed) {
-        for (const assertion of step.assertions) {
+      // Post-test assertions
+      if (result.status !== "failed" && tc.assertions) {
+        for (const assertion of tc.assertions) {
           const ar = runAssertion(assertion, this.makeAssertionCtx())
-          stepResult.assertionResults.push(ar)
+          result.assertions.push(ar)
           if (!ar.passed) {
             result.status = "failed"
-            result.error = `${block.type} block "${block.id}" assertion failed: ${ar.message}`
+            result.error = `Assertion failed: ${ar.message}`
             break
           }
         }
-        if (result.status === "failed") break
       }
-    }
-
-    // Post-test assertions
-    if (result.status !== "failed" && tc.assertions) {
-      for (const assertion of tc.assertions) {
-        const ar = runAssertion(assertion, this.makeAssertionCtx())
-        result.assertions.push(ar)
-        if (!ar.passed) {
-          result.status = "failed"
-          result.error = `Assertion failed: ${ar.message}`
-          break
+    } finally {
+      if (tc.cleanup) {
+        for (const cleanup of tc.cleanup) {
+          this.runCleanup(cleanup)
         }
-      }
-    }
-
-    // Cleanup
-    if (tc.cleanup) {
-      for (const cleanup of tc.cleanup) {
-        this.runCleanup(cleanup)
       }
     }
 
@@ -454,23 +535,14 @@ export class TestExecutor {
 
   private processBlock(
     block: ParsedComponent,
-    stepsToRun: Map<string, TestStep>,
-    expectsConfigError: Set<string>,
+    step: TestStep,
     registryWarnings: string[],
-    hasExplicitSteps: boolean,
   ): StepResult {
     const start = Date.now()
 
-    let step = stepsToRun.get(block.id)
-    let shouldRun = stepsToRun.has(block.id)
-    if (!hasExplicitSteps) {
-      shouldRun = block.type !== "Inputs"
-      step = step ?? { block: block.id, expect: "success" }
-    }
-
     const result = makeStepResult(
       `${lowercaseFirst(block.type)}:${block.id}`,
-      step?.expect ?? "success",
+      step.expect,
     )
 
     // 1. Check for config errors
@@ -480,16 +552,12 @@ export class TestExecutor {
       result.actualStatus = "config_error"
       result.error = configError
 
-      const isRequested = stepsToRun.has(block.id) || !hasExplicitSteps
-
-      if (expectsConfigError.has(block.id)) {
-        if (step?.error_contains && !configError.toLowerCase().includes(step.error_contains.toLowerCase())) {
+      if (step.expect === "config_error") {
+        if (step.error_contains && !configError.toLowerCase().includes(step.error_contains.toLowerCase())) {
           result.passed = false
         } else {
           result.passed = true
         }
-      } else if (!isRequested) {
-        result.passed = true
       } else {
         result.passed = false
       }
@@ -517,21 +585,15 @@ export class TestExecutor {
       return result
     }
 
-    // 3. Skip non-requested blocks
-    if (!shouldRun) {
-      result.actualStatus = "skipped"
-      result.passed = true
-      result.duration = Date.now() - start
-      return result
-    }
-
-    // 4. Check auth dependencies
-    if (this.authDeps.has(block.id)) {
+    // 3. Check auth dependencies. A block whose auth block hasn't run, or was
+    // skipped, is blocked, which is what an `expect: blocked` step asserts.
+    // `expect: skip` skips the block whatever state its auth block is in.
+    if (step.expect !== "skip" && this.authDeps.has(block.id)) {
       const authDep = this.authDeps.get(block.id)!
       const authState = this.blockStates.get(authDep.authBlockId)
 
       if (authState === undefined) {
-        result.passed = false
+        result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
         result.error = `Block depends on "${authDep.authBlockId}" which hasn't run yet`
         result.duration = Date.now() - start
@@ -539,13 +601,7 @@ export class TestExecutor {
       }
 
       if (authState === "skipped") {
-        if (step?.expect === "skip") {
-          result.passed = true
-          result.actualStatus = "skipped"
-          result.duration = Date.now() - start
-          return result
-        }
-        result.passed = false
+        result.passed = step.expect === "blocked"
         result.actualStatus = "blocked"
         result.error = `Block depends on "${authDep.authBlockId}" which was skipped`
         result.duration = Date.now() - start
@@ -553,8 +609,8 @@ export class TestExecutor {
       }
     }
 
-    // 5. Dispatch block
-    return this.dispatchBlock(block, step!, start)
+    // 4. Dispatch block
+    return this.dispatchBlock(block, step, start)
   }
 
   private getConfigErrorForBlock(block: ParsedComponent, registryWarnings: string[]): string {
@@ -602,6 +658,21 @@ export class TestExecutor {
       return result
     }
 
+    // Handle blocked expectation before rendering anything: a blocked block's
+    // templates reference outputs that don't exist yet, so rendering would fail.
+    if (step.expect === "blocked") {
+      const missing = this.checkMissingOutputs(step.missing_outputs ?? [])
+      if (missing.length > 0) {
+        result.passed = true; result.actualStatus = "blocked"
+        result.error = `Blocked due to missing outputs: ${missing.join(", ")}`
+      } else {
+        result.passed = false; result.actualStatus = "not_blocked"
+        result.error = "Expected block to be blocked but all dependencies are satisfied"
+      }
+      result.duration = Date.now() - start
+      return result
+    }
+
     // Render template vars in block props if needed
     if (block.props.includes("{{")) {
       try {
@@ -643,7 +714,21 @@ export class TestExecutor {
         return this.runCheckOrCommand(block, step, start)
 
       case "GitHubAuth":
-        return this.runGitHubAuth(block, step, start)
+        return this.runGitAuth(block, step, start, "github")
+
+      case "GitLabAuth":
+        return this.runGitAuth(block, step, start, "gitlab")
+
+      case "GitAuth": {
+        const provider = extractProp(block.props, "provider") || "github"
+        if (provider !== "github" && provider !== "gitlab") {
+          result.passed = false; result.actualStatus = "error"
+          result.error = `Unsupported provider "${provider}" (expected "github" or "gitlab")`
+          result.duration = Date.now() - start
+          return result
+        }
+        return this.runGitAuth(block, step, start, provider)
+      }
 
       case "AwsAuth":
         return this.runAwsAuth(block, step, start)
@@ -654,17 +739,14 @@ export class TestExecutor {
       case "GitClone":
         return this.runGitClone(block, step, start)
 
+      // `expect: skip` returned above, so any expectation that gets here would
+      // need the block to push a branch and open a real pull request.
+      case "GitPullRequest":
       case "GitHubPullRequest":
-        result.passed = (step.expect as string) === "skip"
-        result.actualStatus = "skipped"
+      case "GitLabMergeRequest":
+        result.passed = false; result.actualStatus = "error"
+        result.error = "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
         result.duration = Date.now() - start
-        if (this.options.verbose) console.log("  (GitHubPullRequest blocks are skipped in test mode)")
-        return result
-
-      case "Admonition":
-        result.passed = true; result.actualStatus = "success"
-        result.duration = Date.now() - start
-        if (this.options.verbose) console.log("  (decorative block - no run)")
         return result
 
       default:
@@ -703,20 +785,6 @@ export class TestExecutor {
       return result
     }
 
-    // Handle blocked expectation
-    if (step.expect === "blocked") {
-      const missing = this.checkMissingOutputs(step.missing_outputs ?? [])
-      if (missing.length > 0) {
-        result.passed = true; result.actualStatus = "blocked"
-        result.error = `Blocked due to missing outputs: ${missing.join(", ")}`
-      } else {
-        result.passed = false; result.actualStatus = "not_blocked"
-        result.error = "Expected block to be blocked but all dependencies are satisfied"
-      }
-      result.duration = Date.now() - start
-      return result
-    }
-
     // Render template vars in script content
     let scriptContent = foundExec.content
     try {
@@ -732,40 +800,39 @@ export class TestExecutor {
     const outputFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")), "output.txt")
     fs.writeFileSync(outputFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
+    // Made below; declared here so the finally can remove them
+    let envDir = ""
+    let pwdDir = ""
+    let scriptDir = ""
 
     try {
       // Prepare the script
-      const [interpreter, interpreterArgs] = detectInterpreter(scriptContent, foundExec.language)
-      const isBash = isBashInterpreter(interpreter)
+      const { interpreter, args: interpreterArgs, wrap: isBash } =
+        resolveScriptRunner(scriptContent, foundExec.language)
 
       let scriptToWrite = scriptContent
       let envCapturePath = ""
       let pwdCapturePath = ""
 
       if (isBash) {
-        const envDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-env-"))
+        envDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-env-"))
         envCapturePath = path.join(envDir, "env.txt")
         fs.writeFileSync(envCapturePath, "")
-        const pwdDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-pwd-"))
+        pwdDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-pwd-"))
         pwdCapturePath = path.join(pwdDir, "pwd.txt")
         fs.writeFileSync(pwdCapturePath, "")
         scriptToWrite = wrapBashScript(scriptContent, envCapturePath, pwdCapturePath)
       }
 
-      const scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-script-"))
+      scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-script-"))
       const scriptPath = path.join(scriptDir, "script.sh")
       fs.writeFileSync(scriptPath, scriptToWrite, { mode: 0o700 })
 
-      // Build environment
-      const env = envListToRecord(this.sessionEnv)
+      // Build environment. The per-block vars go on last, as in the app.
+      const env = this.sessionEnvWithTestEnv()
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
-
-      // Add test env vars
-      for (const [k, v] of Object.entries(this.testEnv)) {
-        env[k] = v
-      }
 
       // Inject auth block credentials if this block has an auth dependency
       if (this.authDeps.has(foundExec.componentId)) {
@@ -810,19 +877,14 @@ export class TestExecutor {
       // Parse outputs
       if (status === "success" || status === "warn") {
         try {
-          const outputContent = fs.readFileSync(outputFile, "utf-8")
-          const outputs: Record<string, string> = {}
-          for (const line of outputContent.split("\n")) {
-            const idx = line.indexOf("=")
-            if (idx >= 0) {
-              outputs[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-            }
-          }
-          result.outputs = outputs
+          result.outputs = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
         } catch { /* no outputs */ }
 
+        // Carry the script's exports and final cwd into later blocks
+        if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath)
+
         // Copy captured files to output directory
-        this.captureFiles(filesDir, this.resolveOutputPath())
+        this.creditGeneratedFiles(block.id, this.captureFiles(filesDir, this.resolveOutputPath()))
       }
 
       if (this.options.verbose) {
@@ -841,10 +903,34 @@ export class TestExecutor {
       return result
 
     } finally {
-      // Cleanup temp files
-      try { fs.rmSync(path.dirname(outputFile), { recursive: true, force: true }) } catch {}
-      try { fs.rmSync(filesDir, { recursive: true, force: true }) } catch {}
+      // Cleanup temp files. The env capture holds every variable the script
+      // saw, credentials included, so it must not outlive the block.
+      for (const dir of [path.dirname(outputFile), filesDir, envDir, pwdDir, scriptDir]) {
+        if (dir) try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+      }
     }
+  }
+
+  /**
+   * Apply a bash block's env/pwd capture the way the app's session does after
+   * a successful run: the captured env, minus shell internals and per-block
+   * vars like RUNBOOK_OUTPUT, replaces the session env, and a non-empty pwd
+   * becomes the cwd for later blocks.
+   */
+  private applyEnvCapture(envCapturePath: string, pwdCapturePath: string): void {
+    let env: Record<string, string> | undefined
+    try {
+      env = parseEnvCaptureContent(fs.readFileSync(envCapturePath, "utf-8"))
+    } catch { /* nothing captured */ }
+    if (!env) return
+
+    this.sessionEnv = Object.entries(filterCapturedEnv(env)).map(([k, v]) => `${k}=${v}`)
+
+    let pwd = ""
+    try {
+      pwd = fs.readFileSync(pwdCapturePath, "utf-8").trim()
+    } catch { /* keep the current cwd */ }
+    if (pwd) this.sessionWorkDir = pwd
   }
 
   // -----------------------------------------------------------------------
@@ -884,6 +970,7 @@ export class TestExecutor {
       try {
         fs.mkdirSync(path.dirname(outputFile), { recursive: true })
         fs.writeFileSync(outputFile, rendered)
+        this.creditGeneratedFiles(block.id, 1)
         if (this.options.verbose) console.log(`--- Wrote file: ${outputFile} ---`)
       } catch (e: unknown) {
         result.passed = false; result.actualStatus = "error"
@@ -949,7 +1036,7 @@ export class TestExecutor {
           vars[parts[1]] = value
         }
       }
-      this.renderTemplateDir(templatePath, outputDir, vars)
+      this.creditGeneratedFiles(block.id, this.renderTemplateDir(templatePath, outputDir, vars))
     } catch (e: unknown) {
       result.passed = false; result.actualStatus = "error"
       result.error = `Template rendering failed: ${e}`
@@ -970,13 +1057,15 @@ export class TestExecutor {
 
   /**
    * Walk a template directory, render each file through Go template, and write
-   * to the output directory. Skips `boilerplate.yml` and hidden files.
+   * to the output directory. Skips `boilerplate.yml` and hidden files. Returns
+   * the number of files written.
    */
   private renderTemplateDir(
     templateDir: string,
     outputDir: string,
     vars: Record<string, unknown>,
-  ): void {
+  ): number {
+    let written = 0
     const entries = fs.readdirSync(templateDir, { withFileTypes: true })
     for (const entry of entries) {
       if (entry.name === "boilerplate.yml" || entry.name.startsWith(".")) continue
@@ -986,53 +1075,117 @@ export class TestExecutor {
 
       if (entry.isDirectory()) {
         fs.mkdirSync(destPath, { recursive: true })
-        this.renderTemplateDir(srcPath, destPath, vars)
+        written += this.renderTemplateDir(srcPath, destPath, vars)
       } else {
         const content = fs.readFileSync(srcPath, "utf-8")
         const rendered = renderGoTemplate(content, vars)
         fs.writeFileSync(destPath, rendered)
+        written++
       }
     }
+    return written
   }
 
   // -----------------------------------------------------------------------
-  // GitHubAuth block
+  // GitHubAuth / GitLabAuth / GitAuth blocks
   // -----------------------------------------------------------------------
 
-  private runGitHubAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result = makeStepResult(`gitHubAuth:${block.id}`, step.expect)
+  /**
+   * Git auth in headless test mode, for either provider: find a token in the
+   * provider's env vars and write the session vars main writes on a
+   * successful auth (GITHUB_TOKEN, or GITLAB_TOKEN and GITLAB_HOST). Like the
+   * other auth runners this never reaches the network, so the token is taken
+   * at face value.
+   */
+  private runGitAuth(
+    block: ParsedComponent,
+    step: TestStep,
+    start: number,
+    provider: GitProvider,
+  ): StepResult {
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
+    const providerName = provider === "gitlab" ? "GitLab" : "GitHub"
 
     const prefix = step.env_prefix ?? ""
-    let token = ""
+    const lookup = provider === "gitlab"
+      ? this.findGitLabAuthEnv(block, prefix)
+      : this.findGitHubAuthEnv(block, prefix)
 
-    if (prefix) {
-      token = this.getenv(`${prefix}GITHUB_TOKEN`) || this.getenv(`${prefix}GH_TOKEN`)
-    } else {
-      token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || this.getenv("GITHUB_TOKEN") || this.getenv("GH_TOKEN")
-    }
-
-    if (!token) {
+    if ("skipReason" in lookup) {
       this.blockStates.set(block.id, "skipped")
       result.actualStatus = "skipped"
       result.passed = this.matchesExpectedStatus(step.expect, "skipped")
       result.duration = Date.now() - start
-      if (this.options.verbose) console.log("--- No GitHub credentials found ---")
+      if (this.options.verbose) console.log(`--- ${lookup.skipReason} ---`)
       return result
     }
 
-    const envVars: Record<string, string> = { GITHUB_TOKEN: token }
+    const envVars = lookup.vars
     this.authBlockCredentials.set(block.id, envVars)
+    this.gitAuthTokens.set(block.id, { provider, token: lookup.token })
 
     // Inject into session env
-    this.sessionEnv = this.sessionEnv.filter((e) => !e.startsWith("GITHUB_TOKEN="))
-    this.sessionEnv.push(`GITHUB_TOKEN=${token}`)
+    const written = new Set(Object.keys(envVars))
+    this.sessionEnv = this.sessionEnv.filter((entry) => {
+      const eq = entry.indexOf("=")
+      return eq === -1 || !written.has(entry.slice(0, eq))
+    })
+    for (const [k, v] of Object.entries(envVars)) {
+      this.sessionEnv.push(`${k}=${v}`)
+    }
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
-    if (this.options.verbose) console.log("--- GitHub credentials found, injected ---")
+    if (this.options.verbose) console.log(`--- ${providerName} credentials found, injected ---`)
     return result
+  }
+
+  /**
+   * GitHub token lookup for the block's `host` (github.com, GHES, or a
+   * ghe.com tenant). Env tokens are read with the app's own host binding
+   * (githubEnvCredentialForHost), so a github.com token is never used for an
+   * enterprise host.
+   */
+  private findGitHubAuthEnv(block: ParsedComponent, prefix: string): GitAuthLookup {
+    const host = tryNormalizeGitHubHost(extractProp(block.props, "host")) ?? DEFAULT_GITHUB_HOST
+    const env = { ...process.env, ...this.testEnv }
+    let token = githubEnvCredentialForHost(host, env, prefix)?.token ?? ""
+    if (!prefix && host === DEFAULT_GITHUB_HOST) {
+      token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || token
+    }
+    if (!token) return { skipReason: "No GitHub credentials found" }
+    return { token, vars: { GITHUB_TOKEN: token, GITHUB_HOST: host } }
+  }
+
+  /**
+   * GitLab token lookup, with the app's env-token host binding: an env token
+   * belongs to the one host GITLAB_HOST (or GITLAB_URI, GL_HOST) names,
+   * gitlab.com by default, so a block pinned to another host with
+   * `instanceUrl` or `host` doesn't get it.
+   */
+  private findGitLabAuthEnv(block: ParsedComponent, prefix: string): GitAuthLookup {
+    const token = this.firstEnv(prefix, GITLAB_TOKEN_ENV_VARS)
+    if (!token) return { skipReason: "No GitLab credentials found" }
+
+    const env: Record<string, string | undefined> = { ...process.env, ...this.testEnv }
+    const pinned = extractProp(block.props, "instanceUrl") || extractProp(block.props, "host")
+    // Not normalizeGitLabHost: its gitlab.com fallback would bind a typo'd pin
+    // to gitlab.com and hand the block a gitlab.com token.
+    const host = pinned ? tryNormalizeGitLabHost(pinned) : envTokenHost(env)
+    if (pinned && !host) {
+      return { skipReason: `"${pinned}" is not a valid GitLab instance URL or host` }
+    }
+    if (!host || !mayAutoSendEnvToken(host, env)) {
+      const bound = envTokenHost(env)
+      return {
+        skipReason: bound
+          ? `GitLab token is for ${bound}, not ${host}; set GITLAB_HOST to use it there`
+          : "GitLab token has no usable host: GITLAB_HOST (or GITLAB_URI, GL_HOST) isn't a valid URL or host",
+      }
+    }
+    return { token, vars: { GITLAB_TOKEN: token, GITLAB_HOST: host } }
   }
 
   // -----------------------------------------------------------------------
@@ -1212,6 +1365,13 @@ export class TestExecutor {
 
     blockCreds[credential.name] = credential.value
 
+    // Point the gcloud CLI at the same file. gcloud keeps its own credential
+    // store, which otherwise wins over ADC whenever the machine has a
+    // `gcloud auth login` account, so a bare `gcloud` would ignore this block.
+    if (credential.name === "GOOGLE_APPLICATION_CREDENTIALS") {
+      blockCreds["CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"] = credential.value
+    }
+
     // A bare access token is exported under both canonical names: gcloud reads
     // CLOUDSDK_AUTH_ACCESS_TOKEN, client libraries read GOOGLE_OAUTH_ACCESS_TOKEN.
     if (
@@ -1246,8 +1406,12 @@ export class TestExecutor {
 
     // Clear EVERY credential-bearing var, not just the one being written, so an
     // ambient GOOGLE_APPLICATION_CREDENTIALS cannot shadow a token the prefix
-    // selected.
-    const stale = new Set<string>([...GOOGLE_CREDENTIAL_ENV_VARS, ...Object.keys(blockCreds)])
+    // selected, and an earlier override cannot keep gcloud on another file.
+    const stale = new Set<string>([
+      ...GOOGLE_CREDENTIAL_ENV_VARS,
+      "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+      ...Object.keys(blockCreds),
+    ])
     this.sessionEnv = this.sessionEnv.filter((entry) => {
       const eq = entry.indexOf("=")
       return eq === -1 || !stale.has(entry.slice(0, eq))
@@ -1298,31 +1462,15 @@ export class TestExecutor {
     if (localPath) {
       destPath = path.isAbsolute(localPath) ? localPath : path.join(this.workingDir, localPath)
     } else {
-      // Extract repo name from URL
-      const repoName = cloneURL.split("/").pop()?.replace(".git", "") ?? "repo"
-      destPath = path.join(this.workingDir, repoName)
+      // Name the directory after the repo, as the app does
+      destPath = path.join(this.workingDir, parseOwnerRepoFromURL(cloneURL)?.repo ?? "repo")
     }
 
-    // Inject token for GitHub URLs
-    let effectiveURL = cloneURL
-    if (cloneURL.includes("github.com")) {
-      const githubAuthId = extractProp(block.props, "githubAuthId")
-      let token = ""
-      if (githubAuthId) {
-        const creds = this.authBlockCredentials.get(githubAuthId)
-        if (creds) token = creds["GITHUB_TOKEN"] ?? ""
-      }
-      if (!token) {
-        // Check session env
-        for (const entry of this.sessionEnv) {
-          if (entry.startsWith("GITHUB_TOKEN=")) token = entry.slice(13)
-          else if (entry.startsWith("GH_TOKEN=")) token = entry.slice(9)
-        }
-      }
-      if (token) {
-        effectiveURL = cloneURL.replace("https://github.com/", `https://x-access-token:${token}@github.com/`)
-      }
-    }
+    // Authenticate an https clone with a token that belongs to the URL's host
+    // (cloneAuthEnv). The token goes in the git commands' environment
+    // (withGitHttpAuth), never in the clone URL, so it is not saved to the
+    // checkout's .git/config.
+    const cloneEnv = this.cloneAuthEnv(block, cloneURL)
 
     if (this.options.verbose) {
       console.log(`--- Cloning ${cloneURL} ---`)
@@ -1330,41 +1478,40 @@ export class TestExecutor {
       console.log(`  Destination: ${destPath}`)
     }
 
+    // The same git commands the app runs, so a sparse clone (with or without
+    // a ref) behaves identically here.
+    const cloneSteps = buildCloneSteps(cloneURL, destPath, { ref, repoPath })
+    if (Either.isLeft(cloneSteps)) {
+      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
+      result.error = cloneSteps.left.stderr
+      result.duration = Date.now() - start
+      return result
+    }
+
     try {
-      const cloneArgs = ["clone", "--progress"]
-      if (repoPath) {
-        // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", effectiveURL, destPath)
-      } else {
-        cloneArgs.push(effectiveURL, destPath)
+      // The ref goes to git as the value of `--branch`, which consumes it
+      // whatever it looks like. git won't create a branch or tag whose name
+      // begins with `-`, so refuse one up front with a clear message rather
+      // than let the clone fail on a branch that can't exist.
+      if (ref?.startsWith("-")) {
+        throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
 
-      execFileSync("git", cloneArgs, {
-        timeout: this.options.timeout,
-        stdio: "pipe",
-      })
-
-      if (repoPath) {
-        execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-        execFileSync("git", ["sparse-checkout", "set", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-        execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
-        })
-      }
-
-      if (ref && !repoPath) {
-        execFileSync("git", ["checkout", ref], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+      for (const step of cloneSteps.right) {
+        // A repository with no commits has nothing to check out, as in the app.
+        if (step.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
+        // Every step gets the clone's auth: a sparse clone is blobless, so its
+        // checkout fetches file contents lazily from origin.
+        execFileSync("git", step.args, {
+          timeout: this.options.timeout,
+          stdio: "pipe",
+          env: cloneEnv,
         })
       }
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
       // Sanitize error to not leak tokens
-      result.error = String(e).replace(/x-access-token:[^@]+@/g, "x-access-token:***@")
+      result.error = redactSecrets(String(e))
       result.duration = Date.now() - start
       return result
     }
@@ -1389,6 +1536,59 @@ export class TestExecutor {
     }
 
     return result
+  }
+
+  /**
+   * The environment for an https clone's git commands, carrying a token only
+   * when one belongs to the clone URL's host, as main's clone handler does.
+   * The provider comes from the auth block the GitClone references with
+   * `gitAuthId` or `githubAuthId`, or, with no reference, from the URL's host
+   * (a github.com-family host or gitlab.com). The token is that auth block's
+   * when the block authenticated the URL's host, otherwise the session env's
+   * with the app's host binding (githubSessionCredential,
+   * gitlabSessionTokenHost). The test's `env` goes on top of the session env,
+   * as for any Command, so a test can blank an ambient token. GitLab takes the
+   * token as user `oauth2`, GitHub as `x-access-token`. Only https URLs get a
+   * token; SSH authenticates itself.
+   */
+  private cloneAuthEnv(block: ParsedComponent, cloneURL: string): NodeJS.ProcessEnv {
+    let url: URL
+    try { url = new URL(cloneURL) } catch { return process.env }
+    if (url.protocol !== "https:") return process.env
+    const host = url.host.toLowerCase()
+
+    const authId = extractProp(block.props, "gitAuthId") || extractProp(block.props, "githubAuthId")
+    const provider: GitProvider | undefined =
+      (authId ? this.gitAuthTokens.get(authId)?.provider : undefined) ??
+      (host === "gitlab.com" ? "gitlab" : isGitHubHost(host) ? "github" : undefined)
+    if (!provider) return process.env
+
+    const creds = authId ? this.authBlockCredentials.get(authId) : undefined
+    const session = this.sessionEnvWithTestEnv()
+    let token = ""
+    if (provider === "github") {
+      const cloneHost = tryNormalizeGitHubHost(cloneURL)
+      if (!cloneHost) return process.env
+      if (creds && (creds["GITHUB_HOST"] ?? DEFAULT_GITHUB_HOST) === cloneHost) {
+        token = creds["GITHUB_TOKEN"] ?? ""
+      }
+      if (!token) {
+        token = githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))?.token ?? ""
+      }
+    } else {
+      if (creds && creds["GITLAB_HOST"] === host) token = creds["GITLAB_TOKEN"] ?? ""
+      if (!token && gitlabSessionTokenHost(session) === host) token = session["GITLAB_TOKEN"] ?? ""
+    }
+    if (!token) return process.env
+
+    // No terminal prompt: a rejected token must fail the step, not wait for a
+    // username on the TTY until the step times out.
+    return withGitHttpAuth(
+      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      cloneURL,
+      token,
+      gitCredentialUsername(provider),
+    )
   }
 
   /**
@@ -1467,6 +1667,45 @@ export class TestExecutor {
   // Helpers
   // -----------------------------------------------------------------------
 
+  /**
+   * The value of every Inputs and Template variable that `set` (the test's
+   * inputs) leaves out, as the app's form starts it: its default, else what
+   * its control shows (false for a bool, the displayed elements for a tuple).
+   * A Template variable that a block it imports with inputsId also declares is
+   * read-only in the app and shows the imported value (from the last of those
+   * blocks that has one), so it starts from that value instead.
+   */
+  private fillUnsetInputs(set: Record<string, unknown>): Record<string, unknown> {
+    const schemas = this.validator.getAllSchemas()
+    const filled: Record<string, unknown> = {}
+    const pending = new Set<string>()
+
+    const valueOf = (blockId: string, varName: string): unknown => {
+      const key = `${blockId}.${varName}`
+      if (key in set) return set[key]
+      if (key in filled) return filled[key]
+      const variable = schemas.get(blockId)?.variables.get(varName)
+      // pending: an inputsId cycle between Templates imports nothing.
+      if (!variable || pending.has(key)) return undefined
+
+      pending.add(key)
+      let imported: unknown
+      for (const id of this.templates.get(blockId)?.inputsIds ?? []) {
+        imported = valueOf(id, varName) ?? imported
+      }
+      pending.delete(key)
+
+      const value = imported ?? variable.default ?? untouchedValue(variable)
+      if (value !== undefined) filled[key] = value
+      return value
+    }
+
+    for (const [blockId, schema] of schemas) {
+      for (const varName of schema.variables.keys()) valueOf(blockId, varName)
+    }
+    return filled
+  }
+
   private buildTemplateVars(): Record<string, unknown> {
     const inputs: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(this.testInputs)) {
@@ -1500,14 +1739,18 @@ export class TestExecutor {
   }
 
   private checkMissingOutputs(expected: string[]): string[] {
+    // Look outputs up the way templates reference them: buildTemplateVars keys
+    // them by block id with hyphens turned into underscores, so
+    // `outputs.create_account.account_id` finds block "create-account".
+    const templateOutputs = this.buildTemplateVars().outputs as Record<string, Record<string, string>>
     const missing: string[] = []
     for (const p of expected) {
       const parts = p.split(".")
       if (parts.length >= 3 && parts[0] === "outputs") {
-        const blockId = parts[1]
+        const blockId = parts[1].replace(/-/g, "_")
         const outputName = parts[2]
-        const outputs = this.blockOutputs.get(blockId)
-        if (!outputs || !outputs.get(outputName)) {
+        const outputs = templateOutputs[blockId]
+        if (!outputs || !outputs[outputName]) {
           missing.push(p)
         }
       }
@@ -1519,7 +1762,8 @@ export class TestExecutor {
     return {
       outputDir: this.resolveOutputPath(),
       blockOutputs: this.blockOutputs,
-      sessionEnv: this.sessionEnv,
+      generatedFiles: this.generatedFileCounts,
+      env: this.sessionEnvWithTestEnv(),
       timeout: this.options.timeout,
     }
   }
@@ -1573,41 +1817,68 @@ export class TestExecutor {
     if (error) console.log(`  Error: ${error}`)
   }
 
-  private captureFiles(fromDir: string, toDir: string): void {
-    if (!fs.existsSync(fromDir)) return
+  /** Copy a block's $GENERATED_FILES tree into `toDir`. Returns the number of files copied. */
+  private captureFiles(fromDir: string, toDir: string): number {
+    if (!fs.existsSync(fromDir)) return 0
+    let copied = 0
     const entries = fs.readdirSync(fromDir, { withFileTypes: true })
     for (const entry of entries) {
       const src = path.join(fromDir, entry.name)
       const dest = path.join(toDir, entry.name)
       if (entry.isDirectory()) {
         fs.mkdirSync(dest, { recursive: true })
-        this.captureFiles(src, dest)
+        copied += this.captureFiles(src, dest)
       } else {
         fs.mkdirSync(path.dirname(dest), { recursive: true })
         fs.copyFileSync(src, dest)
+        copied++
       }
     }
+    return copied
   }
 
+  /**
+   * Add to the files a block has written this test case. files_generated
+   * checks this count rather than the output dir, which can hold files from
+   * other blocks and which worktree-targeted templates don't write into.
+   */
+  private creditGeneratedFiles(blockId: string, count: number): void {
+    this.generatedFileCounts.set(blockId, (this.generatedFileCounts.get(blockId) ?? 0) + count)
+  }
+
+  /**
+   * Run one cleanup action. A `path` script is read relative to the runbook's
+   * directory; both forms run with the output directory as cwd, which is
+   * created first because nothing else does unless a block generated files.
+   */
   private runCleanup(action: { command?: string; path?: string }): void {
-    let script: string
-    if (action.command) {
-      script = action.command
-    } else if (action.path) {
-      const scriptPath = path.join(path.dirname(this.runbookPath), action.path)
-      script = fs.readFileSync(scriptPath, "utf-8")
-    } else {
-      return
-    }
+    const label = action.command || action.path
+    if (!label) return
 
     try {
+      const script = action.command
+        || fs.readFileSync(path.join(path.dirname(this.runbookPath), action.path!), "utf-8")
+      const cwd = this.resolveOutputPath()
+      fs.mkdirSync(cwd, { recursive: true })
       execFileSync("/bin/bash", ["-c", script], {
-        cwd: this.resolveOutputPath(),
+        cwd,
+        env: this.sessionEnvWithTestEnv(),
         timeout: 30000,
         stdio: "pipe",
       })
-    } catch {
-      // Cleanup failures are non-fatal
+    } catch (e: unknown) {
+      // Non-fatal, but never silent: a skipped teardown can leak real resources.
+      console.warn(`  ⚠ cleanup "${label}" failed: ${describeCleanupError(e)}`)
     }
   }
+}
+
+/** A short reason for a failed cleanup that doesn't echo the whole script back. */
+function describeCleanupError(e: unknown): string {
+  const { status, stderr } = (e ?? {}) as { status?: number | null; stderr?: Buffer | string }
+  if (typeof status === "number") {
+    const detail = stderr?.toString().trim()
+    return detail ? `exit code ${status}: ${detail}` : `exit code ${status}`
+  }
+  return e instanceof Error ? e.message : String(e)
 }

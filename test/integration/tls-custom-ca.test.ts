@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import * as fs from "node:fs"
 import * as https from "node:https"
+import * as os from "node:os"
 import * as path from "node:path"
 import * as tls from "node:tls"
 import { fileURLToPath } from "node:url"
@@ -175,5 +176,61 @@ describe("system-reader contract pins (the refresh design depends on these)", ()
     // The child's output must be usable as a setDefaultCACertificates input.
     tls.setDefaultCACertificates([...defaultsSnapshot, ...pems])
     tls.setDefaultCACertificates(defaultsSnapshot)
+  })
+
+  it("the cold read delivers a system store far larger than a pipe buffer intact (no 64 KiB truncation)", async () => {
+    // Real OS stores serialize to ~1 MB of JSON, while a POSIX pipe buffer
+    // holds 64 KiB. Output that the child flushes only while it exits (as
+    // `node -p` does on Node 22) is cut at the pipe buffer, and the refresh
+    // then silently falls back to the launch-time set. The OS store is the
+    // one faked boundary: a --require preload makes the child's
+    // getCACertificates("system") return a synthetic ~1 MB store. The
+    // production child script, the real child process, the pipe and
+    // ChildProcessSpawnerLive are all real.
+    const fakeStore = Array.from({ length: 600 }, (_, i) => {
+      const der = Buffer.alloc(1200, i % 251)
+      der.writeUInt32BE(i, 0)
+      const body = der.toString("base64").match(/.{1,64}/g)!.join("\n")
+      return `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`
+    })
+    const pipeBufferBytes = 64 * 1024
+    expect(JSON.stringify(fakeStore).length).toBeGreaterThan(8 * pipeBufferBytes)
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-cold-read-"))
+    const storeFile = path.join(dir, "store.json")
+    const preload = path.join(dir, "fake-system-store.cjs")
+    fs.writeFileSync(storeFile, JSON.stringify(fakeStore))
+    fs.writeFileSync(
+      preload,
+      [
+        `const tls = require("node:tls")`,
+        `const fake = JSON.parse(require("node:fs").readFileSync(process.env.RUNBOOKS_FAKE_SYSTEM_STORE, "utf8"))`,
+        `const real = tls.getCACertificates`,
+        `tls.getCACertificates = (type) => (type === "system" ? fake : real(type))`,
+      ].join("\n"),
+    )
+
+    // coldReadSystemPems hands the child the ambient env (minus VCS tokens),
+    // so the preload travels via NODE_OPTIONS. JSON.stringify quotes the path
+    // the way NODE_OPTIONS parsing expects (spaces, Windows backslashes).
+    const saved = {
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+      RUNBOOKS_FAKE_SYSTEM_STORE: process.env.RUNBOOKS_FAKE_SYSTEM_STORE,
+    }
+    process.env.NODE_OPTIONS = `${saved.NODE_OPTIONS ?? ""} --require ${JSON.stringify(preload)}`.trim()
+    process.env.RUNBOOKS_FAKE_SYSTEM_STORE = storeFile
+    try {
+      const pems = await Effect.runPromise(
+        coldReadSystemPems(process.execPath).pipe(Effect.provide(ChildProcessSpawnerLive)),
+      )
+      expect(pems.length).toBe(fakeStore.length)
+      expect(pems).toEqual(fakeStore)
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

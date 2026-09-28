@@ -14,7 +14,7 @@ tests:
       service-config.Environment: "dev"
       service-config.EnableMonitoring: true
     steps:
-      - block: check-node
+      - block: check-prereqs
         expect: success
       - block: deploy
         expect: success
