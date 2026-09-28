@@ -250,11 +250,35 @@ describe("makeLogger error formatting", () => {
     expect(out).not.toContain(SECRET)
   })
 
-  it("stops following a cyclic cause chain", () => {
+  it("stops following a cyclic cause chain, and says so", () => {
     const a = new Error("first")
     const b = new Error("second", { cause: a })
     a.cause = b
     const out = logged(a)
-    expect(out.match(/\[cause\]/g)?.length).toBe(4)
+    // Four links, then the marker for the rest.
+    expect(out.match(/\[cause\]/g)?.length).toBe(5)
+    expect(out.endsWith("\n[cause] ... (further causes not shown)")).toBe(true)
+  })
+
+  it("says so when the depth limit leaves a FiberFailure unwrapped", async () => {
+    let err: unknown = await rejectionOf(Effect.fail(cloneError()))
+    // Four Error links use up the depth before the FiberFailure is reached.
+    for (const message of ["fourth", "third", "second", "first"]) err = new Error(message, { cause: err })
+    const out = logged(err)
+    expect(out).not.toContain("exitCode")
+    expect(out.endsWith("\n[cause] ... (further causes not shown)")).toBe(true)
+  })
+
+  it("prints the error behind an UnknownException once", async () => {
+    // What Effect.tryPromise fails with, as in git.ts's cancelled-clone cleanup.
+    // UnknownException keeps the rejection both as its cause and in an own
+    // `error` field.
+    const err = await Effect.runPromise(
+      Effect.flip(Effect.tryPromise(() => Promise.reject(new Error("EACCES: permission denied, rm '/tmp/c'")))),
+    )
+    const out = logged("failed to remove cancelled clone:", err)
+    expect(out).toContain("UnknownException")
+    expect(out).toContain("[cause] Error: EACCES")
+    expect(out.match(/EACCES: permission denied/g)?.length).toBe(1)
   })
 })

@@ -80,7 +80,10 @@ export interface Logger {
   readonly error: (...args: unknown[]) => void
 }
 
-/** How many nested errors (cause links and FiberFailure unwraps) are printed. */
+/**
+ * How many nested errors (cause links and FiberFailure unwraps) are printed.
+ * Past it, a "[cause] ... (further causes not shown)" line ends the chain.
+ */
 const MAX_ERROR_DEPTH = 4
 /**
  * The whole inspected text is redacted again, and for values redactDeep
@@ -164,12 +167,22 @@ function formatError(err: Error, depth = 0): string {
     return inner.map((e) => formatUnknown(e, depth + 1)).join("\n")
   }
   const head = err.stack ?? `${err.name}: ${err.message}`
-  const fields = Object.fromEntries(Object.entries(err).filter(([key]) => !HEAD_KEYS.has(key)))
+  const hasCause = err.cause !== undefined
+  // Effect's UnknownException also keeps its cause in an own `error` field;
+  // the [cause] line prints it, so a field holding the cause is skipped.
+  const fields = Object.fromEntries(
+    Object.entries(err).filter(
+      ([key, value]) => !HEAD_KEYS.has(key) && !(hasCause && value === err.cause),
+    ),
+  )
   const extra =
     Object.keys(fields).length > 0 ? ` ${inspect(redactDeep(fields), INSPECT_OPTIONS)}` : ""
-  const cause =
-    canNest && err.cause !== undefined ? `\n[cause] ${formatUnknown(err.cause, depth + 1)}` : ""
-  return head + extra + cause
+  if (canNest) {
+    return head + extra + (hasCause ? `\n[cause] ${formatUnknown(err.cause, depth + 1)}` : "")
+  }
+  // The depth limit stops here: say so rather than end the chain silently.
+  const more = hasCause || Runtime.isFiberFailure(err)
+  return head + extra + (more ? "\n[cause] ... (further causes not shown)" : "")
 }
 
 /**
