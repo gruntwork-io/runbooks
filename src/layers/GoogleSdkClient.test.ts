@@ -447,4 +447,26 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
       expect(hits()).toBe(0)
     })
   })
+
+  it("never contacts a token_url written without the // after its scheme", async () => {
+    await withSink(async (origin, hits) => {
+      // `http:127.0.0.1:PORT/sts` is `http://127.0.0.1:PORT/sts` to gaxios's
+      // `new URL`, so the refresh-token grant would be POSTed to the sink.
+      const document = JSON.stringify({
+        type: "external_account_authorized_user",
+        audience: "//iam.googleapis.com/locations/global/workforcePools/pool/providers/prov",
+        refresh_token: "1//refresh",
+        token_url: `${origin.replace("http://", "http:")}/sts`,
+        client_id: "id.apps.googleusercontent.com",
+        client_secret: "secret",
+      })
+
+      const result = await runEither((client) => client.validateAdcDocument(document))
+      expect(Either.isLeft(result)).toBe(true)
+      if (Either.isLeft(result)) {
+        expect(result.left.message).toMatch(/credentials document field "token_url"/)
+      }
+      expect(hits()).toBe(0)
+    })
+  })
 })
