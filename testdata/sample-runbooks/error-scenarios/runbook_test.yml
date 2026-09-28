@@ -107,9 +107,9 @@ tests:
       # TemplateInline blocks automatically validate their output dependencies.
       # Add additional assertions to validate test results:
       # - type: file_exists
-      #   path: generated/README.md
+      #   path: README.md
       # - type: file_contains
-      #   path: generated/README.md
+      #   path: README.md
       #   contains: "expected content"
       # - type: files_generated
       #   block: template-missing-path

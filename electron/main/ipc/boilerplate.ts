@@ -3,16 +3,18 @@
  *
  * Provides config parsing, template rendering, and inline template rendering.
  */
-import * as path from "path"
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
-import { validateRelativePathIn } from "../../../src/path-validation.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
 import { flattenVariables, resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"
+import {
+  writeInlineRenderedFiles,
+  type InlineWriteRecord,
+} from "../../../src/domain/boilerplate/writeInlineRenderedFiles.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
 import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
@@ -21,17 +23,16 @@ import {
   buildManifestFromDirectoryWithContent,
   computeDiff,
   applyDiffFromContent,
+  findStaleManifestReason,
   hashFileContent,
-  BATCH_IO_CONCURRENCY,
 } from "../../../src/domain/files/manifest.ts"
-import { resolveToAbsolutePath } from "../../../src/domain/files/generated.ts"
-import type { ManifestEntry } from "../../../src/types.ts"
+import type { FileTreeMeta, ManifestEntry } from "../../../src/types.ts"
 import type {
   RenderRequest,
   RenderInlineRequest,
   BoilerplateRequest,
 } from "../../../src/types.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
 /**
  * Tracks in-flight render fibers per `templateId`. When a new render starts
@@ -39,9 +40,14 @@ import { validateSessionPath } from "./path-guard.ts"
  *
  * What "interrupt" actually does depends on which path the prior fiber took:
  *
- *  - **Cold path** (subprocess): `Effect.onInterrupt` in `runBoilerplate`
- *    SIGKILLs the boilerplate child process and removes its tempdir,
- *    reclaiming real CPU. This was the original supersession design.
+ *  - **Cold path** (subprocess): `Effect.onInterrupt` in `runBoilerplateCli`
+ *    kills the boilerplate child's process group (SIGTERM, then SIGKILL
+ *    after 5s) and removes its tempdir, reclaiming real CPU. This was the
+ *    original supersession design.
+ *  - **Bundle build** (subprocess, first warm render of a template): the
+ *    `inputs map --include-bundle` run lives in BundleProducer's own fiber,
+ *    not the render's. The newer render needs the same bundle, so it joins
+ *    that build instead of killing and restarting it.
  *  - **Warm path** (in-process WASM): the WASM bridge has no
  *    cancellation hook, so the in-flight `boilerplateRenderFiles` call
  *    continues on the Go runtime's goroutine until it returns. The
@@ -50,7 +56,7 @@ import { validateSessionPath } from "./path-guard.ts"
  *    fiber's post-render work (manifest diff / write / file-tree walk)
  *    is skipped — that's the savings on this path, on the order of
  *    tens of ms per superseded render rather than the hundreds of ms
- *    a SIGKILL'd subprocess reclaims.
+ *    a killed subprocess reclaims.
  *
  * Either way, the interrupted call resolves to a `superseded` sentinel that
  * the renderer-side `useApi` ignores, so the latest call drives the UI.
@@ -76,6 +82,44 @@ interface SupersessionStats {
   wastedMs: number
 }
 const supersessionStats = new Map<string, SupersessionStats>()
+
+/**
+ * What each `<TemplateInline generateFile>` block last wrote, so a render that
+ * writes a different path (e.g. an outputPath that follows a DirPicker
+ * selection) cleans up the file the block left at the old one. Keyed by
+ * {@link inlineWriteKey}, so a block never picks up the record of a block
+ * with the same id in another runbook.
+ */
+const inlineWrites = new Map<string, InlineWriteRecord>()
+
+const inlineWriteKey = (blockId: string) =>
+  `${sessionManager.getRunbookPath() ?? ""}\u0000${blockId}`
+
+/**
+ * Inline writes run one at a time, so two overlapping renders of a block
+ * cannot both start from the same previous record and each leave a file.
+ */
+const inlineWriteLock = Effect.unsafeMakeSemaphore(1)
+
+/**
+ * Resolve the directory a render writes into: the active git worktree for
+ * `target: "worktree"`, otherwise the generated-files directory. Shared by
+ * `boilerplate:render` and `boilerplate:render-inline` so both blocks resolve
+ * each target the same way.
+ */
+const resolveRenderOutputDir = (target: RenderRequest["target"], outputPath?: string) =>
+  Effect.gen(function* () {
+    if (target === "worktree") {
+      const workTreePath = sessionManager.getActiveWorkTreePath()
+      if (!workTreePath) {
+        throw new Error(
+          'Target is "worktree" but no git worktree has been cloned. Use a <GitClone> block first',
+        )
+      }
+      return workTreePath
+    }
+    return (yield* resolveGeneratedDir(outputPath)).absolutePath
+  })
 
 export function registerBoilerplateHandlers(): void {
   ipcMain.handle(
@@ -154,6 +198,10 @@ export function registerBoilerplateHandlers(): void {
     "boilerplate:render",
     async (_event, params: RenderRequest) => {
       const templateId = params.templateId ?? params.templatePath
+      // runbook:get clears the manifests and warm-render state when a
+      // different runbook opens. Captured before the first await, so a render
+      // still in flight from the old runbook can tell (see runbookChanged).
+      const generation = sessionManager.getGeneration()
       const t0 = Date.now()
       const perf = params.perf
       const perfTag = perf ? `[perf seq=${perf.seq}]` : ""
@@ -200,57 +248,26 @@ export function registerBoilerplateHandlers(): void {
         const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
 
         // Resolve output directory
-        const session = yield* sessionManager.getSession()
-        const workingDir = session.workingDir
-
-        let outputDir: string
-        if (params.target === "worktree") {
-          const workTreePath = sessionManager.getActiveWorkTreePath()
-          if (!workTreePath) {
-            throw new Error("No active worktree registered")
-          }
-          outputDir = workTreePath
-        } else {
-          outputDir = yield* resolveToAbsolutePath(
-            workingDir,
-            params.outputPath ?? "output",
-          )
-        }
+        const outputDir = yield* resolveRenderOutputDir(params.target, params.outputPath)
         yield* validateSessionPath(outputDir)
 
-        // Detect external wipe of the worktree (e.g., a `GitClone` block that
-        // re-clones over the worktree, `git reset --hard`, or `rm -rf`).
-        // Without this check, the warm dispatcher's dirty-set + manifest diff
-        // assume any "unchanged" file is still on disk from the prior render,
-        // so they're not re-emitted — leaving the tree partially populated.
-        // We stat every path from the previous manifest; if any is missing,
-        // drop the manifest + dispatcher cache so this render is treated as a
-        // first-render and rebuilds everything from scratch.
-        const existingManifest = manifestStore.get(templateId)
-        if (existingManifest && existingManifest.files.length > 0) {
-          // Stat the manifest concurrently. This runs on every render's hot
-          // path, and in the common case (no external wipe) every stat hits,
-          // so we can't rely on an early bail — issuing the stats in parallel
-          // keeps the check cheap even for a template producing a few hundred
-          // files. A hot-cache stat is sub-millisecond, so bounded
-          // concurrency is plenty to hide the latency.
-          const presence = yield* Effect.forEach(
-            existingManifest.files,
-            (entry) =>
-              fs
-                .exists(path.join(existingManifest.outputDir, entry.path))
-                .pipe(Effect.map((exists) => ({ path: entry.path, exists }))),
-            { concurrency: BATCH_IO_CONCURRENCY },
+        // Detect a previous manifest that no longer describes the output dir:
+        // an external wipe of the worktree (e.g., a `GitClone` block that
+        // re-clones over the worktree, `git reset --hard`, or `rm -rf`), or
+        // output that now goes to a different directory (the active worktree
+        // changed). Without this check, the warm dispatcher's dirty-set +
+        // manifest diff assume any "unchanged" file is still on disk from the
+        // prior render, so they're not re-emitted — leaving the tree partially
+        // populated. Drop the manifest + dispatcher cache so this render is
+        // treated as a first-render and rebuilds everything from scratch.
+        const stale = yield* findStaleManifestReason(manifestStore.get(templateId), outputDir)
+        if (stale) {
+          console.log(
+            "[ipc boilerplate:render] previous manifest is stale; treating as first-render",
+            { templateId, outputDir, ...stale },
           )
-          const missing = presence.find((p) => !p.exists)
-          if (missing) {
-            console.log(
-              "[ipc boilerplate:render] previous output dir missing files; treating as first-render",
-              { templateId, missingPathExample: missing.path },
-            )
-            manifestStore.delete(templateId)
-            yield* warmDispatcher.invalidate(templateId)
-          }
+          manifestStore.delete(templateId)
+          yield* warmDispatcher.invalidate(templateId)
         }
 
         const tFlatten = Date.now()
@@ -299,7 +316,9 @@ export function registerBoilerplateHandlers(): void {
         // Short-circuit when the dirty-set computation found no changes
         // (e.g., the user pressed a non-mutating key, or a downstream
         // re-render fired with identical vars). Reuse the previous
-        // manifest, skip every subprocess, return immediately.
+        // manifest, skip every subprocess, return immediately. No
+        // `fileTree` here: nothing was written, and the renderer would
+        // take an empty list as the new Generated tree and clear it.
         if (warmResult.noChanges && !warmResult.warmDisabled) {
           const prevManifestEntries = manifestStore.get(templateId)?.files ?? []
           const dTotal = Date.now() - t0
@@ -318,8 +337,6 @@ export function registerBoilerplateHandlers(): void {
             message: `Template up-to-date (no var changes)`,
             outputDir,
             templatePath: params.templatePath,
-            fileTree: [],
-            meta: { totalFiles: 0, truncatedTree: false, heavyDirs: [] },
             deletedFiles: [] as string[],
             createdFiles: [] as string[],
             modifiedFiles: [] as string[],
@@ -412,21 +429,33 @@ export function registerBoilerplateHandlers(): void {
 
         const diff = computeDiff(oldEntries, newEntries)
 
+        // A different runbook opened while this render ran. End as superseded
+        // instead of writing the old runbook's output or putting its manifest
+        // back after runbook:get cleared them. Checked in the same synchronous
+        // step as the write and as the manifest update, since the write yields.
+        const runbookChanged = () => !sessionManager.isCurrentGeneration(generation)
+
         const tApply = Date.now()
         // Pure warm: write content directly. Cold-fallback: same — we
         // already merged everything into contentMap above. Either way we
         // write from the in-memory content map rather than copying from a
         // tempdir for the write step. (Cleanup of the tempdir, if we made
         // one, happens below.)
+        if (runbookChanged()) return yield* Effect.interrupt
         const applied = yield* applyDiffFromContent(diff, contentMap, outputDir)
         const dApply = Date.now() - tApply
 
+        if (runbookChanged()) return yield* Effect.interrupt
         manifestStore.set(templateId, { templateId, outputDir, files: newEntries })
+        // The output for these vars is now on disk, so the next render can
+        // diff against them. A render superseded or failed before this point
+        // never commits, and the next dirty set still covers its change.
+        yield* warmDispatcher.commit(templateId, flattenedVariables)
 
         // For worktree target the UI discards fileTree and just refreshes
         // via invalidateGitFileTree, so skip the expensive walk.
         let treeNodes: unknown[] = []
-        let treeMeta: unknown = { totalFiles: 0, truncatedTree: false, heavyDirs: [] }
+        let treeMeta: FileTreeMeta = { totalFiles: 0, truncatedTree: false, heavyDirs: [] }
         const tTree = Date.now()
         if (params.target !== "worktree") {
           const built = yield* buildFileTree(outputDir)
@@ -502,7 +531,9 @@ export function registerBoilerplateHandlers(): void {
           outputDir,
           templatePath: params.templatePath,
           fileTree: treeNodes,
-          meta: treeMeta,
+          // Top level, where the renderer's updateGeneratedFileTree reads
+          // the truncation fields.
+          ...treeMeta,
           deletedFiles: diff.orphaned,
           createdFiles: diff.created,
           modifiedFiles: diff.modified,
@@ -560,7 +591,6 @@ export function registerBoilerplateHandlers(): void {
       return runtime.runPromise(
         Effect.gen(function* () {
           const renderer = yield* BoilerplateRenderer
-          const fs = yield* FileSystem
 
           // Build variables record from inputs
           const variables: Record<string, unknown> = {}
@@ -585,8 +615,10 @@ export function registerBoilerplateHandlers(): void {
 
           // Render each template file
           const renderedFiles: Record<string, any> = {}
+          const contents: Record<string, string> = {}
           for (const [name, templateContent] of Object.entries(params.templateFiles)) {
             const rendered = yield* renderer.renderFile(templateContent, variables)
+            contents[name] = rendered
             renderedFiles[name] = {
               name,
               path: name,
@@ -597,29 +629,41 @@ export function registerBoilerplateHandlers(): void {
             }
           }
 
-          // Optionally write to disk
-          if (params.generateFile && params.outputPath) {
-            const session = yield* sessionManager.getSession()
-            const outputDir = yield* resolveToAbsolutePath(
-              session.workingDir,
-              params.outputPath,
-            )
-
-            yield* validateSessionPath(outputDir)
-            yield* fs.mkdir(outputDir, { recursive: true })
-
-            for (const [name, rendered] of Object.entries(renderedFiles)) {
-              yield* validateRelativePathIn(name, outputDir)
-              const filePath = path.resolve(outputDir, name)
-              yield* fs.writeFile(filePath, (rendered as any).content)
-            }
+          // Preview only: nothing was written, so send no `fileTree`. The
+          // renderer would take an empty list as the new Generated tree.
+          if (!params.generateFile) {
+            return { message: "Inline template rendered", renderedFiles }
           }
 
+          // generateFile: write each rendered file under the target's output
+          // dir. The templateFiles keys are the block's outputPath, i.e. file
+          // paths relative to that dir.
+          const outputDir = yield* resolveRenderOutputDir(params.target)
+          yield* validateSessionPath(outputDir)
+          const key = params.blockId ? inlineWriteKey(params.blockId) : undefined
+          yield* inlineWriteLock.withPermits(1)(
+            Effect.gen(function* () {
+              // The helper cleans up after the previous render only when it
+              // wrote into this same outputDir (already validated above), so
+              // a file left in an earlier worktree is never touched.
+              const previous = key ? inlineWrites.get(key) : undefined
+              const written = yield* writeInlineRenderedFiles(contents, outputDir, previous)
+              if (key) inlineWrites.set(key, written)
+            }),
+          )
+
+          // Same tree contract as boilerplate:render: for the worktree target
+          // the UI ignores the tree and only refreshes the git tree, so skip
+          // the walk and send an empty list.
+          if (params.target === "worktree") {
+            return { message: `Inline template rendered to ${outputDir}`, renderedFiles, fileTree: [] }
+          }
+          const built = yield* buildFileTree(outputDir)
           return {
-            message: "Inline template rendered",
+            message: `Inline template rendered to ${outputDir}`,
             renderedFiles,
-            fileTree: [],
-            meta: { totalFiles: 0, truncatedTree: false, heavyDirs: [] },
+            fileTree: built.tree,
+            ...built.meta,
           }
         }),
       )

@@ -94,12 +94,33 @@ const CHAINABLE_SOURCE_TYPES: ReadonlySet<string> = new Set([
 ])
 
 /**
- * A scheme followed by an authority. Deliberately NOT a URL parse: `audience`
- * is `//iam.googleapis.com/projects/...` (no scheme) and `subject_token_type`
- * is `urn:ietf:params:oauth:token-type:jwt` (no authority); neither is a
- * request target and neither may be treated as one.
+ * A leading `scheme:`, read the way the WHATWG URL parser reads it.
+ * Deliberately NOT a URL parse: `audience` is `//iam.googleapis.com/projects/...`
+ * (no scheme) and `subject_token_type` is `urn:ietf:params:oauth:token-type:jwt`
+ * (no authority); neither is a request target and neither may be treated as one.
  */
-const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:\/\//i
+const SCHEME_PREFIX = /^([a-z][a-z0-9+.-]*):/i
+
+/**
+ * The WHATWG "special" schemes. For these the parser does not need the `//`:
+ * `https:host`, `https:/host` and `https:\\host` all become `https://host`, so
+ * the slashes cannot be what marks a request target.
+ */
+const SPECIAL_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "ws", "wss", "ftp", "file"])
+
+/**
+ * Whether gaxios would read `candidate` (already normalised) as a URL naming a
+ * host. Any special scheme counts, with or without slashes; any other scheme
+ * counts only with a `//` authority. Decided by the scheme alone, so a special
+ * scheme that fails to parse still reaches `assertGoogleApiUrl` and is rejected
+ * rather than silently exempted.
+ */
+function isRequestTarget(candidate: string): boolean {
+  const match = SCHEME_PREFIX.exec(candidate)
+  if (!match) return false
+  if (SPECIAL_SCHEMES.has(match[1].toLowerCase())) return true
+  return candidate.startsWith("//", match[0].length)
+}
 
 /**
  * Normalise a candidate the way the WHATWG URL parser will, BEFORE deciding
@@ -108,8 +129,9 @@ const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:\/\//i
  * The parser strips leading/trailing C0-or-space and removes every embedded
  * tab/CR/LF as its first act, so `" http://attacker/"` and `"ht\ntps://attacker/"`
  * are perfectly good URLs to `new URL` and to gaxios — but neither matches an
- * anchored scheme regex. Testing the raw string therefore let a hostile
- * `token_url` skip this whole module by prepending one space.
+ * anchored scheme regex like `isRequestTarget`'s. Testing the raw string
+ * therefore let a hostile `token_url` skip this whole module by prepending one
+ * space.
  *
  * Both the test AND the subsequent parse must use the normalised form, or the
  * detector and the parser disagree again one layer down.
@@ -191,7 +213,7 @@ function assertNoForeignUrls(value: unknown, field: string, depth: number): void
   }
   if (typeof value === "string") {
     const candidate = normaliseUrlCandidate(value)
-    if (ABSOLUTE_URL.test(candidate)) assertGoogleApiUrl(candidate, field)
+    if (isRequestTarget(candidate)) assertGoogleApiUrl(candidate, field)
     return
   }
   if (Array.isArray(value)) {

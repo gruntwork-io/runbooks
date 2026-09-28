@@ -241,7 +241,14 @@ export function useScriptExecution({
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
     // Update the file tree with the new tree from the backend
     // The fileTree is already validated by Zod in useApiExec
-    updateGeneratedFileTree({ fileTree: event.fileTree })
+    if (event.fileTree) {
+      updateGeneratedFileTree({
+        fileTree: event.fileTree,
+        truncatedTree: event.truncatedTree,
+        totalFiles: event.totalFiles,
+        heavyDirs: event.heavyDirs,
+      })
+    }
     // Trigger immediate changelog refresh so changes appear without waiting for next poll
     invalidateGitFileTree()
   }, [updateGeneratedFileTree, invalidateGitFileTree])
@@ -575,12 +582,16 @@ export function useScriptExecution({
     [inputValues, flattenedOutputs]
   )
 
-  // Auto-update when variables change (debounced)
+  // Auto-update when variables change (debounced).
+  // Whenever this effect discards the rendered script it also forgets the last
+  // render key, so the next pass with every dependency met renders again even
+  // if the values match the ones rendered before.
   useEffect(() => {
     // Only render if we have template dependencies and all input dependencies are available
     if (allDeps.length === 0) {
       // No template dependencies, use raw script
       setRenderedScript(null)
+      lastRenderedVariablesRef.current = null
       return
     }
 
@@ -595,8 +606,12 @@ export function useScriptExecution({
       // template error. Instead, fall back to the raw template (clearing any
       // stale render/error) and let this effect re-run once the outputs land —
       // it already depends on `allOutputs`, so it renders automatically then.
+      // The outputs can come back with the values rendered last time (a failed
+      // re-run registers {} for the block, then a later run restores them), so
+      // the key must go too or that render would be skipped as a duplicate.
       setRenderError(null)
       setRenderedScript(null)
+      lastRenderedVariablesRef.current = null
       return
     }
 
@@ -610,8 +625,9 @@ export function useScriptExecution({
     // Build payload with inputs and outputs namespaces
     const inputsForRender = buildTemplatePayload(templateContext)
 
-    // Check if inputs actually changed
-    const inputsKey = JSON.stringify(inputsForRender)
+    // Check if the script or its inputs actually changed. The script is part of
+    // the key so a changed command with unchanged values still re-renders.
+    const inputsKey = JSON.stringify([rawScriptContent, inputsForRender])
     if (inputsKey === lastRenderedVariablesRef.current) {
       return
     }
@@ -641,7 +657,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, renderScript])
+  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, rawScriptContent, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {

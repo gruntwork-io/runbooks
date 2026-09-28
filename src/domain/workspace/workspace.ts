@@ -72,10 +72,22 @@ function isBinaryExt(ext: string): boolean {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Count newlines + 1 (matches Go `countLines`). Returns 0 for empty strings. */
+/**
+ * Count newlines + 1 (matches Go `countLines`). Returns 0 for empty strings.
+ * For `git show` output joined with "\n", which has no final newline.
+ */
 function countLines(s: string): number {
   if (s === "") return 0
   return (s.match(/\n/g)?.length ?? 0) + 1
+}
+
+/**
+ * Count the lines of file content read from disk as git numstat does: a final
+ * newline ends the last line rather than starting another ("a\nb\n" is 2).
+ */
+function countFileLines(s: string): number {
+  if (s === "") return 0
+  return (s.match(/\n/g)?.length ?? 0) + (s.endsWith("\n") ? 0 : 1)
 }
 
 /**
@@ -593,7 +605,7 @@ const populateDiffContent = (
         const contentResult = yield* Effect.either(fs.readFile(absFilePath))
         if (contentResult._tag === "Right") {
           ;(change as { newContent: string }).newContent = contentResult.right
-          ;(change as { additions: number }).additions = countLines(
+          ;(change as { additions: number }).additions = countFileLines(
             contentResult.right,
           )
         }
