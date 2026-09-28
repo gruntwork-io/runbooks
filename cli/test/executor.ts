@@ -1478,7 +1478,7 @@ export class TestExecutor {
     // a ref) behaves identically here.
     const cloneSteps = buildCloneSteps(cloneURL, destPath, { ref, repoPath })
     if (Either.isLeft(cloneSteps)) {
-      result.passed = false; result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
       result.error = cloneSteps.left.stderr
       result.duration = Date.now() - start
       return result
@@ -1505,7 +1505,7 @@ export class TestExecutor {
         })
       }
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
       // Sanitize error to not leak tokens
       result.error = redactSecrets(String(e))
       result.duration = Date.now() - start

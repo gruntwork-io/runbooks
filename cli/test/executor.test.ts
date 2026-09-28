@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { TestExecutor } from "./executor.ts"
-import { loadConfig, type CleanupAction } from "./config.ts"
+import { loadConfig, type CleanupAction, type ExpectedStatus } from "./config.ts"
 
 // Resolve relative to the test file so this works regardless of cwd.
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..")
@@ -1173,14 +1173,14 @@ describe("TestExecutor — GitClone sparse checkout", () => {
       stdio: "pipe",
     })
 
-  const runGitClone = async (props: string) => {
+  const runGitClone = async (props: string, expected: ExpectedStatus = "success") => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(rb, `# Sparse clone\n\n<GitClone id="repo" prefilledUrl="file://${origin}" ${props} />\n`)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
     return executor.runTest({
       name: "sparse",
-      steps: [{ block: "repo", expect: "success" }],
+      steps: [{ block: "repo", expect: expected }],
     })
   }
 
@@ -1237,5 +1237,15 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     expect(result.stepResults[0]?.actualStatus).toBe("fail")
     expect(result.stepResults[0]?.error).toMatch(/invalid repo path/)
     expect(fs.existsSync(path.join(tmp, "mono"))).toBe(false)
+  })
+
+  it("passes a step that expects the clone to fail", async () => {
+    // Rejected before git runs: the repo path is outside the repository.
+    const badPath = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`, "fail")
+    expect(badPath.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
+
+    // Failed by git: the ref doesn't exist.
+    const badRef = await runGitClone(`prefilledRef="no-such-branch" prefilledLocalPath="mono"`, "fail")
+    expect(badRef.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
   })
 })
