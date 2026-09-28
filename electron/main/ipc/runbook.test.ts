@@ -31,14 +31,18 @@ describe("runbook IPC handlers", () => {
   })
 
   describe("runbook:get without a path", () => {
-    it("returns useExecutableRegistry at the top level, where the channel declares it", async () => {
-      setRunbookConfig({ ...originalRunbookConfig, useExecutableRegistry: false })
+    it("rejects instead of resolving the empty path against the app's cwd", async () => {
+      const localPathBefore = runtimeModule.runbookConfig.localPath
 
-      const result = await handlers.get("runbook:get")!(undefined, { path: "" })
+      await expect(handlers.get("runbook:get")!(undefined, { path: "" })).rejects.toThrow(
+        "runbook path is required",
+      )
+      await expect(handlers.get("runbook:get")!(undefined, undefined)).rejects.toThrow(
+        "runbook path is required",
+      )
 
-      // IpcExecutableRegistryProvider reads `result.useExecutableRegistry`;
-      // nested under `config`, it always fell back to true.
-      expect(result).toEqual({ content: "", contentHash: "", warnings: [], useExecutableRegistry: false })
+      // Nothing was loaded: the config still points where it did.
+      expect(runtimeModule.runbookConfig.localPath).toBe(localPathBefore)
     })
   })
 })
