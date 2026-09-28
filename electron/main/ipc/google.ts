@@ -21,6 +21,7 @@
  * inline in the block, never via reportError().
  */
 import { ipcMain } from "electron"
+import { Cause, Option, Runtime } from "effect"
 import { runtime, sessionManager } from "./runtime.ts"
 import {
   validateServiceAccountKey,
@@ -74,6 +75,9 @@ import {
   type GoogleSessionEnvChange,
 } from "./google-session-env.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
+import { makeLogger } from "../logger.ts"
+
+const log = makeLogger("ipc:google")
 
 /** Which ambient location a detection request should read. */
 type DetectionSource = "env" | "adc" | "gcloud"
@@ -1212,9 +1216,15 @@ export function registerGoogleHandlers(): void {
         // proof, and there is nothing useful to say about the latter.
         return { enabled: true }
       } catch (err) {
-        // The credential itself could not be turned into a client — that is
-        // worth saying out loud.
-        return { enabled: false, warning: toErrorMessage(err) }
+        // A typed failure: the credential itself could not be turned into a
+        // client — that is worth saying out loud.
+        if (Runtime.isFiberFailure(err) && Option.isSome(Cause.failureOption(err[Runtime.FiberFailureCauseId]))) {
+          return { enabled: false, warning: toErrorMessage(err) }
+        }
+        // A defect or an interruption says nothing about the project, so it
+        // fails open like aws:check-region. `err` only: never the credential.
+        log.error("Project access check crashed:", err)
+        return { enabled: true }
       }
     },
   )
