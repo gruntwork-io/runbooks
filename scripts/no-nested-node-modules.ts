@@ -11,8 +11,10 @@
 // web/playwright.config.ts, so `bun run dev|build|test:web|test:e2e` and a bare
 // `bunx electron-vite`/`bunx vitest`/`bunx playwright` on web/ are guarded.
 // Run directly (`bun scripts/no-nested-node-modules.ts`) by the justfile's
-// _no-nested-node-modules recipe and by the package.json scripts that start
-// tsc or `bun test`, which have no config file to hook.
+// _no-nested-node-modules recipe and by every other package.json script that
+// type-checks or runs tests: typecheck, test, test:backend, test:watch,
+// test:coverage, test:integration and test:electron-e2e, so every entry point
+// asks for the same one-time cleanup.
 import { readdirSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"

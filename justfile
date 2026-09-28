@@ -260,7 +260,7 @@ test-web: _no-nested-node-modules
     cd web && mise x bun -- bun run vitest run
 
 # Run TLS integration tests (Vitest — Node environment; needs APIs Bun lacks)
-test-integration:
+test-integration: _no-nested-node-modules
     mise x node -- npx vitest run --config vitest.integration.config.ts
 
 # Run all unit tests
