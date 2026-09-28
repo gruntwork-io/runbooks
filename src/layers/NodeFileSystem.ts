@@ -130,7 +130,10 @@ const impl: FileSystemShape = {
         for (const entry of entries) {
           const fullPath = path.join(currentDir, entry.name)
           const relativePath = path.relative(dir, fullPath)
-          const stat = await fs.stat(fullPath)
+          // lstat, not stat: entries are classified by their Dirent (so
+          // symlinks are neither files nor directories here), and following a
+          // dangling or looping link would fail the whole walk.
+          const stat = await fs.lstat(fullPath)
           await emit.single({
             path: fullPath,
             relativePath,

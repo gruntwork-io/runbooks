@@ -63,11 +63,11 @@ export interface IpcChannelMap {
     result: { verificationUri: string; userCode: string; deviceCode: string; clientId: string; clientSecret: string; error?: string }
   }
   "aws:sso-roles": {
-    params: { accessToken: string; accountId: string; region?: string }
+    params: { accessToken: string; accountId: string; region: string }
     result: { roles: SsoRole[]; error?: string }
   }
   "aws:sso-poll": {
-    params: { clientId: string; clientSecret: string; deviceCode: string; region?: string; accountId?: string; roleName?: string }
+    params: { clientId: string; clientSecret: string; deviceCode: string; region: string; accountId?: string; roleName?: string }
     result: {
       status?: string
       accessToken?: string
@@ -112,10 +112,14 @@ export interface IpcChannelMap {
     }
   }
   "aws:env-credentials-confirm": {
-    params: { prefix?: string; defaultRegion?: string }
+    /** `expectedAccountId`: the account the prompt showed; a different one is not confirmed. */
+    params: { prefix?: string; defaultRegion?: string; expectedAccountId?: string }
     result: {
       valid?: boolean
       error?: string
+      /** The credentials now belong to another account; no keys are returned. */
+      accountChanged?: boolean
+      hasSessionToken?: boolean
       accountId?: string
       accountName?: string
       arn?: string
@@ -126,13 +130,15 @@ export interface IpcChannelMap {
     }
   }
   "aws:profile-auth": {
-    params: { profileName: string; profile?: string }
+    params: { profileName: string; profile?: string; defaultRegion?: string }
     result: {
       valid?: boolean
       credentials?: AwsCredentials
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      /** The region the credentials were validated in: the profile's own, else `defaultRegion`. */
+      region?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -216,7 +222,7 @@ export interface IpcChannelMap {
     // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
     // registered the secrets for redaction, materialised the ADC file and
     // written the session env. No token crosses IPC.
-    params: { flowId: string; blockId?: string }
+    params: { flowId: string; blockId?: string; region?: string; zone?: string }
     result: {
       status: "pending" | "complete" | "expired" | "failed"
       account?: GoogleAccountInfo
@@ -224,6 +230,9 @@ export interface IpcChannelMap {
       credentialsPath?: string
       projects?: GoogleProjectIpc[]
       scopes?: string[]
+      /** Region/zone MAIN wrote on "complete". What the block publishes. */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
     }
@@ -258,6 +267,12 @@ export interface IpcChannelMap {
       /** The EXISTING ADC path — nothing is copied for this tab. */
       credentialsPath?: string
       projects?: GoogleProjectIpc[]
+      /**
+       * Region/zone MAIN wrote: the requested ones, else the configuration's
+       * own. What the block publishes.
+       */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
       /** Present when the credential validated but lacks author-required scopes. */
@@ -321,6 +336,12 @@ export interface IpcChannelMap {
       projectId?: string
       credentialsPath?: string
       credentialType?: GoogleCredentialTypeIpc
+      /**
+       * Region/zone MAIN wrote: the requested ones, else the gcloud
+       * configuration's or env's own. What the block publishes.
+       */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
       insufficientScopes?: boolean
@@ -336,10 +357,24 @@ export interface IpcChannelMap {
     params: { blockId?: string; flowId?: string; query?: string; pageSize?: number }
     result: { projects: GoogleProjectIpc[]; error?: string }
   }
-  // Project selection happens after auth; MAIN owns the session-env write.
+  // Project selection happens after auth; MAIN owns the session-env write,
+  // which re-points the session at the CALLING block's credential, account
+  // and new project together. Keys that credential does not carry can survive
+  // from another block; see google-session-env.ts.
   "google:set-project": {
     params: { blockId?: string; projectId: string; region?: string; zone?: string }
-    result: { ok: boolean; projectName?: string; error?: string; sessionEnvWarning?: string }
+    result: {
+      ok: boolean
+      projectName?: string
+      /**
+       * Region/zone MAIN wrote: the requested ones, else those the block
+       * authenticated with. What the block publishes.
+       */
+      region?: string
+      zone?: string
+      error?: string
+      sessionEnvWarning?: string
+    }
   }
   // <- aws:check-region, and it fails OPEN like one: `enabled: false` only for
   // a project the credential definitively cannot read. An inconclusive answer
@@ -361,33 +396,65 @@ export interface IpcChannelMap {
   }
 
   // GitHub Authentication
+  //
+  // Every github:* channel targets ONE GitHub host via an optional `host`
+  // (github.com, a GHES host, or a `<sub>.ghe.com` tenant; bare host or URL),
+  // defaulting to github.com. Main parses it strictly — an unparseable host is
+  // refused, never rebound to github.com — and every token read, validated or
+  // written stays with that host.
+  //
+  // Enumerate the known GitHub hosts for the picker: the merged, deduped
+  // union of gh's hosts.yml hosts, GH_HOST, the session host, persisted
+  // recents and github.com — annotated with provenance and an OFFLINE-ONLY
+  // credential check. `defaultHost` follows the precedence (persisted pick
+  // when it still has a credential > GH_HOST > github.com).
+  "github:enumerate-hosts": {
+    params: Record<string, never>
+    result: {
+      hosts: Array<{
+        host: string
+        sources: Array<"gh" | "env" | "session" | "recent">
+        /** Offline-only: credential FOUND (not yet validated). */
+        hasCredential: boolean
+      }>
+      defaultHost: string
+    }
+  }
+  // Persist an explicit dropdown pick so it survives restart.
+  "github:host-picked": { params: { host: string }; result: { ok: true } }
   "github:validate": {
-    // `host` is accepted for parity with gitlab:validate so the shared useGitAuth
-    // hook passes one payload shape; the GitHub handler ignores it.
     // custody: `useSessionToken` validates the provider's SESSION credential
-    // (the {block:'GitAuth-id'} chaining mode — no token crosses IPC);
-    // `registerSession` makes MAIN write the session env on success (the PAT
-    // path); the renderer never writes session credentials.
+    // for `host` (the {block:'GitAuth-id'} chaining mode — no token crosses
+    // IPC); `registerSession` makes MAIN write the session env on success
+    // (the PAT path); the renderer never writes session credentials.
     params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number } & VcsDetectionMeta
+    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number; host?: string } & VcsDetectionMeta
   }
   "github:oauth-start": {
     // clientId/scopes are optional — main owns the defaults (the
-    // custom-clientId author prop keeps sending an explicit clientId).
-    params: { clientId?: string; scopes?: string[] }
-    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; error?: string }
+    // custom-clientId author prop keeps sending an explicit clientId). The
+    // Gruntwork default client ID applies to github.com only: for an
+    // enterprise host without a clientId the call REJECTS (OAuth unavailable)
+    // rather than falling back to github.com.
+    params: { clientId?: string; scopes?: string[]; host?: string }
+    // expiresIn: seconds until the device code expires; the renderer polls
+    // until then.
+    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn?: number; error?: string }
   }
   "github:oauth-poll": {
     // the completion result is METADATA-ONLY — no access token crosses
     // IPC; main writes the session env before reporting completion.
-    params: { clientId?: string; deviceCode: string }
+    params: { clientId?: string; deviceCode: string; host?: string }
     result: {
       status?: string
       pending?: boolean
       user?: GitHubUser
       scopes?: string[]
       tokenType?: string
+      /** GitHub answered slow_down: back off before the next poll. */
       slowDown?: boolean
+      /** With slowDown: the minimum interval GitHub now requires, in seconds. */
+      interval?: number
       error?: string
       /** The session-env write failed AFTER the token validated. */
       sessionEnvWarning?: string
@@ -405,6 +472,8 @@ export interface IpcChannelMap {
       tokenType?: string
       error?: string
       status?: number
+      /** The GitHub host this credential was detected/validated against. */
+      host?: string
     } & VcsDetectionMeta
   }
   "github:cli-credentials": {
@@ -416,12 +485,16 @@ export interface IpcChannelMap {
       tokenType?: string
       error?: string
       status?: number
+      /** The GitHub host this credential was detected/validated against. */
+      host?: string
     } & VcsDetectionMeta
   }
-  "github:orgs": { params: void; result: GitHubOrg[] }
-  "github:repos": { params: { org: string }; result: GitHubRepo[] }
-  "github:refs": { params: { owner: string; repo: string }; result: GitHubRef[] }
-  "github:labels": { params: { owner: string; repo: string }; result: { labels?: string[] } }
+  // API queries use the session credential for `host` (omitted: the
+  // session's GitHub host) and call that host's API.
+  "github:orgs": { params: { host?: string } | void; result: GitHubOrg[] }
+  "github:repos": { params: { org: string; host?: string }; result: GitHubRepo[] }
+  "github:refs": { params: { owner: string; repo: string; host?: string }; result: GitHubRef[] }
+  "github:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
 
   // GitLab Authentication
   // Enumerate the known GitLab hosts for the picker:
@@ -492,6 +565,7 @@ export interface IpcChannelMap {
   "git:clone": {
     params: GitCloneRequest
     result: {
+      /** "success", or "cancelled" when git:clone-cancel stopped the clone. */
       status: string
       error?: string
       fileCount?: number
@@ -504,6 +578,9 @@ export interface IpcChannelMap {
       outputs?: Record<string, string>
     }
   }
+  // Stops the clone started with this `cloneId`: git is killed, not just
+  // detached from the UI, so it can't keep writing into the destination.
+  "git:clone-cancel": { params: { cloneId: string }; result: { ok: true } }
   "git:local-repo": {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
@@ -615,7 +692,8 @@ export interface IpcEventMap {
   "exec:outputs": { outputs: Record<string, string> }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
   "watch:file-change": { type: "reload" }
-  "git:clone-progress": { line: string; timestamp: string }
+  /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
+  "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }
   "git:status": { status: string; exitCode: number }
   "git:pr-result": { prUrl: string; prNumber: number; branchName: string }
@@ -692,6 +770,7 @@ export interface RenderInlineRequest {
 
 export interface ProfileInfo {
   name: string
+  authType: "sso" | "static" | "assume_role" | "unsupported"
   ssoStartUrl?: string
   ssoRegion?: string
   region?: string
@@ -874,8 +953,17 @@ export interface GitLocalRepoResponse {
 
 export interface GitCloneRequest {
   url: string
+  /**
+   * Renderer-chosen id for this clone. git:clone-cancel uses it to stop the
+   * clone, and git:clone-progress events carry it back.
+   */
+  cloneId?: string
   localPath?: string
   ref?: string
+  /**
+   * Directory to sparse-checkout, relative to the repository root. Empty or
+   * "." clones the whole repository.
+   */
   repo_path?: string
   credentials?: { token: string }
   /**
@@ -886,7 +974,6 @@ export interface GitCloneRequest {
    * SaaS hostnames.
    */
   provider?: "github" | "gitlab"
-  use_pty?: boolean
   force?: boolean
 }
 

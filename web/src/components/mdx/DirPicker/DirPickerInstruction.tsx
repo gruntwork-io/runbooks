@@ -54,8 +54,10 @@ export function DirPickerInstruction({
   const { completed, toggle } = useBlockCompletion(id)
 
   // Publish the chosen path under the same output key the interactive block uses.
+  // An empty field publishes no PATH, so downstream blocks see it as unmet
+  // rather than resolving to an empty path.
   useEffect(() => {
-    registerOutputs(id, { PATH: path })
+    registerOutputs(id, path ? { PATH: path } : {})
   }, [id, path, registerOutputs])
 
   return (

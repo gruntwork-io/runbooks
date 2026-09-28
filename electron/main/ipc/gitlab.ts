@@ -14,7 +14,12 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, getSessionTokenForProvider } from "./runtime.ts"
+import {
+  runtime,
+  sessionManager,
+  getGitLabSessionBoundHost,
+  getGitLabSessionTokenForOrigin,
+} from "./runtime.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
@@ -26,12 +31,14 @@ import {
   configuredEnvHost,
   hasEnvToken,
 } from "../../../src/domain/gitlab/auth.ts"
+import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
 import {
   normalizeGitLabBaseUrl,
   normalizeGitLabHost,
+  tryNormalizeGitLabBaseUrl,
   tryNormalizeGitLabHost,
 } from "../../../src/domain/git/gitlab-host.ts"
-import { registerExtraCaPems } from "../index.ts"
+import { registerExtraCaPems } from "../system-trust.ts"
 import {
   withTlsOrchestration,
   withVcs,
@@ -168,9 +175,14 @@ export function registerGitLabHandlers(): void {
         useSessionToken?: boolean
       },
     ) => {
+      const generation = sessionManager.getGeneration()
+      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
+      // Session mode releases the session credential only to the host the
+      // auth block bound it to (as for GitHub), and never over plain http:
+      // it may be an auto-detected env or CLI token.
       const token = params.useSessionToken
         ? await runtime.runPromise(
-            getSessionTokenForProvider("gitlab", () => new Error("none")).pipe(
+            getGitLabSessionTokenForOrigin(baseUrl, () => new Error("none")).pipe(
               Effect.orElseSucceed(() => undefined),
             ),
           )
@@ -186,7 +198,6 @@ export function registerGitLabHandlers(): void {
       }
       registerSecret(token)
       const tokenType = detectTokenType(token)
-      const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
       const result = await withTlsOrchestration({
         provider: "gitlab",
         host,
@@ -200,7 +211,7 @@ export function registerGitLabHandlers(): void {
             GITLAB_TOKEN: token,
             GITLAB_USER: result.user.login,
             GITLAB_HOST: host,
-          })
+          }, generation)
         }
         // every successful GitLab auth persists the pick; a
         // manually-typed instance URL additionally enters the recents.
@@ -210,6 +221,7 @@ export function registerGitLabHandlers(): void {
         }
         return {
           valid: true,
+          host,
           user: result.user,
           scopes: result.scopes,
           tokenType,
@@ -227,20 +239,31 @@ export function registerGitLabHandlers(): void {
     async (
       _event,
       params: {
-        envVar?: string
         prefix?: string
-        githubAuthId?: string
         host?: string
         instanceUrl?: string
       } = {},
     ) => {
+      const generation = sessionManager.getGeneration()
+      // The {env:{prefix}} variant: the renderer-supplied prefix is
+      // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
+      const prefix = params.prefix || undefined
+      if (prefix !== undefined && !ENV_PREFIX_PATTERN.test(prefix)) {
+        return {
+          found: false as const,
+          outcome: "absent" as const,
+          error: `Invalid env prefix "${prefix}": must match ${ENV_PREFIX_PATTERN}`,
+        }
+      }
+
       const { baseUrl, host } = resolveGitLabInstance(params.instanceUrl ?? params.host)
 
-      // env-token host binding is enforced inside detectGitLabEnv.
+      // env-token host binding (and the https-only rule) is enforced inside
+      // detectGitLabEnv.
       const result = await withTlsOrchestration({
         provider: "gitlab",
         host,
-        detect: () => withVcs((vcs) => vcs.detectGitLabEnv(baseUrl)),
+        detect: () => withVcs((vcs) => vcs.detectGitLabEnv(baseUrl, prefix)),
       })
 
       let sessionEnvWarning: string | undefined
@@ -249,7 +272,7 @@ export function registerGitLabHandlers(): void {
           GITLAB_TOKEN: result.token,
           GITLAB_HOST: host,
           ...(result.user ? { GITLAB_USER: result.user.login } : {}),
-        })
+        }, generation)
         setLastSelectedGitLabHost(host)
       }
 
@@ -264,6 +287,7 @@ export function registerGitLabHandlers(): void {
   ipcMain.handle(
     "gitlab:cli-credentials",
     async (_event, params: { host?: string; instanceUrl?: string } = {}) => {
+      const generation = sessionManager.getGeneration()
       // No requested host → fall back to glab's own default. Always an origin
       // (contract).
       const requested = params.instanceUrl ?? params.host
@@ -283,7 +307,7 @@ export function registerGitLabHandlers(): void {
           GITLAB_TOKEN: result.token,
           GITLAB_HOST: host,
           ...(result.user ? { GITLAB_USER: result.user.login } : {}),
-        })
+        }, generation)
         setLastSelectedGitLabHost(host)
       }
 
@@ -303,16 +327,20 @@ export function registerGitLabHandlers(): void {
     "gitlab:labels",
     async (_event, params: { owner: string; repo: string; host?: string }) => {
       const program = Effect.gen(function* () {
-        const token = yield* getSessionTokenForProvider(
-          "gitlab",
-          () => new Error("No GitLab token available in session"),
-        )
         // Target the repo's own GitLab instance (passed by the renderer from the
-        // repo's remote); fall back to the host the auth block authenticated
-        // against. A bare host or a URL normalizes to the API origin.
-        const session = yield* sessionManager.getSession()
-        const baseUrl = normalizeGitLabBaseUrl(
-          params.host ?? session.env.get("GITLAB_HOST"),
+        // repo's remote); fall back to the host the session token is bound to.
+        // A bare host or a URL normalizes to the API origin. One that doesn't
+        // parse returns no labels rather than asking gitlab.com, as the client
+        // itself would refuse it.
+        const baseUrl = tryNormalizeGitLabBaseUrl(params.host ?? (yield* getGitLabSessionBoundHost()))
+        if (!baseUrl) {
+          return yield* Effect.fail(new Error("No GitLab instance to list labels from"))
+        }
+        // The session token goes only to the host it is bound to (port
+        // included), over https.
+        const token = yield* getGitLabSessionTokenForOrigin(
+          baseUrl,
+          () => new Error("No GitLab token for this host available in session"),
         )
         const client = yield* GitLabClient
         return yield* client.listLabels(token, params.owner, params.repo, baseUrl)

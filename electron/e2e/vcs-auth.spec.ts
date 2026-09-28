@@ -54,7 +54,7 @@ interface LaunchResult {
  *  env vars are always stripped for determinism. */
 async function launchApp(runbook: string, env: Record<string, string>): Promise<LaunchResult> {
   const cleanEnv: Record<string, string> = { ...process.env } as Record<string, string>
-  for (const v of ["GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GH_HOST", "GLAB_CONFIG_DIR", "GH_CONFIG_DIR"]) {
+  for (const v of ["GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GH_HOST", "GLAB_CONFIG_DIR", "GH_CONFIG_DIR"]) {
     delete cleanEnv[v]
   }
   const collected: string[] = []
@@ -380,11 +380,11 @@ test("gitlab: Other instance… sentinel, PAT success, recent persisted across r
     await expect(select).toHaveValue("gitlab.com")
 
     // The sentinel never changes the host and never runs detection — the
-    // select snaps back and the PAT form (with the instance-URL field) shows.
+    // select snaps back and the PAT form's instance-URL field takes focus.
     await select.selectOption("__other__")
     await expect(select).toHaveValue("gitlab.com")
     const instanceField = first.window.getByPlaceholder("https://gitlab.com")
-    await expect(instanceField).toBeVisible()
+    await expect(instanceField).toBeFocused()
 
     await instanceField.fill(`https://${stub.host}`)
     await first.window.locator('input[type="password"]').fill("glpat-e2e-manual-pat")

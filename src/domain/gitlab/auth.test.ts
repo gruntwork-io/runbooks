@@ -15,7 +15,9 @@ import {
   readGlabHostMeta,
   enumerateGlabHosts,
   envTokenHost,
+  gitlabSessionTokenHost,
   mayAutoSendEnvToken,
+  mayAutoSendGlabToken,
 } from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeRecordingSpawner } from "../../test-utils/TestSpawner.ts"
@@ -79,12 +81,86 @@ describe("detectEnvCredentials", () => {
     expect(result).toBeUndefined()
   })
 
+  it("treats a blank token var as unset (like glab and hasEnvToken)", async () => {
+    const unprefixed = makeTestEnvironment({ GITLAB_TOKEN: "  ", GITLAB_ACCESS_TOKEN: "glpat-access" })
+    expect(
+      await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(unprefixed))),
+    ).toEqual({ token: "glpat-access", envVar: "GITLAB_ACCESS_TOKEN" })
+
+    const prefixed = makeTestEnvironment({ CI_GITLAB_TOKEN: "\t", CI_GITLAB_ACCESS_TOKEN: "glpat-ci" })
+    expect(
+      await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(prefixed))),
+    ).toEqual({ token: "glpat-ci", envVar: "CI_GITLAB_ACCESS_TOKEN" })
+
+    const blankOnly = makeTestEnvironment({ GITLAB_TOKEN: " ", CI_GITLAB_TOKEN: " " })
+    expect(await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(blankOnly)))).toBeUndefined()
+    expect(await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(blankOnly)))).toBeUndefined()
+  })
+
   it("does not read GITHUB_TOKEN", async () => {
     const layer = makeTestEnvironment({ GITHUB_TOKEN: "ghp_should_be_ignored" })
     const result = await Effect.runPromise(
       detectEnvCredentials().pipe(Effect.provide(layer)),
     )
     expect(result).toBeUndefined()
+  })
+
+  it("with a prefix, reads <PREFIX>GITLAB_TOKEN and ignores the unprefixed token", async () => {
+    const layer = makeTestEnvironment({
+      GITLAB_TOKEN: "glpat-personal",
+      CI_GITLAB_TOKEN: "glpat-ci",
+    })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ token: "glpat-ci", envVar: "CI_GITLAB_TOKEN" })
+  })
+
+  it("with a prefix, falls back to <PREFIX>GITLAB_ACCESS_TOKEN only", async () => {
+    const layer = makeTestEnvironment({ CI_GITLAB_ACCESS_TOKEN: "glpat-ci-access" })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ token: "glpat-ci-access", envVar: "CI_GITLAB_ACCESS_TOKEN" })
+  })
+
+  it("with a prefix, never falls back to the unprefixed vars", async () => {
+    const layer = makeTestEnvironment({
+      GITLAB_TOKEN: "glpat-personal",
+      GITLAB_ACCESS_TOKEN: "glpat-personal-access",
+      OAUTH_TOKEN: "a".repeat(64),
+    })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("with a prefix, does not read <PREFIX>OAUTH_TOKEN (it names no provider)", async () => {
+    const layer = makeTestEnvironment({ CI_OAUTH_TOKEN: "a".repeat(64) })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("rejects a prefix that fails ENV_PREFIX_PATTERN (defense in depth)", async () => {
+    const layer = makeTestEnvironment({
+      GITLAB_TOKEN: "glpat-personal",
+      "ci-GITLAB_TOKEN": "glpat-ci",
+    })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("ci-").pipe(Effect.provide(layer)),
+    )
+    expect(result).toBeUndefined()
+  })
+
+  it("treats an empty prefix as no prefix", async () => {
+    const layer = makeTestEnvironment({ GITLAB_TOKEN: "glpat-test123" })
+    const result = await Effect.runPromise(
+      detectEnvCredentials("").pipe(Effect.provide(layer)),
+    )
+    expect(result).toEqual({ token: "glpat-test123", envVar: "GITLAB_TOKEN" })
   })
 })
 
@@ -132,6 +208,70 @@ describe("envTokenHost — the binding rule", () => {
     expect(envTokenHost({ GITLAB_HOST: "", GITLAB_URI: "git.corp.example" })).toBe("git.corp.example")
     expect(envTokenHost({ GITLAB_HOST: "  ", GL_HOST: "git.corp.example" })).toBe("git.corp.example")
     expect(envTokenHost({ GITLAB_HOST: "" })).toBe("gitlab.com")
+  })
+
+  it("a prefixed token is bound by the prefixed host vars, in the same precedence", () => {
+    expect(
+      envTokenHost(
+        { CI_GITLAB_HOST: "one.example", CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" },
+        "CI_",
+      ),
+    ).toBe("one.example")
+    expect(envTokenHost({ CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" }, "CI_")).toBe("two.example")
+    expect(envTokenHost({ CI_GL_HOST: "three.example" }, "CI_")).toBe("three.example")
+
+    const env = { CI_GITLAB_HOST: "git.corp.example" }
+    expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(true)
+    expect(mayAutoSendEnvToken("gitlab.com", env, "CI_")).toBe(false)
+  })
+
+  it("a prefixed token ignores the unprefixed host vars (defaults to gitlab.com)", () => {
+    const env = { GITLAB_HOST: "git.corp.example" }
+    expect(envTokenHost(env, "CI_")).toBe("gitlab.com")
+    expect(mayAutoSendEnvToken("gitlab.com", env, "CI_")).toBe(true)
+    expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(false)
+  })
+
+  it("never over plain http, even to the bound host (prefixed or not)", () => {
+    // The target can come from a runbook (`instanceUrl`); a bare host means
+    // https, an explicit http:// origin never qualifies.
+    expect(mayAutoSendEnvToken("http://gitlab.com", {})).toBe(false)
+    expect(mayAutoSendEnvToken("http://gitlab.com", {}, "CI_")).toBe(false)
+    expect(mayAutoSendEnvToken("HTTP://GitLab.com/", {})).toBe(false)
+    expect(mayAutoSendEnvToken("https://gitlab.com", {})).toBe(true)
+    expect(mayAutoSendEnvToken("https://gitlab.com", {}, "CI_")).toBe(true)
+
+    // Also when the host var itself names an http:// origin.
+    const env = { GITLAB_HOST: "http://git.corp.example", CI_GITLAB_HOST: "http://git.corp.example" }
+    expect(mayAutoSendEnvToken("http://git.corp.example", env)).toBe(false)
+    expect(mayAutoSendEnvToken("http://git.corp.example", env, "CI_")).toBe(false)
+    expect(mayAutoSendEnvToken("https://git.corp.example", env)).toBe(true)
+    expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(true)
+  })
+})
+
+describe("gitlabSessionTokenHost", () => {
+  const CORP = "git.corp.example"
+
+  it("with an auth host: bound to it while GITLAB_HOST still names it, bare or as a URL", () => {
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: CORP }, CORP)).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `https://${CORP}/` }, CORP)).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.com" }, "gitlab.com")).toBe("gitlab.com")
+  })
+
+  it("with an auth host: a changed, removed or unparseable GITLAB_HOST binds nowhere", () => {
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.attacker.example" }, "gitlab.com")).toBeUndefined()
+    expect(gitlabSessionTokenHost({}, "gitlab.com")).toBeUndefined()
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` }, CORP)).toBeUndefined()
+    // GITLAB_HOST wins in glab's precedence, so the other vars never rebind it.
+    expect(gitlabSessionTokenHost({ GL_HOST: CORP, GITLAB_URI: CORP }, CORP)).toBeUndefined()
+  })
+
+  it("without an auth host: glab's env binding (envTokenHost)", () => {
+    expect(gitlabSessionTokenHost({})).toBe("gitlab.com")
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `https://${CORP}` })).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GL_HOST: CORP })).toBe(CORP)
+    expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` })).toBeUndefined()
   })
 })
 
@@ -562,6 +702,12 @@ describe("readGlabHostMeta", () => {
     expect(readGlabHostMeta(yaml, "keyringhost.example").useKeyring).toBe(true)
   })
 
+  it("reads api_protocol (lowercased), unset when the host has none", () => {
+    const http = "hosts:\n    git.corp.example:\n        api_protocol: HTTP\n"
+    expect(readGlabHostMeta(http, "git.corp.example").apiProtocol).toBe("http")
+    expect(readGlabHostMeta(yaml, "gitlab.com").apiProtocol).toBeUndefined()
+  })
+
   it("returns inert defaults for unknown hosts and malformed yaml", () => {
     expect(readGlabHostMeta(yaml, "missing.example")).toEqual({
       isOAuth2: false,
@@ -675,6 +821,40 @@ describe("readGlabTokenForHost — OAuth staleness (fake clock)", () => {
     )
     expect(result).toEqual({ kind: "token", token: "glpat-pat-token" })
     expect(calls.every((c) => c.args[0] === "config")).toBe(true)
+  })
+})
+
+describe("mayAutoSendGlabToken", () => {
+  const config = `hosts:
+    gitlab.com:
+        token: glpat-a
+    git.corp.example:
+        token: glpat-b
+        api_protocol: http
+`
+  const layer = Layer.merge(
+    makeTestEnvironment({ HOME: "/home/u" }),
+    makeTestFileSystem({ "/home/u/.config/glab-cli/config.yml": config }),
+  )
+  const may = (target: string, host: string) =>
+    Effect.runPromise(mayAutoSendGlabToken(target, host).pipe(Effect.provide(layer)))
+
+  it("https (explicit or a bare host) to the host glab stored the token for", async () => {
+    expect(await may("https://gitlab.com", "gitlab.com")).toBe(true)
+    expect(await may("gitlab.com", "gitlab.com")).toBe(true)
+  })
+
+  it("never over plain http unless glab's api_protocol for that host is http", async () => {
+    expect(await may("http://gitlab.com", "gitlab.com")).toBe(false)
+    expect(await may("http://git.corp.example", "git.corp.example")).toBe(true)
+    expect(await may("http://unknown.example", "unknown.example")).toBe(false)
+  })
+
+  it("never to a host other than the one glab stored it for", async () => {
+    expect(await may("https://evil.example", "gitlab.com")).toBe(false)
+    expect(await may("https://gitlab.com:8443", "gitlab.com")).toBe(false)
+    // The http allowance is the stored host's, not the target's.
+    expect(await may("http://git.corp.example", "gitlab.com")).toBe(false)
   })
 })
 
