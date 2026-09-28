@@ -9,7 +9,13 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { Cause, Effect, Exit, ManagedRuntime, Stream } from "effect"
 import { ipcMain, type IpcMainInvokeEvent } from "electron"
-import { runtime, sessionManager, getSessionToken, getSessionTokenForProvider } from "./runtime.ts"
+import {
+  runtime,
+  sessionManager,
+  getGitHubSessionCredential,
+  getSessionTokenForHost,
+  getSessionTokenForProvider,
+} from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
   resolveClonePaths,
@@ -25,13 +31,14 @@ import {
 } from "../../../src/domain/git/operations.ts"
 import { inspectLocalRepo } from "../../../src/domain/git/local-repo.ts"
 import { getRepo } from "../../../src/domain/github/auth.ts"
-import { injectTokenIntoUrl } from "../../../src/domain/git/url.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../../src/domain/git/url.ts"
+import { gitHostFromRemoteUrl } from "../../../src/domain/git/gitlab-host.ts"
+import { isGitHubHost, tryNormalizeGitHubHost } from "../../../src/domain/git/github-host.ts"
 import { gitSpawnEnv } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
-import { isContainedIn } from "../../../src/path-validation.ts"
 import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitLocalRepoResponse } from "../../shared/channels.ts"
 
@@ -45,20 +52,34 @@ const makeSendLog = (event: IpcMainInvokeEvent) => (line: string) =>
   event.sender.send("git:log", { line, timestamp: new Date().toISOString() })
 
 /**
- * Resolve the GitHub token from the session env, failing with a typed
- * GitError so the failure flows through errorMessage() / git:error like every
- * other git failure. See getSessionToken() in runtime.ts for the shared lookup.
+ * Resolve the session's GitHub token for a repo on disk, HOST-BOUND to the
+ * repo's origin: the token is released only when it belongs to the host
+ * `origin` points at (github.com, a GHES host, or a ghe.com tenant), so a
+ * github.com token is never pushed to an enterprise host or the reverse.
+ * Yields the host too — the PR API calls go to that host. Fails with a typed
+ * GitError (so it flows through errorMessage() / git:error like every other
+ * git failure) naming both hosts on a mismatch. When origin can't be read,
+ * the session's own GitHub host is used — the push itself targets origin and
+ * fails on its own.
  */
-const resolveGitToken = () =>
-  getSessionToken(
-    () =>
-      new GitError({
-        command: "resolve github token",
-        stderr:
-          "No GitHub token available in session. Authenticate with the GitHub Auth block before creating a pull request.",
-        exitCode: 1,
-      }),
-  )
+const resolveGitHubTokenForRepo = (repoPath: string, purpose: string) =>
+  Effect.gen(function* () {
+    const failWith = (stderr: string) =>
+      new GitError({ command: "resolve github token", stderr, exitCode: 1 })
+    const gitClient = yield* GitClient
+    const remoteUrl = yield* gitClient.getRemoteUrl(repoPath).pipe(Effect.orElseSucceed(() => ""))
+    const origin = tryNormalizeGitHubHost(gitHostFromRemoteUrl(remoteUrl))
+    const session = yield* getGitHubSessionCredential(undefined, () =>
+      failWith(`No GitHub token available in session. Authenticate with the GitHub Auth block before ${purpose}.`),
+    )
+    if (origin === undefined || origin === session.host) return session
+    return yield* getGitHubSessionCredential(origin, () =>
+      failWith(
+        `The GitHub credential in this session is for ${session.host}, but this repository's origin is ${origin}. ` +
+          `Authenticate a GitHub Auth block for ${origin} before ${purpose}.`,
+      ),
+    )
+  })
 
 /**
  * Extract a human-readable message from a typed Effect failure so it can be
@@ -224,21 +245,19 @@ export function registerGitHandlers(): void {
             session.workingDir,
           )
 
-          // Validate clone destination is within the session working dir
-          if (!isContainedIn(paths.absolutePath, session.workingDir)) {
-            return yield* Effect.fail(
-              new PathTraversalError({
-                path: paths.absolutePath,
-                message: "clone destination is outside session working directory",
-              }),
-            )
-          }
+          // Validate the clone destination before the existence check, so a
+          // bad localPath is an inline error, never a "Delete & Clone" prompt.
+          yield* validateCloneDestination(
+            paths.absolutePath,
+            session.workingDir,
+            session.runbookPath,
+          )
 
           // If the destination already exists, either surface directory_exists
           // so the renderer can prompt the user, or delete it when force=true
-          // (from "Delete & Clone"). The isContainedIn check above gates the
-          // rm so a malformed localPath cannot wipe anything outside the
-          // session working dir.
+          // (from "Delete & Clone"). validateCloneDestination above gates the
+          // rm: the destination is a strict subdirectory of the session working
+          // dir once symlinks are resolved, and doesn't contain the runbook.
           if (existsSync(paths.absolutePath)) {
             if (!params.force) {
               return { error: "directory_exists" as const }
@@ -262,9 +281,14 @@ export function registerGitHandlers(): void {
           // token. For older callers that don't pass a provider, fall back to
           // the well-known SaaS hostnames. Public repos still clone with no
           // token (Effect.either turns "no session token" into "no auth").
+          //
+          // A GitHub token is additionally HOST-BOUND: it is released only
+          // when the clone URL's host is the host the credential belongs to
+          // (github.com, a GHES host, or a ghe.com tenant), so a github.com
+          // token never reaches an enterprise clone URL or the reverse.
           const cloneHost = (() => {
             try {
-              return new URL(params.url).hostname
+              return new URL(params.url).host.toLowerCase()
             } catch {
               return ""
             }
@@ -273,21 +297,21 @@ export function registerGitHandlers(): void {
             params.provider ??
             (cloneHost === "gitlab.com"
               ? ("gitlab" as const)
-              : cloneHost === "github.com"
+              : isGitHubHost(cloneHost)
                 ? ("github" as const)
                 : undefined)
           let resolvedToken = params.credentials?.token
           if (!resolvedToken && cloneProvider) {
+            const noToken = () =>
+              new GitError({
+                command: "resolve git token",
+                stderr: "no session token",
+                exitCode: 1,
+              })
             const sessionToken = yield* Effect.either(
-              getSessionTokenForProvider(
-                cloneProvider,
-                () =>
-                  new GitError({
-                    command: "resolve git token",
-                    stderr: "no session token",
-                    exitCode: 1,
-                  }),
-              ),
+              cloneProvider === "github"
+                ? getSessionTokenForHost("github", cloneHost, noToken)
+                : getSessionTokenForProvider(cloneProvider, noToken),
             )
             resolvedToken =
               sessionToken._tag === "Right" ? sessionToken.right : undefined
@@ -304,22 +328,22 @@ export function registerGitHandlers(): void {
           const spawner = yield* ProcessSpawner
           const cloneArgs = ["clone", "--progress"]
           if (options.ref) cloneArgs.push("--branch", options.ref)
-
-          // GitLab wants username `oauth2` with the PAT as the password;
-          // GitHub accepts the default `x-access-token`. Keyed on provider so a
-          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
-          const cloneUsername = cloneProvider === "gitlab" ? "oauth2" : "x-access-token"
-          const effectiveUrl = options.token
-            ? injectTokenIntoUrl(params.url, options.token, cloneUsername)
-            : params.url
-
-          cloneArgs.push(effectiveUrl, paths.absolutePath)
+          cloneArgs.push(params.url, paths.absolutePath)
 
           log.debug("spawning git process...")
           // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
           // not yet in known_hosts fails fast instead of hanging on the
-          // host-key verification prompt.
-          const proc = yield* spawner.spawn("git", cloneArgs, { env: gitSpawnEnv() })
+          // host-key verification prompt. The token goes in the environment,
+          // not the URL, so it is never saved as the checkout's origin URL in
+          // .git/config. The credential username is keyed on provider so a
+          // self-hosted GitLab (non-gitlab.com host) still gets `oauth2`.
+          const env = withGitHttpAuth(
+            gitSpawnEnv(),
+            params.url,
+            options.token,
+            gitCredentialUsername(cloneProvider),
+          )
+          const proc = yield* spawner.spawn("git", cloneArgs, { env })
 
           log.debug("draining output stream...")
           const stderrLines: string[] = []
@@ -407,9 +431,9 @@ export function registerGitHandlers(): void {
             ...(parsed ? { repo_owner: parsed.owner, repo_name: parsed.repo } : {}),
           }
 
-          if (parsed && resolvedToken && cloneProvider === "github") {
+          if (parsed && resolvedToken && cloneProvider === "github" && cloneHost) {
             const repoResult = yield* Effect.either(
-              getRepo(resolvedToken, parsed.owner, parsed.repo),
+              getRepo(resolvedToken, parsed.owner, parsed.repo, cloneHost),
             )
             if (repoResult._tag === "Right") {
               outputs.org_id = String(repoResult.right.ownerId)
@@ -467,9 +491,11 @@ export function registerGitHandlers(): void {
 
         // GitHub numeric IDs, when a token is available — mirrors git:clone.
         if (params.register && info.owner && info.repo && params.provider !== "gitlab") {
+          // Host-bound to the checkout's own remote host.
+          const remoteHost = tryNormalizeGitHubHost(gitHostFromRemoteUrl(info.remoteUrl ?? ""))
           const token = yield* Effect.either(
-            getSessionTokenForProvider(
-              "github",
+            getGitHubSessionCredential(
+              remoteHost,
               () =>
                 new GitError({
                   command: "resolve git token",
@@ -480,7 +506,7 @@ export function registerGitHandlers(): void {
           )
           if (token._tag === "Right") {
             const repoResult = yield* Effect.either(
-              getRepo(token.right, info.owner, info.repo),
+              getRepo(token.right.token, info.owner, info.repo, token.right.host),
             )
             if (repoResult._tag === "Right") {
               outputs.org_id = String(repoResult.right.ownerId)
@@ -544,19 +570,27 @@ export function registerGitHandlers(): void {
         // linked auth block), so a GitLab push uses the GitLab token and a
         // GitHub push the GitHub token — never inferred from the remote host,
         // which would break self-hosted instances. Defaults to github for older
-        // callers that don't pass a provider.
+        // callers that don't pass a provider. A GitHub token is also bound to
+        // origin's host (resolveGitHubTokenForRepo).
         const provider = params.provider ?? "github"
-        const token = yield* getSessionTokenForProvider(
-          provider,
-          () =>
-            new GitError({
-              command: "resolve git token",
-              stderr: `No ${provider} token available in session. Authenticate with the matching Git Auth block before pushing.`,
-              exitCode: 1,
-            }),
-        )
+        const token =
+          provider === "github"
+            ? (yield* resolveGitHubTokenForRepo(repoPath, "pushing")).token
+            : yield* getSessionTokenForProvider(
+                provider,
+                () =>
+                  new GitError({
+                    command: "resolve git token",
+                    stderr: `No ${provider} token available in session. Authenticate with the matching Git Auth block before pushing.`,
+                    exitCode: 1,
+                  }),
+              )
 
-        const options: PushOptions = { token, setUpstream: true }
+        const options: PushOptions = {
+          token,
+          username: gitCredentialUsername(provider),
+          setUpstream: true,
+        }
 
         sendLog(`Pushing ${params.branchName} to origin…`)
         yield* gitClient.push(repoPath, "origin", params.branchName, options)
@@ -601,18 +635,24 @@ export function registerGitHandlers(): void {
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
         const provider = params.provider ?? "github"
-        const token = yield* getSessionTokenForProvider(
-          provider,
-          () =>
-            new GitError({
-              command: "resolve git token",
-              stderr: `No ${provider} token available in session. Authenticate with the matching Git Auth block before creating the default branch.`,
-              exitCode: 1,
-            }),
-        )
+        const { token, host } =
+          provider === "github"
+            ? yield* resolveGitHubTokenForRepo(repoPath, "creating the default branch")
+            : {
+                token: yield* getSessionTokenForProvider(
+                  provider,
+                  () =>
+                    new GitError({
+                      command: "resolve git token",
+                      stderr: `No ${provider} token available in session. Authenticate with the matching Git Auth block before creating the default branch.`,
+                      exitCode: 1,
+                    }),
+                ),
+                host: undefined,
+              }
 
         const branch = params.branch.trim() || "main"
-        return yield* seedDefaultBranch(token, { repoPath, branch, provider }, sendLog)
+        return yield* seedDefaultBranch(token, { repoPath, branch, provider, host }, sendLog)
       })
 
       const exit = await runtime.runPromiseExit(program)
@@ -642,10 +682,12 @@ export function registerGitHandlers(): void {
     // event the renderer can act on (e.g. the branch_exists recovery flow).
     const program = Effect.gen(function* () {
       const repoPath = yield* validateSessionPath(params.worktreePath)
-      const token = yield* resolveGitToken()
+      // The token must belong to the repo's origin host, and the PR opens on
+      // that host's API (github.com, GHES, or a ghe.com tenant).
+      const { token, host } = yield* resolveGitHubTokenForRepo(repoPath, "creating a pull request")
       // sendLog is threaded in as the progress sink so each line is emitted
       // when its step actually runs, not all at once before the work starts.
-      return yield* createPullRequest(token, buildPrParams(params, repoPath), sendLog)
+      return yield* createPullRequest(token, { ...buildPrParams(params, repoPath), host }, sendLog)
     })
 
     return respondToGitPrExit(event, await runtime.runPromiseExit(program), params.headBranch)
@@ -698,8 +740,8 @@ export function registerGitHandlers(): void {
     async (_event, params: { worktreePath: string; branch: string }) => {
       return runAndUnwrap(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
-          return yield* deleteBranch(params.worktreePath, params.branch)
+          const repoPath = yield* validateSessionPath(params.worktreePath)
+          return yield* deleteBranch(repoPath, params.branch)
         }),
       )
     },

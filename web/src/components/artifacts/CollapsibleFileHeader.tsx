@@ -35,7 +35,13 @@ export function CollapsibleFileHeader({
       className="w-full flex items-center gap-2 px-3 py-2 bg-muted hover:bg-accent text-left cursor-pointer border-b border-border"
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onToggle() }}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return // keys from the nested copy button must not toggle
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault() // stop Space from scrolling the pane
+          onToggle()
+        }
+      }}
     >
       {isCollapsed ? (
         <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />

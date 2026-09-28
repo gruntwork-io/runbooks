@@ -3,6 +3,7 @@ import { AlertTriangle, Bot, ChevronDown, ChevronRight, ExternalLink, Shield } f
 import { Button } from "@/components/ui/button"
 import type { GitUserInfo, GitDetectionSource, GitSuccessMeta, GitTokenType } from "../types"
 import type { ProviderConfig } from "../providers"
+import { githubTokenSettingsUrl } from "@/components/mdx/_shared/lib/githubHost"
 
 interface AuthSuccessProps {
   userInfo: GitUserInfo
@@ -12,7 +13,7 @@ interface AuthSuccessProps {
   detectedTokenType?: GitTokenType | null
   scopeWarning?: string | null
   sessionEnvWarning?: string | null
-  /** The host authenticated against (GitLab); shown so multi-host users see which instance. */
+  /** The host authenticated against; shown so multi-host users see which instance. */
   host?: string
   /** Provenance for the source line + transport line. */
   successMeta?: GitSuccessMeta | null
@@ -67,10 +68,13 @@ export function AuthSuccess({
   onApplySchannel,
   onReAuthenticate,
 }: AuthSuccessProps) {
-  // For multi-host providers (GitLab), name the instance the token belongs to so
-  // a user logged into several hosts can tell gitlab.com from a self-managed one.
+  // For multi-host providers, name the instance the token belongs to so a user
+  // logged into several hosts can tell gitlab.com from a self-managed one.
+  // GitHub names only an Enterprise host — github.com reads plain "GitHub".
   const authTarget =
-    provider.supportsHostSelection && host ? `${provider.label} (${host})` : provider.label
+    provider.supportsHostSelection && host && (provider.id !== 'github' || host !== provider.defaultHost)
+      ? `${provider.label} (${host})`
+      : provider.label
   const [showPermissions, setShowPermissions] = useState(false)
   // Avatars are hot-linked, so a CSP-blocked host (a self-hosted GitLab
   // instance, or a Gravatar host not in img-src) makes the <img> fire `error`
@@ -324,7 +328,7 @@ export function AuthSuccess({
           <div className="mt-3 pt-3 border-t border-success/30 text-muted-foreground text-xs">
             Fine-grained PATs use repository-specific permissions.{' '}
             <a
-              href="https://github.com/settings/personal-access-tokens"
+              href={githubTokenSettingsUrl(host ?? 'github.com')}
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary hover:underline inline-flex items-center gap-0.5"

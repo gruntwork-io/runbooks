@@ -425,19 +425,3 @@ describe("GitLabHttpClient — self-hosted base URL", () => {
     expect(urls).toContain("https://gitlab.com/api/v4/user")
   })
 })
-
-describe("GitLabHttpClient.detectTokenType", () => {
-  it("classifies glpat- tokens as pat, others as unknown", async () => {
-    const types = await Effect.runPromise(
-      Effect.gen(function* () {
-        const client = yield* GitLabClient
-        return {
-          pat: client.detectTokenType("glpat-xyz"),
-          unknown: client.detectTokenType("random"),
-        }
-      }).pipe(Effect.provide(GitLabHttpClientLive)),
-    )
-    expect(types.pat).toBe("pat")
-    expect(types.unknown).toBe("unknown")
-  })
-})

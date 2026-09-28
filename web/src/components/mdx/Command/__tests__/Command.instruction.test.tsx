@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { TestWrapper } from '@/test/test-utils'
 import Command from '../Command'
+import { Inputs } from '@/components/mdx/Inputs'
+import { useRunbookContext } from '@/contexts/useRunbook'
+import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 
 // Control the shared execution hook so we drive rawScriptContent + context.
 const baseExecution = {
@@ -13,7 +16,7 @@ const baseExecution = {
   inputDependencies: [] as string[],
   unmetInputDependencies: [],
   hasAllInputDependencies: true,
-  inlineInputsId: null,
+  inlineInputsId: null as string | null,
   outputDependencies: [],
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
@@ -36,8 +39,33 @@ const baseExecution = {
 }
 
 let mockExecution = { ...baseExecution }
-vi.mock('@/components/mdx/_shared/hooks/useScriptExecution', () => ({
-  useScriptExecution: () => mockExecution,
+// With an inline Inputs, templateContext comes from the real RunbookContext (as
+// in the real hook), so values entered in the embedded form reach the command.
+vi.mock('@/components/mdx/_shared/hooks/useScriptExecution', async () => {
+  const { useRunbookContext } = await import('@/contexts/useRunbook')
+  return {
+    useScriptExecution: () => {
+      const { getTemplateContext } = useRunbookContext()
+      return mockExecution.inlineInputsId
+        ? { ...mockExecution, templateContext: getTemplateContext(mockExecution.inlineInputsId) }
+        : mockExecution
+    },
+  }
+})
+
+// Config for the nested <Inputs>: one variable with no default.
+const inputsConfig = {
+  data: {
+    variables: [{ name: 'Env', type: 'string', description: 'Target environment' }],
+    outputDependencies: [],
+  } as BoilerplateConfig,
+  isLoading: false,
+  error: null,
+  refetch: vi.fn(),
+  silentRefetch: vi.fn(),
+}
+vi.mock('@/hooks/useApiGetBoilerplateConfig', () => ({
+  useApiGetBoilerplateConfig: () => inputsConfig,
 }))
 
 vi.mock('@/contexts/useLogs', () => ({
@@ -91,6 +119,75 @@ describe('Command — instruction mode', () => {
     await waitFor(() =>
       expect(screen.getByText('echo 123456789012')).toBeInTheDocument(),
     )
+  })
+
+  it('renders a nested Inputs form and resolves the command from what the user enters', async () => {
+    mockExecution.rawScriptContent = 'deploy --env {{ .inputs.Env }}'
+    mockExecution.inputDependencies = ['Env']
+    mockExecution.inlineInputsId = 'deploy-inputs'
+    render(
+      <TestWrapper>
+        <Command id="test-cmd" command="deploy --env {{ .inputs.Env }}">
+          <Inputs id="deploy-inputs" path="boilerplate.yml" />
+        </Command>
+      </TestWrapper>,
+    )
+
+    const block = screen.getByTestId('instruction-test-cmd')
+    const field = within(block).getByTestId('field-Env').querySelector('input')!
+    // Not filled in yet: the command shows a placeholder, not a raw template.
+    await waitFor(() =>
+      expect(within(block).getByText('deploy --env <Env>')).toBeInTheDocument(),
+    )
+
+    fireEvent.change(field, { target: { value: 'prod' } })
+    await waitFor(() =>
+      expect(within(block).getByText('deploy --env prod')).toBeInTheDocument(),
+    )
+    expect(block.textContent).not.toContain('{{')
+  })
+
+  it('keeps what the user typed in a nested Inputs when instruction mode is toggled', async () => {
+    // The nested Inputs remounts when the block switches layouts; it must pick
+    // up the registered values rather than re-registering its config defaults.
+    mockEnabled = false
+    mockExecution.rawScriptContent = 'deploy --env {{ .inputs.Env }}'
+    mockExecution.inputDependencies = ['Env']
+    mockExecution.inlineInputsId = 'deploy-inputs'
+    function RegisteredEnv() {
+      const { blockInputs } = useRunbookContext()
+      return <div data-testid="registered-env">{String(blockInputs['deploy-inputs']?.values.Env)}</div>
+    }
+    const tree = () => (
+      <TestWrapper>
+        <Command id="test-cmd" command="deploy --env {{ .inputs.Env }}">
+          <Inputs id="deploy-inputs" path="boilerplate.yml" />
+        </Command>
+        <RegisteredEnv />
+      </TestWrapper>
+    )
+    const envField = () => screen.getByTestId('field-Env').querySelector('input')!
+
+    const { rerender } = render(tree())
+    fireEvent.change(envField(), { target: { value: 'prod' } })
+    await waitFor(() => expect(screen.getByTestId('registered-env')).toHaveTextContent('prod'))
+
+    // Interactive → instruction: the form and the command keep 'prod'.
+    mockEnabled = true
+    rerender(tree())
+    const block = screen.getByTestId('instruction-test-cmd')
+    await waitFor(() =>
+      expect(within(block).getByText('deploy --env prod')).toBeInTheDocument(),
+    )
+    expect(envField()).toHaveValue('prod')
+    expect(screen.getByTestId('registered-env')).toHaveTextContent('prod')
+
+    // Instruction → interactive: still 'prod'.
+    mockEnabled = false
+    rerender(tree())
+    await waitFor(() => expect(screen.queryByTestId('instruction-test-cmd')).toBeNull())
+    expect(envField()).toHaveValue('prod')
+    expect(screen.getByTestId('registered-env')).toHaveTextContent('prod')
   })
 
   it('renders the interactive Run button when the flag is off', () => {

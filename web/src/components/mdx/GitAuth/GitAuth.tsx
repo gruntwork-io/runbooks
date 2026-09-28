@@ -27,6 +27,7 @@ import { OAuthFlow } from "./components/OAuthFlow"
 import { AutoAuthInfo } from "./components/AutoAuthInfo"
 import { CustomOAuthWarning } from "./components/CustomOAuthWarning"
 import { TlsErrorCard } from "./components/TlsErrorCard"
+import { tryNormalizeGitHubHost } from "@/components/mdx/_shared/lib/githubHost"
 
 type GitAuthInternalProps = GitAuthProps & { __registryType?: BlockComponentType }
 
@@ -55,6 +56,16 @@ function GitAuthInteractive({
     return null
   }, [id, __registryType])
 
+  // An authored GitHub `host` that can't be parsed is a configuration error:
+  // nothing is sent anywhere (never silently to github.com).
+  const hostConfigError = useMemo((): AppError | null => {
+    if (initialProvider !== 'github' || host === undefined || tryNormalizeGitHubHost(host)) return null
+    return {
+      message: `The <${__registryType}> component has an invalid 'host' prop: ${JSON.stringify(host)}.`,
+      details: "Set 'host' to a GitHub host such as \"github.example.com\" or \"acme.ghe.com\", or remove it.",
+    }
+  }, [initialProvider, host, __registryType])
+
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
   const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
@@ -79,15 +90,17 @@ function GitAuthInteractive({
   // Per-provider OAuth scopes (GitHub only).
   const effectiveOAuthScopes = oauthScopes ?? providerConfig.defaultOAuthScopes
 
-  // All auth state and handlers from custom hook
+  // All auth state and handlers from custom hook. The authored `host` pins
+  // the authored provider only — switching to the other provider in the
+  // picker falls back to that provider's own host selection.
   const auth = useGitAuth({
     id,
     provider: providerConfig,
     instanceUrl,
     oauthClientId: useDefaultOAuth ? undefined : oauthClientId,
     oauthScopes: effectiveOAuthScopes,
-    detectCredentials,
-    host,
+    detectCredentials: hostConfigError ? false : detectCredentials,
+    host: provider === initialProvider ? host : undefined,
     defaultTab,
   })
 
@@ -132,14 +145,21 @@ function GitAuthInteractive({
         severity: 'error',
         message: `Duplicate component ID: ${id}`
       })
+    } else if (hostConfigError) {
+      reportError({
+        componentId: id,
+        componentType: __registryType,
+        severity: 'error',
+        message: hostConfigError.message
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, reportError, clearError, __registryType])
+  }, [id, isDuplicate, hostConfigError, reportError, clearError, __registryType])
 
-  // Early return for validation errors (e.g. missing id prop)
-  if (validationError) {
-    return <ErrorDisplay error={validationError} />
+  // Early return for validation errors (e.g. missing id prop, invalid host)
+  if (validationError || hostConfigError) {
+    return <ErrorDisplay error={(validationError ?? hostConfigError)!} />
   }
 
   // Early return for duplicate ID
@@ -199,14 +219,19 @@ function GitAuthInteractive({
             <ProviderSelect provider={provider} onSelect={handleSelectProvider} />
           )}
 
-          {/* GitLab host picker + config reload. Auto-detection lands on glab's
+          {/* Host picker + config reload. Auto-detection lands on the CLI's
               default host first, so the switcher stays visible after
               authenticating whenever more than one host is available — that's
-              how the user moves from gitlab.com to a self-managed instance. */}
+              how the user moves from gitlab.com to a self-managed instance
+              (or github.com to GitHub Enterprise). GitLab also shows it with a
+              single host, for the "Other instance…" row; GitHub only when
+              there is a choice, so github.com-only users see no picker. */}
           {auth.hostSelectable &&
-            ((auth.availableHosts?.length ?? 0) > 1 || auth.authStatus !== 'authenticated') && (
+            ((auth.availableHosts?.length ?? 0) > 1 ||
+              (providerConfig.supportsManualInstance && auth.authStatus !== 'authenticated')) && (
             <HostSelect
               id={id}
+              provider={providerConfig}
               hosts={auth.availableHosts}
               value={auth.selectedHost}
               onChange={auth.handleHostSelect}
@@ -308,7 +333,7 @@ function GitAuthInteractive({
               {/* Custom OAuth Warning */}
               {showCustomOAuthWarning && (
                 <CustomOAuthWarning
-                  clientId={oauthClientId!}
+                  clientId={auth.effectiveClientId!}
                   onUseDefault={() => setUseDefaultOAuth(true)}
                   onContinue={() => setCustomOAuthDismissed(true)}
                 />
@@ -346,6 +371,7 @@ function GitAuthInteractive({
                     setShowPatToken={auth.setShowPatToken}
                     onSubmit={auth.handlePatSubmit}
                     provider={providerConfig}
+                    host={auth.selectedHost}
                     instanceUrl={auth.gitlabInstanceUrl}
                     setInstanceUrl={auth.setGitlabInstanceUrl}
                   />
