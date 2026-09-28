@@ -17,7 +17,11 @@ import {
 } from "../../../src/domain/boilerplate/writeInlineRenderedFiles.ts"
 import { BoilerplateRenderer } from "../../../src/services/BoilerplateRenderer.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
-import { WarmRenderDispatcher, type WarmRenderResult } from "../../../src/services/WarmRenderDispatcher.ts"
+import {
+  WarmRenderDispatcher,
+  type WarmPerFileError,
+  type WarmRenderResult,
+} from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import {
   buildManifestFromDirectoryWithContent,
@@ -121,6 +125,31 @@ const resolveRenderOutputDir = (target: RenderRequest["target"], outputPath?: st
     }
     return (yield* resolveGeneratedDir(outputPath)).absolutePath
   })
+
+/** How many files' template errors a failed warm render's message lists. */
+const MAX_LISTED_RENDER_ERRORS = 5
+
+/**
+ * One file's warm template error as `path:line:col: message`. The WASM bridge
+ * prefixes the kind ("render: "), and Go's text/template names the file by its
+ * base name ('template: vars.tf:1:17: executing "vars.tf" at <...>: ...'), so
+ * both are dropped and the file is named once, by its path. A message in any
+ * other shape is kept whole after the path.
+ */
+const describeRenderError = ({ path: filePath, message }: WarmPerFileError): string => {
+  const text = message.startsWith("render: ") ? message.slice("render: ".length) : message
+  const namePrefix = `template: ${filePath.slice(filePath.lastIndexOf("/") + 1)}:`
+  if (!text.startsWith(namePrefix)) return `${filePath}: ${text}`
+  const location = text.slice(namePrefix.length).replace(/^(\d+(?::\d+)?): executing "[^"]*" at /, "$1: at ")
+  return `${filePath}:${location}`
+}
+
+/** The first MAX_LISTED_RENDER_ERRORS files' errors, then how many more failed. */
+const describeRenderErrors = (errors: ReadonlyArray<WarmPerFileError>): string => {
+  const listed = errors.slice(0, MAX_LISTED_RENDER_ERRORS).map(describeRenderError).join("; ")
+  const more = errors.length - MAX_LISTED_RENDER_ERRORS
+  return more > 0 ? `${listed} (and ${more} more)` : listed
+}
 
 export function registerBoilerplateHandlers(): void {
   ipcMain.handle(
@@ -325,9 +354,7 @@ export function registerBoilerplateHandlers(): void {
           })
           return yield* Effect.fail(
             new RenderError({
-              message: `Template render failed: ${warmResult.renderErrors
-                .map((e) => `${e.path}: ${e.message}`)
-                .join("; ")}`,
+              message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
             }),
           )
         }
