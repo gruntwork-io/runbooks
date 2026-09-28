@@ -9,7 +9,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useApi } from '@/contexts/ApiContext'
-import { cleanIpcErrorMessage } from '@/hooks/useIpc'
+import { cleanIpcErrorMessage } from '@/lib/ipcError'
 
 interface OpenUrlModalProps {
   open: boolean
