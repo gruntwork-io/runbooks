@@ -143,4 +143,40 @@ variables:
     expect(result.content).toBe('');
     expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
   });
+
+  // An author-written wrapper hides MDX's p/ul/li elements from a top-level
+  // check. Without the fence error, the flattened text either fails to parse or
+  // parses as `variables: null`, an empty form with no error.
+  it.each([
+    ['name-only variables', 'variables:\n  - name: AccountName\n  - name: Environment'],
+    ['a variable with a default', 'variables:\n  - name: Environment\n    default: dev'],
+  ])('rejects unfenced YAML inside a wrapper element (%s) with a code-fence configuration error', async (_label, yaml) => {
+    const children = await compileInputsChildren(`<Inputs id="test">
+<div>
+${yaml}
+</div>
+</Inputs>`);
+
+    const result = extractYamlFromChildren(children);
+
+    expect(result.content).toBe('');
+    expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
+  });
+
+  it('extracts fenced YAML inside a wrapper element', async () => {
+    const children = await compileInputsChildren(`<Inputs id="test">
+<div>
+\`\`\`yaml
+variables:
+  - name: Region
+    default: us-east-1
+\`\`\`
+</div>
+</Inputs>`, { pre: CodeBlock });
+
+    const result = extractYamlFromChildren(children);
+
+    expect(result.error).toBeNull();
+    expect(YAML.parse(result.content)).toEqual({ variables: [{ name: 'Region', default: 'us-east-1' }] });
+  });
 });
