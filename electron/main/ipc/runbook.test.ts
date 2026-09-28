@@ -257,6 +257,36 @@ describe("runbook IPC handlers", () => {
           expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
         }, WATCH_TEST_TIMEOUT_MS)
       }
+
+      // Opening A in a new session awaits resolving its path (call 1), reading
+      // it (2), creating its session (3), resetting the warm renders (4) and
+      // building its registry (5). createSession makes the session as soon as
+      // it's called, so the resets' await a newer load can start in is 4.
+      for (const [awaiting, heldCall] of [["reading it", 2], ["resetting its warm renders", 4]] as const) {
+        it(`leaves the runbook opened after it in place (open of A held while ${awaiting})`, async () => {
+          setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+          const runbookA = path.join(dirA, "runbook.mdx")
+
+          const hold = holdRunPromiseCall(heldCall)
+          const openA = getRunbook(dirA)
+          await hold.held
+          const b = await getRunbook(dirB)
+          const registryB = runtimeModule.executableRegistry
+          const opened = sent.length
+          hold.release()
+
+          expect<unknown>(await openA).toEqual({ superseded: true })
+          expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+          expect(sessionManager.getRunbookPath()).toBe(b.path)
+          expect(runtimeModule.executableRegistry).toBe(registryB)
+          expect(registryUpdatesSince(opened)).toBe(0)
+
+          // The watcher stays on B.
+          fs.writeFileSync(runbookA, runbookWith("echo a-after-switch"))
+          await editUntilReloaded(b.path, opened)
+          expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
+        }, WATCH_TEST_TIMEOUT_MS)
+      }
     })
 
     describe("session working dir", () => {
