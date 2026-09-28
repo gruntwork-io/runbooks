@@ -26,6 +26,7 @@ import {
   findStaleManifestReason,
   hashFileContent,
 } from "../../../src/domain/files/manifest.ts"
+import { RenderError } from "../../../src/errors/index.ts"
 import type { FileTreeMeta, ManifestEntry } from "../../../src/types.ts"
 import type {
   RenderRequest,
@@ -311,6 +312,26 @@ export function registerBoilerplateHandlers(): void {
         )
         const dWarm = Date.now() - tWarm
 
+        // Template-execution errors (kind "render", which never routes to
+        // cold: the subprocess would hit the same bug). Fail the render the
+        // way the cold path does when boilerplate exits non-zero: write
+        // nothing, store no manifest and commit no vars baseline, so a retry
+        // with the same values renders again instead of taking the no-change
+        // shortcut below.
+        if (warmResult.renderErrors.length > 0) {
+          console.log("[ipc boilerplate:render] template render errors", {
+            templateId,
+            errors: warmResult.renderErrors,
+          })
+          return yield* Effect.fail(
+            new RenderError({
+              message: `Template render failed: ${warmResult.renderErrors
+                .map((e) => `${e.path}: ${e.message}`)
+                .join("; ")}`,
+            }),
+          )
+        }
+
         const needsCold = warmResult.warmDisabled || warmResult.coldNeeded.length > 0
 
         // Short-circuit when the dirty-set computation found no changes
@@ -490,7 +511,6 @@ export function registerBoilerplateHandlers(): void {
           warmFiles: warmResult.files.length,
           warmColdNeeded: warmResult.coldNeeded.length,
           warmSkipped: warmResult.skipped.length,
-          warmRenderErrors: warmResult.renderErrors.length,
           // Dirty-set sizing — useful for spotting cases where we
           // accidentally render the world (attempted ≈ known) and
           // cases where the savings actually land (attempted << known).
@@ -515,17 +535,6 @@ export function registerBoilerplateHandlers(): void {
             coldMs: dCold,
           })
         }
-        if (warmResult.renderErrors.length > 0) {
-          // Surface template-bug errors via the existing log channel.
-          // The UI doesn't render these inline today (we don't have a
-          // per-file error surface yet), but they're visible in dev for
-          // debugging template authors' mistakes.
-          console.log("[ipc boilerplate:render] template render errors", {
-            templateId,
-            errors: warmResult.renderErrors,
-          })
-        }
-
         return {
           message: `Template rendered to ${outputDir}`,
           outputDir,

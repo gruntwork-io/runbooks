@@ -52,7 +52,8 @@ export interface WarmRenderResult {
   readonly skipped: ReadonlyArray<string>
   /**
    * Per-file errors that don't route to cold — template-execution
-   * failures the user should see. Caller surfaces these inline.
+   * failures the user should see. The caller fails the whole render with
+   * them (writing nothing and not committing), as the cold path does.
    */
   readonly renderErrors: ReadonlyArray<WarmPerFileError>
   /**
