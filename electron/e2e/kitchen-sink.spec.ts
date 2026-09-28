@@ -270,7 +270,7 @@ test.describe("Path Resolution", () => {
     // Script commands should show their script content, not file-read errors
     const cmdSection = page.locator('[data-testid="setup-outputs"]')
     await expect(cmdSection).toBeVisible()
-    const errorBanners = cmdSection.locator(".bg-red-50")
+    const errorBanners = cmdSection.locator(".bg-destructive-muted")
     await expect(errorBanners).toHaveCount(0)
   })
 })
@@ -348,9 +348,20 @@ test.describe("Templates", () => {
   test("template inline blocks show no errors", async () => {
     for (const id of ["simple-inline-tpl", "output-preview", "gen-file-tpl", "combined-tpl"]) {
       const block = page.locator(`[data-testid="${id}"]`)
-      const errorBanner = block.locator(".bg-red-50")
+      const errorBanner = block.locator(".bg-destructive-muted")
       await expect(errorBanner).toHaveCount(0)
     }
+  })
+
+  test("template inline with generateFile writes the rendered file", async () => {
+    // Pins boilerplate:render-inline's write path end to end: the component
+    // tests mock IPC, so only a real run shows the file lands on disk.
+    // The `gen-file-tpl` block writes into the runbook copy's generated-files
+    // dir, which starts empty, so the check can only pass if this run wrote it.
+    const written = path.join(workDir, "kitchen-sink", "generated", "generated.yaml")
+    await expect
+      .poll(() => (fs.existsSync(written) ? fs.readFileSync(written, "utf-8") : ""))
+      .toContain("name: hello world")
   })
 })
 
@@ -375,13 +386,13 @@ test.describe("Auth Blocks", () => {
 
   test("AwsAuth block has no errors", async () => {
     const block = page.locator('[data-testid="aws-auth-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 
   test("GitHubAuth block has no errors", async () => {
     const block = page.locator('[data-testid="gh-auth-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 
@@ -396,7 +407,7 @@ test.describe("Auth Blocks", () => {
     // detectCredentials={false} in the runbook, so the block renders its manual
     // auth tabs immediately with no IPC round-trip on mount.
     const block = page.locator('[data-testid="google-auth-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })
@@ -416,7 +427,7 @@ test.describe("GitClone Block", () => {
 
   test("has no errors", async () => {
     const block = page.locator('[data-testid="clone-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })
@@ -435,7 +446,7 @@ test.describe("GitHubPullRequest Block", () => {
 
   test("has no errors", async () => {
     const block = page.locator('[data-testid="pr-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })
@@ -454,7 +465,7 @@ test.describe("DirPicker Block", () => {
 
   test("has no errors", async () => {
     const block = page.locator('[data-testid="dir-picker-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })

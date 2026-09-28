@@ -241,7 +241,14 @@ export function useScriptExecution({
   const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
     // Update the file tree with the new tree from the backend
     // The fileTree is already validated by Zod in useApiExec
-    updateGeneratedFileTree({ fileTree: event.fileTree })
+    if (event.fileTree) {
+      updateGeneratedFileTree({
+        fileTree: event.fileTree,
+        truncatedTree: event.truncatedTree,
+        totalFiles: event.totalFiles,
+        heavyDirs: event.heavyDirs,
+      })
+    }
     // Trigger immediate changelog refresh so changes appear without waiting for next poll
     invalidateGitFileTree()
   }, [updateGeneratedFileTree, invalidateGitFileTree])
