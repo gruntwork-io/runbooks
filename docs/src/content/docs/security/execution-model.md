@@ -96,7 +96,7 @@ runbooks open --watch path/to/runbook.mdx
 runbooks open --watch --disable-live-file-reload path/to/runbook.mdx
 ```
 
-`--disable-live-file-reload` keeps the registry built when the runbook was first opened. Watch mode still reloads what the app shows, but Runbooks keeps executing the scripts that were present at open, and blocks whose script has changed show a "Script changed" warning. Opening a different runbook builds its registry as usual.
+`--disable-live-file-reload` keeps the registry built when the runbook was opened in this app session. Watch mode still reloads what the app shows, but Runbooks keeps executing the scripts that were present at open, and blocks whose script has changed show a "Script changed" warning. Opening a different runbook builds its registry as usual, and coming back to this one rebuilds its registry.
 
 ## How Scripts Are Executed
 

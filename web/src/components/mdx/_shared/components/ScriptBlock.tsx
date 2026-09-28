@@ -363,7 +363,7 @@ export function ScriptBlock({
       {/* Script drift warning - mr-12 leaves room for the ID label */}
       {hasScriptDrift && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
-          <p>This script has changed since the runbook was loaded. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was last opened or reloaded, or, if Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, when it was first opened.</p>
+          <p>This script has changed since the runbook was loaded. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was last opened or reloaded, or, if Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, when it was opened in this app session (opening another runbook and coming back rebuilds it).</p>
           <p>To execute the latest version, close and reopen the runbook (in watch mode, saving <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also reloads it). If Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, quit and restart the app instead. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
         </Admonition>
       )}

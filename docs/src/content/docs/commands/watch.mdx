@@ -11,7 +11,7 @@ Watch mode monitors a `runbook.mdx` file for changes and automatically reloads t
 This feature is intended for **authors** of runbooks.
 
 <Aside type="caution">
-Each reload rebuilds the [executable registry](/security/execution-model/#executable-registry) from the files on disk, so after a reload the app executes the current version of your commands and scripts. Pass `--disable-live-file-reload` to keep executing the versions that were present when the runbook was first opened.
+Each reload rebuilds the [executable registry](/security/execution-model/#executable-registry) from the files on disk, so after a reload the app executes the current version of your commands and scripts. Pass `--disable-live-file-reload` to keep executing the versions that were present when the runbook was opened in this app session (opening another runbook and coming back rebuilds the registry).
 
 Only changes to `runbook.mdx` itself trigger a reload. After you change a script that a `<Command>` or `<Check>` block runs from a file, save `runbook.mdx`, even unchanged: the reload rebuilds the registry and those blocks re-read their scripts, so each block shows the script it will execute. With `--disable-live-file-reload`, an unchanged save keeps the registry, and the blocks keep showing the scripts it will execute. After you change a template or another file the runbook uses, change something in `runbook.mdx`, or close and reopen the runbook, to load it.
 </Aside>
@@ -38,7 +38,7 @@ When watching a remote runbook, file watching operates on the local downloaded c
 
 ## Flags
 
-- `--disable-live-file-reload` - Keep the executable registry that was built when the runbook was first opened. Reloads still update what the app shows, but Runbooks keeps executing the original commands and scripts, and blocks whose script has changed show a "Script changed" warning.
+- `--disable-live-file-reload` - Keep the executable registry that was built when the runbook was opened in this app session. Opening another runbook and coming back rebuilds it. Reloads still update what the app shows, but Runbooks keeps executing the original commands and scripts, and blocks whose script has changed show a "Script changed" warning.
 
 ## What it does
 
