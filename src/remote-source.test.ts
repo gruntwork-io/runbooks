@@ -452,6 +452,19 @@ describe("parseRemoteSource", () => {
       expect(parseError("-u@host:repo")).toContain("unsupported URL format")
       expect(parseError("git::-u@host:repo")).toContain("unsupported URL format")
     })
+
+    it.each([
+      withUserinfo("https", `user:${PASSWORD}`, "bitbucket.org/owner/repo"),
+      withUserinfo("https", `user:${PASSWORD}`, "gitlab.com/group/project/-/raw/main/x"),
+      withUserinfo("git::https", `user:${PASSWORD}`, "git.example.com/"),
+      withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/"),
+    ])("keeps credentials out of the error's url field: %s", (input) => {
+      // The url field ends up in logs, like the message.
+      const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
+      if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
+      expect(result.left.url).not.toContain(PASSWORD)
+      expect(result.left.url).toBe(redactSourceCredentials(input))
+    })
   })
 })
 

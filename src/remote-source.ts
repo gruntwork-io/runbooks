@@ -126,7 +126,8 @@ class InvalidSource extends Error {}
 /**
  * Parse a remote runbook source (any syntax in the module comment) into the
  * repo to clone, the ref, and the path inside it. Fails with a
- * RemoteSourceError whose message is fit to show the user.
+ * RemoteSourceError whose message is fit to show the user and whose url is
+ * the source without any credentials typed into it.
  */
 export const parseRemoteSource = (
   raw: string,
@@ -136,7 +137,7 @@ export const parseRemoteSource = (
     try: () => parse(raw.trim(), opts),
     catch: (err) =>
       new RemoteSourceError({
-        url: raw,
+        url: redactSourceCredentials(raw),
         message: err instanceof InvalidSource ? err.message : UNSUPPORTED,
       }),
   })
