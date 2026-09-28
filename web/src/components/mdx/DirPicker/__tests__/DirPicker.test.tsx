@@ -46,8 +46,9 @@ function makeApi(pending: Record<string, Promise<DirsResult>> = {}) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(r => { resolve = r })
-  return { promise, resolve }
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
 }
 
 /** Prints the `dp` block's registered output values so tests can read them. */
@@ -257,6 +258,22 @@ describe('DirPicker — cascading dropdowns', () => {
     expect(selects()).toHaveLength(2)
     expect(optionValues(selects()[1])).toEqual(['sandbox'])
   })
+
+  it('shows no error for a failed fetch for a selection the user has since changed', async () => {
+    const prodFetch = deferred<DirsResult>()
+    await renderPicker({}, makeApi({ '/root/prod': prodFetch.promise }).api)
+
+    await select(0, 'prod')
+    await select(0, 'dev')
+    await waitFor(() => expect(selects()).toHaveLength(2))
+
+    await act(async () => {
+      prodFetch.reject(new Error('cannot list /root/prod'))
+    })
+
+    expect(screen.queryByText('cannot list /root/prod')).toBeNull()
+    expect(optionValues(selects()[1])).toEqual(['sandbox'])
+  })
 })
 
 describe('DirPicker — PATH output', () => {
@@ -450,6 +467,35 @@ describe('DirPicker — GitClone root changes', () => {
 
     expect(selects()).toHaveLength(1)
     expect(optionValues(selects()[0])).toEqual(['alpha'])
+  })
+
+  it('shows no error for a root listing that fails after clone_path changed', async () => {
+    const rootFetch = deferred<DirsResult>()
+    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root': rootFetch.promise }).api)
+
+    setClonePath('/root2')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+
+    await act(async () => {
+      rootFetch.reject(new Error('cannot list /root'))
+    })
+
+    expect(screen.queryByText('cannot list /root')).toBeNull()
+    expect(optionValues(selects()[0])).toEqual(['alpha'])
+  })
+
+  it('clears a root listing error when clone_path is withdrawn', async () => {
+    const rootFetch = deferred<DirsResult>()
+    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root': rootFetch.promise }).api)
+    await act(async () => {
+      rootFetch.reject(new Error('cannot list /root'))
+    })
+    expect(screen.getByText('cannot list /root')).toBeDefined()
+
+    setClonePath(null)
+
+    expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
+    expect(screen.queryByText('cannot list /root')).toBeNull()
   })
 
   it('discards a subdirectory listing that resolves after clone_path changed', async () => {

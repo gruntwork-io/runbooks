@@ -12,6 +12,12 @@ interface UseDirPickerOptions {
   maxLevels?: number
 }
 
+/** Result of listing one directory: its subdirectories, or why it failed. */
+interface DirsListing {
+  dirs: string[]
+  error: string | null
+}
+
 interface DirLevel {
   /** Absolute path of this directory level. */
   path: string
@@ -49,15 +55,16 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   // Whether the root directory is available (immediately if rootDir is set, otherwise when GitClone completes)
   const isWorkspaceReady = !!rootDir || !gitCloneId || rootPath !== null
 
-  // Fetch subdirectories for a given absolute path
-  const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
-    if (!sessionReady) return []
+  // Fetch subdirectories for a given absolute path. A failure comes back as
+  // `error` rather than being shown here: the caller shows it only if the
+  // listing is still current.
+  const fetchDirs = useCallback(async (absPath: string): Promise<DirsListing> => {
+    if (!sessionReady) return { dirs: [], error: null }
     try {
       const data = await api.invoke('workspace:dirs', { worktreePath: absPath })
-      return data.dirs ?? []
+      return { dirs: data.dirs ?? [], error: null }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch directories')
-      return []
+      return { dirs: [], error: err instanceof Error ? err.message : 'Failed to fetch directories' }
     }
   }, [api, sessionReady])
 
@@ -79,6 +86,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
       if (initializedRootRef.current !== null) {
         initializedRootRef.current = null
         selectVersionRef.current++
+        setError(null)
         setLevels([])
         setManualPath('')
       }
@@ -94,10 +102,11 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     setLevels([])
     setManualPath('')
     const init = async () => {
-      const dirs = await fetchDirs(rootPath)
+      const listing = await fetchDirs(rootPath)
       // Discard if the root changed or went away while we were fetching
       if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
-      setLevels([{ path: rootPath, selected: '', dirs }])
+      if (listing.error) setError(listing.error)
+      setLevels([{ path: rootPath, selected: '', dirs: listing.dirs }])
     }
     init()
   }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
@@ -128,14 +137,15 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     const nextAbsPath = [rootPath, ...previousSelections, dirName].join('/')
 
     // Fetch children and add a new level
-    const childDirs = await fetchDirs(nextAbsPath)
+    const listing = await fetchDirs(nextAbsPath)
     // Discard if a newer selectDir call has been made, or the root changed,
     // while we were fetching
     if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
-    if (childDirs.length > 0) {
+    if (listing.error) setError(listing.error)
+    if (listing.dirs.length > 0) {
       setLevels(prev => [
         ...prev,
-        { path: nextAbsPath, selected: '', dirs: childDirs },
+        { path: nextAbsPath, selected: '', dirs: listing.dirs },
       ])
     }
   }, [rootPath, levels, fetchDirs, maxLevels])
