@@ -1164,13 +1164,18 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
 // ---------------------------------------------------------------------------
 
 describe("TestExecutor — GitClone sparse checkout", () => {
+  const SANDBOX_VARS = ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] as const
+  const savedEnv: Record<string, string | undefined> = {}
   let tmp: string
   let origin: string
 
+  // `env: process.env` because bun's child_process otherwise starts git with
+  // the environment the test process began with, not the sandbox below.
   const git = (cwd: string, ...args: string[]) =>
     execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
       cwd,
       stdio: "pipe",
+      env: process.env,
     })
 
   const runGitClone = async (props: string, expected: ExpectedStatus = "success") => {
@@ -1186,6 +1191,12 @@ describe("TestExecutor — GitClone sparse checkout", () => {
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sparse-"))
+    // git runs with a sandboxed HOME and no global or system config.
+    for (const key of SANDBOX_VARS) savedEnv[key] = process.env[key]
+    fs.mkdirSync(path.join(tmp, "home"))
+    process.env.HOME = path.join(tmp, "home")
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
     // A small monorepo whose `release` branch has a file `main` lacks.
     origin = path.join(tmp, "origin")
     fs.mkdirSync(path.join(origin, "modules", "vpc"), { recursive: true })
@@ -1203,6 +1214,10 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     git(origin, "checkout", "-q", "main")
   })
   afterEach(() => {
+    for (const key of SANDBOX_VARS) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 

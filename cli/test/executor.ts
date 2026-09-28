@@ -154,10 +154,14 @@ function makeStepResult(
   }
 }
 
-/** Whether the repository at `repoDir` has any commits (its HEAD resolves). */
-function hasCommits(repoDir: string): boolean {
+/**
+ * Whether the repository at `repoDir` has any commits (its HEAD resolves).
+ * `env` is the environment the clone's other git commands run with.
+ */
+function hasCommits(repoDir: string, env: NodeJS.ProcessEnv): boolean {
   const proc = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "-q", "HEAD"], {
     stdio: "ignore",
+    env,
   })
   return proc.status === 0
 }
@@ -1495,7 +1499,7 @@ export class TestExecutor {
 
       for (const step of cloneSteps.right) {
         // A repository with no commits has nothing to check out, as in the app.
-        if (step.skipIfNoCommits && !hasCommits(destPath)) continue
+        if (step.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
         // Every step gets the clone's auth: a sparse clone is blobless, so its
         // checkout fetches file contents lazily from origin.
         execFileSync("git", step.args, {

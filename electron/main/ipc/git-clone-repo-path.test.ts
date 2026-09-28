@@ -26,7 +26,10 @@ const { runtime, sessionManager } = await import("./runtime.ts")
 // handler spawns git with) redirects them to local repositories.
 const REMOTE_URL = "https://git.example.com/acme/mono.git"
 const EMPTY_REMOTE_URL = "https://git.example.com/acme/empty.git"
-const GIT_CONFIG_VARS = [
+const SANDBOX_VARS = [
+  "HOME",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
   "GIT_CONFIG_COUNT",
   "GIT_CONFIG_KEY_0",
   "GIT_CONFIG_VALUE_0",
@@ -38,16 +41,27 @@ let tmpDir = ""
 let workDir = ""
 const originalEnv: Record<string, string | undefined> = {}
 
+// `env: process.env` because bun's child_process otherwise starts git with the
+// environment the test process began with, not the sandbox set up below.
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
     cwd,
     stdio: "pipe",
+    env: process.env,
   })
 
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-clone-repo-path-"))
   workDir = path.join(tmpDir, "work")
   fs.mkdirSync(workDir)
+
+  // git runs with a sandboxed HOME and no global or system config.
+  for (const name of SANDBOX_VARS) originalEnv[name] = process.env[name]
+  const home = path.join(tmpDir, "home")
+  fs.mkdirSync(home)
+  process.env.HOME = home
+  process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+  process.env.GIT_CONFIG_SYSTEM = "/dev/null"
 
   // A small monorepo whose `release` branch has a file `main` lacks.
   const origin = path.join(tmpDir, "origin")
@@ -71,7 +85,6 @@ beforeAll(async () => {
   const emptyOrigin = path.join(tmpDir, "empty.git")
   git(tmpDir, "init", "-q", "--bare", "-b", "main", emptyOrigin)
 
-  for (const name of GIT_CONFIG_VARS) originalEnv[name] = process.env[name]
   process.env.GIT_CONFIG_COUNT = "2"
   process.env.GIT_CONFIG_KEY_0 = `url.file://${origin}.insteadOf`
   process.env.GIT_CONFIG_VALUE_0 = REMOTE_URL
@@ -83,7 +96,7 @@ beforeAll(async () => {
 })
 
 afterAll(() => {
-  for (const name of GIT_CONFIG_VARS) {
+  for (const name of SANDBOX_VARS) {
     if (originalEnv[name] === undefined) delete process.env[name]
     else process.env[name] = originalEnv[name]
   }
