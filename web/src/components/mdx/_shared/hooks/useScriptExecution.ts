@@ -223,7 +223,7 @@ export function useScriptExecution({
   timeoutMs,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
-  const { getExecutableByComponentId, useExecutableRegistry: execRegistryEnabled } = useExecutableRegistry()
+  const { getExecutableByComponentId, registryVersion } = useExecutableRegistry()
   
   // Get file tree context for updating when files are captured
   const { updateGeneratedFileTree } = useGeneratedFiles()
@@ -261,7 +261,19 @@ export function useScriptExecution({
   
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
-  const { data: fileData, error: getFileError } = useGetFile(path || '', shouldFetchFile)
+  const { data: fileData, error: getFileError, silentRefetch: rereadFile } = useGetFile(path || '', shouldFetchFile)
+
+  // Re-read the script file whenever the main process rebuilds the registry.
+  // A watch-mode reload rebuilds it even when runbook.mdx was saved unchanged,
+  // which neither recompiles the MDX nor remounts this block, so without this
+  // the block would keep showing (and drift-checking) the script it first read
+  // while Run executes the rebuilt registry's version.
+  const registryVersionRef = useRef(registryVersion)
+  useEffect(() => {
+    if (registryVersionRef.current === registryVersion) return
+    registryVersionRef.current = registryVersion
+    if (shouldFetchFile) rereadFile()
+  }, [registryVersion, shouldFetchFile, rereadFile])
   
   // Determine raw script content: command prop takes precedence over file path
   const rawScriptContent = command || fileData?.content || ''
@@ -292,11 +304,8 @@ export function useScriptExecution({
   }, [command])
   
   // Detect script drift: when the current content differs from what's registered
-  // This applies in registry mode for both file-based scripts AND inline commands
+  // This applies to both file-based scripts AND inline commands
   const hasScriptDrift = useMemo(() => {
-    // No drift detection needed in live reload mode (scripts are always fresh)
-    if (!execRegistryEnabled) return false
-    
     const executable = getExecutableByComponentId(componentId)
     if (!executable?.contentHash) return false
 
@@ -313,7 +322,7 @@ export function useScriptExecution({
     // For file-based scripts, compare file hash against registry hash
     if (!fileData?.contentHash) return false
     return fileData.contentHash !== executable.contentHash
-  }, [execRegistryEnabled, command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
+  }, [command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
   
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
@@ -470,7 +479,7 @@ export function useScriptExecution({
   
   // Files written to $GENERATED_FILES are auto-captured after successful execution:
   // onFilesCaptured updates the file tree, onOutputsCaptured registers outputs.
-  const { state: execState, execute: executeScript, executeByComponentId, cancel: cancelExec } = useApiExec({
+  const { state: execState, execute: executeScript, cancel: cancelExec } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
     onOutputsCaptured: handleOutputsCaptured,
   })
@@ -683,27 +692,23 @@ export function useScriptExecution({
     }
     const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
     
-    if (execRegistryEnabled) {
-      // Registry mode: Look up executable in registry and use executable ID
-      const executable = getExecutableByComponentId(componentId)
-      
-      if (!executable) {
-        // Show error to user instead of silently failing
-        setRegistryError(createAppError(
-          `Executable not found for component "${componentId}"`,
-          'This means that Runbooks attempted to run a script or command that was not defined when Runbooks was first loaded. ' +
-          'Common causes include changing a script before re-loading runbooks, or syntax errors in the command or script path. ' +
-          'Try re-opening your runbook, or check the runbooks server logs for details.'
-        ))
-        return
-      }
-      
-      executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
-    } else {
-      // Live reload mode: Send component ID directly
-      executeByComponentId(componentId, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
+    // Look up the executable in the registry and run it by executable ID
+    const executable = getExecutableByComponentId(componentId)
+
+    if (!executable) {
+      // Show error to user instead of silently failing
+      setRegistryError(createAppError(
+        `Executable not found for component "${componentId}"`,
+        'This means that Runbooks attempted to run a script or command that was not defined when the runbook was loaded. ' +
+        'Common causes include changing a script before reloading the runbook, or syntax errors in the command or script path. ' +
+        'Try closing and reopening your runbook (if Runbooks was started with --disable-live-file-reload, quit and restart the app instead), ' +
+        'or check the runbooks server logs for details.'
+      ))
+      return
     }
-  }, [execRegistryEnabled, executeScript, executeByComponentId, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, gitAuthEnvVars, googleAuthEnvVars, usePty, timeoutMs])
+
+    executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
+  }, [executeScript, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, gitAuthEnvVars, googleAuthEnvVars, usePty, timeoutMs])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {

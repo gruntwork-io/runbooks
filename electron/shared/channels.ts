@@ -19,7 +19,7 @@ export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
     params: { path: string; watchMode?: boolean; remoteSource?: string }
-    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string; useExecutableRegistry?: boolean }
+    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string }
   }
   "runbook:open-remote": {
     params: { url: string }
@@ -690,7 +690,11 @@ export interface IpcEventMap {
   "exec:status": { status: string; exitCode: number }
   "exec:outputs": { outputs: Record<string, string> }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
-  "watch:file-change": { type: "reload" }
+  /**
+   * `path` is the runbook the watcher watches (as runbook:get resolved it), so
+   * after a failed open the renderer reloads that runbook, not the failed one.
+   */
+  "watch:file-change": { type: "reload"; path: string }
   /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
   "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }

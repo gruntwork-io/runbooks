@@ -18,6 +18,7 @@ import {
   setRunbookConfig,
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
+import { startWatcher } from "./watch.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
@@ -54,15 +55,9 @@ export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
     async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
-      // If no path provided, report the current registry mode without loading
-      // a runbook
+      // An empty path would resolve against the app's cwd below.
       if (!params?.path) {
-        return {
-          content: "",
-          contentHash: "",
-          warnings: [],
-          useExecutableRegistry: runbookConfig.useExecutableRegistry,
-        }
+        throw new Error("runbook path is required")
       }
 
       // Reject filesystem roots to prevent overly broad trust anchors
@@ -85,11 +80,12 @@ export function registerRunbookHandlers(): void {
       const config: RunbookConfig = {
         localPath: runbookPath,
         remoteSourceURL: params.remoteSource,
-        isWatchMode: params.watchMode ?? false,
-        useExecutableRegistry: true,
+        // The renderer doesn't send watchMode; keep what --watch set at launch.
+        isWatchMode: params.watchMode ?? runbookConfig.isWatchMode,
         disableLiveFileReload: runbookConfig.disableLiveFileReload,
       }
       setRunbookConfig(config)
+      const isSameRunbook = sessionManager.getRunbookPath() === runbookPath
 
       // The session's working dir is always the runbook's parent directory.
       // realpath'ing keeps macOS /var and /private/var paths aligned with
@@ -114,7 +110,7 @@ export function registerRunbookHandlers(): void {
       // templates resolve to a stale, possibly already-deleted, checkout.
       // Reloading the SAME runbook (watch mode, re-opening the same file)
       // must NOT do this — it would wipe env vars a script exported mid-run.
-      if (sessionManager.getRunbookPath() !== runbookPath) {
+      if (!isSameRunbook) {
         // A runbook with <AwsAuth> starts without the inherited AWS keys, so
         // no script sees them until the user confirms an account. Set on every
         // new session (even to []) so one runbook's list can't carry over.
@@ -132,20 +128,34 @@ export function registerRunbookHandlers(): void {
         // baselines, and the file manifests, so its first render starts clean.
         await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
         manifestStore.clear()
+        // The previous runbook's executables must not stay runnable (or be
+        // kept as this runbook's frozen registry below) if building this
+        // runbook's registry fails.
+        setExecutableRegistry(null)
       } else {
         sessionManager.setWorkingDir(sessionDir)
       }
 
-      // Build the executable registry from the runbook
-      const registry = await runtime.runPromise(
-        ExecutableRegistry.create(runbookPath),
-      )
-      setExecutableRegistry(registry)
+      // Watch mode: reload the renderer when this runbook changes. A no-op if
+      // it's already watched; a watcher on a previous runbook is stopped.
+      if (config.isWatchMode) {
+        startWatcher(runbookPath)
+      }
 
-      // Notify the renderer that the registry has been rebuilt
-      const win = getMainWindow()
-      if (win) {
-        win.webContents.send("registry:updated")
+      // --disable-live-file-reload freezes the registry built when this
+      // runbook was opened: reloading it (watch mode, re-opening the same
+      // file) keeps executing the scripts that were approved then. Otherwise
+      // build the executable registry from the runbook.
+      let registry = isSameRunbook && config.disableLiveFileReload ? executableRegistry : null
+      if (!registry) {
+        registry = await runtime.runPromise(ExecutableRegistry.create(runbookPath))
+        setExecutableRegistry(registry)
+
+        // Notify the renderer that the registry has been rebuilt
+        const win = getMainWindow()
+        if (win) {
+          win.webContents.send("registry:updated")
+        }
       }
 
       const ext = path.extname(runbookPath).replace(/^\./, "")

@@ -205,7 +205,6 @@ export interface GeneratedFilesDeleteResponse {
 
 export interface ExecRequest {
   executableId?: string
-  componentId?: string
   templateVarValues?: Record<string, unknown>
   envVarsOverride?: Record<string, string>
   /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
@@ -300,7 +299,6 @@ export interface RunbookConfig {
   localPath: string
   remoteSourceURL?: string
   isWatchMode: boolean
-  useExecutableRegistry: boolean
   disableLiveFileReload?: boolean
 }
 

@@ -20,6 +20,7 @@ import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { installIpcErrorNormalization } from "./ipc/ipc-error.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
@@ -186,8 +187,9 @@ const cliConfig = parseCliArgs(process.argv, process.cwd(), app.getAppPath())
 // leaving `localPath` as a directory would make `path.dirname` return its
 // *parent*, causing asset 404s on any image request that races ahead of the
 // renderer's `runbook:get` IPC call (which later re-resolves the path).
+let resolvedPath = runbookConfig.localPath
 if (cliConfig.runbookPath) {
-  let resolvedPath = cliConfig.runbookPath
+  resolvedPath = cliConfig.runbookPath
   try {
     if (fs.statSync(resolvedPath).isDirectory()) {
       const candidate = path.join(resolvedPath, "runbook.mdx")
@@ -199,16 +201,15 @@ if (cliConfig.runbookPath) {
     // stat may fail (e.g. path doesn't exist yet); leave as-is and let the
     // renderer's runbook:get call surface the error.
   }
-  setRunbookConfig({
-    ...runbookConfig,
-    localPath: resolvedPath,
-    isWatchMode: cliConfig.watch,
-    disableLiveFileReload: cliConfig.disableLiveFileReload,
-  })
 }
-if (cliConfig.watch) {
-  setRunbookConfig({ ...runbookConfig, isWatchMode: true, disableLiveFileReload: cliConfig.disableLiveFileReload })
-}
+// --watch and --disable-live-file-reload apply to every runbook opened in this
+// app instance: runbook:get carries them over when it rebuilds the config.
+setRunbookConfig({
+  ...runbookConfig,
+  localPath: resolvedPath,
+  isWatchMode: cliConfig.watch,
+  disableLiveFileReload: cliConfig.disableLiveFileReload,
+})
 
 // ---------------------------------------------------------------------------
 // IPC error normalization. Wraps ipcMain.handle so every handler's rejection
@@ -277,7 +278,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
 // Routes through main so it uses the same channel as the native menu item —
 // renderers listen for "menu:close-runbook" regardless of origin.
 ipcMain.handle("native:close-runbook", () => {
-  getMainWindow()?.webContents.send("menu:close-runbook")
+  closeRunbook()
   return { ok: true } as const
 })
 
@@ -435,6 +436,9 @@ app.on("will-quit", (event) => {
 
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
+
+      // Close the watch-mode file watcher (runtime.dispose doesn't reach it)
+      void stopWatcher()
 
       // Dispose the Effect managed runtime to clean up background fibers,
       // file watchers, etc.

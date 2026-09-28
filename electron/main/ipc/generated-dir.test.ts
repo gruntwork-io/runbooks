@@ -78,7 +78,7 @@ describe("generated-files directory", () => {
 
     // Mirror runbook:get: config, a fresh session rooted at the realpath'd
     // runbook directory, and the executable registry.
-    setRunbookConfig({ localPath: runbookPath, isWatchMode: false, useExecutableRegistry: true })
+    setRunbookConfig({ localPath: runbookPath, isWatchMode: false })
     await runtime.runPromise(sessionManager.createSession(runbookDir, runbookPath))
     const registry = await runtime.runPromise(ExecutableRegistry.create(runbookPath))
     setExecutableRegistry(registry)

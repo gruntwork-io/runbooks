@@ -26,6 +26,14 @@ export interface FileChangeEvent {
   readonly path: string
 }
 
+export interface WatchOptions {
+  /**
+   * How many levels of subdirectories to watch below each watched directory.
+   * 0 watches only the directory's own entries. Unset watches the whole tree.
+   */
+  readonly depth?: number
+}
+
 export interface FileSystemShape {
   readonly readFile: (path: string) => Effect.Effect<string, FileNotFoundError | FileReadError>
   readonly readFileBuffer: (path: string) => Effect.Effect<Buffer, FileNotFoundError | FileReadError>
@@ -40,7 +48,7 @@ export interface FileSystemShape {
   readonly mkdtemp: (prefix: string) => Effect.Effect<string, FileWriteError>
   readonly realpath: (path: string) => Effect.Effect<string, FileNotFoundError>
   readonly walk: (dir: string) => Stream.Stream<WalkEntry, FileReadError>
-  readonly watch: (paths: string[]) => Stream.Stream<FileChangeEvent, FileWatchError>
+  readonly watch: (paths: string[], options?: WatchOptions) => Stream.Stream<FileChangeEvent, FileWatchError>
 }
 
 export class FileSystem extends Context.Tag("FileSystem")<FileSystem, FileSystemShape>() {}
