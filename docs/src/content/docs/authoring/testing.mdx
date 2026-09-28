@@ -283,27 +283,29 @@ The `fuzz` object specifies how to generate random values.
 | Field | Type | Applies To | Description |
 |-------|------|------------|-------------|
 | `type` | string | All | Required. The fuzz type (see Fuzz Types below). |
-| `length` | integer | `string` | Exact length of the generated string. |
-| `minLength` | integer | `string`, `list` | Minimum length. Default: 8 for strings, 5 for list items. |
-| `maxLength` | integer | `string`, `list` | Maximum length. Default: `minLength + 10` for strings. |
+| `length` | integer | `string` | Exact length of the generated string, not counting `prefix` and `suffix`. Overrides `minLength`/`maxLength`. `0` gives an empty string. |
+| `minLength` | integer | `string`, `list`, `map` | Minimum length of the string, of each `list` item, or of each `map` value (without `schema`). Default: 8 for strings, 5 for list items and map values, or `maxLength` when only a smaller `maxLength` is set. |
+| `maxLength` | integer | `string`, `list`, `map` | Maximum length. Must be at least `minLength`. Default: `minLength + 10` for strings, `minLength + 7` for list items and map values. |
 | `prefix` | string | `string` | Prefix to prepend to the generated string. |
 | `suffix` | string | `string` | Suffix to append to the generated string. |
 | `includeSpaces` | boolean | `string` | Include space characters. Default: `false`. |
 | `includeSpecialChars` | boolean | `string` | Include special characters. Default: `false`. |
-| `min` | integer | `int`, `float` | Minimum numeric value. Default: 0. |
-| `max` | integer | `int`, `float` | Maximum numeric value. Default: 100. |
+| `min` | number | `int`, `float` | Minimum numeric value. Default: 0, or `max - 100` when only a zero or negative `max` is set. |
+| `max` | number | `int`, `float` | Maximum numeric value. Must be at least `min`; equal to `min` for a fixed value. Default: `min + 100`. For `int`, fractional bounds narrow to the integers between them, and the test case fails if there are none. |
 | `options` | array | `enum` | Array of valid enum options. Required for `enum` type. |
 | `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
 | `minDate` | string | `date`, `timestamp` | Minimum date (supports RFC3339, YYYY-MM-DD). Default: 365 days ago. |
 | `maxDate` | string | `date`, `timestamp` | Maximum date. Default: now. |
-| `format` | string | `date`, `timestamp` | Output format. Default: `2006-01-02` for date, RFC3339 for timestamp. |
-| `wordCount` | integer | `words` | Exact number of words. |
-| `minWordCount` | integer | `words` | Minimum word count. Default: 2. |
-| `maxWordCount` | integer | `words` | Maximum word count. Default: `minWordCount + 3`. |
-| `count` | integer | `list`, `map` | Exact number of items/entries. |
-| `minCount` | integer | `list`, `map` | Minimum items/entries. Default: 2. |
-| `maxCount` | integer | `list`, `map` | Maximum items/entries. Default: `minCount + 3`. |
+| `format` | string | `date`, `timestamp` | Output format as a Go reference layout, evaluated in UTC. Supported tokens: `2006` (year), `01` (month), `02` (day), `15` (hour), `04` (minute), `05` (second), and the zones `Z07:00` and `Z0700` (written as `Z`), `-07:00` (`+00:00`), `-0700` (`+0000`) and `MST` (`UTC`). Other text is copied as is. Default: `2006-01-02` for date, RFC3339 for timestamp. |
+| `wordCount` | integer | `words` | Exact number of words. Overrides `minWordCount`/`maxWordCount`. `0` gives an empty string. |
+| `minWordCount` | integer | `words` | Minimum word count. Default: 2, or `maxWordCount` when only a smaller `maxWordCount` is set. |
+| `maxWordCount` | integer | `words` | Maximum word count. Must be at least `minWordCount`. Default: `minWordCount + 3`. |
+| `count` | integer | `list`, `map` | Exact number of items/entries. Overrides `minCount`/`maxCount`. `0` gives an empty list or map. |
+| `minCount` | integer | `list`, `map` | Minimum items/entries. Default: 2, or `maxCount` when only a smaller `maxCount` is set. |
+| `maxCount` | integer | `list`, `map` | Maximum items/entries. Must be at least `minCount`. Default: `minCount + 3` for lists, `minCount + 2` for maps. |
 | `schema` | array | `map` | Field names for nested map values (generates `map[string]map[string]string`). |
+
+A maximum below its minimum fails the test case with an error such as `fuzz string: maxLength (3) is less than minLength (5)`. Setting a minimum and maximum to the same value gives exactly that value. A field left empty (`max:` or `max: ~`) counts as unset.
 
 ### Fuzz Types
 
