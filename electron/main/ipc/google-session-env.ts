@@ -15,17 +15,20 @@
  * CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE is ever cleared. So keys the new owner
  * lacks survive from the previous one: GOOGLE_OAUTH_ACCESS_TOKEN and
  * CLOUDSDK_AUTH_ACCESS_TOKEN from an access-token block, CLOUDSDK_ACTIVE_CONFIG_NAME
- * from a gcloud-tab block, and region/zone. The OpenTofu `google` provider
- * prefers GOOGLE_OAUTH_ACCESS_TOKEN over GOOGLE_APPLICATION_CREDENTIALS, so a
- * file-backed block that follows an access-token block still shares the
- * session with that token. The reverse holds too: under an access-token owner,
- * GOOGLE_APPLICATION_CREDENTIALS still names the file-backed credential before
- * it (another block's, or the same block's earlier one, which
- * ./google-credential-registry.ts keeps on disk for that reason), and Google
- * client libraries reading ADC use that file. A `googleAuthId` step does not
- * close any of this: it overlays the block's published outputs on the session
- * env, and those carry none of these keys, nor a blank region, zone or
- * GOOGLE_APPLICATION_CREDENTIALS.
+ * from a gcloud-tab block, region/zone, and GOOGLE_CLOUD_PROJECT,
+ * CLOUDSDK_CORE_PROJECT and GOOGLE_PROJECT when the new owner authenticated
+ * with no project (a Sign-In with no `project` prop and no listable project,
+ * say), so bare commands run against the previous block's project. The
+ * OpenTofu `google` provider prefers GOOGLE_OAUTH_ACCESS_TOKEN over
+ * GOOGLE_APPLICATION_CREDENTIALS, so a file-backed block that follows an
+ * access-token block still shares the session with that token. The reverse
+ * holds too: under an access-token owner, GOOGLE_APPLICATION_CREDENTIALS still
+ * names the file-backed credential before it (another block's, or the same
+ * block's earlier one, which ./google-credential-registry.ts keeps on disk for
+ * that reason), and Google client libraries reading ADC use that file. A
+ * `googleAuthId` step does not close any of this: it overlays the block's
+ * published outputs on the session env, and those carry none of these keys,
+ * nor a blank project, region, zone or GOOGLE_APPLICATION_CREDENTIALS.
  */
 import { activeCredentialFor, type ActiveGoogleCredential } from "./google-credential-registry.ts"
 
