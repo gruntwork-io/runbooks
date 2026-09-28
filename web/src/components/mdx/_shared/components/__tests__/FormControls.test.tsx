@@ -41,6 +41,52 @@ describe('FormControls selects match form state', () => {
     expect(screen.getByRole('option', { name: 'staging' })).toBeInTheDocument()
   })
 
+  it('selects a listed numeric enum option instead of an unlisted duplicate', () => {
+    // parseBoilerplateConfig passes enum options through as YAML parsed them,
+    // so `options: [1.28, 1.29]` arrives as numbers.
+    const variable: BoilerplateVariable = {
+      name: 'Version', type: 'enum', description: '', options: [1.28, 1.29] as unknown as string[],
+    }
+    const onChange = vi.fn()
+    const { rerender } = render(<FormControl id="f" variable={variable} value={1.29} onChange={onChange} />)
+
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    const optionLabels = () => Array.from(select.options).map(o => o.text)
+    expect(select.value).toBe('1.29')
+    expect(optionLabels()).toEqual(['1.28', '1.29'])
+    expect(select.selectedOptions[0].disabled).toBe(false)
+
+    fireEvent.change(select, { target: { value: '1.28' } })
+    expect(onChange).toHaveBeenCalledWith('1.28')
+    // The picked value comes back as a string
+    rerender(<FormControl id="f" variable={variable} value="1.28" onChange={onChange} />)
+    expect(select.value).toBe('1.28')
+    expect(optionLabels()).toEqual(['1.28', '1.29'])
+    expect(select.selectedOptions[0].disabled).toBe(false)
+  })
+
+  it("keeps a real '' enum option selectable instead of showing the placeholder again", () => {
+    const variable: BoilerplateVariable = {
+      name: 'LogLevel', type: 'enum', description: '', options: ['', 'DEBUG'],
+    }
+    const onChange = vi.fn()
+    const { rerender } = render(<FormControl id="f" variable={variable} value={undefined} onChange={onChange} />)
+
+    // No value yet: the placeholder is shown, not the blank option
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.selectedOptions[0].text).toBe('Select…')
+
+    fireEvent.change(select, { target: { value: '' } })
+    expect(onChange).toHaveBeenCalledWith('')
+
+    // Once '' is the value, the real blank option is the selected one
+    rerender(<FormControl id="f" variable={variable} value="" onChange={onChange} />)
+    expect(screen.queryByRole('option', { name: 'Select…' })).toBeNull()
+    expect(Array.from(select.options).map(o => o.value)).toEqual(['', 'DEBUG'])
+    expect(select.value).toBe('')
+    expect(select.selectedOptions[0].disabled).toBe(false)
+  })
+
   it("saves an untouched bool field of a map entry as 'false'", () => {
     const variable: BoilerplateVariable = {
       name: 'Users', type: 'map', description: '', schema: { email: 'string', admin: 'bool' },

@@ -179,13 +179,18 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
  * The display always matches form state instead of letting the browser fall
  * back to the first option:
  *   - With no value (an enum with no default), a disabled placeholder is shown,
- *     so picking any option, including the first, fires onChange.
+ *     so picking any option, including the first, fires onChange. A '' value
+ *     also shows it, unless '' is one of the options: then that option is shown.
  *   - A value that is not one of the options (e.g. imported from an upstream
  *     string field) is shown as its own disabled option.
+ * Options and value are compared as strings: YAML can make options numbers or
+ * booleans, while a picked value is always the option's string.
  */
 export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const current = value == null ? '' : String(value)
-  const isUnlistedValue = current !== '' && !variable.options?.includes(current)
+  const options = (variable.options ?? []).map(String)
+  const showPlaceholder = current === '' && (value == null || !options.includes(''))
+  const isUnlistedValue = current !== '' && !options.includes(current)
   return (
     <select
       id={`${id}-${variable.name}`}
@@ -195,7 +200,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
       disabled={disabled}
       className={getInputClassName(error, 'min-w-56', disabled)}
     >
-      {current === '' && (
+      {showPlaceholder && (
         <option value="" disabled>
           Select…
         </option>
@@ -205,7 +210,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
           {current}
         </option>
       )}
-      {variable.options?.map(option => (
+      {options.map(option => (
         <option key={option} value={option}>
           {option}
         </option>
