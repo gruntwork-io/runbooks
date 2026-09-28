@@ -610,11 +610,16 @@ const getSingleFileDiff = (
 
 /**
  * One path's worktree-vs-HEAD diff entry, or undefined when git has none.
+ * `matchesHead` is true when there is none because a whole-worktree diff that
+ * succeeded left the path out, so its worktree content is HEAD's. A per-path
+ * diff never sets it: it has no entry when it fails, too.
  * Best-effort, like the file reads in populateDiffContent: a git failure
  * leaves the entry without an original or line counts instead of failing a
  * batch polled every 3s.
  */
-type DiffLookup = (filePath: string) => Effect.Effect<DiffEntry | undefined, never, GitClient>
+type DiffLookup = (
+  filePath: string,
+) => Effect.Effect<{ readonly entry?: DiffEntry; readonly matchesHead: boolean }, never, GitClient>
 
 /** Diff each path on its own. */
 const pathDiffLookup =
@@ -625,7 +630,7 @@ const pathDiffLookup =
       const entries = yield* git.diff(worktreePath, filePath).pipe(
         Effect.orElseSucceed((): DiffEntry[] => []),
       )
-      return entries.find((e) => e.path === filePath)
+      return { entry: entries.find((e) => e.path === filePath), matchesHead: false }
     })
 
 /**
@@ -648,7 +653,9 @@ const batchDiffLookup = (worktreePath: string): Effect.Effect<DiffLookup> =>
     const perPath = pathDiffLookup(worktreePath)
     return (filePath) =>
       Effect.flatMap(whole, (diffs) =>
-        Option.isSome(diffs) ? Effect.succeed(diffs.value.get(filePath)) : perPath(filePath),
+        Option.isSome(diffs)
+          ? Effect.succeed({ entry: diffs.value.get(filePath), matchesHead: !diffs.value.has(filePath) })
+          : perPath(filePath),
       )
   })
 
@@ -700,7 +707,7 @@ const populateDiffContent = (
         // Get original content from HEAD; for a rename, the old path's (git
         // diffs without rename detection). An empty file's original is "" —
         // still an original, so test for undefined rather than truthiness.
-        const entry = yield* diffs(origPath ?? change.path)
+        const { entry } = yield* diffs(origPath ?? change.path)
         if (entry?.originalContent !== undefined) {
           ;(change as { originalContent: string }).originalContent =
             entry.originalContent
@@ -713,7 +720,7 @@ const populateDiffContent = (
 
       case "modified": {
         // Try to get original from git
-        const entry = yield* diffs(change.path)
+        const { entry, matchesHead } = yield* diffs(change.path)
         if (entry) {
           if (entry.originalContent !== undefined) {
             ;(change as { originalContent: string }).originalContent =
@@ -730,6 +737,12 @@ const populateDiffContent = (
         if (currentResult._tag === "Right") {
           ;(change as { newContent: string }).newContent =
             currentResult.right
+          // Listed by status yet unchanged against HEAD: a change staged and
+          // then put back in the worktree (MM). The file is its own original.
+          if (matchesHead) {
+            ;(change as { originalContent: string }).originalContent =
+              currentResult.right
+          }
         } else {
           // If the file doesn't exist on disk but git reports it as modified,
           // treat as added
@@ -741,7 +754,7 @@ const populateDiffContent = (
         // old path's HEAD content instead, so the view has a "before" to
         // render, and count the lines the way the view's diff will.
         if (origPath !== undefined && change.newContent !== undefined) {
-          const renamedFrom = yield* diffs(origPath)
+          const { entry: renamedFrom } = yield* diffs(origPath)
           if (renamedFrom?.originalContent !== undefined) {
             ;(change as { originalContent: string }).originalContent =
               renamedFrom.originalContent
