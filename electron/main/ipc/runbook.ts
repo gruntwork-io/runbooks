@@ -13,6 +13,7 @@ import {
   executableRegistry,
   sessionManager,
   vcsSessionMeta,
+  manifestStore,
   setExecutableRegistry,
   setRunbookConfig,
 } from "./runtime.ts"
@@ -22,6 +23,7 @@ import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-en
 import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
 import { FileSystem } from "../../../src/services/FileSystem.ts"
+import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
 import { getMainWindow } from "../window.ts"
@@ -123,6 +125,12 @@ export function registerRunbookHandlers(): void {
         // previous runbook can't leak into this one.
         resetGoogleCredentialRegistry()
         vcsSessionMeta.clear()
+        // Template render state is keyed by the author-chosen Template id,
+        // which the next runbook may reuse for a different template or
+        // output dir. Drop the warm-render bundles, handles and vars
+        // baselines, and the file manifests, so its first render starts clean.
+        await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
+        manifestStore.clear()
       } else {
         sessionManager.setWorkingDir(sessionDir)
       }
