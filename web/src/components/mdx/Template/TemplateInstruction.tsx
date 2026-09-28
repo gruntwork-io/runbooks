@@ -10,6 +10,7 @@ import { useBlockCompletion } from '../_shared/hooks/useBlockCompletion'
 import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
 import { useRunbookContext, useInputs, flattenInputs } from '@/contexts/useRunbook'
 import { buildBoilerplateInvocation } from '@/components/mdx/_shared/lib/instructionCommands'
+import { useSharedTemplateVars } from './useSharedTemplateVars'
 
 interface TemplateInstructionProps {
   id: string
@@ -33,18 +34,11 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
 
   const { data: config, isLoading, error } = useApiGetBoilerplateConfig(path, '', true)
 
-  // Initial form values from the template's defaults / imported values.
-  const initialData = useMemo(() => {
-    if (!config) return {}
-    const data: Record<string, unknown> = {}
-    for (const variable of config.variables) {
-      data[variable.name] =
-        inputValues[variable.name] !== undefined
-          ? inputValues[variable.name]
-          : variable.default
-    }
-    return data
-  }, [config, inputValues])
+  // Same shared-variable handling as the interactive Template: variables that
+  // are also imported are read-only in the form and live-synced to the imported
+  // values. liveVarValues is spread last below, so the command and context never
+  // show a stale form copy of an imported value.
+  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(config, inputValues)
 
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
 
@@ -54,29 +48,31 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
     (data: Record<string, unknown>) => {
       setFormValues(data)
       if (config) {
-        registerInputs(id, { ...inputValues, ...data }, config)
+        registerInputs(id, { ...inputValues, ...data, ...liveVarValues }, config)
       }
     },
-    [config, id, inputValues, registerInputs],
+    [config, id, inputValues, liveVarValues, registerInputs],
   )
 
   // Publish defaults/imported values, but let any value the user has already
-  // entered win — otherwise a later change to imported `inputValues` would
-  // re-run this effect and clobber the user's edits in context with defaults.
+  // entered in a local-only var win — otherwise a later change to imported
+  // `inputValues` would re-run this effect and clobber the user's edits in
+  // context with defaults. Shared vars are read-only and live-synced, so their
+  // imported (live) value always wins.
   useEffect(() => {
     if (config) {
-      registerInputs(id, { ...inputValues, ...initialData, ...formValues }, config)
+      registerInputs(id, { ...inputValues, ...initialData, ...formValues, ...liveVarValues }, config)
     }
-  }, [config, id, inputValues, initialData, formValues, registerInputs])
+  }, [config, id, inputValues, initialData, formValues, liveVarValues, registerInputs])
 
   const invocation = useMemo(
     () =>
       buildBoilerplateInvocation({
         path,
-        variables: { ...inputValues, ...formValues },
+        variables: { ...inputValues, ...formValues, ...liveVarValues },
         target,
       }),
-    [path, inputValues, formValues, target],
+    [path, inputValues, formValues, liveVarValues, target],
   )
 
   const { completed, toggle } = useBlockCompletion(id)
@@ -119,6 +115,8 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
             showSubmitButton={false}
             enableAutoRender={false}
             variant="standard"
+            sharedVarNames={sharedVarNames}
+            liveVarValues={liveVarValues}
           />
 
           <CodeBlock>

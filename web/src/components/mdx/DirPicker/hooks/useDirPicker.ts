@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useApi } from '@/contexts/ApiContext'
 import { useSession } from '@/contexts/useSession'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
@@ -9,6 +10,17 @@ interface UseDirPickerOptions {
   gitCloneId?: string
   /** Maximum number of dropdown levels to show. */
   maxLevels?: number
+  /**
+   * Another block has the same id (or the same id after normalization). The
+   * duplicate renders nothing and leaves the PATH output to the other block.
+   */
+  isDuplicate?: boolean
+}
+
+/** Result of listing one directory: its subdirectories, or why it failed. */
+interface DirsListing {
+  dirs: string[]
+  error: string | null
 }
 
 interface DirLevel {
@@ -18,11 +30,10 @@ interface DirLevel {
   selected: string
   /** Available subdirectory names. */
   dirs: string[]
-  /** Whether we're currently loading dirs for this level. */
-  loading: boolean
 }
 
-export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPickerOptions) {
+export function useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate }: UseDirPickerOptions) {
+  const api = useApi()
   const { isReady: sessionReady } = useSession()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
@@ -32,6 +43,10 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
 
   // Track whether we've already initialized the root level
   const initializedRootRef = useRef<string | null>(null)
+
+  // Monotonic stamp to discard stale fetch results: taken by every selectDir
+  // call and by every root (re)initialization or reset
+  const selectVersionRef = useRef(0)
 
   // Resolve the root path: prefer explicit rootDir, fall back to GitClone output
   const rootPath = useMemo((): string | null => {
@@ -45,17 +60,18 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
   // Whether the root directory is available (immediately if rootDir is set, otherwise when GitClone completes)
   const isWorkspaceReady = !!rootDir || !gitCloneId || rootPath !== null
 
-  // Fetch subdirectories for a given absolute path
-  const fetchDirs = useCallback(async (absPath: string): Promise<string[]> => {
-    if (!sessionReady) return []
+  // Fetch subdirectories for a given absolute path. A failure comes back as
+  // `error` rather than being shown here: the caller shows it only if the
+  // listing is still current.
+  const fetchDirs = useCallback(async (absPath: string): Promise<DirsListing> => {
+    if (!sessionReady) return { dirs: [], error: null }
     try {
-      const data = await window.api.invoke('workspace:dirs', { worktreePath: absPath })
-      return data.dirs ?? []
+      const data = await api.invoke('workspace:dirs', { worktreePath: absPath })
+      return { dirs: data.dirs ?? [], error: null }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch directories')
-      return []
+      return { dirs: [], error: err instanceof Error ? err.message : 'Failed to fetch directories' }
     }
-  }, [sessionReady])
+  }, [api, sessionReady])
 
   // Build the composed path from dropdown selections
   const composedPath = useMemo(() => {
@@ -65,23 +81,40 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     return parts.join('/')
   }, [levels])
 
-  // Initialize root level when workspace becomes ready
+  // Initialize root level when workspace becomes ready, and start over when
+  // the root changes or goes away. The path, typed or selected, was relative
+  // to the old root: clearing it lets the PATH effect below withdraw the
+  // output. The old root's dropdowns go away until the new root is listed,
+  // and a root that comes back is listed again.
   useEffect(() => {
-    if (!isWorkspaceReady || !rootPath || !sessionReady) return
+    if (!rootPath) {
+      if (initializedRootRef.current !== null) {
+        initializedRootRef.current = null
+        selectVersionRef.current++
+        setError(null)
+        setLevels([])
+        setManualPath('')
+      }
+      return
+    }
+    if (!isWorkspaceReady || !sessionReady) return
     // Don't re-initialize if we already did for this root
     if (initializedRootRef.current === rootPath) return
     initializedRootRef.current = rootPath
+    const version = ++selectVersionRef.current
 
     setError(null)
+    setLevels([])
+    setManualPath('')
     const init = async () => {
-      const dirs = await fetchDirs(rootPath)
-      setLevels([{ path: rootPath, selected: '', dirs, loading: false }])
+      const listing = await fetchDirs(rootPath)
+      // Discard if the root changed or went away while we were fetching
+      if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
+      if (listing.error) setError(listing.error)
+      setLevels([{ path: rootPath, selected: '', dirs: listing.dirs }])
     }
     init()
   }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
-
-  // Monotonic stamp to discard stale fetch results from superseded selectDir calls
-  const selectVersionRef = useRef(0)
 
   // Handle selection at a given dropdown level
   const selectDir = useCallback(async (levelIndex: number, dirName: string) => {
@@ -109,13 +142,15 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     const nextAbsPath = [rootPath, ...previousSelections, dirName].join('/')
 
     // Fetch children and add a new level
-    const childDirs = await fetchDirs(nextAbsPath)
-    // Discard if a newer selectDir call has been made while we were fetching
-    if (selectVersionRef.current !== version) return
-    if (childDirs.length > 0) {
+    const listing = await fetchDirs(nextAbsPath)
+    // Discard if a newer selectDir call has been made, or the root changed,
+    // while we were fetching
+    if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
+    if (listing.error) setError(listing.error)
+    if (listing.dirs.length > 0) {
       setLevels(prev => [
         ...prev,
-        { path: nextAbsPath, selected: '', dirs: childDirs, loading: false },
+        { path: nextAbsPath, selected: '', dirs: listing.dirs },
       ])
     }
   }, [rootPath, levels, fetchDirs, maxLevels])
@@ -125,22 +160,32 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     setManualPath(composedPath)
   }, [composedPath])
 
-  // Register outputs whenever the path changes
-  useEffect(() => {
-    if (manualPath) {
-      registerOutputs(id, { PATH: manualPath })
-    }
-  }, [id, manualPath, registerOutputs])
+  const publishedPath = allOutputs[normalizeBlockId(id)]?.values?.PATH
 
-  // Handle manual path edits
-  const setPath = useCallback((path: string) => {
-    setManualPath(path)
-    // When manually editing, clear dropdown state since it may no longer match
-    if (path !== composedPath) {
-      // Keep levels for display but register the manual path
-      registerOutputs(id, { PATH: path })
+  // Set when this instance has withdrawn PATH for its current empty path.
+  const withdrewRef = useRef(false)
+
+  // Keep this block's PATH output in sync with the path shown in the input.
+  // This effect is the only writer of PATH. An empty path clears the output
+  // ({}), so downstream blocks see PATH as unmet again. Comparing against the
+  // published value (rather than tracking what this instance wrote) also clears
+  // a PATH left behind by DirPickerInstruction or a previous mount.
+  //
+  // An empty path withdraws PATH once. If PATH comes back while this block's
+  // path is still empty, another block with the same id published it, and
+  // the registry hasn't flagged the duplicate yet (it does so a tick after
+  // mount). Withdrawing again would fight the other block, which publishes
+  // its PATH again, until React stops the update loop.
+  useEffect(() => {
+    if (isDuplicate) return
+    if (manualPath) {
+      withdrewRef.current = false
+      if (manualPath !== publishedPath) registerOutputs(id, { PATH: manualPath })
+    } else if (publishedPath !== undefined && !withdrewRef.current) {
+      withdrewRef.current = true
+      registerOutputs(id, {})
     }
-  }, [id, composedPath, registerOutputs])
+  }, [id, manualPath, publishedPath, registerOutputs, isDuplicate])
 
   return {
     levels,
@@ -148,6 +193,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
     error,
     isWorkspaceReady,
     selectDir,
-    setPath,
+    // Manual edits only change the path shown; the effect above publishes it.
+    setPath: setManualPath,
   }
 }

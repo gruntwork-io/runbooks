@@ -15,6 +15,7 @@ import { useRunbookContext } from '@/contexts/useRunbook'
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
+import { untouchedValue } from '../lib/untouchedValue'
 
 /**
  * Options accepted by {@link useInputRegistration}.
@@ -91,7 +92,9 @@ export function useInputRegistration({
   const initialData = useMemo(() => {
     if (!formState) return {}
     return formState.variables.reduce((acc, variable) => {
-      acc[variable.name] = variable.default
+      // Same starting value as the form (see useFormState), since these are
+      // registered before the user submits
+      acc[variable.name] = variable.default ?? untouchedValue(variable)
       return acc
     }, {} as Record<string, unknown>)
   }, [formState])

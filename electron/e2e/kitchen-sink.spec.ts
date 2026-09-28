@@ -12,6 +12,8 @@
  *   bunx playwright test --config electron/e2e/playwright.config.ts kitchen-sink
  */
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import * as fs from "fs"
+import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
 
@@ -24,13 +26,23 @@ const KITCHEN_SINK = path.join(ROOT, "testdata/kitchen-sink")
 // Shared state for the test suite — we launch the app once and reuse it.
 let app: ElectronApplication
 let page: Page
+let workDir: string
 
 // Collect console errors during the entire test suite
 const consoleErrors: string[] = []
 
 test.beforeAll(async () => {
+  // Launch a temp copy with a throwaway profile so runs never write into
+  // testdata/ or the real app profile. Scripts and Templates write to the
+  // runbook's generated/ dir, and files an earlier run left there open the
+  // modal "existing generated files" alert, which hides the app from getByRole.
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-kitchen-sink-e2e-"))
+  const runbookDir = path.join(workDir, "kitchen-sink")
+  const userDataDir = path.join(workDir, "user-data")
+  fs.cpSync(KITCHEN_SINK, runbookDir, { recursive: true })
+  fs.mkdirSync(userDataDir)
   app = await electron.launch({
-    args: [MAIN_ENTRY, KITCHEN_SINK],
+    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
@@ -57,6 +69,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (app) await app.close()
+  if (workDir) fs.rmSync(workDir, { recursive: true, force: true })
 })
 
 // ---------------------------------------------------------------------------
@@ -257,7 +270,7 @@ test.describe("Path Resolution", () => {
     // Script commands should show their script content, not file-read errors
     const cmdSection = page.locator('[data-testid="setup-outputs"]')
     await expect(cmdSection).toBeVisible()
-    const errorBanners = cmdSection.locator(".bg-red-50")
+    const errorBanners = cmdSection.locator(".bg-destructive-muted")
     await expect(errorBanners).toHaveCount(0)
   })
 })
@@ -335,9 +348,20 @@ test.describe("Templates", () => {
   test("template inline blocks show no errors", async () => {
     for (const id of ["simple-inline-tpl", "output-preview", "gen-file-tpl", "combined-tpl"]) {
       const block = page.locator(`[data-testid="${id}"]`)
-      const errorBanner = block.locator(".bg-red-50")
+      const errorBanner = block.locator(".bg-destructive-muted")
       await expect(errorBanner).toHaveCount(0)
     }
+  })
+
+  test("template inline with generateFile writes the rendered file", async () => {
+    // Pins boilerplate:render-inline's write path end to end: the component
+    // tests mock IPC, so only a real run shows the file lands on disk.
+    // The `gen-file-tpl` block writes into the runbook copy's generated-files
+    // dir, which starts empty, so the check can only pass if this run wrote it.
+    const written = path.join(workDir, "kitchen-sink", "generated", "generated.yaml")
+    await expect
+      .poll(() => (fs.existsSync(written) ? fs.readFileSync(written, "utf-8") : ""))
+      .toContain("name: hello world")
   })
 })
 
@@ -362,13 +386,13 @@ test.describe("Auth Blocks", () => {
 
   test("AwsAuth block has no errors", async () => {
     const block = page.locator('[data-testid="aws-auth-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 
   test("GitHubAuth block has no errors", async () => {
     const block = page.locator('[data-testid="gh-auth-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 
@@ -383,7 +407,7 @@ test.describe("Auth Blocks", () => {
     // detectCredentials={false} in the runbook, so the block renders its manual
     // auth tabs immediately with no IPC round-trip on mount.
     const block = page.locator('[data-testid="google-auth-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })
@@ -403,7 +427,7 @@ test.describe("GitClone Block", () => {
 
   test("has no errors", async () => {
     const block = page.locator('[data-testid="clone-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })
@@ -422,7 +446,7 @@ test.describe("GitHubPullRequest Block", () => {
 
   test("has no errors", async () => {
     const block = page.locator('[data-testid="pr-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })
@@ -441,7 +465,7 @@ test.describe("DirPicker Block", () => {
 
   test("has no errors", async () => {
     const block = page.locator('[data-testid="dir-picker-test"]')
-    const errorBanner = block.locator(".bg-red-50")
+    const errorBanner = block.locator(".bg-destructive-muted")
     await expect(errorBanner).toHaveCount(0)
   })
 })

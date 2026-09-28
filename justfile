@@ -8,24 +8,35 @@ default:
 
 # --- Development ---
 
+# Fail fast if web/ or cli/ holds packages from an old per-directory install.
+# Neither directory has a package.json any more; all dependencies come from the
+# root node_modules. A leftover web/node_modules or cli/node_modules would still
+# shadow the root tree for imports from that directory, silently giving stale
+# versions or two copies of react/effect. Dot-directories (.vite, .tmp) are tool
+# caches, not packages, and are allowed. The check lives in
+# scripts/no-nested-node-modules.ts, which electron.vite.config.ts,
+# web/vitest.config.ts and web/playwright.config.ts also call.
+_no-nested-node-modules:
+    @mise x bun -- bun scripts/no-nested-node-modules.ts
+
 # Start Electron app in dev mode with HMR. Depends on fetch-boilerplate so
 # the app always renders with the vendored boilerplate under resources/ —
 # the main process never falls back to a boilerplate on PATH.
-dev: fetch-boilerplate
+dev: _no-nested-node-modules fetch-boilerplate
     mise x node -- npx electron-vite dev
 
 # Start Electron app pointing at a specific runbook
-dev-runbook path="testdata/my-first-runbook": fetch-boilerplate
+dev-runbook path="testdata/my-first-runbook": _no-nested-node-modules fetch-boilerplate
     mise x node -- npx electron-vite dev -- --runbook {{path}}
 
 # --- Build ---
 
 # Build the Electron app (main + preload + renderer)
-build:
+build: _no-nested-node-modules
     mise x node -- npx electron-vite build
 
 # Compile the test CLI as a standalone binary (no Node.js required)
-compile-test-cli:
+compile-test-cli: _no-nested-node-modules
     #!/usr/bin/env bash
     set -euo pipefail
     mise x bun -- bun build --compile --outfile resources/bin/runbooks-test cli/index.ts
@@ -237,15 +248,19 @@ test: test-unit test-e2e test-runbooks test-docs
 # Run backend unit tests (Bun test runner)
 # test/** is excluded: test/integration/ is the Node-environment Vitest suite
 # (Bun 1.3.x has no tls.setDefaultCACertificates) — see `just test-integration`.
-test-backend:
+test-backend: _no-nested-node-modules
     mise x bun -- bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**' --path-ignore-patterns='test/**'
 
+# web/ has no package.json of its own: the renderer's dependencies live in the
+# root package.json/bun.lock, so the tests resolve the same node_modules tree
+# that electron-vite bundles.
+
 # Run web unit tests (Vitest — jsdom)
-test-web:
-    cd web && mise x bun -- bun install --frozen-lockfile && mise x bun -- bun run vitest run
+test-web: _no-nested-node-modules
+    cd web && mise x bun -- bun run vitest run
 
 # Run TLS integration tests (Vitest — Node environment; needs APIs Bun lacks)
-test-integration:
+test-integration: _no-nested-node-modules
     mise x node -- npx vitest run --config vitest.integration.config.ts
 
 # Run all unit tests
@@ -257,7 +272,7 @@ test-e2e: build fetch-boilerplate
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
 # Run Playwright E2E tests without rebuilding (CI calls `just build` separately)
-test-e2e-run: fetch-boilerplate
+test-e2e-run: _no-nested-node-modules fetch-boilerplate
     mise x bun -- bunx playwright test --config web/playwright.config.ts
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
@@ -283,9 +298,11 @@ fmt:
 fmt-check:
     @echo "oxfmt not yet available — skipping"
 
-# Type check with TypeScript compiler
-typecheck:
-    mise x bun -- bunx tsc --noEmit
+# Type check with TypeScript compiler. The root tsconfig.json has no files of
+# its own, only project references, so it needs build mode (-b) to check them;
+# a plain `tsc --noEmit` checks nothing. Same check as `bun run typecheck` and CI.
+typecheck: _no-nested-node-modules
+    mise x bun -- bunx tsc -b
 
 # Run all checks (lint + format check + typecheck)
 check: lint fmt-check typecheck

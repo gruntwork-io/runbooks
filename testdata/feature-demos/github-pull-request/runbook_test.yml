@@ -6,7 +6,7 @@ settings:
 
 tests:
   - name: skip-without-credentials
-    description: Auth block skips when no credentials; dependent PR block also skips
+    description: Auth block skips when no credentials; dependent clone and PR blocks also skip
     env:
       GITHUB_TOKEN: ""
       GH_TOKEN: ""

@@ -2,8 +2,9 @@
  * File reading utilities.
  *
  * Provides file metadata reading with truncation, runbook path resolution,
- * language detection from extension, asset extension whitelisting, and
- * MIME-type resolution.
+ * language detection from extension, asset MIME-type resolution, content
+ * hashing, and the VCS-directory and binary-extension lists shared by the
+ * tree walkers.
  */
 
 import path from "path"
@@ -142,10 +143,10 @@ const BASENAME_LANGUAGE_MAP: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Allowed asset extensions mapped to their MIME types.
- * Single source of truth for both the whitelist check and content-type header.
+ * Runbook asset extensions mapped to their MIME types, for the Content-Type
+ * of the runbook-asset:// protocol's byte-range responses.
  */
-const ALLOWED_ASSET_CONTENT_TYPES: Record<string, string> = {
+const ASSET_CONTENT_TYPES: Record<string, string> = {
   // Images
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -193,21 +194,12 @@ export function getLanguageFromExtension(filename: string): string {
 }
 
 /**
- * Returns `true` when the file extension is in the whitelist of servable asset
- * types (images, PDFs, media).
- */
-export function isAllowedAssetExtension(filename: string): boolean {
-  const ext = path.extname(filename).toLowerCase()
-  return ext in ALLOWED_ASSET_CONTENT_TYPES
-}
-
-/**
  * Return the MIME content-type for a filename based on its extension.
  * Falls back to `"application/octet-stream"` for unknown extensions.
  */
 export function getContentType(filename: string): string {
   const ext = path.extname(filename).toLowerCase()
-  return ALLOWED_ASSET_CONTENT_TYPES[ext] ?? "application/octet-stream"
+  return ASSET_CONTENT_TYPES[ext] ?? "application/octet-stream"
 }
 
 /**

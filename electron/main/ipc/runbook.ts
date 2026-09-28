@@ -1,7 +1,7 @@
 /**
  * IPC handlers for runbook operations.
  *
- * Provides runbook file reading, executable registry access, and asset serving.
+ * Provides runbook file reading and executable registry access.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
@@ -13,14 +13,16 @@ import {
   executableRegistry,
   sessionManager,
   vcsSessionMeta,
+  manifestStore,
   setExecutableRegistry,
   setRunbookConfig,
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
+import { startWatcher } from "./watch.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
-import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
-import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
-import { FileSystem } from "../../../src/services/FileSystem.ts"
+import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
+import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
+import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
 import { getMainWindow } from "../window.ts"
@@ -47,18 +49,34 @@ function describeRunbookOpenError(inputPath: string): string {
   return `This runbook couldn't be opened:\n\n${inputPath}`
 }
 
+/**
+ * Bumped by every runbook:get. The renderer only shows its newest request
+ * (useIpc drops older results), so a load that a newer one overtook while it
+ * awaited ends as superseded instead of pointing the config, session, watcher
+ * or registry back at its runbook.
+ */
+let loadGeneration = 0
+const SUPERSEDED = { superseded: true } as const
+
+/**
+ * End every runbook:get still running as superseded, as a newer one would.
+ * Closing the runbook calls this, so a load in flight at the close doesn't
+ * start a watcher or set a registry for a runbook that is no longer open.
+ */
+export function supersedeRunbookLoads(): void {
+  loadGeneration++
+}
+
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
-      // If no path provided, return current config without loading a runbook
+    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }) => {
+      const generation = ++loadGeneration
+      const superseded = () => generation !== loadGeneration
+
+      // An empty path would resolve against the app's cwd below.
       if (!params?.path) {
-        return {
-          content: "",
-          contentHash: "",
-          config: runbookConfig,
-          warnings: [],
-        }
+        throw new Error("runbook path is required")
       }
 
       // Reject filesystem roots to prevent overly broad trust anchors
@@ -78,11 +96,12 @@ export function registerRunbookHandlers(): void {
         log.debug("failed to resolve runbook path", params.path, err)
         throw new Error(describeRunbookOpenError(params.path))
       }
+      if (superseded()) return SUPERSEDED
       const config: RunbookConfig = {
         localPath: runbookPath,
         remoteSourceURL: params.remoteSource,
-        isWatchMode: params.watchMode ?? false,
-        useExecutableRegistry: true,
+        // The renderer doesn't send watchMode; keep what --watch set at launch.
+        isWatchMode: params.watchMode ?? runbookConfig.isWatchMode,
         disableLiveFileReload: runbookConfig.disableLiveFileReload,
       }
       setRunbookConfig(config)
@@ -97,6 +116,12 @@ export function registerRunbookHandlers(): void {
         // Path may not exist yet — fall back to the lexical resolution.
       }
 
+      // Read the runbook file content (before the session is created: whether
+      // it has an <AwsAuth> block decides which env vars the session strips)
+      const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
+      if (superseded()) return SUPERSEDED
+      const isSameRunbook = sessionManager.getRunbookPath() === runbookPath
+
       // A different runbook than the one the current session belongs to
       // (including "no session yet") gets a fully fresh session: env,
       // working dir, AND registered/active git worktrees. Without this, a
@@ -106,7 +131,16 @@ export function registerRunbookHandlers(): void {
       // templates resolve to a stale, possibly already-deleted, checkout.
       // Reloading the SAME runbook (watch mode, re-opening the same file)
       // must NOT do this — it would wipe env vars a script exported mid-run.
-      if (sessionManager.getRunbookPath() !== runbookPath) {
+      if (!isSameRunbook) {
+        // The previous runbook's executables must not stay runnable (or be
+        // kept as this runbook's frozen registry below) if building this
+        // runbook's registry fails. Cleared before the awaits, so a load of
+        // this runbook that overtakes this one can't keep them either.
+        setExecutableRegistry(null)
+        // A runbook with <AwsAuth> starts without the inherited AWS keys, so
+        // no script sees them until the user confirms an account. Set on every
+        // new session (even to []) so one runbook's list can't carry over.
+        sessionManager.setProtectedEnvVars(protectedEnvVarsForRunbook(fileData.content))
         await runtime.runPromise(sessionManager.createSession(sessionDir, runbookPath))
         // These mirror the same "most recent wins across the whole process"
         // pattern as the worktree state above — reset them at the same
@@ -114,23 +148,43 @@ export function registerRunbookHandlers(): void {
         // previous runbook can't leak into this one.
         resetGoogleCredentialRegistry()
         vcsSessionMeta.clear()
-      } else {
+        // Template render state is keyed by the author-chosen Template id,
+        // which the next runbook may reuse for a different template or
+        // output dir. Drop the warm-render bundles, handles and vars
+        // baselines, and the file manifests, so its first render starts clean.
+        await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
+        manifestStore.clear()
+      } else if (params.reload !== "watch") {
+        // Re-opening the runbook starts its blocks from its directory again.
+        // A watch-mode reload keeps the session as it is, env vars included:
+        // saving runbook.mdx must not undo a block's `cd`.
         sessionManager.setWorkingDir(sessionDir)
       }
+      // The new session's resets await: a newer load may have started.
+      if (superseded()) return SUPERSEDED
 
-      // Read the runbook file content
-      const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
+      // Watch mode: reload the renderer when this runbook changes. A no-op if
+      // it's already watched; a watcher on a previous runbook is stopped.
+      if (config.isWatchMode) {
+        startWatcher(runbookPath)
+      }
 
-      // Build the executable registry from the runbook
-      const registry = await runtime.runPromise(
-        ExecutableRegistry.create(runbookPath),
-      )
-      setExecutableRegistry(registry)
+      // --disable-live-file-reload freezes the registry built when this
+      // runbook was opened: reloading it (watch mode, re-opening the same
+      // file) keeps executing the scripts that were approved then. Otherwise
+      // build the executable registry from the runbook.
+      let registry = isSameRunbook && config.disableLiveFileReload ? executableRegistry : null
+      if (!registry) {
+        const built = await runtime.runPromise(ExecutableRegistry.create(runbookPath))
+        if (superseded()) return SUPERSEDED
+        registry = built
+        setExecutableRegistry(registry)
 
-      // Notify the renderer that the registry has been rebuilt
-      const win = getMainWindow()
-      if (win) {
-        win.webContents.send("registry:updated")
+        // Notify the renderer that the registry has been rebuilt
+        const win = getMainWindow()
+        if (win) {
+          win.webContents.send("registry:updated")
+        }
       }
 
       const ext = path.extname(runbookPath).replace(/^\./, "")
@@ -148,18 +202,13 @@ export function registerRunbookHandlers(): void {
     },
   )
 
+  // Clones and resolves the runbook, but leaves opening it to the renderer:
+  // the Open from URL modal only opens the result if the user hasn't cancelled
+  // while the clone was running.
   ipcMain.handle(
     "runbook:open-remote",
     async (_event, params: { url: string }) => {
       const result = await resolveRemoteRunbook(params.url)
-      // Notify the renderer to load the resolved runbook
-      const win = getMainWindow()
-      if (win) {
-        win.webContents.send("file:open-runbook", {
-          path: result.localPath,
-          remoteSource: result.remoteSource,
-        })
-      }
       return { path: result.localPath, remoteSource: result.remoteSource }
     },
   )
@@ -174,42 +223,4 @@ export function registerRunbookHandlers(): void {
       warnings: executableRegistry.getWarnings(),
     }
   })
-
-  ipcMain.handle(
-    "runbook:assets",
-    async (_event, params: { runbookPath: string; assetPath: string }) => {
-      const runbookDir = path.dirname(params.runbookPath)
-      const fullPath = path.join(runbookDir, params.assetPath)
-
-      // Validate path traversal
-      if (containsPathTraversal(params.assetPath)) {
-        throw new Error("Asset path contains directory traversal")
-      }
-      // Resolve symlinks before the containment check: the asset read below
-      // follows them, so a symlink inside the runbook dir must not dereference
-      // to a file outside it.
-      if (!(await isContainedInReal(fullPath, runbookDir))) {
-        throw new Error("Asset path escapes runbook directory")
-      }
-
-      // Validate asset extension
-      if (!isAllowedAssetExtension(params.assetPath)) {
-        throw new Error(`Asset type not allowed: ${params.assetPath}`)
-      }
-
-      const contentType = getContentType(params.assetPath)
-
-      const buffer = await runtime.runPromise(
-        Effect.gen(function* () {
-          const fs = yield* FileSystem
-          return yield* fs.readFileBuffer(fullPath)
-        }),
-      )
-
-      return {
-        data: buffer.toString("base64"),
-        contentType,
-      }
-    },
-  )
 }

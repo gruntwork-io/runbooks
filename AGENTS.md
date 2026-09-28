@@ -13,10 +13,7 @@
 /web            — Frontend: React 19 + TypeScript + Vite + Tailwind CSS 4
 /docs           — Documentation site (Astro + Starlight)
 /testdata       — Sample runbooks and test fixtures
-/plans          — Architecture plans and research docs
 ```
-
-See [plans/electron-rewrite.md](plans/electron-rewrite.md) for the full architecture.
 
 ## Tooling
 
@@ -30,7 +27,9 @@ See [plans/electron-rewrite.md](plans/electron-rewrite.md) for the full architec
 | **Effect** | raw promises | Services, layers, typed errors, streams |
 | **OpenTofu** | Terraform | IaC examples |
 
-Add shadcn/ui components: `bunx shadcn@latest add <name>`
+Add shadcn/ui components: `bunx shadcn@latest add <name>` (from the repo root)
+
+Dependencies: one `package.json` + `bun.lock` at the root (`web/` and `cli/` have none; `docs/` is a separate project). Run `bun add` from the root. Packages only `web/` imports go in `devDependencies` (`bun add -d`) because Vite bundles them; `dependencies` is for what `electron/`, `src/`, `cli/` import at runtime, and ships in the app.
 
 ## Key Commands
 
@@ -43,7 +42,7 @@ just test-unit        # Vitest (src/ + web/)
 just test-e2e         # Playwright
 just test-runbooks    # CLI integration tests
 just lint             # oxlint
-just typecheck        # tsc --noEmit
+just typecheck        # tsc -b
 ```
 
 ## Conventions
@@ -61,23 +60,21 @@ just typecheck        # tsc --noEmit
 - Resource cleanup via `Scope` (`acquireRelease` / `addFinalizer`)
 - Tests swap layers for mock implementations
 
-See [plans/effect-runtime-research.md](plans/effect-runtime-research.md) for known Effect runtime issues.
-
 ### Error Reporting in MDX Components
 `reportError()` is for **configuration errors only** (duplicate IDs, missing props, invalid configs) — not runtime errors (auth failures, network errors). Runtime errors display inline within the component.
 
 ## Testing
 
 ### Philosophy
-Maximize real code paths. Mock only at true boundaries. Prioritize coverage by risk, not line count. See [plans/electron-rewrite-testing.md](plans/electron-rewrite-testing.md) for the full test plan.
+Maximize real code paths. Mock only at true boundaries. Prioritize coverage by risk, not line count.
 
 ### Running Tests
 - **Unit/component tests**: `just test-unit` (Vitest, jsdom for web/)
 - **E2E tests**: `just test-e2e` (Playwright, launches Electron)
-- **Runbook tests**: `node dist/main/cli.js test /path/to/runbook`
+- **Runbook tests**: `bun cli/index.ts test /path/to/runbook` (add `/...` to a directory to test every runbook under it). `just test-runbooks` compiles the test CLI to `resources/bin/runbooks-test` and runs it on all of `testdata/`, as CI does.
 
 ### Writing Runbook Tests
-Every runbook needs `runbook_test.yml`. Generate with `node dist/main/cli.js test init /path/to/runbook`. Reference: `testdata/sample-runbooks/my-first-runbook/runbook_test.yml`.
+Every runbook needs `runbook_test.yml`. There is no generator; start from `testdata/sample-runbooks/my-first-runbook/runbook_test.yml`. The format is documented in `docs/src/content/docs/authoring/testing.mdx`.
 
 ## Blocks
 

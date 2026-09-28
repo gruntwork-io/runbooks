@@ -5,5 +5,12 @@
     { "path": "./tsconfig.preload.json" },
     { "path": "./tsconfig.src.json" },
     { "path": "./web/tsconfig.json" }
-  ]
+  ],
+  /* The shadcn/ui CLI runs from the repo root (components.json lives here, next
+     to the one package.json) and resolves the "@/" aliases through this file. */
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./web/src/*"]
+    }
+  }
 }

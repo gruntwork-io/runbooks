@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import type { Ref } from 'react'
 import { evaluate } from '@mdx-js/mdx'
 import * as runtime from 'react/jsx-runtime'
 import remarkGfm from 'remark-gfm'
 import type { AppError } from '@/types/error'
+import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly'
+import { rewriteAssetUrl } from '@/lib/assetPaths'
 
 // Support MDX components
 import { Inputs } from '@/components/mdx/Inputs'
@@ -39,16 +42,17 @@ import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCh
  * @param props.content - The raw markdown/MDX content string to compile and render
  * @param props.runbookPath - The path to the runbook file
  * @param props.className - Optional additional CSS classes for styling the container
- 
+ * @param props.ref - Receives the scroll container that wraps the rendered document
  */
 interface MDXContainerProps {
   content: string
   className?: string
   runbookPath?: string
   remoteSource?: string
+  ref?: Ref<HTMLDivElement>
 }
 
-function MDXContainer({ content, runbookPath, remoteSource, className }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -100,9 +104,9 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   }
 
   return (
-    <div data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
+        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} storageScope={remoteSource ?? runbookPath}>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -131,6 +135,15 @@ function MDXContainer({ content, runbookPath, remoteSource, className }: MDXCont
   )
 }
 
+// Attribute on an MDX JSX node. Literal attributes (`src="./a.png"`) have a
+// string `value`; `src={expr}` has an expression object instead, and spread
+// attributes (`{...props}`) have type 'mdxJsxExpressionAttribute'.
+interface MdxJsxAttribute {
+  type: string
+  name?: string
+  value?: unknown
+}
+
 // Type for rehype tree nodes
 interface RehypeNode {
   type?: string
@@ -139,6 +152,9 @@ interface RehypeNode {
     src?: string
     [key: string]: unknown
   }
+  // Set on mdxJsxFlowElement / mdxJsxTextElement nodes (JSX written in the MDX)
+  name?: string | null
+  attributes?: MdxJsxAttribute[]
   children?: RehypeNode[]
   [key: string]: unknown
 }
@@ -146,82 +162,50 @@ interface RehypeNode {
 // Custom rehype plugin to transform asset paths for all media types.
 // Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
 // Electron's custom protocol handler can serve them from the local filesystem.
-function rehypeTransformAssetPaths() {
+// Which tags and attributes are rewritten is decided by rewriteAssetUrl, which
+// InlineMarkdown shares. Exported for tests.
+export function rehypeTransformAssetPaths() {
   return (tree: RehypeNode) => {
-    // Helper function to transform a path if it starts with ./assets/
-    const transformPath = (path: string | undefined): string | undefined => {
-      if (!path || !path.startsWith('./assets/')) {
-        return path
-      }
-      // Remove the ./ prefix and use the runbook-asset:// protocol
-      const assetPath = path.substring('./'.length)
-      return `runbook-asset://${assetPath}`
-    }
-
-    // Walk through the tree and transform asset nodes
+    // Walk through the tree and transform asset references. Markdown syntax
+    // (![alt](./assets/a.png), [text](./assets/a.pdf)) produces hast `element`
+    // nodes with a `properties` object. HTML written directly in the MDX
+    // (<img>, <video>, <source>, ...) arrives instead as mdxJsxFlowElement
+    // (block) or mdxJsxTextElement (inline) nodes with an `attributes` array.
     const visit = (node: RehypeNode) => {
-      if (node.type !== 'element') {
-        // Recursively visit children first
-        if (node.children) {
-          node.children.forEach(visit)
+      if (node.type === 'element' && node.tagName && node.properties) {
+        const tagName = node.tagName
+        for (const [key, value] of Object.entries(node.properties)) {
+          if (typeof value === 'string') {
+            node.properties[key] = rewriteAssetUrl(tagName, key, value)
+          } else if (Array.isArray(value)) {
+            // hast stores comma-separated properties such as srcSet as a list
+            node.properties[key] = value.map((item) =>
+              typeof item === 'string' ? rewriteAssetUrl(tagName, key, item) : item,
+            )
+          }
         }
-        return
+      } else if (
+        (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') &&
+        typeof node.name === 'string'
+      ) {
+        // Only string literals are rewritten; `src={expr}` is left as written.
+        for (const attribute of node.attributes ?? []) {
+          if (
+            attribute.type === 'mdxJsxAttribute' &&
+            attribute.name !== undefined &&
+            typeof attribute.value === 'string'
+          ) {
+            attribute.value = rewriteAssetUrl(node.name, attribute.name, attribute.value)
+          }
+        }
       }
 
-      // Handle different element types that can reference assets
-      switch (node.tagName) {
-        case 'img':
-          // Image: <img src="./assets/image.png">
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          break
-
-        case 'video':
-        case 'audio':
-          // Video/Audio: <video src="./assets/video.mp4">
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          // Also check poster attribute for video
-          if (node.tagName === 'video' && node.properties?.poster) {
-            node.properties.poster = transformPath(node.properties.poster as string)
-          }
-          break
-
-        case 'source':
-          // Source: <source src="./assets/video.mp4"> (child of video/audio)
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          break
-
-        case 'a':
-          // Links: <a href="./assets/document.pdf">
-          if (node.properties?.href) {
-            node.properties.href = transformPath(node.properties.href as string)
-          }
-          break
-
-        case 'embed':
-        case 'object':
-          // Embedded content: <embed src="./assets/document.pdf">
-          if (node.properties?.src) {
-            node.properties.src = transformPath(node.properties.src as string)
-          }
-          // Object elements use 'data' attribute
-          if (node.tagName === 'object' && node.properties?.data) {
-            node.properties.data = transformPath(node.properties.data as string)
-          }
-          break
-      }
-      
       // Recursively visit children
       if (node.children) {
         node.children.forEach(visit)
       }
     }
-    
+
     visit(tree)
   }
 }
@@ -289,6 +273,9 @@ function rehypeTaskListIds() {
 //   title: My Runbook
 //   ---
 //   # Content here
+// The block is replaced with one blank line per line it spanned, so line
+// numbers in compile errors (e.g. remarkLiteralOnly's "Line N: ...") still
+// match the runbook file.
 const stripFrontMatter = (content: string): string => {
   // Front matter must start at the beginning of the file with ---
   if (!content.startsWith('---')) {
@@ -301,8 +288,9 @@ const stripFrontMatter = (content: string): string => {
     return content
   }
   
-  // Remove the front matter block
-  return content.slice(endMatch[0].length)
+  // Replace the front matter block with the same number of line breaks
+  const lineBreaks = endMatch[0].split('\n').length - 1
+  return '\n'.repeat(lineBreaks) + content.slice(endMatch[0].length)
 }
 
 /**
@@ -339,16 +327,20 @@ export const MDX_COMPONENTS = {
 } as const
 
 // Compiles MDX content into a custom React component that can render the MDX content.
-const compileMDX = async (content: string): Promise<React.ComponentType> => {
+// Exported so tests can compile runbooks with the exact production options.
+export const compileMDX = async (content: string): Promise<React.ComponentType> => {
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
 
-  // Compile and evaluate the MDX content
+  // Compile and evaluate the MDX content. No `baseUrl`: runbooks cannot import
+  // modules (remarkLiteralOnly rejects import/export before it would matter).
   const compiledMDX = await evaluate(mdxContent, {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
-    baseUrl: import.meta.url,
-    remarkPlugins: [remarkGfm], // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
+    remarkPlugins: [
+      remarkGfm, // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
+      remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
+    ],
     rehypePlugins: [rehypeTransformAssetPaths, rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })

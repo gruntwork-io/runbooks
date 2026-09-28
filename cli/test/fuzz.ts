@@ -67,13 +67,37 @@ export function generateFuzzValue(config: FuzzConfig): unknown {
   }
 }
 
+type BoundField =
+  | "min" | "max"
+  | "minLength" | "maxLength"
+  | "minWordCount" | "maxWordCount"
+  | "minCount" | "maxCount"
+
+// YAML parses an empty value (`max:` or `max: ~`) to null, so a bound is set
+// only when it is neither null nor undefined.
+function bound(config: FuzzConfig, field: BoundField): number | undefined {
+  return config[field] ?? undefined
+}
+
+// The [lo, hi] range a pair of optional bounds allows. A lone hi lowers lo's
+// default to fit (lo = min(defaultLo, hi)) and hi defaults to lo + span, so a
+// lone bound is honored. lo == hi yields that exact value.
+function boundedRange(
+  config: FuzzConfig,
+  minField: BoundField,
+  maxField: BoundField,
+  defaultLo: number,
+  span: number,
+): [number, number] {
+  const hi = bound(config, maxField)
+  const lo = bound(config, minField) ?? (hi === undefined ? defaultLo : Math.min(defaultLo, hi))
+  const top = hi ?? lo + span
+  if (top < lo) throw new Error(`fuzz ${config.type}: ${maxField} (${top}) is less than ${minField} (${lo})`)
+  return [lo, top]
+}
+
 function generateString(config: FuzzConfig): string {
-  let length = config.length ?? 0
-  if (length <= 0) {
-    const minLen = config.minLength ?? 8
-    const maxLen = config.maxLength ?? minLen + 10
-    length = randomInt(minLen, Math.max(minLen, maxLen))
-  }
+  const length = config.length ?? randomInt(...boundedRange(config, "minLength", "maxLength", 8, 10))
 
   let charset = ALPHANUM
   if (config.includeSpaces) charset += " "
@@ -87,17 +111,25 @@ function generateString(config: FuzzConfig): string {
   return (config.prefix ?? "") + result + (config.suffix ?? "")
 }
 
+// min defaults to 0 and max to min + 100. Unlike a length or a count, a number
+// has no floor, so a lone non-positive max fuzzes over max - 100..max rather
+// than collapsing to max.
+function numericRange(config: FuzzConfig): [number, number] {
+  const max = bound(config, "max")
+  return boundedRange(config, "min", "max", max !== undefined && max <= 0 ? max - 100 : 0, 100)
+}
+
 function generateInt(config: FuzzConfig): number {
-  let min = config.min ?? 0
-  let max = config.max ?? 0
-  if (max <= min) { min = 0; max = 100 }
-  return randomInt(min, max)
+  const [min, max] = numericRange(config)
+  // Fractional bounds narrow to the whole numbers between them.
+  const lo = Math.ceil(min)
+  const hi = Math.floor(max)
+  if (hi < lo) throw new Error(`fuzz int: no integer between min (${min}) and max (${max})`)
+  return randomInt(lo, hi)
 }
 
 function generateFloat(config: FuzzConfig): number {
-  let min = config.min ?? 0
-  let max = config.max ?? 0
-  if (max <= min) { min = 0; max = 100 }
+  const [min, max] = numericRange(config)
   return randomFloat(min, max)
 }
 
@@ -156,10 +188,7 @@ function randomTimeInRange(minDate?: string, maxDate?: string, dayPrecision = fa
 
 function generateDate(config: FuzzConfig): string {
   const date = randomTimeInRange(config.minDate, config.maxDate, true)
-  if (config.format) {
-    // Simple format support for YYYY-MM-DD
-    return formatDate(date, config.format)
-  }
+  if (config.format) return formatDate(date, config.format)
   return date.toISOString().slice(0, 10)
 }
 
@@ -169,24 +198,32 @@ function generateTimestamp(config: FuzzConfig): string {
   return date.toISOString()
 }
 
+const pad = (n: number) => String(n).padStart(2, "0")
+
 function formatDate(d: Date, fmt: string): string {
-  // Support Go-style reference date format: 2006-01-02T15:04:05Z07:00
-  return fmt
-    .replace("2006", String(d.getFullYear()))
-    .replace("01", String(d.getMonth() + 1).padStart(2, "0"))
-    .replace("02", String(d.getDate()).padStart(2, "0"))
-    .replace("15", String(d.getHours()).padStart(2, "0"))
-    .replace("04", String(d.getMinutes()).padStart(2, "0"))
-    .replace("05", String(d.getSeconds()).padStart(2, "0"))
+  // Go reference-layout tokens: 2006 (year), 01 (month), 02 (day), 15 (hour),
+  // 04 (minute) and 05 (second), read in UTC like the default toISOString()
+  // output, and the zones Z07:00, -07:00, Z0700, -0700 and MST, written as
+  // UTC to match. One pass with the longest tokens first, so an already-
+  // substituted value is never re-matched.
+  const parts: Record<string, string> = {
+    "Z07:00": "Z",
+    "-07:00": "+00:00",
+    "Z0700": "Z",
+    "-0700": "+0000",
+    "MST": "UTC",
+    "2006": String(d.getUTCFullYear()),
+    "01": pad(d.getUTCMonth() + 1),
+    "02": pad(d.getUTCDate()),
+    "15": pad(d.getUTCHours()),
+    "04": pad(d.getUTCMinutes()),
+    "05": pad(d.getUTCSeconds()),
+  }
+  return fmt.replace(/Z07:00|-07:00|Z0700|-0700|2006|MST|01|02|15|04|05/g, (token) => parts[token])
 }
 
 function generateWords(config: FuzzConfig): string {
-  let count = config.wordCount ?? 0
-  if (count <= 0) {
-    const minCount = config.minWordCount ?? 2
-    const maxCount = config.maxWordCount ?? minCount + 3
-    count = randomInt(minCount, Math.max(minCount, maxCount))
-  }
+  const count = config.wordCount ?? randomInt(...boundedRange(config, "minWordCount", "maxWordCount", 2, 3))
   const result: string[] = []
   for (let i = 0; i < count; i++) {
     result.push(randomChoice(WORDS))
@@ -195,18 +232,10 @@ function generateWords(config: FuzzConfig): string {
 }
 
 function generateList(config: FuzzConfig): string {
-  let count = config.count ?? 0
-  if (count <= 0) {
-    const minCount = config.minCount ?? 2
-    const maxCount = config.maxCount ?? minCount + 3
-    count = randomInt(minCount, Math.max(minCount, maxCount))
-  }
+  const count = config.count ?? randomInt(...boundedRange(config, "minCount", "maxCount", 2, 3))
   const items: string[] = []
-  const itemConfig: FuzzConfig = {
-    type: "string",
-    minLength: config.minLength ?? 5,
-    maxLength: config.maxLength ?? 12,
-  }
+  const [minLength, maxLength] = boundedRange(config, "minLength", "maxLength", 5, 7)
+  const itemConfig: FuzzConfig = { type: "string", minLength, maxLength }
   for (let i = 0; i < count; i++) {
     items.push(generateString(itemConfig))
   }
@@ -214,12 +243,7 @@ function generateList(config: FuzzConfig): string {
 }
 
 function generateMap(config: FuzzConfig): unknown {
-  let count = config.count ?? 0
-  if (count <= 0) {
-    const minCount = config.minCount ?? 2
-    const maxCount = config.maxCount ?? minCount + 2
-    count = randomInt(minCount, Math.max(minCount, maxCount))
-  }
+  const count = config.count ?? randomInt(...boundedRange(config, "minCount", "maxCount", 2, 2))
 
   const keyConfig: FuzzConfig = { type: "string", minLength: 5, maxLength: 12 }
 
@@ -240,11 +264,8 @@ function generateMap(config: FuzzConfig): unknown {
 
   // Flat map as JSON string
   const result: Record<string, string> = {}
-  const valueConfig: FuzzConfig = {
-    type: "string",
-    minLength: config.minLength ?? 5,
-    maxLength: config.maxLength ?? 12,
-  }
+  const [minLength, maxLength] = boundedRange(config, "minLength", "maxLength", 5, 7)
+  const valueConfig: FuzzConfig = { type: "string", minLength, maxLength }
   for (let i = 0; i < count; i++) {
     result[generateString(keyConfig)] = generateString(valueConfig)
   }

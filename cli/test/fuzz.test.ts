@@ -1,6 +1,8 @@
 import { describe, it, expect } from "bun:test"
+import { spawnSync } from "node:child_process"
+import * as path from "node:path"
 import { generateFuzzValue, resolveTestInputs } from "./fuzz.ts"
-import type { FuzzConfig, InputValue } from "./config.ts"
+import { parseConfig, type FuzzConfig, type InputValue } from "./config.ts"
 
 // Run a generator N times so randomness-sensitive tests still cover the
 // likely-output space without going flaky on a single draw.
@@ -39,6 +41,22 @@ describe("generateFuzzValue", () => {
     expect(v.length).toBe(2 + 4 + 2)
   })
 
+  it("string: a lone maxLength below the default minLength (8) is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      expect(generateFuzzValue({ type: "string", maxLength: 3 })).toHaveLength(3)
+    }
+  })
+
+  it("string: length 0 gives an empty string", () => {
+    expect(generateFuzzValue({ type: "string", length: 0, prefix: "p-" })).toBe("p-")
+  })
+
+  it("string: throws when maxLength is less than minLength", () => {
+    expect(() => generateFuzzValue({ type: "string", minLength: 5, maxLength: 3 })).toThrow(
+      "fuzz string: maxLength (3) is less than minLength (5)",
+    )
+  })
+
   it("int: stays within min/max inclusive", () => {
     for (let i = 0; i < SAMPLES; i++) {
       const v = generateFuzzValue({ type: "int", min: 5, max: 10 }) as number
@@ -54,6 +72,68 @@ describe("generateFuzzValue", () => {
       expect(v).toBeGreaterThanOrEqual(0)
       expect(v).toBeLessThanOrEqual(1)
     }
+  })
+
+  it("int/float: a lone min is honored (max defaults to min + 100)", () => {
+    for (const type of ["int", "float"] as const) {
+      for (let i = 0; i < SAMPLES; i++) {
+        const v = generateFuzzValue({ type, min: 200 }) as number
+        expect(v).toBeGreaterThanOrEqual(200)
+        expect(v).toBeLessThanOrEqual(300)
+      }
+    }
+  })
+
+  it("int: a lone max keeps min at 0, or max - 100 when max is non-positive", () => {
+    const zeroes = new Set<number>()
+    for (let i = 0; i < SAMPLES; i++) {
+      const pos = generateFuzzValue({ type: "int", max: 50 }) as number
+      expect(pos).toBeGreaterThanOrEqual(0)
+      expect(pos).toBeLessThanOrEqual(50)
+      const neg = generateFuzzValue({ type: "int", max: -5 }) as number
+      expect(neg).toBeGreaterThanOrEqual(-105)
+      expect(neg).toBeLessThanOrEqual(-5)
+      const zero = generateFuzzValue({ type: "int", max: 0 }) as number
+      expect(zero).toBeGreaterThanOrEqual(-100)
+      expect(zero).toBeLessThanOrEqual(0)
+      zeroes.add(zero)
+    }
+    // A lone max of 0 must still fuzz, not collapse to the constant 0.
+    expect(zeroes.size).toBeGreaterThan(1)
+  })
+
+  it("int/float: min == max yields exactly that value", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      expect(generateFuzzValue({ type: "int", min: 7, max: 7 })).toBe(7)
+      expect(generateFuzzValue({ type: "float", min: 2.5, max: 2.5 })).toBe(2.5)
+    }
+  })
+
+  it("int/float: throw when max is less than min", () => {
+    expect(() => generateFuzzValue({ type: "int", min: 10, max: 5 })).toThrow(
+      /max \(5\) is less than min \(10\)/,
+    )
+    expect(() => generateFuzzValue({ type: "float", min: 10, max: 5 })).toThrow(
+      /max \(5\) is less than min \(10\)/,
+    )
+  })
+
+  it("int: fractional bounds narrow to the whole numbers between them", () => {
+    const seen = new Set<number>()
+    for (let i = 0; i < SAMPLES; i++) {
+      const v = generateFuzzValue({ type: "int", min: 0.5, max: 2.5 }) as number
+      expect(Number.isInteger(v)).toBe(true)
+      expect(v).toBeGreaterThanOrEqual(1)
+      expect(v).toBeLessThanOrEqual(2)
+      seen.add(v)
+    }
+    expect(seen).toEqual(new Set([1, 2]))
+  })
+
+  it("int: throws when no integer lies between min and max", () => {
+    expect(() => generateFuzzValue({ type: "int", min: 0.2, max: 0.8 })).toThrow(
+      "fuzz int: no integer between min (0.2) and max (0.8)",
+    )
   })
 
   it("bool: returns a boolean", () => {
@@ -118,14 +198,83 @@ describe("generateFuzzValue", () => {
     }
   })
 
+  it("date: format substitutes each token once, never inside the year", () => {
+    const range = { minDate: "2026-03-10", maxDate: "2026-03-10" }
+    expect(generateFuzzValue({ type: "date", ...range, format: "2006-01-02" })).toBe("2026-03-10")
+    expect(generateFuzzValue({ type: "date", ...range, format: "01/02/2006" })).toBe("03/10/2026")
+  })
+
   it("timestamp: returns ISO 8601 with time", () => {
     const v = generateFuzzValue({ type: "timestamp" }) as string
     expect(v).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
   })
 
+  it("timestamp: format supports the RFC3339 layout, including Z07:00", () => {
+    const ts = "2019-07-18T09:30:45Z"
+    expect(
+      generateFuzzValue({
+        type: "timestamp",
+        minDate: ts,
+        maxDate: ts,
+        format: "2006-01-02T15:04:05Z07:00",
+      }),
+    ).toBe(ts)
+  })
+
+  it("timestamp: format writes every Go zone layout as UTC", () => {
+    const ts = "2019-07-18T09:30:45Z"
+    const fmt = (format: string) =>
+      generateFuzzValue({ type: "timestamp", minDate: ts, maxDate: ts, format })
+    expect(fmt("2006-01-02T15:04:05-07:00")).toBe("2019-07-18T09:30:45+00:00")
+    expect(fmt("2006-01-02T15:04:05-0700")).toBe("2019-07-18T09:30:45+0000")
+    expect(fmt("2006-01-02T15:04:05Z0700")).toBe("2019-07-18T09:30:45Z")
+    expect(fmt("2006-01-02 15:04:05 MST")).toBe("2019-07-18 09:30:45 UTC")
+    // Each still names the fuzzed instant, not one shifted by a literal offset.
+    for (const format of ["2006-01-02T15:04:05-07:00", "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05Z0700"]) {
+      expect(new Date(fmt(format) as string).toISOString()).toBe("2019-07-18T09:30:45.000Z")
+    }
+  })
+
+  it("date/timestamp: format uses UTC, not the local time zone", () => {
+    // The time zone is fixed when the process starts, so run the generator in
+    // a child process west of UTC, where local getters would put a UTC-midnight
+    // date on the previous day.
+    const fuzzModule = path.join(import.meta.dirname, "fuzz.ts")
+    const script = `
+      import { generateFuzzValue } from ${JSON.stringify(fuzzModule)}
+      console.log(JSON.stringify([
+        generateFuzzValue({ type: "date", minDate: "2026-03-10", maxDate: "2026-03-10", format: "01/02/2006" }),
+        generateFuzzValue({ type: "timestamp", minDate: "2019-07-18T02:30:45Z", maxDate: "2019-07-18T02:30:45Z", format: "02 15:04" }),
+      ]))
+    `
+    const res = spawnSync(process.execPath, ["-e", script], {
+      encoding: "utf8",
+      env: { ...process.env, TZ: "America/Los_Angeles" },
+    })
+    expect({ status: res.status, stderr: res.stderr }).toMatchObject({ status: 0 })
+    expect(JSON.parse(res.stdout)).toEqual(["03/10/2026", "18 02:30"])
+  })
+
   it("words: returns the requested number of words", () => {
     const v = generateFuzzValue({ type: "words", wordCount: 4 }) as string
     expect(v.split(/\s+/)).toHaveLength(4)
+  })
+
+  it("words: a lone maxWordCount below the default minWordCount (2) is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      const v = generateFuzzValue({ type: "words", maxWordCount: 1 }) as string
+      expect(v.split(" ")).toHaveLength(1)
+    }
+  })
+
+  it("words: wordCount 0 gives an empty string", () => {
+    expect(generateFuzzValue({ type: "words", wordCount: 0 })).toBe("")
+  })
+
+  it("words: throws when maxWordCount is less than minWordCount", () => {
+    expect(() => generateFuzzValue({ type: "words", minWordCount: 4, maxWordCount: 2 })).toThrow(
+      "fuzz words: maxWordCount (2) is less than minWordCount (4)",
+    )
   })
 
   it("list: returns a JSON-encoded array of N items", () => {
@@ -135,11 +284,71 @@ describe("generateFuzzValue", () => {
     expect(parsed).toHaveLength(3)
   })
 
+  it("list: a lone maxCount or maxLength below its default is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      // Defaults: minCount 2, minLength 5.
+      const items = JSON.parse(generateFuzzValue({ type: "list", maxCount: 1, maxLength: 3 }) as string)
+      expect(items).toHaveLength(1)
+      expect(items[0]).toHaveLength(3)
+    }
+  })
+
+  it("list: a lone minLength above the default maxLength (12) still fuzzes (max = minLength + 7)", () => {
+    const lengths = new Set<number>()
+    for (let i = 0; i < SAMPLES; i++) {
+      const items: string[] = JSON.parse(generateFuzzValue({ type: "list", minLength: 20 }) as string)
+      for (const item of items) {
+        expect(item.length).toBeGreaterThanOrEqual(20)
+        expect(item.length).toBeLessThanOrEqual(27)
+        lengths.add(item.length)
+      }
+    }
+    expect(lengths.size).toBeGreaterThan(1)
+  })
+
+  it("list: count 0 gives an empty list", () => {
+    expect(generateFuzzValue({ type: "list", count: 0 })).toBe("[]")
+  })
+
+  it("list: throws when maxCount or maxLength is less than its minimum", () => {
+    expect(() => generateFuzzValue({ type: "list", minCount: 3, maxCount: 1 })).toThrow(
+      "fuzz list: maxCount (1) is less than minCount (3)",
+    )
+    expect(() => generateFuzzValue({ type: "list", minLength: 6, maxLength: 3 })).toThrow(
+      "fuzz list: maxLength (3) is less than minLength (6)",
+    )
+  })
+
   it("map (no schema): returns a JSON-encoded object", () => {
     const v = generateFuzzValue({ type: "map", count: 2 }) as string
     const parsed = JSON.parse(v)
     expect(typeof parsed).toBe("object")
     expect(Object.keys(parsed).length).toBe(2)
+  })
+
+  it("map: a lone maxCount or maxLength below its default is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      // Defaults: minCount 2, minLength 5.
+      const entries = Object.values(
+        JSON.parse(generateFuzzValue({ type: "map", maxCount: 1, maxLength: 3 }) as string),
+      )
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).toHaveLength(3)
+    }
+  })
+
+  it("map: count 0 gives an empty map", () => {
+    expect(generateFuzzValue({ type: "map", count: 0 })).toBe("{}")
+    expect(generateFuzzValue({ type: "map", count: 0, schema: ["a"] })).toEqual({})
+  })
+
+  it("map: throws when maxCount or maxLength is less than its minimum", () => {
+    expect(() => generateFuzzValue({ type: "map", minCount: 3, maxCount: 1 })).toThrow(
+      "fuzz map: maxCount (1) is less than minCount (3)",
+    )
+    expect(() => generateFuzzValue({ type: "map", minLength: 6, maxLength: 3 })).toThrow(
+      "fuzz map: maxLength (3) is less than minLength (6)",
+    )
   })
 
   it("map (with schema): returns nested objects keyed by schema fields", () => {
@@ -182,10 +391,39 @@ describe("resolveTestInputs", () => {
     })
     expect(typeof out.name).toBe("string")
     expect((out.name as string).length).toBe(5)
-    // generateInt treats max <= min as a default range, so 7..7 may not
-    // yield exactly 7 — confirm it's a finite integer either way.
-    expect(typeof out.age).toBe("number")
-    expect(Number.isInteger(out.age)).toBe(true)
+    expect(out.age).toBe(7)
+  })
+
+  it("treats an empty YAML bound (`max:` or `max: ~`, parsed as null) as unset", () => {
+    const { tests } = parseConfig(`
+version: 1
+tests:
+  - name: empty-bounds
+    inputs:
+      a.Int:
+        fuzz:
+          type: int
+          max:
+      a.Float:
+        fuzz:
+          type: float
+          max: ~
+      a.Name:
+        fuzz:
+          type: string
+          minLength: ~
+          maxLength:
+`)
+    for (let i = 0; i < SAMPLES; i++) {
+      const out = resolveTestInputs(tests[0].inputs)
+      // The defaults, as if the fields were absent: 0..100 and 8..18.
+      for (const key of ["a.Int", "a.Float"]) {
+        expect(out[key]).toBeGreaterThanOrEqual(0)
+        expect(out[key]).toBeLessThanOrEqual(100)
+      }
+      expect((out["a.Name"] as string).length).toBeGreaterThanOrEqual(8)
+      expect((out["a.Name"] as string).length).toBeLessThanOrEqual(18)
+    }
   })
 
   it("returns an empty object when inputs is undefined", () => {

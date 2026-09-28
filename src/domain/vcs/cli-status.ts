@@ -7,8 +7,8 @@
  * Pure probe helpers; result caching lives with the caller
  * (VcsCredentialsLive).
  */
-import { Effect, Stream } from "effect"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { Effect } from "effect"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 
 export interface CliStatus {
   readonly installed: boolean
@@ -44,24 +44,15 @@ export const compareVersions = (a: string, b: string): number => {
 const runForOutput = (
   command: string,
   args: string[],
+  env?: Record<string, string | undefined>,
 ): Effect.Effect<{ exitCode: number; output: string } | undefined, never, ProcessSpawner> =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
     const result = yield* Effect.either(
       Effect.gen(function* () {
-        const proc = yield* spawner.spawn(command, args)
-        const lines: string[] = []
-        const exitCode = yield* Effect.ensuring(
-          Effect.gen(function* () {
-            yield* proc.output.pipe(
-              Stream.runForEach((line) => Effect.sync(() => lines.push(line.line))),
-              Effect.timeout(PROBE_TIMEOUT_MS),
-            )
-            return yield* proc.exitCode.pipe(Effect.timeout(PROBE_TIMEOUT_MS))
-          }),
-          proc.kill.pipe(Effect.ignore),
-        )
-        return { exitCode, output: lines.join("\n") }
+        const proc = yield* spawner.spawn(command, args, env ? { env } : undefined)
+        const { exitCode, lines } = yield* collectOutput(proc, PROBE_TIMEOUT_MS)
+        return { exitCode, output: lines.map((line) => line.line).join("\n") }
       }),
     )
     return result._tag === "Left" ? undefined : result.right
@@ -71,9 +62,10 @@ const probeCliStatus = (
   command: string,
   pattern: RegExp,
   floor: string,
+  env?: Record<string, string | undefined>,
 ): Effect.Effect<CliStatus, never, ProcessSpawner> =>
   Effect.gen(function* () {
-    const result = yield* runForOutput(command, ["version"])
+    const result = yield* runForOutput(command, ["version"], env)
     if (!result || result.exitCode !== 0) {
       return { installed: false, meetsFloor: false }
     }
@@ -87,8 +79,15 @@ const probeCliStatus = (
     }
   })
 
-export const probeGhStatus = () => probeCliStatus("gh", GH_VERSION_PATTERN, GH_VERSION_FLOOR)
-export const probeGlabStatus = () => probeCliStatus("glab", GLAB_VERSION_PATTERN, GLAB_VERSION_FLOOR)
+/**
+ * `env` is the child env for the spawn — the caller passes the gh/glab
+ * hygiene env (buildCliEnv with GH_/GLAB_ENV_OVERRIDES) so the version probe
+ * follows the same no-prompt/no-update-check rules as every other CLI spawn.
+ */
+export const probeGhStatus = (env?: Record<string, string | undefined>) =>
+  probeCliStatus("gh", GH_VERSION_PATTERN, GH_VERSION_FLOOR, env)
+export const probeGlabStatus = (env?: Record<string, string | undefined>) =>
+  probeCliStatus("glab", GLAB_VERSION_PATTERN, GLAB_VERSION_FLOOR, env)
 
 /**
  * Sentinel sslBackend value for "git is present but the key is unset": git is
