@@ -412,7 +412,8 @@ export function registerGitHubHandlers(): void {
       return runtime.runPromise(
         Effect.gen(function* () {
           const { token, host } = yield* getSessionCredential(params.host)
-          return yield* listLabels(token, params.owner, params.repo, host)
+          const labels = yield* listLabels(token, params.owner, params.repo, host)
+          return { labels }
         }),
       )
     },

@@ -449,6 +449,21 @@ describe("github:orgs (session credential per host)", () => {
   })
 })
 
+describe("github:labels", () => {
+  it("returns the repo's label names wrapped in { labels }, matching the channel contract", async () => {
+    await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
+    mockFetch((url) =>
+      url.includes("/repos/acme/infra/labels") ? json([{ name: "bug" }, { name: "infra" }]) : githubResponder(url),
+    )
+    fetchCalls = []
+    const result = await invoke("github:labels", { owner: "acme", repo: "infra", host: GHES })
+    // The renderer reads `result.labels`; a bare array leaves the pull
+    // request's label picker empty.
+    expect(result).toEqual({ labels: ["bug", "infra"] })
+    expect(fetchCalls[0].url).toBe(`https://${GHES}/api/v3/repos/acme/infra/labels?per_page=100&page=1`)
+  })
+})
+
 describe("github:host-picked", () => {
   it("persists the normalized host; ignores an invalid one", async () => {
     expect(await invoke("github:host-picked", { host: "https://GHES.example.com/" })).toEqual({ ok: true })
