@@ -1,7 +1,7 @@
 import './css/App.css'
 import './css/github-markdown.css'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { BookOpen, Code, AlertTriangle } from "lucide-react"
+import { BookOpen, Code } from "lucide-react"
 import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
 import { OpenUrlModal } from './components/layout/OpenUrlModal'
