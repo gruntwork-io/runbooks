@@ -234,19 +234,20 @@ describe("runbooks-cli test — test case isolation", () => {
 
 describe("runbooks-cli test — GitClone authentication", () => {
   /**
-   * Serve a local repo at https://<host>/group/<repo>.git, but only to a clone
-   * URL carrying `userinfo`, or no userinfo when it is "": git rewrites those
-   * URLs to the local repo. Any other URL on 127.0.0.1:1, and any URL prefix in
-   * `refuse`, goes to port 1, which refuses the connection. So the clone
-   * succeeds only if the runner put exactly that user and token in the URL.
+   * Serve a local repo at https://<host>/group/<repo>.git: git rewrites that
+   * URL to the local repo. A `git` shim first on PATH records the basic-auth
+   * credentials of every `Authorization` header the runner hands a clone in
+   * its environment (withGitHttpAuth), and the clone's arguments, then runs
+   * the real git. So a test can check exactly which user and token the runner
+   * sent, and that no token was put in the clone URL.
    */
   function runCloneWithAuth(opts: {
     repo: string
     host?: string
-    userinfo: string
-    refuse?: string[]
     authBlock?: string
     cloneProps?: string
+    /** The test case's GITLAB_HOST: the host a GitLab env token is bound to. */
+    gitlabHost?: string
     /** Lines for the test case's `env:`. */
     env: string[]
     /** Env for the CLI itself; an undefined value unsets the variable. */
@@ -262,6 +263,29 @@ describe("runbooks-cli test — GitClone authentication", () => {
     git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "init")
     const remote = path.join(tmp, "remote")
     git("clone", "-q", "--bare", upstream, path.join(remote, "group", `${opts.repo}.git`))
+
+    const realGit = spawnSync("sh", ["-c", "command -v git"], { encoding: "utf-8" }).stdout.trim()
+    const bin = path.join(tmp, "bin")
+    fs.mkdirSync(bin)
+    const log = path.join(tmp, "git-clone.log")
+    fs.writeFileSync(
+      path.join(bin, "git"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "clone" ]; then',
+        `  echo "args: $*" >> "${log}"`,
+        "  i=0",
+        '  while [ "$i" -lt "${GIT_CONFIG_COUNT:-0}" ]; do',
+        '    eval "v=\\${GIT_CONFIG_VALUE_$i}"',
+        `    case "$v" in "Authorization: Basic "*) echo "auth: \${v#Authorization: Basic }" >> "${log}";; esac`,
+        "    i=$((i + 1))",
+        "  done",
+        "fi",
+        `exec "${realGit}" "$@"`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    )
 
     const url = `https://${host}/group/${opts.repo}.git`
     const dir = writeRunbook(
@@ -279,7 +303,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
         "tests:",
         "  - name: clone",
         "    env:",
-        '      GITLAB_HOST: ""',
+        `      GITLAB_HOST: "${opts.gitlabHost ?? ""}"`,
         '      GITLAB_URI: ""',
         '      GL_HOST: ""',
         ...opts.env.map((line) => `      ${line}`),
@@ -287,32 +311,36 @@ describe("runbooks-cli test — GitClone authentication", () => {
       ].join("\n"),
     )
 
-    const rules: [string, string][] = [
-      [`url.file://${remote}/.insteadOf`, `https://${opts.userinfo ? `${opts.userinfo}@` : ""}${host}/`],
-      ...(opts.refuse ?? []).map((prefix): [string, string] => ["url.https://127.0.0.1:1/.insteadOf", prefix]),
-    ]
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      // Only these rules, not the machine's own git config, decide where a URL goes
+      PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+      // Only this rule, not the machine's own git config, decides where a URL goes
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_TERMINAL_PROMPT: "0",
-      GIT_CONFIG_COUNT: String(rules.length),
-      ...Object.fromEntries(rules.flatMap(([key, value], i) => [
-        [`GIT_CONFIG_KEY_${i}`, key],
-        [`GIT_CONFIG_VALUE_${i}`, value],
-      ])),
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: `url.file://${remote}/.insteadOf`,
+      GIT_CONFIG_VALUE_0: `https://${host}/`,
       ...opts.cliEnv,
     }
     for (const key of Object.keys(env)) if (env[key] === undefined) delete env[key]
 
-    return runCliWithEnv(env, dir)
+    const result = runCliWithEnv(env, dir)
+    const lines = fs.existsSync(log) ? fs.readFileSync(log, "utf-8").split("\n").filter(Boolean) : []
+    return {
+      ...result,
+      /** The user:token pairs the runner sent with the clone. */
+      sentAuth: lines
+        .filter((l) => l.startsWith("auth: "))
+        .map((l) => Buffer.from(l.slice("auth: ".length), "base64").toString("utf-8")),
+      cloneArgs: lines.filter((l) => l.startsWith("args: ")).join("\n"),
+    }
   }
 
   it("clones as oauth2 with the token of the GitLab auth block it references", () => {
-    const { status, stdout } = runCloneWithAuth({
+    const { status, stdout, sentAuth, cloneArgs } = runCloneWithAuth({
       repo: "infra",
-      userinfo: "oauth2:fake-gitlab-token",
+      host: "gitlab.com",
       authBlock: `<GitLabAuth id="auth" />`,
       cloneProps: `gitAuthId="auth"`,
       env: ["GITLAB_TOKEN: fake-gitlab-token"],
@@ -320,13 +348,46 @@ describe("runbooks-cli test — GitClone authentication", () => {
 
     expect(stdout).toContain("1 passed, 0 failed")
     expect(status).toBe(0)
+    expect(sentAuth).toEqual(["oauth2:fake-gitlab-token"])
+    expect(cloneArgs).toContain("https://gitlab.com/group/infra.git")
+    expect(cloneArgs).not.toContain("fake-gitlab-token")
+  }, CLI_TIMEOUT)
+
+  it("sends a GitLab auth block's token to the self-managed host it is bound to", () => {
+    const { status, stdout, sentAuth } = runCloneWithAuth({
+      repo: "infra",
+      host: "gitlab.corp.example",
+      gitlabHost: "gitlab.corp.example",
+      authBlock: `<GitLabAuth id="auth" />`,
+      cloneProps: `gitAuthId="auth"`,
+      env: ["GITLAB_TOKEN: fake-gitlab-token"],
+    })
+
+    expect(stdout).toContain("1 passed, 0 failed")
+    expect(status).toBe(0)
+    expect(sentAuth).toEqual(["oauth2:fake-gitlab-token"])
+  }, CLI_TIMEOUT)
+
+  it("never sends a GitLab auth block's token to a host it isn't bound to", () => {
+    // The token is bound to gitlab.com (no GITLAB_HOST); the clone is elsewhere.
+    const { status, stdout, sentAuth } = runCloneWithAuth({
+      repo: "infra",
+      authBlock: `<GitLabAuth id="auth" />`,
+      cloneProps: `gitAuthId="auth"`,
+      env: ["GITLAB_TOKEN: fake-gitlab-token"],
+    })
+
+    // The repo is public here, so the clone still succeeds without a token.
+    expect(stdout).toContain("1 passed, 0 failed")
+    expect(status).toBe(0)
+    expect(sentAuth).toEqual([])
   }, CLI_TIMEOUT)
 
   it("clones as x-access-token for a GitHub auth block and names the dir after the repo", () => {
-    const { status, stdout } = runCloneWithAuth({
+    const { status, stdout, sentAuth } = runCloneWithAuth({
       // Only the trailing .git comes off the directory name
       repo: "app.gitops",
-      userinfo: "x-access-token:fake-github-token",
+      host: "github.com",
       authBlock: `<GitAuth id="auth" provider="github" />`,
       cloneProps: `gitAuthId="auth"`,
       env: ["RUNBOOKS_GITHUB_TOKEN: fake-github-token"],
@@ -334,33 +395,32 @@ describe("runbooks-cli test — GitClone authentication", () => {
 
     expect(stdout).toContain("1 passed, 0 failed")
     expect(status).toBe(0)
+    expect(sentAuth).toEqual(["x-access-token:fake-github-token"])
   }, CLI_TIMEOUT)
 
   it("clones a github.com URL with no auth reference using the CLI's own GITHUB_TOKEN", () => {
-    const { status, stdout } = runCloneWithAuth({
+    const { status, stdout, sentAuth } = runCloneWithAuth({
       repo: "app",
       host: "github.com",
-      userinfo: "x-access-token:ambient-secret",
-      refuse: ["https://github.com/"],
       env: [],
-      cliEnv: { GITHUB_TOKEN: "ambient-secret", GH_TOKEN: undefined },
+      cliEnv: { GITHUB_TOKEN: "ambient-secret", GH_TOKEN: undefined, GITHUB_HOST: undefined, GH_HOST: undefined },
     })
 
     expect(stdout).toContain("1 passed, 0 failed")
     expect(status).toBe(0)
+    expect(sentAuth).toEqual(["x-access-token:ambient-secret"])
   }, CLI_TIMEOUT)
 
   it("clones with no token when the test's env blanks the CLI's own GITHUB_TOKEN and GH_TOKEN", () => {
-    const { status, stdout } = runCloneWithAuth({
+    const { status, stdout, sentAuth } = runCloneWithAuth({
       repo: "app",
       host: "github.com",
-      userinfo: "",
-      refuse: ["https://x-access-token:ambient-secret@github.com/"],
       env: ['GITHUB_TOKEN: ""', 'GH_TOKEN: ""'],
       cliEnv: { GITHUB_TOKEN: "ambient-secret", GH_TOKEN: "ambient-secret" },
     })
 
     expect(stdout).toContain("1 passed, 0 failed")
     expect(status).toBe(0)
+    expect(sentAuth).toEqual([])
   }, CLI_TIMEOUT)
 })

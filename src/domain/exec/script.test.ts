@@ -8,6 +8,8 @@ import {
   detectInterpreter,
   isBashInterpreter,
   isValidEnvVarName,
+  resolveScriptRunner,
+  prepareScript,
   wrapBashScript,
   parseEnvCapture,
   parseEnvCaptureContent,
@@ -16,6 +18,7 @@ import {
   captureFilesFromDir,
 } from "./script.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
+import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
 function runFs<A>(effect: Effect.Effect<A, any, any>, files: Record<string, string> = {}) {
   return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<A, any, never>)
@@ -84,6 +87,67 @@ describe("isBashInterpreter", () => {
     "",
   ])("returns false for %s", (interp) => {
     expect(isBashInterpreter(interp)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveScriptRunner
+// ---------------------------------------------------------------------------
+
+describe("resolveScriptRunner", () => {
+  it("runs a #!/bin/sh script under bash with sh's echo behavior", () => {
+    expect(resolveScriptRunner("#!/bin/sh\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: ["-O", "xpg_echo"],
+      wrap: true,
+    })
+  })
+
+  it("runs a #!/usr/bin/env sh script under bash", () => {
+    expect(resolveScriptRunner("#!/usr/bin/env sh\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: ["-O", "xpg_echo"],
+      wrap: true,
+    })
+  })
+
+  it("treats an explicit sh language like a #!/bin/sh shebang", () => {
+    for (const lang of ["sh", "/bin/sh", "/usr/bin/sh"]) {
+      expect(resolveScriptRunner("echo hi", lang)).toEqual({
+        interpreter: "bash",
+        args: ["-O", "xpg_echo"],
+        wrap: true,
+      })
+    }
+  })
+
+  it("keeps shebang args when switching sh to bash", () => {
+    expect(resolveScriptRunner("#!/bin/sh -e\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: ["-O", "xpg_echo", "-e"],
+      wrap: true,
+    })
+  })
+
+  it("wraps bash scripts and scripts without a shebang", () => {
+    expect(resolveScriptRunner("#!/bin/bash\necho hi", "")).toEqual({
+      interpreter: "bash",
+      args: [],
+      wrap: true,
+    })
+    expect(resolveScriptRunner("echo hi", "")).toEqual({
+      interpreter: "bash",
+      args: [],
+      wrap: true,
+    })
+  })
+
+  it("leaves other interpreters unwrapped", () => {
+    expect(resolveScriptRunner("#!/usr/bin/env python3\nprint(1)", "")).toEqual({
+      interpreter: "python3",
+      args: [],
+      wrap: false,
+    })
   })
 })
 
@@ -493,6 +557,157 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
     expect(result.capturedEnv).not.toBeNull()
     expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+  })
+
+  it("'trap -- handler EXIT' runs the user's handler and env capture", () => {
+    const result = runWrapped(
+      `trap -- 'echo USER_CLEANUP' EXIT
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("lowercase 'exit' is intercepted like EXIT", () => {
+    const result = runWrapped(
+      `trap 'echo USER_CLEANUP' exit
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("'trap handler INT EXIT' keeps the EXIT handler and installs the INT one", () => {
+    const result = runWrapped(
+      `trap 'echo USER_CLEANUP' INT EXIT
+       trap -p INT
+       export MY_VAR=hello`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toMatch(/trap -- 'echo USER_CLEANUP' (SIG)?INT/)
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it.each([
+    "trap EXIT",
+    "trap 0",
+    "trap -- - EXIT",
+    "trap 0 INT",
+  ])("'%s' resets the user's EXIT handler and still runs env capture", (reset) => {
+    const result = runWrapped(
+      `trap 'echo SHOULD_NOT_RUN' EXIT
+       ${reset}
+       export AFTER_RESET=yes
+       echo done`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("done")
+    expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+  })
+
+  it("the trap override works under set -euo pipefail", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       trap -- 'echo FIRST_CLEANUP' EXIT
+       trap - EXIT
+       trap 'echo on-int' INT
+       trap 'echo USER_CLEANUP' EXIT
+       export MY_VAR=hello
+       echo running`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("running")
+    expect(result.stdout).toContain("USER_CLEANUP")
+    expect(result.stdout).not.toContain("FIRST_CLEANUP")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  // bash resets traps in a subshell, so the wrapper's EXIT handler is not
+  // installed there. A trap set in a subshell must be the real one, or it
+  // never runs.
+  it("an EXIT trap set in a ( ) subshell runs when the subshell exits", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       trap 'echo TOP_CLEANUP' EXIT
+       ( trap 'echo SUB_CLEANUP' EXIT; echo in-sub )
+       echo after-sub
+       export MY_VAR=hello`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("in-sub\nSUB_CLEANUP\nafter-sub\nTOP_CLEANUP\n")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  it("an EXIT trap set in a $( ) command substitution runs, and its output is captured", () => {
+    const result = runWrapped(
+      `set -u
+       x=$(trap 'echo CS_CLEANUP' EXIT; echo value)
+       echo "x=[$x]"
+       export MY_VAR=hello`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("x=[value\nCS_CLEANUP]")
+    expect(result.capturedEnv).not.toBeNull()
+    expect(result.capturedEnv!.MY_VAR).toBe("hello")
+  })
+
+  /** Prepare `content` and spawn exactly what the executor would. */
+  function runPrepared(content: string) {
+    return Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const setup = yield* prepareScript(content, "")
+          // The resolved interpreter and args, not the wrapper's own
+          // #!/bin/bash line.
+          const res = yield* Effect.sync(() =>
+            spawnSync(setup.interpreter, [...setup.args, setup.scriptPath], {
+              encoding: "utf8",
+            }),
+          )
+          const captured = yield* parseEnvCapture(setup.envCapturePath, setup.pwdCapturePath)
+          return { stdout: res.stdout ?? "", env: captured.env }
+        }),
+      ).pipe(Effect.provide(NodeFileSystemLive)),
+    )
+  }
+
+  it("prepareScript runs a #!/bin/sh script under bash, so its EXIT trap and env capture both work", async () => {
+    const { stdout, env } = await runPrepared(
+      "#!/bin/sh\ntrap 'echo USER_CLEANUP' EXIT\nexport MY_VAR=hello\necho running\n",
+    )
+    expect(stdout).toContain("running")
+    expect(stdout).toContain("USER_CLEANUP")
+    expect(env?.MY_VAR).toBe("hello")
+  })
+
+  it("prepareScript runs a #!/bin/sh script's subshell EXIT trap, as sh does", async () => {
+    const { stdout, env } = await runPrepared(
+      "#!/bin/sh\n( trap 'echo SUB_CLEANUP' EXIT; echo in-sub )\necho after-sub\nexport MY_VAR=hello\n",
+    )
+    expect(stdout).toBe("in-sub\nSUB_CLEANUP\nafter-sub\n")
+    expect(env?.MY_VAR).toBe("hello")
+  })
+
+  it("a #!/bin/sh script's echo expands backslash escapes, as under dash and macOS sh", async () => {
+    const { stdout } = await runPrepared('#!/bin/sh\necho "a\\nb"\n')
+    expect(stdout).toBe("a\nb\n")
+  })
+
+  it("a #!/bin/bash script's echo keeps bash's default and prints escapes literally", async () => {
+    const { stdout } = await runPrepared('#!/bin/bash\necho "a\\nb"\n')
+    expect(stdout).toBe("a\\nb\n")
   })
 
   it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {

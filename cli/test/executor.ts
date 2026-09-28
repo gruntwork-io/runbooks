@@ -14,20 +14,23 @@ import { ManagedRuntime } from "effect"
 import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
+import { DEFAULT_GITHUB_HOST, isGitHubHost, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
+import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
+import { gitCloneArgs } from "../../src/domain/git/clone-args.ts"
 import {
-  detectInterpreter,
-  isBashInterpreter,
   parseBlockOutputsContent,
   parseEnvCaptureContent,
+  resolveScriptRunner,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
-import { injectTokenIntoUrl } from "../../src/domain/git/url.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
 import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import {
   GITLAB_TOKEN_ENV_VARS,
   envTokenHost,
+  gitlabSessionTokenHost,
   mayAutoSendEnvToken,
 } from "../../src/domain/gitlab/auth.ts"
 import { redactSecrets } from "../../src/domain/vcs/redact.ts"
@@ -792,8 +795,8 @@ export class TestExecutor {
 
     try {
       // Prepare the script
-      const [interpreter, interpreterArgs] = detectInterpreter(scriptContent, foundExec.language)
-      const isBash = isBashInterpreter(interpreter)
+      const { interpreter, args: interpreterArgs, wrap: isBash } =
+        resolveScriptRunner(scriptContent, foundExec.language)
 
       let scriptToWrite = scriptContent
       let envCapturePath = ""
@@ -1094,7 +1097,7 @@ export class TestExecutor {
     const prefix = step.env_prefix ?? ""
     const lookup = provider === "gitlab"
       ? this.findGitLabAuthEnv(block, prefix)
-      : this.findGitHubAuthEnv(prefix)
+      : this.findGitHubAuthEnv(block, prefix)
 
     if ("skipReason" in lookup) {
       this.blockStates.set(block.id, "skipped")
@@ -1127,12 +1130,21 @@ export class TestExecutor {
     return result
   }
 
-  private findGitHubAuthEnv(prefix: string): GitAuthLookup {
-    const token = prefix
-      ? this.getenv(`${prefix}GITHUB_TOKEN`) || this.getenv(`${prefix}GH_TOKEN`)
-      : this.getenv("RUNBOOKS_GITHUB_TOKEN") || this.getenv("GITHUB_TOKEN") || this.getenv("GH_TOKEN")
+  /**
+   * GitHub token lookup for the block's `host` (github.com, GHES, or a
+   * ghe.com tenant). Env tokens are read with the app's own host binding
+   * (githubEnvCredentialForHost), so a github.com token is never used for an
+   * enterprise host.
+   */
+  private findGitHubAuthEnv(block: ParsedComponent, prefix: string): GitAuthLookup {
+    const host = tryNormalizeGitHubHost(extractProp(block.props, "host")) ?? DEFAULT_GITHUB_HOST
+    const env = { ...process.env, ...this.testEnv }
+    let token = githubEnvCredentialForHost(host, env, prefix)?.token ?? ""
+    if (!prefix && host === DEFAULT_GITHUB_HOST) {
+      token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || token
+    }
     if (!token) return { skipReason: "No GitHub credentials found" }
-    return { token, vars: { GITHUB_TOKEN: token } }
+    return { token, vars: { GITHUB_TOKEN: token, GITHUB_HOST: host } }
   }
 
   /**
@@ -1442,8 +1454,11 @@ export class TestExecutor {
       destPath = path.join(this.workingDir, parseOwnerRepoFromURL(cloneURL)?.repo ?? "repo")
     }
 
-    // Inject a token into the URL
-    const effectiveURL = this.authenticatedCloneURL(block, cloneURL)
+    // Authenticate an https clone with a token that belongs to the URL's host
+    // (cloneAuthEnv). The token goes in the git commands' environment
+    // (withGitHttpAuth), never in the clone URL, so it is not saved to the
+    // checkout's .git/config.
+    const cloneEnv = this.cloneAuthEnv(block, cloneURL)
 
     if (this.options.verbose) {
       console.log(`--- Cloning ${cloneURL} ---`)
@@ -1452,28 +1467,36 @@ export class TestExecutor {
     }
 
     try {
-      const cloneArgs = ["clone", "--progress"]
-      if (repoPath) {
-        // Sparse checkout
-        cloneArgs.push("--filter=blob:none", "--no-checkout", effectiveURL, destPath)
-      } else {
-        cloneArgs.push(effectiveURL, destPath)
+      // `git checkout <ref>` below has no separator that keeps a ref from
+      // being read as an option (`--orphan=x`): `--` starts pathspecs, and
+      // checkout in git 2.43 (at least) reads `--end-of-options` as one too.
+      // git won't create a branch or tag whose name begins with `-`, and a
+      // commit id is hex, so a ref like that is refused outright.
+      if (ref?.startsWith("-")) {
+        throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
+
+      // With a repo path: a blobless clone without a checkout, then a sparse
+      // checkout of that path.
+      const cloneArgs = gitCloneArgs(cloneURL, destPath, { sparse: !!repoPath })
 
       execFileSync("git", cloneArgs, {
         timeout: this.options.timeout,
         stdio: "pipe",
+        env: cloneEnv,
       })
 
       if (repoPath) {
+        // Same auth as the clone: a blobless clone fetches file contents
+        // lazily from origin during checkout.
         execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
-        execFileSync("git", ["sparse-checkout", "set", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+        execFileSync("git", ["sparse-checkout", "set", "--", repoPath], {
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
         execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
         })
       }
 
@@ -1513,36 +1536,56 @@ export class TestExecutor {
   }
 
   /**
-   * The clone URL with a token in it, chosen by provider, never by host, as
-   * main's clone handler does. The token and provider come from the auth block
-   * the GitClone references with `gitAuthId` or `githubAuthId`. With no
-   * reference, a github.com or gitlab.com URL uses that provider's token from
-   * the session env, with the test's `env` on top as for any Command, so the
-   * test can blank an ambient token. GitLab takes the token as user `oauth2`,
-   * GitHub as `x-access-token`. Only https URLs get a token; SSH authenticates
-   * itself.
+   * The environment for an https clone's git commands, carrying a token only
+   * when one belongs to the clone URL's host, as main's clone handler does.
+   * The provider comes from the auth block the GitClone references with
+   * `gitAuthId` or `githubAuthId`, or, with no reference, from the URL's host
+   * (a github.com-family host or gitlab.com). The token is that auth block's
+   * when the block authenticated the URL's host, otherwise the session env's
+   * with the app's host binding (githubSessionCredential,
+   * gitlabSessionTokenHost). The test's `env` goes on top of the session env,
+   * as for any Command, so a test can blank an ambient token. GitLab takes the
+   * token as user `oauth2`, GitHub as `x-access-token`. Only https URLs get a
+   * token; SSH authenticates itself.
    */
-  private authenticatedCloneURL(block: ParsedComponent, cloneURL: string): string {
+  private cloneAuthEnv(block: ParsedComponent, cloneURL: string): NodeJS.ProcessEnv {
     let url: URL
-    try { url = new URL(cloneURL) } catch { return cloneURL }
-    if (url.protocol !== "https:") return cloneURL
+    try { url = new URL(cloneURL) } catch { return process.env }
+    if (url.protocol !== "https:") return process.env
+    const host = url.host.toLowerCase()
 
     const authId = extractProp(block.props, "gitAuthId") || extractProp(block.props, "githubAuthId")
-    let auth: { provider: GitProvider; token: string } | undefined
-    if (authId) {
-      auth = this.gitAuthTokens.get(authId)
-    } else {
-      const host = url.hostname
-      const session = this.sessionEnvWithTestEnv()
-      if (host === "github.com") {
-        auth = { provider: "github", token: session["GITHUB_TOKEN"] || session["GH_TOKEN"] || "" }
-      } else if (host === "gitlab.com") {
-        auth = { provider: "gitlab", token: session["GITLAB_TOKEN"] || "" }
-      }
-    }
+    const provider: GitProvider | undefined =
+      (authId ? this.gitAuthTokens.get(authId)?.provider : undefined) ??
+      (host === "gitlab.com" ? "gitlab" : isGitHubHost(host) ? "github" : undefined)
+    if (!provider) return process.env
 
-    if (!auth?.token) return cloneURL
-    return injectTokenIntoUrl(cloneURL, auth.token, auth.provider === "gitlab" ? "oauth2" : "x-access-token")
+    const creds = authId ? this.authBlockCredentials.get(authId) : undefined
+    const session = this.sessionEnvWithTestEnv()
+    let token = ""
+    if (provider === "github") {
+      const cloneHost = tryNormalizeGitHubHost(cloneURL)
+      if (!cloneHost) return process.env
+      if (creds && (creds["GITHUB_HOST"] ?? DEFAULT_GITHUB_HOST) === cloneHost) {
+        token = creds["GITHUB_TOKEN"] ?? ""
+      }
+      if (!token) {
+        token = githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))?.token ?? ""
+      }
+    } else {
+      if (creds && creds["GITLAB_HOST"] === host) token = creds["GITLAB_TOKEN"] ?? ""
+      if (!token && gitlabSessionTokenHost(session) === host) token = session["GITLAB_TOKEN"] ?? ""
+    }
+    if (!token) return process.env
+
+    // No terminal prompt: a rejected token must fail the step, not wait for a
+    // username on the TTY until the step times out.
+    return withGitHttpAuth(
+      { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      cloneURL,
+      token,
+      gitCredentialUsername(provider),
+    )
   }
 
   /**
