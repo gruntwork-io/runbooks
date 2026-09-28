@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
+import { cleanIpcErrorMessage } from '@/lib/ipcError'
 import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
 import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from '@/components/mdx/_shared/lib/githubHost'
 import type { LogEntry } from '@/hooks/useApiExec'
@@ -221,7 +222,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       }
     } catch (error) {
       if (runId !== cloneRunRef.current) return
-      const msg = error instanceof Error ? error.message : 'An unexpected error occurred'
+      const msg = error instanceof Error ? cleanIpcErrorMessage(error.message) : 'An unexpected error occurred'
       setErrorMessage(msg)
       setCloneStatus('fail')
       setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
@@ -281,7 +282,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       if (seq !== previewSeqRef.current) return
       setLocalPreview(null)
       setLocalPreviewStatus('invalid')
-      setLocalPreviewError(error instanceof Error ? error.message : 'Failed to inspect directory')
+      setLocalPreviewError(error instanceof Error ? cleanIpcErrorMessage(error.message) : 'Failed to inspect directory')
     }
   }, [api])
 
@@ -324,7 +325,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       setCloneStatus('success')
       return result as LocalRepoInfo
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'An unexpected error occurred'
+      const msg = error instanceof Error ? cleanIpcErrorMessage(error.message) : 'An unexpected error occurred'
       setErrorMessage(msg)
       setCloneStatus('fail')
       return null
@@ -368,7 +369,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       setSeedStatus('idle')
     } catch (error) {
       if (runId !== cloneRunRef.current) return
-      setSeedError(error instanceof Error ? error.message : 'Failed to create the default branch')
+      setSeedError(error instanceof Error ? cleanIpcErrorMessage(error.message) : 'Failed to create the default branch')
       setSeedStatus('fail')
     }
   }, [api, id, cloneResult, registerOutputs, authProvider])
