@@ -17,8 +17,7 @@ import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/d
 import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
 import { withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
-  detectInterpreter,
-  isBashInterpreter,
+  resolveScriptRunner,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
 import type { Executable } from "../../src/types.ts"
@@ -738,8 +737,8 @@ export class TestExecutor {
 
     try {
       // Prepare the script
-      const [interpreter, interpreterArgs] = detectInterpreter(scriptContent, foundExec.language)
-      const isBash = isBashInterpreter(interpreter)
+      const { interpreter, args: interpreterArgs, wrap: isBash } =
+        resolveScriptRunner(scriptContent, foundExec.language)
 
       let scriptToWrite = scriptContent
       let envCapturePath = ""
