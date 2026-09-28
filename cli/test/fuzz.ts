@@ -73,6 +73,12 @@ type BoundField =
   | "minWordCount" | "maxWordCount"
   | "minCount" | "maxCount"
 
+// YAML parses an empty value (`max:` or `max: ~`) to null, so a bound is set
+// only when it is neither null nor undefined.
+function bound(config: FuzzConfig, field: BoundField): number | undefined {
+  return config[field] ?? undefined
+}
+
 // The [lo, hi] range a pair of optional bounds allows. A lone hi lowers lo's
 // default to fit (lo = min(defaultLo, hi)) and hi defaults to lo + span, so a
 // lone bound is honored. lo == hi yields that exact value.
@@ -83,8 +89,8 @@ function boundedRange(
   defaultLo: number,
   span: number,
 ): [number, number] {
-  const hi = config[maxField]
-  const lo = config[minField] ?? (hi === undefined ? defaultLo : Math.min(defaultLo, hi))
+  const hi = bound(config, maxField)
+  const lo = bound(config, minField) ?? (hi === undefined ? defaultLo : Math.min(defaultLo, hi))
   const top = hi ?? lo + span
   if (top < lo) throw new Error(`fuzz ${config.type}: ${maxField} (${top}) is less than ${minField} (${lo})`)
   return [lo, top]
@@ -109,7 +115,7 @@ function generateString(config: FuzzConfig): string {
 // has no floor, so a lone non-positive max fuzzes over max - 100..max rather
 // than collapsing to max.
 function numericRange(config: FuzzConfig): [number, number] {
-  const max = config.max
+  const max = bound(config, "max")
   return boundedRange(config, "min", "max", max !== undefined && max <= 0 ? max - 100 : 0, 100)
 }
 

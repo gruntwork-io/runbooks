@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test"
 import { spawnSync } from "node:child_process"
 import * as path from "node:path"
 import { generateFuzzValue, resolveTestInputs } from "./fuzz.ts"
-import type { FuzzConfig, InputValue } from "./config.ts"
+import { parseConfig, type FuzzConfig, type InputValue } from "./config.ts"
 
 // Run a generator N times so randomness-sensitive tests still cover the
 // likely-output space without going flaky on a single draw.
@@ -360,6 +360,38 @@ describe("resolveTestInputs", () => {
     expect(typeof out.name).toBe("string")
     expect((out.name as string).length).toBe(5)
     expect(out.age).toBe(7)
+  })
+
+  it("treats an empty YAML bound (`max:` or `max: ~`, parsed as null) as unset", () => {
+    const { tests } = parseConfig(`
+version: 1
+tests:
+  - name: empty-bounds
+    inputs:
+      a.Int:
+        fuzz:
+          type: int
+          max:
+      a.Float:
+        fuzz:
+          type: float
+          max: ~
+      a.Name:
+        fuzz:
+          type: string
+          minLength: ~
+          maxLength:
+`)
+    for (let i = 0; i < SAMPLES; i++) {
+      const out = resolveTestInputs(tests[0].inputs)
+      // The defaults, as if the fields were absent: 0..100 and 8..18.
+      for (const key of ["a.Int", "a.Float"]) {
+        expect(out[key]).toBeGreaterThanOrEqual(0)
+        expect(out[key]).toBeLessThanOrEqual(100)
+      }
+      expect((out["a.Name"] as string).length).toBeGreaterThanOrEqual(8)
+      expect((out["a.Name"] as string).length).toBeLessThanOrEqual(18)
+    }
   })
 
   it("returns an empty object when inputs is undefined", () => {

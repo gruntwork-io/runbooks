@@ -305,7 +305,7 @@ The `fuzz` object specifies how to generate random values.
 | `maxCount` | integer | `list`, `map` | Maximum items/entries. Must be at least `minCount`. Default: `minCount + 3` for lists, `minCount + 2` for maps. |
 | `schema` | array | `map` | Field names for nested map values (generates `map[string]map[string]string`). |
 
-A maximum below its minimum fails the test case with an error such as `fuzz string: maxLength (3) is less than minLength (5)`. Setting a minimum and maximum to the same value gives exactly that value.
+A maximum below its minimum fails the test case with an error such as `fuzz string: maxLength (3) is less than minLength (5)`. Setting a minimum and maximum to the same value gives exactly that value. A field left empty (`max:` or `max: ~`) counts as unset.
 
 ### Fuzz Types
 
