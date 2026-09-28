@@ -6,15 +6,16 @@ if (process.env.ELECTRON_RENDERER_URL) {
 }
 
 import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
+import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
 import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
-import { openRunbookInWindow } from "./open-runbook.ts"
+import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { installIpcErrorNormalization } from "./ipc/ipc-error.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
@@ -131,28 +132,42 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
-const gotLock = app.requestSingleInstanceLock()
+// A second instance sends its unmodified argv along: the `argv` Electron
+// hands to "second-instance" has been reordered by Chromium (see
+// secondInstanceArgv).
+const gotLock = app.requestSingleInstanceLock({ argv: process.argv })
 
 if (!gotLock) {
   app.quit()
 } else {
-  app.on("second-instance", (_event, argv) => {
+  app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
     const win = focusOrCreateWindow()
-    const secondArgs = parseCliArgs(argv)
+    // Resolve relative paths against the directory the second instance was
+    // launched from, not this (first) instance's cwd.
+    const secondArgs = parseCliArgs(
+      secondInstanceArgv(argv, additionalData),
+      workingDirectory,
+      app.getAppPath(),
+    )
     if (secondArgs.remoteUrl) {
-      resolveRemoteRunbook(secondArgs.remoteUrl)
-        .then((result) => {
-          win.webContents.send("file:open-runbook", {
-            path: result.localPath,
-            remoteSource: result.remoteSource,
-          })
-        })
-        .catch((err) => {
-          log.error("Failed to resolve remote URL:", err)
-        })
+      openRemoteRunbook(win, secondArgs.remoteUrl)
     } else if (secondArgs.runbookPath) {
-      win.webContents.send("file:open-runbook", { path: secondArgs.runbookPath })
+      // focusOrCreateWindow may return a window that is still loading.
+      openRunbookInWindow(win, { path: secondArgs.runbookPath })
     }
+  })
+}
+
+/**
+ * Clone and open a remote runbook named on the command line, showing an error
+ * dialog if that fails (see openRemoteRunbookInWindow).
+ */
+function openRemoteRunbook(win: BrowserWindow, url: string): void {
+  void openRemoteRunbookInWindow(win, url, {
+    resolveRemote: resolveRemoteRunbook,
+    showError: (parent, message, detail) => {
+      void dialog.showMessageBox(parent, { type: "error", message, detail })
+    },
   })
 }
 
@@ -160,7 +175,7 @@ if (!gotLock) {
 // Parse CLI arguments
 // ---------------------------------------------------------------------------
 
-const cliConfig = parseCliArgs()
+const cliConfig = parseCliArgs(process.argv, process.cwd(), app.getAppPath())
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -281,7 +296,6 @@ ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
-  outputPath: cliConfig.outputPath,
   noTelemetry: cliConfig.noTelemetry,
   disableLiveFileReload: cliConfig.disableLiveFileReload,
 }))
@@ -366,20 +380,11 @@ app.whenReady().then(() => {
   eagerLoadBoilerplateWasm()
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
+  // openRunbookInWindow waits for the page to load, so a remote clone can
+  // start right away.
   if (cliConfig.remoteUrl) {
     const win = getMainWindow()
-    win?.webContents.once("did-finish-load", () => {
-      resolveRemoteRunbook(cliConfig.remoteUrl!)
-        .then((result) => {
-          win.webContents.send("file:open-runbook", {
-            path: result.localPath,
-            remoteSource: result.remoteSource,
-          })
-        })
-        .catch((err) => {
-          log.error("Failed to resolve remote URL:", err)
-        })
-    })
+    if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
   } else if (cliConfig.runbookPath) {
     const runbookPath = cliConfig.runbookPath
     const win = getMainWindow()

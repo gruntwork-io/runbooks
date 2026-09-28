@@ -670,7 +670,6 @@ export interface IpcChannelMap {
       runbookPath?: string
       remoteUrl?: string
       watch?: boolean
-      outputPath?: string
       noTelemetry?: boolean
       disableLiveFileReload?: boolean
     }

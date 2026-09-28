@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 
 describe("parseCliArgs", () => {
   it("parses a local runbook path", () => {
@@ -93,17 +93,108 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath?.endsWith("/relative/runbook.mdx")).toBe(true)
   })
 
-  it("parses --watch and --output-path together with a positional", () => {
-    const config = parseCliArgs([
-      "runbooks",
-      "--watch",
-      "--output-path",
-      "out-dir",
-      "./local/runbook.mdx",
-    ])
+  it("parses --watch together with a positional", () => {
+    const config = parseCliArgs(["runbooks", "--watch", "./local/runbook.mdx"])
     expect(config.watch).toBe(true)
-    expect(config.outputPath?.endsWith("/out-dir")).toBe(true)
     expect(config.runbookPath?.endsWith("/local/runbook.mdx")).toBe(true)
+  })
+
+  // -----------------------------------------------------------------------
+  // Relative paths resolve against the caller's cwd. A second instance
+  // forwards its argv to the first, whose own cwd may be "/" (Dock/launcher
+  // start); Electron passes the second instance's cwd separately.
+  // -----------------------------------------------------------------------
+
+  it("resolves a positional path against the given cwd", () => {
+    const config = parseCliArgs(["runbooks", "./rb"], "/home/me/proj")
+    expect(config.runbookPath).toBe("/home/me/proj/rb")
+  })
+
+  it("resolves a --runbook path against the given cwd", () => {
+    const config = parseCliArgs(["runbooks", "--runbook", "rb/runbook.mdx"], "/home/me/proj")
+    expect(config.runbookPath).toBe("/home/me/proj/rb/runbook.mdx")
+  })
+
+  it("resolves a second-instance argv against the second instance's cwd", () => {
+    // Shape Electron delivers to "second-instance": Chromium switches are
+    // inserted before the entry script.
+    const config = parseCliArgs(
+      ["/Applications/Runbooks.app/Contents/MacOS/Runbooks", "--allow-file-access-from-files", "/repo/dist/main/index.js", "./rb"],
+      "/p",
+    )
+    expect(config.runbookPath).toBe("/p/rb")
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  // -----------------------------------------------------------------------
+  // Positional filters drop Electron's own arguments, not user input.
+  // -----------------------------------------------------------------------
+
+  it("keeps a positional path that contains 'electron'", () => {
+    const config = parseCliArgs(["runbooks", "/home/me/electron-infra/runbooks/deploy"])
+    expect(config.runbookPath).toBe("/home/me/electron-infra/runbooks/deploy")
+  })
+
+  it("keeps a positional URL that contains 'electron'", () => {
+    const url = "https://github.com/electron/fiddle/tree/main/runbooks"
+    const config = parseCliArgs(["runbooks", url])
+    expect(config.remoteUrl).toBe(url)
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("opens the current directory for a bare '.'", () => {
+    const config = parseCliArgs(["runbooks", "."], "/home/me/proj")
+    expect(config.runbookPath).toBe("/home/me/proj")
+  })
+
+  it("ignores the app's own path in an unpackaged run (electron .)", () => {
+    const config = parseCliArgs(["electron", "."], "/repo", "/repo")
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("still opens a runbook passed after the app path in an unpackaged run", () => {
+    const config = parseCliArgs(["electron", ".", "./rb"], "/repo", "/repo")
+    expect(config.runbookPath).toBe("/repo/rb")
+  })
+
+  it("finds no runbook in a Playwright launch argv", () => {
+    const config = parseCliArgs(
+      [
+        "/x/Electron",
+        "-r",
+        "/x/node_modules/playwright-core/lib/server/electron/loader.js",
+        "--inspect=0",
+        "--remote-debugging-port=0",
+        "/repo/dist/main/index.js",
+      ],
+      "/repo",
+      "/repo/dist/main",
+    )
+    expect(config.runbookPath).toBeNull()
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  // -----------------------------------------------------------------------
+  // --working-dir / --output-path (old Go CLI) are not supported. Their
+  // values must be skipped so they can't be taken as the runbook path.
+  // -----------------------------------------------------------------------
+
+  it.each([
+    [["open", "my-runbook", "--working-dir", "/path/to/project"]],
+    [["open", "my-runbook", "--output-path", "./infrastructure"]],
+    [["open", "--working-dir", "/path/to/project", "my-runbook"]],
+    [["open", "my-runbook", "--working-dir=::tmp"]],
+    [["open", "my-runbook", "--output-path=./infrastructure"]],
+  ])("does not take the value of an unsupported flag as the runbook path: %p", (args) => {
+    const config = parseCliArgs(["runbooks", ...args], "/home/me")
+    expect(config.runbookPath).toBe("/home/me/my-runbook")
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  it("does not swallow the next flag after a value-less unsupported flag", () => {
+    const config = parseCliArgs(["runbooks", "--output-path", "--watch", "./rb"], "/home/me")
+    expect(config.watch).toBe(true)
+    expect(config.runbookPath).toBe("/home/me/rb")
   })
 
   it("parses --no-telemetry", () => {
@@ -145,5 +236,59 @@ describe("parseCliArgs", () => {
     ])
     expect(config.runbookPath?.endsWith("/runbook.mdx")).toBe(true)
     expect(config.remoteUrl).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Second instance. Electron's "second-instance" argv is Chromium's parsed copy
+// of the second instance's command line: every switch is moved ahead of the
+// positionals, and Chromium adds switches of its own. A space-separated flag
+// no longer sits next to its value, so the second instance forwards its own
+// process.argv as the single-instance lock's additionalData.
+// ---------------------------------------------------------------------------
+
+describe("secondInstanceArgv", () => {
+  const EXE = "/Applications/Runbooks.app/Contents/MacOS/Runbooks"
+  /** Switches Chromium adds to the second instance (seen with Electron 41 on macOS). */
+  const ADDED = ["--allow-file-access-from-files", "--enable-avfoundation"]
+  /** `runbooks open my-runbook --working-dir /path/to/project`, as typed. */
+  const typed = [EXE, "open", "my-runbook", "--working-dir", "/path/to/project"]
+  /** The same command as Electron's argv delivers it to the first instance. */
+  const reordered = [EXE, "--working-dir", ...ADDED, "open", "my-runbook", "/path/to/project"]
+
+  it("prefers the argv the second instance forwarded", () => {
+    const argv = secondInstanceArgv(reordered, { argv: typed })
+    expect(argv).toEqual(typed)
+    expect(parseCliArgs(argv, "/home/me").runbookPath).toBe("/home/me/my-runbook")
+  })
+
+  it.each([
+    ["no additionalData", undefined],
+    ["null", null],
+    ["an object without argv", {}],
+    ["a string argv", { argv: "open my-runbook" }],
+    ["a non-string entry", { argv: [EXE, 42] }],
+  ])("falls back to Electron's argv for %s", (_label, additionalData) => {
+    expect(secondInstanceArgv(reordered, additionalData)).toBe(reordered)
+  })
+
+  // The fallback parses the reordered argv (e.g. a second instance that sent
+  // no additionalData). These shapes still come out right.
+
+  it("still finds positionals, --flag=value and --runbook values in a reordered argv", () => {
+    const opts = parseCliArgs([EXE, "--working-dir=::tmp", ...ADDED, "open", "my-runbook"], "/home/me")
+    expect(opts.runbookPath).toBe("/home/me/my-runbook")
+
+    const local = parseCliArgs([EXE, "--runbook", ...ADDED, "rb/runbook.mdx"], "/home/me")
+    expect(local.runbookPath).toBe("/home/me/rb/runbook.mdx")
+
+    const url = "https://github.com/o/r/tree/main/rb"
+    expect(parseCliArgs([EXE, "--runbook", ...ADDED, url], "/home/me").remoteUrl).toBe(url)
+  })
+
+  it("cannot pair a space-separated unsupported flag with its value in a reordered argv", () => {
+    // Why the forwarded argv is preferred: the flag's value is now just the
+    // last positional, so it is taken as the runbook path.
+    expect(parseCliArgs(reordered, "/home/me").runbookPath).toBe("/path/to/project")
   })
 })
