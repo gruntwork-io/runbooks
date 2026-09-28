@@ -81,7 +81,7 @@ export function DetectedCredentialsPrompt({
         {warning && (
           <div className="bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2 mb-3">
             <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-            <div>{warning}</div>
+            <div className="min-w-0">{warning}</div>
           </div>
         )}
 

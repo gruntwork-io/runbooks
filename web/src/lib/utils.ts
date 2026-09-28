@@ -101,6 +101,19 @@ export function getDirectoryPath(filePath: string | null | undefined): string | 
 }
 
 /**
+ * Returns the last segment of a path, ignoring trailing separators.
+ * Splits on both separators: the backend builds paths with Node's `path`
+ * module, which uses '\' on Windows.
+ *
+ * @example
+ * basename("/path/to/repo") // returns "repo"
+ * basename("C:\\Users\\me\\repo\\") // returns "repo"
+ */
+export function basename(p: string): string {
+  return p.split(/[\\/]/).filter(Boolean).pop() ?? p
+}
+
+/**
  * Format file size in human-readable form.
  */
 export function formatFileSize(bytes: number): string {

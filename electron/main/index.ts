@@ -6,28 +6,31 @@ if (process.env.ELECTRON_RENDERER_URL) {
 }
 
 import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
+import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
-import * as tls from "node:tls"
+import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
-import { openRunbookInWindow } from "./open-runbook.ts"
+import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
-import { isContainedIn } from "../../src/path-validation.ts"
+import { cancelAllExecutions } from "./ipc/exec.ts"
+import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
+import { byteRangeResponse } from "./asset-range.ts"
+import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
+import { initSystemTrust } from "./system-trust.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
-import { Effect } from "effect"
-import { coldReadSystemPems, installSystemTrust, refreshSystemPems } from "../../src/domain/tls/system-ca.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
-import type { CaSources } from "../../src/domain/tls/system-ca.ts"
 
 const log = makeLogger("main")
 
@@ -49,97 +52,11 @@ for (const tokenVar of VCS_TOKEN_ENV_VARS) {
 }
 
 // ---------------------------------------------------------------------------
-// System-trust TLS: make every Node TLS
-// client in the main process (VCS HttpClient layers, OAuth device flow, AWS
-// SDK, Mixpanel) honor the OS trust store in ADDITION to Node's bundled
-// Mozilla roots, so a custom enterprise root CA installed in the OS store
-// stops failing token validation as "Invalid credentials detected". Strictly
-// additive — verification is never disabled.
+// System-trust TLS: honor the OS trust store in addition to Node's bundled
+// roots (see system-trust.ts). Must run before any TLS connection.
 // ---------------------------------------------------------------------------
 
-// Snapshot the bundled defaults BEFORE the first setDefaultCACertificates:
-// afterwards getCACertificates("default") returns the previously-installed
-// union, so re-reading "default" later would compound extras into the base.
-const bundledCaDefaults = tls.getCACertificates("default") // Mozilla roots + NODE_EXTRA_CA_CERTS
-// "system" reads are cached for process lifetime and trust install is
-// per-thread — see the CAVEATS in system-ca.ts.
-let lastKnownSystemPems: string[] = [...tls.getCACertificates("system")]
-
-// Extra PEMs beyond the OS store (glab per-host ca_cert contents — the
-// harvest, wired in during host enumeration). Mutated in place so re-installs
-// always include them.
-const harvestedCaPems: string[] = []
-
-// Dev/test-only extraPems seam: RUNBOOKS_TEST_EXTRA_CA points at a PEM
-// file read FRESH on every install/refresh, so an e2e can inject a CA
-// mid-session and assert the TLS card's Retry recovers without relaunch. The
-// OS-store-mutated leg is physically untestable in CI (no keychain mutation)
-// and is covered by the manual QA gate.
-function testSeamPems(): string[] {
-  const seamPath = process.env.RUNBOOKS_TEST_EXTRA_CA
-  if (!seamPath) return []
-  try {
-    const pem = fs.readFileSync(seamPath, "utf8")
-    return pem.includes("-----BEGIN CERTIFICATE-----") ? [pem] : []
-  } catch {
-    return []
-  }
-}
-
-const extraPemsForInstall = (): string[] => [...harvestedCaPems, ...testSeamPems()]
-
-const caSources = (systemPems: string[]): CaSources => ({
-  bundledDefaults: () => [...bundledCaDefaults],
-  systemPems: () => Effect.succeed(systemPems),
-  setCAs: (certs) => tls.setDefaultCACertificates(certs),
-})
-
-// The count log line doubles as the e2e trust canary (asserts system > 0
-// on the macOS runner) — keep its format stable.
-function installAndLog(systemPems: string[], note?: string): void {
-  const counts = Effect.runSync(installSystemTrust(extraPemsForInstall(), caSources(systemPems)))
-  log.info(
-    `installSystemTrust: defaults=${counts.defaults} system=${counts.system} extra=${counts.extra}${note ? ` (${note})` : ""}`,
-  )
-}
-
-// The launch-time install.
-installAndLog(lastKnownSystemPems)
-
-/**
- * Mid-session trust refresh. Node caches getCACertificates("system")
- * for process lifetime, so a CA installed after launch is only observable via
- * a COLD out-of-process read (process.execPath with ELECTRON_RUN_AS_NODE=1).
- * On any child failure the launch-time set is used instead — never worse than
- * launch. Returns coldReadOk so callers can degrade the TLS-card copy to
- * "…then restart Runbooks" when the child itself failed.
- *
- * Runs on: every TLS-classified validation failure (once, before any error
- * surfaces), the TLS card's Retry, HostSelect Reload, and GitHub Check again.
- */
-export async function refreshSystemTrust(): Promise<{ coldReadOk: boolean }> {
-  const { pems, coldReadOk } = await runtime.runPromise(
-    refreshSystemPems(coldReadSystemPems(), lastKnownSystemPems),
-  )
-  if (coldReadOk) {
-    lastKnownSystemPems = [...pems]
-  }
-  installAndLog(pems, `refresh, coldReadOk=${coldReadOk}`)
-  return { coldReadOk }
-}
-
-/**
- * Register extra trust PEMs harvested from glab per-host `ca_cert` config
- * and re-install the union. Strictly additive; idempotent. Called from
- * the gitlab:enumerate-hosts handler on every host enumeration.
- */
-export function registerExtraCaPems(pems: string[]): void {
-  const unchanged =
-    pems.length === harvestedCaPems.length && pems.every((pem, i) => pem === harvestedCaPems[i])
-  if (unchanged) return
-  harvestedCaPems.splice(0, harvestedCaPems.length, ...pems)
-  installAndLog(lastKnownSystemPems, "glab ca_cert harvest")
-}
+initSystemTrust()
 
 // Point the boilerplate renderer at the vendored CLI + WASM artifacts the
 // `just fetch-boilerplate` recipe drops under resources/. In packaged
@@ -204,12 +121,26 @@ export function registerExtraCaPems(pems: string[]): void {
 // ---------------------------------------------------------------------------
 // Register the runbook-asset protocol as privileged so it can be used in img
 // src, video src, etc. Must be called before app.whenReady().
+//
+// <video>/<audio> can seek only with `standard: true` and the handler's Range
+// support (asset-range.ts); electron/e2e/runbook-assets.spec.ts loads and
+// seeks both.
+// - `standard: true`: a seek past what the first response delivered makes
+//   Chromium's media loader send a second range request, and for a
+//   non-standard scheme it fails that response and playback stops with
+//   PIPELINE_ERROR_READ "data source error". The URL then parses with host
+//   `assets`, which resolveRunbookAssetPath joins back onto the path.
+// - `stream: true` is the privilege Electron documents for streaming media:
+//   without it Chromium treats the resource as already fully buffered. Before
+//   the handler answered Range requests, that made media elements fail its
+//   streamed body with MEDIA_ELEMENT_ERROR "Format error" (a 520 KB WAV and a
+//   65 MB MP4 did; a 446 KB faststart MP4 still played).
 // ---------------------------------------------------------------------------
 
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "runbook-asset",
-    privileges: { standard: false, secure: true, supportFetchAPI: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ])
 
@@ -217,28 +148,42 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
-const gotLock = app.requestSingleInstanceLock()
+// A second instance sends its unmodified argv along: the `argv` Electron
+// hands to "second-instance" has been reordered by Chromium (see
+// secondInstanceArgv).
+const gotLock = app.requestSingleInstanceLock({ argv: process.argv })
 
 if (!gotLock) {
   app.quit()
 } else {
-  app.on("second-instance", (_event, argv) => {
+  app.on("second-instance", (_event, argv, workingDirectory, additionalData) => {
     const win = focusOrCreateWindow()
-    const secondArgs = parseCliArgs(argv)
+    // Resolve relative paths against the directory the second instance was
+    // launched from, not this (first) instance's cwd.
+    const secondArgs = parseCliArgs(
+      secondInstanceArgv(argv, additionalData),
+      workingDirectory,
+      app.getAppPath(),
+    )
     if (secondArgs.remoteUrl) {
-      resolveRemoteRunbook(secondArgs.remoteUrl)
-        .then((result) => {
-          win.webContents.send("file:open-runbook", {
-            path: result.localPath,
-            remoteSource: result.remoteSource,
-          })
-        })
-        .catch((err) => {
-          log.error("Failed to resolve remote URL:", err)
-        })
+      openRemoteRunbook(win, secondArgs.remoteUrl)
     } else if (secondArgs.runbookPath) {
-      win.webContents.send("file:open-runbook", { path: secondArgs.runbookPath })
+      // focusOrCreateWindow may return a window that is still loading.
+      openRunbookInWindow(win, { path: secondArgs.runbookPath })
     }
+  })
+}
+
+/**
+ * Clone and open a remote runbook named on the command line, showing an error
+ * dialog if that fails (see openRemoteRunbookInWindow).
+ */
+function openRemoteRunbook(win: BrowserWindow, url: string): void {
+  void openRemoteRunbookInWindow(win, url, {
+    resolveRemote: resolveRemoteRunbook,
+    showError: (parent, message, detail) => {
+      void dialog.showMessageBox(parent, { type: "error", message, detail })
+    },
   })
 }
 
@@ -246,7 +191,7 @@ if (!gotLock) {
 // Parse CLI arguments
 // ---------------------------------------------------------------------------
 
-const cliConfig = parseCliArgs()
+const cliConfig = parseCliArgs(process.argv, process.cwd(), app.getAppPath())
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -257,8 +202,9 @@ const cliConfig = parseCliArgs()
 // leaving `localPath` as a directory would make `path.dirname` return its
 // *parent*, causing asset 404s on any image request that races ahead of the
 // renderer's `runbook:get` IPC call (which later re-resolves the path).
+let resolvedPath = runbookConfig.localPath
 if (cliConfig.runbookPath) {
-  let resolvedPath = cliConfig.runbookPath
+  resolvedPath = cliConfig.runbookPath
   try {
     if (fs.statSync(resolvedPath).isDirectory()) {
       const candidate = path.join(resolvedPath, "runbook.mdx")
@@ -270,19 +216,23 @@ if (cliConfig.runbookPath) {
     // stat may fail (e.g. path doesn't exist yet); leave as-is and let the
     // renderer's runbook:get call surface the error.
   }
-  setRunbookConfig({
-    ...runbookConfig,
-    localPath: resolvedPath,
-    isWatchMode: cliConfig.watch,
-    disableLiveFileReload: cliConfig.disableLiveFileReload,
-  })
 }
-if (cliConfig.watch) {
-  setRunbookConfig({ ...runbookConfig, isWatchMode: true, disableLiveFileReload: cliConfig.disableLiveFileReload })
-}
+// --watch and --disable-live-file-reload apply to every runbook opened in this
+// app instance: runbook:get carries them over when it rebuilds the config.
+setRunbookConfig({
+  ...runbookConfig,
+  localPath: resolvedPath,
+  isWatchMode: cliConfig.watch,
+  disableLiveFileReload: cliConfig.disableLiveFileReload,
+})
 
 // ---------------------------------------------------------------------------
 // Native IPC handlers (Electron-only, no backend dependency)
+//
+// Importing ./ipc/index.ts above already wrapped ipcMain.handle with
+// installIpcErrorNormalization() (ipc/ipc-error.ts), so a rejection from
+// these handlers, like every other, crosses to the renderer as a clean
+// message instead of a FiberFailure dump.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
@@ -339,7 +289,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
 // Routes through main so it uses the same channel as the native menu item —
 // renderers listen for "menu:close-runbook" regardless of origin.
 ipcMain.handle("native:close-runbook", () => {
-  getMainWindow()?.webContents.send("menu:close-runbook")
+  closeRunbook()
   return { ok: true } as const
 })
 
@@ -358,7 +308,6 @@ ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
-  outputPath: cliConfig.outputPath,
   noTelemetry: cliConfig.noTelemetry,
   disableLiveFileReload: cliConfig.disableLiveFileReload,
 }))
@@ -399,23 +348,30 @@ app.whenReady().then(() => {
   // from the local filesystem. The renderer rewrites ./assets/foo.png to
   // runbook-asset://assets/foo.png which this handler resolves relative to the
   // runbook directory.
-  protocol.handle("runbook-asset", (request) => {
+  protocol.handle("runbook-asset", async (request) => {
     // URL looks like: runbook-asset://assets/foo.png
-    const url = new URL(request.url)
-    // Combine host + pathname to get the relative asset path (e.g. "assets/foo.png")
-    const assetRelative = url.hostname + url.pathname
-    const runbookDir = path.dirname(runbookConfig.localPath)
-    const assetPath = path.join(runbookDir, assetRelative)
-
-    // Security: ensure the resolved path is within the runbook directory.
-    // Uses isContainedIn which appends path.sep to prevent prefix-matching
-    // bypass (e.g. /tmp/my-runbook-evil matching /tmp/my-runbook).
-    const resolved = path.resolve(assetPath)
-    if (!isContainedIn(resolved, path.resolve(runbookDir))) {
+    // Security: resolveRunbookAssetPath returns null unless the file is within
+    // the runbook directory after resolving symlinks, so neither `..` nor a
+    // symlink shipped in the runbook dir can serve a file from outside it.
+    const resolved = await resolveRunbookAssetPath(
+      request.url,
+      path.dirname(runbookConfig.localPath),
+    )
+    if (!resolved) {
       return new Response("Forbidden", { status: 403 })
     }
 
-    return net.fetch(`file://${resolved}`)
+    // <video>/<audio> fetch byte ranges and can only seek when the answer is
+    // a 206 with a Content-Range, which net.fetch's file:// response never
+    // has, so ranged GETs are answered from the file here. Without a Range
+    // header, or with one byteRangeResponse ignores, the whole file is served.
+    const rangeHeader = request.headers.get("range")
+    if (rangeHeader && request.method === "GET") {
+      const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
+      if (partial) return partial
+    }
+
+    return net.fetch(pathToFileURL(resolved).href)
   })
 
   // Apply the persisted theme before creating the window so its background
@@ -446,20 +402,11 @@ app.whenReady().then(() => {
   eagerLoadBoilerplateWasm()
 
   // If a runbook was specified via CLI, tell the renderer once it's ready.
+  // openRunbookInWindow waits for the page to load, so a remote clone can
+  // start right away.
   if (cliConfig.remoteUrl) {
     const win = getMainWindow()
-    win?.webContents.once("did-finish-load", () => {
-      resolveRemoteRunbook(cliConfig.remoteUrl!)
-        .then((result) => {
-          win.webContents.send("file:open-runbook", {
-            path: result.localPath,
-            remoteSource: result.remoteSource,
-          })
-        })
-        .catch((err) => {
-          log.error("Failed to resolve remote URL:", err)
-        })
-    })
+    if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
   } else if (cliConfig.runbookPath) {
     const runbookPath = cliConfig.runbookPath
     const win = getMainWindow()
@@ -483,26 +430,47 @@ app.on("window-all-closed", () => {
 })
 
 app.on("will-quit", (event) => {
-  // Clean up any temp clone directories
-  cleanupTempClones()
-
-  // Shred the credential files materialised for Google Cloud auth
-  cleanupGoogleCredentialFiles()
-
-  // Dispose the Effect managed runtime to clean up background fibers,
-  // file watchers, etc. Use a timeout to avoid blocking shutdown if a
-  // fiber never completes.
+  // Shutdown is async; use a timeout to avoid blocking it if a fiber never
+  // completes.
   event.preventDefault()
   const timeout = setTimeout(() => {
     app.exit(0)
   }, 2000)
-  runtime
-    .dispose()
+
+  // Stop running scripts first. They run in their own process group, so
+  // nothing else signals them when the app exits, and they would otherwise
+  // keep running headless. Only the SIGTERM is guaranteed here (the spawner's
+  // SIGKILL escalation timer dies with this process), and we don't wait for
+  // the scripts to finish: once the app exits their stdout/stderr pipes are
+  // closed, so a graceful shutdown that still writes output (e.g. tofu
+  // releasing a state lock) can be cut short by SIGPIPE. This runs before the
+  // cleanup below so a script is signalled before its temp clone or credential
+  // file disappears. The wait is capped at 1 s so that cleanup still runs
+  // inside the safety timeout.
+  Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
     .catch((err) => {
-      log.error("Error disposing runtime:", err)
+      log.error("Error cancelling executions:", err)
     })
     .finally(() => {
-      clearTimeout(timeout)
-      app.exit(0)
+      // Clean up any temp clone directories
+      cleanupTempClones()
+
+      // Shred the credential files materialised for Google Cloud auth
+      cleanupGoogleCredentialFiles()
+
+      // Close the watch-mode file watcher (runtime.dispose doesn't reach it)
+      void stopWatcher()
+
+      // Dispose the Effect managed runtime to clean up background fibers,
+      // file watchers, etc.
+      runtime
+        .dispose()
+        .catch((err) => {
+          log.error("Error disposing runtime:", err)
+        })
+        .finally(() => {
+          clearTimeout(timeout)
+          app.exit(0)
+        })
     })
 })

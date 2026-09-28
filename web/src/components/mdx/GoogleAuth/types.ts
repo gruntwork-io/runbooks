@@ -61,9 +61,12 @@ export interface DetectedGoogleCredentials {
   credentialType: GoogleCredentialType
   source: GoogleDetectionSource
   quotaProjectId?: string
-  /** Which env var supplied it (source 'env'). */
+  /**
+   * Which env var supplied it (source 'env'). The full name as MAIN read it,
+   * already including any prefix, e.g. `PROD_GOOGLE_APPLICATION_CREDENTIALS`.
+   */
   envVar?: string
-  /** The prefix used (source { env: { prefix } }). */
+  /** The prefix used (source { env: { prefix } }). Sent back to MAIN on confirm. */
   envPrefix?: string
   /** Credential file path, when the source was a file. Not a secret. */
   path?: string

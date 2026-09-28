@@ -1,384 +1,457 @@
 import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
-import {
-  parseRemoteSource,
-  needsRefResolution,
-  adjustBlobPath,
-  resolveRef,
-} from "./remote-source.ts"
+import { isRemoteSource, parseRemoteSource, redactSourceCredentials, resolveRef } from "./remote-source.ts"
 import { makeTestSpawner } from "./test-utils/TestSpawner.ts"
-import type { GitError } from "./errors/index.ts"
 
 function parse(url: string) {
   return Effect.runSync(parseRemoteSource(url))
 }
 
+function parseError(url: string): string {
+  const result = Effect.runSync(Effect.either(parseRemoteSource(url)))
+  if (result._tag === "Right") throw new Error(`expected ${url} to be rejected`)
+  return result.left.message
+}
+
+describe("isRemoteSource", () => {
+  it.each([
+    "https://github.com/owner/repo/tree/main/path",
+    "https://gitlab.com/owner/repo/-/tree/main/path",
+    "http://github.com/owner/repo",
+    "HTTPS://github.com/owner/repo",
+    "git::https://github.com/owner/repo.git//path?ref=v1.0",
+    "git::ssh://git@github.com/owner/repo.git//path",
+    "ssh://git@github.com/owner/repo.git",
+    "git@github.com:owner/repo.git//path?ref=main",
+    "github.com/owner/repo//path",
+    "github.com/owner/repo/path",
+    "gitlab.com/owner/repo//path",
+    "  https://github.com/owner/repo  ",
+  ])("treats %s as remote", (input) => {
+    expect(isRemoteSource(input)).toBe(true)
+  })
+
+  it.each([
+    "./path/to/runbook.mdx",
+    "/absolute/path/to/runbook.mdx",
+    "relative/path",
+    "runbook.mdx",
+    "C:\\runbooks\\setup",
+    "github.com.backup/runbook.mdx",
+    // git would read it as an option (`-u` is clone's --upload-pack)
+    "-u@host:repo",
+  ])("treats %s as a local path", (input) => {
+    expect(isRemoteSource(input)).toBe(false)
+  })
+})
+
+// Credential-bearing URLs are assembled at runtime so the source holds no
+// `user:password@host` literal for secret scanners to flag.
+const PASSWORD = ["hunter", "22"].join("")
+const withUserinfo = (scheme: string, userinfo: string, rest: string) => `${scheme}://${userinfo}@${rest}`
+
+describe("redactSourceCredentials", () => {
+  it.each([
+    [withUserinfo("https", `user:${PASSWORD}`, "github.com/o/r/tree/main/x"), "https://github.com/o/r/tree/main/x"],
+    // A token can pose as the username, so an http(s) userinfo goes entirely.
+    [withUserinfo("https", "ghp_" + "a".repeat(36), "github.com/o/r"), "https://github.com/o/r"],
+    [withUserinfo("git::https", `u:${PASSWORD}`, "git.example.com/o/r.git//x?ref=main"), "git::https://git.example.com/o/r.git//x?ref=main"],
+    [withUserinfo("git::ssh", `git:${PASSWORD}`, "github.com/o/r.git//x"), "git::ssh://git@github.com/o/r.git//x"],
+    [withUserinfo("ssh", `deploy:${PASSWORD}`, "host:2222/o/r.git"), "ssh://deploy@host:2222/o/r.git"],
+  ])("%s → %s", (input, expected) => {
+    expect(redactSourceCredentials(input)).toBe(expected)
+  })
+
+  it.each([
+    "https://github.com/o/r/tree/main/x",
+    "ssh://git@github.com/o/r.git",
+    "git@github.com:o/r.git//x?ref=main",
+    "github.com/o/r//x?ref=main",
+  ])("leaves %s alone", (input) => {
+    expect(redactSourceCredentials(input)).toBe(input)
+  })
+})
+
 describe("parseRemoteSource", () => {
-  describe("git:: prefix URLs", () => {
-    it("parses git::https URL with ref", () => {
-      const result = parse("git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0")
-      expect(result.host).toBe("github.com")
+  describe("GitHub browser URLs", () => {
+    it("tree URL: ref and path stay joined until resolveRef", () => {
+      expect(parse("https://github.com/owner/repo/tree/main/path/to/dir")).toEqual({
+        host: "github.com",
+        owner: "owner",
+        repo: "repo",
+        cloneURL: "https://github.com/owner/repo.git",
+        ref: undefined,
+        path: undefined,
+        refAndPath: "main/path/to/dir",
+      })
+    })
+
+    it("blob URL to runbook.mdx", () => {
+      const result = parse("https://github.com/owner/repo/blob/main/path/to/runbook.mdx")
+      expect(result.refAndPath).toBe("main/path/to/runbook.mdx")
+      expect(result.ref).toBeUndefined()
+      expect(result.path).toBeUndefined()
+    })
+
+    it("ignores query strings, fragments and a trailing slash", () => {
+      for (const url of [
+        "https://github.com/owner/repo/tree/main/runbooks/vpc/",
+        "https://github.com/owner/repo/tree/main/runbooks/vpc?tab=readme-ov-file",
+        "https://github.com/owner/repo/tree/main/runbooks/vpc#readme",
+      ]) {
+        expect(parse(url).refAndPath).toBe("main/runbooks/vpc")
+      }
+      expect(parse("https://github.com/owner/repo/blob/main/runbooks/vpc/runbook.mdx?plain=1#L10").refAndPath).toBe(
+        "main/runbooks/vpc/runbook.mdx",
+      )
+    })
+
+    it("decodes percent-escapes in the path", () => {
+      expect(parse("https://github.com/owner/repo/tree/main/my%20runbooks/vpc").refAndPath).toBe("main/my runbooks/vpc")
+    })
+
+    it("a tree URL for a branch (no path)", () => {
+      expect(parse("https://github.com/owner/repo/tree/release/v1").refAndPath).toBe("release/v1")
+    })
+
+    it("accepts a browser URL pasted without https://", () => {
+      const result = parse("github.com/owner/repo/tree/main/runbooks/vpc")
+      expect(result.refAndPath).toBe("main/runbooks/vpc")
+      expect(result.cloneURL).toBe("https://github.com/owner/repo.git")
+    })
+  })
+
+  describe("GitLab browser URLs", () => {
+    it("tree URL", () => {
+      const result = parse("https://gitlab.com/owner/repo/-/tree/main/path")
+      expect(result.host).toBe("gitlab.com")
       expect(result.owner).toBe("owner")
       expect(result.repo).toBe("repo")
-      expect(result.path).toBe("modules/vpc")
-      expect(result.ref).toBe("v1.0")
-      expect(result.cloneURL).toBe("https://github.com/owner/repo.git")
-      expect(result.isBlobURL).toBe(false)
+      expect(result.refAndPath).toBe("main/path")
     })
 
-    it("parses git::https URL without ref", () => {
-      const result = parse("git::https://github.com/owner/repo.git//modules/vpc")
-      expect(result.path).toBe("modules/vpc")
-      expect(result.ref).toBeUndefined()
-    })
-
-    it("parses git::https URL with GitLab nested groups", () => {
-      const result = parse(
-        "git::https://gitlab.com/group/subgroup/project.git//modules/vpc?ref=v1.0",
+    it("drops GitLab's ?ref_type=heads", () => {
+      expect(parse("https://gitlab.com/owner/repo/-/tree/main/runbooks/vpc?ref_type=heads").refAndPath).toBe(
+        "main/runbooks/vpc",
       )
-      expect(result.host).toBe("gitlab.com")
+      expect(parse("https://gitlab.com/owner/repo/-/blob/v1.0/runbooks/vpc/runbook.mdx?ref_type=tags").refAndPath).toBe(
+        "v1.0/runbooks/vpc/runbook.mdx",
+      )
+    })
+
+    it("tree URL with nested groups (full group path as owner)", () => {
+      const result = parse("https://gitlab.com/group/subgroup/project/-/tree/main/path/to/dir")
       expect(result.owner).toBe("group/subgroup")
       expect(result.repo).toBe("project")
-      expect(result.path).toBe("modules/vpc")
-      expect(result.ref).toBe("v1.0")
-      expect(result.cloneURL).toBe(
-        "https://gitlab.com/group/subgroup/project.git",
-      )
+      expect(result.refAndPath).toBe("main/path/to/dir")
+      expect(result.cloneURL).toBe("https://gitlab.com/group/subgroup/project.git")
     })
 
-    it("parses git::https URL on a self-hosted host with nested groups", () => {
-      const result = parse(
-        "git::https://gitlab.example.com/group/subgroup/project.git//path?ref=main",
-      )
+    it("blob URL with nested groups", () => {
+      const result = parse("https://gitlab.com/group/subgroup/project/-/blob/main/file.ts")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.refAndPath).toBe("main/file.ts")
+    })
+
+    it("tree URL on a self-hosted GitLab instance", () => {
+      const result = parse("https://gitlab.example.com/group/subgroup/project/-/tree/main/path")
       expect(result.host).toBe("gitlab.example.com")
       expect(result.owner).toBe("group/subgroup")
-      expect(result.repo).toBe("project")
-      expect(result.cloneURL).toBe(
-        "https://gitlab.example.com/group/subgroup/project.git",
-      )
+      expect(result.cloneURL).toBe("https://gitlab.example.com/group/subgroup/project.git")
     })
 
-    it("parses git::https URL without a //subdir (runbook at the repo root)", () => {
-      const result = parse("git::https://github.com/gruntwork-io/runbooks.git?ref=v1.0")
-      expect(result.owner).toBe("gruntwork-io")
-      expect(result.repo).toBe("runbooks")
-      expect(result.path).toBeUndefined()
-      expect(result.ref).toBe("v1.0")
-      expect(result.cloneURL).toBe("https://github.com/gruntwork-io/runbooks.git")
+    it("accepts a browser URL pasted without https://", () => {
+      const result = parse("gitlab.com/group/project/-/tree/main/runbooks/vpc")
+      expect(result.owner).toBe("group")
+      expect(result.refAndPath).toBe("main/runbooks/vpc")
     })
 
     it.each([
-      "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0&depth=1",
-      "git::https://github.com/owner/repo.git//modules/vpc?depth=1&ref=v1.0",
-    ])("reads only ref from the query: %s", (url) => {
-      const result = parse(url)
+      "https://gitlab.com/group/project/-/raw/main/runbooks/vpc/runbook.mdx",
+      "https://gitlab.example.com/group/sub/project/-/commits/main",
+      "gitlab.com/group/project/-/raw/main/runbooks/vpc",
+      "gitlab.com/group/project/-/commits/main//runbooks/vpc",
+    ])("rejects a GitLab page other than tree/blob instead of reading it as nested groups: %s", (url) => {
+      // `-` is reserved by GitLab: no group or project path can be `-`.
+      expect(parseError(url)).toContain("unsupported URL format")
+    })
+  })
+
+  describe("plain repo URLs", () => {
+    it("GitHub repo URL: repo root on the default branch", () => {
+      expect(parse("https://github.com/owner/repo")).toEqual({
+        host: "github.com",
+        owner: "owner",
+        repo: "repo",
+        cloneURL: "https://github.com/owner/repo.git",
+        ref: undefined,
+        path: undefined,
+      })
+    })
+
+    it("tolerates a trailing slash, query and fragment", () => {
+      for (const url of ["https://github.com/owner/repo/", "https://github.com/owner/repo?tab=readme", "https://github.com/owner/repo#readme"]) {
+        expect(parse(url).cloneURL).toBe("https://github.com/owner/repo.git")
+      }
+    })
+
+    it("keeps ?ref=, as the shorthand and .git forms do", () => {
+      expect(parse("https://github.com/owner/repo?ref=v1.0")).toEqual({
+        host: "github.com",
+        owner: "owner",
+        repo: "repo",
+        cloneURL: "https://github.com/owner/repo.git",
+        ref: "v1.0",
+        path: undefined,
+      })
+      const gitlab = parse("https://gitlab.com/group/sub/project?ref=v1.0")
+      expect(gitlab.owner).toBe("group/sub")
+      expect(gitlab.ref).toBe("v1.0")
+    })
+
+    it("GitLab repo URL", () => {
+      expect(parse("https://gitlab.com/owner/repo").host).toBe("gitlab.com")
+    })
+
+    it("GitLab repo URL with nested groups", () => {
+      const result = parse("https://gitlab.com/group/subgroup/project")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.cloneURL).toBe("https://gitlab.com/group/subgroup/project.git")
+    })
+
+    it("GitLab repo URL with nested groups and .git suffix", () => {
+      const result = parse("https://gitlab.com/group/subgroup/project.git")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.repo).toBe("project")
+      expect(result.path).toBeUndefined()
+    })
+
+    it("plain repo URL on a self-hosted GitLab instance", () => {
+      const result = parse("https://gitlab.example.com/group/subgroup/project")
+      expect(result.host).toBe("gitlab.example.com")
+      expect(result.owner).toBe("group/subgroup")
+      expect(result.cloneURL).toBe("https://gitlab.example.com/group/subgroup/project.git")
+    })
+  })
+
+  // go-getter sources name the ref explicitly (or not at all), so they never
+  // go through resolveRef — the regression was a ref-less
+  // `github.com/o/r//dir` being split as if `dir` were a branch.
+  describe("go-getter shorthand", () => {
+    it("github.com/owner/repo//path?ref=…", () => {
+      expect(parse("github.com/owner/repo//modules/vpc?ref=main")).toEqual({
+        host: "github.com",
+        owner: "owner",
+        repo: "repo",
+        cloneURL: "https://github.com/owner/repo.git",
+        ref: "main",
+        path: "modules/vpc",
+      })
+    })
+
+    it("no ?ref= means the default branch, not an ambiguous ref/path", () => {
+      const result = parse("github.com/owner/repo//runbooks/vpc")
+      expect(result.ref).toBeUndefined()
+      expect(result.path).toBe("runbooks/vpc")
+      expect(result.refAndPath).toBeUndefined()
+    })
+
+    it("a path to runbook.mdx", () => {
+      expect(parse("github.com/owner/repo//runbooks/vpc/runbook.mdx?ref=v1.2.0").path).toBe("runbooks/vpc/runbook.mdx")
+    })
+
+    it("github.com/owner/repo/path (go-getter's GitHub detector, no //)", () => {
+      const result = parse("github.com/owner/repo/runbooks/vpc")
+      expect(result.owner).toBe("owner")
+      expect(result.repo).toBe("repo")
+      expect(result.path).toBe("runbooks/vpc")
+      expect(result.ref).toBeUndefined()
+    })
+
+    it("github.com/owner/repo with no path, with and without ?ref=", () => {
+      expect(parse("github.com/owner/repo").path).toBeUndefined()
+      expect(parse("github.com/owner/repo.git?ref=v1").ref).toBe("v1")
+      expect(parse("github.com/owner/repo.git?ref=v1").repo).toBe("repo")
+    })
+
+    it("gitlab.com with nested groups needs // for the path", () => {
+      const withPath = parse("gitlab.com/group/sub/project//runbooks/vpc?ref=main")
+      expect(withPath.owner).toBe("group/sub")
+      expect(withPath.repo).toBe("project")
+      expect(withPath.path).toBe("runbooks/vpc")
+      expect(withPath.cloneURL).toBe("https://gitlab.com/group/sub/project.git")
+      const repoOnly = parse("gitlab.com/group/sub/project")
+      expect(repoOnly.owner).toBe("group/sub")
+      expect(repoOnly.path).toBeUndefined()
+    })
+
+    it("an empty // path is the repo root", () => {
+      expect(parse("github.com/owner/repo//?ref=main").path).toBeUndefined()
+    })
+  })
+
+  describe("go-getter git:: sources", () => {
+    it("git::https URL with ref", () => {
+      expect(parse("git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0")).toEqual({
+        host: "github.com",
+        owner: "owner",
+        repo: "repo",
+        cloneURL: "https://github.com/owner/repo.git",
+        ref: "v1.0",
+        path: "modules/vpc",
+      })
+    })
+
+    it("git::https URL without ref", () => {
+      const result = parse("git::https://github.com/owner/repo.git//modules/vpc")
       expect(result.path).toBe("modules/vpc")
-      expect(result.ref).toBe("v1.0")
+      expect(result.ref).toBeUndefined()
+      expect(result.refAndPath).toBeUndefined()
+    })
+
+    it("git::https URL without a path", () => {
+      const result = parse("git::https://github.com/owner/repo.git?ref=main")
+      expect(result.path).toBeUndefined()
+      expect(result.ref).toBe("main")
     })
 
     it.each([
       "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0+build.1",
       "git::https://github.com/owner/repo.git//modules/vpc?ref=v1.0.0%2Bbuild.1",
-    ])("keeps a `+` in the ref (semver build metadata): %s", (url) => {
+      "github.com/owner/repo//modules/vpc?ref=v1.0.0+build.1",
+      "https://github.com/owner/repo?ref=v1.0.0+build.1",
+    ])("keeps a + in ?ref= (semver build metadata), never a space: %s", (url) => {
       expect(parse(url).ref).toBe("v1.0.0+build.1")
     })
 
-    it.each([
-      "git::https://github.com/repo.git//modules/vpc", // no owner
-      "git::https://github.com/group/subgroup/repo.git//modules/vpc", // GitHub has no nested groups
-      "git::ssh://git@github.com/owner/repo.git//modules/vpc",
-    ])("rejects %s", (url) => {
-      expect(() => parse(url)).toThrow()
-    })
-  })
-
-  describe("GitHub shorthand", () => {
-    it("parses shorthand with ref", () => {
-      const result = parse("github.com/owner/repo//modules/vpc?ref=main")
-      expect(result.host).toBe("github.com")
-      expect(result.owner).toBe("owner")
-      expect(result.repo).toBe("repo")
-      expect(result.path).toBe("modules/vpc")
-      expect(result.ref).toBe("main")
-    })
-
-    it("parses shorthand without a //subdir", () => {
-      const result = parse("github.com/owner/repo?ref=v1")
-      expect(result.owner).toBe("owner")
-      expect(result.repo).toBe("repo")
-      expect(result.path).toBeUndefined()
-      expect(result.ref).toBe("v1")
-      expect(result.cloneURL).toBe("https://github.com/owner/repo.git")
-    })
-  })
-
-  describe("GitLab shorthand", () => {
-    it("parses shorthand with nested groups, subdir and ref", () => {
-      const result = parse("gitlab.com/group/subgroup/project//modules/vpc?ref=v1")
-      expect(result.host).toBe("gitlab.com")
+    it("GitLab nested groups", () => {
+      const result = parse("git::https://gitlab.com/group/subgroup/project.git//modules/vpc?ref=v1.0")
       expect(result.owner).toBe("group/subgroup")
       expect(result.repo).toBe("project")
-      expect(result.path).toBe("modules/vpc")
-      expect(result.ref).toBe("v1")
       expect(result.cloneURL).toBe("https://gitlab.com/group/subgroup/project.git")
     })
 
-    it.each([
-      "gitlab.com/group/project/-/tree/main/x",
-      "git::https://gitlab.com/group/project/-/tree/main/x",
-    ])("rejects a browser URL rather than reading it as nested groups: %s", (url) => {
-      // `-` is reserved by GitLab, so it is never a group or project name.
-      expect(() => parse(url)).toThrow()
+    it("an arbitrary git host clones the address as given (no .git added)", () => {
+      const result = parse("git::https://dev.example.com/org/project/_git/infra//runbooks/vpc?ref=main")
+      expect(result.host).toBe("dev.example.com")
+      expect(result.owner).toBe("org/project/_git")
+      expect(result.repo).toBe("infra")
+      expect(result.cloneURL).toBe("https://dev.example.com/org/project/_git/infra")
     })
-  })
 
-  describe("GitHub browser URLs", () => {
-    it("parses tree URL", () => {
-      const result = parse("https://github.com/owner/repo/tree/main/path/to/dir")
+    it("drops credentials embedded in the URL", () => {
+      expect(parse("git::https://user:secret@github.com/owner/repo.git//x").cloneURL).toBe("https://github.com/owner/repo.git")
+    })
+
+    it("keeps an explicit http:// transport", () => {
+      expect(parse("git::http://git.internal/owner/repo.git//x").cloneURL).toBe("http://git.internal/owner/repo.git")
+    })
+
+    it("git::ssh:// URL", () => {
+      const result = parse("git::ssh://git@github.com/owner/repo.git//runbooks/vpc?ref=main")
       expect(result.host).toBe("github.com")
       expect(result.owner).toBe("owner")
       expect(result.repo).toBe("repo")
-      expect(result.path).toBe("main/path/to/dir")
-      expect(result.isBlobURL).toBe(false)
+      expect(result.cloneURL).toBe("ssh://git@github.com/owner/repo.git")
+      expect(result.path).toBe("runbooks/vpc")
+      expect(result.ref).toBe("main")
     })
 
-    it("parses blob URL", () => {
-      const result = parse("https://github.com/owner/repo/blob/main/path/to/file.ts")
-      expect(result.path).toBe("main/path/to/file.ts")
-      expect(result.isBlobURL).toBe(true)
+    it("drops an ssh:// password but keeps the user and port", () => {
+      expect(parse(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com:2222/owner/repo.git//x")).cloneURL).toBe(
+        "ssh://git@git.example.com:2222/owner/repo.git",
+      )
+      expect(parse(withUserinfo("ssh", `deploy:${PASSWORD}`, "github.com/owner/repo.git")).cloneURL).toBe(
+        "ssh://deploy@github.com/owner/repo.git",
+      )
     })
 
-    it.each([
-      ["https://github.com/owner/repo/tree/main/path/to/dir#readme", "main/path/to/dir"],
-      ["https://github.com/owner/repo/tree/main#readme", "main"],
-      ["https://github.com/owner/repo/tree/main/path/to/dir/", "main/path/to/dir"],
-      ["https://github.com/owner/repo/blob/main/path/runbook.mdx?plain=1", "main/path/runbook.mdx"],
-    ])("drops the query, fragment and trailing slash: %s", (url, path) => {
-      expect(parse(url).path).toBe(path)
+    it("keeps credentials out of the error for a source with no repository", () => {
+      expect(parseError(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/"))).not.toContain(PASSWORD)
     })
 
-    it("decodes a percent-encoded path", () => {
-      const result = parse("https://github.com/owner/repo/tree/main/my%20runbook")
-      expect(result.path).toBe("main/my runbook")
-    })
-
-    it.each([
-      "https://github.com/owner/repo/tree/main/../../../etc",
-      "https://github.com/owner/repo/tree/main/runbooks/%2e%2e/%2E%2E/%2e%2e/etc",
-      "https://github.com/owner/repo/tree/main/..%2F..%2F..%2Fetc",
-      "github.com/owner/repo//..%2F..%2Fetc",
-      "https://github.com/owner/repo/tree/main/..%5C..%5C..%5Cetc",
-      "github.com/owner/repo//..%5C..%5Cetc",
-      "git::https://gitlab.com/group/project.git//x/..%5C..%5Cetc?ref=v1",
-    ])("never yields a `..` path segment: %s", (url) => {
-      const result = Effect.runSync(Effect.either(parseRemoteSource(url)))
-      if (result._tag === "Right") {
-        // Windows' path.join also splits on a backslash.
-        expect(result.right.path?.split(/[\\/]/) ?? []).not.toContain("..")
-      }
-    })
-
-    it.each([
-      "https://github.com/owner/repo/tree/main/..%5C..%5C..%5Cetc",
-      "github.com/owner/repo//..%5C..%5Cetc",
-      "https://gitlab.com/group/project/-/tree/main/..%5Cetc",
-    ])("rejects a backslash-delimited `..` segment: %s", (url) => {
-      expect(() => parse(url)).toThrow()
+    it("git:: with an scp-like SSH address", () => {
+      const result = parse("git::git@gitlab.com:group/sub/project.git//runbooks/vpc")
+      expect(result.host).toBe("gitlab.com")
+      expect(result.owner).toBe("group/sub")
+      expect(result.repo).toBe("project")
+      expect(result.cloneURL).toBe("git@gitlab.com:group/sub/project.git")
+      expect(result.path).toBe("runbooks/vpc")
     })
   })
 
-  describe("GitLab browser URLs", () => {
-    it("parses tree URL", () => {
-      const result = parse("https://gitlab.com/owner/repo/-/tree/main/path")
-      expect(result.host).toBe("gitlab.com")
-      expect(result.owner).toBe("owner")
-      expect(result.repo).toBe("repo")
-      expect(result.path).toBe("main/path")
+  describe("git sources without git::", () => {
+    it("https .git URL with a // path", () => {
+      const result = parse("https://github.com/owner/repo.git//runbooks/vpc?ref=main")
+      expect(result.cloneURL).toBe("https://github.com/owner/repo.git")
+      expect(result.path).toBe("runbooks/vpc")
+      expect(result.ref).toBe("main")
+      expect(result.refAndPath).toBeUndefined()
     })
 
-    it("parses blob URL", () => {
-      const result = parse("https://gitlab.com/owner/repo/-/blob/main/file.ts")
-      expect(result.isBlobURL).toBe(true)
-    })
-
-    it("parses tree URL with nested groups (full group path as owner)", () => {
-      const result = parse(
-        "https://gitlab.com/group/subgroup/project/-/tree/main/path/to/dir",
-      )
-      expect(result.host).toBe("gitlab.com")
-      expect(result.owner).toBe("group/subgroup")
+    it("https URL with a // path and no .git", () => {
+      const result = parse("https://gitlab.com/group/sub/project//runbooks/vpc")
+      expect(result.owner).toBe("group/sub")
       expect(result.repo).toBe("project")
-      expect(result.path).toBe("main/path/to/dir")
-      expect(result.cloneURL).toBe(
-        "https://gitlab.com/group/subgroup/project.git",
-      )
+      expect(result.path).toBe("runbooks/vpc")
     })
 
-    it("parses blob URL with nested groups", () => {
-      const result = parse(
-        "https://gitlab.com/group/subgroup/project/-/blob/main/file.ts",
-      )
-      expect(result.owner).toBe("group/subgroup")
-      expect(result.repo).toBe("project")
-      expect(result.path).toBe("main/file.ts")
-      expect(result.isBlobURL).toBe(true)
+    it("scp-like SSH address", () => {
+      const result = parse("git@github.com:owner/repo.git//runbooks/vpc?ref=v2")
+      expect(result.cloneURL).toBe("git@github.com:owner/repo.git")
+      expect(result.path).toBe("runbooks/vpc")
+      expect(result.ref).toBe("v2")
     })
 
-    it("parses a tree URL on a self-hosted GitLab instance", () => {
-      const result = parse(
-        "https://gitlab.example.com/group/subgroup/project/-/tree/main/path",
-      )
-      expect(result.host).toBe("gitlab.example.com")
-      expect(result.owner).toBe("group/subgroup")
-      expect(result.repo).toBe("project")
-      expect(result.path).toBe("main/path")
-      expect(result.cloneURL).toBe(
-        "https://gitlab.example.com/group/subgroup/project.git",
-      )
-    })
-
-    it("keeps the port of a self-hosted GitLab instance", () => {
-      const result = parse("https://gitlab.example.com:8443/group/project/-/tree/main/path")
-      expect(result.host).toBe("gitlab.example.com:8443")
-      expect(result.cloneURL).toBe("https://gitlab.example.com:8443/group/project.git")
-    })
-  })
-
-  describe("plain repo URLs", () => {
-    it("parses GitHub repo URL", () => {
-      const result = parse("https://github.com/owner/repo")
-      expect(result.host).toBe("github.com")
-      expect(result.owner).toBe("owner")
-      expect(result.repo).toBe("repo")
+    it("ssh:// URL with a port", () => {
+      const result = parse("ssh://git@git.example.com:2222/owner/repo.git")
+      expect(result.host).toBe("git.example.com:2222")
+      expect(result.cloneURL).toBe("ssh://git@git.example.com:2222/owner/repo.git")
       expect(result.path).toBeUndefined()
-      expect(result.ref).toBeUndefined()
     })
 
-    it("parses GitLab repo URL", () => {
-      const result = parse("https://gitlab.com/owner/repo")
-      expect(result.host).toBe("gitlab.com")
-    })
-
-    it("parses GitLab repo URL with nested groups", () => {
-      const result = parse("https://gitlab.com/group/subgroup/project")
-      expect(result.host).toBe("gitlab.com")
-      expect(result.owner).toBe("group/subgroup")
-      expect(result.repo).toBe("project")
-      expect(result.cloneURL).toBe(
-        "https://gitlab.com/group/subgroup/project.git",
-      )
-    })
-
-    it("parses GitLab repo URL with nested groups and .git suffix", () => {
-      const result = parse("https://gitlab.com/group/subgroup/project.git")
-      expect(result.owner).toBe("group/subgroup")
-      expect(result.repo).toBe("project")
-    })
-
-    it("parses a plain repo URL on a self-hosted GitLab instance", () => {
-      const result = parse("https://gitlab.example.com/group/subgroup/project")
-      expect(result.host).toBe("gitlab.example.com")
-      expect(result.owner).toBe("group/subgroup")
-      expect(result.repo).toBe("project")
-      expect(result.cloneURL).toBe(
-        "https://gitlab.example.com/group/subgroup/project.git",
-      )
-    })
-
-    it("parses a GitHub repo name that contains dots", () => {
-      const result = parse("https://github.com/gruntwork-io/docs.gruntwork.io")
-      expect(result.repo).toBe("docs.gruntwork.io")
-      expect(result.cloneURL).toBe("https://github.com/gruntwork-io/docs.gruntwork.io.git")
-    })
-
-    it.each([
-      ["https://github.com/owner/repo/", "github.com", "owner", "repo"],
-      ["https://github.com/owner/repo.git/", "github.com", "owner", "repo"],
-      ["https://GitHub.com/owner/repo", "github.com", "owner", "repo"],
-      ["https://github.com/owner/repo?tab=readme", "github.com", "owner", "repo"],
-      ["https://gitlab.com/group/project/", "gitlab.com", "group", "project"],
-      ["https://gitlab.com/group/project?tab=x", "gitlab.com", "group", "project"],
-    ])("normalizes %s", (url, host, owner, repo) => {
-      const result = parse(url)
-      expect(result.host).toBe(host)
-      expect(result.owner).toBe(owner)
-      expect(result.repo).toBe(repo)
-      expect(result.cloneURL).toBe(`https://${host}/${owner}/${repo}.git`)
+    it("drops a #fragment rather than reading it into the ref or path", () => {
+      const withRef = parse("git::https://git.example.com/owner/repo.git//runbooks/vpc?ref=main#readme")
+      expect(withRef.ref).toBe("main")
+      expect(withRef.path).toBe("runbooks/vpc")
+      const noRef = parse("github.com/owner/repo//runbooks/vpc#readme")
+      expect(noRef.ref).toBeUndefined()
+      expect(noRef.path).toBe("runbooks/vpc")
     })
   })
 
-  describe("invalid URLs", () => {
-    it("rejects empty string", () => {
-      expect(() => parse("")).toThrow()
+  describe("invalid sources", () => {
+    it("rejects an empty string", () => {
+      expect(parseError("")).toBe("empty URL")
     })
 
-    it("rejects unsupported format", () => {
-      expect(() => parse("https://bitbucket.org/owner/repo")).toThrow()
+    it("rejects an unsupported host with a message naming the accepted forms", () => {
+      expect(parseError("https://bitbucket.org/owner/repo")).toContain("github.com/org/repo//path")
+      expect(parseError("./local/path")).toContain("unsupported URL format")
     })
 
-    it.each([
-      "git::https://oauth2:glpat-secret@gitlab.example.com/group/project.git//x?ref=v1",
-      "https://user:pass@github.com/owner/repo/tree/main/x",
-      "https://user@gitlab.com/group/project",
-    ])("rejects credentials in the URL with a clear message: %s", (url) => {
-      const result = Effect.runSync(Effect.either(parseRemoteSource(url)))
-      expect(result._tag).toBe("Left")
-      if (result._tag === "Left") {
-        expect(result.left.message).toContain("credentials in the URL are not supported")
-      }
+    it("rejects paths that climb out of the repository", () => {
+      expect(parseError("github.com/owner/repo//../../etc?ref=main")).toContain("must stay inside the repository")
+      // A literal `../` in a browser URL is collapsed by the URL parser; an
+      // encoded slash survives it and reaches the path check.
+      expect(parseError("https://github.com/owner/repo/tree/main/x%2F..%2F..%2Fy")).toContain("must stay inside the repository")
+      expect(parseError("github.com/owner/repo//a\\..\\b")).toContain("must stay inside the repository")
     })
-  })
-})
 
-describe("needsRefResolution", () => {
-  it("returns true for browser-style URLs without explicit ref", () => {
-    const parsed = parse("https://github.com/owner/repo/tree/main/path")
-    expect(needsRefResolution(parsed)).toBe(true)
-  })
+    it("rejects a shorthand with no repo", () => {
+      expect(parseError("github.com/owner")).toContain("github.com/<owner>/<repo>")
+    })
 
-  it("returns false for URLs with explicit ref", () => {
-    const parsed = parse("git::https://github.com/owner/repo.git//path?ref=v1.0")
-    expect(needsRefResolution(parsed)).toBe(false)
-  })
+    it("rejects a git transport other than https, http or ssh", () => {
+      expect(parseError("git::file:///srv/repo.git//x")).toContain("unsupported git transport")
+    })
 
-  it("returns false for plain repo URLs (no path)", () => {
-    const parsed = parse("https://github.com/owner/repo")
-    expect(needsRefResolution(parsed)).toBe(false)
-  })
-
-  it.each([
-    "git::https://github.com/owner/repo.git//modules/vpc",
-    "github.com/owner/repo//modules/vpc",
-  ])("returns false for an OpenTofu //subdir without a ref: %s", (url) => {
-    // The subdir is only a path — the default branch is cloned, and
-    // "modules" must not be taken for a ref.
-    const parsed = parse(url)
-    expect(parsed.path).toBe("modules/vpc")
-    expect(needsRefResolution(parsed)).toBe(false)
-  })
-})
-
-describe("adjustBlobPath", () => {
-  it("converts blob path to parent directory", () => {
-    const parsed = parse("https://github.com/owner/repo/blob/main/path/to/file.ts")
-    // After ref resolution, path would be "path/to/file.ts"
-    // Simulate resolved state:
-    const resolved = { ...parsed, ref: "main", path: "path/to/file.ts" }
-    const adjusted = adjustBlobPath(resolved)
-    expect(adjusted.path).toBe("path/to")
-    expect(adjusted.isBlobURL).toBe(false)
-  })
-
-  it("returns undefined path for blob at repo root", () => {
-    const parsed = { host: "github.com", owner: "o", repo: "r", cloneURL: "x", isBlobURL: true, path: "file.ts" }
-    const adjusted = adjustBlobPath(parsed)
-    expect(adjusted.path).toBeUndefined()
-  })
-
-  it("is a no-op for non-blob URLs", () => {
-    const parsed = parse("https://github.com/owner/repo/tree/main/path")
-    const adjusted = adjustBlobPath(parsed)
-    expect(adjusted).toEqual(parsed)
+    it("rejects an scp-like address whose user starts with -", () => {
+      expect(parseError("-u@host:repo")).toContain("unsupported URL format")
+      expect(parseError("git::-u@host:repo")).toContain("unsupported URL format")
+    })
   })
 })
 
@@ -395,7 +468,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput([
           "refs/heads/main",
           "refs/heads/release/v1",
@@ -419,7 +492,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput(["refs/heads/main"]),
         exitCode: 0,
       },
@@ -439,7 +512,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput(["refs/heads/main"]),
         exitCode: 0,
       },
@@ -459,7 +532,7 @@ describe("resolveRef", () => {
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
+        args: ["ls-remote", "--refs", "--", "https://github.com/o/r.git"],
         outputLines: refOutput(["refs/tags/v1.0.0"]),
         exitCode: 0,
       },
@@ -475,53 +548,129 @@ describe("resolveRef", () => {
     expect(result.path).toBe("README.md")
   })
 
-  it("resolves a commit SHA segment (a permalink) as the ref", async () => {
-    const sha = "0123456789abcdef0123456789abcdef01234567"
+  it("fails with a redacted GitError instead of guessing a ref when ls-remote fails", async () => {
+    const url = "https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r.git"
     const spawner = makeTestSpawner([
       {
         command: "git",
-        args: ["ls-remote", "--refs", "https://github.com/o/r.git"],
-        outputLines: refOutput(["refs/heads/main"]),
-        exitCode: 0,
-      },
-    ])
-
-    const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", `${sha}/runbooks/x`).pipe(
-        Effect.provide(spawner),
-      ),
-    )
-
-    expect(result.ref).toBe(sha)
-    expect(result.path).toBe("runbooks/x")
-  })
-
-  it("fails with a redacted GitError instead of guessing when ls-remote fails", async () => {
-    const authedURL = "https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/o/r.git"
-    const spawner = makeTestSpawner([
-      {
-        command: "git",
-        args: ["ls-remote", "--refs", authedURL],
-        outputLines: [`fatal: Authentication failed for '${authedURL}/'`],
+        args: ["ls-remote", "--refs", "--", url],
+        outputLines: [`fatal: unable to access '${url}/': Could not resolve host: github.com`],
         source: "stderr",
         exitCode: 128,
       },
     ])
 
     const result = await Effect.runPromise(
-      resolveRef(authedURL, "main/runbooks/x").pipe(
-        Effect.provide(spawner),
-        Effect.either,
-      ),
+      resolveRef(url, "feature/foo/runbooks/x").pipe(Effect.provide(spawner), Effect.either),
     )
 
     expect(result._tag).toBe("Left")
     if (result._tag === "Left") {
-      const err = result.left as GitError
-      expect(err._tag).toBe("GitError")
-      expect(err.exitCode).toBe(128)
-      expect(err.stderr).toContain("Authentication failed")
-      expect(err.stderr).not.toContain("ghp_")
+      expect(result.left._tag).toBe("GitError")
+      if (result.left._tag === "GitError") {
+        expect(result.left.exitCode).toBe(128)
+        expect(result.left.stderr).toContain("Could not resolve host")
+        expect(result.left.stderr).not.toContain("ghp_")
+      }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GitHub Enterprise hosts (GHES / ghe.com)
+// ---------------------------------------------------------------------------
+
+describe("parseRemoteSource — GitHub enterprise hosts", () => {
+  const parseWith = (url: string, githubHosts?: string[]) =>
+    Effect.runSync(parseRemoteSource(url, githubHosts ? { githubHosts } : {}))
+  const parseEither = (url: string, githubHosts?: string[]) =>
+    Effect.runSync(Effect.either(parseRemoteSource(url, githubHosts ? { githubHosts } : {})))
+
+  it("parses a GHES tree URL with that host and clone URL", () => {
+    const result = parseWith("https://ghes.example.com/owner/repo/tree/main/path/to/dir")
+    expect(result).toEqual({
+      host: "ghes.example.com",
+      owner: "owner",
+      repo: "repo",
+      cloneURL: "https://ghes.example.com/owner/repo.git",
+      ref: undefined,
+      path: undefined,
+      refAndPath: "main/path/to/dir",
+    })
+  })
+
+  it("parses a GHES blob URL (lowercases the host, keeps the port)", () => {
+    const result = parseWith("https://GHES.Example.com:8443/owner/repo/blob/v1.2/runbook.mdx")
+    expect(result.host).toBe("ghes.example.com:8443")
+    expect(result.cloneURL).toBe("https://ghes.example.com:8443/owner/repo.git")
+    expect(result.refAndPath).toBe("v1.2/runbook.mdx")
+  })
+
+  it("parses ghe.com tree and blob URLs", () => {
+    const tree = parseWith("https://acme.ghe.com/o/r/tree/main/dir")
+    expect(tree.host).toBe("acme.ghe.com")
+    expect(tree.cloneURL).toBe("https://acme.ghe.com/o/r.git")
+    const blob = parseWith("https://acme.ghe.com/o/r/blob/main/dir/runbook.mdx")
+    expect(blob.host).toBe("acme.ghe.com")
+    expect(blob.refAndPath).toBe("main/dir/runbook.mdx")
+  })
+
+  it("an http:// browser URL still clones over https", () => {
+    expect(parseWith("http://ghes.example.com/o/r/tree/main").cloneURL).toBe("https://ghes.example.com/o/r.git")
+  })
+
+  it("plain ghe.com repo URL parses without configuration", () => {
+    for (const url of ["https://acme.ghe.com/o/r", "https://acme.ghe.com/o/r.git", "https://ACME.ghe.com/o/r"]) {
+      const result = parseWith(url)
+      expect(result.host).toBe("acme.ghe.com")
+      expect(result.owner).toBe("o")
+      expect(result.repo).toBe("r")
+      expect(result.cloneURL).toBe("https://acme.ghe.com/o/r.git")
+    }
+  })
+
+  it("plain GHES repo URL parses ONLY when its host is in githubHosts", () => {
+    expect(parseEither("https://ghes.example.com/o/r")._tag).toBe("Left")
+    expect(parseEither("https://ghes.example.com/o/r", ["other.example.com"])._tag).toBe("Left")
+    const result = parseWith("https://ghes.example.com/o/r", ["GHES.example.com"])
+    expect(result).toEqual({
+      host: "ghes.example.com",
+      owner: "o",
+      repo: "r",
+      cloneURL: "https://ghes.example.com/o/r.git",
+      ref: undefined,
+      path: undefined,
+    })
+  })
+
+  it("a .git clone URL names a git repo on any host, configured or not", () => {
+    expect(parseWith("https://ghes.example.com/o/r.git").cloneURL).toBe("https://ghes.example.com/o/r.git")
+  })
+
+  it("plain github.com still parses without githubHosts", () => {
+    expect(parseWith("https://github.com/o/r").cloneURL).toBe("https://github.com/o/r.git")
+  })
+
+  it("a GitLab-named host listed nowhere still parses as GitLab (githubHosts doesn't hijack it)", () => {
+    const result = parseWith("https://gitlab.example.com/group/sub/project", ["ghes.example.com"])
+    expect(result.owner).toBe("group/sub")
+    expect(result.repo).toBe("project")
+  })
+
+  it("GitLab /-/tree/ URLs are not mistaken for GitHub tree URLs", () => {
+    const result = parseWith("https://gitlab.example.com/group/project/-/tree/main/dir")
+    expect(result.owner).toBe("group")
+    expect(result.repo).toBe("project")
+    expect(result.refAndPath).toBe("main/dir")
+  })
+
+  // The GitHub tree/blob shape matches any host, so a plain URL of a GitLab
+  // project nested under a subgroup literally named `tree`/`blob`
+  // (`group/team/blob/project`) must not misparse as GitHub `group/team`.
+  it("a plain GitLab URL with a `blob`/`tree` subgroup still parses as GitLab", () => {
+    const result = parseWith("https://gitlab.com/group/team/blob/project")
+    expect(result.owner).toBe("group/team/blob")
+    expect(result.repo).toBe("project")
+    expect(result.cloneURL).toBe("https://gitlab.com/group/team/blob/project.git")
   })
 })

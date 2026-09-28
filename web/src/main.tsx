@@ -7,6 +7,7 @@ import { InstructionModeProvider } from './contexts/InstructionModeContext'
 import { ApiProvider } from './contexts/ApiContext'
 import { GeneratedFilesProvider } from './contexts/GeneratedFilesContext'
 import { IpcGitWorkTreeProvider } from './contexts/IpcGitWorkTreeContext'
+import { WorkspaceGitDataProvider } from './contexts/WorkspaceGitDataContext'
 import { IpcExecutableRegistryProvider } from './contexts/IpcExecutableRegistryContext'
 import { ErrorReportingProvider } from './contexts/ErrorReportingContext'
 import { IpcTelemetryProvider } from './contexts/IpcTelemetryContext'
@@ -41,9 +42,11 @@ if (!window.api) {
                   <IpcExecutableRegistryProvider>
                     <GeneratedFilesProvider>
                       <IpcGitWorkTreeProvider>
-                        <LogsProvider>
-                          <App />
-                        </LogsProvider>
+                        <WorkspaceGitDataProvider>
+                          <LogsProvider>
+                            <App />
+                          </LogsProvider>
+                        </WorkspaceGitDataProvider>
                       </IpcGitWorkTreeProvider>
                     </GeneratedFilesProvider>
                   </IpcExecutableRegistryProvider>

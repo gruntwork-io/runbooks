@@ -17,6 +17,7 @@ const registerWorkTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({
     registerWorkTree,
+    unregisterWorkTree: vi.fn(),
     activeWorkTree: null,
     workTrees: [],
     setActiveWorkTree: vi.fn(),
@@ -221,6 +222,28 @@ describe("GitClone — local checkout", () => {
     expect(screen.getByText(/42 tracked files/)).toBeInTheDocument()
   })
 
+  it.each([
+    ["git@[::1]:acme/infra.git", "acme", "infra"],
+    ["deploy@git.example.com:platform/sub/infra.git", "platform/sub", "infra"],
+    ["ssh://git@[::1]:2222/acme/infra.git", "acme", "infra"],
+  ])("registers the owner and repo of a %s remote", async (remoteUrl, repoOwner, repoName) => {
+    mockIpc({ ...REPO, remoteUrl })
+    const user = userEvent.setup()
+    renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
+
+    const confirm = screen.getByRole("button", { name: /Use This Repo/i })
+    await waitFor(() => expect(confirm).toBeEnabled(), { timeout: 2000 })
+    await user.click(confirm)
+
+    await waitFor(() => expect(registerWorkTree).toHaveBeenCalled())
+    expect(registerWorkTree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoUrl: remoteUrl,
+        gitInfo: expect.objectContaining({ repoOwner, repoName }),
+      }),
+    )
+  })
+
   it("explains why a directory can't be used and blocks the confirm", async () => {
     mockIpc({ status: "fail", error: "Not a git repository: /home/me/notes" })
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/notes" })
@@ -245,5 +268,30 @@ describe("GitClone — local checkout", () => {
         ).toBeInTheDocument(),
       { timeout: 2000 },
     )
+  })
+})
+
+describe("GitClone — a clone that main rejects", () => {
+  it("shows the handler's own message, not Electron's wrapper around it", async () => {
+    const message =
+      'invalid repo path "../outside": use a directory inside the repository, relative to its root'
+    invoke.mockImplementation(async (channel: string) => {
+      // How Electron rejects an invoke whose handler threw.
+      if (channel === "git:clone") {
+        throw new Error(`Error invoking remote method 'git:clone': Error: ${message}`)
+      }
+      if (channel === "session:get") return { workingDir: "/work" }
+      if (channel === "github:orgs") return []
+      return {}
+    })
+    const user = userEvent.setup()
+    renderGitClone({ prefilledUrl: "https://github.com/acme/infra.git", prefilledRepoPath: "../outside" })
+
+    const clone = screen.getByRole("button", { name: /^Clone$/i })
+    await waitFor(() => expect(clone).toBeEnabled(), { timeout: 2000 })
+    await user.click(clone)
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument()
   })
 })

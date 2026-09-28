@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
+import { tupleElementKeys, untouchedTupleElement } from '../lib/untouchedValue'
 
 /**
  * Base props interface for all form control components
@@ -157,14 +158,16 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, e
 
 /**
  * Checkbox input component for boolean variables
- * Renders a checkbox with proper boolean value handling
+ * Renders a checkbox with proper boolean value handling. Checked only for true
+ * or 'true': a bool can arrive as a string (e.g. imported from a map field),
+ * and Boolean('false') is true.
  */
 export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => (
   <div className="flex items-center">
     <input
       type="checkbox"
       id={`${id}-${variable.name}`}
-      checked={Boolean(value)}
+      checked={value === true || value === 'true'}
       onChange={(e) => onChange(e.target.checked)}
       onBlur={onBlur}
       disabled={disabled}
@@ -175,24 +178,49 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
 
 /**
  * Select dropdown component for enum variables
- * Renders a dropdown with predefined options from the variable configuration
+ * Renders a dropdown with predefined options from the variable configuration.
+ * The display always matches form state instead of letting the browser fall
+ * back to the first option:
+ *   - With no value (an enum with no default), a disabled placeholder is shown,
+ *     so picking any option, including the first, fires onChange. A '' value
+ *     also shows it, unless '' is one of the options: then that option is shown.
+ *   - A value that is not one of the options (e.g. imported from an upstream
+ *     string field) is shown as its own disabled option.
+ * Options and value are compared as strings: YAML can make options numbers or
+ * booleans, while a picked value is always the option's string.
  */
-export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => (
-  <select
-    id={`${id}-${variable.name}`}
-    value={String(value || '')}
-    onChange={(e) => onChange(e.target.value)}
-    onBlur={onBlur}
-    disabled={disabled}
-    className={getInputClassName(error, 'min-w-56', disabled)}
-  >
-    {variable.options?.map(option => (
-      <option key={option} value={option}>
-        {option}
-      </option>
-    ))}
-  </select>
-)
+export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+  const current = value == null ? '' : String(value)
+  const options = (variable.options ?? []).map(String)
+  const showPlaceholder = current === '' && (value == null || !options.includes(''))
+  const isUnlistedValue = current !== '' && !options.includes(current)
+  return (
+    <select
+      id={`${id}-${variable.name}`}
+      value={current}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      disabled={disabled}
+      className={getInputClassName(error, 'min-w-56', disabled)}
+    >
+      {showPlaceholder && (
+        <option value="" disabled>
+          Select…
+        </option>
+      )}
+      {isUnlistedValue && (
+        <option value={current} disabled>
+          {current}
+        </option>
+      )}
+      {options.map(option => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  )
+}
 
 /**
  * List input component for array variables
@@ -413,7 +441,12 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
 
   const addEntry = () => {
     if (entryKey.trim()) {
-      onChange({ ...currentMap, [entryKey.trim()]: entryFields })
+      // Bool fields display 'false' until touched; store that default so an
+      // untouched field is saved as 'false' rather than omitted.
+      const boolDefaults = Object.fromEntries(
+        schemaFields.filter(f => schema[f] === 'bool').map(f => [f, 'false'])
+      )
+      onChange({ ...currentMap, [entryKey.trim()]: { ...boolDefaults, ...entryFields } })
       resetEntryForm()
     }
   }
@@ -656,8 +689,13 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
-  const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
-  const currentTuple = Array.isArray(value) ? value : Array.from({ length: elementKeys.length }, () => '')
+  const elementKeys = tupleElementKeys(schema)
+  // Missing elements (no value, or a short array) start as '' or, for bool
+  // elements, false (what the select displays), matching the boolean updateElement stores.
+  // useFormState starts an untouched tuple from the same elements.
+  const currentTuple = elementKeys.map((k, i) =>
+    (Array.isArray(value) ? value[i] : undefined) ?? untouchedTupleElement(schema[k])
+  )
 
   const updateElement = (index: number, newValue: unknown) => {
     const updated = [...currentTuple]
@@ -695,7 +733,7 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
             ) : elemType === 'bool' ? (
               <select
                 id={`${id}-${variable.name}-${key}`}
-                value={String(elemValue || 'false')}
+                value={String(elemValue === '' ? false : elemValue)}
                 onChange={(e) => updateElement(index, e.target.value === 'true')}
                 onBlur={onBlur}
                 disabled={disabled}
