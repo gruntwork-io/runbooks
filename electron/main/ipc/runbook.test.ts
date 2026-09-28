@@ -195,6 +195,38 @@ describe("runbook IPC handlers", () => {
       expect(reloadsSince(closed)).toEqual([])
     }, WATCH_TEST_TIMEOUT_MS)
 
+    describe("a load still running when the runbook is closed", () => {
+      // Opening a runbook in a new session awaits resolving its path (call 1),
+      // reading it (2), creating the session (3), resetting the warm renders
+      // (4) and building its registry (5). The watcher starts before call 5.
+      for (const [awaiting, heldCall] of [["resolving its path", 1], ["building its registry", 5]] as const) {
+        it(`starts no watcher and sets no registry after the close (held while ${awaiting})`, async () => {
+          setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+          const runbookA = path.join(dirA, "runbook.mdx")
+
+          const hold = holdRunPromiseCall(heldCall)
+          const openA = getRunbook(dirA)
+          await hold.held
+          const closed = sent.length
+          closeRunbook()
+          hold.release()
+
+          expect<unknown>(await openA).toEqual({ superseded: true })
+          expect(runtimeModule.executableRegistry).toBeNull()
+          expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
+
+          // No watcher on A: keep editing it for longer than a new watcher's
+          // initial scan plus its 300ms debounce, and nothing reloads.
+          for (let edit = 1; edit <= 5; edit++) {
+            fs.writeFileSync(runbookA, runbookWith(`echo a-after-close-${edit}`))
+            await new Promise((resolve) => setTimeout(resolve, 300))
+          }
+          await new Promise((resolve) => setTimeout(resolve, 700))
+          expect(reloadsSince(closed)).toEqual([])
+        }, WATCH_TEST_TIMEOUT_MS)
+      }
+    })
+
     describe("a load that a newer one overtakes", () => {
       // A same-path reload awaits resolving the path (call 1), reading the
       // file (call 2), and building the registry (call 3).

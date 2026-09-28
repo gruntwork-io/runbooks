@@ -60,6 +60,15 @@ function describeRunbookOpenError(inputPath: string): string {
 let loadGeneration = 0
 const SUPERSEDED = { superseded: true } as const
 
+/**
+ * End every runbook:get still running as superseded, as a newer one would.
+ * Closing the runbook calls this, so a load in flight at the close doesn't
+ * start a watcher or set a registry for a runbook that is no longer open.
+ */
+export function supersedeRunbookLoads(): void {
+  loadGeneration++
+}
+
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
