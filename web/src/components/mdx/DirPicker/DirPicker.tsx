@@ -70,7 +70,7 @@ function DirPickerInteractive({
     isWorkspaceReady,
     selectDir,
     setPath,
-  } = useDirPicker({ id, rootDir, gitCloneId, maxLevels })
+  } = useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate })
 
   const missingRootConfig = !rootDir && !gitCloneId
 
@@ -135,7 +135,7 @@ function DirPickerInteractive({
           <FolderOpen className={`size-6 ${iconColor}`} />
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {/* Title and description */}
           <div className="text-md font-bold text-foreground">
             <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
@@ -186,8 +186,7 @@ function DirPickerInteractive({
                     <select
                       value={level.selected}
                       onChange={(e) => selectDir(index, e.target.value)}
-                      disabled={level.loading}
-                      className="flex-1 px-2 py-1.5 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground"
+                      className="flex-1 px-2 py-1.5 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
                     >
                       <option value="">
                         {`Select ${levelLabel.toLowerCase()}...`}

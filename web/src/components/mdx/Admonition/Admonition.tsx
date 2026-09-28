@@ -181,7 +181,7 @@ export function Admonition({
       )}
     >
       <Icon className={cn("size-4 mt-0.5 flex-shrink-0", config.iconColor)} />
-      <div className="flex-1">
+      <div className="flex-1 min-w-0">
         <div>
           <div className="text-md font-bold mb-2">
             {resolvedTitle ? <InlineMarkdown>{displayTitle}</InlineMarkdown> : displayTitle}

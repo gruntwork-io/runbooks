@@ -1,0 +1,291 @@
+import { describe, it, expect, afterAll, afterEach } from "bun:test"
+import { Cause, Effect, FiberId, Layer, ManagedRuntime } from "effect"
+import type { IpcMain, IpcMainInvokeEvent } from "electron"
+import {
+  ExecutableNotFoundError,
+  FileReadError,
+  GitError,
+  GitHubApiError,
+  PathTraversalError,
+  RenderError,
+  SessionNotFoundError,
+} from "../../../src/errors/index.ts"
+import { clearRegisteredSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
+import { cleanIpcErrorMessage } from "../../shared/ipc-error-message.ts"
+import { describeCause, describeFailure, installIpcErrorNormalization, toIpcError } from "./ipc-error.ts"
+
+// A real ManagedRuntime, so failures reject with the same FiberFailure the
+// handlers' `runtime.runPromise(...)` produces.
+const runtime = ManagedRuntime.make(Layer.empty)
+afterAll(() => runtime.dispose())
+
+/** Run a program the way a handler does and return what it rejects with. */
+async function rejectionOf(program: Effect.Effect<unknown, unknown>): Promise<unknown> {
+  try {
+    await runtime.runPromise(program)
+  } catch (err) {
+    return err
+  }
+  throw new Error("expected the program to fail")
+}
+
+const enoent = () => new Error("ENOENT: no such file or directory, open '/ws/a.txt'")
+
+describe("toIpcError", () => {
+  it("uses a tagged failure's message", async () => {
+    const err = await rejectionOf(
+      Effect.fail(new PathTraversalError({ path: "/etc/passwd", message: "path is outside session working directory" })),
+    )
+    expect(toIpcError(err).message).toBe("path is outside session working directory")
+  })
+
+  it("builds a message for a tagged failure without one from its tag, path and cause", async () => {
+    const err = await rejectionOf(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() })))
+    expect(toIpcError(err).message).toBe(
+      "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
+    )
+  })
+
+  it("includes an id or HTTP status when a tagged failure has no message", async () => {
+    const notFound = await rejectionOf(Effect.fail(new ExecutableNotFoundError({ id: "build" })))
+    expect(toIpcError(notFound).message).toBe("ExecutableNotFoundError (id: build)")
+
+    const apiError = await rejectionOf(Effect.fail(new GitHubApiError({ status: 404, message: "" })))
+    expect(toIpcError(apiError).message).toBe("GitHubApiError (status 404)")
+  })
+
+  it("falls back to the bare tag when a tagged failure carries nothing else", async () => {
+    const err = await rejectionOf(Effect.fail(new SessionNotFoundError()))
+    expect(toIpcError(err).message).toBe("SessionNotFoundError")
+  })
+
+  it("uses a GitError's stderr, or the command and exit code when stderr is empty", async () => {
+    const withStderr = await rejectionOf(
+      Effect.fail(new GitError({ command: "git push", stderr: "remote: Permission denied", exitCode: 128 })),
+    )
+    expect(toIpcError(withStderr).message).toBe("remote: Permission denied")
+
+    const withoutStderr = await rejectionOf(Effect.fail(new GitError({ command: "git push", stderr: "", exitCode: 128 })))
+    expect(toIpcError(withoutStderr).message).toBe("git push failed (exit 128)")
+  })
+
+  it("uses a defect's head message for a die", async () => {
+    const err = await rejectionOf(
+      Effect.sync(() => {
+        throw new Error("boom")
+      }),
+    )
+    expect(toIpcError(err).message).toBe("boom")
+  })
+
+  it("describes a tagged defect (Effect.orDie) like a typed failure", async () => {
+    const err = await rejectionOf(Effect.orDie(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() }))))
+    expect(toIpcError(err).message).toBe(
+      "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
+    )
+  })
+
+  it("describes a plain-object defect or rejection by its message, else as JSON, never as [object Object]", async () => {
+    const defect = await rejectionOf(Effect.die({ foo: 1 }))
+    expect(toIpcError(defect).message).toBe('{"foo":1}')
+
+    // A handler whose promise rejects with a non-Error value.
+    expect(toIpcError({ message: "x" }).message).toBe("x")
+  })
+
+  it("says the operation was interrupted for an interrupt", async () => {
+    const err = await rejectionOf(Effect.interrupt)
+    expect(toIpcError(err).message).toBe("The operation was interrupted")
+  })
+
+  it("never sends the FiberFailure prefix or stack frames", async () => {
+    const failures: Array<Effect.Effect<unknown, unknown>> = [
+      Effect.fail(new PathTraversalError({ path: "/x", message: "outside" })),
+      Effect.fail(new FileReadError({ path: "/x", cause: enoent() })),
+      Effect.fail(new GitError({ command: "git clone", stderr: "", exitCode: 1 })),
+      Effect.sync(() => {
+        throw new Error("boom")
+      }),
+      Effect.die("a string defect"),
+      Effect.interrupt,
+    ]
+    for (const program of failures) {
+      const err = await rejectionOf(program)
+      // Precondition: this is exactly what Electron would otherwise send.
+      expect(String(err)).toContain("(FiberFailure)")
+
+      // Electron sends `error.toString()`.
+      const sent = toIpcError(err).toString()
+      expect(sent).toStartWith("Error: ")
+      expect(sent).not.toContain("(FiberFailure)")
+      expect(sent).not.toContain("\n    at ")
+    }
+  })
+
+  it("describes an unwrapped tagged error (boilerplate:render's Cause.squash)", () => {
+    expect(toIpcError(new RenderError({ message: "template: unexpected EOF" })).message).toBe("template: unexpected EOF")
+    expect(toIpcError(new FileReadError({ path: "/x", cause: enoent() })).message).toMatch(/^FileReadError \(\/x\): ENOENT/)
+  })
+
+  it("keeps an already-clean Error's message, in a new Error that has the original as its cause", () => {
+    // git.ts's runAndUnwrap and runbook.ts's describeRunbookOpenError throw these.
+    const msg = "This path no longer exists:\n\n/tmp/gone"
+    const thrown = new Error(msg)
+    const sent = toIpcError(thrown)
+    expect(sent).not.toBe(thrown)
+    expect(sent.message).toBe(msg)
+    expect(sent.cause).toBe(thrown)
+  })
+
+  it("keeps the original rejection as the cause for MAIN's own log", async () => {
+    const err = await rejectionOf(Effect.fail(new FileReadError({ path: "/x", cause: enoent() })))
+    expect(toIpcError(err).cause).toBe(err)
+  })
+
+  describe("secret redaction", () => {
+    afterEach(() => clearRegisteredSecrets())
+
+    it("redacts a registered secret from a GitError's stderr", async () => {
+      registerSecret("supersecrettoken123")
+      const err = await rejectionOf(
+        Effect.fail(
+          new GitError({
+            command: "git push",
+            stderr: "fatal: unable to access 'https://supersecrettoken123@git.example.com/o/r.git/'",
+            exitCode: 128,
+          }),
+        ),
+      )
+      expect(toIpcError(err).message).toBe("fatal: unable to access 'https://[REDACTED]@git.example.com/o/r.git/'")
+    })
+
+    it("redacts every message it passes through: a plain Error, a defect and a token shape", async () => {
+      registerSecret("supersecrettoken123")
+      expect(toIpcError(new Error("bad token supersecrettoken123")).message).toBe("bad token [REDACTED]")
+
+      const defect = await rejectionOf(Effect.die(new Error("bad token supersecrettoken123")))
+      expect(toIpcError(defect).message).toBe("bad token [REDACTED]")
+
+      const pat = "ghp_" + "a".repeat(36)
+      expect(toIpcError(new RenderError({ message: `template saw ${pat}` })).message).toBe("template saw [REDACTED]")
+    })
+  })
+})
+
+describe("describeFailure", () => {
+  it("never returns an empty string", () => {
+    expect(describeFailure(new Error(""))).toBe("An unknown error occurred")
+    expect(describeFailure("")).toBe("An unknown error occurred")
+    expect(describeFailure("plain string")).toBe("plain string")
+  })
+
+  it("uses a non-Error object's string message, else its JSON", () => {
+    expect(describeFailure({ message: "x" })).toBe("x")
+    expect(describeFailure({ foo: 1 })).toBe('{"foo":1}')
+    expect(describeFailure([1, "two"])).toBe('[1,"two"]')
+  })
+
+  it("falls back for a value with nothing to show: null, undefined, an empty message, no JSON", () => {
+    const circular: Record<string, unknown> = { foo: 1 }
+    circular.self = circular
+    for (const value of [null, undefined, { message: "" }, circular, { n: 1n }, () => {}]) {
+      expect(describeFailure(value)).toBe("An unknown error occurred")
+    }
+  })
+})
+
+describe("describeCause", () => {
+  it("describes a typed failure with describeFailure, even when a defect rides along", () => {
+    expect(describeCause(Cause.fail(new SessionNotFoundError()))).toBe("SessionNotFoundError")
+    expect(
+      describeCause(Cause.sequential(Cause.fail(new SessionNotFoundError()), Cause.die(new Error("finalizer")))),
+    ).toBe("SessionNotFoundError")
+  })
+
+  it("says the operation was interrupted for an interrupt only", () => {
+    expect(describeCause(Cause.interrupt(FiberId.none))).toBe("The operation was interrupted")
+  })
+
+  it("describes a defect by its own message, with no stack frames", () => {
+    for (const [cause, expected] of [
+      [Cause.die(new Error("boom")), "boom"],
+      [Cause.die("a string defect"), "a string defect"],
+      [Cause.die(new FileReadError({ path: "/x", cause: enoent() })), `FileReadError (/x): ${enoent().message}`],
+      [Cause.sequential(Cause.die(new Error("boom")), Cause.interrupt(FiberId.none)), "boom"],
+    ] as const) {
+      const text = describeCause(cause)
+      expect(text).toBe(expected)
+      expect(text).not.toContain("    at ")
+      // What it replaces: Cause.pretty carries the frames.
+      expect(Cause.pretty(cause)).not.toBe(text)
+    }
+  })
+})
+
+describe("installIpcErrorNormalization", () => {
+  type Listener = Parameters<IpcMain["handle"]>[1]
+
+  /** Stand-in for ipcMain that records registered listeners. */
+  function makeFakeIpc() {
+    const listeners = new Map<string, Listener>()
+    const ipc: Pick<IpcMain, "handle"> = {
+      handle: (channel, listener) => {
+        listeners.set(channel, listener)
+      },
+    }
+    return { ipc, listeners }
+  }
+
+  /**
+   * Invoke a registered listener and return the message the renderer ends up
+   * with: Electron sends `error.toString()`, ipcRenderer.invoke wraps it as
+   * "Error invoking remote method '<channel>': <sent>", and the preload cleans
+   * that with cleanIpcErrorMessage().
+   */
+  async function rendererMessage(listeners: Map<string, Listener>, channel: string): Promise<string> {
+    try {
+      await listeners.get(channel)!({} as IpcMainInvokeEvent)
+    } catch (err) {
+      return cleanIpcErrorMessage(`Error invoking remote method '${channel}': ${(err as Error).toString()}`)
+    }
+    throw new Error(`expected ${channel} to reject`)
+  }
+
+  it("delivers a clean message for a handler that lets runtime.runPromise reject", async () => {
+    const { ipc, listeners } = makeFakeIpc()
+    installIpcErrorNormalization(ipc)
+    ipc.handle("workspace:file", () =>
+      runtime.runPromise(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() }))),
+    )
+
+    expect(await rendererMessage(listeners, "workspace:file")).toBe(
+      "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
+    )
+  })
+
+  it("normalizes synchronous throws too", async () => {
+    const { ipc, listeners } = makeFakeIpc()
+    installIpcErrorNormalization(ipc)
+    ipc.handle("native:open-external", () => {
+      throw new TypeError("Invalid URL")
+    })
+
+    expect(await rendererMessage(listeners, "native:open-external")).toBe("Invalid URL")
+  })
+
+  it("is a no-op when installed again, so a handler is wrapped once", () => {
+    const { ipc } = makeFakeIpc()
+    installIpcErrorNormalization(ipc)
+    const wrapped = ipc.handle
+    installIpcErrorNormalization(ipc)
+    expect(ipc.handle).toBe(wrapped)
+  })
+
+  it("passes arguments through and resolves with the handler's result", async () => {
+    const { ipc, listeners } = makeFakeIpc()
+    installIpcErrorNormalization(ipc)
+    ipc.handle("session:get", (_event, params: { id: string }) => runtime.runPromise(Effect.succeed({ id: params.id })))
+
+    expect(await listeners.get("session:get")!({} as IpcMainInvokeEvent, { id: "s1" })).toEqual({ id: "s1" })
+  })
+})

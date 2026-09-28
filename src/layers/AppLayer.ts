@@ -51,7 +51,8 @@ const BaseLive = Layer.mergeAll(
 /**
  * Boilerplate renderer requires FileSystem (for var-file + output dir work),
  * ProcessSpawner (for shelling out to the boilerplate CLI in renderTemplate),
- * and WasmRuntime (for the in-process renderFile path used by TemplateInline).
+ * and WasmRuntime (for the in-process renderFile / renderFileStrict paths used
+ * by previews and Command/Check execution).
  */
 const BoilerplateLive = Layer.provide(
   WasmBoilerplateLive,

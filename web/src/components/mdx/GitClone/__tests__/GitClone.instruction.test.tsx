@@ -57,4 +57,17 @@ describe('GitClone — instruction mode', () => {
     expect(screen.getByText('modules/vpc')).toBeInTheDocument()
     expect(screen.getByText(/sparse checkout/i)).toBeInTheDocument()
   })
+
+  it('shows no sparse-checkout note for a repo path naming the whole repository', () => {
+    for (const repoPath of ['.', './']) {
+      const { unmount } = render(
+        <TestWrapper>
+          <GitClone id="clone" prefilledUrl="https://github.com/org/repo.git" prefilledRepoPath={repoPath} />
+        </TestWrapper>,
+      )
+      expect(screen.getByText(/Clone this repository/i)).toBeInTheDocument()
+      expect(screen.queryByText(/sparse checkout/i)).toBeNull()
+      unmount()
+    }
+  })
 })

@@ -26,33 +26,55 @@ runbooks open /absolute/path/to/runbook
 runbooks open ./path/to/runbook.mdx
 ```
 
+Because `open` is the command name, write a folder that is named `open` as a path: `runbooks open ./open`.
+
 ### Remote sources
 
-You can open a runbook directly from a GitHub or GitLab URL without cloning the repo first:
+You can open a runbook directly from a GitHub or GitLab repo without cloning it first. The source can point at the repo root, at a directory containing a `runbook.mdx`, or at a runbook file. The same sources work in the desktop app's **Open from URL** dialog.
+
+#### Browser URLs
+
+Copy the URL from your browser's address bar while viewing the runbook's directory or its `runbook.mdx`:
 
 ```bash
-# GitHub browser URL (copy/paste from your browser)
 runbooks open https://github.com/org/repo/tree/main/runbooks/setup-vpc
-
-# GitLab browser URL
-runbooks open https://gitlab.com/org/repo/-/tree/main/runbooks/setup-vpc
-
-# OpenTofu/Terraform module source format
-runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0
-runbooks open "git::https://github.com/org/repo.git//runbooks/setup-vpc?ref=main"
+runbooks open https://github.com/org/repo/blob/main/runbooks/setup-vpc/runbook.mdx
+runbooks open https://gitlab.com/group/subgroup/repo/-/tree/main/runbooks/setup-vpc
 ```
 
 | Format | Example |
 |--------|---------|
-| GitHub browser (dir) | `https://github.com/org/repo/tree/main/runbooks/setup-vpc` |
-| GitHub browser (file) | `https://github.com/org/repo/blob/main/runbooks/setup-vpc/runbook.mdx` |
-| GitLab browser (dir) | `https://gitlab.com/org/repo/-/tree/main/runbooks/setup-vpc` |
-| GitLab browser (file) | `https://gitlab.com/org/repo/-/blob/main/runbooks/setup-vpc/runbook.mdx` |
-| OpenTofu GitHub shorthand | `github.com/org/repo//path?ref=v1.0` |
-| OpenTofu git::https | `git::https://github.com/org/repo.git//path?ref=main` |
+| GitHub directory | `https://github.com/org/repo/tree/main/runbooks/setup-vpc` |
+| GitHub file | `https://github.com/org/repo/blob/main/runbooks/setup-vpc/runbook.mdx` |
+| GitLab directory | `https://gitlab.com/group/repo/-/tree/main/runbooks/setup-vpc` |
+| GitLab file | `https://gitlab.com/group/repo/-/blob/main/runbooks/setup-vpc/runbook.mdx` |
+| Repo root | `https://github.com/org/repo` |
+
+The branch, tag or commit in the URL is used. Branch names that contain slashes (`release/v1`) work. So do commit permalinks (`/blob/<sha>/...`) and query strings or anchors the browser adds, such as GitLab's `?ref_type=heads`. GitHub Enterprise and self-hosted GitLab URLs work too, and the `https://` prefix is optional.
+
+#### go-getter sources
+
+Runbooks also accepts [go-getter](https://github.com/hashicorp/go-getter) sources, the syntax OpenTofu and Terraform use for module sources. A double slash (`//`) separates the repo from the path inside it. `?ref=` picks a branch, tag or commit. Without `?ref=`, Runbooks uses the repo's default branch.
+
+```bash
+runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0
+runbooks open github.com/org/repo//runbooks/setup-vpc/runbook.mdx
+runbooks open gitlab.com/group/subgroup/repo//runbooks/setup-vpc?ref=main
+runbooks open "git::https://git.example.com/org/repo.git//runbooks/setup-vpc?ref=main"
+runbooks open "git@github.com:org/repo.git//runbooks/setup-vpc?ref=v1.0"
+```
+
+| Format | Example |
+|--------|---------|
+| GitHub shorthand | `github.com/org/repo//runbooks/setup-vpc?ref=v1.0` |
+| GitLab shorthand | `gitlab.com/group/subgroup/repo//runbooks/setup-vpc?ref=v1.0` |
+| Any git host over HTTPS | `git::https://git.example.com/org/repo.git//runbooks/setup-vpc?ref=main` |
+| SSH | `git::ssh://git@github.com/org/repo.git//runbooks/setup-vpc` or `git@github.com:org/repo.git//runbooks/setup-vpc` |
+
+As in go-getter, `github.com/org/repo/runbooks/setup-vpc` (without the `//`) also works, because a GitHub repo is always `owner/repo`. GitLab projects can sit under nested groups, so GitLab shorthand needs the `//` to mark where the path starts. `?ref=` is the only go-getter query parameter Runbooks reads. Quote sources that contain `?` or `&` so your shell leaves them alone.
 
 <Aside type="note">
-When opening a remote runbook, a temporary working directory is automatically used (equivalent to `--working-dir=::tmp`). You can override this with `--working-dir` if needed.
+When you open a remote runbook, Runbooks clones it into a temporary directory. The runbook's folder inside that clone becomes the working directory: scripts start there, and generated files are saved inside it. The temporary directory is deleted when you quit Runbooks.
 </Aside>
 
 ### Authentication for private repos
@@ -62,32 +84,28 @@ For public repositories, no authentication is needed. For private repositories, 
 - **GitHub:** `GITHUB_TOKEN` or `GH_TOKEN` environment variable, or run `gh auth login`
 - **GitLab:** `GITLAB_TOKEN` environment variable, or run `glab auth login`
 
+These tokens are used only for HTTPS sources. SSH sources (`git@...` or `ssh://...`) authenticate with your SSH keys, so the key must be loaded in your SSH agent and the host must already be in `~/.ssh/known_hosts`.
+
 ## Flags
 
 - `--watch` - Enable [watch mode](/commands/watch) for live-reload during authoring.
-- `--working-dir <path>` - Base directory for script execution and file generation (default: current directory)
-  - All relative paths are resolved from this directory
-  - Can be absolute or relative to current directory
-  - Use `--working-dir=::tmp` for a temporary directory (automatically cleaned up on exit), useful for isolated testing or sandboxed execution
-- `--output-path <path>` - Directory where generated files will be written (default: `generated`)
-  - Resolved relative to the working directory
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
 
 ## What it does
 
 When you run `runbooks open`:
 
-1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone
+1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone. If the download fails (for example, a private repo with no token), the app shows an error dialog that explains why.
 2. **Launches the app** - Opens the Runbooks desktop window and loads the specified runbook
 3. **Renders the runbook** - The app parses and renders the `runbook.mdx` file, providing an interactive UI for the runbook's steps, scripts, and forms
 4. **Keeps running** - The app continues running until you close the window
 
-If the app is already running, a second invocation focuses the existing window and opens the new runbook in it.
+If the app is already running, a second invocation focuses the existing window and opens the new runbook in it. A relative path is resolved from the directory you ran the command in.
 
 ## Troubleshooting
 
 **Runbook not found:**
-Make sure the path points to a valid `runbook.mdx` file or a directory containing one.
+Make sure the path points to a valid `runbook.mdx` file or a directory containing one. For a remote source, check that the path exists at the branch, tag or commit you named. A go-getter source without `?ref=` reads the repo's default branch.
 
 **Authentication errors for remote runbooks:**
 If you see "authentication required", make sure you have set the appropriate token for the git host. See the Authentication section above.

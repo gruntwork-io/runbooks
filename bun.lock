@@ -11,6 +11,8 @@
         "@aws-sdk/client-sso-oidc": "^3.1024.0",
         "@aws-sdk/client-sts": "^3.1024.0",
         "@aws-sdk/credential-providers": "^3.1024.0",
+        "@aws-sdk/util-endpoints": "^3.996.5",
+        "@smithy/shared-ini-file-loader": "^4.4.7",
         "chokidar": "^5.0.0",
         "commander": "^14.0.0",
         "effect": "^3.21.0",

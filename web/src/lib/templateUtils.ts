@@ -137,16 +137,35 @@ export function flattenBlockOutputs(
 
 /**
  * Resolve a potentially nested path (e.g., "_module.source") against an object.
- * Returns the value at the path, or undefined if any segment is missing.
+ * Returns the value at the path, or undefined if any segment is missing. Like
+ * the template engine's map lookup, only own properties of plain objects count:
+ * `tags.constructor` or `list.length` is missing, not an inherited or built-in
+ * member.
  */
 function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const segments = path.split('.')
   let current: unknown = obj
   for (const segment of segments) {
-    if (current === null || current === undefined || typeof current !== 'object') return undefined
+    if (
+      current === null ||
+      typeof current !== 'object' ||
+      Array.isArray(current) ||
+      !Object.hasOwn(current, segment)
+    ) {
+      return undefined
+    }
     current = (current as Record<string, unknown>)[segment]
   }
   return current
+}
+
+/**
+ * The value an input reference path (`region`, `tags.env`) resolves to: a
+ * top-level key of that exact name, else the nested value (see
+ * resolveNestedValue). Undefined when the engine would find no such key.
+ */
+export function resolveInputPath(inputs: TemplateInputs, path: InputName): unknown {
+  return Object.hasOwn(inputs, path) ? inputs[path] : resolveNestedValue(inputs, path)
 }
 
 /**
@@ -186,6 +205,27 @@ export function filterUnmetOutputDeps(
 }
 
 /**
+ * A plain value action: `{{ .inputs.X }}` or `{{ .outputs.X.Y }}`, optionally
+ * piped through functions (`{{ .inputs.X | upper }}`). A reference inside
+ * template logic (`{{ if .inputs.X }}`, a function argument) doesn't match.
+ */
+const VALUE_REFERENCE_PATTERN =
+  /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g
+
+/**
+ * The distinct input paths `text` uses as plain value actions: exactly the
+ * `{{ .inputs.* }}` references resolveTemplateReferences substitutes. An input
+ * referenced only inside template logic is not included.
+ */
+export function extractInputValueReferences(text: string): InputName[] {
+  const names = new Set<InputName>()
+  for (const [, namespace, path] of text.matchAll(VALUE_REFERENCE_PATTERN)) {
+    if (namespace === 'inputs') names.add(path)
+  }
+  return [...names]
+}
+
+/**
  * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
  * Client-side string resolver for blocks that don't go through the Go template engine
  * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
@@ -196,10 +236,12 @@ export function resolveTemplateReferences(
 ): string {
   if (!text) return text
   return text.replace(
-    /\{\{-?\s*\.(inputs|outputs)\.([a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*)\s*(?:\|[^}]*)?\s*-?\}\}/g,
+    VALUE_REFERENCE_PATTERN,
     (match, namespace, path) => {
       if (namespace === 'inputs') {
-        const value = ctx.inputs[path]
+        // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
+        // through nested objects, like computeUnmetInputDependencies.
+        const value = resolveInputPath(ctx.inputs, path)
         return value != null ? String(value) : `\`${match}\``
       }
       if (namespace === 'outputs') {

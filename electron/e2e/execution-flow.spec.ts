@@ -13,6 +13,8 @@
  *   bunx playwright test --config electron/e2e/playwright.config.ts execution-flow
  */
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import * as fs from "fs"
+import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
 
@@ -24,13 +26,23 @@ const KITCHEN_SINK = path.join(ROOT, "testdata/kitchen-sink")
 
 let app: ElectronApplication
 let page: Page
+let workDir: string
 
 // Increase timeout for execution tests since scripts need time to run
 test.setTimeout(120_000)
 
 test.beforeAll(async () => {
+  // Launch a temp copy with a throwaway profile so runs never write into
+  // testdata/ or the real app profile. Scripts and Templates write to the
+  // runbook's generated/ dir, and files an earlier run left there open the
+  // modal "existing generated files" alert, which hides the app from getByRole.
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-execution-flow-e2e-"))
+  const runbookDir = path.join(workDir, "kitchen-sink")
+  const userDataDir = path.join(workDir, "user-data")
+  fs.cpSync(KITCHEN_SINK, runbookDir, { recursive: true })
+  fs.mkdirSync(userDataDir)
   app = await electron.launch({
-    args: [MAIN_ENTRY, KITCHEN_SINK],
+    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
@@ -52,6 +64,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (app) await app.close()
+  if (workDir) fs.rmSync(workDir, { recursive: true, force: true })
 })
 
 // ---------------------------------------------------------------------------

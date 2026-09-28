@@ -11,10 +11,9 @@ import { readFileMetadata } from "../../../src/domain/workspace/file.ts"
 import {
   checkGeneratedFiles,
   deleteGeneratedFiles,
-  resolveToAbsolutePath,
 } from "../../../src/domain/files/generated.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
-import { validateSessionPath } from "./path-guard.ts"
+import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
 export function registerFileHandlers(): void {
   ipcMain.handle(
@@ -46,13 +45,11 @@ export function registerFileHandlers(): void {
   ipcMain.handle(
     "generated-files:check",
     async (_event, params?: { outputPath?: string }) => {
-      const workingDir = await getWorkingDir()
-      const outputPath = params?.outputPath ?? "generated"
       return runtime.runPromise(
         Effect.gen(function* () {
-          const absoluteOutputPath = yield* resolveToAbsolutePath(workingDir, outputPath)
-          yield* validateSessionPath(absoluteOutputPath)
-          return yield* checkGeneratedFiles(workingDir, outputPath)
+          const dir = yield* resolveGeneratedDir(params?.outputPath)
+          yield* validateSessionPath(dir.absolutePath)
+          return yield* checkGeneratedFiles(dir.baseDir, dir.outputPath)
         }),
       )
     },
@@ -61,13 +58,11 @@ export function registerFileHandlers(): void {
   ipcMain.handle(
     "generated-files:delete",
     async (_event, params?: { outputPath?: string }) => {
-      const workingDir = await getWorkingDir()
-      const outputPath = params?.outputPath ?? "generated"
       return runtime.runPromise(
         Effect.gen(function* () {
-          const absoluteOutputPath = yield* resolveToAbsolutePath(workingDir, outputPath)
-          yield* validateSessionPath(absoluteOutputPath)
-          return yield* deleteGeneratedFiles(workingDir, outputPath)
+          const dir = yield* resolveGeneratedDir(params?.outputPath)
+          yield* validateSessionPath(dir.absolutePath)
+          return yield* deleteGeneratedFiles(dir.baseDir, dir.outputPath)
         }),
       )
     },

@@ -6,7 +6,7 @@ import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext, useTemplateContext, useAllOutputs } from "@/contexts/useRunbook"
+import { useRunbookContext, useTemplateContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
 import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
 import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
@@ -242,8 +242,9 @@ function GitPullRequestInteractive({
     return status
   }, [status, authMet, activeWorkTree, wrongProvider])
 
-  // Fetch labels when ready. Pass the repo's host so a self-hosted GitLab's
-  // labels are fetched from its own instance, not gitlab.com.
+  // Fetch labels when ready. Pass the repo's host so a self-hosted GitLab's or
+  // GitHub Enterprise repo's labels are fetched from its own instance, not
+  // gitlab.com / github.com.
   useEffect(() => {
     if (effectiveStatus === 'ready' && activeWorkTree?.gitInfo?.repoOwner && activeWorkTree?.gitInfo?.repoName) {
       fetchLabels(
@@ -313,22 +314,25 @@ function GitPullRequestInteractive({
   const handleDeleteBranch = useCallback(async () => {
     if (!activeWorkTree || !conflictBranchName) return
     setDeletingBranch(true)
-    await deleteBranch(activeWorkTree.localPath, conflictBranchName)
+    const deleted = await deleteBranch(activeWorkTree.localPath, conflictBranchName)
     setDeletingBranch(false)
-  }, [activeWorkTree, conflictBranchName, deleteBranch])
+    // The button promises a retry: once the conflicting branch is gone, run
+    // the create again.
+    if (deleted) handleCreatePR()
+  }, [activeWorkTree, conflictBranchName, deleteBranch, handleCreatePR])
 
   const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
   const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
   const isFormDisabled = wrongProvider || !authMet || !activeWorkTree || !hasAllBlockingDependencies
 
-  // Block outputs for ViewOutputs
+  // Block outputs for ViewOutputs: what MAIN actually registered (git:outputs),
+  // so the panel can't show names downstream blocks can't reference. Gated on
+  // prResult so "create another" hides the previous PR's outputs.
+  const registeredOutputs = useOutputs(id)
   const outputValues = useMemo(() => {
-    if (!prResult) return null
-    return {
-      PR_ID: String(prResult.prNumber),
-      PR_URL: prResult.prUrl,
-    }
-  }, [prResult])
+    if (!prResult || !registeredOutputs?.length) return null
+    return Object.fromEntries(registeredOutputs.map(o => [o.name, o.value]))
+  }, [prResult, registeredOutputs])
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
@@ -353,7 +357,7 @@ function GitPullRequestInteractive({
           <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? 'animate-spin' : ''}`} />
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 min-w-0 space-y-2">
           {/* Title and description */}
           <div className="flex items-center gap-1 text-md font-bold text-foreground">
             <cfg.Logo className="size-6 text-foreground" />
@@ -408,7 +412,7 @@ function GitPullRequestInteractive({
           {errorMessage && effectiveStatus === 'fail' && (
             <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
               <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-destructive m-0">{cfg.noun.singular} creation failed</p>
                 <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
                 {errorCode === 'branch_exists' && conflictBranchName && (

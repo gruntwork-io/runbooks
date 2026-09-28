@@ -64,6 +64,9 @@ const impl: ProcessSpawnerShape = {
         // controlled "closed" flag sidesteps that entirely.
         const collectedLines: OutputLine[] = []
         let streamClosed = false
+        // Set when the direct child has closed (exited and its stdio ended).
+        // Gates `kill` below; deliberately not set on "error".
+        let exited = false
 
         const record = (line: string, source: "stdout" | "stderr") => {
           collectedLines.push({ line, source })
@@ -92,7 +95,10 @@ const impl: ProcessSpawnerShape = {
             logFile?.end()
             resolve(code)
           }
-          proc.on("close", (code) => finish(code ?? 1))
+          proc.on("close", (code) => {
+            exited = true
+            finish(code ?? 1)
+          })
           proc.on("error", () => finish(1))
         })
 
@@ -141,6 +147,13 @@ const impl: ProcessSpawnerShape = {
         }
 
         const kill: Effect.Effect<void> = Effect.sync(() => {
+          // Only a live run is killed (cancel or timeout). Once the direct child
+          // has closed, anything left in the group is a background job the
+          // script deliberately left running with its stdio redirected (a
+          // port-forward, a dev server), and it must survive. A grandchild that
+          // still holds stdout keeps "close" from firing, so cancel and timeout
+          // still reap it.
+          if (exited) return
           // Ask politely first so the tree can clean up (e.g. tofu releases its
           // state lock), then force-kill whatever is still alive a few seconds
           // later. The escalation timer is best-effort and unref'd so it can
