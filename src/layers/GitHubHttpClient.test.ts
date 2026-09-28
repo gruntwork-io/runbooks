@@ -130,11 +130,11 @@ describe("GitHubHttpClient listRepos owner resolution", () => {
     owner: { id: id * 10, login: owner },
   })
 
-  const listRepos = (owner: string) =>
+  const listRepos = (owner: string, host?: string) =>
     withClient(
       Effect.gen(function* () {
         const client = yield* GitHubClient
-        return yield* client.listRepos("ghp_test", owner)
+        return yield* client.listRepos("ghp_test", owner, undefined, host)
       }),
     )
 
@@ -144,12 +144,33 @@ describe("GitHubHttpClient listRepos owner resolution", () => {
       if (url.includes("/user/repos")) {
         return json([repo(1, "Alice", "dotfiles"), repo(2, "acme", "infra")])
       }
+      if (url.includes("/users/alice/repos")) return json([repo(1, "Alice", "dotfiles")])
       return new Response("not found", { status: 404 })
     })
 
     const result = await Effect.runPromise(listRepos("alice"))
 
     expect(result.map((r) => r.fullName)).toEqual(["Alice/dotfiles"])
+  })
+
+  it("lists another user's public repos alongside the ones shared with the token", async () => {
+    const urls: string[] = []
+    mockFetch((url) => {
+      urls.push(url)
+      if (url.endsWith("/orgs/bob")) return new Response("not found", { status: 404 })
+      // The token's user collaborates on two of bob's repos, one of them private.
+      if (url.includes("/user/repos")) {
+        return json([repo(2, "acme", "infra"), { ...repo(4, "bob", "secret"), private: true }, repo(3, "bob", "site")])
+      }
+      if (url.includes("/users/bob/repos")) return json([repo(3, "bob", "site"), repo(5, "bob", "blog")])
+      return new Response("not found", { status: 404 })
+    })
+
+    const result = await Effect.runPromise(listRepos("bob", "ghes.example.com"))
+
+    // Each repo once, whichever list it came from.
+    expect(result.map((r) => r.fullName).sort()).toEqual(["bob/blog", "bob/secret", "bob/site"])
+    for (const url of urls) expect(url.startsWith("https://ghes.example.com/api/v3/")).toBe(true)
   })
 
   it("falls back to the user's public repos when the token owns none of theirs", async () => {

@@ -275,13 +275,16 @@ const impl: GitHubClientShape = {
         } else if (probe.status === 404) {
           // A user account. /user/repos covers the caller's own private repos
           // plus every repo they can reach elsewhere, so keep only the ones
-          // this owner owns; for another user, list their public repos.
+          // this owner owns. For another user those are just the repos shared
+          // with the caller, so add the owner's public repos, each repo once.
           const o = owner.toLowerCase()
-          const owned = (await paginateAll<RawRepo>(`${API_BASE}/user/repos`, token))
-            .filter((r) => r.owner.login.toLowerCase() === o)
-          repos = owned.length > 0
-            ? owned
-            : await paginateAll<RawRepo>(`${API_BASE}/users/${ownerPath}/repos`, token)
+          const [reachable, pub] = await Promise.all([
+            paginateAll<RawRepo>(`${API_BASE}/user/repos`, token),
+            paginateAll<RawRepo>(`${API_BASE}/users/${ownerPath}/repos`, token),
+          ])
+          const owned = reachable.filter((r) => r.owner.login.toLowerCase() === o)
+          const ownedIds = new Set(owned.map((r) => r.id))
+          repos = [...owned, ...pub.filter((r) => !ownedIds.has(r.id))]
         } else {
           await assertOk(probe)
           repos = []
