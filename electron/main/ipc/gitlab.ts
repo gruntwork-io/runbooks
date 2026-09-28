@@ -14,7 +14,12 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, getSessionTokenForProvider, getSessionTokenForHost } from "./runtime.ts"
+import {
+  runtime,
+  sessionManager,
+  getGitLabSessionBoundHost,
+  getGitLabSessionTokenForOrigin,
+} from "./runtime.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
@@ -30,6 +35,7 @@ import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
 import {
   normalizeGitLabBaseUrl,
   normalizeGitLabHost,
+  tryNormalizeGitLabBaseUrl,
   tryNormalizeGitLabHost,
 } from "../../../src/domain/git/gitlab-host.ts"
 import { registerExtraCaPems } from "../index.ts"
@@ -174,13 +180,11 @@ export function registerGitLabHandlers(): void {
       // auth block bound it to (as for GitHub), and never over plain http:
       // it may be an auto-detected env or CLI token.
       const token = params.useSessionToken
-        ? new URL(baseUrl).protocol === "https:"
-          ? await runtime.runPromise(
-              getSessionTokenForHost("gitlab", host, () => new Error("none")).pipe(
-                Effect.orElseSucceed(() => undefined),
-              ),
-            )
-          : undefined
+        ? await runtime.runPromise(
+            getGitLabSessionTokenForOrigin(baseUrl, () => new Error("none")).pipe(
+              Effect.orElseSucceed(() => undefined),
+            ),
+          )
         : params.token
       if (!token) {
         return {
@@ -320,16 +324,20 @@ export function registerGitLabHandlers(): void {
     "gitlab:labels",
     async (_event, params: { owner: string; repo: string; host?: string }) => {
       const program = Effect.gen(function* () {
-        const token = yield* getSessionTokenForProvider(
-          "gitlab",
-          () => new Error("No GitLab token available in session"),
-        )
         // Target the repo's own GitLab instance (passed by the renderer from the
-        // repo's remote); fall back to the host the auth block authenticated
-        // against. A bare host or a URL normalizes to the API origin.
-        const session = yield* sessionManager.getSession()
-        const baseUrl = normalizeGitLabBaseUrl(
-          params.host ?? session.env.get("GITLAB_HOST"),
+        // repo's remote); fall back to the host the session token is bound to.
+        // A bare host or a URL normalizes to the API origin. One that doesn't
+        // parse returns no labels rather than asking gitlab.com, as the client
+        // itself would refuse it.
+        const baseUrl = tryNormalizeGitLabBaseUrl(params.host ?? (yield* getGitLabSessionBoundHost()))
+        if (!baseUrl) {
+          return yield* Effect.fail(new Error("No GitLab instance to list labels from"))
+        }
+        // The session token goes only to the host it is bound to (port
+        // included), over https.
+        const token = yield* getGitLabSessionTokenForOrigin(
+          baseUrl,
+          () => new Error("No GitLab token for this host available in session"),
         )
         const client = yield* GitLabClient
         return yield* client.listLabels(token, params.owner, params.repo, baseUrl)

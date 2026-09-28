@@ -401,6 +401,28 @@ export const envTokenHost = (
 }
 
 /**
+ * The host the session's GITLAB_TOKEN is bound to, or undefined when it may
+ * be sent nowhere. Mirrors githubSessionCredential.
+ *
+ * `authHost` is the host a GitAuth block wrote the session credential for
+ * (main-only bookkeeping, cleared together with the session env). With it,
+ * the binding is that host, and only while the env still carries a
+ * GITLAB_HOST naming it (bare or as a URL, as glab accepts). If a script
+ * changed or removed GITLAB_HOST, there is no binding: the token may still be
+ * the auth block's, so following the script's GITLAB_HOST could send it to
+ * another host. Without `authHost`, the session env is whatever the process
+ * started with, so it is bound by glab's own conventions (envTokenHost),
+ * exactly like the ambient env.
+ */
+export const gitlabSessionTokenHost = (
+  env: Record<string, string | undefined>,
+  authHost?: string,
+): string | undefined => {
+  if (authHost === undefined) return envTokenHost(env)
+  return tryNormalizeGitLabHost(env.GITLAB_HOST) === authHost ? authHost : undefined
+}
+
+/**
  * glab's host env-var precedence (GITLAB_HOST, then GITLAB_URI, then GL_HOST),
  * each read as `<prefix><name>`, raw and unnormalized; a blank var counts as
  * unset.
@@ -541,6 +563,8 @@ export interface GlabHostMeta {
   readonly caCert?: string
   /** True when the host stores its token in the OS keyring (use_keyring). */
   readonly useKeyring: boolean
+  /** The host's `api_protocol`, lowercased, when set (glab defaults to https). */
+  readonly apiProtocol?: string
 }
 
 const asBool = (value: unknown): boolean =>
@@ -570,10 +594,11 @@ export function parseGlabExpiry(value: unknown): Date | undefined {
 
 /**
  * Read a host's auth metadata from glab config.yml contents: `is_oauth2`,
- * `oauth2_expiry_date`, `ca_cert`, `use_keyring` (host-level, falling back to
- * the top-level `use_keyring`). These are observed glab behavior, not stable
- * APIs — every read is tolerant. `skip_tls_verify` is deliberately
- * NEVER read: we never disable verification. Exported for testing.
+ * `oauth2_expiry_date`, `ca_cert`, `api_protocol`, `use_keyring` (host-level,
+ * falling back to the top-level `use_keyring`). These are observed glab
+ * behavior, not stable APIs — every read is tolerant. `skip_tls_verify` is
+ * deliberately NEVER read: we never disable verification. Exported for
+ * testing.
  */
 export function readGlabHostMeta(yamlContent: string, host: string): GlabHostMeta {
   return hostMetaFromConfig(parseGlabConfig(yamlContent), host)
@@ -589,6 +614,10 @@ const hostMetaFromConfig = (parsed: GlabConfig | null, host: string): GlabHostMe
         ? entry.ca_cert.trim()
         : undefined,
     useKeyring: asBool(entry.use_keyring) || asBool(parsed?.use_keyring),
+    apiProtocol:
+      typeof entry.api_protocol === "string" && entry.api_protocol.trim().length > 0
+        ? entry.api_protocol.trim().toLowerCase()
+        : undefined,
   }
 }
 
@@ -686,6 +715,23 @@ export const detectHostMeta = (host: string) =>
     const parsed = parseGlabConfig(content)
     if (!parsed?.hosts || !(host in parsed.hosts)) return undefined
     return hostMetaFromConfig(parsed, host)
+  })
+
+/**
+ * Whether the token glab stores for `host` may be validated against (i.e.
+ * transmitted to) `target`, a bare host or an instance origin: only when
+ * `target` IS that host, and over plain http only when glab itself talks http
+ * to it (the host's `api_protocol`). The target can come from a runbook
+ * (`instanceUrl`), so `http://gitlab.com` must never send glab's gitlab.com
+ * token in cleartext, while an instance glab is set up to reach over http
+ * keeps working. A bare host means https.
+ */
+export const mayAutoSendGlabToken = (target: string, host: string) =>
+  Effect.gen(function* () {
+    const origin = new URL(normalizeGitLabBaseUrl(target))
+    if (origin.host !== host) return false
+    if (origin.protocol === "https:") return true
+    return (yield* detectHostMeta(host))?.apiProtocol === "http"
   })
 
 /**

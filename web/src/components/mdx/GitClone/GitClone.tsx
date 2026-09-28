@@ -12,6 +12,7 @@ import { useOutputs } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
 import { isGitHubRepoHost } from "@/components/mdx/_shared/lib/githubHost"
 import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
@@ -30,35 +31,16 @@ import { resolveInitialSource, defaultDescription } from "./utils"
 import type { GitCloneProps, GitCloneSource, LocalRepoInfo } from "./types"
 
 /**
- * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted).
+ * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted),
+ * in any form git accepts (see gitRemoteOwnerRepo).
  *
  * The last path segment is the repo (project) and everything before it is the
  * owner. This handles GitHub's `owner/repo` as well as GitLab nested groups,
  * where the owner is the full group path (e.g. `group/subgroup`).
  */
 function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | null {
-  // Extract the path after the host for both SSH (git@host:path) and HTTPS forms.
-  let path: string
-  const sshMatch = url.trim().match(/^git@[^:]+:(.+)$/)
-  if (sshMatch) {
-    path = sshMatch[1]
-  } else {
-    try {
-      path = new URL(url.trim()).pathname
-    } catch {
-      // Not a parseable URL
-      return null
-    }
-  }
-
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length < 2) {
-    return null
-  }
-
-  const repo = parts[parts.length - 1].replace(/\.git$/, '')
-  const org = parts.slice(0, -1).join('/')
-  return { org, repo }
+  const parsed = gitRemoteOwnerRepo(url.trim())
+  return parsed ? { org: parsed.owner, repo: parsed.repo } : null
 }
 
 function GitCloneInteractive({

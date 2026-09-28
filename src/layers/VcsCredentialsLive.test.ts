@@ -238,6 +238,63 @@ describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
   })
 })
 
+describe("VcsCredentialsLive — glab token binding in the GitLab CLI leg", () => {
+  const CONFIG = "/home/u/.config/glab-cli/config.yml"
+  const TOKENS: Record<string, string> = { "gitlab.com": "glpat-dotcom", "git.corp.example": "glpat-corp" }
+
+  /** glab stores TOKENS; `glabInstalled: false` exercises the config.yml fallback. */
+  const harnessFor = (config: string, validated: string[], glabInstalled = true) =>
+    makeHarness({
+      env: { HOME: "/home/u" },
+      files: { [CONFIG]: config },
+      respond: respondWith(
+        glabInstalled
+          ? {
+              "glab config": (args) => ({
+                lines: [{ line: TOKENS[args[args.indexOf("--host") + 1]] ?? "", source: "stdout" }],
+                exitCode: 0,
+              }),
+            }
+          : {},
+      ),
+      gitlab: {
+        validateToken: (token, baseUrl) => {
+          validated.push(`${baseUrl} ${token}`)
+          return Effect.succeed({ user: TANUKI })
+        },
+      },
+    })
+
+  const DOTCOM = "hosts:\n    gitlab.com:\n        token: glpat-dotcom\n"
+
+  for (const glabInstalled of [true, false]) {
+    it(`never sends glab's token over plain http (glab ${glabInstalled ? "installed" : "absent"})`, async () => {
+      const validated: string[] = []
+      const harness = harnessFor(DOTCOM, validated, glabInstalled)
+      const http = await harness.use((vcs) => vcs.detectGitLabCli("http://gitlab.com"))
+      expect(http.outcome).toBe("absent")
+      expect(validated).toEqual([])
+
+      // https, explicit or as a bare host, is unchanged.
+      expect((await harness.use((vcs) => vcs.detectGitLabCli("https://gitlab.com"))).outcome).toBe("valid")
+      expect((await harness.use((vcs) => vcs.detectGitLabCli("gitlab.com"))).outcome).toBe("valid")
+      expect(validated).toEqual(["https://gitlab.com glpat-dotcom", "https://gitlab.com glpat-dotcom"])
+    })
+  }
+
+  it("honors glab's api_protocol: http for that host only", async () => {
+    const validated: string[] = []
+    const harness = harnessFor(
+      `${DOTCOM}    git.corp.example:\n        token: glpat-corp\n        api_protocol: http\n`,
+      validated,
+    )
+    const corp = await harness.use((vcs) => vcs.detectGitLabCli("http://git.corp.example"))
+    const dotcom = await harness.use((vcs) => vcs.detectGitLabCli("http://gitlab.com"))
+    expect([corp.outcome, dotcom.outcome]).toEqual(["valid", "absent"])
+    expect(validated).toEqual(["http://git.corp.example glpat-corp"])
+  })
+})
+
 describe("VcsCredentialsLive — probe gating", () => {
   const OAUTH_TOKEN = "a".repeat(64)
 

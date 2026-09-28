@@ -43,6 +43,26 @@ export function stripUrlCredentials(url: string): string {
 }
 
 /**
+ * True when `url` parses as an http(s) URL: exactly the remotes
+ * withGitHttpAuth attaches a token to.
+ */
+export function isHttpRemoteUrl(url: string): boolean {
+  try {
+    return isHttpUrl(new URL(url))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * True when `url` parses as a plain `http:` URL (see isHttpRemoteUrl): a
+ * remote withGitHttpAuth would send a token to in cleartext.
+ */
+export function isPlainHttpRemoteUrl(url: string): boolean {
+  return isHttpRemoteUrl(url) && new URL(url).protocol === "http:"
+}
+
+/**
  * True when `a` and `b` are http(s) URLs with the same origin (scheme, host
  * and port; userinfo and path are ignored). A token bound to one remote URL
  * may be sent to the other only when this holds.

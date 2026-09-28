@@ -64,6 +64,8 @@ describe('deriveProviderFromRepoUrl', () => {
     expect(deriveProviderFromRepoUrl('https://gitlab.com/group/sub/project.git')).toBe('gitlab')
     expect(deriveProviderFromRepoUrl('gitlab.com/group/project')).toBe('gitlab')
     expect(deriveProviderFromRepoUrl('git@gitlab.com:group/project.git')).toBe('gitlab')
+    expect(deriveProviderFromRepoUrl('deploy@gitlab.com:group/project.git')).toBe('gitlab')
+    expect(deriveProviderFromRepoUrl('ssh://git@gitlab.com:22/group/project.git')).toBe('gitlab')
   })
 
   it('returns undefined for self-hosted / enterprise hosts', () => {
@@ -97,6 +99,35 @@ describe('hostFromRepoUrl', () => {
     expect(hostFromRepoUrl('deploy@gitlab.example.com:group/project.git')).toBe(
       'gitlab.example.com',
     )
+  })
+
+  it.each([
+    ['git@[::1]:group/project.git', '[::1]'],
+    // An SSH port is not the web/API port, so it is dropped
+    ['ssh://git@[::1]:2222/group/project.git', '[::1]'],
+    ['git@[gitlab.corp:2222]:group/project.git', 'gitlab.corp'],
+    // git's spelling with the user inside the brackets: ssh -p 2222 git@gitlab.corp
+    ['[git@gitlab.corp:2222]:group/project.git', 'gitlab.corp'],
+    ['ssh://git@gitlab.example.com:2222/group/project.git', 'gitlab.example.com'],
+    // scp-like: after a plain host the colon starts the path, never a port
+    ['git@gitlab.example.com:2222/group/project.git', 'gitlab.example.com'],
+    // An http(s) host is the one the backend binds a token to (WHATWG URL.host)
+    ['https://gitlab.corp/group\\project.git', 'gitlab.corp'],
+    ['https://-evil.example.com/group/project.git', '-evil.example.com'],
+  ])('reads the host of %s as %s', (url, host) => {
+    expect(hostFromRepoUrl(url)).toBe(host)
+  })
+
+  it.each([
+    'a@b@gitlab.example.com:group/project.git',
+    'git@gitlab[.example.com:group/project.git',
+    'ssh://-oProxyCommand=evil/group/project.git',
+    // An IPv6 zone id, or a name no https URL can carry: the label lookup
+    // must get no host rather than one the backend would have to guess at
+    'git@[fe80::1%eth0]:group/project.git',
+    'git@ho%st:group/project.git',
+  ])('finds no host in %s', (url) => {
+    expect(hostFromRepoUrl(url)).toBeUndefined()
   })
 })
 

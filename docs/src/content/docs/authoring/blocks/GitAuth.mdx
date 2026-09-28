@@ -121,7 +121,7 @@ On successful authentication, the block sets these session environment variables
 
 `GITLAB_HOST` is the instance the token belongs to (`gitlab.com` or your self-managed host).
 
-A [`<GitClone>`](/authoring/blocks/gitclone/) of a private `github.com` or `gitlab.com` repository automatically uses the session `GITHUB_TOKEN` or `GITLAB_TOKEN`, so no extra wiring is needed. To clone from a self-managed GitLab instance, set `gitAuthId` on the GitClone block so it uses the session `GITLAB_TOKEN`. For GitHub, `GITHUB_HOST` and `GH_HOST` record which host the token belongs to, so `gh` commands in later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts target the same host.
+A [`<GitClone>`](/authoring/blocks/gitclone/) of a private `github.com` or `gitlab.com` repository automatically uses the session `GITHUB_TOKEN` or `GITLAB_TOKEN`, so no extra wiring is needed. To clone from a self-managed GitLab instance, set `gitAuthId` on the GitClone block so it uses the session `GITLAB_TOKEN`. Runbooks sends a session token only over HTTPS to the host it belongs to, never to another host or over plain `http://`, and not at all once a later script points `GITHUB_HOST` or `GITLAB_HOST` at a different host. For GitHub, `GITHUB_HOST` and `GH_HOST` record which host the token belongs to, so `gh` commands in later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts target the same host.
 
 ### Explicit block references
 

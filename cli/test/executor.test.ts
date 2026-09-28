@@ -176,6 +176,104 @@ describe("TestExecutor — GitClone local checkout", () => {
 })
 
 // ---------------------------------------------------------------------------
+// GitClone with option-like values: a runbook's URL, ref or repo path must
+// never reach git as an option.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — GitClone option-like values", () => {
+  let tmp: string
+  let source: string
+  let marker: string
+  let savedCwd: string
+
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd,
+      stdio: "pipe",
+    })
+
+  const runGitClone = async (props: Record<string, string>) => {
+    const attrs = Object.entries(props)
+      .map(([key, value]) => `${key}="${value}"`)
+      .join(" ")
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Clone\n\n<GitClone id="repo" ${attrs} />\n`)
+    const work = path.join(tmp, "work")
+    fs.mkdirSync(work, { recursive: true })
+    const executor = new TestExecutor(rb, work, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    const result = await executor.runTest({
+      name: "clone",
+      steps: [{ block: "repo", expect: "success" }],
+    })
+    return result.stepResults[0]
+  }
+
+  beforeEach(() => {
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-clone-")))
+    source = path.join(tmp, "source")
+    fs.mkdirSync(path.join(source, "modules"), { recursive: true })
+    fs.writeFileSync(path.join(source, "main.tf"), "# tf\n")
+    fs.writeFileSync(path.join(source, "modules", "vpc.tf"), "# vpc\n")
+    git(source, "init", "-q")
+    git(source, "add", ".")
+    git(source, "commit", "-q", "-m", "initial")
+    marker = path.join(tmp, "pwned")
+    // The CLI runs git clone from the process cwd. Pin it to an empty
+    // directory so a URL read as an option can't clone into the repo.
+    savedCwd = process.cwd()
+    fs.mkdirSync(path.join(tmp, "cwd"))
+    process.chdir(path.join(tmp, "cwd"))
+  })
+
+  afterEach(() => {
+    process.chdir(savedCwd)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("takes an option-like URL as the repository, never running it", async () => {
+    // Without `--`, git reads the URL as --upload-pack and clones the
+    // "destination" (an existing repo) by running the smuggled command.
+    const step = await runGitClone({
+      prefilledUrl: `--upload-pack=touch ${marker}; git-upload-pack`,
+      prefilledLocalPath: source,
+    })
+
+    expect(step?.actualStatus).toBe("fail")
+    expect(step?.error).toMatch(/does not exist/)
+    expect(fs.existsSync(marker)).toBe(false)
+    expect(fs.readdirSync(path.join(tmp, "cwd"))).toEqual([])
+  })
+
+  it("refuses an option-like ref before cloning", async () => {
+    const step = await runGitClone({ prefilledUrl: `file://${source}`, prefilledRef: "--orphan=evil" })
+
+    expect(step?.actualStatus).toBe("fail")
+    expect(step?.error).toMatch(/Invalid ref "--orphan=evil"/)
+    expect(fs.existsSync(path.join(tmp, "work", "source"))).toBe(false)
+  })
+
+  it("still checks out an ordinary ref", async () => {
+    git(source, "tag", "v1")
+
+    const step = await runGitClone({ prefilledUrl: `file://${source}`, prefilledRef: "v1" })
+
+    expect(step?.actualStatus).toBe("success")
+    expect(step?.outputs?.ref).toBe("v1")
+  })
+
+  it("takes an option-like repo path as the sparse-checkout directory", async () => {
+    const step = await runGitClone({ prefilledUrl: `file://${source}`, prefilledRepoPath: "--no-cone" })
+
+    expect(step?.actualStatus).toBe("success")
+    const dest = path.join(tmp, "work", "source")
+    // Read as an option, `--no-cone` would have switched the checkout out of cone mode.
+    expect(execFileSync("git", ["config", "core.sparseCheckoutCone"], { cwd: dest }).toString().trim()).toBe("true")
+    expect(execFileSync("git", ["sparse-checkout", "list"], { cwd: dest }).toString().trim()).toBe("--no-cone")
+  })
+})
+
+// ---------------------------------------------------------------------------
 // #!/bin/sh blocks get the bash env-capture wrapper, so they must run under
 // bash like they do in the app.
 // ---------------------------------------------------------------------------
