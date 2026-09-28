@@ -4,6 +4,7 @@
  * This layer depends on ProcessSpawner, so it uses Layer.effect to pull
  * the spawner from context.
  */
+import * as fs from "node:fs"
 import * as path from "node:path"
 import { Effect, Layer, Stream, Chunk } from "effect"
 import { GitClient } from "../services/GitClient.ts"
@@ -79,6 +80,73 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
         Effect.catchAll(() => Effect.succeed(false)),
       )
     return (yield* isSet("user.name")) && (yield* isSet("user.email"))
+  })
+}
+
+/**
+ * Whether the checkout is a sparse checkout (`git sparse-checkout init` sets
+ * core.sparseCheckout). An unset key, or a failure to read it, counts as not.
+ */
+function isSparseCheckout(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return runGit(spawner, ["config", "--bool", "--get", "core.sparseCheckout"], repoPath).pipe(
+    Effect.map((lines) => lines.join("").trim() === "true"),
+    Effect.catchAll(() => Effect.succeed(false)),
+  )
+}
+
+/**
+ * The repo-relative paths, of those given, that are on disk under `repoRoot`.
+ * A directory found missing is remembered, so the many entries outside a
+ * sparse checkout cost one lstat per missing directory, not one per file. A
+ * path through a symlinked directory counts as missing, as it does for git.
+ */
+function pathsOnDisk(repoRoot: string, paths: readonly string[]): string[] {
+  const dirs = new Map<string, boolean>([[".", true]])
+  const isDir = (dir: string): boolean => {
+    let found = dirs.get(dir)
+    if (found === undefined) {
+      found =
+        isDir(path.posix.dirname(dir)) &&
+        fs.lstatSync(path.join(repoRoot, dir), { throwIfNoEntry: false })?.isDirectory() === true
+      dirs.set(dir, found)
+    }
+    return found
+  }
+  return paths.filter(
+    (p) =>
+      isDir(path.posix.dirname(p)) &&
+      fs.lstatSync(path.join(repoRoot, p), { throwIfNoEntry: false }) !== undefined,
+  )
+}
+
+/**
+ * In a sparse checkout, clear the skip-worktree bit of every index entry whose
+ * file is on disk, as git 2.36 and later do each time they read the index.
+ * git 2.34 and 2.35 keep the bit on a file a block wrote outside the cone, and
+ * `add` passes over such entries, `--sparse` or not, so the edit would be left
+ * out of the commit without a word. A file that is not on disk keeps its bit,
+ * so it is never staged as a deletion.
+ */
+function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return Effect.gen(function* () {
+    // `-t` tags skip-worktree entries "S "; `-z` ends each entry with NUL and
+    // leaves paths unquoted. The spawner splits output at line breaks, so the
+    // lines are joined back with "\n". (A path with a carriage return comes
+    // back altered, is not found on disk, and keeps its bit.)
+    const listed = (yield* runGit(spawner, ["ls-files", "-t", "-z"], repoPath)).join("\n")
+    const skipped = listed
+      .split("\0")
+      .filter((entry) => entry.startsWith("S "))
+      .map((entry) => entry.slice(2))
+    if (skipped.length === 0) return
+    const present = yield* Effect.sync(() => pathsOnDisk(repoPath, skipped))
+    if (present.length === 0) return
+    yield* runGit(
+      spawner,
+      ["update-index", "--no-skip-worktree", "-z", "--stdin"],
+      repoPath,
+      present.map((p) => `${p}\0`).join(""),
+    )
   })
 }
 
@@ -350,17 +418,40 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     stageAll: (repoPath: string, excludePaths: string[] = []) =>
       Effect.gen(function* () {
-        if (excludePaths.length === 0) {
-          yield* runGit(spawner, ["add", "-A"], repoPath)
-          return
-        }
+        // In a sparse checkout (a GitClone with a repo path), plain `add -A`
+        // leaves out what a block wrote outside the sparse-checkout cone: it
+        // skips edits to tracked files there without a word and fails on new
+        // files. `--sparse` stages them like any other change, once no file
+        // on disk is still flagged skip-worktree (which git 2.34 and 2.35
+        // leave to us).
+        const sparse = yield* isSparseCheckout(spawner, repoPath)
+        if (sparse) yield* clearSkipWorktreeOfPresentFiles(spawner, repoPath)
+        const add = sparse ? ["add", "-A", "--sparse"] : ["add", "-A"]
         // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
         // alongside it. Used to keep embedded git repos out of the commit so
         // they aren't staged as broken submodule gitlinks.
         const excludes = excludePaths.map(
           (p) => `:(exclude)${p.replace(/\/+$/, "")}`,
         )
-        yield* runGit(spawner, ["add", "-A", "--", ".", ...excludes], repoPath)
+        const args = excludes.length === 0 ? add : [...add, "--", ".", ...excludes]
+        yield* runGit(spawner, args, repoPath).pipe(
+          // git before 2.34 has no `--sparse`. How a git that old stages a
+          // sparse checkout without it is not tested here, so say what is
+          // needed rather than risk committing only part of what the blocks
+          // wrote.
+          Effect.mapError((e) =>
+            sparse && e._tag === "GitError" && /unknown option [`']sparse'/.test(e.stderr)
+              ? new GitError({
+                  command: e.command,
+                  stderr:
+                    "This checkout is a sparse checkout (cloned with a repo path), and staging the files " +
+                    "written outside it needs `git add --sparse`, from git 2.34 or later. Upgrade git, " +
+                    "or clone the repository without a repo path.",
+                  exitCode: e.exitCode,
+                })
+              : e,
+          ),
+        )
       }),
 
     commit: (repoPath: string, message: string, options?: CommitOptions) =>

@@ -4,7 +4,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { TestExecutor } from "./executor.ts"
-import { loadConfig, type CleanupAction } from "./config.ts"
+import { loadConfig, type CleanupAction, type ExpectedStatus } from "./config.ts"
 
 // Resolve relative to the test file so this works regardless of cwd.
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..")
@@ -1155,5 +1155,112 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
     expect(result.stepResults[0]?.logs).toContain("NOT_POSIX")
     expect(result.stepResults[0]?.logs).not.toContain("POSIX_MODE")
     expect(result.stepResults[0]?.logs).toContain("cleanup")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GitClone with prefilledRepoPath: a sparse clone, built by the same
+// buildCloneSteps the app's git:clone handler uses.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — GitClone sparse checkout", () => {
+  const SANDBOX_VARS = ["HOME", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] as const
+  const savedEnv: Record<string, string | undefined> = {}
+  let tmp: string
+  let origin: string
+
+  // `env: process.env` because bun's child_process otherwise starts git with
+  // the environment the test process began with, not the sandbox below.
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", ...args], {
+      cwd,
+      stdio: "pipe",
+      env: process.env,
+    })
+
+  const runGitClone = async (props: string, expected: ExpectedStatus = "success") => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Sparse clone\n\n<GitClone id="repo" prefilledUrl="file://${origin}" ${props} />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor.runTest({
+      name: "sparse",
+      steps: [{ block: "repo", expect: expected }],
+    })
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sparse-"))
+    // git runs with a sandboxed HOME and no global or system config.
+    for (const key of SANDBOX_VARS) savedEnv[key] = process.env[key]
+    fs.mkdirSync(path.join(tmp, "home"))
+    process.env.HOME = path.join(tmp, "home")
+    process.env.GIT_CONFIG_GLOBAL = "/dev/null"
+    process.env.GIT_CONFIG_SYSTEM = "/dev/null"
+    // A small monorepo whose `release` branch has a file `main` lacks.
+    origin = path.join(tmp, "origin")
+    fs.mkdirSync(path.join(origin, "modules", "vpc"), { recursive: true })
+    fs.mkdirSync(path.join(origin, "modules", "eks"), { recursive: true })
+    fs.writeFileSync(path.join(origin, "README.md"), "# mono\n")
+    fs.writeFileSync(path.join(origin, "modules", "vpc", "main.tf"), "# vpc\n")
+    fs.writeFileSync(path.join(origin, "modules", "eks", "main.tf"), "# eks\n")
+    git(origin, "init", "-q", "-b", "main")
+    git(origin, "add", ".")
+    git(origin, "commit", "-q", "-m", "init")
+    git(origin, "checkout", "-q", "-b", "release")
+    fs.writeFileSync(path.join(origin, "modules", "vpc", "release.tf"), "# release\n")
+    git(origin, "add", ".")
+    git(origin, "commit", "-q", "-m", "release")
+    git(origin, "checkout", "-q", "main")
+  })
+  afterEach(() => {
+    for (const key of SANDBOX_VARS) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("checks out only the repo path, at the requested ref", async () => {
+    const result = await runGitClone(
+      `prefilledRef="release" prefilledRepoPath="modules/vpc" prefilledLocalPath="mono"`,
+    )
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    const clone = path.join(tmp, "mono")
+    // The ref is honored: this file exists only on `release`.
+    expect(fs.existsSync(path.join(clone, "modules", "vpc", "release.tf"))).toBe(true)
+    // Sibling directories stay out; cone mode keeps the root's own files.
+    expect(fs.existsSync(path.join(clone, "modules", "eks"))).toBe(false)
+    expect(fs.existsSync(path.join(clone, "README.md"))).toBe(true)
+  })
+
+  it("clones a repository with no commits, skipping the checkout", async () => {
+    // A repository that was created but never pushed to.
+    origin = path.join(tmp, "empty.git")
+    git(tmp, "init", "-q", "--bare", "-b", "main", origin)
+
+    const result = await runGitClone(`prefilledRepoPath="modules/vpc" prefilledLocalPath="empty"`)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("success")
+    expect(fs.existsSync(path.join(tmp, "empty", ".git"))).toBe(true)
+  })
+
+  it("fails a repo path outside the repository without cloning", async () => {
+    const result = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`)
+
+    expect(result.stepResults[0]?.actualStatus).toBe("fail")
+    expect(result.stepResults[0]?.error).toMatch(/invalid repo path/)
+    expect(fs.existsSync(path.join(tmp, "mono"))).toBe(false)
+  })
+
+  it("passes a step that expects the clone to fail", async () => {
+    // Rejected before git runs: the repo path is outside the repository.
+    const badPath = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`, "fail")
+    expect(badPath.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
+
+    // Failed by git: the ref doesn't exist.
+    const badRef = await runGitClone(`prefilledRef="no-such-branch" prefilledLocalPath="mono"`, "fail")
+    expect(badRef.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
   })
 })

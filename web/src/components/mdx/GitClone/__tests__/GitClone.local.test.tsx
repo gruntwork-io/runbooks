@@ -17,6 +17,7 @@ const registerWorkTree = vi.fn()
 vi.mock("@/contexts/useGitWorkTree", () => ({
   useGitWorkTree: () => ({
     registerWorkTree,
+    unregisterWorkTree: vi.fn(),
     activeWorkTree: null,
     workTrees: [],
     setActiveWorkTree: vi.fn(),
@@ -267,5 +268,30 @@ describe("GitClone — local checkout", () => {
         ).toBeInTheDocument(),
       { timeout: 2000 },
     )
+  })
+})
+
+describe("GitClone — a clone that main rejects", () => {
+  it("shows the handler's own message, not Electron's wrapper around it", async () => {
+    const message =
+      'invalid repo path "../outside": use a directory inside the repository, relative to its root'
+    invoke.mockImplementation(async (channel: string) => {
+      // How Electron rejects an invoke whose handler threw.
+      if (channel === "git:clone") {
+        throw new Error(`Error invoking remote method 'git:clone': Error: ${message}`)
+      }
+      if (channel === "session:get") return { workingDir: "/work" }
+      if (channel === "github:orgs") return []
+      return {}
+    })
+    const user = userEvent.setup()
+    renderGitClone({ prefilledUrl: "https://github.com/acme/infra.git", prefilledRepoPath: "../outside" })
+
+    const clone = screen.getByRole("button", { name: /^Clone$/i })
+    await waitFor(() => expect(clone).toBeEnabled(), { timeout: 2000 })
+    await user.click(clone)
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument()
   })
 })

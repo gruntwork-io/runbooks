@@ -9,15 +9,15 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { ManagedRuntime } from "effect"
+import { Either, ManagedRuntime } from "effect"
 
 import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
+import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
 import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
 import { DEFAULT_GITHUB_HOST, isGitHubHost, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
 import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
-import { gitCloneArgs } from "../../src/domain/git/clone-args.ts"
 import {
   parseBlockOutputsContent,
   parseEnvCaptureContent,
@@ -152,6 +152,18 @@ function makeStepResult(
     duration: 0,
     assertionResults: [],
   }
+}
+
+/**
+ * Whether the repository at `repoDir` has any commits (its HEAD resolves).
+ * `env` is the environment the clone's other git commands run with.
+ */
+function hasCommits(repoDir: string, env: NodeJS.ProcessEnv): boolean {
+  const proc = spawnSync("git", ["-C", repoDir, "rev-parse", "--verify", "-q", "HEAD"], {
+    stdio: "ignore",
+    env,
+  })
+  return proc.status === 0
 }
 
 // ---------------------------------------------------------------------------
@@ -1466,47 +1478,38 @@ export class TestExecutor {
       console.log(`  Destination: ${destPath}`)
     }
 
+    // The same git commands the app runs, so a sparse clone (with or without
+    // a ref) behaves identically here.
+    const cloneSteps = buildCloneSteps(cloneURL, destPath, { ref, repoPath })
+    if (Either.isLeft(cloneSteps)) {
+      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
+      result.error = cloneSteps.left.stderr
+      result.duration = Date.now() - start
+      return result
+    }
+
     try {
-      // `git checkout <ref>` below has no separator that keeps a ref from
-      // being read as an option (`--orphan=x`): `--` starts pathspecs, and
-      // checkout in git 2.43 (at least) reads `--end-of-options` as one too.
-      // git won't create a branch or tag whose name begins with `-`, and a
-      // commit id is hex, so a ref like that is refused outright.
+      // The ref goes to git as the value of `--branch`, which consumes it
+      // whatever it looks like. git won't create a branch or tag whose name
+      // begins with `-`, so refuse one up front with a clear message rather
+      // than let the clone fail on a branch that can't exist.
       if (ref?.startsWith("-")) {
         throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
 
-      // With a repo path: a blobless clone without a checkout, then a sparse
-      // checkout of that path.
-      const cloneArgs = gitCloneArgs(cloneURL, destPath, { sparse: !!repoPath })
-
-      execFileSync("git", cloneArgs, {
-        timeout: this.options.timeout,
-        stdio: "pipe",
-        env: cloneEnv,
-      })
-
-      if (repoPath) {
-        // Same auth as the clone: a blobless clone fetches file contents
-        // lazily from origin during checkout.
-        execFileSync("git", ["sparse-checkout", "init", "--cone"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
-        })
-        execFileSync("git", ["sparse-checkout", "set", "--", repoPath], {
-          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
-        })
-        execFileSync("git", ["checkout"], {
-          cwd: destPath, timeout: 30000, stdio: "pipe", env: cloneEnv,
-        })
-      }
-
-      if (ref && !repoPath) {
-        execFileSync("git", ["checkout", ref], {
-          cwd: destPath, timeout: 30000, stdio: "pipe",
+      for (const step of cloneSteps.right) {
+        // A repository with no commits has nothing to check out, as in the app.
+        if (step.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
+        // Every step gets the clone's auth: a sparse clone is blobless, so its
+        // checkout fetches file contents lazily from origin.
+        execFileSync("git", step.args, {
+          timeout: this.options.timeout,
+          stdio: "pipe",
+          env: cloneEnv,
         })
       }
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
       // Sanitize error to not leak tokens
       result.error = redactSecrets(String(e))
       result.duration = Date.now() - start

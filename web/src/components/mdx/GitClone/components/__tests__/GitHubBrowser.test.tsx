@@ -15,7 +15,7 @@ function renderBrowser(host?: string) {
       onRefSelected={vi.fn()}
       fetchOrgs={vi.fn(async () => ORGS)}
       fetchRepos={vi.fn(async () => REPOS)}
-      fetchRefs={vi.fn(async () => ({ refs: [], totalCount: 0, hasMore: false }))}
+      fetchRefs={vi.fn(async () => [])}
       initialOrg="acme"
       defaultOpen
     />,
