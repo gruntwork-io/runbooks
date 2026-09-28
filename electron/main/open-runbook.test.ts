@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
 import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.ts"
 import type { OpenRemoteRunbookDeps } from "./open-runbook.ts"
+import { valueOrUserError } from "./remote.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
 import type { BrowserWindow } from "electron"
 
@@ -106,12 +107,13 @@ describe("openRemoteRunbookInWindow", () => {
   })
 
   it("shows the clone-failure hint to the user instead of only logging it", async () => {
-    // resolveRemoteRunbook fails through runtime.runPromise with a
-    // RemoteSourceError carrying classifyCloneError's hint.
+    // resolveRemoteRunbook's own failure path: the run exits with a
+    // RemoteSourceError carrying classifyCloneError's hint, and
+    // valueOrUserError rethrows it as a plain Error with that message.
     const hint = "authentication required for github.com/o/r: set GITHUB_TOKEN, or run 'gh auth login'"
     const { win, calls } = makeFakeWindow(false)
-    const { deps, errors } = makeDeps((url) =>
-      Effect.runPromise(Effect.fail(new RemoteSourceError({ url, message: hint }))),
+    const { deps, errors } = makeDeps(async (url) =>
+      valueOrUserError(await Effect.runPromiseExit(Effect.fail(new RemoteSourceError({ url, message: hint })))),
     )
 
     await openRemoteRunbookInWindow(win, URL, deps)
