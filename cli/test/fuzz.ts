@@ -67,13 +67,31 @@ export function generateFuzzValue(config: FuzzConfig): unknown {
   }
 }
 
+type BoundField =
+  | "min" | "max"
+  | "minLength" | "maxLength"
+  | "minWordCount" | "maxWordCount"
+  | "minCount" | "maxCount"
+
+// The [lo, hi] range a pair of optional bounds allows. A lone hi lowers lo's
+// default to fit (lo = min(defaultLo, hi)) and hi defaults to lo + span, so a
+// lone bound is honored. lo == hi yields that exact value.
+function boundedRange(
+  config: FuzzConfig,
+  minField: BoundField,
+  maxField: BoundField,
+  defaultLo: number,
+  span: number,
+): [number, number] {
+  const hi = config[maxField]
+  const lo = config[minField] ?? (hi === undefined ? defaultLo : Math.min(defaultLo, hi))
+  const top = hi ?? lo + span
+  if (top < lo) throw new Error(`fuzz ${config.type}: ${maxField} (${top}) is less than ${minField} (${lo})`)
+  return [lo, top]
+}
+
 function generateString(config: FuzzConfig): string {
-  let length = config.length ?? 0
-  if (length <= 0) {
-    const minLen = config.minLength ?? 8
-    const maxLen = config.maxLength ?? minLen + 10
-    length = randomInt(minLen, Math.max(minLen, maxLen))
-  }
+  const length = config.length ?? randomInt(...boundedRange(config, "minLength", "maxLength", 8, 10))
 
   let charset = ALPHANUM
   if (config.includeSpaces) charset += " "
@@ -87,13 +105,12 @@ function generateString(config: FuzzConfig): string {
   return (config.prefix ?? "") + result + (config.suffix ?? "")
 }
 
-// min defaults to 0 (max - 100 when only a non-positive max is set) and max to
-// min + 100, so a lone bound is honored. min == max yields that exact value.
+// min defaults to 0 and max to min + 100. Unlike a length or a count, a number
+// has no floor, so a lone non-positive max fuzzes over max - 100..max rather
+// than collapsing to max.
 function numericRange(config: FuzzConfig): [number, number] {
-  const min = config.min ?? (config.max !== undefined && config.max <= 0 ? config.max - 100 : 0)
-  const max = config.max ?? min + 100
-  if (max < min) throw new Error(`fuzz ${config.type}: max (${max}) is less than min (${min})`)
-  return [min, max]
+  const max = config.max
+  return boundedRange(config, "min", "max", max !== undefined && max <= 0 ? max - 100 : 0, 100)
 }
 
 function generateInt(config: FuzzConfig): number {
@@ -191,12 +208,7 @@ function formatDate(d: Date, fmt: string): string {
 }
 
 function generateWords(config: FuzzConfig): string {
-  let count = config.wordCount ?? 0
-  if (count <= 0) {
-    const minCount = config.minWordCount ?? 2
-    const maxCount = config.maxWordCount ?? minCount + 3
-    count = randomInt(minCount, Math.max(minCount, maxCount))
-  }
+  const count = config.wordCount ?? randomInt(...boundedRange(config, "minWordCount", "maxWordCount", 2, 3))
   const result: string[] = []
   for (let i = 0; i < count; i++) {
     result.push(randomChoice(WORDS))
@@ -205,18 +217,10 @@ function generateWords(config: FuzzConfig): string {
 }
 
 function generateList(config: FuzzConfig): string {
-  let count = config.count ?? 0
-  if (count <= 0) {
-    const minCount = config.minCount ?? 2
-    const maxCount = config.maxCount ?? minCount + 3
-    count = randomInt(minCount, Math.max(minCount, maxCount))
-  }
+  const count = config.count ?? randomInt(...boundedRange(config, "minCount", "maxCount", 2, 3))
   const items: string[] = []
-  const itemConfig: FuzzConfig = {
-    type: "string",
-    minLength: config.minLength ?? 5,
-    maxLength: config.maxLength ?? 12,
-  }
+  const [minLength, maxLength] = boundedRange(config, "minLength", "maxLength", 5, 7)
+  const itemConfig: FuzzConfig = { type: "string", minLength, maxLength }
   for (let i = 0; i < count; i++) {
     items.push(generateString(itemConfig))
   }
@@ -224,12 +228,7 @@ function generateList(config: FuzzConfig): string {
 }
 
 function generateMap(config: FuzzConfig): unknown {
-  let count = config.count ?? 0
-  if (count <= 0) {
-    const minCount = config.minCount ?? 2
-    const maxCount = config.maxCount ?? minCount + 2
-    count = randomInt(minCount, Math.max(minCount, maxCount))
-  }
+  const count = config.count ?? randomInt(...boundedRange(config, "minCount", "maxCount", 2, 2))
 
   const keyConfig: FuzzConfig = { type: "string", minLength: 5, maxLength: 12 }
 
@@ -250,11 +249,8 @@ function generateMap(config: FuzzConfig): unknown {
 
   // Flat map as JSON string
   const result: Record<string, string> = {}
-  const valueConfig: FuzzConfig = {
-    type: "string",
-    minLength: config.minLength ?? 5,
-    maxLength: config.maxLength ?? 12,
-  }
+  const [minLength, maxLength] = boundedRange(config, "minLength", "maxLength", 5, 7)
+  const valueConfig: FuzzConfig = { type: "string", minLength, maxLength }
   for (let i = 0; i < count; i++) {
     result[generateString(keyConfig)] = generateString(valueConfig)
   }

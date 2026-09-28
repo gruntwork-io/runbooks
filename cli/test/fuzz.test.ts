@@ -41,6 +41,22 @@ describe("generateFuzzValue", () => {
     expect(v.length).toBe(2 + 4 + 2)
   })
 
+  it("string: a lone maxLength below the default minLength (8) is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      expect(generateFuzzValue({ type: "string", maxLength: 3 })).toHaveLength(3)
+    }
+  })
+
+  it("string: length 0 gives an empty string", () => {
+    expect(generateFuzzValue({ type: "string", length: 0, prefix: "p-" })).toBe("p-")
+  })
+
+  it("string: throws when maxLength is less than minLength", () => {
+    expect(() => generateFuzzValue({ type: "string", minLength: 5, maxLength: 3 })).toThrow(
+      "fuzz string: maxLength (3) is less than minLength (5)",
+    )
+  })
+
   it("int: stays within min/max inclusive", () => {
     for (let i = 0; i < SAMPLES; i++) {
       const v = generateFuzzValue({ type: "int", min: 5, max: 10 }) as number
@@ -212,6 +228,23 @@ describe("generateFuzzValue", () => {
     expect(v.split(/\s+/)).toHaveLength(4)
   })
 
+  it("words: a lone maxWordCount below the default minWordCount (2) is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      const v = generateFuzzValue({ type: "words", maxWordCount: 1 }) as string
+      expect(v.split(" ")).toHaveLength(1)
+    }
+  })
+
+  it("words: wordCount 0 gives an empty string", () => {
+    expect(generateFuzzValue({ type: "words", wordCount: 0 })).toBe("")
+  })
+
+  it("words: throws when maxWordCount is less than minWordCount", () => {
+    expect(() => generateFuzzValue({ type: "words", minWordCount: 4, maxWordCount: 2 })).toThrow(
+      "fuzz words: maxWordCount (2) is less than minWordCount (4)",
+    )
+  })
+
   it("list: returns a JSON-encoded array of N items", () => {
     const v = generateFuzzValue({ type: "list", count: 3 }) as string
     const parsed = JSON.parse(v)
@@ -219,11 +252,71 @@ describe("generateFuzzValue", () => {
     expect(parsed).toHaveLength(3)
   })
 
+  it("list: a lone maxCount or maxLength below its default is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      // Defaults: minCount 2, minLength 5.
+      const items = JSON.parse(generateFuzzValue({ type: "list", maxCount: 1, maxLength: 3 }) as string)
+      expect(items).toHaveLength(1)
+      expect(items[0]).toHaveLength(3)
+    }
+  })
+
+  it("list: a lone minLength above the default maxLength (12) still fuzzes (max = minLength + 7)", () => {
+    const lengths = new Set<number>()
+    for (let i = 0; i < SAMPLES; i++) {
+      const items: string[] = JSON.parse(generateFuzzValue({ type: "list", minLength: 20 }) as string)
+      for (const item of items) {
+        expect(item.length).toBeGreaterThanOrEqual(20)
+        expect(item.length).toBeLessThanOrEqual(27)
+        lengths.add(item.length)
+      }
+    }
+    expect(lengths.size).toBeGreaterThan(1)
+  })
+
+  it("list: count 0 gives an empty list", () => {
+    expect(generateFuzzValue({ type: "list", count: 0 })).toBe("[]")
+  })
+
+  it("list: throws when maxCount or maxLength is less than its minimum", () => {
+    expect(() => generateFuzzValue({ type: "list", minCount: 3, maxCount: 1 })).toThrow(
+      "fuzz list: maxCount (1) is less than minCount (3)",
+    )
+    expect(() => generateFuzzValue({ type: "list", minLength: 6, maxLength: 3 })).toThrow(
+      "fuzz list: maxLength (3) is less than minLength (6)",
+    )
+  })
+
   it("map (no schema): returns a JSON-encoded object", () => {
     const v = generateFuzzValue({ type: "map", count: 2 }) as string
     const parsed = JSON.parse(v)
     expect(typeof parsed).toBe("object")
     expect(Object.keys(parsed).length).toBe(2)
+  })
+
+  it("map: a lone maxCount or maxLength below its default is honored", () => {
+    for (let i = 0; i < SAMPLES; i++) {
+      // Defaults: minCount 2, minLength 5.
+      const entries = Object.values(
+        JSON.parse(generateFuzzValue({ type: "map", maxCount: 1, maxLength: 3 }) as string),
+      )
+      expect(entries).toHaveLength(1)
+      expect(entries[0]).toHaveLength(3)
+    }
+  })
+
+  it("map: count 0 gives an empty map", () => {
+    expect(generateFuzzValue({ type: "map", count: 0 })).toBe("{}")
+    expect(generateFuzzValue({ type: "map", count: 0, schema: ["a"] })).toEqual({})
+  })
+
+  it("map: throws when maxCount or maxLength is less than its minimum", () => {
+    expect(() => generateFuzzValue({ type: "map", minCount: 3, maxCount: 1 })).toThrow(
+      "fuzz map: maxCount (1) is less than minCount (3)",
+    )
+    expect(() => generateFuzzValue({ type: "map", minLength: 6, maxLength: 3 })).toThrow(
+      "fuzz map: maxLength (3) is less than minLength (6)",
+    )
   })
 
   it("map (with schema): returns nested objects keyed by schema fields", () => {
