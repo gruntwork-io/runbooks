@@ -8,17 +8,18 @@
  * CLI reads are PER HOST: `glab config get token --host <H>` —
  * glab has no `auth token` subcommand.
  */
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
 import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
-import { normalizeGitLabHost, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
+import { normalizeGitLabBaseUrl, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
+import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -38,6 +39,14 @@ const OAUTH_STALENESS_MARGIN_MS = 60_000
  * (OAUTH_TOKEN is a real, glab-honored legacy credential).
  */
 export const GITLAB_TOKEN_ENV_VARS = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"] as const
+
+/**
+ * The token vars read under the `{env:{prefix}}` variant, as
+ * `<PREFIX><name>`: the GitLab-specific names only. A prefixed OAUTH_TOKEN
+ * names no provider (glab never reads one), so it could just as well hold
+ * another service's token and is never read.
+ */
+const PREFIXED_GITLAB_TOKEN_ENV_VARS = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN"] as const
 
 /** glab treats an empty/blank env var as unset. */
 const isSetEnvVar = (value: string | undefined): value is string =>
@@ -124,8 +133,8 @@ export const detectTokenType = (token: string): GitLabTokenType =>
 
 export interface GitLabEnvCredential {
   readonly token: string
-  /** The variable the token came from (glab's documented precedence order). */
-  readonly envVar: (typeof GITLAB_TOKEN_ENV_VARS)[number]
+  /** The variable the token came from (e.g. GITLAB_TOKEN, CI_GITLAB_TOKEN). */
+  readonly envVar: string
 }
 
 /**
@@ -133,14 +142,30 @@ export interface GitLabEnvCredential {
  * precedence: GITLAB_TOKEN, then GITLAB_ACCESS_TOKEN, then OAUTH_TOKEN
  * (OAUTH_TOKEN is a real, glab-honored legacy credential). Returns
  * undefined when none is set.
+ *
+ * With a `prefix` (the `{env:{prefix}}` variant), looks up
+ * `<PREFIX>GITLAB_TOKEN` then `<PREFIX>GITLAB_ACCESS_TOKEN` instead, never
+ * falling back to the unprefixed names. The prefix MUST already be
+ * allowlist-validated (ENV_PREFIX_PATTERN) by the caller in main; an invalid
+ * prefix is treated as absent here as defense in depth.
  */
-export const detectEnvCredentials = () =>
+export const detectEnvCredentials = (prefix?: string) =>
   Effect.gen(function* () {
     const env = yield* Environment
 
-    for (const envVar of GITLAB_TOKEN_ENV_VARS) {
+    let envVars: readonly string[] = GITLAB_TOKEN_ENV_VARS
+    if (prefix !== undefined && prefix !== "") {
+      if (!ENV_PREFIX_PATTERN.test(prefix)) {
+        return undefined
+      }
+      envVars = PREFIXED_GITLAB_TOKEN_ENV_VARS.map((name) => `${prefix}${name}`)
+    }
+
+    for (const envVar of envVars) {
       const token = yield* env.get(envVar)
-      if (token) {
+      // Blank counts as unset (as in glab and hasEnvToken): an empty
+      // GITLAB_TOKEN must not hide a real GITLAB_ACCESS_TOKEN.
+      if (isSetEnvVar(token)) {
         return { token, envVar } satisfies GitLabEnvCredential
       }
     }
@@ -190,23 +215,12 @@ const runGlab = (
       ...setEnv,
     }
     const proc = yield* spawner.spawn("glab", args, { env: childEnv })
-    const stdout: string[] = []
-    const stderr: string[] = []
-    const exitCode = yield* Effect.ensuring(
-      Effect.gen(function* () {
-        yield* proc.output.pipe(
-          Stream.runForEach((line) =>
-            Effect.sync(() => {
-              ;(line.source === "stdout" ? stdout : stderr).push(line.line)
-            }),
-          ),
-          Effect.timeout(timeoutMs),
-        )
-        return yield* proc.exitCode.pipe(Effect.timeout(timeoutMs))
-      }),
-      proc.kill.pipe(Effect.ignore),
-    )
-    return { exitCode, stdout, stderr }
+    const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
+    return {
+      exitCode,
+      stdout: lines.filter((line) => line.source === "stdout").map((line) => line.line),
+      stderr: lines.filter((line) => line.source === "stderr").map((line) => line.line),
+    }
   })
 
 export const isSpawnEnoent = (err: unknown): boolean => {
@@ -372,33 +386,71 @@ export const DEFAULT_GITLAB_HOST = "gitlab.com"
  * never transmitted anywhere else. Undefined (no binding at all) when a host
  * var is set but unparseable: falling back to gitlab.com would transmit a
  * corporate token cross-origin on a typo.
+ *
+ * A prefixed token (the `{env:{prefix}}` variant) is bound the same way by
+ * the prefixed host vars — `<PREFIX>GITLAB_HOST ?? <PREFIX>GITLAB_URI ??
+ * <PREFIX>GL_HOST ?? "gitlab.com"` — never by the unprefixed ones.
  */
 export const envTokenHost = (
   env: Record<string, string | undefined>,
+  prefix = "",
 ): string | undefined => {
-  const configured = configuredEnvHost(env)
+  const configured = configuredEnvHost(env, prefix)
   if (configured === undefined) return DEFAULT_GITLAB_HOST
   return tryNormalizeGitLabHost(configured)
 }
 
 /**
+ * The host the session's GITLAB_TOKEN is bound to, or undefined when it may
+ * be sent nowhere. Mirrors githubSessionCredential.
+ *
+ * `authHost` is the host a GitAuth block wrote the session credential for
+ * (main-only bookkeeping, cleared together with the session env). With it,
+ * the binding is that host, and only while the env still carries a
+ * GITLAB_HOST naming it (bare or as a URL, as glab accepts). If a script
+ * changed or removed GITLAB_HOST, there is no binding: the token may still be
+ * the auth block's, so following the script's GITLAB_HOST could send it to
+ * another host. Without `authHost`, the session env is whatever the process
+ * started with, so it is bound by glab's own conventions (envTokenHost),
+ * exactly like the ambient env.
+ */
+export const gitlabSessionTokenHost = (
+  env: Record<string, string | undefined>,
+  authHost?: string,
+): string | undefined => {
+  if (authHost === undefined) return envTokenHost(env)
+  return tryNormalizeGitLabHost(env.GITLAB_HOST) === authHost ? authHost : undefined
+}
+
+/**
  * glab's host env-var precedence (GITLAB_HOST, then GITLAB_URI, then GL_HOST),
- * raw and unnormalized; a blank var counts as unset.
+ * each read as `<prefix><name>`, raw and unnormalized; a blank var counts as
+ * unset.
  */
 export const configuredEnvHost = (
   env: Record<string, string | undefined>,
-): string | undefined => [env.GITLAB_HOST, env.GITLAB_URI, env.GL_HOST].find(isSetEnvVar)
+  prefix = "",
+): string | undefined =>
+  [env[`${prefix}GITLAB_HOST`], env[`${prefix}GITLAB_URI`], env[`${prefix}GL_HOST`]].find(
+    isSetEnvVar,
+  )
 
 /**
- * Whether the env token may be auto-validated against (i.e. transmitted to)
- * `host`: exactly when `host` IS the env token's bound host.
+ * Whether the env token (read under `prefix`, if any) may be auto-validated
+ * against (i.e. transmitted to) `target` — a bare host or an instance origin:
+ * exactly when `target` IS that token's bound host AND is reached over https.
+ * A bare host means https; an explicit `http://` origin never qualifies, since
+ * the target can come from a runbook (`instanceUrl`) and the token must never
+ * cross the network in cleartext. (A pasted token still works over http.)
  */
 export const mayAutoSendEnvToken = (
-  host: string,
+  target: string,
   env: Record<string, string | undefined>,
+  prefix = "",
 ): boolean => {
-  const bound = envTokenHost(env)
-  return bound !== undefined && normalizeGitLabHost(host) === bound
+  const bound = envTokenHost(env, prefix)
+  const origin = new URL(normalizeGitLabBaseUrl(target))
+  return bound !== undefined && origin.protocol === "https:" && origin.host === bound
 }
 
 /**
@@ -511,6 +563,8 @@ export interface GlabHostMeta {
   readonly caCert?: string
   /** True when the host stores its token in the OS keyring (use_keyring). */
   readonly useKeyring: boolean
+  /** The host's `api_protocol`, lowercased, when set (glab defaults to https). */
+  readonly apiProtocol?: string
 }
 
 const asBool = (value: unknown): boolean =>
@@ -540,10 +594,11 @@ export function parseGlabExpiry(value: unknown): Date | undefined {
 
 /**
  * Read a host's auth metadata from glab config.yml contents: `is_oauth2`,
- * `oauth2_expiry_date`, `ca_cert`, `use_keyring` (host-level, falling back to
- * the top-level `use_keyring`). These are observed glab behavior, not stable
- * APIs — every read is tolerant. `skip_tls_verify` is deliberately
- * NEVER read: we never disable verification. Exported for testing.
+ * `oauth2_expiry_date`, `ca_cert`, `api_protocol`, `use_keyring` (host-level,
+ * falling back to the top-level `use_keyring`). These are observed glab
+ * behavior, not stable APIs — every read is tolerant. `skip_tls_verify` is
+ * deliberately NEVER read: we never disable verification. Exported for
+ * testing.
  */
 export function readGlabHostMeta(yamlContent: string, host: string): GlabHostMeta {
   return hostMetaFromConfig(parseGlabConfig(yamlContent), host)
@@ -559,6 +614,10 @@ const hostMetaFromConfig = (parsed: GlabConfig | null, host: string): GlabHostMe
         ? entry.ca_cert.trim()
         : undefined,
     useKeyring: asBool(entry.use_keyring) || asBool(parsed?.use_keyring),
+    apiProtocol:
+      typeof entry.api_protocol === "string" && entry.api_protocol.trim().length > 0
+        ? entry.api_protocol.trim().toLowerCase()
+        : undefined,
   }
 }
 
@@ -656,6 +715,23 @@ export const detectHostMeta = (host: string) =>
     const parsed = parseGlabConfig(content)
     if (!parsed?.hosts || !(host in parsed.hosts)) return undefined
     return hostMetaFromConfig(parsed, host)
+  })
+
+/**
+ * Whether the token glab stores for `host` may be validated against (i.e.
+ * transmitted to) `target`, a bare host or an instance origin: only when
+ * `target` IS that host, and over plain http only when glab itself talks http
+ * to it (the host's `api_protocol`). The target can come from a runbook
+ * (`instanceUrl`), so `http://gitlab.com` must never send glab's gitlab.com
+ * token in cleartext, while an instance glab is set up to reach over http
+ * keeps working. A bare host means https.
+ */
+export const mayAutoSendGlabToken = (target: string, host: string) =>
+  Effect.gen(function* () {
+    const origin = new URL(normalizeGitLabBaseUrl(target))
+    if (origin.host !== host) return false
+    if (origin.protocol === "https:") return true
+    return (yield* detectHostMeta(host))?.apiProtocol === "http"
   })
 
 /**

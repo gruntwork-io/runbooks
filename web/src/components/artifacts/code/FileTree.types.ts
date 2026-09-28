@@ -78,12 +78,3 @@ export const FileTreeNodeSchema: z.ZodType<FileTreeNode> = z.lazy(() =>
  * Zod schema for an array of FileTreeNode items.
  */
 export const FileTreeNodeArraySchema = z.array(FileTreeNodeSchema)
-
-/**
- * Safely parse an unknown value as a FileTreeNode array.
- * Returns the validated array or null if validation fails.
- */
-export function parseFileTreeNodeArray(value: unknown): FileTreeNode[] | null {
-  const result = FileTreeNodeArraySchema.safeParse(value)
-  return result.success ? result.data : null
-}

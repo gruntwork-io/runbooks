@@ -49,9 +49,9 @@ const makeStubAwsClient = (overrides: Partial<AwsClientShape> = {}): AwsClientSh
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "pollSsoToken") })),
   completeSsoAuth: (_params) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "completeSsoAuth") })),
-  listSsoAccounts: (_accessToken) =>
+  listSsoAccounts: (_accessToken, _region) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoAccounts") })),
-  listSsoRoles: (_accessToken, _accountId) =>
+  listSsoRoles: (_accessToken, _accountId, _region) =>
     Effect.fail(new AwsSsoError({ message: notConfigured("AwsClient", "listSsoRoles") })),
   checkRegion: (_region, _creds) =>
     Effect.fail(new AwsAuthError({ message: notConfigured("AwsClient", "checkRegion") })),
@@ -85,7 +85,6 @@ const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHu
 const makeStubGitLabClient = (overrides: Partial<GitLabClientShape> = {}): GitLabClientShape => ({
   validateToken: (_token) =>
     Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "validateToken") })),
-  detectTokenType: (_token) => "unknown" as const,
   createMergeRequest: (_token, _params) =>
     Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "createMergeRequest") })),
   listLabels: (_token, _owner, _repo) =>
@@ -99,7 +98,7 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
   push: (_repoPath, _remote, _branch, _options) =>
     Effect.fail(new GitError({ command: "push", stderr: notConfigured("GitClient", "push"), exitCode: 1 })),
   deleteBranch: (_repoPath, _branch) =>
-    Effect.fail(new GitError({ command: "branch -D", stderr: notConfigured("GitClient", "deleteBranch"), exitCode: 1 })),
+    Effect.fail(new GitError({ command: "branch -d", stderr: notConfigured("GitClient", "deleteBranch"), exitCode: 1 })),
   getCurrentBranch: (_repoPath) =>
     Effect.fail(new GitError({ command: "branch", stderr: notConfigured("GitClient", "getCurrentBranch"), exitCode: 1 })),
   getRepoRoot: (_repoPath) =>
@@ -114,8 +113,10 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
     Effect.fail(new GitError({ command: "status", stderr: notConfigured("GitClient", "status"), exitCode: 1 })),
   hasCommits: (_repoPath) =>
     Effect.fail(new GitError({ command: "log", stderr: notConfigured("GitClient", "hasCommits"), exitCode: 1 })),
-  hasChanges: (_repoPath) =>
-    Effect.fail(new GitError({ command: "status", stderr: notConfigured("GitClient", "hasChanges"), exitCode: 1 })),
+  hasCommitsNotIn: (_repoPath, _ref) =>
+    Effect.fail(new GitError({ command: "rev-list", stderr: notConfigured("GitClient", "hasCommitsNotIn"), exitCode: 1 })),
+  hasCommitsNotOnRemote: (_repoPath, _remote) =>
+    Effect.fail(new GitError({ command: "rev-list", stderr: notConfigured("GitClient", "hasCommitsNotOnRemote"), exitCode: 1 })),
   checkIgnored: (_repoPath, _paths) =>
     Effect.fail(new GitError({ command: "check-ignore", stderr: notConfigured("GitClient", "checkIgnored"), exitCode: 1 })),
   createBranch: (_repoPath, _branch) =>
@@ -159,6 +160,7 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
 
 const makeStubBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}): BoilerplateRendererShape => ({
   renderFile: (templateContent, _variables) => Effect.succeed(templateContent),
+  renderFileStrict: (templateContent, _variables) => Effect.succeed(templateContent),
   renderTemplate: (_templateDir, _outputDir, _variables) => Effect.void,
   ...overrides,
 })

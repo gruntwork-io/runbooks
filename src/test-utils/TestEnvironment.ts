@@ -7,13 +7,5 @@ export const makeTestEnvironment = (env: Record<string, string> = {}) => {
   return Layer.succeed(Environment, {
     get: (key) => Effect.succeed(store[key]),
     getAll: () => Effect.succeed({ ...store }),
-    set: (key, value) =>
-      Effect.sync(() => {
-        store[key] = value
-      }),
-    delete: (key) =>
-      Effect.sync(() => {
-        delete store[key]
-      }),
   })
 }

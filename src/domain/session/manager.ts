@@ -1,19 +1,14 @@
 /**
- * A SessionManager manages a single session with multiple tokens (max 20) for
- * concurrent browser tabs. Environment changes made by scripts persist across
- * block executions. All browser tabs share the same session ("one runbook = one
- * environment"), each identified by its own token.
+ * A SessionManager holds the single, process-local session for the open
+ * runbook ("one runbook = one environment"). Environment and working-directory
+ * changes made by scripts persist across block executions.
  */
 
 import { Effect } from "effect"
 
 import { Environment } from "../../services/Environment.js"
 import { SessionError, SessionNotFoundError } from "../../errors/index.js"
-import {
-  type SessionMetadata,
-  type SessionExecContext,
-  MAX_TOKENS_PER_SESSION,
-} from "../../types.js"
+import type { SessionMetadata, SessionExecSnapshot } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Excluded env vars — shell internals that should never be captured
@@ -58,7 +53,6 @@ const EXCLUDED_ENV_VARS = new Set<string>([
 // ---------------------------------------------------------------------------
 
 interface Session {
-  validTokens: Map<string, Date>
   env: Map<string, string>
   initialEnv: Map<string, string>
   initialWorkDir: string
@@ -77,11 +71,6 @@ interface Session {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Generate a cryptographically-secure token via the Web Crypto global. */
-function generateSecretToken(): string {
-  return crypto.randomUUID()
-}
 
 function copyEnvMap(src: Map<string, string>): Map<string, string> {
   return new Map(src)
@@ -111,6 +100,23 @@ export function filterCapturedEnv(
   return filtered
 }
 
+/**
+ * What a script changed in its environment, relative to the env it started
+ * with: keys it added or re-assigned (`set`) and keys it removed (`unset`).
+ */
+export function diffEnv(
+  before: Record<string, string>,
+  after: Record<string, string>,
+): { set: Record<string, string>; unset: string[] } {
+  const set = Object.fromEntries(
+    Object.entries(after).filter(
+      ([k, v]) => !Object.hasOwn(before, k) || before[k] !== v,
+    ),
+  )
+  const unset = Object.keys(before).filter((k) => !Object.hasOwn(after, k))
+  return { set, unset }
+}
+
 // ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
@@ -118,6 +124,8 @@ export function filterCapturedEnv(
 export class SessionManager {
   private session: Session | null = null
   private protectedEnvVars: string[] = []
+  /** Bumped by every createSession, so a snapshot can tell its session was replaced. */
+  private generation = 0
 
   // -------------------------------------------------------------------------
   // Configuration
@@ -126,7 +134,8 @@ export class SessionManager {
   /**
    * Configure environment variables that should be stripped from the session at
    * creation time (e.g. AWS credentials that require explicit auth).
-   * Must be called before `createSession`.
+   * Must be called before every `createSession` — including with `[]` — so a
+   * previous runbook's list never applies to the next one.
    */
   setProtectedEnvVars(vars: string[]): void {
     this.protectedEnvVars = vars
@@ -137,9 +146,9 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Create a new session, replacing any existing one (all previous tokens are
-   * invalidated). The environment is captured from the running process via the
-   * Environment service, with protected vars stripped.
+   * Create a new session, replacing any existing one. The environment is
+   * captured from the running process via the Environment service, with
+   * protected vars stripped.
    */
   createSession(initialWorkingDir: string, runbookPath: string = "") {
     return Effect.gen(this, function* () {
@@ -153,11 +162,9 @@ export class SessionManager {
         env.delete(key)
       }
 
-      const token = generateSecretToken()
       const now = new Date()
 
       const session: Session = {
-        validTokens: new Map([[token, now]]),
         env,
         initialEnv: copyEnvMap(env),
         initialWorkDir: initialWorkingDir,
@@ -171,33 +178,7 @@ export class SessionManager {
       }
 
       this.session = session
-
-      return { token }
-    })
-  }
-
-  /**
-   * Create a new token for an existing session (new browser tab joining).
-   * Preserves the session's current environment state.
-   */
-  joinSession() {
-    return Effect.gen(this, function* () {
-      if (this.session === null) {
-        return yield* new SessionNotFoundError()
-      }
-
-      const token = generateSecretToken()
-
-      // Prune oldest token if at capacity
-      if (this.session.validTokens.size >= MAX_TOKENS_PER_SESSION) {
-        this.pruneOldestToken()
-      }
-
-      const now = new Date()
-      this.session.validTokens.set(token, now)
-      this.session.lastActivity = now
-
-      return { token }
+      this.generation++
     })
   }
 
@@ -215,9 +196,28 @@ export class SessionManager {
     })
   }
 
-  /** Returns whether a session currently exists. */
-  hasSession(): boolean {
-    return this.session !== null
+  /**
+   * The current session's generation, bumped by every `createSession`.
+   *
+   * An operation that writes to the session after an await (an auth handler
+   * validating a token, an OAuth poll, a clone) captures this before its
+   * first await and passes it to the write. If a different runbook opened in
+   * the meantime, the write is dropped instead of landing in that runbook's
+   * fresh session: one runbook's credentials or checkout must never become
+   * the next one's.
+   */
+  getGeneration(): number {
+    return this.generation
+  }
+
+  /** Whether `generation` still names the live session. */
+  isCurrentGeneration(generation: number): boolean {
+    return this.session !== null && generation === this.generation
+  }
+
+  /** A write scoped to `generation` whose session has since been replaced. */
+  private isStale(generation: number | undefined): boolean {
+    return generation !== undefined && generation !== this.generation
   }
 
   /**
@@ -256,45 +256,23 @@ export class SessionManager {
   }
 
   /**
-   * Delete the session, invalidating all tokens.
+   * Drop the session, leaving none. The app never does this (opening a
+   * runbook replaces the session); tests use it to put the process-wide
+   * manager back to its no-session state between cases.
    */
   deleteSession(): void {
     this.session = null
   }
 
   // -------------------------------------------------------------------------
-  // Token management
+  // Execution context
   // -------------------------------------------------------------------------
 
   /**
-   * Validate a token and return an immutable execution context snapshot.
-   * Returns `null` if the token is invalid or no session exists.
+   * Return a snapshot of the session's env and working directory for a script
+   * run. The env is a plain-record copy, safe to use after this call.
    */
-  validateToken(
-    token: string,
-  ): Effect.Effect<SessionExecContext | null, never, never> {
-    return Effect.sync(() => {
-      if (this.session === null) {
-        return null
-      }
-
-      if (!this.session.validTokens.has(token)) {
-        return null
-      }
-
-      // Return a snapshot — env as a plain record, safe to use after this call
-      return {
-        env: mapToRecord(this.session.env),
-        workDir: this.session.workingDir,
-      }
-    })
-  }
-
-  /**
-   * Get the current execution context without token validation.
-   * Used by IPC handlers where authentication is unnecessary (process-local).
-   */
-  getExecContext(): Effect.Effect<SessionExecContext, SessionNotFoundError, never> {
+  getExecContext(): Effect.Effect<SessionExecSnapshot, SessionNotFoundError, never> {
     return Effect.gen(this, function* () {
       if (this.session === null) {
         return yield* new SessionNotFoundError()
@@ -302,25 +280,9 @@ export class SessionManager {
       return {
         env: mapToRecord(this.session.env),
         workDir: this.session.workingDir,
+        generation: this.generation,
       }
     })
-  }
-
-  /**
-   * Remove a specific token from the session (tab close cleanup).
-   * Returns true if the token was found and removed.
-   */
-  revokeToken(token: string): boolean {
-    if (this.session === null) {
-      return false
-    }
-
-    return this.session.validTokens.delete(token)
-  }
-
-  /** Number of active tokens (browser tabs). */
-  tokenCount(): number {
-    return this.session?.validTokens.size ?? 0
   }
 
   // -------------------------------------------------------------------------
@@ -328,17 +290,44 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Replace the session's environment and working directory after script
-   * execution, incrementing the execution counter.
+   * Apply a script's captured environment and working directory to the
+   * session after execution, incrementing the execution counter.
+   *
+   * The capture is applied as a delta against `before`, the env snapshot the
+   * script started from (getExecContext): only keys the script exported,
+   * re-assigned or unset are written, and every other key in the live env is
+   * left alone. Auth blocks write to the session while a script runs
+   * (appendToEnv, removeFromEnv, session:set-env), and replacing the env with
+   * the script's start-time view would silently undo those writes. Likewise
+   * the working dir only moves if the script itself changed directory. An
+   * empty `pwd` means the capture failed (e.g. the script removed its own cwd)
+   * and leaves the working dir as it is.
+   *
+   * No-op when the session was replaced (a different runbook opened) since the
+   * snapshot was taken, so one runbook's env can't leak into the next.
    */
-  updateSessionEnv(env: Record<string, string>, workDir: string) {
-    return Effect.gen(this, function* () {
-      if (this.session === null) {
-        return yield* new SessionError({ message: "no active session" })
+  applyCapturedEnv(params: {
+    before: Record<string, string>
+    after: Record<string, string>
+    startWorkDir: string
+    pwd: string
+    generation: number
+  }): Effect.Effect<void> {
+    return Effect.sync(() => {
+      if (this.session === null || !this.isCurrentGeneration(params.generation)) {
+        return
       }
 
-      this.session.env = recordToMap(env)
-      this.session.workingDir = workDir
+      const { set, unset } = diffEnv(params.before, params.after)
+      for (const [key, value] of Object.entries(set)) {
+        this.session.env.set(key, value)
+      }
+      for (const key of unset) {
+        this.session.env.delete(key)
+      }
+      if (params.pwd !== "" && params.pwd !== params.startWorkDir) {
+        this.session.workingDir = params.pwd
+      }
       this.session.executionCount++
       this.session.lastActivity = new Date()
     })
@@ -348,12 +337,17 @@ export class SessionManager {
    * Merge additional environment variables into the session without replacing
    * the whole environment. Used by UI components (e.g. AwsAuth) to inject
    * credentials after user confirmation.
+   *
+   * `generation` (from `getGeneration`, captured before the caller's first
+   * await) makes this a no-op once the session it names has been replaced.
+   * Omit it only when the write happens in the same tick the request arrived.
    */
-  appendToEnv(env: Record<string, string>) {
+  appendToEnv(env: Record<string, string>, generation?: number) {
     return Effect.gen(this, function* () {
       if (this.session === null) {
         return yield* new SessionError({ message: "no active session" })
       }
+      if (this.isStale(generation)) return
 
       for (const [key, value] of Object.entries(env)) {
         this.session.env.set(key, value)
@@ -370,12 +364,15 @@ export class SessionManager {
    * value is not "absent" to every downstream CLI, and leaving the previous
    * value standing after a credential that no longer has one authenticates
    * is exactly the stale-env bug this exists to prevent.
+   *
+   * `generation` works as for `appendToEnv`.
    */
-  removeFromEnv(keys: string[]) {
+  removeFromEnv(keys: string[], generation?: number) {
     return Effect.gen(this, function* () {
       if (this.session === null) {
         return yield* new SessionError({ message: "no active session" })
       }
+      if (this.isStale(generation)) return
 
       for (const key of keys) {
         this.session.env.delete(key)
@@ -402,7 +399,6 @@ export class SessionManager {
         executionCount: this.session.executionCount,
         createdAt: this.session.createdAt.toISOString(),
         lastActivity: this.session.lastActivity.toISOString(),
-        activeTabs: this.session.validTokens.size,
       }
 
       return meta
@@ -414,10 +410,11 @@ export class SessionManager {
   // -------------------------------------------------------------------------
 
   /**
-   * Register a git worktree path. No-op if already registered.
+   * Register a git worktree path. No-op if already registered, or if
+   * `generation` (as for `appendToEnv`) names a replaced session.
    */
-  registerWorkTreePath(path: string): void {
-    if (this.session === null) return
+  registerWorkTreePath(path: string, generation?: number): void {
+    if (this.session === null || this.isStale(generation)) return
 
     if (!this.session.registeredWorkTreePaths.includes(path)) {
       this.session.registeredWorkTreePaths.push(path)
@@ -426,9 +423,10 @@ export class SessionManager {
 
   /**
    * Set the explicitly selected active worktree path (user switches in UI).
+   * No-op if `generation` (as for `appendToEnv`) names a replaced session.
    */
-  setActiveWorkTreePath(path: string): void {
-    if (this.session === null) return
+  setActiveWorkTreePath(path: string, generation?: number): void {
+    if (this.session === null || this.isStale(generation)) return
     this.session.activeWorkTreePath = path
   }
 
@@ -451,28 +449,5 @@ export class SessionManager {
     }
 
     return this.session.registeredWorkTreePaths.at(-1)!
-  }
-
-  // -------------------------------------------------------------------------
-  // Internal helpers
-  // -------------------------------------------------------------------------
-
-  /** Remove the oldest token to make room for a new one. */
-  private pruneOldestToken(): void {
-    if (this.session === null) return
-
-    let oldestToken: string | null = null
-    let oldestTime: Date | null = null
-
-    for (const [token, created] of this.session.validTokens) {
-      if (oldestTime === null || created < oldestTime) {
-        oldestToken = token
-        oldestTime = created
-      }
-    }
-
-    if (oldestToken !== null) {
-      this.session.validTokens.delete(oldestToken)
-    }
   }
 }
