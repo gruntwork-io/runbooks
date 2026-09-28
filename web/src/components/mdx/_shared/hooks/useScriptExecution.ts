@@ -588,11 +588,14 @@ export function useScriptExecution({
   // Auto-update when variables change (debounced).
   // Whenever this effect discards the rendered script it also forgets the last
   // render key, so the next pass with every dependency met renders again even
-  // if the values match the ones rendered before.
+  // if the values match the ones rendered before, and it drops any render
+  // still in flight, which would otherwise land over the raw script.
   useEffect(() => {
     // Only render if we have template dependencies and all input dependencies are available
     if (allDeps.length === 0) {
       // No template dependencies, use raw script
+      renderSeqRef.current++
+      setIsRendering(false)
       setRenderedScript(null)
       lastRenderedVariablesRef.current = null
       return
@@ -612,6 +615,8 @@ export function useScriptExecution({
       // The outputs can come back with the values rendered last time (a failed
       // re-run registers {} for the block, then a later run restores them), so
       // the key must go too or that render would be skipped as a duplicate.
+      renderSeqRef.current++
+      setIsRendering(false)
       setRenderError(null)
       setRenderedScript(null)
       lastRenderedVariablesRef.current = null

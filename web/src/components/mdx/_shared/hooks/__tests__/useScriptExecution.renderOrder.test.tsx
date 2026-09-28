@@ -54,18 +54,18 @@ function Providers({ children }: { children: ReactNode }) {
 const config = makeConfig([{ name: 'name', type: BoilerplateVariableType.String }])
 const rendered = (content: string) => ({ renderedFiles: { 'script.sh': { content } } })
 
-function renderCommand() {
+function renderCommand(command = 'echo {{ .inputs.name }}') {
   return renderHook(
-    () => ({
+    (props: { command: string }) => ({
       exec: useScriptExecution({
         componentId: 'greet',
-        command: 'echo {{ .inputs.name }}',
+        command: props.command,
         inputsId: 'form',
         componentType: 'command',
       }),
       runbook: useRunbookContext(),
     }),
-    { wrapper: Providers },
+    { wrapper: Providers, initialProps: { command } },
   )
 }
 
@@ -120,5 +120,47 @@ describe('useScriptExecution render ordering', () => {
     })
     expect(result.current.exec.renderError).toBeNull()
     expect(result.current.exec.sourceCode).toBe('echo second')
+  })
+
+  it('keeps the raw template when an output goes missing while its render is in flight', async () => {
+    const { result } = renderCommand('echo {{ .outputs.build.version }}')
+
+    await act(async () => {
+      result.current.runbook.registerOutputs('build', { version: '1.2.3' })
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(300)
+    })
+    expect(renders).toHaveLength(1)
+    expect(result.current.exec.isRendering).toBe(true)
+
+    // A re-run of the build block failed without outputs
+    await act(async () => {
+      result.current.runbook.registerOutputs('build', {})
+    })
+    expect(result.current.exec.isRendering).toBe(false)
+
+    await act(async () => {
+      renders[0].resolve(rendered('echo 1.2.3'))
+    })
+    expect(result.current.exec.sourceCode).toBe('echo {{ .outputs.build.version }}')
+    expect(result.current.exec.isRendering).toBe(false)
+  })
+
+  it('keeps a command that lost its template variables when the old render lands later', async () => {
+    const { result, rerender } = renderCommand()
+
+    await typeName(result, 'first')
+    expect(renders).toHaveLength(1)
+
+    // The runbook was edited and reloaded while the render was in flight
+    rerender({ command: 'echo hello' })
+    expect(result.current.exec.isRendering).toBe(false)
+
+    await act(async () => {
+      renders[0].resolve(rendered('echo first'))
+    })
+    expect(result.current.exec.sourceCode).toBe('echo hello')
+    expect(result.current.exec.isRendering).toBe(false)
   })
 })
