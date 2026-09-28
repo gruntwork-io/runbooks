@@ -234,6 +234,14 @@ test("long paths and URLs stay inside their blocks at a narrow window", async ()
 
   expect(await page.evaluate(findOverflows)).toEqual([])
 
+  // Identifiers in a markdown table stay whole on one line: a table too wide
+  // for the block scrolls (github-markdown.css gives it overflow: auto)
+  // rather than splitting code mid-word.
+  for (const id of TABLE_IDENTIFIERS) {
+    const code = page.locator(".runbook-block td code", { hasText: id })
+    expect(await code.evaluate((el) => el.getClientRects().length), id).toBe(1)
+  }
+
   const widths = await content.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
   expect(widths.scroll).toBe(widths.client)
 })

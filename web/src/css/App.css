@@ -219,4 +219,12 @@
   .runbook-block code {
     overflow-wrap: anywhere;
   }
+
+  /* Except in markdown tables: auto table layout sizes columns from
+     min-content, so `anywhere` squeezes a wide table to fit and splits
+     identifiers mid-word. Keep them whole; the table scrolls instead
+     (github-markdown.css gives it overflow: auto). */
+  .runbook-block :is(td, th) code {
+    overflow-wrap: break-word;
+  }
 }
