@@ -254,13 +254,10 @@ interface ActiveClone {
 const activeClones = new Map<string, ActiveClone>()
 
 // How long git:clone-cancel waits for the cancelled clone to finish cleaning
-// up before it replies anyway. The clean-up waits up to CLONE_KILL_WAIT for
-// git to exit, then removes the checkout.
+// up before it replies anyway. The clean-up waits for git to exit, which
+// ChildProcessSpawner's kill forces with SIGKILL 5 seconds after its SIGTERM,
+// then removes the checkout.
 const CLONE_CANCEL_REPLY_WAIT_MS = 10_000
-// How long a cancelled git step may take to exit before the clone moves on
-// without it: just past the SIGKILL that follows the SIGTERM after 5 seconds
-// (see ChildProcessSpawner's kill).
-const CLONE_KILL_WAIT = "6 seconds"
 
 /**
  * Run a clone so that git:clone-cancel can stop it. A cancelled clone resolves
@@ -545,7 +542,9 @@ export function registerGitHandlers(): void {
               // git:clone-cancel interrupts this fiber. Kill git when that happens,
               // or it keeps writing into the destination after the renderer has
               // moved on (and races a "Delete & Clone" of the same directory).
-              // Then wait for it to exit, up to CLONE_KILL_WAIT, so the finalizer
+              // Then wait for it to exit (the kill escalates to SIGKILL after 5
+              // seconds; a timeout here could not cut the wait short, because a
+              // release runs uninterruptibly), so the finalizer
               // above removes the directory only once git is done with it.
               const proc = yield* Effect.acquireRelease(
                 spawner.spawn("git", step.args, { env }),
@@ -553,7 +552,7 @@ export function registerGitHandlers(): void {
                   Exit.isInterrupted(exit)
                     ? spawned.kill.pipe(
                         Effect.zipRight(
-                          spawned.exitCode.pipe(Effect.timeout(CLONE_KILL_WAIT), Effect.ignore),
+                          spawned.exitCode.pipe(Effect.ignore),
                         ),
                       )
                     : Effect.void,
