@@ -11,6 +11,9 @@ import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
+import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import { gitRemoteOwnerRepo } from "@/lib/gitRemoteUrl"
+import { isGitHubRepoHost } from "@/components/mdx/_shared/lib/githubHost"
 import { SourceSelect } from "./components/SourceSelect"
 import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
@@ -28,35 +31,16 @@ import { resolveInitialSource, defaultDescription } from "./utils"
 import type { GitCloneProps, GitCloneSource, LocalRepoInfo } from "./types"
 
 /**
- * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted).
+ * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted),
+ * in any form git accepts (see gitRemoteOwnerRepo).
  *
  * The last path segment is the repo (project) and everything before it is the
  * owner. This handles GitHub's `owner/repo` as well as GitLab nested groups,
  * where the owner is the full group path (e.g. `group/subgroup`).
  */
 function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | null {
-  // Extract the path after the host for both SSH (git@host:path) and HTTPS forms.
-  let path: string
-  const sshMatch = url.trim().match(/^git@[^:]+:(.+)$/)
-  if (sshMatch) {
-    path = sshMatch[1]
-  } else {
-    try {
-      path = new URL(url.trim()).pathname
-    } catch {
-      // Not a parseable URL
-      return null
-    }
-  }
-
-  const parts = path.split('/').filter(Boolean)
-  if (parts.length < 2) {
-    return null
-  }
-
-  const repo = parts[parts.length - 1].replace(/\.git$/, '')
-  const org = parts.slice(0, -1).join('/')
-  return { org, repo }
+  const parsed = gitRemoteOwnerRepo(url.trim())
+  return parsed ? { org: parsed.owner, repo: parsed.repo } : null
 }
 
 function GitCloneInteractive({
@@ -70,7 +54,6 @@ function GitCloneInteractive({
   prefilledRef = '',
   prefilledRepoPath = '',
   prefilledLocalPath = '',
-  usePty,
   showFileTree = true,
   source,
   hideSourceSelect = false,
@@ -141,7 +124,7 @@ function GitCloneInteractive({
   const { trackBlockRender } = useTelemetry()
 
   // Git worktree context for registering cloned repos with the workspace
-  const { registerWorkTree } = useGitWorkTree()
+  const { registerWorkTree, unregisterWorkTree } = useGitWorkTree()
 
   useEffect(() => {
     trackBlockRender('GitClone')
@@ -149,12 +132,14 @@ function GitCloneInteractive({
 
   const {
     cloneStatus,
+    cancelling,
     logs,
     cloneResult,
     errorMessage,
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    githubHost,
     workingDir,
     localPreview,
     localPreviewStatus,
@@ -353,14 +338,16 @@ function GitCloneInteractive({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloneStatus, cloneResult, selectedLocalInfo])
 
-  // Seed the GitHub browser's org/repo, but only from GitHub URLs — feeding a
-  // GitLab owner/repo into the GitHub browser would be meaningless.
+  // Seed the GitHub browser's org/repo, but only from GitHub URLs (github.com,
+  // *.ghe.com, or the linked auth block's host) — feeding a GitLab owner/repo
+  // into the GitHub browser would be meaningless.
   const prefilledGitHub = useMemo(() => {
-    if (resolvedUrl && /(?:\/\/|@)github\.com[/:]/.test(resolvedUrl)) {
+    const urlHost = hostFromRepoUrl(resolvedUrl)?.toLowerCase()
+    if (resolvedUrl && urlHost && (isGitHubRepoHost(urlHost) || urlHost === githubHost)) {
       return parseOwnerRepoFromURL(resolvedUrl)
     }
     return null
-  }, [resolvedUrl])
+  }, [resolvedUrl, githubHost])
 
   const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
 
@@ -372,11 +359,11 @@ function GitCloneInteractive({
   const handleClone = useCallback(async (force?: boolean) => {
     if (!gitUrl.trim()) return
     setShowOverwriteConfirm(false)
-    const result = await clone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim(), usePty, force)
+    const result = await clone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim(), force)
     if (result === 'directory_exists') {
       setShowOverwriteConfirm(true)
     }
-  }, [gitUrl, ref, repoPath, localPath, clone, usePty])
+  }, [gitUrl, ref, repoPath, localPath, clone])
 
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
@@ -387,10 +374,14 @@ function GitCloneInteractive({
     setRef(selectedRef)
   }, [])
 
+  // Starting over withdraws the repo from downstream blocks: reset() clears
+  // the outputs, and the worktree goes too. An empty repo cloned next is held
+  // back as usual, rather than leaving the previous repo live behind it.
   const handleCloneAgain = useCallback(() => {
     reset()
+    unregisterWorkTree(id)
     setShowOverwriteConfirm(false)
-  }, [reset])
+  }, [reset, unregisterWorkTree, id])
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
   const statusConfig: Record<string, { bg: string; icon: typeof GitBranch; iconColor: string }> = {
@@ -531,7 +522,7 @@ function GitCloneInteractive({
                       type="text"
                       value={gitUrl}
                       onChange={(e) => setGitUrl(e.target.value)}
-                      placeholder="https://github.com/org/repo.git"
+                      placeholder={`https://${githubHost}/org/repo.git`}
                       disabled={isFormDisabled}
                       className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                     />
@@ -540,6 +531,8 @@ function GitCloneInteractive({
                   {/* GitHub Browser (only if token available) */}
                   {tokenChecked && hasGitHubToken && (
                     <GitHubBrowser
+                      key={githubHost}
+                      host={githubHost}
                       onRepoSelected={handleRepoSelected}
                       onRefSelected={handleRefSelected}
                       fetchOrgs={fetchOrgs}
@@ -588,7 +581,7 @@ function GitCloneInteractive({
                         <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
                           Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
                           <InfoTooltip>
-                            Clone only a specific subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> would clone only that path instead of the entire repo.
+                            Check out one subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> checks out that directory (plus the files at the top of the repo) instead of the entire repo.
                           </InfoTooltip>
                         </label>
                         <input
@@ -727,7 +720,7 @@ function GitCloneInteractive({
                         {cloneStatus === 'running' ? (
                           <>
                             <Loader2 className="size-4 mr-1 animate-spin" />
-                            Cloning...
+                            {cancelling ? 'Cancelling...' : 'Cloning...'}
                           </>
                         ) : (
                           'Clone'
@@ -737,6 +730,7 @@ function GitCloneInteractive({
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={cancelling}
                           onClick={cancel}
                           className="text-destructive hover:text-destructive hover:bg-destructive-muted"
                         >

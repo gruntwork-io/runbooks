@@ -5,7 +5,7 @@
  * we parse argv to extract configuration that gets forwarded to the IPC runtime.
  */
 import path from "path"
-import { isRemoteURL } from "./remote.ts"
+import { isRemoteSource } from "../../src/remote-source.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("cli")
@@ -71,7 +71,7 @@ export function parseCliArgs(
 
     if (arg === "--runbook" && i + 1 < args.length) {
       const val = args[++i]
-      if (isRemoteURL(val)) {
+      if (isRemoteSource(val)) {
         config.remoteUrl = val
       } else {
         config.runbookPath = path.resolve(cwd, val)
@@ -89,9 +89,9 @@ export function parseCliArgs(
         `${flagName} is no longer supported and was ignored: the working directory is ` +
           "always the runbook's folder, and generated files are written inside it.",
       )
-    } else if (!arg.startsWith("-") && isRemoteURL(arg)) {
-      // Treat a bare positional URL as a remote runbook. This runs before the
-      // path filters below so a URL is never discarded as a script path.
+    } else if (isRemoteSource(arg)) {
+      // Treat a bare positional source as a remote runbook. This runs before
+      // the path filters below so a source is never discarded as a script path.
       config.remoteUrl = arg
     } else if (
       !arg.startsWith("-") &&

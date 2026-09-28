@@ -5,26 +5,15 @@
  * Used when there is only one worktree (no switcher needed).
  */
 
-import { GitHubIcon } from '@/components/icons/GitHubIcon'
 import type { GitRepoInfo } from '@/types/workspace'
 import { RefIcon, formatRef } from './gitRefDisplay'
+import { RepoIcon, RepoLabel } from './RepoLabel'
 
 export function WorktreeStaticRow({ gitInfo }: { gitInfo: GitRepoInfo }) {
-  const repoHref = gitInfo.repoUrl.startsWith('http')
-    ? gitInfo.repoUrl
-    : `https://${gitInfo.repoUrl}`
-
   return (
     <div className="flex items-center gap-1.5 text-sm">
-      <GitHubIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-      <a
-        href={repoHref}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-foreground font-medium hover:text-primary hover:underline truncate"
-      >
-        {gitInfo.repoOwner}/{gitInfo.repoName}
-      </a>
+      <RepoIcon repoUrl={gitInfo.repoUrl} className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+      <RepoLabel gitInfo={gitInfo} asLink className="text-foreground font-medium truncate" />
       <span className="text-muted-foreground text-xs">|</span>
       <div className="flex items-center gap-1 text-xs">
         <RefIcon refType={gitInfo.refType} className="w-3.5 h-3.5 text-muted-foreground" />

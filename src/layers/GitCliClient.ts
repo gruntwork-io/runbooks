@@ -4,13 +4,13 @@
  * This layer depends on ProcessSpawner, so it uses Layer.effect to pull
  * the spawner from context.
  */
+import * as fs from "node:fs"
 import * as path from "node:path"
 import { Effect, Layer, Stream, Chunk } from "effect"
 import { GitClient } from "../services/GitClient.ts"
 import type {
   GitClientShape,
   CloneOptions,
-  CloneResult,
   PushOptions,
   DiffEntry,
   StatusEntry,
@@ -19,8 +19,8 @@ import type {
 } from "../services/GitClient.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
-import { injectTokenIntoUrl } from "../domain/git/url.ts"
-import { gitSpawnEnv } from "../domain/git/env.ts"
+import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
+import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
 
 /**
  * Run a git command, collect all output, and return stdout lines.
@@ -67,6 +67,18 @@ function runGit(
 }
 
 /**
+ * Spawn environment for a git command that may start ssh (clone, push): the
+ * no-prompt guards wrapped around the user's core.sshCommand as seen from
+ * `cwd`. See gitSpawnEnv.
+ */
+function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
+  return resolveSshCommand(cwd).pipe(
+    Effect.provideService(ProcessSpawner, spawner),
+    Effect.map((sshCommand) => gitSpawnEnv(sshCommand)),
+  )
+}
+
+/**
  * Whether the repo can resolve a committer identity from git config in *any*
  * scope (local, global, or system). `git config <key>` exits non-zero when the
  * key is unset, which `runGit` surfaces as a GitError — caught here as "not
@@ -83,62 +95,149 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/**
+ * Whether the checkout is a sparse checkout (`git sparse-checkout init` sets
+ * core.sparseCheckout). An unset key, or a failure to read it, counts as not.
+ */
+function isSparseCheckout(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return runGit(spawner, ["config", "--bool", "--get", "core.sparseCheckout"], repoPath).pipe(
+    Effect.map((lines) => lines.join("").trim() === "true"),
+    Effect.catchAll(() => Effect.succeed(false)),
+  )
+}
+
+/**
+ * The repo-relative paths, of those given, that are on disk under `repoRoot`.
+ * A directory found missing is remembered, so the many entries outside a
+ * sparse checkout cost one lstat per missing directory, not one per file. A
+ * path through a symlinked directory counts as missing, as it does for git.
+ */
+function pathsOnDisk(repoRoot: string, paths: readonly string[]): string[] {
+  const dirs = new Map<string, boolean>([[".", true]])
+  const isDir = (dir: string): boolean => {
+    let found = dirs.get(dir)
+    if (found === undefined) {
+      found =
+        isDir(path.posix.dirname(dir)) &&
+        fs.lstatSync(path.join(repoRoot, dir), { throwIfNoEntry: false })?.isDirectory() === true
+      dirs.set(dir, found)
+    }
+    return found
+  }
+  return paths.filter(
+    (p) =>
+      isDir(path.posix.dirname(p)) &&
+      fs.lstatSync(path.join(repoRoot, p), { throwIfNoEntry: false }) !== undefined,
+  )
+}
+
+/**
+ * In a sparse checkout, clear the skip-worktree bit of every index entry whose
+ * file is on disk, as git 2.36 and later do each time they read the index.
+ * git 2.34 and 2.35 keep the bit on a file a block wrote outside the cone, and
+ * `add` passes over such entries, `--sparse` or not, so the edit would be left
+ * out of the commit without a word. A file that is not on disk keeps its bit,
+ * so it is never staged as a deletion.
+ */
+function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return Effect.gen(function* () {
+    // `-t` tags skip-worktree entries "S "; `-z` ends each entry with NUL and
+    // leaves paths unquoted. The spawner splits output at line breaks, so the
+    // lines are joined back with "\n". (A path with a carriage return comes
+    // back altered, is not found on disk, and keeps its bit.)
+    const listed = (yield* runGit(spawner, ["ls-files", "-t", "-z"], repoPath)).join("\n")
+    const skipped = listed
+      .split("\0")
+      .filter((entry) => entry.startsWith("S "))
+      .map((entry) => entry.slice(2))
+    if (skipped.length === 0) return
+    const present = yield* Effect.sync(() => pathsOnDisk(repoPath, skipped))
+    if (present.length === 0) return
+    yield* runGit(
+      spawner,
+      ["update-index", "--no-skip-worktree", "-z", "--stdin"],
+      repoPath,
+      present.map((p) => `${p}\0`).join(""),
+    )
+  })
+}
+
+/** A full or abbreviated commit id (SHA-1 or SHA-256). */
+const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
+
 function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
-        const effectiveUrl = options?.token ? injectTokenIntoUrl(url, options.token) : url
+        // The token rides in the environment, never in the URL, so the clone's
+        // origin (and its .git/config) stays credential-free. Every command
+        // below gets the same auth: a blobless clone fetches file contents
+        // lazily from origin during checkout, and a commit may be fetched.
+        // No repo exists yet, so the user's core.sshCommand is looked up from
+        // dest's parent; the follow-up commands reuse the env for the same
+        // reason they reuse the auth.
+        const sshEnv = yield* sshSpawnEnv(
+          spawner,
+          path.dirname(path.resolve(options?.repoPath ?? "", dest)),
+        )
+        const env = withGitHttpAuth(sshEnv, url, options?.token, options?.username)
+        const ref = options?.ref
+        // `git clone --branch` takes only a branch or tag name, so a commit
+        // is checked out once the clone is down.
+        const commit = ref !== undefined && COMMIT_SHA.test(ref) ? ref : undefined
+        const sparse = options?.sparse
 
-        if (options?.sparse) {
-          // Sparse checkout: blobless clone without checkout, then sparse-checkout the subpath
-          const cloneArgs = ["clone", "--filter=blob:none", "--no-checkout", "--progress"]
-          if (options.ref) {
-            cloneArgs.push("--branch", options.ref)
-          }
-          cloneArgs.push(effectiveUrl, dest)
-          yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".")
+        const cloneArgs = ["clone", "--progress"]
+        // Blobless: commits and trees arrive up front (enough to inspect the
+        // sparse path below), file contents only for what is checked out.
+        if (sparse) cloneArgs.push("--filter=blob:none")
+        if (sparse || commit) cloneArgs.push("--no-checkout")
+        if (ref && !commit) cloneArgs.push("--branch", ref)
+        // `--` so a URL starting with `-` can never read as an option.
+        cloneArgs.push("--", url, dest)
+        yield* runGit(spawner, cloneArgs, options?.repoPath ?? ".", undefined, env)
 
-          yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest)
-          yield* runGit(spawner, ["sparse-checkout", "set", options.sparse], dest)
-          yield* runGit(spawner, ["checkout"], dest)
-        } else {
-          // Standard full clone
-          const args = ["clone", "--progress"]
-          if (options?.ref) {
-            args.push("--branch", options.ref)
-          }
-          args.push(effectiveUrl, dest)
-
-          const proc = yield* spawner.spawn("git", args, {
-            cwd: options?.repoPath,
-            env: gitSpawnEnv(),
-          })
-          const chunks = yield* Stream.runCollect(proc.output)
-          const code = yield* proc.exitCode
-
-          if (code !== 0) {
-            const lines = Chunk.toArray(chunks)
-            const stderr = lines
-              .filter((l) => l.source === "stderr")
-              .map((l) => l.line)
-              .join("\n")
-            return yield* Effect.fail(
-              new GitError({ command: `git clone`, stderr, exitCode: code }),
-            )
+        let rev = "HEAD"
+        if (commit) {
+          const fetched = yield* runGit(
+            spawner,
+            ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`],
+            dest,
+            undefined,
+            env,
+          ).pipe(
+            Effect.as(true),
+            Effect.catchTag("GitError", () => Effect.succeed(false)),
+          )
+          if (fetched) {
+            rev = commit
+          } else {
+            // Not reachable from anything the clone fetched (e.g. a pull
+            // request head): ask for it by id.
+            yield* runGit(spawner, ["fetch", "origin", commit], dest, undefined, env)
+            rev = "FETCH_HEAD"
           }
         }
 
-        // Count files in the destination
-        const lsProc = yield* spawner.spawn("find", [".", "-type", "f"], { cwd: dest })
-        const lsChunks = yield* Stream.runCollect(lsProc.output)
-        const fileCount = Chunk.toArray(lsChunks).filter((l) => l.source === "stdout").length
-        const absolutePath = path.resolve(dest)
+        if (sparse) {
+          // The sparse path may name a file. A runbook file needs its whole
+          // directory (templates and assets sit beside it), so a file checks
+          // out its parent. A path that doesn't exist checks out nothing and
+          // is the caller's to report.
+          const entry = yield* runGit(spawner, ["ls-tree", rev, "--", sparse], dest, undefined, env)
+          const isFile = /^\d+ blob /.test(entry[0] ?? "")
+          const dir = isFile ? path.posix.dirname(sparse) : sparse
+          if (dir !== ".") {
+            yield* runGit(spawner, ["sparse-checkout", "init", "--cone"], dest, undefined, env)
+            yield* runGit(spawner, ["sparse-checkout", "set", "--", dir], dest, undefined, env)
+          }
+        }
 
-        return {
-          fileCount,
-          absolutePath,
-          relativePath: dest,
-        } satisfies CloneResult
+        if (commit) {
+          yield* runGit(spawner, ["checkout", "--detach", rev], dest, undefined, env)
+        } else if (sparse) {
+          yield* runGit(spawner, ["checkout"], dest, undefined, env)
+        }
       }),
 
     push: (repoPath: string, remote: string, branch: string, options?: PushOptions) =>
@@ -147,30 +246,34 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         if (options?.setUpstream) {
           args.push("-u")
         }
-        args.push(remote, branch)
+        // `--` keeps a branch that looks like an option (e.g.
+        // `--receive-pack=<command>`, which git would run) a refspec.
+        args.push("--", remote, branch)
+        const env = yield* sshSpawnEnv(spawner, repoPath)
 
-        // If a token is provided, temporarily set the remote URL with credentials
+        // Authenticate this one push through the environment rather than by
+        // rewriting the remote URL, so the token never lands in .git/config and
+        // an SSH remote keeps its own user and port. `--push` reads the URL the
+        // push will actually use (pushurl / pushInsteadOf applied). Callers
+        // bind the token to the fetch URL's host (e.g. resolveGitHubTokenForRepo
+        // reads getRemoteUrl), so a push URL on another origin gets no token:
+        // that push authenticates the way git would on its own.
         if (options?.token) {
-          const urlLines = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
-          const originalUrl = urlLines[0] ?? ""
-          const authedUrl = injectTokenIntoUrl(originalUrl, options.token)
-          yield* runGit(spawner, ["remote", "set-url", remote, authedUrl], repoPath)
-          yield* runGit(spawner, args, repoPath).pipe(
-            Effect.ensuring(
-              runGit(spawner, ["remote", "set-url", remote, originalUrl], repoPath).pipe(
-                Effect.catchAll(() => Effect.void),
-              ),
-            ),
-          )
-          return undefined as void
+          const [pushUrl = ""] = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
+          const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
+          if (sameHttpOrigin(pushUrl, fetchUrl)) {
+            const authEnv = withGitHttpAuth(env, pushUrl, options.token, options.username)
+            yield* runGit(spawner, args, repoPath, undefined, authEnv)
+            return
+          }
         }
 
-        yield* runGit(spawner, args, repoPath)
+        yield* runGit(spawner, args, repoPath, undefined, env)
       }),
 
     deleteBranch: (repoPath: string, branch: string) =>
       Effect.gen(function* () {
-        yield* runGit(spawner, ["branch", "-d", branch], repoPath)
+        yield* runGit(spawner, ["branch", "-d", "--", branch], repoPath)
       }),
 
     getCurrentBranch: (repoPath: string) =>
@@ -191,7 +294,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
     getRemoteUrl: (repoPath: string) =>
       Effect.gen(function* () {
         const lines = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath)
-        return lines[0] ?? ""
+        return stripUrlCredentials(lines[0] ?? "")
       }),
 
     getInfo: (repoPath: string) =>
@@ -213,9 +316,10 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
         }
 
-        // Get remote URL
+        // Get remote URL, minus any token a checkout carries in it: this is
+        // returned to the renderer (git:local-repo, workspace:tree).
         const remoteUrl = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath).pipe(
-          Effect.map((lines) => lines[0]),
+          Effect.map((lines) => lines[0] && stripUrlCredentials(lines[0])),
           Effect.catchAll(() => Effect.succeed(undefined)),
         )
 
@@ -308,11 +412,15 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         Effect.catchAll(() => Effect.succeed(false)),
       ),
 
-    hasChanges: (repoPath: string) =>
-      Effect.gen(function* () {
-        const lines = yield* runGit(spawner, ["status", "--porcelain", "--untracked-files=all"], repoPath)
-        return lines.some((l) => l.trim().length > 0)
-      }),
+    hasCommitsNotIn: (repoPath: string, ref: string) =>
+      runGit(spawner, ["rev-list", "--count", `${ref}..HEAD`, "--"], repoPath).pipe(
+        Effect.map((lines) => Number(lines[0]) > 0),
+      ),
+
+    hasCommitsNotOnRemote: (repoPath: string, remote: string) =>
+      runGit(spawner, ["rev-list", "--count", "HEAD", "--not", `--remotes=${remote}`, "--"], repoPath).pipe(
+        Effect.map((lines) => Number(lines[0]) > 0),
+      ),
 
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {
@@ -340,17 +448,40 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     stageAll: (repoPath: string, excludePaths: string[] = []) =>
       Effect.gen(function* () {
-        if (excludePaths.length === 0) {
-          yield* runGit(spawner, ["add", "-A"], repoPath)
-          return
-        }
+        // In a sparse checkout (a GitClone with a repo path), plain `add -A`
+        // leaves out what a block wrote outside the sparse-checkout cone: it
+        // skips edits to tracked files there without a word and fails on new
+        // files. `--sparse` stages them like any other change, once no file
+        // on disk is still flagged skip-worktree (which git 2.34 and 2.35
+        // leave to us).
+        const sparse = yield* isSparseCheckout(spawner, repoPath)
+        if (sparse) yield* clearSkipWorktreeOfPresentFiles(spawner, repoPath)
+        const add = sparse ? ["add", "-A", "--sparse"] : ["add", "-A"]
         // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
         // alongside it. Used to keep embedded git repos out of the commit so
         // they aren't staged as broken submodule gitlinks.
         const excludes = excludePaths.map(
           (p) => `:(exclude)${p.replace(/\/+$/, "")}`,
         )
-        yield* runGit(spawner, ["add", "-A", "--", ".", ...excludes], repoPath)
+        const args = excludes.length === 0 ? add : [...add, "--", ".", ...excludes]
+        yield* runGit(spawner, args, repoPath).pipe(
+          // git before 2.34 has no `--sparse`. How a git that old stages a
+          // sparse checkout without it is not tested here, so say what is
+          // needed rather than risk committing only part of what the blocks
+          // wrote.
+          Effect.mapError((e) =>
+            sparse && e._tag === "GitError" && /unknown option [`']sparse'/.test(e.stderr)
+              ? new GitError({
+                  command: e.command,
+                  stderr:
+                    "This checkout is a sparse checkout (cloned with a repo path), and staging the files " +
+                    "written outside it needs `git add --sparse`, from git 2.34 or later. Upgrade git, " +
+                    "or clone the repository without a repo path.",
+                  exitCode: e.exitCode,
+                })
+              : e,
+          ),
+        )
       }),
 
     commit: (repoPath: string, message: string, options?: CommitOptions) =>

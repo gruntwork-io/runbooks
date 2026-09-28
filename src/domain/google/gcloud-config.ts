@@ -181,8 +181,11 @@ export function classifyGcloudConfig(
  *
  * `external_account_authorized_user` is what workforce/workload pools hand
  * out; it authenticates exactly like an external account.
+ *
+ * The one list of document types the app supports: the listing, the
+ * validation path, and main's routing all narrow through here.
  */
-function credentialTypeFromDocumentType(type: unknown): GoogleCredentialType {
+export function credentialTypeFromDocumentType(type: unknown): GoogleCredentialType {
   switch (type) {
     case "service_account":
     case "authorized_user":
@@ -199,28 +202,36 @@ function credentialTypeFromDocumentType(type: unknown): GoogleCredentialType {
 }
 
 /**
- * A credentials JSON document -> metadata ONLY.
- *
- * The return type has no field that could hold `private_key`,
- * `client_secret`, or `refresh_token`, and this function reads none of them.
- * Throws on unparseable or unsupported documents; the caller decides whether
- * that means "no ADC" or "this file is broken".
+ * `JSON.parse` a document that must be a JSON object, naming it `what` in the
+ * failure.
  *
  * The thrown messages are deliberately content-free: `JSON.parse` quotes the
- * offending text, and for a credentials document that text IS the secret.
+ * offending text, and for a credentials document that text IS the secret —
+ * the message would then travel out through the error's `message` field.
  */
-export function parseAdcDocument(filePath: string, jsonText: string): AdcInfo {
+export function parseJsonObject(jsonText: string, what: string): Record<string, unknown> {
   let parsed: unknown
   try {
     parsed = JSON.parse(jsonText)
   } catch {
-    throw new Error(`${filePath} is not valid JSON`)
+    throw new Error(`${what} is not valid JSON`)
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${filePath} is not a JSON object`)
+    throw new Error(`${what} is not a JSON object`)
   }
+  return parsed as Record<string, unknown>
+}
 
-  const doc = parsed as Record<string, unknown>
+/**
+ * A credentials JSON document -> metadata ONLY.
+ *
+ * The return type has no field that could hold `private_key`,
+ * `client_secret`, or `refresh_token`, and this function reads none of them.
+ * Throws content-free messages on unparseable or unsupported documents; the
+ * caller decides whether that means "no ADC" or "this file is broken".
+ */
+export function parseAdcDocument(filePath: string, jsonText: string): AdcInfo {
+  const doc = parseJsonObject(jsonText, filePath)
   const type = credentialTypeFromDocumentType(doc.type)
   const clientEmail = cleanString(doc.client_email)
   const quotaProjectId = cleanString(doc.quota_project_id)

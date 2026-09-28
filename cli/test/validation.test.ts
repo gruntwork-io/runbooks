@@ -63,6 +63,33 @@ hello
     const p = writeRunbook(`<TemplateInline outputPath="x">content</TemplateInline>`)
     expect(parseTemplateInlineBlocks(p).size).toBe(0)
   })
+
+  it("keeps the real block when a later fenced example reuses its id", () => {
+    const p = writeRunbook(`
+<TemplateInline id="cfg" outputPath="real.txt">
+\`\`\`
+real content
+\`\`\`
+</TemplateInline>
+
+\`\`\`\`mdx
+<TemplateInline id="cfg" outputPath="example.txt">
+\`\`\`
+example content
+\`\`\`
+</TemplateInline>
+\`\`\`\`
+`)
+    const b = parseTemplateInlineBlocks(p).get("cfg")
+    expect(b?.content).toBe("real content\n")
+    expect(b?.outputPath).toBe("real.txt")
+    // The executor looks this map up by the id of the block the validator lists
+    const v = new InputValidator(p)
+    v.init()
+    const comps = v.getComponents()
+    expect(comps).toHaveLength(1)
+    expect(comps[0]!.props).toContain('outputPath="real.txt"')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -95,6 +122,17 @@ describe("parseTemplateBlocks", () => {
 <Template id="without-path" />
 `)
     expect(parseTemplateBlocks(p).size).toBe(0)
+  })
+
+  it("keeps the real block when a later fenced example reuses its id", () => {
+    const p = writeRunbook(`
+<Template id="vpc" path="./tpls/real" />
+
+\`\`\`mdx
+<Template id="vpc" path="./tpls/example" />
+\`\`\`
+`)
+    expect(parseTemplateBlocks(p).get("vpc")?.templatePath).toBe("./tpls/real")
   })
 })
 
@@ -246,5 +284,165 @@ variables:
 
     const ok = v.validateInputValues({ "i1.env": "dev" })
     expect(ok).toHaveLength(0)
+  })
+
+  it("lists components in document order, not grouped by type", () => {
+    const p = writeRunbook(`
+# Order
+
+\`\`\`mdx
+<Command id="example" command="echo example" />
+\`\`\`
+
+<Check id="check-first" command="echo first" />
+
+<TemplateInline id="inline-tpl" outputPath="out.txt">
+\`\`\`
+hello
+\`\`\`
+</TemplateInline>
+
+<Command id="setup" command="echo setup" />
+
+<Template id="tpl" path="templates/tpl" />
+
+<Check id="verify-setup" command="echo verify" />
+`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.getComponents().map((c) => c.id)).toEqual([
+      "check-first",
+      "inline-tpl",
+      "setup",
+      "tpl",
+      "verify-setup",
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// InputValidator: input values follow the Inputs form's validation rules
+// ---------------------------------------------------------------------------
+
+describe("InputValidator.validateInputValues", () => {
+  function validatorFor(variablesYaml: string): InputValidator {
+    const p = writeRunbook(
+      `<Inputs id="i1">\n\`\`\`yaml\nvariables:\n${variablesYaml}\n\`\`\`\n</Inputs>\n`,
+    )
+    const v = new InputValidator(p)
+    v.init()
+    expect(v.getConfigErrors()).toEqual([])
+    return v
+  }
+
+  it("enforces {type: regex, regex}", () => {
+    const v = validatorFor(`
+  - name: code
+    validations:
+      - type: regex
+        regex: "^[A-Z]{3}$"`)
+    const errs = v.validateInputValues({ "i1.code": "abc-lower" })
+    expect(errs).toEqual([{ inputKey: "i1.code", message: 'Must match pattern: ^[A-Z]{3}$ (got "abc-lower")' }])
+    expect(v.validateInputValues({ "i1.code": "ABC" })).toEqual([])
+  })
+
+  it("enforces {type: length, min, max} on the value's string length", () => {
+    const v = validatorFor(`
+  - name: short
+    validations:
+      - type: length
+        min: 2
+        max: 4
+  - name: port
+    type: int
+    validations:
+      - type: length
+        min: 2
+        max: 4`)
+    const errs = v.validateInputValues({ "i1.short": "waytoolongvalue" })
+    expect(errs).toEqual([{ inputKey: "i1.short", message: 'Must be between 2 and 4 characters (got "waytoolongvalue")' }])
+    expect(v.validateInputValues({ "i1.short": "abc" })).toEqual([])
+    // The form checks the length of "42", not the number itself.
+    expect(v.validateInputValues({ "i1.port": 42 })).toEqual([])
+  })
+
+  it("enforces string shorthands such as alpha", () => {
+    const v = validatorFor(`
+  - name: letters
+    validations:
+      - alpha`)
+    const errs = v.validateInputValues({ "i1.letters": "123" })
+    expect(errs).toEqual([{ inputKey: "i1.letters", message: 'Must contain only letters (got "123")' }])
+    expect(v.validateInputValues({ "i1.letters": "abc" })).toEqual([])
+  })
+
+  it("treats {type: required, message} as required", () => {
+    const v = validatorFor(`
+  - name: owner
+    validations:
+      - type: required
+        message: Owner is required`)
+    const errs = v.validateInputValues({ "i1.owner": "" })
+    expect(errs).toHaveLength(1)
+    expect(errs[0].inputKey).toBe("i1.owner")
+    expect(errs[0].message).toContain("is required")
+    expect(v.validateInputValues({ "i1.owner": "team-a" })).toEqual([])
+  })
+
+  it("rejects emails and URLs the form rejects", () => {
+    const v = validatorFor(`
+  - name: email
+    validations:
+      - email
+  - name: site
+    validations:
+      - type: url
+        message: Must be an http(s) URL`)
+    // Contains "@" and "." but has no domain dot after the "@".
+    expect(v.validateInputValues({ "i1.email": "first.last@localhost" })).toEqual([
+      { inputKey: "i1.email", message: 'Must be a valid email address (got "first.last@localhost")' },
+    ])
+    expect(v.validateInputValues({ "i1.email": "first.last@example.com" })).toEqual([])
+    // new URL() accepts any scheme; the form only accepts http(s).
+    expect(v.validateInputValues({ "i1.site": "ftp://example.com" })).toEqual([
+      { inputKey: "i1.site", message: 'Must be an http(s) URL (got "ftp://example.com")' },
+    ])
+    expect(v.validateInputValues({ "i1.site": "https://example.com" })).toEqual([])
+  })
+
+  it("leaves the value out of the message for sensitive variables", () => {
+    const v = validatorFor(`
+  - name: token
+    sensitive: true
+    validations:
+      - type: length
+        min: 8
+        max: 64`)
+    expect(v.validateInputValues({ "i1.token": "secret" })).toEqual([
+      { inputKey: "i1.token", message: "Must be between 8 and 64 characters" },
+    ])
+  })
+
+  it("keeps the int and bool type checks", () => {
+    const v = validatorFor(`
+  - name: count
+    type: int
+  - name: enabled
+    type: bool`)
+    expect(v.validateInputValues({ "i1.count": "3" })).toEqual([
+      { inputKey: "i1.count", message: "Expected integer, got string" },
+    ])
+    expect(v.validateInputValues({ "i1.enabled": "yes" })).toEqual([
+      { inputKey: "i1.enabled", message: "Expected boolean, got string" },
+    ])
+    expect(v.validateInputValues({ "i1.count": 3, "i1.enabled": false })).toEqual([])
+  })
+
+  it("reports malformed inline YAML as a config error", () => {
+    const p = writeRunbook("<Inputs id=\"i1\">\n```yaml\nvariables: [\n```\n</Inputs>\n")
+    const v = new InputValidator(p)
+    v.init()
+    const err = v.getConfigErrors().find((e) => e.componentId === "i1")
+    expect(err?.message).toContain("Failed to parse inline YAML")
   })
 })

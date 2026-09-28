@@ -49,6 +49,19 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath).toBeNull()
   })
 
+  it("parses an scp-like SSH source as remoteUrl", () => {
+    const url = "git@github.com:owner/repo.git//path?ref=main"
+    const config = parseCliArgs(["electron", url])
+    expect(config.remoteUrl).toBe(url)
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("keeps a source whose repo name contains \"electron\"", () => {
+    const url = "github.com/owner/electron-runbooks//runbooks/setup"
+    const config = parseCliArgs(["electron", url])
+    expect(config.remoteUrl).toBe(url)
+  })
+
   it("parses --watch flag", () => {
     const config = parseCliArgs(["electron", "--watch"])
     expect(config.watch).toBe(true)
