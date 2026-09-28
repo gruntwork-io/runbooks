@@ -269,7 +269,7 @@ inputs:
 A test only needs to set the variables it cares about. Every other variable of an `<Inputs>` or `<Template>` block gets the value the app's form starts it with, so a field a user can leave untouched in the app can be left out of the test too:
 
 - Its `default`, if it has one.
-- Otherwise, the value its field shows before anyone touches it: `false` for a `bool` (an unchecked checkbox), and for a `list` with an `x-schema` and no `options` (a fixed row of fields), one element per schema key, `false` for a `bool` element and `""` for any other.
+- Otherwise, the value its field shows before anyone touches it: `false` for a `bool` (an unchecked checkbox), and for a `list` with an `x-schema` (a fixed row of fields), one element per schema key, `false` for a `bool` element and `""` for any other.
 - Any other variable without a default stays unset, as it does in the form, so set it in the test if a block uses it.
 
 When a `<Template>` imports a block with `inputsId` and both define a variable, the app shows that variable read-only with the imported block's value, so the test gives it that value too. For example, setting `config.Environment` also sets `vpc.Environment` for `<Template id="vpc" inputsId="config" />`. With several `inputsId`s, the last one that has a value wins.
