@@ -1,6 +1,7 @@
 /**
- * GoogleAuth's session writes against a runbook switch mid-sign-in, and the
- * region/zone a sign-in writes against the ones it returns.
+ * GoogleAuth's session writes against a runbook switch mid-sign-in, the
+ * region/zone a sign-in writes against the ones it returns, and the
+ * google:check-project reply the success card shows.
  *
  * Runs the real session manager, credential registry and credential-file
  * custody; only `electron` is replaced, plus the Google SDK boundary where a
@@ -14,6 +15,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import { Effect } from "effect"
 import type { GoogleClient, GoogleClientShape, GoogleIdentity } from "../../../src/services/GoogleClient.ts"
+import { GoogleAuthError } from "../../../src/errors/index.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 type Handler = (event: unknown, params?: unknown) => unknown
@@ -294,5 +296,72 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
     const env = await sessionEnv()
     expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
     expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
+  })
+})
+
+describe("google:check-project", () => {
+  // The aws:check-region analogue (see aws.test.ts). useGoogleAuth appends any
+  // `warning` to the success card, so only a typed failure (the credential
+  // cannot build a client) earns one; a defect or an interruption says nothing
+  // about the project and fails open.
+  const ACCESS_TOKEN = "ya29.check-project-SECRET"
+
+  /** The Google SDK boundary; the handler, domain and registry are real. */
+  let checkProject: GoogleClientShape["checkProject"]
+  let runPromise: ReturnType<typeof spyOn<typeof runtime, "runPromise">>
+  let consoleError: ReturnType<typeof spyOn<typeof console, "error">>
+
+  beforeEach(() => {
+    setActiveCredential("gcp", {
+      ref: { kind: "access_token", accessToken: ACCESS_TOKEN },
+      principal: SA.email,
+      credentialType: "service_account",
+      projectId: "a-proj",
+    })
+    const google = makeTestGoogleClient({ checkProject: (projectId, creds) => checkProject(projectId, creds) })
+    runPromise = spyOn(runtime, "runPromise").mockImplementation(
+      (<A, E>(effect: Effect.Effect<A, E, GoogleClient>) =>
+        Effect.runPromise(Effect.provide(effect, google))) as typeof runtime.runPromise,
+    )
+    consoleError = spyOn(console, "error").mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    runPromise.mockRestore()
+    consoleError.mockRestore()
+  })
+
+  const checkProjectReply = () => invoke("google:check-project", { blockId: "gcp", projectId: "a-proj" })
+
+  /**
+   * Every console.error the handler's own logger wrote, rendered the way the
+   * console shows it (String() would hide an object's fields).
+   */
+  const handlerErrors = () =>
+    consoleError.mock.calls
+      .filter((args) => args[0] === "[ipc:google]")
+      .map((args) =>
+        args.map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity }))).join(" "),
+      )
+
+  it("warns when the credential cannot build a client", async () => {
+    const message = "Failed to check project: Error: The incoming JSON object does not contain a client_email field"
+    checkProject = () => Effect.fail(new GoogleAuthError({ message }))
+
+    expect(await checkProjectReply()).toStrictEqual({ enabled: false, warning: message })
+    expect(handlerErrors()).toEqual([])
+  })
+
+  it.each([
+    ["a defect", () => Effect.die(new Error("boom"))],
+    ["an interruption", () => Effect.interrupt],
+  ])("fails open, and logs without the credential, when the check ends in %s", async (_label, outcome) => {
+    checkProject = outcome
+
+    expect(await checkProjectReply()).toStrictEqual({ enabled: true })
+    const logged = handlerErrors()
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toContain("Project access check crashed")
+    expect(logged[0]).not.toContain(ACCESS_TOKEN)
   })
 })
