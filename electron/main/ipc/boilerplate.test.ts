@@ -94,7 +94,7 @@ describe("boilerplate:render", () => {
     fs.writeFileSync(path.join(tmp, "templates", "app", "boilerplate.yml"), "variables: []\n")
     const runbookPath = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(runbookPath, "# Test\n")
-    setRunbookConfig({ localPath: runbookPath, isWatchMode: false, useExecutableRegistry: true })
+    setRunbookConfig({ ...originalRunbookConfig, localPath: runbookPath, isWatchMode: false })
     await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
 
     spy = { warm: warmResult({}), commits: [], coldRenders: 0 }
