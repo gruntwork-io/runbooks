@@ -378,7 +378,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
     })
 
     it('abandons a retry that is canceled while it waits', async () => {
-      const { fake, state, operationCalls, create } = renderPR(cfg)
+      const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
 
       const first = create()
       act(() => state().cancel())
@@ -398,6 +398,9 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       expect(state().status).toBe('ready')
       expect(state().prResult).toBeNull()
       expect(fake.listenerCount()).toBe(0)
+      // The abandoned retry logs nothing after the cancel, not even the URL of
+      // the PR/MR the first run opened.
+      expect(logLines()).toEqual([WAITING_LINE, 'Canceled.'])
     })
 
     it('starts a retry anyway once the canceled run has run past the wait bound', async () => {
