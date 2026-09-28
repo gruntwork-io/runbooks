@@ -129,15 +129,22 @@ describe("boilerplate:render", () => {
   // render fails and nothing is written. Not committing matters most: the next
   // render (a retry with the same values) must not hit the no-change shortcut.
   it("fails with each file's template error and writes, stores and commits nothing", async () => {
+    // Messages as the WASM bridge returns them: the kind, then Go's
+    // text/template error, which names the file by its base name.
     spy.warm = warmResult({
       files: [{ path: "ok.tf", content: "ok" }],
       coldNeeded: ["dynamic.tf"],
       renderErrors: [
-        { path: "main.tf", kind: "render", message: 'map has no entry for key "Foo"' },
-        { path: "vars.tf", kind: "render", message: 'function "nope" not defined' },
+        {
+          path: "main.tf",
+          kind: "render",
+          message: 'render: template: main.tf:3:5: executing "main.tf" at <.Foo>: map has no entry for key "Foo"',
+        },
+        { path: "modules/vars.tf", kind: "render", message: 'render: template: vars.tf:1: function "nope" not defined' },
+        { path: "other.tf", kind: "render", message: "render: something else went wrong" },
       ],
-      allKnownPaths: ["ok.tf", "dynamic.tf", "main.tf", "vars.tf"],
-      attemptedPaths: ["ok.tf", "dynamic.tf", "main.tf", "vars.tf"],
+      allKnownPaths: ["ok.tf", "dynamic.tf", "main.tf", "modules/vars.tf", "other.tf"],
+      attemptedPaths: ["ok.tf", "dynamic.tf", "main.tf", "modules/vars.tf", "other.tf"],
     })
 
     const error = await render().then(
@@ -146,12 +153,37 @@ describe("boilerplate:render", () => {
     )
 
     expect(error._tag).toBe("RenderError")
-    expect(error.message).toContain('main.tf: map has no entry for key "Foo"')
-    expect(error.message).toContain('vars.tf: function "nope" not defined')
+    // Each file once, by its path, without the kind prefix.
+    expect(error.message).toBe(
+      "Template render failed: " +
+        'main.tf:3:5: at <.Foo>: map has no entry for key "Foo"; ' +
+        'modules/vars.tf:1: function "nope" not defined; ' +
+        "other.tf: something else went wrong",
+    )
     expect(spy.commits).toEqual([])
     expect(manifestStore.get(TEMPLATE_ID)).toBeUndefined()
     expect(fs.existsSync(path.join(generatedDir, "ok.tf"))).toBe(false)
     // The subprocess would hit the same template error, so it isn't run.
     expect(spy.coldRenders).toBe(0)
+  })
+
+  // A variable the template misuses everywhere fails every file; the message
+  // lists the first few and counts the rest.
+  it("lists the first five failing files and counts the others", async () => {
+    const paths = Array.from({ length: 8 }, (_, i) => `f${i + 1}.tf`)
+    spy.warm = warmResult({
+      renderErrors: paths.map((p) => ({ path: p, kind: "render" as const, message: "render: boom" })),
+      allKnownPaths: paths,
+      attemptedPaths: paths,
+    })
+
+    const error = await render().then(
+      () => { throw new Error("expected boilerplate:render to fail") },
+      (err: unknown) => err as { message: string },
+    )
+
+    expect(error.message).toBe(
+      "Template render failed: f1.tf: boom; f2.tf: boom; f3.tf: boom; f4.tf: boom; f5.tf: boom (and 3 more)",
+    )
   })
 })

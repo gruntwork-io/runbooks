@@ -65,10 +65,15 @@ test.describe("Watch mode", () => {
     return { app, page }
   }
 
-  /** Edit runbook.mdx on disk and wait for the app to show the new version. */
+  /**
+   * Edit runbook.mdx on disk and wait for the app to show the new version.
+   * Write again if the first write landed before the watcher was ready.
+   */
   async function editRunbook(page: Page): Promise<void> {
-    fs.writeFileSync(runbookPath, runbook("After edit", "watch-after"))
-    await expect(page.getByRole("heading", { name: "After edit" })).toBeVisible({ timeout: 15_000 })
+    await expect(async () => {
+      fs.writeFileSync(runbookPath, runbook("After edit", "watch-after"))
+      await expect(page.getByRole("heading", { name: "After edit" })).toBeVisible({ timeout: 2_000 })
+    }).toPass({ timeout: 15_000 })
   }
 
   async function runGreet(page: Page) {

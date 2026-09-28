@@ -366,7 +366,8 @@ export interface TemplateInlineBlock {
 export interface TemplateBlock {
   id: string
   templatePath: string
-  inputsId: string
+  /** The blocks named by `inputsId`, in order (later ids override earlier ones). */
+  inputsIds: string[]
   target: string
 }
 
@@ -403,12 +404,26 @@ export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBl
     blocks.set(comp.id, {
       id: comp.id,
       templatePath,
-      inputsId: extractProp(comp.props, "inputsId"),
+      inputsIds: extractInputsIds(comp.props),
       target: extractProp(comp.props, "target"),
     })
   }
 
   return blocks
+}
+
+/**
+ * The ids an `inputsId` prop names, in order: one for `inputsId="a"`, each
+ * quoted id for `inputsId={["a", "b"]}`, none without the prop.
+ */
+export function extractInputsIds(props: string): string[] {
+  const single = extractProp(props, "inputsId")
+  if (single) return [single]
+  const list = /(?:^|\s)inputsId=\{\s*\[([^\]]*)\]\s*\}/.exec(props)
+  if (!list) return []
+  return [...list[1]!.matchAll(/"([^"]*)"|'([^']*)'/g)]
+    .map((m) => m[1] ?? m[2] ?? "")
+    .filter((id) => id !== "")
 }
 
 // ---------------------------------------------------------------------------

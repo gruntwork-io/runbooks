@@ -9,15 +9,22 @@ import type { BrowserWindow } from "electron"
 type SendCall = { channel: string; payload: unknown }
 
 /**
- * Build a stand-in exposing just the webContents surface openRunbookInWindow
- * uses. `fireFinishLoad` simulates the renderer's page finishing its load — the
- * point where it has registered its IPC listeners.
+ * Build a stand-in exposing just the window and webContents surface
+ * openRunbookInWindow and openRemoteRunbookInWindow use. `fireFinishLoad`
+ * simulates the renderer's page finishing its load — the point where it has
+ * registered its IPC listeners. A still-loading window starts hidden, as a
+ * cold launch's window does until ready-to-show; `fireShow` shows it.
  */
-function makeFakeWindow(isLoading: boolean, isDestroyed = false) {
+function makeFakeWindow(isLoading: boolean, isDestroyed = false, isVisible = !isLoading) {
   const calls: SendCall[] = []
   let finishLoadCb: (() => void) | null = null
+  let showCb: (() => void) | null = null
   const win = {
     isDestroyed: () => isDestroyed,
+    isVisible: () => isVisible,
+    once: (event: string, cb: () => void) => {
+      if (event === "show") showCb = cb
+    },
     webContents: {
       isLoading: () => isLoading,
       once: (event: string, cb: () => void) => {
@@ -28,7 +35,19 @@ function makeFakeWindow(isLoading: boolean, isDestroyed = false) {
       },
     },
   } as unknown as BrowserWindow
-  return { win, calls, fireFinishLoad: () => finishLoadCb?.() }
+  return {
+    win,
+    calls,
+    fireFinishLoad: () => finishLoadCb?.(),
+    /** The window is shown (window.ts shows it at ready-to-show). */
+    fireShow: () => {
+      isVisible = true
+      showCb?.()
+    },
+    destroy: () => {
+      isDestroyed = true
+    },
+  }
 }
 
 describe("openRunbookInWindow", () => {
@@ -156,6 +175,49 @@ describe("openRemoteRunbookInWindow", () => {
 
     expect(errors[0].detail).not.toContain(password)
     expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
+  })
+
+  it("waits for a cold launch's window to be shown before showing the error", async () => {
+    // A clone can fail (e.g. an unsupported host) before the window, created
+    // hidden, is shown at ready-to-show.
+    const { win, fireFinishLoad, fireShow } = makeFakeWindow(true)
+    const { deps, errors } = makeDeps(async () => {
+      throw new Error("network unreachable")
+    })
+
+    await openRemoteRunbookInWindow(win, URL, deps)
+    fireFinishLoad()
+    expect(errors).toEqual([])
+
+    fireShow()
+    expect(errors).toHaveLength(1)
+    expect(errors[0].detail).toBe(`${URL}\n\nnetwork unreachable`)
+  })
+
+  it("shows the error right away for a loaded window that is not visible", async () => {
+    // E.g. minimized. Only the first load waits, so the error is never held
+    // back for a "show" that may not come.
+    const { win } = makeFakeWindow(false, false, false)
+    const { deps, errors } = makeDeps(async () => {
+      throw new Error("network unreachable")
+    })
+
+    await openRemoteRunbookInWindow(win, URL, deps)
+
+    expect(errors).toHaveLength(1)
+  })
+
+  it("drops a waiting error when the window is closed before it is shown", async () => {
+    const { win, fireShow, destroy } = makeFakeWindow(true)
+    const { deps, errors } = makeDeps(async () => {
+      throw new Error("network unreachable")
+    })
+
+    await openRemoteRunbookInWindow(win, URL, deps)
+    destroy()
+    fireShow()
+
+    expect(errors).toEqual([])
   })
 
   it("does nothing further once the window has been closed", async () => {

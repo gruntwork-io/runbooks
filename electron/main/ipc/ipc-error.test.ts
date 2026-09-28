@@ -85,6 +85,14 @@ describe("toIpcError", () => {
     )
   })
 
+  it("describes a plain-object defect or rejection by its message, else as JSON, never as [object Object]", async () => {
+    const defect = await rejectionOf(Effect.die({ foo: 1 }))
+    expect(toIpcError(defect).message).toBe('{"foo":1}')
+
+    // A handler whose promise rejects with a non-Error value.
+    expect(toIpcError({ message: "x" }).message).toBe("x")
+  })
+
   it("says the operation was interrupted for an interrupt", async () => {
     const err = await rejectionOf(Effect.interrupt)
     expect(toIpcError(err).message).toBe("The operation was interrupted")
@@ -169,6 +177,20 @@ describe("describeFailure", () => {
     expect(describeFailure(new Error(""))).toBe("An unknown error occurred")
     expect(describeFailure("")).toBe("An unknown error occurred")
     expect(describeFailure("plain string")).toBe("plain string")
+  })
+
+  it("uses a non-Error object's string message, else its JSON", () => {
+    expect(describeFailure({ message: "x" })).toBe("x")
+    expect(describeFailure({ foo: 1 })).toBe('{"foo":1}')
+    expect(describeFailure([1, "two"])).toBe('[1,"two"]')
+  })
+
+  it("falls back for a value with nothing to show: null, undefined, an empty message, no JSON", () => {
+    const circular: Record<string, unknown> = { foo: 1 }
+    circular.self = circular
+    for (const value of [null, undefined, { message: "" }, circular, { n: 1n }, () => {}]) {
+      expect(describeFailure(value)).toBe("An unknown error occurred")
+    }
   })
 })
 

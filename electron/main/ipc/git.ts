@@ -54,7 +54,7 @@ import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
 
-const log = makeLogger("ipc:git:clone")
+const log = makeLogger("ipc:git")
 
 /**
  * Build a `git:log` progress sink bound to an invoke event. Each handler that

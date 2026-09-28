@@ -20,7 +20,7 @@
  * Both https servers use the committed test/fixtures/tls localhost
  * certificate, trusted through GIT_SSL_CAINFO.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, spyOn } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as http from "node:http"
@@ -1137,8 +1137,11 @@ describe("git handler error text", () => {
       expect(message).not.toContain("FiberFailure")
     }
 
-    it("git:delete-branch rejects with the defect's message and no stack frames", async () => {
-      const message = await rejectionOf("git:delete-branch", { worktreePath: 42, branch: "feature" })
+    it.each([
+      ["git:delete-branch", { worktreePath: 42, branch: "feature" }],
+      ["git:clone", { url: "https://github.com/acme/infra.git", localPath: 42 }],
+    ])("%s rejects with the defect's message and no stack frames", async (channel, params) => {
+      const message = await rejectionOf(channel, params)
 
       expectNoFrames(message)
       // Node says "argument", bun "property".
@@ -1161,6 +1164,21 @@ describe("git handler error text", () => {
       const result = (await handlers.get("git:local-repo")!(recordingEvent, { path: 42 })) as { error?: string }
 
       expectNoFrames(result.error)
+    })
+
+    it("logs the defect's full Cause under the module's ipc:git logger, not a handler's", async () => {
+      const consoleError = spyOn(console, "error").mockImplementation(() => {})
+      try {
+        await handlers.get("git:push")!(recordingEvent, { worktreePath: 42, branchName: "feature" })
+
+        expect(consoleError).toHaveBeenCalledWith(
+          "[ipc:git]",
+          "git handler defect:",
+          expect.stringContaining('The "path"'),
+        )
+      } finally {
+        consoleError.mockRestore()
+      }
     })
   })
 })

@@ -105,8 +105,18 @@ describe("parseTemplateBlocks", () => {
     const b = blocks.get("t1")
     expect(b).toBeDefined()
     expect(b!.templatePath).toBe("./tpls/foo")
-    expect(b!.inputsId).toBe("i1")
+    expect(b!.inputsIds).toEqual(["i1"])
     expect(b!.target).toBe("${worktree}")
+  })
+
+  it("captures every id of an inputsId list, in order, and none without the prop", () => {
+    const p = writeRunbook(`
+<Template id="list" path="./tpls/foo" inputsId={["base", 'env']} />
+<Template id="none" path="./tpls/foo" />
+`)
+    const blocks = parseTemplateBlocks(p)
+    expect(blocks.get("list")?.inputsIds).toEqual(["base", "env"])
+    expect(blocks.get("none")?.inputsIds).toEqual([])
   })
 
   it("captures container Template blocks", () => {

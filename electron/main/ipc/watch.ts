@@ -14,6 +14,7 @@ import { ipcMain } from "electron"
 import { runtime, runbookConfig } from "./runtime.ts"
 import { makeRunbookWatcher } from "./runbook-watcher.ts"
 import { validateSessionPath } from "./path-guard.ts"
+import { supersedeRunbookLoads } from "./runbook.ts"
 import { getMainWindow } from "../window.ts"
 
 const runbookWatcher = makeRunbookWatcher(runtime, (runbookPath) => {
@@ -31,9 +32,12 @@ export const stopWatcher = runbookWatcher.stop
 /**
  * Close the open runbook: stop watching it and tell the renderer to close it.
  * Every close path (native menu, in-app menu) goes through here so none of
- * them leaves a watcher running on a runbook that is no longer open.
+ * them leaves a watcher running on a runbook that is no longer open. A
+ * runbook:get still running is superseded first, so it can't start a watcher
+ * or set a registry once it resumes.
  */
 export function closeRunbook(): void {
+  supersedeRunbookLoads()
   void stopWatcher()
   getMainWindow()?.webContents.send("menu:close-runbook")
 }

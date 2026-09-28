@@ -660,6 +660,207 @@ describe("TestExecutor — files_generated", () => {
 })
 
 // ---------------------------------------------------------------------------
+// A variable the test doesn't set starts from the value the app's form starts
+// from: its default, else what its control shows (false for a bool, one
+// element per schema key for a tuple). So a runbook that works in the app
+// without touching those fields also passes its test.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — untouched values", () => {
+  let tmp: string
+
+  const BOILERPLATE_YML = [
+    "variables:",
+    "  - name: dry_run",
+    "    type: bool",
+    "  - name: verbose",
+    "    type: bool",
+    "    default: true",
+    "  - name: pair",
+    "    type: list",
+    "    x-schema:",
+    '      "0": string',
+    '      "1": bool',
+    "",
+  ].join("\n")
+
+  const makeExecutor = async (pairRequired = false) => {
+    const tmplDir = path.join(tmp, "templates", "flags")
+    fs.mkdirSync(tmplDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(tmplDir, "boilerplate.yml"),
+      pairRequired ? BOILERPLATE_YML + "    validations:\n      - required\n" : BOILERPLATE_YML,
+    )
+    fs.writeFileSync(path.join(tmplDir, "flags.txt"), "dry_run={{ .dry_run }} verbose={{ .verbose }} pair={{ .pair }}\n")
+
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Untouched",
+        '<Inputs id="opts">\n```yaml\nvariables:\n  - name: confirm\n    type: bool\n```\n</Inputs>',
+        '<Command id="show" inputsId="opts" command="echo confirm={{ .inputs.confirm }}" />',
+        '<Template id="tmpl" path="templates/flags" />',
+        "",
+      ].join("\n\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-untouched-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("fills an unset bool with no default as false, in Inputs and Template blocks", async () => {
+    const executor = await makeExecutor()
+
+    const result = executor.runTest({ name: "untouched" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.find((r) => r.block === "command:show")?.logs).toContain("confirm=false")
+    // A declared default still wins; the tuple is its displayed elements ('' and false).
+    expect(fs.readFileSync(path.join(tmp, "generated", "flags.txt"), "utf8")).toBe("dry_run=false verbose=true pair=,false\n")
+  })
+
+  it("fails a required tuple left at its displayed elements, as the form does", async () => {
+    const executor = await makeExecutor(true)
+
+    const result = executor.runTest({ name: "untouched-required" })
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toContain("tmpl.pair: pair is required")
+  })
+
+  it("uses the test's own values over the untouched ones", async () => {
+    const executor = await makeExecutor(true)
+
+    const result = executor.runTest({
+      name: "set",
+      inputs: {
+        "opts.confirm": { literal: true },
+        "tmpl.dry_run": { literal: true },
+        "tmpl.pair": { literal: ["a", true] },
+      },
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.find((r) => r.block === "command:show")?.logs).toContain("confirm=true")
+    expect(fs.readFileSync(path.join(tmp, "generated", "flags.txt"), "utf8")).toBe("dry_run=true verbose=true pair=a,true\n")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Filled-in values never replace the test's own. The CLI gives every block one
+// `.inputs` map, so a variable two blocks declare must end up with the value
+// the test set, and a Template variable it imports with inputsId (read-only
+// and synced in the app) takes the imported value, not its own default.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — variables two blocks declare", () => {
+  let tmp: string
+
+  const makeExecutor = async (templateProps: string, templateVars: string[], inputsBlocks: string[]) => {
+    const tmplDir = path.join(tmp, "templates", "shared")
+    fs.mkdirSync(tmplDir, { recursive: true })
+    fs.writeFileSync(path.join(tmplDir, "boilerplate.yml"), ["variables:", ...templateVars, ""].join("\n"))
+    fs.writeFileSync(
+      path.join(tmplDir, "out.txt"),
+      "top={{ .enable }}/{{ .Region }} inputs={{ .inputs.enable }}/{{ .inputs.Region }}\n",
+    )
+
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Shared",
+        ...inputsBlocks,
+        '<Command id="show" inputsId="opts" command="echo enable={{ .inputs.enable }} region={{ .inputs.Region }}" />',
+        `<Template id="tmpl" path="templates/shared" ${templateProps}/>`,
+        "",
+      ].join("\n\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const inputsBlock = (id: string, vars: string[]) =>
+    `<Inputs id="${id}">\n\`\`\`yaml\nvariables:\n${vars.join("\n")}\n\`\`\`\n</Inputs>`
+
+  const ENABLE = ["  - name: enable", "    type: bool"]
+  const region = (dflt: string) => ["  - name: Region", "    type: string", `    default: ${dflt}`]
+
+  const showLogs = (result: ReturnType<TestExecutor["runTest"]>) =>
+    result.stepResults.find((r) => r.block === "command:show")?.logs
+  const out = () => fs.readFileSync(path.join(tmp, "generated", "out.txt"), "utf8")
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-shared-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("keeps the test's value when another block's untouched value has the same name", async () => {
+    // The Template doesn't import opts: its enable is its own, untouched false.
+    const executor = await makeExecutor("", [...ENABLE, ...region("tmpl-region")], [
+      inputsBlock("opts", [...ENABLE, ...region("opts-region")]),
+    ])
+
+    const result = executor.runTest({
+      name: "set-opts",
+      inputs: { "opts.enable": { literal: true }, "opts.Region": { literal: "set-region" } },
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(showLogs(result)).toContain("enable=true region=set-region")
+  })
+
+  it("gives a Template's shared variables the value of the block it imports", async () => {
+    const executor = await makeExecutor('inputsId="opts" ', [...ENABLE, ...region("tmpl-region")], [
+      inputsBlock("opts", [...ENABLE, ...region("opts-region")]),
+    ])
+
+    // enable is set by the test; Region is left at opts's default.
+    const result = executor.runTest({ name: "set-opts", inputs: { "opts.enable": { literal: true } } })
+
+    expect(result.error).toBeUndefined()
+    expect(showLogs(result)).toContain("enable=true region=opts-region")
+    expect(out()).toBe("top=true/opts-region inputs=true/opts-region\n")
+  })
+
+  it("takes a shared variable from the last inputsId that has it", async () => {
+    const executor = await makeExecutor(`inputsId={["base", "opts"]} `, [...ENABLE, ...region("tmpl-region")], [
+      inputsBlock("base", [...ENABLE, ...region("base-region")]),
+      inputsBlock("opts", region("opts-region")),
+    ])
+
+    // enable comes from base (opts doesn't declare it), Region from opts.
+    const result = executor.runTest({ name: "merge", inputs: { "base.enable": { literal: true } } })
+
+    expect(result.error).toBeUndefined()
+    expect(out()).toContain("top=true/opts-region")
+  })
+
+  it("still uses a value the test sets on the Template itself", async () => {
+    const executor = await makeExecutor('inputsId="opts" ', [...ENABLE, ...region("tmpl-region")], [
+      inputsBlock("opts", [...ENABLE, ...region("opts-region")]),
+    ])
+
+    const result = executor.runTest({ name: "set-tmpl", inputs: { "tmpl.Region": { literal: "tmpl-set" } } })
+
+    expect(result.error).toBeUndefined()
+    expect(out()).toContain("top=false/tmpl-set")
+  })
+})
+
+// ---------------------------------------------------------------------------
 // PR blocks: recognized and parsed, so a runbook with one can be tested, and
 // a step that names one can only expect `skip` (or `blocked`).
 // ---------------------------------------------------------------------------

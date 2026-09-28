@@ -58,7 +58,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
 
-  const invoke = vi.fn(async (channel: string, params?: { path?: string; remoteSource?: string }) => {
+  const invoke = vi.fn(async (channel: string, params?: { path?: string; remoteSource?: string; reload?: string }) => {
     switch (channel) {
       case 'native:get-cli-config':
         return {}
@@ -417,7 +417,18 @@ describe('App watch mode', () => {
     await fileChanged(emit, '/work/a/runbook.mdx')
 
     await waitFor(() => expect(callsTo(invoke, 'runbook:get').length).toBe(callsBefore + 1))
-    expect(callsTo(invoke, 'runbook:get').at(-1)?.[1]).toMatchObject({ path: '/work/a' })
+    // Marked as a watch reload, so main keeps the session's working dir; the
+    // open that loaded it wasn't.
+    expect(callsTo(invoke, 'runbook:get').at(-1)?.[1]).toMatchObject({ path: '/work/a', reload: 'watch' })
+    expect(callsTo(invoke, 'runbook:get').at(-2)?.[1]?.reload).toBeUndefined()
+
+    // A later open of the same runbook is an open again, not a watch reload.
+    await emit('file:open-runbook', { path: '/work/a' })
+    await waitFor(() => expect(callsTo(invoke, 'runbook:get').length).toBe(callsBefore + 2))
+    expect(callsTo(invoke, 'runbook:get').at(-1)?.[1]?.reload).toBeUndefined()
+    await fileChanged(emit, '/work/a/runbook.mdx')
+    await waitFor(() => expect(callsTo(invoke, 'runbook:get').length).toBe(callsBefore + 3))
+    expect(callsTo(invoke, 'runbook:get').at(-1)?.[1]).toMatchObject({ path: '/work/a', reload: 'watch' })
   })
 
   it('reloads the displayed runbook, not a failed open, and keeps a dismissed error dismissed', async () => {
@@ -440,5 +451,8 @@ describe('App watch mode', () => {
     await fileChanged(emit, '/work/a/runbook.mdx')
     await waitFor(() => expect(runbookGetCallsFor(invoke, '/work/a/runbook.mdx')).toBe(2))
     expect(runbookGetCallsFor(invoke, '/work/empty')).toBe(1)
+    // Both reloads are marked as watch reloads.
+    const reloads = callsTo(invoke, 'runbook:get').filter(([, params]) => params?.path === '/work/a/runbook.mdx')
+    expect(reloads.map(([, params]) => params?.reload)).toEqual(['watch', 'watch'])
   })
 })

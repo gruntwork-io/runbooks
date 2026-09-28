@@ -65,6 +65,8 @@ export function parseCliArgs(
     noTelemetry: false,
     disableLiveFileReload: false,
   }
+  // Whether a positional (a source, or the `open` subcommand) has been seen.
+  let sawPositional = false
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
@@ -94,6 +96,7 @@ export function parseCliArgs(
       // Treat a bare positional source as a remote runbook. This runs before
       // the path filters below so a source is never discarded as a script path.
       config.remoteUrl = arg
+      sawPositional = true
     } else if (
       !arg.startsWith("-") &&
       !arg.endsWith(".js") &&
@@ -101,11 +104,13 @@ export function parseCliArgs(
       !arg.includes("node_modules")
     ) {
       // Treat other bare positional arguments as a runbook path, except the
-      // app's own path in an unpackaged run.
+      // app's own path in an unpackaged run, and a first `open`: that is the
+      // documented `runbooks open SOURCE` subcommand, which the installed
+      // launcher passes through. A folder named "open" is reachable as ./open.
       const resolved = path.resolve(cwd, arg)
-      if (appPath === undefined || resolved !== path.resolve(appPath)) {
-        config.runbookPath = resolved
-      }
+      if (appPath !== undefined && resolved === path.resolve(appPath)) continue
+      if (arg !== "open" || sawPositional) config.runbookPath = resolved
+      sawPositional = true
     }
   }
 

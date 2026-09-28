@@ -34,6 +34,24 @@ export function openRunbookInWindow(win: BrowserWindow, payload: OpenRunbookPayl
   }
 }
 
+/**
+ * Run `fn` once a cold launch's window is on screen. That window is created
+ * hidden and shown at ready-to-show, and a clone can fail (e.g. an unsupported
+ * host) before then; a dialog opened on it would appear ahead of the window.
+ * Only a hidden window whose page is still loading waits: a loaded window that
+ * is not visible (e.g. minimized) runs `fn` now, so the error is never held
+ * back for a "show" that may not come.
+ */
+function whenFirstShown(win: BrowserWindow, fn: () => void): void {
+  if (!win.webContents.isLoading() || win.isVisible()) {
+    fn()
+    return
+  }
+  win.once("show", () => {
+    if (!win.isDestroyed()) fn()
+  })
+}
+
 /** The two effects openRemoteRunbookInWindow needs, passed in so it stays electron-free. */
 export interface OpenRemoteRunbookDeps {
   /** Clone the remote runbook and return where it landed (remote.ts resolveRemoteRunbook). */
@@ -68,7 +86,7 @@ export async function openRemoteRunbookInWindow(
     // The URL is the user's raw input: drop any userinfo typed into it
     // (redactSecrets only knows token shapes), then scrub the whole detail.
     const detail = redactSecrets(`${redactSourceCredentials(url)}\n\n${reason}`)
-    deps.showError(win, "Couldn't open runbook", detail)
+    whenFirstShown(win, () => deps.showError(win, "Couldn't open runbook", detail))
     return
   }
   if (win.isDestroyed()) return

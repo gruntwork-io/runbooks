@@ -157,6 +157,47 @@ describe("parseCliArgs", () => {
     expect(config.runbookPath).toBe("/repo/rb")
   })
 
+  // -----------------------------------------------------------------------
+  // `runbooks open SOURCE` is the documented form. The installed launcher
+  // passes its arguments through unchanged, so the first positional is the
+  // `open` subcommand, not a folder named "open".
+  // -----------------------------------------------------------------------
+
+  it("treats a leading 'open' as the subcommand for a remote source", () => {
+    const url = "https://github.com/o/r/tree/main/rb"
+    const config = parseCliArgs(["runbooks", "open", url], "/home/me")
+    expect(config.runbookPath).toBeNull()
+    expect(config.remoteUrl).toBe(url)
+  })
+
+  it("treats a leading 'open' as the subcommand for a local path", () => {
+    const config = parseCliArgs(["runbooks", "open", "./rb"], "/home/me")
+    expect(config.runbookPath).toBe("/home/me/rb")
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  it("opens nothing for 'open' with no source", () => {
+    const config = parseCliArgs(["runbooks", "open"], "/home/me")
+    expect(config.runbookPath).toBeNull()
+    expect(config.remoteUrl).toBeNull()
+  })
+
+  it("treats 'open' after flags as the subcommand", () => {
+    const config = parseCliArgs(["runbooks", "--watch", "open"], "/home/me")
+    expect(config.watch).toBe(true)
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("treats 'open' after the app path in an unpackaged run as the subcommand", () => {
+    const config = parseCliArgs(["electron", ".", "open"], "/repo", "/repo")
+    expect(config.runbookPath).toBeNull()
+  })
+
+  it("opens a folder named 'open' written as a path", () => {
+    expect(parseCliArgs(["runbooks", "./open"], "/home/me").runbookPath).toBe("/home/me/open")
+    expect(parseCliArgs(["runbooks", "open", "./open"], "/home/me").runbookPath).toBe("/home/me/open")
+  })
+
   it("finds no runbook in a Playwright launch argv", () => {
     const config = parseCliArgs(
       [
@@ -260,6 +301,13 @@ describe("secondInstanceArgv", () => {
     const argv = secondInstanceArgv(reordered, { argv: typed })
     expect(argv).toEqual(typed)
     expect(parseCliArgs(argv, "/home/me").runbookPath).toBe("/home/me/my-runbook")
+  })
+
+  it("treats 'open' as the subcommand in a reordered argv", () => {
+    const url = "https://github.com/o/r/tree/main/rb"
+    const config = parseCliArgs([EXE, ...ADDED, "open", url], "/home/me")
+    expect(config.runbookPath).toBeNull()
+    expect(config.remoteUrl).toBe(url)
   })
 
   it.each([
