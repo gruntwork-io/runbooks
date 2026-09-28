@@ -5,14 +5,17 @@
  * Call registerAllIpcHandlers() once during app startup, before creating any
  * BrowserWindow instances.
  *
- * Handlers may let `runtime.runPromise(...)` reject: main/index.ts installs
- * installIpcErrorNormalization() (ipc-error.ts) before any handler is
- * registered, which turns every rejection into a clean message for the
- * renderer.
+ * Handlers may let `runtime.runPromise(...)` reject: importing this module
+ * installs installIpcErrorNormalization() (ipc-error.ts), which turns every
+ * rejection into a clean message for the renderer. Installing it here, at
+ * import time, means it runs before any handler is registered: before
+ * registerAllIpcHandlers() and before main/index.ts, which imports this
+ * module, registers its native handlers.
  */
 import { ipcMain } from "electron"
 import { Effect } from "effect"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
+import { installIpcErrorNormalization } from "./ipc-error.ts"
 import { runtime } from "./runtime.ts"
 import { registerSessionHandlers } from "./session.ts"
 import { registerRunbookHandlers } from "./runbook.ts"
@@ -29,6 +32,8 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerTelemetryHandlers } from "./telemetry.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { withVcs } from "./vcs-tristate.ts"
+
+installIpcErrorNormalization(ipcMain)
 
 // Channel contracts documented in electron/shared/channels.ts.
 function registerVcsStatusHandler(): void {

@@ -47,8 +47,9 @@ import { isGitHubHost, tryNormalizeGitHubHost } from "../../../src/domain/git/gi
 import { gitSpawnEnv, resolveSshCommand } from "../../../src/domain/git/env.ts"
 import { GitClient } from "../../../src/services/GitClient.ts"
 import type { CloneOptions, PushOptions } from "../../../src/services/GitClient.ts"
-import { PathTraversalError, GitError, GitHubApiError, GitLabApiError } from "../../../src/errors/index.ts"
+import { GitError } from "../../../src/errors/index.ts"
 import { validateCloneDestination, validateSessionPath } from "./path-guard.ts"
+import { describeCause } from "./ipc-error.ts"
 import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
@@ -92,7 +93,7 @@ const refusePlainHttpOrigin = (
  * github.com token is never pushed to an enterprise host or the reverse, and
  * never when origin is plain http. Yields the host too — the PR API calls go
  * to that host. Fails with a typed GitError (so it flows through
- * errorMessage() / git:error like every other git failure) naming both hosts
+ * failureMessage() / git:error like every other git failure) naming both hosts
  * on a mismatch.
  *
  * The host is read the way withGitHttpAuth reads it (gitHostFromRemoteUrl),
@@ -192,39 +193,22 @@ const resolveGitLabTokenForRepo = (repoPath: string, purpose: string) =>
   })
 
 /**
- * Extract a human-readable message from a typed Effect failure so it can be
- * forwarded to the renderer via a git:error event.
+ * The renderer-facing message for a failed git handler run, whether it is
+ * thrown, returned as `{ error }` or sent as a git:error event. It is
+ * describeCause() (ipc-error.ts), like every other IPC error: the real
+ * failure detail (e.g. git stderr), the tag of a message-less tagged error
+ * such as SessionNotFoundError rather than "", and a defect's message without
+ * stack frames. A defect is a bug rather than a git failure, so its full
+ * Cause goes to MAIN's log instead.
  */
-function errorMessage(err: unknown): string {
-  if (err && typeof err === "object" && "_tag" in err) {
-    const tag = (err as { _tag: string })._tag
-    if (tag === "GitError") {
-      const g = err as GitError
-      // g.command already includes the "git " prefix (see GitCliClient.runGit).
-      return g.stderr || `${g.command} failed (exit ${g.exitCode})`
-    }
-    if (tag === "PathTraversalError") {
-      return (err as PathTraversalError).message
-    }
-    if (tag === "GitHubApiError" || tag === "GitLabApiError") {
-      // Data.TaggedError extends Error but leaves the inherited Error.message
-      // empty; the real text is the tagged `message` field. Fall back to the
-      // status so the renderer never shows a bare "An error has occurred".
-      const e = err as GitHubApiError | GitLabApiError
-      return e.message || `${tag} (status ${e.status})`
-    }
-  }
-  return err instanceof Error ? err.message : String(err)
+function failureMessage(cause: Cause.Cause<unknown>): string {
+  if (Cause.isDie(cause)) log.error("git handler defect:", Cause.pretty(cause))
+  return describeCause(cause)
 }
 
 /**
- * Run an Effect program and surface typed failures as plain Errors whose
- * message carries the real failure detail (e.g. git stderr).
- *
- * Effect's TaggedError inherits from Error but leaves `.message` empty, so
- * across the IPC boundary the renderer would otherwise only see "An error
- * has occurred". Unwrapping the Cause here and rethrowing a regular Error
- * keeps the real message flowing through Electron's IPC serialization.
+ * Run an Effect program and surface failures as plain Errors whose message is
+ * failureMessage(), so the real detail, not a FiberFailure dump, crosses IPC.
  */
 async function runAndUnwrap<A, E extends { _tag: string }>(
   program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
@@ -232,15 +216,7 @@ async function runAndUnwrap<A, E extends { _tag: string }>(
 ): Promise<A> {
   const exit = await runtime.runPromiseExit(program, { signal })
   if (Exit.isSuccess(exit)) return exit.value
-
-  const failure = Cause.failureOption(exit.cause)
-  if (failure._tag === "Some") {
-    // Reuse the canonical extractor so the renderer-facing message stays
-    // consistent with git:error events (handles GitError/PathTraversalError
-    // and, defensively, the API error tags).
-    throw new Error(errorMessage(failure.value))
-  }
-  throw new Error(Cause.pretty(exit.cause))
+  throw new Error(failureMessage(exit.cause))
 }
 
 // Clones in flight, keyed by the renderer-supplied cloneId so git:clone-cancel
@@ -335,10 +311,7 @@ function respondToGitPrExit<A extends { url: string; number: number; branch: str
     return { url: pr.url, number: pr.number }
   }
 
-  const failure = Cause.failureOption(exit.cause)
-  const failureValue = failure._tag === "Some" ? failure.value : undefined
-  const message =
-    failureValue !== undefined ? errorMessage(failureValue) : Cause.pretty(exit.cause)
+  const message = failureMessage(exit.cause)
   const code = isLocalBranchConflict(message) ? "branch_exists" : undefined
 
   event.sender.send("git:error", {
@@ -787,14 +760,7 @@ export function registerGitHandlers(): void {
       const exit = await runtime.runPromiseExit(program)
       if (Exit.isSuccess(exit)) return exit.value
 
-      const failure = Cause.failureOption(exit.cause)
-      return {
-        status: "fail" as const,
-        error:
-          failure._tag === "Some"
-            ? errorMessage(failure.value)
-            : Cause.pretty(exit.cause),
-      }
+      return { status: "fail" as const, error: failureMessage(exit.cause) }
     },
   )
 
@@ -845,11 +811,7 @@ export function registerGitHandlers(): void {
         return { ok: true as const }
       }
 
-      const failure = Cause.failureOption(exit.cause)
-      const message =
-        failure._tag === "Some"
-          ? errorMessage(failure.value)
-          : Cause.pretty(exit.cause)
+      const message = failureMessage(exit.cause)
       event.sender.send("git:error", { message })
       event.sender.send("git:status", { status: "fail", exitCode: 1 })
       return { error: message }
@@ -895,11 +857,7 @@ export function registerGitHandlers(): void {
         return { branch: exit.value.branch }
       }
 
-      const failure = Cause.failureOption(exit.cause)
-      const message =
-        failure._tag === "Some"
-          ? errorMessage(failure.value)
-          : Cause.pretty(exit.cause)
+      const message = failureMessage(exit.cause)
       event.sender.send("git:error", { message })
       event.sender.send("git:status", { status: "fail", exitCode: 1 })
       return { error: message }

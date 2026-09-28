@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { BoilerplateConfig } from '@/types/boilerplateConfig'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { markStage } from '@/lib/renderPerf'
+import { untouchedValue } from '../lib/untouchedValue'
 
 // Below typical typing cadence (~200 ms/char). The warm path + fiber-interrupt
 // supersession reclaims work the user supersedes, so we err on the responsive
@@ -71,8 +72,11 @@ export const useFormState = (
     
     const formDataInit: Record<string, unknown> = {}
     
+    // With no initial value or default, start from what the control shows
+    // (false for a bool, the displayed elements for a tuple), so that value is sent.
     boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
-      formDataInit[variable.name] = initialDataRef.current[variable.name] ?? variable.default
+      formDataInit[variable.name] =
+        initialDataRef.current[variable.name] ?? variable.default ?? untouchedValue(variable)
     })
     
     setFormData(formDataInit)

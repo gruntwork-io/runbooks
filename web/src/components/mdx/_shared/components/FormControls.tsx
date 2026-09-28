@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { BoilerplateVariable } from '@/types/boilerplateVariable'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
+import { tupleElementKeys, untouchedTupleElement } from '../lib/untouchedValue'
 
 /**
  * Base props interface for all form control components
@@ -157,14 +158,16 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, e
 
 /**
  * Checkbox input component for boolean variables
- * Renders a checkbox with proper boolean value handling
+ * Renders a checkbox with proper boolean value handling. Checked only for true
+ * or 'true': a bool can arrive as a string (e.g. imported from a map field),
+ * and Boolean('false') is true.
  */
 export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => (
   <div className="flex items-center">
     <input
       type="checkbox"
       id={`${id}-${variable.name}`}
-      checked={Boolean(value)}
+      checked={value === true || value === 'true'}
       onChange={(e) => onChange(e.target.checked)}
       onBlur={onBlur}
       disabled={disabled}
@@ -179,13 +182,18 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
  * The display always matches form state instead of letting the browser fall
  * back to the first option:
  *   - With no value (an enum with no default), a disabled placeholder is shown,
- *     so picking any option, including the first, fires onChange.
+ *     so picking any option, including the first, fires onChange. A '' value
+ *     also shows it, unless '' is one of the options: then that option is shown.
  *   - A value that is not one of the options (e.g. imported from an upstream
  *     string field) is shown as its own disabled option.
+ * Options and value are compared as strings: YAML can make options numbers or
+ * booleans, while a picked value is always the option's string.
  */
 export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const current = value == null ? '' : String(value)
-  const isUnlistedValue = current !== '' && !variable.options?.includes(current)
+  const options = (variable.options ?? []).map(String)
+  const showPlaceholder = current === '' && (value == null || !options.includes(''))
+  const isUnlistedValue = current !== '' && !options.includes(current)
   return (
     <select
       id={`${id}-${variable.name}`}
@@ -195,7 +203,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
       disabled={disabled}
       className={getInputClassName(error, 'min-w-56', disabled)}
     >
-      {current === '' && (
+      {showPlaceholder && (
         <option value="" disabled>
           Select…
         </option>
@@ -205,7 +213,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
           {current}
         </option>
       )}
-      {variable.options?.map(option => (
+      {options.map(option => (
         <option key={option} value={option}>
           {option}
         </option>
@@ -681,11 +689,12 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
-  const elementKeys = Object.keys(schema).sort((a, b) => Number(a) - Number(b))
+  const elementKeys = tupleElementKeys(schema)
   // Missing elements (no value, or a short array) start as '' or, for bool
-  // elements, false (what the select displays), matching the boolean updateElement stores
+  // elements, false (what the select displays), matching the boolean updateElement stores.
+  // useFormState starts an untouched tuple from the same elements.
   const currentTuple = elementKeys.map((k, i) =>
-    (Array.isArray(value) ? value[i] : undefined) ?? (schema[k] === 'bool' ? false : '')
+    (Array.isArray(value) ? value[i] : undefined) ?? untouchedTupleElement(schema[k])
   )
 
   const updateElement = (index: number, newValue: unknown) => {

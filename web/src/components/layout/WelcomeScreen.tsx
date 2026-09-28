@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from 'lucide-react'
 import { useApi } from '@/contexts/ApiContext'
 import { useTheme } from '@/contexts/useTheme'
+import { cleanIpcErrorMessage } from '@/lib/ipcError'
 import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg'
 import logoLightColor from '@/assets/runbooks-logo-light-color.svg'
 
@@ -19,10 +20,9 @@ function isUserCancel(message: string): boolean {
   return message.includes('User canceled') || message.includes('dismissed')
 }
 
-/** Electron rejects an invoke with "Error invoking remote method '<channel>': Error: <message>". */
+/** The handler's own message, without Electron's "Error invoking remote method" wrapper. */
 function invokeErrorMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err)
-  return raw.replace(/^Error invoking remote method '[^']*':\s*/, '').replace(/^(Error:\s*)+/, '').trim()
+  return cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
 }
 
 export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) {

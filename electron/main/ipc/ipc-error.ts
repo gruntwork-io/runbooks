@@ -15,12 +15,17 @@
  * preload then strips Electron's "Error invoking remote method" wrapper (see
  * electron/shared/ipc-error-message.ts).
  *
+ * describeFailure() / describeCause() are also the one implementation for
+ * error text that a handler returns or sends as an event rather than throws
+ * (git.ts's { error } results and git:error events, remote.ts).
+ *
  * Only `import type` from electron, so this stays unit-testable without an
  * Electron runtime (same approach as open-runbook.ts).
  */
 import { Cause, Option, Runtime } from "effect"
 import type { IpcMain } from "electron"
 import type { GitError } from "../../../src/errors/index.ts"
+import { redactSecrets } from "../../../src/domain/vcs/redact.ts"
 
 /** Fields a Data.TaggedError from src/errors may carry, all optional. */
 interface TaggedFailure {
@@ -66,36 +71,54 @@ export function describeFailure(err: unknown): string {
 }
 
 /**
+ * User-facing text for a failed Exit's Cause: the typed failure when there is
+ * one (describeFailure), a plain sentence for an interruption, and otherwise
+ * the defect itself, described the same way. Never Cause.pretty, whose stack
+ * frames belong in MAIN's log, not in the UI. Never returns an empty string.
+ */
+export function describeCause(cause: Cause.Cause<unknown>): string {
+  const failure = Cause.failureOption(cause)
+  if (Option.isSome(failure)) return describeFailure(failure.value)
+  if (Cause.isInterruptedOnly(cause)) return "The operation was interrupted"
+  return describeFailure(Cause.squash(cause))
+}
+
+/**
  * Convert a handler rejection into a plain Error that serializes cleanly
  * across IPC. The original is kept as `cause`, so Electron's own
  * "Error occurred in handler for '<channel>'" log in MAIN still shows the full
  * FiberFailure; only `toString()` crosses to the renderer, and it ignores
  * `cause`.
+ *
+ * The message goes through redactSecrets() (src/domain/vcs/redact.ts) as
+ * defense in depth: git stderr or a handler's own message could otherwise
+ * carry a token to the renderer.
  */
 export function toIpcError(err: unknown): Error {
-  if (Runtime.isFiberFailure(err)) {
-    const cause = err[Runtime.FiberFailureCauseId]
-    const failure = Cause.failureOption(cause)
-    if (Option.isSome(failure)) return new Error(describeFailure(failure.value), { cause: err })
-    if (Cause.isInterruptedOnly(cause)) return new Error("The operation was interrupted", { cause: err })
-    // A die: FiberFailure.message is the defect's head message, with no stack.
-    // Never Cause.pretty, which is what toString() would send.
-    return new Error(err.message, { cause: err })
-  }
-  return new Error(describeFailure(err), { cause: err })
+  // A FiberFailure's toString() is Cause.pretty, frames and all, so describe
+  // its Cause instead.
+  const message = Runtime.isFiberFailure(err) ? describeCause(err[Runtime.FiberFailureCauseId]) : describeFailure(err)
+  return new Error(redactSecrets(message), { cause: err })
 }
+
+/** The ipcMain objects installIpcErrorNormalization() has wrapped. */
+const normalizedIpcs = new WeakSet<object>()
 
 /**
  * Wrap `ipc.handle` so every handler registered through it afterwards rethrows
  * failures via toIpcError(). Handlers keep calling `ipcMain.handle` directly
- * and can let `runtime.runPromise(...)` reject; errors a handler has already
- * turned into a clean Error (git.ts's runAndUnwrap, runbook.ts's
- * describeRunbookOpenError) pass through unchanged.
+ * and can let `runtime.runPromise(...)` reject. A plain Error a handler throws
+ * keeps its message: git.ts's runAndUnwrap and remote.ts's valueOrUserError
+ * build theirs with describeCause() too, and runbook.ts's
+ * describeRunbookOpenError writes its own.
  *
- * Must run before the first `ipcMain.handle` call: main/index.ts installs it
- * ahead of its native handlers and registerAllIpcHandlers().
+ * Must run before the first `ipcMain.handle` call: ipc/index.ts installs it
+ * when it is imported, ahead of main/index.ts's native handlers and
+ * registerAllIpcHandlers(). Installing it again is a no-op.
  */
 export function installIpcErrorNormalization(ipc: Pick<IpcMain, "handle">): void {
+  if (normalizedIpcs.has(ipc)) return
+  normalizedIpcs.add(ipc)
   const register = ipc.handle.bind(ipc)
   ipc.handle = (channel, listener) =>
     register(channel, async (event, ...args) => {

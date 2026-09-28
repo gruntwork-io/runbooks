@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { useEffect } from "react"
 import { render, screen } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
-import { useRunbookContext } from "@/contexts/useRunbook"
+import { useRunbookContext, flattenInputs } from "@/contexts/useRunbook"
+import type { RunbookContextType } from "@/contexts/RunbookContext"
 import Inputs from "../Inputs"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 
@@ -238,4 +239,33 @@ describe("Inputs", () => {
   it("starts a standalone Inputs from its own defaults, not values registered under its id", () => {
     expect(mountAfterRegisteredValues("standard")).toHaveValue("us-east-1")
   })
+
+  // --- Untouched values ---
+
+  it.each(["standard", "embedded"] as const)(
+    "registers an untouched %s bool with no default as the false its checkbox shows",
+    (variant) => {
+      mockApiReturn = {
+        ...mockApiReturn,
+        data: {
+          variables: [{ name: "dry_run", type: "bool", description: "Dry run" }],
+          outputDependencies: [],
+        },
+      }
+      let ctx: RunbookContextType | undefined
+      function Capture() {
+        ctx = useRunbookContext()
+        return null
+      }
+      render(
+        <TestWrapper>
+          <Capture />
+          <Inputs id="test-inputs" path="boilerplate.yml" variant={variant} />
+        </TestWrapper>,
+      )
+
+      expect(screen.getByTestId("field-dry_run").querySelector("input")).not.toBeChecked()
+      expect(flattenInputs(ctx!.getInputs("test-inputs"))).toEqual({ dry_run: false })
+    },
+  )
 })

@@ -24,6 +24,16 @@ describe("validateVariableValue", () => {
     expect(validateVariableValue(required, { a: "" })).toBeUndefined()
   })
 
+  // A tuple's bool element starts as false (what its select shows), so a tuple
+  // whose other elements are blank has not been filled in. A tuple of only
+  // bools holds a complete value from the start, so all-false is filled.
+  it("treats a list whose only non-blank elements are false as empty", () => {
+    expect(validateVariableValue(required, ["", false])).toBe("project_name is required")
+    expect(validateVariableValue(required, ["", true])).toBeUndefined()
+    expect(validateVariableValue(required, ["", 0])).toBeUndefined()
+    expect(validateVariableValue(required, [false, false])).toBeUndefined()
+  })
+
   it("does not treat false or 0 as empty", () => {
     expect(validateVariableValue(required, false)).toBeUndefined()
     expect(validateVariableValue(required, 0)).toBeUndefined()

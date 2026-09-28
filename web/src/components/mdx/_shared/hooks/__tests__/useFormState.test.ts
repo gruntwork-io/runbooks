@@ -80,3 +80,39 @@ describe('useFormState auto-render', () => {
     expect(onAutoRender).not.toHaveBeenCalled()
   })
 })
+
+// Form state starts from what each control displays, so an untouched field
+// never looks filled in while nothing is sent for it.
+describe('useFormState initial values', () => {
+  it('starts an untouched bool as false and an untouched tuple as its displayed elements', () => {
+    const cfg: BoilerplateConfig = {
+      variables: [
+        { name: 'DryRun', type: 'bool', description: '' },
+        { name: 'Enabled', type: 'bool', description: '', default: true },
+        { name: 'Pair', type: 'list', description: '', schema: { '1': 'bool', '0': 'string' } },
+        { name: 'Flags', type: 'list', description: '', schema: { '0': 'bool', '1': 'bool' }, default: [true, false] },
+        { name: 'Tags', type: 'list', description: '' },
+        { name: 'Name', type: 'string', description: '' },
+      ],
+    }
+    const { result } = renderHook(() => useFormState(cfg, {}))
+
+    expect(result.current.formData).toEqual({
+      DryRun: false,
+      Enabled: true,
+      Pair: ['', false],
+      Flags: [true, false],
+      Tags: undefined,
+      Name: undefined,
+    })
+  })
+
+  it('keeps an initial value over the untouched one', () => {
+    const cfg: BoilerplateConfig = {
+      variables: [{ name: 'DryRun', type: 'bool', description: '' }],
+    }
+    const { result } = renderHook(() => useFormState(cfg, { DryRun: true }))
+
+    expect(result.current.formData).toEqual({ DryRun: true })
+  })
+})

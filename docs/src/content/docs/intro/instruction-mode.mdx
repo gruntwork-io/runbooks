@@ -64,7 +64,8 @@ value or, until you supply one, a placeholder such as `<bucket>`:
 
 - **`Inputs` form values** are substituted directly into the commands shown,
   including those from an `<Inputs>` nested inside a Command or Check. An input
-  you haven't filled in yet shows as a `<name>` placeholder. An input you've
+  you haven't filled in yet shows as a `<name>` placeholder. A checkbox always
+  has a value (unchecked is `false`), so it never shows one. An input you've
   left empty stays empty, so conditionals and defaults in the command work out
   just as they would when it runs. An input used only in template logic, such
   as the condition of an `{{ if … }}`, gets no placeholder: until you fill it

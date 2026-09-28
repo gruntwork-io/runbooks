@@ -1,5 +1,5 @@
-import { describe, it, expect, afterAll } from "bun:test"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { describe, it, expect, afterAll, afterEach } from "bun:test"
+import { Cause, Effect, FiberId, Layer, ManagedRuntime } from "effect"
 import type { IpcMain, IpcMainInvokeEvent } from "electron"
 import {
   ExecutableNotFoundError,
@@ -10,8 +10,9 @@ import {
   RenderError,
   SessionNotFoundError,
 } from "../../../src/errors/index.ts"
+import { clearRegisteredSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { cleanIpcErrorMessage } from "../../shared/ipc-error-message.ts"
-import { describeFailure, installIpcErrorNormalization, toIpcError } from "./ipc-error.ts"
+import { describeCause, describeFailure, installIpcErrorNormalization, toIpcError } from "./ipc-error.ts"
 
 // A real ManagedRuntime, so failures reject with the same FiberFailure the
 // handlers' `runtime.runPromise(...)` produces.
@@ -77,6 +78,13 @@ describe("toIpcError", () => {
     expect(toIpcError(err).message).toBe("boom")
   })
 
+  it("describes a tagged defect (Effect.orDie) like a typed failure", async () => {
+    const err = await rejectionOf(Effect.orDie(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() }))))
+    expect(toIpcError(err).message).toBe(
+      "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
+    )
+  })
+
   it("says the operation was interrupted for an interrupt", async () => {
     const err = await rejectionOf(Effect.interrupt)
     expect(toIpcError(err).message).toBe("The operation was interrupted")
@@ -111,15 +119,48 @@ describe("toIpcError", () => {
     expect(toIpcError(new FileReadError({ path: "/x", cause: enoent() })).message).toMatch(/^FileReadError \(\/x\): ENOENT/)
   })
 
-  it("passes an already-clean Error through unchanged", () => {
+  it("keeps an already-clean Error's message, in a new Error that has the original as its cause", () => {
     // git.ts's runAndUnwrap and runbook.ts's describeRunbookOpenError throw these.
     const msg = "This path no longer exists:\n\n/tmp/gone"
-    expect(toIpcError(new Error(msg)).message).toBe(msg)
+    const thrown = new Error(msg)
+    const sent = toIpcError(thrown)
+    expect(sent).not.toBe(thrown)
+    expect(sent.message).toBe(msg)
+    expect(sent.cause).toBe(thrown)
   })
 
   it("keeps the original rejection as the cause for MAIN's own log", async () => {
     const err = await rejectionOf(Effect.fail(new FileReadError({ path: "/x", cause: enoent() })))
     expect(toIpcError(err).cause).toBe(err)
+  })
+
+  describe("secret redaction", () => {
+    afterEach(() => clearRegisteredSecrets())
+
+    it("redacts a registered secret from a GitError's stderr", async () => {
+      registerSecret("supersecrettoken123")
+      const err = await rejectionOf(
+        Effect.fail(
+          new GitError({
+            command: "git push",
+            stderr: "fatal: unable to access 'https://supersecrettoken123@git.example.com/o/r.git/'",
+            exitCode: 128,
+          }),
+        ),
+      )
+      expect(toIpcError(err).message).toBe("fatal: unable to access 'https://[REDACTED]@git.example.com/o/r.git/'")
+    })
+
+    it("redacts every message it passes through: a plain Error, a defect and a token shape", async () => {
+      registerSecret("supersecrettoken123")
+      expect(toIpcError(new Error("bad token supersecrettoken123")).message).toBe("bad token [REDACTED]")
+
+      const defect = await rejectionOf(Effect.die(new Error("bad token supersecrettoken123")))
+      expect(toIpcError(defect).message).toBe("bad token [REDACTED]")
+
+      const pat = "ghp_" + "a".repeat(36)
+      expect(toIpcError(new RenderError({ message: `template saw ${pat}` })).message).toBe("template saw [REDACTED]")
+    })
   })
 })
 
@@ -128,6 +169,34 @@ describe("describeFailure", () => {
     expect(describeFailure(new Error(""))).toBe("An unknown error occurred")
     expect(describeFailure("")).toBe("An unknown error occurred")
     expect(describeFailure("plain string")).toBe("plain string")
+  })
+})
+
+describe("describeCause", () => {
+  it("describes a typed failure with describeFailure, even when a defect rides along", () => {
+    expect(describeCause(Cause.fail(new SessionNotFoundError()))).toBe("SessionNotFoundError")
+    expect(
+      describeCause(Cause.sequential(Cause.fail(new SessionNotFoundError()), Cause.die(new Error("finalizer")))),
+    ).toBe("SessionNotFoundError")
+  })
+
+  it("says the operation was interrupted for an interrupt only", () => {
+    expect(describeCause(Cause.interrupt(FiberId.none))).toBe("The operation was interrupted")
+  })
+
+  it("describes a defect by its own message, with no stack frames", () => {
+    for (const [cause, expected] of [
+      [Cause.die(new Error("boom")), "boom"],
+      [Cause.die("a string defect"), "a string defect"],
+      [Cause.die(new FileReadError({ path: "/x", cause: enoent() })), `FileReadError (/x): ${enoent().message}`],
+      [Cause.sequential(Cause.die(new Error("boom")), Cause.interrupt(FiberId.none)), "boom"],
+    ] as const) {
+      const text = describeCause(cause)
+      expect(text).toBe(expected)
+      expect(text).not.toContain("    at ")
+      // What it replaces: Cause.pretty carries the frames.
+      expect(Cause.pretty(cause)).not.toBe(text)
+    }
   })
 })
 
@@ -180,6 +249,14 @@ describe("installIpcErrorNormalization", () => {
     })
 
     expect(await rendererMessage(listeners, "native:open-external")).toBe("Invalid URL")
+  })
+
+  it("is a no-op when installed again, so a handler is wrapped once", () => {
+    const { ipc } = makeFakeIpc()
+    installIpcErrorNormalization(ipc)
+    const wrapped = ipc.handle
+    installIpcErrorNormalization(ipc)
+    expect(ipc.handle).toBe(wrapped)
   })
 
   it("passes arguments through and resolves with the handler's result", async () => {

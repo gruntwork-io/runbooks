@@ -1,14 +1,10 @@
 /**
- * Strip Electron's IPC wrapper from a rejected invoke message so the renderer
- * can show the handler's actual message. Electron rejects with
- * "Error invoking remote method 'channel': Error: <message>"; we want just
- * "<message>".
+ * Strip Electron's IPC wrapper from a rejected invoke message.
+ *
+ * The implementation lives in electron/shared/ipc-error-message.ts so the
+ * preload (which cleans every `api.invoke` rejection) and the renderer use one
+ * copy. Renderer callers that clean again are harmless, since the function is
+ * idempotent, and it keeps tests that mock `api` with Electron's raw
+ * "Error invoking remote method '<channel>': Error: <message>" text working.
  */
-export function cleanIpcErrorMessage(raw: string): string {
-  let msg = raw.replace(/^Error invoking remote method '[^']*':\s*/, '')
-  // Serialization can leave one or more leading "Error: " prefixes.
-  while (/^Error:\s*/.test(msg)) {
-    msg = msg.replace(/^Error:\s*/, '')
-  }
-  return msg.trim()
-}
+export { cleanIpcErrorMessage } from '../../../electron/shared/ipc-error-message'
