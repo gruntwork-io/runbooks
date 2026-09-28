@@ -148,6 +148,22 @@ describe("makeLogger error formatting", () => {
     expect(out).not.toContain(token.slice(0, 16))
   })
 
+  it("caps a long field after redacting it", () => {
+    const token = "0123456789abcdef".repeat(4)
+    registerSecret(token)
+    const cap = 16 * 1024
+    // A 5 MB stderr, with the token straddling the cap: cutting before
+    // redacting would print the token's first half.
+    const stderr = "x".repeat(cap - 32) + token + "y".repeat(5_000_000)
+    const out = logged(new GitError({ command: "clone", stderr, exitCode: 128 }))
+    const redactedLength = stderr.length - token.length + "[REDACTED]".length
+    expect(out).toContain(`...[${redactedLength - cap} more chars]`)
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(token.slice(0, 16))
+    expect(out).toContain("exitCode: 128")
+    expect(out.length).toBeLessThan(cap + 2_000)
+  })
+
   it("redacts a multi-line secret in a field and in a non-Error cause before inspect escapes it", () => {
     // What google.ts's registerCredentialSecrets registers: the credential
     // document and its private_key. inspect would print the key as

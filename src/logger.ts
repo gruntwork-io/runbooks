@@ -90,11 +90,24 @@ const MAX_ERROR_DEPTH = 4
  * exact-value nor the shape patterns.
  */
 const INSPECT_OPTIONS = { depth: 4, maxStringLength: Infinity } as const
+/**
+ * Longest string redactDeep prints from an error field or a non-Error cause,
+ * so a 5 MB clone stderr doesn't become a 5 MB log line. It is cut only after
+ * it has been redacted, so a token straddling the cut is already gone.
+ */
+const MAX_STRING_LENGTH = 16 * 1024
 /** Own properties already covered by the stack line or the cause chain. */
 const HEAD_KEYS = new Set(["name", "message", "stack", "cause"])
 
+function redactString(value: string): string {
+  const redacted = redactSecrets(value)
+  if (redacted.length <= MAX_STRING_LENGTH) return redacted
+  const rest = redacted.length - MAX_STRING_LENGTH
+  return `${redacted.slice(0, MAX_STRING_LENGTH)}...[${rest} more chars]`
+}
+
 /**
- * Redact every string leaf before inspect prints it. inspect escapes
+ * Redact (and cap) every string leaf before inspect prints it. inspect escapes
  * newlines, backslashes and quotes and splits a multi-line string into
  * '...\n' + '...' pieces, so a registered secret that spans lines (a Google
  * credential document, its PEM private key) would no longer match exactly
@@ -105,7 +118,7 @@ const HEAD_KEYS = new Set(["name", "message", "stack", "cause"])
  * a field is printed as it is, and only the whole-text pass sees it.
  */
 function redactDeep(value: unknown, level = 0, copies = new WeakMap<object, unknown>()): unknown {
-  if (typeof value === "string") return redactSecrets(value)
+  if (typeof value === "string") return redactString(value)
   if (typeof value !== "object" || value === null || level > INSPECT_OPTIONS.depth) return value
   if (copies.has(value)) return copies.get(value)
   if (Array.isArray(value)) {
