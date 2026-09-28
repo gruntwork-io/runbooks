@@ -336,6 +336,29 @@ describe("createPullRequest labels", () => {
     expect(labelCalls).toEqual([["tok", "acme", "infra", 42, ["enhancement", "terraform"]]])
   })
 
+  it("adds the labels on the PR's own host (GitHub Enterprise)", async () => {
+    // Without the host, addLabels would POST the GHES token to api.github.com.
+    const hosts: Array<string | undefined> = []
+
+    const layer = makeTestLayer({
+      git: gitOk,
+      github: {
+        createPullRequest: (_token, p, host) =>
+          Effect.sync(() => void hosts.push(`pulls ${host}`)).pipe(Effect.zipRight(openedPr(p))),
+        addLabels: (_token, _owner, _repo, _number, _labels, host) =>
+          Effect.sync(() => void hosts.push(`labels ${host}`)),
+      },
+    })
+
+    await Effect.runPromise(
+      createPullRequest("tok", { ...params, labels: ["enhancement"], host: "github.example.com" }).pipe(
+        Effect.provide(layer),
+      ),
+    )
+
+    expect(hosts).toEqual(["pulls github.example.com", "labels github.example.com"])
+  })
+
   it("makes no label call when there are no labels", async () => {
     let labelCalls = 0
 
