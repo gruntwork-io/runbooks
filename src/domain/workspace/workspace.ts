@@ -91,6 +91,61 @@ function countFileLines(s: string): number {
 }
 
 /**
+ * Most deleted plus inserted lines lineChangeCounts searches for, as in the
+ * Changed Files view's line diff (MAX_EDIT_LENGTH in web/src/lib/unifiedDiff.ts).
+ */
+const MAX_LINE_EDITS = 1000
+
+/**
+ * Lines added and deleted going from HEAD content (`git show` lines joined
+ * with "\n") to content read from disk, counted as the Changed Files view
+ * diffs them (web/src/lib/unifiedDiff.ts): the same line splitting, then the
+ * fewest insertions and deletions (Myers). Past MAX_LINE_EDITS the changed
+ * region counts as all deleted and all inserted, as the view then renders it.
+ */
+function lineChangeCounts(original: string, current: string): { additions: number; deletions: number } {
+  const a = original === "" ? [] : original.split("\n")
+  const lf = current.replace(/\r\n?/g, "\n")
+  const b = lf === "" ? [] : lf.replace(/\n$/, "").split("\n")
+
+  // The common prefix and suffix are unchanged lines.
+  let start = 0
+  while (start < a.length && start < b.length && a[start] === b[start]) start++
+  let endA = a.length
+  let endB = b.length
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--
+    endB--
+  }
+  const n = endA - start
+  const m = endB - start
+
+  // Myers: find the fewest edits d. The lines they leave alone, (n + m - d) / 2,
+  // are common to both sides.
+  const max = Math.min(n + m, MAX_LINE_EDITS)
+  const offset = max + 1
+  const v = new Int32Array(2 * max + 3)
+  for (let d = 0; d <= max; d++) {
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
+        ? v[offset + k + 1]
+        : v[offset + k - 1] + 1
+      let y = x - k
+      while (x < n && y < m && a[start + x] === b[start + y]) {
+        x++
+        y++
+      }
+      v[offset + k] = x
+      if (x >= n && y >= m) {
+        const common = (n + m - d) / 2
+        return { additions: m - common, deletions: n - common }
+      }
+    }
+  }
+  return { additions: m, deletions: n }
+}
+
+/**
  * Parse a git status porcelain code (two-character XY) into a human-readable
  * change type.
  */
@@ -491,7 +546,7 @@ export const getWorkspaceChanges = (
       }
 
       // Populate diff content
-      yield* populateDiffContent(worktreePath, change, diffs)
+      yield* populateDiffContent(worktreePath, change, diffs, entry.origPath)
 
       // Enforce per-file size limit
       const totalDiffSize =
@@ -547,7 +602,7 @@ const getSingleFileDiff = (
     }
 
     if (!change.isBinary) {
-      yield* populateDiffContent(worktreePath, change, pathDiffLookup(worktreePath))
+      yield* populateDiffContent(worktreePath, change, pathDiffLookup(worktreePath), match?.origPath)
     }
 
     return change
@@ -600,12 +655,14 @@ const batchDiffLookup = (worktreePath: string): Effect.Effect<DiffLookup> =>
 /**
  * Fill in the original/new content and line counts for a file change.
  * Mutates the provided `change` object in-place. `diffs` looks up the git
- * diff entries; it only runs for modified/deleted files.
+ * diff entries; it only runs for modified/deleted files. `origPath` is the
+ * path a rename or copy came from (StatusEntry.origPath).
  */
 const populateDiffContent = (
   worktreePath: string,
   change: WorkspaceFileChange,
   diffs: DiffLookup,
+  origPath?: string,
 ): Effect.Effect<
   void,
   FileReadError | FileNotFoundError | GitError | SpawnError,
@@ -640,9 +697,10 @@ const populateDiffContent = (
       }
 
       case "deleted": {
-        // Get original content from HEAD. An empty file's original is "" —
+        // Get original content from HEAD; for a rename, the old path's (git
+        // diffs without rename detection). An empty file's original is "" —
         // still an original, so test for undefined rather than truthiness.
-        const entry = yield* diffs(change.path)
+        const entry = yield* diffs(origPath ?? change.path)
         if (entry?.originalContent !== undefined) {
           ;(change as { originalContent: string }).originalContent =
             entry.originalContent
@@ -676,6 +734,21 @@ const populateDiffContent = (
           // If the file doesn't exist on disk but git reports it as modified,
           // treat as added
           ;(change as { changeType: string }).changeType = "added"
+        }
+
+        // A rename: git diffs without rename detection, so the new path has
+        // no HEAD content and every line counts as added. Diff it against the
+        // old path's HEAD content instead, so the view has a "before" to
+        // render, and count the lines the way the view's diff will.
+        if (origPath !== undefined && change.newContent !== undefined) {
+          const renamedFrom = yield* diffs(origPath)
+          if (renamedFrom?.originalContent !== undefined) {
+            ;(change as { originalContent: string }).originalContent =
+              renamedFrom.originalContent
+            const counts = lineChangeCounts(renamedFrom.originalContent, change.newContent)
+            ;(change as { additions: number }).additions = counts.additions
+            ;(change as { deletions: number }).deletions = counts.deletions
+          }
         }
         break
       }

@@ -321,6 +321,68 @@ describe("getWorkspaceChanges", () => {
     expect(result.changes[0].path).toBe("new-name.txt")
   })
 
+  it.each<[string, string, number, number]>([
+    ["a pure rename", "one\ntwo\nthree\n", 0, 0],
+    ["a rename with a line added", "one\ntwo\nthree\nfour\n", 1, 0],
+    ["a rename with a line changed", "one\n2\nthree", 1, 1],
+    ["a rename with a line moved", "two\nthree\none\n", 1, 1],
+    ["a rename with CRLF line ends", "one\r\ntwo\r\nthree\r\n", 0, 0],
+  ])("diffs %s against the old path's HEAD content", async (_label, onDisk, additions, deletions) => {
+    // git diffs without rename detection, so it reports the new path as added
+    // (no HEAD content, every line new) and the old path as deleted.
+    const layer = makeTestLayer({
+      files: { "/workspace/new-name.txt": onDisk },
+      git: {
+        status: () =>
+          Effect.succeed([{ path: "new-name.txt", origPath: "old-name.txt", status: "R" }]),
+        diff: () =>
+          Effect.succeed([
+            { path: "new-name.txt", additions: 3, deletions: 0, changeType: "modified", isBinary: false },
+            { path: "old-name.txt", originalContent: "one\ntwo\nthree", additions: 0, deletions: 3, changeType: "modified", isBinary: false },
+          ]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.changes).toEqual([
+      expect.objectContaining({
+        path: "new-name.txt",
+        changeType: "modified",
+        originalContent: "one\ntwo\nthree",
+        newContent: onDisk,
+        additions,
+        deletions,
+      }),
+    ])
+  })
+
+  it("takes a renamed-then-deleted file's HEAD content from its old path", async () => {
+    const layer = makeTestLayer({
+      git: {
+        status: () =>
+          Effect.succeed([{ path: "new-name.txt", origPath: "old-name.txt", status: "RD" }]),
+        diff: () =>
+          Effect.succeed([
+            { path: "old-name.txt", originalContent: "one\ntwo", additions: 0, deletions: 2, changeType: "modified", isBinary: false },
+          ]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.changes[0]).toMatchObject({
+      path: "new-name.txt",
+      changeType: "deleted",
+      originalContent: "one\ntwo",
+      deletions: 2,
+    })
+  })
+
   it.each<[string, string, "added" | "deleted" | "modified"]>([
     ["??", "untracked", "added"],
     ["A ", "newly added", "added"],
@@ -733,7 +795,8 @@ describe("getWorkspaceChanges (real repo)", () => {
 
     expect(byPath["mod.tf"]).toMatchObject({ changeType: "modified", originalContent: "before" })
     expect(byPath["new.tf"]).toMatchObject({ changeType: "added", newContent: "fresh\n" })
-    expect(byPath["renamed.tf"]?.originalContent).toBeUndefined()
+    // The rename's original is the old side's HEAD content, already read.
+    expect(byPath["renamed.tf"]).toMatchObject({ changeType: "modified", originalContent: "moved" })
     expect(gitCalls.filter((args) => args[0] === "diff")).toHaveLength(1)
     // Only paths that exist in HEAD are read: the modified file and the old
     // side of the rename. new.tf and renamed.tf cost nothing.
@@ -741,6 +804,42 @@ describe("getWorkspaceChanges (real repo)", () => {
       .filter((args) => args[0] === "show")
       .map((args) => args[1].slice(args[1].indexOf(":") + 1))
     expect(shownPaths.sort()).toEqual(["mod.tf", "old.tf"])
+  })
+
+  it("diffs a staged rename against its old path's HEAD content", async () => {
+    write("old.tf", "a\nb\n")
+    write("same.tf", "kept\n")
+    git("add", ".")
+    git("commit", "-m", "initial")
+    git("mv", "old.tf", "new name.tf")
+    write("new name.tf", "a\nb\nc\n")
+    git("mv", "same.tf", "moved.tf")
+
+    const bulk = await Effect.runPromise(
+      getWorkspaceChanges(repoPath).pipe(Effect.provide(liveLayer)),
+    )
+    const byPath = Object.fromEntries(bulk.changes.map((c) => [c.path, c]))
+
+    // Without the old side the view has no "before" and says the diff is
+    // unavailable; git's own counts (+3/-0, +1/-0) treat each file as new.
+    expect(byPath["new name.tf"]).toMatchObject({
+      changeType: "modified",
+      originalContent: "a\nb",
+      newContent: "a\nb\nc\n",
+      additions: 1,
+      deletions: 0,
+    })
+    expect(byPath["moved.tf"]).toMatchObject({
+      changeType: "modified",
+      originalContent: "kept",
+      additions: 0,
+      deletions: 0,
+    })
+    // "Load diff" for one file gives the same answer.
+    const single = await Effect.runPromise(
+      getWorkspaceChanges(repoPath, "new name.tf").pipe(Effect.provide(liveLayer)),
+    )
+    expect(single.changes[0]).toMatchObject(byPath["new name.tf"])
   })
 
   it("keeps the other diffs in a blobless sparse clone that can't fetch one blob", async () => {
