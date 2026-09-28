@@ -198,11 +198,16 @@ const pad = (n: number) => String(n).padStart(2, "0")
 
 function formatDate(d: Date, fmt: string): string {
   // Go reference-layout tokens: 2006 (year), 01 (month), 02 (day), 15 (hour),
-  // 04 (minute), 05 (second) and Z07:00 (zone, always "Z"). One pass, so an
-  // already-substituted value is never re-matched, and UTC fields, like the
-  // default toISOString() output.
+  // 04 (minute) and 05 (second), read in UTC like the default toISOString()
+  // output, and the zones Z07:00, -07:00, Z0700, -0700 and MST, written as
+  // UTC to match. One pass with the longest tokens first, so an already-
+  // substituted value is never re-matched.
   const parts: Record<string, string> = {
     "Z07:00": "Z",
+    "-07:00": "+00:00",
+    "Z0700": "Z",
+    "-0700": "+0000",
+    "MST": "UTC",
     "2006": String(d.getUTCFullYear()),
     "01": pad(d.getUTCMonth() + 1),
     "02": pad(d.getUTCDate()),
@@ -210,7 +215,7 @@ function formatDate(d: Date, fmt: string): string {
     "04": pad(d.getUTCMinutes()),
     "05": pad(d.getUTCSeconds()),
   }
-  return fmt.replace(/Z07:00|2006|01|02|15|04|05/g, (token) => parts[token])
+  return fmt.replace(/Z07:00|-07:00|Z0700|-0700|2006|MST|01|02|15|04|05/g, (token) => parts[token])
 }
 
 function generateWords(config: FuzzConfig): string {

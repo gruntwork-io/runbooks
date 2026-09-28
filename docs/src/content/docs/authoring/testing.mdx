@@ -296,7 +296,7 @@ The `fuzz` object specifies how to generate random values.
 | `domain` | string | `email`, `url` | Domain to use. Default: random from `example.com`, `test.org`, etc. |
 | `minDate` | string | `date`, `timestamp` | Minimum date (supports RFC3339, YYYY-MM-DD). Default: 365 days ago. |
 | `maxDate` | string | `date`, `timestamp` | Maximum date. Default: now. |
-| `format` | string | `date`, `timestamp` | Output format as a Go reference layout, evaluated in UTC. Supported tokens: `2006` (year), `01` (month), `02` (day), `15` (hour), `04` (minute), `05` (second), and `Z07:00` (written as `Z`). Default: `2006-01-02` for date, RFC3339 for timestamp. |
+| `format` | string | `date`, `timestamp` | Output format as a Go reference layout, evaluated in UTC. Supported tokens: `2006` (year), `01` (month), `02` (day), `15` (hour), `04` (minute), `05` (second), and the zones `Z07:00` and `Z0700` (written as `Z`), `-07:00` (`+00:00`), `-0700` (`+0000`) and `MST` (`UTC`). Other text is copied as is. Default: `2006-01-02` for date, RFC3339 for timestamp. |
 | `wordCount` | integer | `words` | Exact number of words. Overrides `minWordCount`/`maxWordCount`. `0` gives an empty string. |
 | `minWordCount` | integer | `words` | Minimum word count. Default: 2, or `maxWordCount` when only a smaller `maxWordCount` is set. |
 | `maxWordCount` | integer | `words` | Maximum word count. Must be at least `minWordCount`. Default: `minWordCount + 3`. |

@@ -203,6 +203,20 @@ describe("generateFuzzValue", () => {
     ).toBe(ts)
   })
 
+  it("timestamp: format writes every Go zone layout as UTC", () => {
+    const ts = "2019-07-18T09:30:45Z"
+    const fmt = (format: string) =>
+      generateFuzzValue({ type: "timestamp", minDate: ts, maxDate: ts, format })
+    expect(fmt("2006-01-02T15:04:05-07:00")).toBe("2019-07-18T09:30:45+00:00")
+    expect(fmt("2006-01-02T15:04:05-0700")).toBe("2019-07-18T09:30:45+0000")
+    expect(fmt("2006-01-02T15:04:05Z0700")).toBe("2019-07-18T09:30:45Z")
+    expect(fmt("2006-01-02 15:04:05 MST")).toBe("2019-07-18 09:30:45 UTC")
+    // Each still names the fuzzed instant, not one shifted by a literal offset.
+    for (const format of ["2006-01-02T15:04:05-07:00", "2006-01-02T15:04:05-0700", "2006-01-02T15:04:05Z0700"]) {
+      expect(new Date(fmt(format) as string).toISOString()).toBe("2019-07-18T09:30:45.000Z")
+    }
+  })
+
   it("date/timestamp: format uses UTC, not the local time zone", () => {
     // The time zone is fixed when the process starts, so run the generator in
     // a child process west of UTC, where local getters would put a UTC-midnight
