@@ -6,7 +6,7 @@ import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import { PR_PROVIDERS, type PRProviderConfig } from '../../providers'
-import { useGitPullRequest } from '../useGitPullRequest'
+import { CANCELED_RUN_WAIT_MS, useGitPullRequest } from '../useGitPullRequest'
 
 /**
  * `useGitPullRequest` under test with the IPC surface as the only fake. The
@@ -122,6 +122,8 @@ const CREATE_PARAMS = {
 }
 
 const WAITING_LINE = 'Waiting for the canceled operation to finish…'
+const STILL_RUNNING_LINE =
+  'The canceled operation is still running in the background. Starting anyway; its output may still appear here.'
 
 function renderPR(cfg: PRProviderConfig) {
   const fake = createEmittingApi()
@@ -396,6 +398,82 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       expect(state().status).toBe('ready')
       expect(state().prResult).toBeNull()
       expect(fake.listenerCount()).toBe(0)
+    })
+
+    it('starts a retry anyway once the canceled run has run past the wait bound', async () => {
+      vi.useFakeTimers()
+      const { fake, state, outputs, logLines, operationCalls, create } = renderPR(cfg)
+      const fresh = testPR(2, 'runbook/add-vpc-2')
+
+      // The canceled run's invoke never settles.
+      void create()
+      act(() => state().cancel())
+      const second = create({ ...CREATE_PARAMS, headBranch: fresh.branch })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CANCELED_RUN_WAIT_MS - 1)
+      })
+      expect(operationCalls()).toHaveLength(1)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      expect(operationCalls()).toHaveLength(2)
+      expect(state().status).toBe('creating')
+      expect(logLines()).toEqual([WAITING_LINE, STILL_RUNNING_LINE])
+
+      await act(async () => {
+        fake.createSucceeds(1, fresh)
+        await second
+      })
+      expect(state().status).toBe('success')
+      expect(state().prResult?.prUrl).toBe(fresh.url)
+      expect(outputs()).toEqual(fresh.outputs)
+    })
+
+    it('still waits on a retry that started past the bound when the first canceled run finishes late', async () => {
+      vi.useFakeTimers()
+      const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
+
+      void create()
+      act(() => state().cancel())
+      void create()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CANCELED_RUN_WAIT_MS)
+      })
+      expect(operationCalls()).toHaveLength(2)
+
+      act(() => state().cancel())
+      await act(async () => {
+        fake.createFails(0, 'first run failed late')
+      })
+
+      // The retry's invoke is the one in flight now, so a third run waits on it.
+      void create()
+      expect(operationCalls()).toHaveLength(2)
+      expect(logLines()).toEqual([WAITING_LINE])
+    })
+
+    it('abandons a retry that is canceled while it waits on a canceled run that never finishes', async () => {
+      vi.useFakeTimers()
+      const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
+
+      void create()
+      act(() => state().cancel())
+      let secondSettled = false
+      void create().then(() => {
+        secondSettled = true
+      })
+      act(() => state().cancel())
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CANCELED_RUN_WAIT_MS)
+      })
+      expect(secondSettled).toBe(true)
+      expect(operationCalls()).toHaveLength(1)
+      expect(state().status).toBe('ready')
+      expect(fake.listenerCount()).toBe(0)
+      expect(logLines()).toEqual([WAITING_LINE, 'Canceled.'])
     })
 
     it("still unsubscribes a retry after the canceled run's cleanup timer fires", async () => {

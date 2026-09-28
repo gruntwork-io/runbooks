@@ -51,6 +51,14 @@ const OutputsEventSchema = z.object({
   outputs: z.record(z.string(), z.string()),
 })
 
+/**
+ * How long a new operation waits for a canceled one to finish before starting
+ * anyway. The main-process git/API work has no timeout, so without a bound a
+ * hung canceled run would block every later operation until the runbook is
+ * reopened.
+ */
+export const CANCELED_RUN_WAIT_MS = 30_000
+
 function createLogEntry(line: string, timestamp?: string): LogEntry {
   return {
     line,
@@ -92,8 +100,9 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   // can't clobber the reset UI state or a newer run's state.
   const opRef = useRef(0)
   // The pending invoke, if any. Cancel can't abort the main-process work, so a
-  // new operation waits for it to settle before subscribing: the events carry
-  // no operation id, so overlapping runs' events would be indistinguishable.
+  // new operation waits (up to CANCELED_RUN_WAIT_MS) for it to settle before
+  // subscribing: the events carry no operation id, so overlapping runs' events
+  // would be indistinguishable.
   const inFlightRef = useRef<Promise<unknown> | null>(null)
   const isMountedRef = useRef(true)
   // Store active event unsubscribers so unmount can clean them up
@@ -167,12 +176,27 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     const unsubscribers: Array<() => void> = []
 
     // A canceled run may still be working in the main process. Wait for it so
-    // its events and result can't land in this run, and so two runs never
+    // its events and result can't land in this run, and so two runs don't
     // touch the worktree at once. Canceling again while waiting still works.
-    if (inFlightRef.current) {
+    // The wait is bounded: past CANCELED_RUN_WAIT_MS this run starts anyway,
+    // and the canceled run's late events can then reach it.
+    const canceledRun = inFlightRef.current
+    if (canceledRun) {
       setLogs(prev => [...prev, createLogEntry('Waiting for the canceled operation to finish…')])
-      await inFlightRef.current.catch(() => {})
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const finished = await Promise.race([
+        canceledRun.then(() => true, () => true),
+        new Promise<false>(resolve => {
+          timer = setTimeout(() => resolve(false), CANCELED_RUN_WAIT_MS)
+        }),
+      ])
+      clearTimeout(timer)
       if (!isCurrent()) return
+      if (!finished) {
+        setLogs(prev => [...prev, createLogEntry(
+          'The canceled operation is still running in the background. Starting anyway; its output may still appear here.',
+        )])
+      }
     }
 
     try {
@@ -340,7 +364,8 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   // We can't abort the main-process git work over the existing invoke (there's
   // no cancel channel), but we stop listening for its events, ignore its result
   // and return the UI to a usable state so the user is never trapped on a
-  // spinner. The next operation waits for the canceled one to finish.
+  // spinner. The next operation waits, for a bounded time, for the canceled
+  // one to finish.
   const cancel = useCallback(() => {
     opRef.current++
     for (const unsub of activeUnsubscribersRef.current) unsub()
