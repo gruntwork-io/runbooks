@@ -411,17 +411,10 @@ export class TestExecutor {
       return result
     }
 
-    // Backfill unset variables of Inputs and Template blocks the way the app's
-    // form starts them: the default, else what the control shows (false for a
-    // bool, the displayed elements for a tuple).
-    for (const [inputsId, schema] of this.validator.getAllSchemas()) {
-      for (const [varName, variable] of schema.variables) {
-        const key = `${inputsId}.${varName}`
-        if (key in resolvedInputs) continue
-        const value = variable.default ?? untouchedValue(variable)
-        if (value !== undefined) resolvedInputs[key] = value
-      }
-    }
+    // Fill in the variables the test doesn't set, first, so the test's own
+    // values come after them and win where buildTemplateVars flattens every
+    // block into one `.inputs` map (a later key replaces an earlier one).
+    resolvedInputs = { ...this.fillUnsetInputs(resolvedInputs), ...resolvedInputs }
 
     // 2. Validate inputs against schemas
     const validationErrors = this.validator.validateInputValues(resolvedInputs)
@@ -1673,6 +1666,45 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
   // Helpers
   // -----------------------------------------------------------------------
+
+  /**
+   * The value of every Inputs and Template variable that `set` (the test's
+   * inputs) leaves out, as the app's form starts it: its default, else what
+   * its control shows (false for a bool, the displayed elements for a tuple).
+   * A Template variable that a block it imports with inputsId also declares is
+   * read-only in the app and shows the imported value (from the last of those
+   * blocks that has one), so it starts from that value instead.
+   */
+  private fillUnsetInputs(set: Record<string, unknown>): Record<string, unknown> {
+    const schemas = this.validator.getAllSchemas()
+    const filled: Record<string, unknown> = {}
+    const pending = new Set<string>()
+
+    const valueOf = (blockId: string, varName: string): unknown => {
+      const key = `${blockId}.${varName}`
+      if (key in set) return set[key]
+      if (key in filled) return filled[key]
+      const variable = schemas.get(blockId)?.variables.get(varName)
+      // pending: an inputsId cycle between Templates imports nothing.
+      if (!variable || pending.has(key)) return undefined
+
+      pending.add(key)
+      let imported: unknown
+      for (const id of this.templates.get(blockId)?.inputsIds ?? []) {
+        imported = valueOf(id, varName) ?? imported
+      }
+      pending.delete(key)
+
+      const value = imported ?? variable.default ?? untouchedValue(variable)
+      if (value !== undefined) filled[key] = value
+      return value
+    }
+
+    for (const [blockId, schema] of schemas) {
+      for (const varName of schema.variables.keys()) valueOf(blockId, varName)
+    }
+    return filled
+  }
 
   private buildTemplateVars(): Record<string, unknown> {
     const inputs: Record<string, unknown> = {}
