@@ -1,7 +1,10 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Stream } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { executeScript, type ExecEvent } from "./executor.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
+import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
+import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
+import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 
 /** Collect all events from the executeScript stream. */
 async function collectEvents(
@@ -212,5 +215,85 @@ describe("executeScript — missing Google credential file", () => {
     const events = await collectEvents("echo hi", { outputLines: ["hi"], exitCode: 0 })
     const status = events.find((e) => e._tag === "status")
     expect(status).toEqual({ _tag: "status", event: { status: "success", exitCode: 0 } })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Files written to $GENERATED_FILES
+// ---------------------------------------------------------------------------
+
+describe("executeScript — captured files", () => {
+  /**
+   * Run a step whose (fake) process writes `written` into $GENERATED_FILES.
+   * The spawner shares the in-memory file table with the FileSystem layer, so
+   * the capture and the tree walk after exit see exactly what it wrote.
+   */
+  async function runWritingGeneratedFiles(
+    written: Record<string, string>,
+    files: Record<string, string> = {},
+  ) {
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          const generatedDir = options?.env?.GENERATED_FILES
+          for (const [relPath, content] of Object.entries(written)) {
+            files[`${generatedDir}/${relPath}`] = content
+          }
+          return { output: Stream.empty, exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          "write files",
+          "",
+          {},
+          { env: { PATH: "/usr/bin" }, workDir: "/work" },
+          "",
+          "/output",
+        )
+        yield* Stream.runDrain(logStream)
+        return yield* completionEffect
+      }),
+    )
+
+    const events = await Effect.runPromise(program.pipe(Effect.provide(layer)))
+    const captured = events.find(
+      (e): e is Extract<ExecEvent, { _tag: "files_captured" }> => e._tag === "files_captured",
+    )
+    expect(captured).toBeDefined()
+    return captured!.event
+  }
+
+  it("sends the generated-files tree the renderer can show", async () => {
+    // The renderer drops a files-captured event whose fileTree is not an
+    // array, so a null tree meant captured files never reached the panel.
+    const event = await runWritingGeneratedFiles({ "main.tf": 'resource "x" "y" {}' })
+
+    expect(event.files).toEqual([{ path: "main.tf", size: 19 }])
+    expect(Array.isArray(event.fileTree)).toBe(true)
+    expect(event.fileTree!.map((n) => n.id)).toEqual(["main.tf"])
+    expect(event.fileTree![0].file?.content).toBe('resource "x" "y" {}')
+    expect(event.totalFiles).toBe(1)
+    expect(event.truncatedTree).toBe(false)
+  })
+
+  it("keeps files already in the output dir in the tree", async () => {
+    // The tree replaces the whole Generated panel, so it must cover the
+    // output dir, not only this step's captures.
+    const event = await runWritingGeneratedFiles(
+      { "new.txt": "new" },
+      { "/output/earlier.yaml": "a: 1" },
+    )
+
+    expect(event.files.map((f) => f.path)).toEqual(["new.txt"])
+    expect(event.fileTree!.map((n) => n.id).sort()).toEqual(["earlier.yaml", "new.txt"])
+    expect(event.totalFiles).toBe(2)
   })
 })

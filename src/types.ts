@@ -142,12 +142,12 @@ export interface RenderRequest {
   perf?: RenderPerfContext
 }
 
-export interface RenderResponse {
+export interface RenderResponse extends Partial<FileTreeMeta> {
   message: string
   outputDir: string
   templatePath: string
-  fileTree: FileTreeNode[]
-  meta: FileTreeMeta
+  /** Omitted when nothing was written (the no-change shortcut). */
+  fileTree?: FileTreeNode[]
   deletedFiles: string[]
   createdFiles: string[]
   modifiedFiles: string[]
@@ -164,8 +164,13 @@ export interface RenderInlineRequest {
   templateFiles: Record<string, string>
   inputs: InputValue[]
   generateFile?: boolean
-  outputPath?: string
   target?: "generated" | "worktree"
+  /**
+   * The block's id. With generateFile, main remembers what each block last
+   * wrote, so a render that writes a different path cleans up the old file
+   * (removes it if the block created it, restores it if it was already there).
+   */
+  blockId?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +205,6 @@ export interface GeneratedFilesDeleteResponse {
 
 export interface ExecRequest {
   executableId?: string
-  componentId?: string
   templateVarValues?: Record<string, unknown>
   envVarsOverride?: Record<string, string>
   /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
@@ -232,10 +236,11 @@ export interface CapturedFile {
   size: number
 }
 
-export interface FilesCapturedEvent {
+export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
   files: CapturedFile[]
   count: number
-  fileTree: unknown
+  /** The generated-files tree after the capture. Omitted if it could not be read. */
+  fileTree?: FileTreeNode[]
 }
 
 export interface BlockOutputsEvent {
@@ -277,6 +282,15 @@ export interface SessionExecContext {
   workDir: string
 }
 
+/**
+ * A SessionExecContext tagged with the session it was taken from. Anything
+ * applied back to the session later (a script's captured env) carries the
+ * generation so it can be dropped if the session was replaced in between.
+ */
+export interface SessionExecSnapshot extends SessionExecContext {
+  generation: number
+}
+
 // ---------------------------------------------------------------------------
 // Runbook config
 // ---------------------------------------------------------------------------
@@ -285,7 +299,6 @@ export interface RunbookConfig {
   localPath: string
   remoteSourceURL?: string
   isWatchMode: boolean
-  useExecutableRegistry: boolean
   disableLiveFileReload?: boolean
 }
 
@@ -294,13 +307,22 @@ export interface RunbookConfig {
 // ---------------------------------------------------------------------------
 
 export interface ParsedRemoteSource {
+  /** Lowercased, port kept. Keys credential lookup and error hints. */
   host: string
+  /** Everything before the repo segment; a nested group path on GitLab. */
   owner: string
   repo: string
-  ref?: string
-  path?: string
+  /** What `git clone` fetches: https, or the transport a git source named. */
   cloneURL: string
-  isBlobURL: boolean
+  /** Branch, tag or commit. Undefined means the remote's default branch. */
+  ref?: string
+  /** Repo-relative path to a runbook directory or file. Undefined means the repo root. */
+  path?: string
+  /**
+   * Browser URLs only: `<ref>/<path>` as the URL spells it. A ref can contain
+   * slashes, so resolveRef splits it against the remote's refs.
+   */
+  refAndPath?: string
 }
 
 // ---------------------------------------------------------------------------

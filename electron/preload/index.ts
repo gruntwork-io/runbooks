@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
 import type { IpcChannelMap, IpcEventMap, InvokeChannel, EventChannel } from "../shared/channels.ts"
+import { cleanIpcErrorMessage } from "../shared/ipc-error-message.ts"
 
 // Derive allowlists from the channel type definitions — no manual sync needed.
 const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
@@ -16,10 +17,11 @@ const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set<InvokeChannel>([
   "google:credential-committed",
   "github:validate", "github:oauth-start", "github:oauth-poll", "github:env-credentials",
   "github:cli-credentials", "github:orgs", "github:repos", "github:refs", "github:labels",
+  "github:enumerate-hosts", "github:host-picked",
   "gitlab:validate", "gitlab:env-credentials", "gitlab:cli-credentials", "gitlab:labels", "gitlab:enumerate-hosts",
   "gitlab:host-picked",
   "vcs:cli-status", "vcs:invalidate-cache", "vcs:apply-git-schannel",
-  "git:clone", "git:local-repo", "git:push", "git:init-default-branch", "git:pull-request", "git:merge-request", "git:delete-branch",
+  "git:clone", "git:clone-cancel", "git:local-repo", "git:push", "git:init-default-branch", "git:pull-request", "git:merge-request", "git:delete-branch",
   "workspace:tree", "workspace:dirs", "workspace:file", "workspace:changes",
   "workspace:register", "workspace:set-active",
   "generated-files:check", "generated-files:delete",
@@ -55,7 +57,12 @@ contextBridge.exposeInMainWorld("api", {
     if (!ALLOWED_INVOKE_CHANNELS.has(channel)) {
       return Promise.reject(new Error(`Blocked IPC invoke on unknown channel: ${channel}`))
     }
-    return ipcRenderer.invoke(channel, ...args)
+    // Strip Electron's "Error invoking remote method '<channel>': Error: "
+    // wrapper once here, so every caller (useIpc and direct api.invoke catch
+    // blocks alike) gets just the handler's message.
+    return ipcRenderer.invoke(channel, ...args).catch((err: unknown) => {
+      throw new Error(cleanIpcErrorMessage(err instanceof Error ? err.message : String(err)))
+    })
   },
 
   on: (channel: string, callback: (...args: unknown[]) => void) => {

@@ -5,9 +5,10 @@
  *   1. BundleProducer.get(templateId, templatePath) — fetches (or builds + caches) the bundle JSON
  *   2. Look up the analyzer's full output set: keys of bundle.inputsMap.files
  *   3. Compute the *dirty* subset by diffing the current vars against the
- *      previous render's vars (kept in a per-templateId Map). On the very
- *      first render or when the `outputs` namespace changes, every output
- *      is considered dirty.
+ *      last committed vars (kept in a per-templateId Map, advanced only by
+ *      `commit` once the caller has the output on disk). On the very first
+ *      render or when the `outputs` namespace changes, every output is
+ *      considered dirty.
  *   4. If the dirty set is empty, short-circuit — the caller can reuse the
  *      previous manifest unchanged.
  *   5. Otherwise call WasmRuntime.renderFiles with ONLY the dirty paths so
@@ -38,9 +39,12 @@ import type {
 import { ROUTE_TO_COLD_KINDS, WasmError } from "../errors/index.ts"
 
 /**
- * Module-scope cache of "the variables we last successfully sent for this
- * templateId." Persists for the lifetime of the main process. Keyed by
- * templateId so independent templates don't pollute each other's diff.
+ * Module-scope cache of "the variables whose output the caller last
+ * committed to disk for this templateId." Persists for the lifetime of the
+ * main process. Keyed by templateId so independent templates don't pollute
+ * each other's diff. Only `commit` writes it — never `render` — so a render
+ * that's superseded or fails before its output lands leaves the baseline
+ * where it was, and the next diff still covers the unwritten change.
  */
 const previousVarsByTemplate = new Map<string, Record<string, unknown>>()
 
@@ -51,6 +55,15 @@ const previousVarsByTemplate = new Map<string, Record<string, unknown>>()
  * structural errors that suggest the handle went stale (WASM reload, etc.).
  */
 const handlesByTemplate = new Map<string, string>()
+
+/**
+ * Template path each templateId was last rendered from. The id is chosen by
+ * the runbook author, so the same id can point at a different template —
+ * another runbook's `<Template id="infra">`, or an edited `path` prop in
+ * watch mode. When the path changes, the bundle, handle and vars baseline
+ * all describe the old template and are dropped together.
+ */
+const templatePathById = new Map<string, string>()
 
 /**
  * Cheap "did this change?" for var values. For primitives we use strict
@@ -163,9 +176,34 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
     const bundles = yield* BundleProducer
     const wasm = yield* WasmRuntime
 
+    /**
+     * Release a template's prepared handle and forget its vars baseline, so
+     * the next render re-prepares and treats every output as dirty. Release
+     * is best-effort: if the WASM runtime is unavailable or the handle is
+     * already gone on the Go side, the local maps are still cleared.
+     */
+    const dropTemplateState = (templateId: string) =>
+      Effect.gen(function* () {
+        const handle = handlesByTemplate.get(templateId)
+        if (handle) {
+          yield* wasm.releaseBundle(handle).pipe(Effect.ignore)
+          handlesByTemplate.delete(templateId)
+        }
+        previousVarsByTemplate.delete(templateId)
+      })
+
     const impl: WarmRenderDispatcherShape = {
       render: (templateId, templatePath, variables) =>
         Effect.gen(function* () {
+          // A path we haven't recorded counts as a change too: after
+          // `reset()` a render that was already in flight can still leave a
+          // handle or baseline behind for this id.
+          if (templatePathById.get(templateId) !== templatePath) {
+            yield* dropTemplateState(templateId)
+            yield* bundles.invalidate(templateId)
+            templatePathById.set(templateId, templatePath)
+          }
+
           const ready = yield* wasm.isReady
           if (!ready) {
             return {
@@ -215,9 +253,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
           })
 
           if (dirtyPaths.length === 0) {
-            // No work — caller reuses previous manifest. Still record
-            // current vars so a subsequent meaningful diff is correct.
-            previousVarsByTemplate.set(templateId, variables)
+            // No work — caller reuses previous manifest.
             return {
               files: [],
               coldNeeded: [],
@@ -348,11 +384,6 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             preparedThisCall,
           })
 
-          // Commit the current vars only after a successful render — that
-          // way a failed render leaves us with the prior baseline so the
-          // next attempt still sees the right diff.
-          previousVarsByTemplate.set(templateId, variables)
-
           return {
             files,
             coldNeeded,
@@ -375,21 +406,16 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
         }
         handlesByTemplate.clear()
         previousVarsByTemplate.clear()
+        templatePathById.clear()
         yield* bundles.clear
       }),
 
-      invalidate: (templateId: string) =>
-        Effect.gen(function* () {
-          const handle = handlesByTemplate.get(templateId)
-          if (handle) {
-            // Best-effort release; if the WASM runtime is unavailable or
-            // the handle is already gone on the Go side, we still want to
-            // clear our local maps so subsequent renders re-prepare.
-            yield* wasm.releaseBundle(handle).pipe(Effect.ignore)
-            handlesByTemplate.delete(templateId)
-          }
-          previousVarsByTemplate.delete(templateId)
+      commit: (templateId, variables) =>
+        Effect.sync(() => {
+          previousVarsByTemplate.set(templateId, variables)
         }),
+
+      invalidate: (templateId: string) => dropTemplateState(templateId),
     }
 
     return impl

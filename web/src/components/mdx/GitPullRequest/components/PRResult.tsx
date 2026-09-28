@@ -38,8 +38,9 @@ export function PRResultDisplay({ noun, refSymbol, result, status, pushError, ch
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 hover:underline"
           >
-            {result.prUrl}
-            <ExternalLink className="size-3.5" />
+            {/* One long word: let it break so a deep URL wraps inside the panel. */}
+            <span className="break-all">{result.prUrl}</span>
+            <ExternalLink className="size-3.5 shrink-0" />
           </a>
           <div className="text-xs text-success">
             Branch: <code className="bg-success-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>
@@ -51,7 +52,7 @@ export function PRResultDisplay({ noun, refSymbol, result, status, pushError, ch
       {pushError && (
         <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
           <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-destructive m-0">Push failed</p>
             <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{pushError}</p>
           </div>
