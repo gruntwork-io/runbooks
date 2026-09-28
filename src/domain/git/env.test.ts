@@ -3,10 +3,11 @@ import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect } from "effect"
+import { Effect, Fiber, TestClock, TestContext } from "effect"
 import { gitSpawnEnv, resolveSshCommand } from "./env.ts"
 import { resolveRef } from "../../remote-source.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
+import { makeControlledSpawner } from "../../test-utils/TestSpawner.ts"
 
 const BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
 
@@ -178,6 +179,28 @@ describe("resolveSshCommand (real git)", () => {
 
   it("is undefined when the directory does not exist", async () => {
     expect(await run(path.join(tmp, "missing"))).toBeUndefined()
+  })
+})
+
+describe("resolveSshCommand timeout", () => {
+  it("treats a git config that never answers as unset, and kills it", async () => {
+    // Every clone and push waits on this lookup, so a git stuck reading its
+    // config (say, a home directory on a stalled network share) must not hang them.
+    const spawner = makeControlledSpawner()
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const lookup = yield* Effect.fork(resolveSshCommand("/repo").pipe(Effect.provide(spawner.layer)))
+        // Let the lookup spawn git and register its timeout with the TestClock.
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)))
+        expect(spawner.processes).toHaveLength(1)
+        yield* TestClock.adjust("5 seconds")
+        return yield* Fiber.join(lookup)
+      }).pipe(Effect.provide(TestContext.TestContext)),
+    )
+
+    expect(result).toBeUndefined()
+    expect(spawner.processes[0].killed()).toBe(true)
   })
 })
 

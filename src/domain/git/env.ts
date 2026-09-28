@@ -1,5 +1,5 @@
-import { Chunk, Effect, Stream } from "effect"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { Effect } from "effect"
+import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 
 /** ssh options that make it fail instead of prompting (see gitSpawnEnv). */
 const SSH_BATCH_OPTIONS = "-o BatchMode=yes -o StrictHostKeyChecking=yes"
@@ -98,11 +98,15 @@ export const gitSpawnEnv = (sshCommand?: string): Record<string, string | undefi
   return env
 }
 
+/** How long resolveSshCommand waits on `git config` before giving up. */
+const SSH_COMMAND_LOOKUP_TIMEOUT_MS = 5_000
+
 /**
  * The user's core.sshCommand as git resolves it in `cwd` (repo-local,
  * includeIf, global and system config), or undefined when it is unset or
- * cannot be read. Without `cwd` the lookup runs in the process's own cwd,
- * like a git spawned without one.
+ * cannot be read, including when git doesn't answer within
+ * SSH_COMMAND_LOOKUP_TIMEOUT_MS. Without `cwd` the lookup runs in the
+ * process's own cwd, like a git spawned without one.
  *
  * Only commands that reach a remote (clone, push, ls-remote) start ssh, so
  * only those look this up and pass it to gitSpawnEnv; local commands use
@@ -120,12 +124,11 @@ export const resolveSshCommand = (cwd?: string) =>
       env: gitSpawnEnv(),
     })
 
-    return yield* Effect.gen(function* () {
-      const value = Chunk.toArray(yield* Stream.runCollect(proc.output))
-        .filter((l) => l.source === "stdout")
-        .map((l) => l.line)
-        .join("\n")
-        .trim()
-      return (yield* proc.exitCode) === 0 && value ? value : undefined
-    }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))
+    const { exitCode, lines } = yield* collectOutput(proc, SSH_COMMAND_LOOKUP_TIMEOUT_MS)
+    const value = lines
+      .filter((l) => l.source === "stdout")
+      .map((l) => l.line)
+      .join("\n")
+      .trim()
+    return exitCode === 0 && value ? value : undefined
   }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
