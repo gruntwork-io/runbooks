@@ -158,6 +158,35 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       expect(fs.readFileSync(sshLog, "utf8")).toContain(sshTarget)
     })
 
+    it("clones an SSH remote whose user isn't git, through the user's core.sshCommand in batch mode", async () => {
+      // A self-managed GitLab whose sshd runs as `gitlab`, reached with a
+      // per-account key: the clone must run the user's ssh command, wrapped
+      // in the no-prompt options, not a bare `ssh`.
+      const saved = ["GIT_SSH_COMMAND", "GIT_SSH", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"].map(
+        (key) => [key, process.env[key]] as const,
+      )
+      delete process.env.GIT_SSH_COMMAND
+      delete process.env.GIT_SSH
+      process.env.GIT_CONFIG_COUNT = "1"
+      process.env.GIT_CONFIG_KEY_0 = "core.sshCommand"
+      process.env.GIT_CONFIG_VALUE_0 = "ssh -i /keys/id_work"
+      try {
+        const result = await clone("gitlab@gitlab.corp.net:acme/infra.git")
+
+        expect(result.error).toBeUndefined()
+        expect(result.outputs).toMatchObject({ repo_owner: "acme", repo_name: "infra" })
+        expect(fs.existsSync(nodePath.join(workDir, "infra", "main.tf"))).toBe(true)
+        const sshArgs = fs.readFileSync(sshLog, "utf8")
+        expect(sshArgs).toContain("-i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes")
+        expect(sshArgs).toContain("gitlab@gitlab.corp.net")
+      } finally {
+        for (const [key, value] of saved) {
+          if (value === undefined) delete process.env[key]
+          else process.env[key] = value
+        }
+      }
+    })
+
     it.each([
       ["git@[::1]:acme/infra.git", "ssh-keyscan ::1 >>"],
       ["git@[gitlab.corp:2222]:acme/infra.git", "ssh-keyscan -p 2222 gitlab.corp >>"],
