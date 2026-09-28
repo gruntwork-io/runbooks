@@ -52,8 +52,11 @@ mockElectron({
     removeListener: () => {},
   },
 })
+// Same export names as gitlab.test.ts's mock of this module (bun fixes a
+// mocked module's export names on the first mock.module call).
 mock.module("../index.ts", () => ({
   refreshSystemTrust: async () => ({ coldReadOk: true }),
+  registerExtraCaPems: () => {},
 }))
 mock.module("../window.ts", () => ({
   getMainWindow: () => null,

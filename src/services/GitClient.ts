@@ -17,12 +17,6 @@ export interface CloneOptions {
   readonly sparse?: string
 }
 
-export interface CloneResult {
-  readonly fileCount: number
-  readonly absolutePath: string
-  readonly relativePath: string
-}
-
 export interface PushOptions {
   readonly token?: string
   /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
@@ -74,7 +68,7 @@ export interface CommitOptions {
 }
 
 export interface GitClientShape {
-  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<CloneResult, GitError | SpawnError>
+  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<void, GitError | SpawnError>
   readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError | SpawnError>
   readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly getCurrentBranch: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
@@ -85,7 +79,6 @@ export interface GitClientShape {
   readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
   readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
   readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
-  readonly hasChanges: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>
   readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError | SpawnError>

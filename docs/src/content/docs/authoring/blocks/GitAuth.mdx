@@ -41,6 +41,8 @@ By default, Runbooks automatically detects and uses credentials from, in order:
 
 If no credentials are detected, users authenticate manually.
 
+To read namespaced variables instead (for example `CI_GITHUB_TOKEN` or `CI_GITLAB_TOKEN`), add `{ env: { prefix: 'CI_' } }` to `detectCredentials`. See [`<GitHubAuth>`](/authoring/blocks/githubauth/#detection-sources) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/#prefixed-environment-variables) for the variables each provider reads.
+
 ### Providers
 
 | Provider | Methods | CLI | Token env var | OAuth |
