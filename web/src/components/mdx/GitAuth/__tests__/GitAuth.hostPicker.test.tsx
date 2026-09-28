@@ -25,7 +25,7 @@ let currentApi: RunbooksAPI
 
 function installApi(impl: (channel: string, args?: unknown) => Promise<unknown>) {
   const invoke = vi.fn(impl)
-  currentApi = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
+  currentApi = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
   return invoke
 }
 

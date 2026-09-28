@@ -7,7 +7,7 @@ import { useGitWorkTree } from './useGitWorkTree'
 import type { GitWorkTree } from './gitWorkTreeTypes'
 
 const invoke = vi.fn(async (_channel: string, _params?: unknown) => ({ ok: true }))
-const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
+const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (

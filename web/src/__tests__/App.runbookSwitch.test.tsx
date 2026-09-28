@@ -116,7 +116,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
     })
   }
 
-  const api = { invoke, on, once: vi.fn() } as unknown as Parameters<typeof ApiProvider>[0]['api']
+  const api = { invoke, on } as unknown as Parameters<typeof ApiProvider>[0]['api']
   return { api, invoke, emit }
 }
 

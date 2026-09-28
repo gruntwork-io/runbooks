@@ -57,7 +57,6 @@ beforeEach(() => {
   window.api = {
     invoke,
     on: vi.fn(() => () => {}),
-    once: vi.fn(),
   } as unknown as typeof window.api
 })
 

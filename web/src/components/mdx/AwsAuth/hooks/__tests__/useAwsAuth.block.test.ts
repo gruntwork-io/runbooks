@@ -60,7 +60,7 @@ function installApi(handlers: Record<string, (params: Params) => unknown> = {}) 
     if (!handler) throw new Error(`unexpected channel ${channel}`)
     return handler(params)
   })
-  currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+  currentApi = { invoke, on: () => () => {} } as unknown as Api
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>

@@ -1,7 +1,7 @@
 /**
  * IPC handlers for runbook operations.
  *
- * Provides runbook file reading, executable registry access, and asset serving.
+ * Provides runbook file reading and executable registry access.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
@@ -21,9 +21,7 @@ import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
 import { startWatcher } from "./watch.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
-import { readFileMetadata, resolveRunbookPath, getContentType, isAllowedAssetExtension } from "../../../src/domain/workspace/file.ts"
-import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
-import { FileSystem } from "../../../src/services/FileSystem.ts"
+import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
 import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
@@ -225,42 +223,4 @@ export function registerRunbookHandlers(): void {
       warnings: executableRegistry.getWarnings(),
     }
   })
-
-  ipcMain.handle(
-    "runbook:assets",
-    async (_event, params: { runbookPath: string; assetPath: string }) => {
-      const runbookDir = path.dirname(params.runbookPath)
-      const fullPath = path.join(runbookDir, params.assetPath)
-
-      // Validate path traversal
-      if (containsPathTraversal(params.assetPath)) {
-        throw new Error("Asset path contains directory traversal")
-      }
-      // Resolve symlinks before the containment check: the asset read below
-      // follows them, so a symlink inside the runbook dir must not dereference
-      // to a file outside it.
-      if (!(await isContainedInReal(fullPath, runbookDir))) {
-        throw new Error("Asset path escapes runbook directory")
-      }
-
-      // Validate asset extension
-      if (!isAllowedAssetExtension(params.assetPath)) {
-        throw new Error(`Asset type not allowed: ${params.assetPath}`)
-      }
-
-      const contentType = getContentType(params.assetPath)
-
-      const buffer = await runtime.runPromise(
-        Effect.gen(function* () {
-          const fs = yield* FileSystem
-          return yield* fs.readFileBuffer(fullPath)
-        }),
-      )
-
-      return {
-        data: buffer.toString("base64"),
-        contentType,
-      }
-    },
-  )
 }

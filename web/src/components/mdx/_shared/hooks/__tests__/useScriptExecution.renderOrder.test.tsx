@@ -28,7 +28,7 @@ const invoke = vi.fn((channel: string) => {
   }
   return Promise.resolve({ ok: true })
 })
-const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
+const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
 
 const registry: ExecutableRegistryContextValue = {
   getExecutableByComponentId: () => null,

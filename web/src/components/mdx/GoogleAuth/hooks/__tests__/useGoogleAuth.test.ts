@@ -51,7 +51,7 @@ function installApi(impl: InvokeImpl) {
     }
     return result
   })
-  currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+  currentApi = { invoke, on: () => () => {} } as unknown as Api
   return invoke
 }
 

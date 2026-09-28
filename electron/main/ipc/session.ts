@@ -2,16 +2,12 @@
  * IPC handlers for session management.
  *
  * Bridges Electron ipcMain to the SessionManager domain module.
- * All handlers are process-local and trusted -- no token validation needed.
+ * All handlers are process-local and trusted.
  */
 import { ipcMain } from "electron"
 import { runtime, sessionManager, vcsSessionMeta } from "./runtime.ts"
 
 export function registerSessionHandlers(): void {
-  ipcMain.handle("session:join", async () => {
-    return runtime.runPromise(sessionManager.joinSession())
-  })
-
   ipcMain.handle("session:get", async () => {
     return runtime.runPromise(sessionManager.getMetadata())
   })
@@ -21,11 +17,6 @@ export function registerSessionHandlers(): void {
     // The reset restores the initial env, dropping every credential an auth
     // block wrote — drop their host bindings with them.
     vcsSessionMeta.clear()
-    return { ok: true as const }
-  })
-
-  ipcMain.handle("session:delete", async () => {
-    sessionManager.deleteSession()
     return { ok: true as const }
   })
 

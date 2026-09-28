@@ -52,7 +52,6 @@ function createMockWindowApi() {
         listeners.get(channel)?.delete(callback)
       }
     }),
-    once: vi.fn(),
   }
 
   return {

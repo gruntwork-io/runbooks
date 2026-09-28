@@ -70,7 +70,6 @@ function renderBlock(handlers: Record<string, Handler>) {
       listeners.get(channel)!.add(cb)
       return () => listeners.get(channel)?.delete(cb)
     },
-    once: () => {},
   } as unknown as Api
 
   return render(

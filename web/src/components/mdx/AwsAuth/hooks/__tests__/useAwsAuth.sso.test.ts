@@ -72,7 +72,7 @@ function installApi(handlers: Record<string, Handler>) {
     if (!handler) throw new Error(`unexpected channel ${channel}`)
     return handler(params)
   })
-  currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+  currentApi = { invoke, on: () => () => {} } as unknown as Api
 }
 
 /** A promise the test settles by hand, to hold an IPC call in flight. */

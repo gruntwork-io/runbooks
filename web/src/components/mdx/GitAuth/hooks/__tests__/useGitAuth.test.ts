@@ -28,7 +28,7 @@ let currentApi: RunbooksAPI
 /** Install a fake IPC surface. Returns the invoke spy so channels/params can be asserted. */
 function installApi(impl: InvokeImpl, on: OnImpl = () => () => {}) {
   const invoke = vi.fn(impl)
-  currentApi = { invoke, on: vi.fn(on), once: vi.fn() } as unknown as RunbooksAPI
+  currentApi = { invoke, on: vi.fn(on) } as unknown as RunbooksAPI
   return invoke
 }
 
