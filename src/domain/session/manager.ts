@@ -255,6 +255,15 @@ export class SessionManager {
     })
   }
 
+  /**
+   * Drop the session, leaving none. The app never does this (opening a
+   * runbook replaces the session); tests use it to put the process-wide
+   * manager back to its no-session state between cases.
+   */
+  deleteSession(): void {
+    this.session = null
+  }
+
   // -------------------------------------------------------------------------
   // Execution context
   // -------------------------------------------------------------------------

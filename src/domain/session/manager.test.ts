@@ -173,7 +173,7 @@ describe("SessionManager", () => {
   })
 
   describe("getExecContext", () => {
-    it("returns snapshot with env and workDir", async () => {
+    it("returns snapshot with env, workDir and the session's generation", async () => {
       await run(
         mgr.createSession("/work"),
         { HOME: "/home", PATH: "/usr/bin" },
@@ -182,6 +182,7 @@ describe("SessionManager", () => {
       expect(ctx).toEqual({
         env: { HOME: "/home", PATH: "/usr/bin" },
         workDir: "/work",
+        generation: mgr.getGeneration(),
       })
     })
 
@@ -363,7 +364,7 @@ describe("SessionManager", () => {
 
       await applyCapture(start, { X: "1" })
 
-      expect(mgr.hasSession()).toBe(false)
+      await expect(run(mgr.getExecContext())).rejects.toThrow()
     })
   })
 
