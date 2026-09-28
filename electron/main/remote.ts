@@ -17,7 +17,7 @@ import { GitClient } from "../../src/services/GitClient.ts"
 import { VcsCredentials } from "../../src/services/VcsCredentials.ts"
 import { RemoteSourceError } from "../../src/errors/index.ts"
 import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
-import { gitSpawnEnv } from "../../src/domain/git/env.ts"
+import { gitSpawnEnv, resolveSshCommand } from "../../src/domain/git/env.ts"
 import { isGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import { githubHostKind, isGitHubHost } from "../../src/domain/git/github-host.ts"
 import { redactSecrets } from "../../src/domain/vcs/redact.ts"
@@ -280,13 +280,15 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const username = gitCredentialUsername(provider)
 
     // Browser URLs spell ref and path as one string; split it against the
-    // remote's branches and tags.
+    // remote's branches and tags. The ls-remote runs the user's own ssh
+    // client (core.sshCommand) like the clone below does: a url.insteadOf
+    // rewrite can send even an https URL over ssh.
     if (parsed.refAndPath !== undefined) {
       log.info("Resolving ref from:", parsed.refAndPath)
       const resolved = yield* resolveRef(
         parsed.cloneURL,
         parsed.refAndPath,
-        withGitHttpAuth(gitSpawnEnv(), parsed.cloneURL, token, username),
+        withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
       )
       parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
