@@ -3,7 +3,7 @@ import { fileURLToPath } from "url";
 import { assertNoNestedNodeModules } from "../scripts/no-nested-node-modules.ts";
 
 // The specs in web/e2e/ resolve @playwright/test from web/, so a leftover
-// web/node_modules would shadow the root copy.
+// web/node_modules would take precedence over the root copy.
 assertNoNestedNodeModules(fileURLToPath(new URL("..", import.meta.url)));
 
 export default defineConfig({
