@@ -105,7 +105,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MD
   return (
     <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource}>
+        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} storageScope={remoteSource ?? runbookPath}>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >

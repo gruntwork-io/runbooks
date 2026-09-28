@@ -12,13 +12,14 @@ vi.mock('@/contexts/ApiContext', async (importOriginal) => {
   return { ...actual, useApi: () => ({ invoke, on: vi.fn(() => () => {}) }) }
 })
 
-/** Render the modal, type `source` and press Open; returns the onOpenChange spy. */
+/** Render the modal, type `source` and press Open; returns the onOpenChange and onOpened spies. */
 async function submit(source: string) {
   const onOpenChange = vi.fn()
-  render(<OpenUrlModal open onOpenChange={onOpenChange} />)
+  const onOpened = vi.fn()
+  render(<OpenUrlModal open onOpenChange={onOpenChange} onOpened={onOpened} />)
   await userEvent.type(screen.getByRole('textbox'), source)
   await userEvent.click(screen.getByRole('button', { name: 'Open' }))
-  return onOpenChange
+  return { onOpenChange, onOpened }
 }
 
 describe('OpenUrlModal', () => {
@@ -32,9 +33,10 @@ describe('OpenUrlModal', () => {
     'https://gitlab.com/group/sub/repo/-/tree/main/runbooks/setup-vpc?ref_type=heads',
   ])('sends %s to the main process and closes', async (source) => {
     invoke.mockResolvedValue({ path: '/tmp/x/runbook.mdx', remoteSource: source })
-    const onOpenChange = await submit(source)
+    const { onOpenChange, onOpened } = await submit(source)
     expect(invoke).toHaveBeenCalledWith('runbook:open-remote', { url: source })
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(onOpened).toHaveBeenCalledWith('/tmp/x/runbook.mdx', source)
   })
 
   it("shows the main process's message without Electron's IPC wrapper", async () => {
@@ -43,8 +45,9 @@ describe('OpenUrlModal', () => {
         `Error invoking remote method 'runbook:open-remote': Error: "runbooks/nope" was not found in github.com/org/repo`,
       ),
     )
-    const onOpenChange = await submit('github.com/org/repo//runbooks/nope')
+    const { onOpenChange, onOpened } = await submit('github.com/org/repo//runbooks/nope')
     expect(await screen.findByText('"runbooks/nope" was not found in github.com/org/repo')).toBeInTheDocument()
     expect(onOpenChange).not.toHaveBeenCalled()
+    expect(onOpened).not.toHaveBeenCalled()
   })
 })
