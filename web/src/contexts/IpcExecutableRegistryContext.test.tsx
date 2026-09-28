@@ -25,7 +25,7 @@ function createRegistryApi(initial: Record<string, Executable>) {
       listeners.delete(callback)
     }
   })
-  const api = { invoke, on, once: vi.fn() } as unknown as RunbooksAPI
+  const api = { invoke, on } as unknown as RunbooksAPI
   return {
     api,
     invoke,

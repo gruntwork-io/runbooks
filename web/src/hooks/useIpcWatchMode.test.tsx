@@ -14,7 +14,7 @@ function createWatchApi() {
       listeners.delete(callback)
     }
   })
-  const api = { invoke: vi.fn(), on, once: vi.fn() } as unknown as RunbooksAPI
+  const api = { invoke: vi.fn(), on } as unknown as RunbooksAPI
   return {
     api,
     on,

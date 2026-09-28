@@ -27,7 +27,7 @@ function createControllableApi() {
         pending.push({ channel, params, resolve, reject })
       })
   )
-  const api = { invoke, on: () => () => {}, once: () => {} } as unknown as RunbooksAPI
+  const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
   return { api, invoke, pending }
 }
 

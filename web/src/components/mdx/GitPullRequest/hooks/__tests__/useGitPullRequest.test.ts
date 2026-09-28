@@ -44,7 +44,6 @@ function createEmittingApi() {
         listeners.get(channel)?.delete(callback)
       }
     },
-    once: () => {},
   } as unknown as RunbooksAPI
 
   const emit = (channel: string, data: unknown) => {

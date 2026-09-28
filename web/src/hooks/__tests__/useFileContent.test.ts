@@ -19,7 +19,7 @@ function setup() {
       reads.push({ filePath: params.filePath, resolve, reject })
     }),
   )
-  const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
+  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
   const wrapper = ({ children }: { children: ReactNode }) => createElement(ApiProvider, { api, children })
   const { result } = renderHook(() => useFileContent(), { wrapper })
   const readsOf = (filePath: string) => reads.filter(r => r.filePath === filePath)

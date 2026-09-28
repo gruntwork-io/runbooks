@@ -40,7 +40,7 @@ function makeApi(pending: Record<string, Promise<DirsResult>> = {}) {
     if (channel === 'native:set-theme') return { ok: true }
     throw new Error(`unexpected channel: ${channel}`)
   })
-  const api = { invoke, on: () => () => {}, once: () => {} } as unknown as RunbooksAPI
+  const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
   return { api, invoke }
 }
 

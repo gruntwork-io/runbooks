@@ -34,7 +34,7 @@ describe('MDXContainer — runbook code cannot run on open', () => {
 
   beforeEach(() => {
     invoke.mockReset()
-    window.api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as typeof window.api
+    window.api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api
   })
 
   afterEach(() => {

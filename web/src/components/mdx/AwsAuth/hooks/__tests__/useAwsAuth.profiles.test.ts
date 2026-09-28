@@ -54,7 +54,7 @@ const replyWith = (profiles: ProfileInfo[]) => {
 
 const wrapper = ({ children }: { children: ReactNode }) =>
   createElement(ApiProvider, {
-    api: { invoke, on: () => () => {}, once: () => {} } as unknown as Api,
+    api: { invoke, on: () => () => {} } as unknown as Api,
     children,
   })
 

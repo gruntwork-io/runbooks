@@ -34,7 +34,7 @@ function installApi(replies: { detect?: Reply; confirm?: Reply }) {
     if (channel === 'aws:check-region') return { enabled: true }
     throw new Error(`unexpected channel ${channel}`)
   })
-  currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+  currentApi = { invoke, on: () => () => {} } as unknown as Api
   return invoke
 }
 
@@ -223,7 +223,7 @@ describe('useAwsAuth — env confirm reply after the block is gone', () => {
       if (channel === 'aws:env-credentials-confirm') return new Promise<Reply>((r) => { answerConfirm = r })
       throw new Error(`unexpected channel ${channel}`)
     })
-    currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+    currentApi = { invoke, on: () => () => {} } as unknown as Api
     const { result, unmount } = renderAwsAuth()
     await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
 

@@ -28,7 +28,7 @@ let invoke: ReturnType<typeof vi.fn>
 
 function installApi(impl: InvokeImpl) {
   invoke = vi.fn(async (channel: string, params?: Record<string, unknown>) => impl(channel, params))
-  currentApi = { invoke, on: () => () => {}, once: () => {} } as unknown as Api
+  currentApi = { invoke, on: () => () => {} } as unknown as Api
 }
 
 function renderBlock(children: ReactNode) {

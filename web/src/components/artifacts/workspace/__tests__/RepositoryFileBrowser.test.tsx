@@ -47,7 +47,7 @@ const invoke = vi.fn(async (channel: string, args: { filePath: string }) => {
   const content = disk[args.filePath]
   return { path: args.filePath, content, language: "text", size: content.length }
 })
-const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as typeof window.api
+const api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api
 
 const originalApi = window.api
 beforeEach(() => {

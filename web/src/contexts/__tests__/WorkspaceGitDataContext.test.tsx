@@ -30,7 +30,7 @@ function createApi() {
     }
     return Promise.resolve({ ok: true })
   })
-  const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
+  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
   const callsTo = (channel: string, worktreePath?: string) =>
     calls.filter(c => c.channel === channel && (worktreePath === undefined || c.params.worktreePath === worktreePath))
   return { api, callsTo }

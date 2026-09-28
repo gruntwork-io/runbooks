@@ -19,7 +19,6 @@ function installApi(impl: (channel: string, args?: unknown) => unknown) {
   window.api = {
     invoke,
     on: vi.fn(() => () => {}),
-    once: vi.fn(),
   } as unknown as typeof window.api
   return invoke
 }
