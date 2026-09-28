@@ -222,7 +222,7 @@ export interface IpcChannelMap {
     // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
     // registered the secrets for redaction, materialised the ADC file and
     // written the session env. No token crosses IPC.
-    params: { flowId: string; blockId?: string }
+    params: { flowId: string; blockId?: string; region?: string; zone?: string }
     result: {
       status: "pending" | "complete" | "expired" | "failed"
       account?: GoogleAccountInfo
@@ -230,6 +230,9 @@ export interface IpcChannelMap {
       credentialsPath?: string
       projects?: GoogleProjectIpc[]
       scopes?: string[]
+      /** Region/zone MAIN wrote on "complete". What the block publishes. */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
     }
@@ -264,6 +267,12 @@ export interface IpcChannelMap {
       /** The EXISTING ADC path — nothing is copied for this tab. */
       credentialsPath?: string
       projects?: GoogleProjectIpc[]
+      /**
+       * Region/zone MAIN wrote: the requested ones, else the configuration's
+       * own. What the block publishes.
+       */
+      region?: string
+      zone?: string
       error?: string
       sessionEnvWarning?: string
       /** Present when the credential validated but lacks author-required scopes. */

@@ -993,6 +993,57 @@ describe('useGoogleAuth — OAuth tab', () => {
     )
   })
 
+  it('with no project to pick, sends the region/zone to MAIN and publishes what MAIN wrote', async () => {
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:oauth-start') {
+        return { flowId: 'flow-np', authUrl: 'https://accounts.google.com/o/oauth2/v2/auth' }
+      }
+      if (channel === 'google:oauth-poll') {
+        // No `project` prop and no listable projects: nothing follows this
+        // poll, so it is the only session write. MAIN echoes what it wrote.
+        return {
+          status: 'complete',
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          credentialsPath: '/tmp/runbooks-gcp-np/adc.json',
+          ...(args?.region ? { region: args.region } : {}),
+          ...(args?.zone ? { zone: args.zone } : {}),
+        }
+      }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      defaultRegion: 'europe-west1',
+      defaultZone: 'europe-west1-b',
+      detectCredentials: false,
+    })
+
+    await act(async () => {
+      await result.current.handleOAuthLogin()
+    })
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+
+    expect(callsTo(invoke, 'google:oauth-poll')).toEqual([
+      ['google:oauth-poll', { flowId: 'flow-np', blockId: 'gcp', region: 'europe-west1', zone: 'europe-west1-b' }],
+    ])
+    expect(callsTo(invoke, 'google:set-project')).toHaveLength(0)
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      outputs({
+        GOOGLE_APPLICATION_CREDENTIALS: '/tmp/runbooks-gcp-np/adc.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/tmp/runbooks-gcp-np/adc.json',
+        CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
+        GOOGLE_CLOUD_REGION: 'europe-west1',
+        CLOUDSDK_COMPUTE_REGION: 'europe-west1',
+        GOOGLE_REGION: 'europe-west1',
+        CLOUDSDK_COMPUTE_ZONE: 'europe-west1-b',
+        GOOGLE_ZONE: 'europe-west1-b',
+        GOOGLE_AUTH_TYPE: 'authorized_user',
+      }),
+    )
+  })
+
   it('sends author OAuth overrides and offers a project picker for multiple projects', async () => {
     const invoke = installApi((channel) => {
       if (channel === 'google:oauth-start') {
@@ -1725,6 +1776,67 @@ describe('useGoogleAuth — gcloud tab', () => {
     })
   })
 
+  it('publishes the region/zone MAIN read from the configuration, not the listing the renderer holds', async () => {
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:gcloud-configurations') {
+        // Listed before `gcloud config set compute/region` ran.
+        return {
+          ...GCLOUD_LISTING,
+          configurations: [
+            { name: 'default', isActive: true, account: 'dev@example.com', project: 'proj-a', authType: 'adc-user' },
+          ],
+        }
+      }
+      if (channel === 'google:gcloud-auth') {
+        // MAIN reads the configuration afresh and falls back to its compute
+        // defaults when the renderer sent none; it says what it wrote.
+        return {
+          valid: true,
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          projectId: 'proj-a',
+          credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          region: (args?.region as string | undefined) ?? 'us-west1',
+          zone: (args?.zone as string | undefined) ?? 'us-west1-a',
+        }
+      }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    await act(async () => {
+      await result.current.handleGcloudAuth()
+    })
+
+    expect(invoke).toHaveBeenCalledWith('google:gcloud-auth', {
+      blockId: 'gcp',
+      configuration: 'default',
+      projectId: 'proj-a',
+    })
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      outputs({
+        GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
+        GOOGLE_CLOUD_PROJECT: 'proj-a',
+        CLOUDSDK_CORE_PROJECT: 'proj-a',
+        GOOGLE_PROJECT: 'proj-a',
+        CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
+        GOOGLE_CLOUD_REGION: 'us-west1',
+        CLOUDSDK_COMPUTE_REGION: 'us-west1',
+        GOOGLE_REGION: 'us-west1',
+        CLOUDSDK_COMPUTE_ZONE: 'us-west1-a',
+        GOOGLE_ZONE: 'us-west1-a',
+        GOOGLE_AUTH_TYPE: 'authorized_user',
+      }),
+    )
+  })
+
   it('"Change project" keeps publishing the configuration\'s compute/region', async () => {
     const invoke = installApi((channel, args) => {
       if (channel === 'google:gcloud-configurations') return GCLOUD_LISTING
@@ -1734,6 +1846,7 @@ describe('useGoogleAuth — gcloud tab', () => {
           account: { principal: 'dev@example.com', accountType: 'user' },
           projectId: 'proj-a',
           credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          region: args?.region as string | undefined,
           projects: [
             { projectId: 'proj-a', displayName: 'Project A' },
             { projectId: 'proj-b', displayName: 'Project B' },

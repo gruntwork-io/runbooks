@@ -782,60 +782,73 @@ export function registerGoogleHandlers(): void {
     },
   )
 
-  ipcMain.handle("google:oauth-poll", async (_event, params: { flowId: string; blockId?: string }) => {
-    const generation = sessionManager.getGeneration()
-    try {
-      const result = await runtime.runPromise(pollOAuthFlow(params.flowId))
+  ipcMain.handle(
+    "google:oauth-poll",
+    async (
+      _event,
+      params: { flowId: string; blockId?: string; region?: string; zone?: string },
+    ) => {
+      const generation = sessionManager.getGeneration()
+      try {
+        const result = await runtime.runPromise(pollOAuthFlow(params.flowId))
 
-      if (result.status === "pending") return { status: "pending" as const }
-      if (result.status !== "complete") {
-        return {
-          status: result.status,
-          ...(result.error ? { error: redactSecrets(result.error) } : {}),
+        if (result.status === "pending") return { status: "pending" as const }
+        if (result.status !== "complete") {
+          return {
+            status: result.status,
+            ...(result.error ? { error: redactSecrets(result.error) } : {}),
+          }
         }
+        if (!result.adcJson) {
+          return { status: "failed" as const, error: "Sign-in completed without returning credentials" }
+        }
+
+        registerCredentialSecrets(result.adcJson)
+        registerSecret(result.accessToken)
+
+        // The freshly minted token is the cheap way to read identity; the
+        // long-lived refresh token in the ADC document is what gets materialised
+        // (D6 — a one-hour bearer would go stale mid-runbook).
+        const identity = result.accessToken
+          ? await runtime.runPromise(validateAccessToken(result.accessToken))
+          : await runtime.runPromise(validateAdcDocument(result.adcJson))
+
+        // The region/zone are written here, not only by a set-project: with no
+        // `project` prop and no listable projects, no set-project follows.
+        const success = await registerAuthenticatedCredential({
+          ...(params.blockId ? { blockId: params.blockId } : {}),
+          identity,
+          documentJson: result.adcJson,
+          ...(params.region ? { region: params.region } : {}),
+          ...(params.zone ? { zone: params.zone } : {}),
+        }, generation)
+
+        flowCredentials.clear()
+        flowCredentials.set(params.flowId, success.ref)
+
+        // The OAuth tab is the one tab that can have no implicit project, so the
+        // picker gets the full list — including a single project, which the hook
+        // auto-selects.
+        const projects = await listProjectsSafe(success.ref)
+        const scopes = result.scopes ?? identity.scopes
+
+        return {
+          status: "complete" as const,
+          account: toAccountInfo(identity),
+          ...(success.projectId ? { projectId: success.projectId } : {}),
+          ...(success.credentialsPath ? { credentialsPath: success.credentialsPath } : {}),
+          ...(projects.length > 0 ? { projects } : {}),
+          ...(scopes ? { scopes: [...scopes] } : {}),
+          // What was actually written, so the block publishes it.
+          ...(params.region ? { region: params.region } : {}),
+          ...(params.zone ? { zone: params.zone } : {}),
+          ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
+        }
+      } catch (err) {
+        return { status: "failed" as const, error: toErrorMessage(err) }
       }
-      if (!result.adcJson) {
-        return { status: "failed" as const, error: "Sign-in completed without returning credentials" }
-      }
-
-      registerCredentialSecrets(result.adcJson)
-      registerSecret(result.accessToken)
-
-      // The freshly minted token is the cheap way to read identity; the
-      // long-lived refresh token in the ADC document is what gets materialised
-      // (D6 — a one-hour bearer would go stale mid-runbook).
-      const identity = result.accessToken
-        ? await runtime.runPromise(validateAccessToken(result.accessToken))
-        : await runtime.runPromise(validateAdcDocument(result.adcJson))
-
-      const success = await registerAuthenticatedCredential({
-        ...(params.blockId ? { blockId: params.blockId } : {}),
-        identity,
-        documentJson: result.adcJson,
-      }, generation)
-
-      flowCredentials.clear()
-      flowCredentials.set(params.flowId, success.ref)
-
-      // The OAuth tab is the one tab that can have no implicit project, so the
-      // picker gets the full list — including a single project, which the hook
-      // auto-selects.
-      const projects = await listProjectsSafe(success.ref)
-      const scopes = result.scopes ?? identity.scopes
-
-      return {
-        status: "complete" as const,
-        account: toAccountInfo(identity),
-        ...(success.projectId ? { projectId: success.projectId } : {}),
-        ...(success.credentialsPath ? { credentialsPath: success.credentialsPath } : {}),
-        ...(projects.length > 0 ? { projects } : {}),
-        ...(scopes ? { scopes: [...scopes] } : {}),
-        ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
-      }
-    } catch (err) {
-      return { status: "failed" as const, error: toErrorMessage(err) }
-    }
-  })
+    },
+  )
 
   // A loopback listener is a real OS resource: cancelling must reach main, and
   // must succeed even if the flow is already gone.
@@ -935,6 +948,11 @@ export function registerGoogleHandlers(): void {
           // visible project matters — the renderer auto-selects it rather than
           // reporting success with a blank project.
           ...(projects.length > 0 ? { projects } : {}),
+          // What was actually written, so the block publishes it: the
+          // configuration read above fills these when the renderer sent none,
+          // and the renderer's own listing of it may be stale.
+          ...(region ? { region } : {}),
+          ...(zone ? { zone } : {}),
           ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
         }
       } catch (err) {

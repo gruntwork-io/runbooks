@@ -1292,6 +1292,8 @@ export function useGoogleAuth({
     credentialsPath?: string
     projects?: GoogleProjectInfo[]
     scopes?: string[]
+    region?: string
+    zone?: string
     sessionEnvWarning?: string
   }) => {
     const visibleProjects = (data.projects ?? []) as GoogleProjectInfo[]
@@ -1338,15 +1340,16 @@ export function useGoogleAuth({
       return
     }
 
-    // No project list to choose from — MAIN's resolved project (if any) stands.
+    // No project list to choose from — MAIN's resolved project (if any) stands,
+    // and so do the region/zone it wrote on completion.
     await completeAuthentication({
       ...identity,
       projectId: data.projectId ?? '',
-      region: effectiveRegion,
-      zone: effectiveZone,
+      region: data.region ?? '',
+      zone: data.zone ?? '',
       ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
     })
-  }, [project, effectiveRegion, effectiveZone, selectProject, completeAuthentication, appendWarning])
+  }, [project, selectProject, completeAuthentication, appendWarning])
 
   /**
    * Poll the loopback flow. The loop's generation is checked before AND after
@@ -1381,7 +1384,14 @@ export function useGoogleAuth({
       if (superseded()) return
 
       try {
-        const data = await api.invoke('google:oauth-poll', { flowId, blockId: id })
+        // The region/zone ride along because MAIN writes them on completion:
+        // with no project to pick, no set-project follows to write them.
+        const data = await api.invoke('google:oauth-poll', {
+          flowId,
+          blockId: id,
+          ...(effectiveRegion ? { region: effectiveRegion } : {}),
+          ...(effectiveZone ? { zone: effectiveZone } : {}),
+        })
 
         if (superseded()) return
 
@@ -1413,7 +1423,7 @@ export function useGoogleAuth({
     }
 
     void poll()
-  }, [api, id, finishOAuth, stopOAuthPolling])
+  }, [api, id, effectiveRegion, effectiveZone, finishOAuth, stopOAuthPolling])
 
   /**
    * Choose a Desktop-app OAuth client JSON (`{ "installed": { client_id,
@@ -1670,8 +1680,10 @@ export function useGoogleAuth({
         await completeAuthentication({
           ...identity,
           projectId: resolvedProjectId,
-          region,
-          zone,
+          // MAIN's answer, not the request: with none sent it falls back to the
+          // configuration as it reads it now, which this listing may predate.
+          region: data.region ?? '',
+          zone: data.zone ?? '',
           ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         return
@@ -1703,8 +1715,8 @@ export function useGoogleAuth({
       await completeAuthentication({
         ...identity,
         projectId: '',
-        region,
-        zone,
+        region: data.region ?? '',
+        zone: data.zone ?? '',
         ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
