@@ -91,6 +91,15 @@ function countFileLines(s: string): number {
 }
 
 /**
+ * File content read from disk in the form HEAD content (`git show` lines
+ * joined with "\n") has: runGit's readline ends a line at "\n", "\r\n" or a
+ * lone "\r" and drops the terminator, including the final one.
+ */
+function asShownContent(s: string): string {
+  return s.replace(/\r\n?/g, "\n").replace(/\n$/, "")
+}
+
+/**
  * Most deleted plus inserted lines lineChangeCounts searches for, as in the
  * Changed Files view's line diff (MAX_EDIT_LENGTH in web/src/lib/unifiedDiff.ts).
  */
@@ -741,7 +750,7 @@ const populateDiffContent = (
           // then put back in the worktree (MM). The file is its own original.
           if (matchesHead) {
             ;(change as { originalContent: string }).originalContent =
-              currentResult.right
+              asShownContent(currentResult.right)
           }
         } else {
           // If the file doesn't exist on disk but git reports it as modified,

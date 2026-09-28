@@ -844,27 +844,39 @@ describe("getWorkspaceChanges (real repo)", () => {
 
   it("diffs a staged change since put back in the worktree as unchanged", async () => {
     write("back.tf", "a\nb\n")
+    write("crlf.tf", "c\r\nd\r\n")
     write("edited.tf", "e\n")
     git("add", ".")
     git("commit", "-m", "initial")
     write("back.tf", "a\nB\n")
-    git("add", "back.tf")
+    write("crlf.tf", "c\r\nD\r\n")
+    git("add", "back.tf", "crlf.tf")
     write("back.tf", "a\nb\n")
+    write("crlf.tf", "c\r\nd\r\n")
     write("edited.tf", "e2\n")
-    // status lists back.tf, but it matches HEAD again, so the whole-worktree
-    // diff against HEAD has no record of it.
-    expect(git("status", "--porcelain=v1").toString()).toBe("MM back.tf\n M edited.tf\n")
+    // status lists back.tf and crlf.tf, but they match HEAD again, so the
+    // whole-worktree diff against HEAD has no record of them.
+    expect(git("status", "--porcelain=v1").toString()).toBe("MM back.tf\nMM crlf.tf\n M edited.tf\n")
 
     const result = await Effect.runPromise(
       getWorkspaceChanges(repoPath).pipe(Effect.provide(liveLayer)),
     )
     const byPath = Object.fromEntries(result.changes.map((c) => [c.path, c]))
 
-    // Without an original the view says the diff is unavailable.
+    // Without an original the view says the diff is unavailable. The original
+    // takes the form HEAD content always has (`git show` lines joined with
+    // "\n"), or the view reads a final newline as one more line.
     expect(byPath["back.tf"]).toMatchObject({
       changeType: "modified",
-      originalContent: "a\nb\n",
+      originalContent: "a\nb",
       newContent: "a\nb\n",
+      additions: 0,
+      deletions: 0,
+    })
+    expect(byPath["crlf.tf"]).toMatchObject({
+      changeType: "modified",
+      originalContent: "c\nd",
+      newContent: "c\r\nd\r\n",
       additions: 0,
       deletions: 0,
     })
