@@ -173,9 +173,15 @@ export function rehypeTransformAssetPaths() {
     // (block) or mdxJsxTextElement (inline) nodes with an `attributes` array.
     const visit = (node: RehypeNode) => {
       if (node.type === 'element' && node.tagName && node.properties) {
+        const tagName = node.tagName
         for (const [key, value] of Object.entries(node.properties)) {
           if (typeof value === 'string') {
-            node.properties[key] = rewriteAssetUrl(node.tagName, key, value)
+            node.properties[key] = rewriteAssetUrl(tagName, key, value)
+          } else if (Array.isArray(value)) {
+            // hast stores comma-separated properties such as srcSet as a list
+            node.properties[key] = value.map((item) =>
+              typeof item === 'string' ? rewriteAssetUrl(tagName, key, item) : item,
+            )
           }
         }
       } else if (

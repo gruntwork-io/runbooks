@@ -65,6 +65,42 @@ describe('MDXContainer asset paths', () => {
     expect((await screen.findByText('guide')).closest('a')?.getAttribute('href')).toBe('runbook-asset://assets/f.pdf')
   })
 
+  // A 2x display picks the srcSet candidate, not src, so an unrewritten
+  // srcSet breaks the image there even though src loads.
+  it('rewrites each srcSet candidate of <img> and <picture><source>, keeping descriptors', async () => {
+    renderRunbook(
+      '<picture>\n' +
+        '  <source srcSet="./assets/g.webp 1x, ./assets/g@2x.webp 2x" type="image/webp" />\n' +
+        '  <img src="./assets/g.png" srcSet="./assets/g.png 1x,./assets/g@2x.png 2x" alt="g" />\n' +
+        '</picture>\n',
+    )
+
+    const img = await findInRunbook('img[alt="g"]')
+    expect(img.getAttribute('src')).toBe('runbook-asset://assets/g.png')
+    expect(img.getAttribute('srcset')).toBe('runbook-asset://assets/g.png 1x,runbook-asset://assets/g@2x.png 2x')
+    expect(img.closest('picture')?.querySelector('source')?.getAttribute('srcset')).toBe(
+      'runbook-asset://assets/g.webp 1x, runbook-asset://assets/g@2x.webp 2x',
+    )
+  })
+
+  it('matches JSX attribute names case-insensitively', async () => {
+    renderRunbook('<img srcset="./assets/h.png 1x, ./assets/h@2x.png 2x" SRC="./assets/h.png" alt="h" />\n')
+
+    const img = await findInRunbook('img[alt="h"]')
+    expect(img.getAttribute('srcset')).toBe('runbook-asset://assets/h.png 1x, runbook-asset://assets/h@2x.png 2x')
+    expect(img.getAttribute('src')).toBe('runbook-asset://assets/h.png')
+  })
+
+  it('rewrites a <track> src inside <video>', async () => {
+    renderRunbook(
+      '<video src="./assets/i.mp4" controls>\n' +
+        '  <track src="./assets/i.vtt" kind="captions" srcLang="en" />\n' +
+        '</video>\n',
+    )
+
+    expect((await findInRunbook('video track')).getAttribute('src')).toBe('runbook-asset://assets/i.vtt')
+  })
+
   it('leaves URLs outside ./assets/ unchanged', async () => {
     renderRunbook(
       '<img src="https://example.com/x.png" alt="remote" />\n\n' +
@@ -77,6 +113,18 @@ describe('MDXContainer asset paths', () => {
 })
 
 describe('rehypeTransformAssetPaths', () => {
+  // Markdown can't produce srcSet, but hast stores it (a comma-separated
+  // property) as an array of candidates, and a plugin may also leave a string.
+  it('rewrites a hast element srcSet given as an array or a string', () => {
+    const img = { type: 'element', tagName: 'img', properties: { srcSet: ['./assets/a.png 1x', './assets/a@2x.png 2x'] } }
+    const source = { type: 'element', tagName: 'source', properties: { srcSet: './assets/b.webp 1x, ./assets/b@2x.webp 2x' } }
+
+    rehypeTransformAssetPaths()({ type: 'root', children: [img, source] })
+
+    expect(img.properties.srcSet).toEqual(['runbook-asset://assets/a.png 1x', 'runbook-asset://assets/a@2x.png 2x'])
+    expect(source.properties.srcSet).toBe('runbook-asset://assets/b.webp 1x, runbook-asset://assets/b@2x.webp 2x')
+  })
+
   // No block takes a src/href/data/poster prop today, so exercise the plugin
   // through a real MDX compile with a probe component that echoes its props.
   it('leaves props on capitalized components alone', async () => {

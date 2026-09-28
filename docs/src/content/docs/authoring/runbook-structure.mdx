@@ -120,4 +120,14 @@ Always reference files relative to your runbook:
 <video src="./assets/demo.mp4" poster="./assets/demo-poster.png" controls />
 ```
 
-Asset paths must start with `./assets/`. Runbooks loads them from the runbook's `assets/` folder whether they appear in markdown image syntax or in the `src` of an `<img>`, `<video>`, `<audio>` or `<source>` tag (and a `<video>`'s `poster`). Write the path as a plain string: `src={"./assets/demo.mp4"}` is left as written and won't load.
+Asset paths must start with `./assets/`. Runbooks loads them from the runbook's `assets/` folder when they appear in markdown image syntax, including in a block prop that supports inline markdown such as `title` or `description`, or in one of these tag attributes:
+
+| Tag | Attributes |
+|-----|------------|
+| `<img>` | `src`, `srcSet` |
+| `<video>` | `src`, `poster` |
+| `<audio>` | `src` |
+| `<source>` | `src` (inside `<video>` or `<audio>`), `srcSet` (inside `<picture>`) |
+| `<track>` | `src` |
+
+In a `srcSet`, each candidate's path is rewritten and its descriptor (`2x`, `480w`) is kept. Write the path as a plain string: `src={"./assets/demo.mp4"}` is left as written and won't load.
