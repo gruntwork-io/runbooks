@@ -2,6 +2,10 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite"
 import react from "@vitejs/plugin-react-swc"
 import tailwindcss from "@tailwindcss/vite"
 import path from "path"
+import { assertNoNestedNodeModules } from "./scripts/no-nested-node-modules.ts"
+
+// A leftover web/node_modules would shadow the root tree for renderer imports.
+assertNoNestedNodeModules(__dirname)
 
 export default defineConfig({
   main: {
@@ -50,7 +54,7 @@ export default defineConfig({
         output: {
           manualChunks: {
             "react-vendor": ["react", "react-dom"],
-            "mdx-vendor": ["@mdx-js/mdx", "@mdx-js/react", "react-markdown", "remark-gfm"],
+            "mdx-vendor": ["@mdx-js/mdx", "react-markdown", "remark-gfm"],
             "ui-vendor": [
               "@radix-ui/react-alert-dialog",
               "@radix-ui/react-tooltip",

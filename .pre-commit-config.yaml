@@ -3,13 +3,15 @@ repos:
     hooks:
       - id: docs-spellcheck
         name: Spellcheck docs
-        entry: task docs:spellcheck
+        # Same cspell version and globs as docs/package.json's "spellcheck"
+        # script, without needing a `bun install` in docs/ first.
+        entry: bash -c 'cd docs && bunx --bun cspell@10.0.0 --no-progress "src/content/**/*.{md,mdx}"'
         language: system
         files: ^docs/src/content/.*\.(md|mdx)$
         pass_filenames: false
-      - id: web-eslint
-        name: Run ESLint
-        entry: bash -c 'cd web && bun run eslint .'
+      - id: oxlint
+        name: Lint (oxlint)
+        entry: bun run lint
         language: system
-        files: ^web/src/.*\.(ts|tsx)$
+        files: \.(ts|tsx|js|jsx|mjs|cjs)$
         pass_filenames: false

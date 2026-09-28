@@ -27,8 +27,6 @@ interface RepositoryTabsProps {
   tabCounts?: Partial<Record<WorkspaceTab, number>>;
   /** Additional CSS classes */
   className?: string;
-  /** Which tabs are available (defaults to all) */
-  availableTabs?: WorkspaceTab[];
 }
 
 export const RepositoryTabs = ({
@@ -36,15 +34,10 @@ export const RepositoryTabs = ({
   onTabChange,
   tabCounts = {},
   className = "",
-  availableTabs,
 }: RepositoryTabsProps) => {
-  const visibleTabs = availableTabs 
-    ? TABS.filter(tab => availableTabs.includes(tab.id))
-    : TABS
-
   return (
     <div className={cn("relative flex items-end gap-0.5", className)}>
-      {visibleTabs.map((tab) => {
+      {TABS.map((tab) => {
         const isActive = activeTab === tab.id
         const count = tabCounts[tab.id]
 

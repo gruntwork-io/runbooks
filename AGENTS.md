@@ -27,7 +27,9 @@
 | **Effect** | raw promises | Services, layers, typed errors, streams |
 | **OpenTofu** | Terraform | IaC examples |
 
-Add shadcn/ui components: `bunx shadcn@latest add <name>`
+Add shadcn/ui components: `bunx shadcn@latest add <name>` (from the repo root)
+
+Dependencies: one `package.json` + `bun.lock` at the root (`web/` and `cli/` have none; `docs/` is a separate project). Run `bun add` from the root. Packages only `web/` imports go in `devDependencies` (`bun add -d`) because Vite bundles them; `dependencies` is for what `electron/`, `src/`, `cli/` import at runtime, and ships in the app.
 
 ## Key Commands
 
@@ -40,7 +42,7 @@ just test-unit        # Vitest (src/ + web/)
 just test-e2e         # Playwright
 just test-runbooks    # CLI integration tests
 just lint             # oxlint
-just typecheck        # tsc --noEmit
+just typecheck        # tsc -b
 ```
 
 ## Conventions
