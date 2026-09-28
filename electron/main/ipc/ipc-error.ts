@@ -66,8 +66,27 @@ export function describeFailure(err: unknown): string {
     const why = err.cause instanceof Error && err.cause.message ? `: ${err.cause.message}` : ""
     return `${err._tag}${where}${why}`
   }
-  const message = err instanceof Error ? err.message : String(err)
-  return message || "An unknown error occurred"
+  return describeUntagged(err) || "An unknown error occurred"
+}
+
+/**
+ * The text of a value that is not a tagged error: an Error's message, a
+ * string `message` property (e.g. a rejection with { message }), a plain
+ * object's JSON (e.g. Effect.die({ ... })) rather than "[object Object]", or
+ * a primitive's String(). "" when there is nothing to show: null, undefined,
+ * a function, or JSON.stringify failing on a circular value or a BigInt.
+ */
+function describeUntagged(err: unknown): string {
+  if (err === null || err === undefined) return ""
+  if (err instanceof Error) return err.message
+  if (typeof err !== "object" && typeof err !== "function") return String(err)
+  const { message } = err as { message?: unknown }
+  if (typeof message === "string") return message
+  try {
+    return JSON.stringify(err) ?? ""
+  } catch {
+    return ""
+  }
 }
 
 /**
