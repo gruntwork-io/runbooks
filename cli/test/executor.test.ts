@@ -1246,6 +1246,38 @@ describe("TestExecutor — GitClone sparse checkout", () => {
     expect(fs.existsSync(path.join(tmp, "empty", ".git"))).toBe(true)
   })
 
+  it("fails with git's error when it can't tell whether the clone has commits", async () => {
+    // Only an unborn HEAD (exit 1) means an empty clone. Any other failure,
+    // here a git that refuses the new checkout as dubious ownership (exit
+    // 128), must not skip the checkout and pass an empty clone; the app runs
+    // the checkout, which fails with the real error.
+    const realGit = execFileSync("sh", ["-c", "command -v git"], { env: process.env }).toString().trim()
+    const bin = path.join(tmp, "bin")
+    fs.mkdirSync(bin)
+    fs.writeFileSync(
+      path.join(bin, "git"),
+      [
+        "#!/bin/sh",
+        'for arg in "$@"; do',
+        '  case "$arg" in rev-parse|checkout) echo "fatal: detected dubious ownership in repository" >&2; exit 128;; esac',
+        "done",
+        `exec "${realGit}" "$@"`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    )
+    const savedPath = process.env.PATH
+    process.env.PATH = `${bin}${path.delimiter}${savedPath}`
+    try {
+      const result = await runGitClone(`prefilledRepoPath="modules/vpc" prefilledLocalPath="mono"`, "fail")
+
+      expect(result.stepResults[0]).toMatchObject({ actualStatus: "fail", passed: true })
+      expect(result.stepResults[0]?.error).toMatch(/dubious ownership/)
+    } finally {
+      process.env.PATH = savedPath
+    }
+  })
+
   it("fails a repo path outside the repository without cloning", async () => {
     const result = await runGitClone(`prefilledRepoPath="../elsewhere" prefilledLocalPath="mono"`)
 
