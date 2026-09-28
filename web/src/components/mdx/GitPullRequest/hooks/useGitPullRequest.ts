@@ -103,10 +103,11 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   // cancel() bumps it, so a superseded run's continuation (and any late events)
   // can't clobber the reset UI state or a newer run's state.
   const opRef = useRef(0)
-  // The pending invoke, if any. Cancel can't abort the main-process work, so a
-  // new operation waits (up to CANCELED_RUN_WAIT_MS) for it to settle before
-  // subscribing: the events carry no operation id, so overlapping runs' events
-  // would be indistinguishable.
+  // The latest run's pending invoke, if any. Cancel can't abort the
+  // main-process work, so a new operation waits (up to CANCELED_RUN_WAIT_MS)
+  // for it to settle before subscribing: the events carry no operation id, so
+  // overlapping runs' events would be indistinguishable. Only the latest
+  // invoke is tracked; see executeIPCRequest for what that leaves open.
   const inFlightRef = useRef<Promise<OperationResult> | null>(null)
   const isMountedRef = useRef(true)
   // Store active event unsubscribers so unmount can clean them up
@@ -182,8 +183,17 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
     // A canceled run may still be working in the main process. Wait for it so
     // its events and result can't land in this run, and so two runs don't
     // touch the worktree at once. Canceling again while waiting still works.
-    // The wait is bounded: past CANCELED_RUN_WAIT_MS this run starts anyway,
-    // and the canceled run's late events can then reach it.
+    //
+    // Known limit: the wait is bounded. Past CANCELED_RUN_WAIT_MS this run
+    // starts anyway and replaces inFlightRef with its own invoke, so the
+    // canceled run is no longer tracked: it can run git in the worktree
+    // alongside this run, and no later operation waits for it either. Whenever
+    // it does return, its git:log, git:pr-result, git:outputs, git:error and
+    // git:status events reach whichever operation is listening at that moment
+    // (this run, or a later one, such as a Push after this run succeeds). They
+    // can switch the displayed PR/MR, replace the block's registered outputs
+    // with its own and flip the status. Only its invoke result stays ignored.
+    // Closing this needs an operation id on every git:* event.
     const canceledRun = inFlightRef.current
     if (canceledRun) {
       setLogs(prev => [...prev, createLogEntry('Waiting for the canceled operation to finish…')])
