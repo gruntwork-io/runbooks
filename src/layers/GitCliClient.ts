@@ -82,6 +82,17 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
   })
 }
 
+/**
+ * Whether the checkout is a sparse checkout (`git sparse-checkout init` sets
+ * core.sparseCheckout). An unset key, or a failure to read it, counts as not.
+ */
+function isSparseCheckout(spawner: ProcessSpawner["Type"], repoPath: string) {
+  return runGit(spawner, ["config", "--bool", "--get", "core.sparseCheckout"], repoPath).pipe(
+    Effect.map((lines) => lines.join("").trim() === "true"),
+    Effect.catchAll(() => Effect.succeed(false)),
+  )
+}
+
 /** A full or abbreviated commit id (SHA-1 or SHA-256). */
 const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
 
@@ -350,17 +361,36 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
     stageAll: (repoPath: string, excludePaths: string[] = []) =>
       Effect.gen(function* () {
-        if (excludePaths.length === 0) {
-          yield* runGit(spawner, ["add", "-A"], repoPath)
-          return
-        }
+        // In a sparse checkout (a GitClone with a repo path), plain `add -A`
+        // leaves out what a block wrote outside the sparse-checkout cone: it
+        // skips edits to tracked files there without a word and fails on new
+        // files. `--sparse` stages them like any other change.
+        const sparse = yield* isSparseCheckout(spawner, repoPath)
+        const add = sparse ? ["add", "-A", "--sparse"] : ["add", "-A"]
         // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
         // alongside it. Used to keep embedded git repos out of the commit so
         // they aren't staged as broken submodule gitlinks.
         const excludes = excludePaths.map(
           (p) => `:(exclude)${p.replace(/\/+$/, "")}`,
         )
-        yield* runGit(spawner, ["add", "-A", "--", ".", ...excludes], repoPath)
+        const args = excludes.length === 0 ? add : [...add, "--", ".", ...excludes]
+        yield* runGit(spawner, args, repoPath).pipe(
+          // git before 2.34 has no `--sparse`. Its plain `add -A` would still
+          // skip the tracked files outside the cone, so say what is needed
+          // rather than commit only part of what the blocks wrote.
+          Effect.mapError((e) =>
+            sparse && e._tag === "GitError" && /unknown option [`']sparse'/.test(e.stderr)
+              ? new GitError({
+                  command: e.command,
+                  stderr:
+                    "This checkout is a sparse checkout (cloned with a repo path), and staging the files " +
+                    "written outside it needs `git add --sparse`, from git 2.34 or later. Upgrade git, " +
+                    "or clone the repository without a repo path.",
+                  exitCode: e.exitCode,
+                })
+              : e,
+          ),
+        )
       }),
 
     commit: (repoPath: string, message: string, options?: CommitOptions) =>
