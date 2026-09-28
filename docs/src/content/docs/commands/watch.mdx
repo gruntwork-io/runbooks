@@ -26,7 +26,7 @@ runbooks --watch RUNBOOK_SOURCE
 
 Watch mode then stays on for every runbook you open until you quit the app.
 
-`--watch` and `--disable-live-file-reload` only take effect when they start the app. If Runbooks is already running, the command opens the runbook in the existing window without watch mode, so quit Runbooks first.
+`--watch` and `--disable-live-file-reload` are read only when they start the app. If Runbooks is already running, a second `runbooks` command opens the runbook in the existing window with that window's modes, whatever flags it passes. To change modes, quit Runbooks first.
 
 ## Arguments
 
