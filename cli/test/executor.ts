@@ -34,6 +34,7 @@ import {
   mayAutoSendEnvToken,
 } from "../../src/domain/gitlab/auth.ts"
 import { redactSecrets } from "../../src/domain/vcs/redact.ts"
+import { untouchedValue } from "../../src/domain/boilerplate/untouchedValue.ts"
 import type { Executable } from "../../src/types.ts"
 
 import type {
@@ -410,13 +411,15 @@ export class TestExecutor {
       return result
     }
 
-    // Backfill defaults from Inputs block schemas
+    // Backfill unset variables of Inputs and Template blocks the way the app's
+    // form starts them: the default, else what the control shows (false for a
+    // bool, the displayed elements for a tuple).
     for (const [inputsId, schema] of this.validator.getAllSchemas()) {
       for (const [varName, variable] of schema.variables) {
         const key = `${inputsId}.${varName}`
-        if (!(key in resolvedInputs) && variable.default !== undefined) {
-          resolvedInputs[key] = variable.default
-        }
+        if (key in resolvedInputs) continue
+        const value = variable.default ?? untouchedValue(variable)
+        if (value !== undefined) resolvedInputs[key] = value
       }
     }
 
