@@ -9,7 +9,9 @@
  * runbook generated at test time — Admonitions, Command/Check descriptions,
  * every auth block's description, a GitClone local-checkout completion for a
  * repo under a long temp path, and a "Can't use this directory" error panel —
- * and measures the rendered layout.
+ * and measures the rendered layout. A second test checks that the full-width
+ * command box and separator of untitled Command/Check blocks stay clear of the
+ * ID label pinned to the block's top-right corner.
  *
  * git runs with a sandboxed HOME and GIT_CONFIG_GLOBAL/SYSTEM=/dev/null, both
  * for the fixture repo (every spawn gets that env explicitly) and for the app.
@@ -19,7 +21,7 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts long-paths.spec.ts
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from "@playwright/test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -77,6 +79,8 @@ The plan is written to \`${longPath}\`. Read more at ${LONG_URL}.
 
 <Check id="check-untitled" command="exit 0" />
 
+<Check id="check-path-untitled" path="checks/ok.sh" />
+
 <AwsAuth id="aws-long" title="AWS" description="Profiles come from \`${longPath}\`. See ${LONG_URL}." />
 
 <GoogleAuth id="gcp-long" title="Google Cloud" description="Keys come from \`${longPath}\`. See ${LONG_URL}." />
@@ -129,6 +133,8 @@ test.beforeAll(async () => {
   git(["remote", "add", "origin", REMOTE_URL], repoDir, env)
 
   fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), runbookMdx())
+  fs.mkdirSync(path.join(runbookDir, "checks"))
+  fs.writeFileSync(path.join(runbookDir, "checks", "ok.sh"), "#!/bin/bash\nexit 0\n")
 
   app = await electron.launch({
     args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
@@ -244,4 +250,58 @@ test("long paths and URLs stay inside their blocks at a narrow window", async ()
 
   const widths = await content.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
   expect(widths.scroll).toBe(widths.client)
+})
+
+/**
+ * Where a Command/Check row (the inline command box, or the separator under
+ * it) sits relative to the ID label pinned to the block's top-right corner,
+ * and how much of its column's width it leaves free on the right.
+ */
+async function rowLayout(blockId: string, row: Locator) {
+  await page.getByTestId(blockId).scrollIntoViewIfNeeded()
+  const label = await page.getByTestId(blockId).getByText("ID", { exact: true }).boundingBox()
+  const box = await row.boundingBox()
+  if (!label || !box) throw new Error(`${blockId}: ID label or row not rendered`)
+  const underLabel =
+    box.x < label.x + label.width && label.x < box.x + box.width &&
+    box.y < label.y + label.height && label.y < box.y + box.height
+  const rightGap = await row.evaluate(
+    (el) => el.parentElement!.getBoundingClientRect().right - el.getBoundingClientRect().right,
+  )
+  return { underLabel, rightGap }
+}
+
+const commandBox = (blockId: string, command: string) =>
+  rowLayout(blockId, page.getByTestId(blockId).getByText(command, { exact: true }))
+
+test("the command box and separator never sit under the block ID label", async () => {
+  // Untitled pending Check: it has no placeholder line, so the command box is
+  // the block's first row.
+  const check = await commandBox("check-untitled", "exit 0")
+  expect.soft(check.underLabel, "untitled Check: command box under the ID label").toBe(false)
+  expect.soft(check.rightGap, "untitled Check: no room left for the ID label").toBeGreaterThan(0)
+
+  // Untitled path-based Check: there is no command box, so the separator is
+  // the first row (and the block's first border-b element).
+  const separator = await rowLayout(
+    "check-path-untitled",
+    page.getByTestId("check-path-untitled").locator(".border-b.border-border").first(),
+  )
+  expect.soft(separator.underLabel, "untitled path Check: separator under the ID label").toBe(false)
+
+  // Untitled Command: a status line ("Run a command", then "Success") sits
+  // above the box, which keeps one width across those states.
+  const pending = await commandBox("cmd-untitled", "echo untitled")
+  expect.soft(pending.underLabel, "pending untitled Command: command box under the ID label").toBe(false)
+  const block = page.getByTestId("cmd-untitled")
+  await block.getByRole("button", { name: "Run" }).click()
+  await expect(block.getByTestId("icon-success")).toBeVisible({ timeout: 30_000 })
+  const ran = await commandBox("cmd-untitled", "echo untitled")
+  expect.soft(ran.underLabel, "untitled Command after a run: command box under the ID label").toBe(false)
+  expect.soft(ran.rightGap, "untitled Command: box width changes once it has run").toBe(pending.rightGap)
+
+  // Titled: the title row sits beside the label, and the box spans the column.
+  const titled = await commandBox("cmd-described", "echo described")
+  expect.soft(titled.underLabel, "titled Command: command box under the ID label").toBe(false)
+  expect.soft(titled.rightGap, "titled Command: command box does not span its column").toBe(0)
 })

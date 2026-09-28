@@ -221,6 +221,13 @@ export function ScriptBlock({
   const resolvedFailMessage = useMemo(() => resolveTemplateReferences(failMessage, templateContext), [failMessage, templateContext])
   const resolvedRunningMessage = useMemo(() => resolveTemplateReferences(runningMessage ?? variant.defaultRunningMessage, templateContext), [runningMessage, variant.defaultRunningMessage, templateContext])
 
+  // The ID label is pinned to the block's top-right corner. Without a title
+  // row beside it, the full-width command box (or, with `path`, the separator)
+  // can be the first row: a pending Check has no placeholder line. Keep both
+  // clear of the label, as the drift Admonition does. Keyed on the title alone
+  // so the width stays put as status lines come and go.
+  const clearIdLabel = resolvedTitle ? '' : 'mr-12'
+
   // Check if component requires variables but none are configured. Only Inputs
   // blocks supply `.inputs` values; an auth block reference never does.
   const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
@@ -460,13 +467,13 @@ export function ScriptBlock({
 
           {/* Display inline command if present */}
           {displayCommand && (
-            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap`}>
+            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}>
               {displayCommand.content}
             </div>
           )}
 
           {/* Separator */}
-          <div className="border-b border-border"></div>
+          <div className={`border-b border-border ${clearIdLabel}`}></div>
 
           {/* Show unmet input/output dependencies */}
           {!isRendering && (
