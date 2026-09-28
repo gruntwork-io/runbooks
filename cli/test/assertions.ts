@@ -15,8 +15,10 @@ export interface AssertionContext {
   outputDir: string
   /** Block outputs collected during test execution. */
   blockOutputs: Map<string, Map<string, string>>
-  /** Session env vars (as KEY=VALUE strings). */
-  sessionEnv: string[]
+  /** Number of files each block has generated this test case, by block ID. */
+  generatedFiles: Map<string, number>
+  /** Env for script assertions: the session env with the test's `env` on top. */
+  env: Record<string, string>
   /** Timeout in ms for script assertions. */
   timeout: number
 }
@@ -38,7 +40,7 @@ export function runAssertion(
     case "output_equals": return assertOutputEquals(assertion.block!, assertion.output!, assertion.value ?? "", ctx)
     case "output_matches": return assertOutputMatches(assertion.block!, assertion.output!, assertion.pattern!, ctx)
     case "output_exists": return assertOutputExists(assertion.block!, assertion.output!, ctx)
-    case "files_generated": return assertFilesGenerated(assertion.min_count ?? 0, ctx)
+    case "files_generated": return assertFilesGenerated(assertion.block!, assertion.min_count ?? 1, ctx)
     case "script": return assertScript(assertion.command!, ctx)
     default:
       return { type: assertion.type, passed: false, message: `Unknown assertion type: ${assertion.type}` }
@@ -234,18 +236,17 @@ function assertOutputExists(
 // Files generated assertion
 // ---------------------------------------------------------------------------
 
-function assertFilesGenerated(minCount: number, ctx: AssertionContext): AssertionResult {
-  let count = 0
-  try {
-    count = countFiles(ctx.outputDir)
-  } catch (e: unknown) {
-    return { type: "files_generated", passed: false, message: `Failed to walk output directory "${ctx.outputDir}": ${e}` }
-  }
-
+/**
+ * Counts only the files the named block wrote, so files from other blocks (or
+ * already in the output dir) can't satisfy it, and files a template wrote into
+ * a worktree still count.
+ */
+function assertFilesGenerated(blockId: string, minCount: number, ctx: AssertionContext): AssertionResult {
+  const count = ctx.generatedFiles.get(blockId) ?? 0
   if (count >= minCount) {
     return { type: "files_generated", passed: true }
   }
-  return { type: "files_generated", passed: false, message: `Expected at least ${minCount} files generated, got ${count}` }
+  return { type: "files_generated", passed: false, message: `Block "${blockId}" generated ${count} file(s), expected at least ${minCount}` }
 }
 
 export function countFiles(dir: string): number {
@@ -274,9 +275,12 @@ export function countFiles(dir: string): number {
  */
 function assertScript(command: string, ctx: AssertionContext): AssertionResult {
   try {
+    // Scripts run from the output dir, the same base every path assertion
+    // uses. It only exists once a block has generated files, so create it.
+    fs.mkdirSync(ctx.outputDir, { recursive: true })
     execFileSync("/bin/bash", ["-c", command], {
       cwd: ctx.outputDir,
-      env: envListToRecord(ctx.sessionEnv),
+      env: ctx.env,
       timeout: Math.min(ctx.timeout, 30000),
       stdio: "pipe",
     })

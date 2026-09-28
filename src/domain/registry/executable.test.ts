@@ -34,6 +34,29 @@ describe("extractProp", () => {
   it("returns empty string for missing prop", () => {
     expect(extractProp('id="x"', "command")).toBe("")
   })
+
+  it("extracts JSX boolean value", () => {
+    expect(extractProp("generateFile={true}", "generateFile")).toBe("true")
+  })
+
+  it("does not read a prop name from inside another prop's value", () => {
+    const props =
+      'title="Assume role" command={`aws sts assume-role --external-id="{{ .inputs.ExternalId }}"`} id="assume-role"'
+    expect(extractProp(props, "id")).toBe("assume-role")
+    expect(extractProp('command={`echo id="x"`} id={`real`}', "id")).toBe("real")
+    expect(extractProp('id={`real`} command={`aws --external-id="x"`}', "id")).toBe("real")
+  })
+
+  it("does not match a prop whose name ends with the requested name", () => {
+    expect(extractProp('data-id="foo" id="bar"', "id")).toBe("bar")
+    expect(extractProp('inputsId="foo" id="bar"', "id")).toBe("bar")
+    expect(extractProp('data-id="foo"', "id")).toBe("")
+  })
+
+  it("skips values in unsupported forms", () => {
+    expect(extractProp('timeout={300} id="real"', "id")).toBe("real")
+    expect(extractProp('timeout={300} id="real"', "timeout")).toBe("")
+  })
 })
 
 describe("computeExecutableId", () => {
@@ -134,6 +157,40 @@ Some text
     expect(result).toHaveLength(1)
     expect(result[0].content).toContain("echo ok")
   })
+
+  it("uses the id prop, not an id-like flag inside the command", () => {
+    const mdx =
+      '<Command title="Assume role" command={`aws sts assume-role --role-session-name="runbooks" --external-id="{{ .inputs.ExternalId }}"`} id="assume-role" />'
+    const result = parseComponents(mdx, "Command")
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe("assume-role")
+    expect(result[0].hasExplicitId).toBe(true)
+  })
+
+  it("returns the real block when a nested example reuses its id", () => {
+    const mdx = [
+      "````mdx",
+      "```mdx",
+      '<Command id="deploy" command="echo example" />',
+      "```",
+      "````",
+      "",
+      '<Command id="deploy" command="tofu apply" />',
+    ].join("\n")
+    const result = parseComponents(mdx, "Command")
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe("deploy")
+    expect(result[0].props).toContain("tofu apply")
+  })
+
+  it("records each component's offset in the source", () => {
+    const mdx = 'Intro\n\n<Check id="a" command="echo a" />\n<Check id="b" command="echo b" />\n'
+    const result = parseComponents(mdx, "Check")
+    expect(result.map((c) => c.index)).toEqual([
+      mdx.indexOf('<Check id="a"'),
+      mdx.indexOf('<Check id="b"'),
+    ])
+  })
 })
 
 describe("ExecutableRegistry", () => {
@@ -232,6 +289,22 @@ describe("ExecutableRegistry", () => {
     const entries = Object.keys(registry.getAllExecutables())
     const entry = await Effect.runPromise(registry.getExecutable(entries[0]))
     expect(entry.content).toContain("& hello")
+  })
+
+  it("registers blocks that share an id-like flag under their own ids", async () => {
+    const flag = '--external-id="{{ .inputs.ExternalId }}"'
+    const mdx = [
+      `<Command command={\`aws sts assume-role ${flag}\`} id="assume-role" />`,
+      `<Command command={\`aws sts assume-role --duration-seconds=900 ${flag}\`} id="assume-role-short" />`,
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const componentIds = Object.values(registry.getAllExecutables()).map((e) => e.componentId)
+    expect(componentIds.sort()).toEqual(["assume-role", "assume-role-short"])
   })
 
   it("extracts template variables from script content", async () => {

@@ -53,8 +53,11 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
       label: "Uninstall 'runbooks' command from PATH",
       click: async () => {
         try {
-          const status = await checkCliInstall()
-          if (!status.installed) {
+          // No status pre-check: uninstallCli decides what is ours, which
+          // includes a launcher left behind by a moved copy of the app that
+          // checkCliInstall reports as not installed.
+          const { removed } = await uninstallCli()
+          if (!removed) {
             dialog.showMessageBox({
               type: "info",
               title: "CLI Not Installed",
@@ -62,7 +65,6 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
             })
             return
           }
-          await uninstallCli()
           dialog.showMessageBox({
             type: "info",
             title: "CLI Uninstalled",

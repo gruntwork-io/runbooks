@@ -168,6 +168,65 @@ describe("getWorkspaceChanges", () => {
     expect(result.changes[0].newContent).toBe("new content")
   })
 
+  it("counts an added file's lines as git does, not counting the final newline as a line", async () => {
+    const layer = makeTestLayer({
+      files: {
+        "/workspace/terminated.txt": "a\nb\n",
+        "/workspace/unterminated.txt": "a\nb",
+        "/workspace/blank-last.txt": "a\n\n",
+        "/workspace/crlf.txt": "a\r\nb\r\n",
+      },
+      git: {
+        status: () =>
+          Effect.succeed([
+            { path: "terminated.txt", status: "??" },
+            { path: "unterminated.txt", status: "??" },
+            { path: "blank-last.txt", status: "??" },
+            { path: "crlf.txt", status: "??" },
+          ]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.changes.map((c) => [c.path, c.additions])).toEqual([
+      ["terminated.txt", 2],
+      ["unterminated.txt", 2],
+      ["blank-last.txt", 2],
+      ["crlf.txt", 2],
+    ])
+  })
+
+  it("counts a deleted file's blank last line (git show lines joined with \\n)", async () => {
+    const layer = makeTestLayer({
+      files: {},
+      git: {
+        status: () => Effect.succeed([{ path: "removed.txt", status: " D" }]),
+        // HEAD "x\n\n" comes back from `git show` as the lines ["x", ""].
+        diff: () =>
+          Effect.succeed([
+            {
+              path: "removed.txt",
+              originalContent: "x\n",
+              additions: 0,
+              deletions: 2,
+              changeType: "modified",
+              isBinary: false,
+              diffTruncated: false,
+            },
+          ]),
+      },
+    })
+
+    const result = await Effect.runPromise(
+      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+    )
+
+    expect(result.changes[0].deletions).toBe(2)
+  })
+
   it("categorizes deleted files correctly", async () => {
     const layer = makeTestLayer({
       files: {},
