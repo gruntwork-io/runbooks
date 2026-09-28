@@ -267,8 +267,8 @@ export async function installUnixLauncher(
 /**
  * Remove the launcher at `launcherPath` if Runbooks wrote it, including one
  * left by a copy of the app that has since moved. Resolves to false when
- * nothing is there, and refuses to touch anything else: `cli:uninstall` is an
- * IPC channel and must not delete another tool's `runbooks` as root.
+ * nothing is there, and refuses to touch anything else: the removal can run
+ * as root and must not delete another tool's `runbooks`.
  */
 export async function uninstallUnixLauncher(
   launcherPath: string,
