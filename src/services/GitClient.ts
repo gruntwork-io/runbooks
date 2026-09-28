@@ -79,6 +79,11 @@ export interface GitClientShape {
   readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
   readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
   readonly hasCommits: (repoPath: string) => Effect.Effect<boolean, GitError | SpawnError>
+  /**
+   * Whether HEAD has commits that `ref` (a full refname, `refs/…`) doesn't
+   * (`git rev-list <ref>..HEAD`). Fails when either can't be resolved.
+   */
+  readonly hasCommitsNotIn: (repoPath: string, ref: string) => Effect.Effect<boolean, GitError | SpawnError>
   readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>
   readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
   readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError | SpawnError>

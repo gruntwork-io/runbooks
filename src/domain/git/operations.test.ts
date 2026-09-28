@@ -354,7 +354,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed("git@gitlab.com:group/subgroup/project.git"),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -374,7 +374,7 @@ describe("createMergeRequest", () => {
     )
 
     // git half ran in order, then the MR was opened
-    expect(steps).toEqual(["createBranch", "stageAll", "commit", "push"])
+    expect(steps).toEqual(["stageAll", "createBranch", "commit", "push"])
     // iid surfaces as the user-facing number
     expect(result.number).toBe(7)
     expect(result.url).toContain("/merge_requests/7")
@@ -388,7 +388,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed("https://gitlab.acme.com/group/subgroup/project.git"),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -420,7 +420,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed(remoteUrl),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -492,6 +492,7 @@ describe("createMergeRequest", () => {
     const layer = makeTestLayer({
       git: {
         getRemoteUrl: () => Effect.succeed("git@gitlab.com:group/subgroup/project.git"),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.void,
         stageAll: () => Effect.void,
         commit: () => Effect.void,
@@ -524,9 +525,10 @@ describe("createMergeRequest", () => {
       files: { "/repo/sub/.git": "gitdir: ..." },
       git: {
         getRemoteUrl: () => Effect.succeed("git@gitlab.com:group/subgroup/project.git"),
+        // stageAll adds file.txt; the embedded repo stays untracked.
         status: () =>
-          Effect.succeed([
-            { path: "file.txt", status: "??" },
+          Effect.sync(() => [
+            { path: "file.txt", status: stagedExcludes ? "A" : "??" },
             { path: "sub/", status: "??" },
           ]),
         createBranch: () => Effect.void,
@@ -766,7 +768,7 @@ describe("push credential username", () => {
 
   const recordPush = (onPush: (username: string | undefined) => void) => ({
     getRemoteUrl: () => Effect.succeed("git@gitlab.com:acme/infra.git"),
-    status: () => Effect.succeed([]),
+    status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
     hasCommits: () => Effect.succeed(false),
     createBranch: () => Effect.void,
     stageAll: () => Effect.void,

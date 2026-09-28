@@ -17,7 +17,7 @@ import { createPullRequest, createMergeRequest } from "./operations.ts"
 import type { CreatePullRequestParams } from "./operations.ts"
 import { makeTestLayer, makeTestGitHubClient } from "../../test-utils/TestLayer.ts"
 import type { CreatePRParams } from "../../services/GitHubClient.ts"
-import { GitHubApiError } from "../../errors/index.ts"
+import { GitError, GitHubApiError } from "../../errors/index.ts"
 import { GitCliClientLive } from "../../layers/GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
@@ -75,6 +75,8 @@ describe("runGitSteps", () => {
         // An embedded repo left out of staging stays untracked; it must not
         // count as something to commit.
         status: () => Effect.succeed([{ path: "sub/", status: "??" }]),
+        // The earlier attempt's commit is still ahead of the base.
+        hasCommitsNotIn: () => Effect.succeed(true),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -88,13 +90,13 @@ describe("runGitSteps", () => {
     expect(steps).toEqual(["stageAll", "push"])
   })
 
-  it("on a fresh branch, always commits (so 'nothing to commit' stays the first-attempt error)", async () => {
+  it("on a fresh branch, stages before creating the branch, then commits and pushes", async () => {
     const steps: string[] = []
 
     const layer = makeTestLayer({
       git: {
         getCurrentBranch: () => Effect.succeed("main"),
-        status: () => Effect.succeed([]),
+        status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -105,7 +107,37 @@ describe("runGitSteps", () => {
 
     await Effect.runPromise(createPullRequest("tok", params).pipe(Effect.provide(layer)))
 
-    expect(steps).toEqual(["createBranch", "stageAll", "commit", "push"])
+    expect(steps).toEqual(["stageAll", "createBranch", "commit", "push"])
+  })
+
+  it("with nothing staged, measures HEAD against origin's base, else the local base branch", async () => {
+    const steps: string[] = []
+    const refs: string[] = []
+
+    const layer = makeTestLayer({
+      git: {
+        getCurrentBranch: () => Effect.succeed("runbook/122"),
+        status: () => Effect.succeed([]),
+        // No origin/main (e.g. origin was never fetched); the local main is behind HEAD.
+        hasCommitsNotIn: (_repoPath, ref) =>
+          Effect.suspend(() => {
+            refs.push(ref)
+            return ref.startsWith("refs/remotes/")
+              ? Effect.fail(new GitError({ command: "git rev-list", stderr: "bad revision", exitCode: 128 }))
+              : Effect.succeed(true)
+          }),
+        createBranch: () => Effect.sync(() => void steps.push("createBranch")),
+        stageAll: () => Effect.sync(() => void steps.push("stageAll")),
+        commit: () => Effect.sync(() => void steps.push("commit")),
+        push: () => Effect.sync(() => void steps.push("push")),
+      },
+      github: { createPullRequest: (_token, p) => openedPr(p) },
+    })
+
+    await Effect.runPromise(createPullRequest("tok", params).pipe(Effect.provide(layer)))
+
+    expect(refs).toEqual(["refs/remotes/origin/main", "refs/heads/main"])
+    expect(steps).toEqual(["stageAll", "createBranch", "push"])
   })
 
   it.each([
@@ -152,6 +184,7 @@ describe("runGitSteps", () => {
         getRemoteUrl: () => Effect.succeed("https://gitlab.com/acme/infra.git"),
         getCurrentBranch: () => Effect.succeed("runbook/123"),
         status: () => Effect.succeed([]),
+        hasCommitsNotIn: () => Effect.succeed(true),
         createBranch: () => Effect.sync(() => void steps.push("createBranch")),
         stageAll: () => Effect.sync(() => void steps.push("stageAll")),
         commit: () => Effect.sync(() => void steps.push("commit")),
@@ -175,7 +208,7 @@ describe("runGitSteps", () => {
 
 describe("createPullRequest labels", () => {
   const gitOk = {
-    status: () => Effect.succeed([]),
+    status: () => Effect.succeed([{ path: "new.tf", status: "A" }]),
     createBranch: () => Effect.void,
     stageAll: () => Effect.void,
     commit: () => Effect.void,
@@ -329,5 +362,50 @@ describe("createPullRequest retry (real git)", () => {
     expect(git(remote, "show", "--name-only", "--format=", "runbook/123").trim()).toBe(
       "generated.tf",
     )
+  })
+
+  it("pushes the failed attempt's commit under a new branch name", async () => {
+    fs.writeFileSync(path.join(work, "generated.tf"), "resource {}\n")
+
+    // Attempt 1 fails at the push, leaving the change committed on runbook/123.
+    git(work, "remote", "add", "origin", path.join(tmp, "missing.git"))
+    const first = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+    )
+    expect(first._tag).toBe("Left")
+
+    // Attempt 2: a new name, with nothing left to stage.
+    git(work, "remote", "set-url", "origin", remote)
+    const logs: string[] = []
+    const second = await Effect.runPromise(
+      createPullRequest("tok", { ...params, headBranch: "runbook/124", repoPath: work }, (l) =>
+        logs.push(l),
+      ).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(second).toMatchObject({ _tag: "Right", right: { number: 42, branch: "runbook/124" } })
+    expect(logs).toContain("No new changes to commit; pushing the existing commits…")
+    expect(git(remote, "show", "--name-only", "--format=", "runbook/124").trim()).toBe(
+      "generated.tf",
+    )
+  })
+
+  it("with nothing new, fails with nothing to commit before creating the branch", async () => {
+    // origin's main is the same commit as HEAD: there is nothing for a PR.
+    git(work, "remote", "add", "origin", remote)
+    git(work, "push", "origin", "main")
+    git(work, "fetch", "origin")
+
+    const result = await Effect.runPromise(
+      createPullRequest("tok", { ...params, repoPath: work }).pipe(Effect.either, Effect.provide(layer)),
+    )
+
+    expect(result._tag).toBe("Left")
+    if (result._tag === "Left") {
+      expect(result.left).toMatchObject({ stderr: expect.stringContaining("Nothing to commit") })
+    }
+    // HEAD stayed put, so the next attempt starts from the same place.
+    expect(git(work, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main")
+    expect(git(work, "branch", "--list", "runbook/123").trim()).toBe("")
   })
 })

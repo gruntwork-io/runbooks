@@ -219,6 +219,21 @@ const resolveGitLabAuthor = (token: string, baseUrl: string) =>
     return toCommitIdentity(validation.user)
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
+/**
+ * Whether HEAD has commits that the base branch doesn't, i.e. anything a PR/MR
+ * from HEAD would carry. Compared with origin's copy of the base when there is
+ * one (what the provider compares with), else the local base branch; false
+ * when neither resolves.
+ */
+const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
+  Effect.gen(function* () {
+    const gitClient = yield* GitClient
+    return yield* gitClient.hasCommitsNotIn(repoPath, `refs/remotes/origin/${baseBranch}`).pipe(
+      Effect.orElse(() => gitClient.hasCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
+      Effect.orElseSucceed(() => false),
+    )
+  })
+
 /** Wrap an optional progress callback as an Effect-returning reporter. */
 const makeReport =
   (onProgress?: (line: string) => void) =>
@@ -226,8 +241,8 @@ const makeReport =
     Effect.sync(() => onProgress?.(line))
 
 /**
- * Shared local-git half of opening a PR/MR: create + switch to the head branch,
- * stage all changes, commit, and push to origin. The push authenticates with
+ * Shared local-git half of opening a PR/MR: stage all changes, create + switch
+ * to the head branch, commit, and push to origin. The push authenticates with
  * the token the caller resolved, sent with `provider`'s credential username
  * (`oauth2` for GitLab, `x-access-token` for GitHub; see gitCredentialUsername).
  *
@@ -238,10 +253,10 @@ const makeReport =
  * API call) leaves HEAD on the head branch. Running again with the same branch
  * name picks up there instead of failing on "a branch named … already exists":
  * it skips the branch creation, commits only if there is something new, and
- * pushes. A resumed branch with no commits of its own (the first attempt
- * stopped at "nothing to commit") is still pushed, and the provider then
- * rejects the PR/MR as having no changes; the pushed branch is reused by the
- * next attempt.
+ * pushes. Running again under a new name branches off HEAD, so the commits the
+ * failed attempt made are pushed on the new branch. Only when nothing is staged
+ * and HEAD has no commits the base lacks does it fail, with "Nothing to
+ * commit", and then before any branch is created or checked out.
  */
 const runGitSteps = (
   token: string,
@@ -273,13 +288,6 @@ const runGitSteps = (
       .pipe(Effect.orElseSucceed(() => ""))
     const resuming = current === params.headBranch
 
-    if (resuming) {
-      yield* report(`Resuming on existing branch ${params.headBranch}…`)
-    } else {
-      yield* report(`Creating branch ${params.headBranch}…`)
-      yield* gitClient.createBranch(params.repoPath, params.headBranch)
-    }
-
     // Keep embedded git repos out of the commit: `git add -A` would otherwise
     // stage them as broken submodule gitlinks pointing at commits the target
     // repo can't resolve. Detection is best-effort and never blocks creation.
@@ -294,19 +302,35 @@ const runGitSteps = (
       )
     }
 
-    yield* report("Staging and committing changes…")
+    // Staged before the branch step, which carries the index over, so that an
+    // attempt with nothing to push stops before it moves HEAD.
+    yield* report("Staging changes…")
     yield* gitClient.stageAll(params.repoPath, embedded)
 
-    // On a fresh branch "nothing to commit" is the clearest error, so always
-    // commit. On a resumed branch an earlier attempt may already have committed
-    // everything; commit only what is staged now. (Not hasChanges: the embedded
-    // repos left out of staging still show as untracked.) status() trims the XY
-    // code, so a worktree-only change (a tracked submodule with modified
-    // content) also counts here, and the commit then fails as on a fresh branch.
-    const hasStaged = resuming
-      ? (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
-      : true
+    // An earlier attempt, under this name or another, may already have
+    // committed everything; commit only what is staged now. (Not hasChanges:
+    // the embedded repos left out of staging still show as untracked.) status()
+    // trims the XY code, so a worktree-only change (a tracked submodule with
+    // modified content) also counts here, and the commit then fails with git's
+    // own error.
+    const hasStaged = (yield* gitClient.status(params.repoPath)).some((e) => e.status !== "??")
+    if (!hasStaged && !(yield* hasCommitsNotOnBase(params.repoPath, params.baseBranch))) {
+      return yield* new GitError({
+        command: "commit",
+        stderr: `Nothing to commit: no files changed, and there are no commits that ${params.baseBranch} doesn't already have.`,
+        exitCode: 1,
+      })
+    }
+
+    if (resuming) {
+      yield* report(`Resuming on existing branch ${params.headBranch}…`)
+    } else {
+      yield* report(`Creating branch ${params.headBranch}…`)
+      yield* gitClient.createBranch(params.repoPath, params.headBranch)
+    }
+
     if (hasStaged) {
+      yield* report("Committing changes…")
       yield* gitClient.commit(params.repoPath, params.commitMessage, { author })
     } else {
       yield* report("No new changes to commit; pushing the existing commits…")

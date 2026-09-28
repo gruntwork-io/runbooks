@@ -344,6 +344,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         Effect.catchAll(() => Effect.succeed(false)),
       ),
 
+    hasCommitsNotIn: (repoPath: string, ref: string) =>
+      runGit(spawner, ["rev-list", "--count", `${ref}..HEAD`, "--"], repoPath).pipe(
+        Effect.map((lines) => Number(lines[0]) > 0),
+      ),
+
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {
         if (paths.length === 0) return new Set<string>()

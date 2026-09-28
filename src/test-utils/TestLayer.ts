@@ -113,6 +113,8 @@ const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientSh
     Effect.fail(new GitError({ command: "status", stderr: notConfigured("GitClient", "status"), exitCode: 1 })),
   hasCommits: (_repoPath) =>
     Effect.fail(new GitError({ command: "log", stderr: notConfigured("GitClient", "hasCommits"), exitCode: 1 })),
+  hasCommitsNotIn: (_repoPath, _ref) =>
+    Effect.fail(new GitError({ command: "rev-list", stderr: notConfigured("GitClient", "hasCommitsNotIn"), exitCode: 1 })),
   checkIgnored: (_repoPath, _paths) =>
     Effect.fail(new GitError({ command: "check-ignore", stderr: notConfigured("GitClient", "checkIgnored"), exitCode: 1 })),
   createBranch: (_repoPath, _branch) =>
