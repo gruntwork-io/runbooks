@@ -6,49 +6,16 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, runbookConfig } from "./runtime.ts"
+import { runtime, sessionManager } from "./runtime.ts"
 import {
   getWorkspaceTree,
   getWorkspaceDirs,
   readWorkspaceFile,
   getWorkspaceChanges,
 } from "../../../src/domain/workspace/workspace.ts"
-import { validateRelativePathIn, isContainedIn } from "../../../src/path-validation.ts"
+import { validateRelativePathIn } from "../../../src/path-validation.ts"
 import { validateSessionPath } from "./path-guard.ts"
-import { PathTraversalError } from "../../../src/errors/index.ts"
 import path from "path"
-
-/**
- * Resolve a renderer-supplied worktree path and fail if it escapes the session
- * working directory (or the runbook directory). Returns the resolved path.
- *
- * Paths already registered as worktrees pass regardless of location: a local
- * checkout the user selected in a <GitClone> block lives wherever they keep
- * their repos, and that selection is what granted access in the first place
- * (see the git:local-repo handler). This does not widen the grant — an
- * unregistered path outside the session still fails.
- */
-const resolveValidatedWorktree = (worktreePath: string) =>
-  Effect.gen(function* () {
-    const resolved = path.resolve(worktreePath)
-    const session = yield* sessionManager.getSession()
-    if (session.registeredWorkTreePaths.includes(resolved)) {
-      return resolved
-    }
-    const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
-    if (
-      !isContainedIn(resolved, session.workingDir) &&
-      !(runbookDir && isContainedIn(resolved, runbookDir))
-    ) {
-      return yield* Effect.fail(
-        new PathTraversalError({
-          path: resolved,
-          message: "worktree path is outside session working directory",
-        }),
-      )
-    }
-    return resolved
-  })
 
 export function registerWorkspaceHandlers(): void {
   ipcMain.handle(
@@ -56,8 +23,8 @@ export function registerWorkspaceHandlers(): void {
     async (_event, params: { worktreePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
-          return yield* getWorkspaceTree(params.worktreePath)
+          const worktreePath = yield* validateSessionPath(params.worktreePath)
+          return yield* getWorkspaceTree(worktreePath)
         }),
       )
     },
@@ -68,8 +35,8 @@ export function registerWorkspaceHandlers(): void {
     async (_event, params: { worktreePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
-          return yield* getWorkspaceDirs(params.worktreePath)
+          const worktreePath = yield* validateSessionPath(params.worktreePath)
+          return yield* getWorkspaceDirs(worktreePath)
         }),
       )
     },
@@ -91,8 +58,8 @@ export function registerWorkspaceHandlers(): void {
           const absFilePath = path.isAbsolute(params.filePath)
             ? params.filePath
             : path.join(params.worktreePath, params.filePath)
-          yield* validateSessionPath(absFilePath)
-          return yield* readWorkspaceFile("", absFilePath)
+          const resolvedFilePath = yield* validateSessionPath(absFilePath)
+          return yield* readWorkspaceFile("", resolvedFilePath)
         }),
       )
     },
@@ -106,11 +73,11 @@ export function registerWorkspaceHandlers(): void {
     ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          yield* validateSessionPath(params.worktreePath)
+          const worktreePath = yield* validateSessionPath(params.worktreePath)
           if (params.singleFile) {
-            yield* validateRelativePathIn(params.singleFile, params.worktreePath)
+            yield* validateRelativePathIn(params.singleFile, worktreePath)
           }
-          return yield* getWorkspaceChanges(params.worktreePath, params.singleFile)
+          return yield* getWorkspaceChanges(worktreePath, params.singleFile)
         }),
       )
     },
@@ -121,7 +88,11 @@ export function registerWorkspaceHandlers(): void {
     async (_event, params: { worktreePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const resolved = yield* resolveValidatedWorktree(params.worktreePath)
+          // Registered worktrees pass wherever they live (git:local-repo
+          // registers the local checkout picked in a <GitClone> block). Any
+          // other path must resolve into the session with symlinks followed,
+          // so a symlink planted there can't register a root outside it.
+          const resolved = yield* validateSessionPath(params.worktreePath)
           sessionManager.registerWorkTreePath(resolved)
           return { ok: true as const }
         }),
@@ -134,7 +105,7 @@ export function registerWorkspaceHandlers(): void {
     async (_event, params: { worktreePath: string }) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const resolved = yield* resolveValidatedWorktree(params.worktreePath)
+          const resolved = yield* validateSessionPath(params.worktreePath)
           sessionManager.setActiveWorkTreePath(resolved)
           return { ok: true as const }
         }),

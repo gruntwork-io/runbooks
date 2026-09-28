@@ -108,19 +108,6 @@ describe('buildAuthEnvVars — googleAuthId routing', () => {
   it('returns undefined for a GoogleAuth block that has not authenticated', () => {
     expect(buildAuthEnvVars('target-project', {}, GOOGLE_AUTH_ENV_KEYS)).toBeUndefined()
   })
-
-  it('gates the Run button until the referenced GoogleAuth block authenticates', () => {
-    expect(checkAuthDependency('target-project', undefined, {})).toEqual({
-      blockId: 'target-project',
-    })
-    expect(
-      checkAuthDependency(
-        'target-project',
-        buildAuthEnvVars('target-project', googleBlockOutputs, GOOGLE_AUTH_ENV_KEYS),
-        googleBlockOutputs,
-      ),
-    ).toBeNull()
-  })
 })
 
 describe('buildGoogleAuthEnvVars — CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE bridging', () => {

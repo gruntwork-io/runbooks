@@ -8,6 +8,7 @@ if (process.env.ELECTRON_RENDERER_URL) {
 import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
 import * as path from "path"
 import * as fs from "fs"
+import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
 import { openRunbookInWindow } from "./open-runbook.ts"
 import { getStoredTheme } from "./theme-store.ts"
@@ -19,7 +20,8 @@ import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
-import { isContainedIn } from "../../src/path-validation.ts"
+import { cancelAllExecutions } from "./ipc/exec.ts"
+import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
@@ -310,23 +312,20 @@ app.whenReady().then(() => {
   // from the local filesystem. The renderer rewrites ./assets/foo.png to
   // runbook-asset://assets/foo.png which this handler resolves relative to the
   // runbook directory.
-  protocol.handle("runbook-asset", (request) => {
+  protocol.handle("runbook-asset", async (request) => {
     // URL looks like: runbook-asset://assets/foo.png
-    const url = new URL(request.url)
-    // Combine host + pathname to get the relative asset path (e.g. "assets/foo.png")
-    const assetRelative = url.hostname + url.pathname
-    const runbookDir = path.dirname(runbookConfig.localPath)
-    const assetPath = path.join(runbookDir, assetRelative)
-
-    // Security: ensure the resolved path is within the runbook directory.
-    // Uses isContainedIn which appends path.sep to prevent prefix-matching
-    // bypass (e.g. /tmp/my-runbook-evil matching /tmp/my-runbook).
-    const resolved = path.resolve(assetPath)
-    if (!isContainedIn(resolved, path.resolve(runbookDir))) {
+    // Security: resolveRunbookAssetPath returns null unless the file is within
+    // the runbook directory after resolving symlinks, so neither `..` nor a
+    // symlink shipped in the runbook dir can serve a file from outside it.
+    const resolved = await resolveRunbookAssetPath(
+      request.url,
+      path.dirname(runbookConfig.localPath),
+    )
+    if (!resolved) {
       return new Response("Forbidden", { status: 403 })
     }
 
-    return net.fetch(`file://${resolved}`)
+    return net.fetch(pathToFileURL(resolved).href)
   })
 
   // Apply the persisted theme before creating the window so its background
@@ -394,26 +393,44 @@ app.on("window-all-closed", () => {
 })
 
 app.on("will-quit", (event) => {
-  // Clean up any temp clone directories
-  cleanupTempClones()
-
-  // Shred the credential files materialised for Google Cloud auth
-  cleanupGoogleCredentialFiles()
-
-  // Dispose the Effect managed runtime to clean up background fibers,
-  // file watchers, etc. Use a timeout to avoid blocking shutdown if a
-  // fiber never completes.
+  // Shutdown is async; use a timeout to avoid blocking it if a fiber never
+  // completes.
   event.preventDefault()
   const timeout = setTimeout(() => {
     app.exit(0)
   }, 2000)
-  runtime
-    .dispose()
+
+  // Stop running scripts first. They run in their own process group, so
+  // nothing else signals them when the app exits, and they would otherwise
+  // keep running headless. Only the SIGTERM is guaranteed here (the spawner's
+  // SIGKILL escalation timer dies with this process), and we don't wait for
+  // the scripts to finish: once the app exits their stdout/stderr pipes are
+  // closed, so a graceful shutdown that still writes output (e.g. tofu
+  // releasing a state lock) can be cut short by SIGPIPE. This runs before the
+  // cleanup below so a script is signalled before its temp clone or credential
+  // file disappears. The wait is capped at 1 s so that cleanup still runs
+  // inside the safety timeout.
+  Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
     .catch((err) => {
-      log.error("Error disposing runtime:", err)
+      log.error("Error cancelling executions:", err)
     })
     .finally(() => {
-      clearTimeout(timeout)
-      app.exit(0)
+      // Clean up any temp clone directories
+      cleanupTempClones()
+
+      // Shred the credential files materialised for Google Cloud auth
+      cleanupGoogleCredentialFiles()
+
+      // Dispose the Effect managed runtime to clean up background fibers,
+      // file watchers, etc.
+      runtime
+        .dispose()
+        .catch((err) => {
+          log.error("Error disposing runtime:", err)
+        })
+        .finally(() => {
+          clearTimeout(timeout)
+          app.exit(0)
+        })
     })
 })

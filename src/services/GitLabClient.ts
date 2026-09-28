@@ -64,7 +64,6 @@ export interface GitLabClientShape {
    * accepted (the client normalizes it) and it defaults to gitlab.com.
    */
   readonly validateToken: (token: string, baseUrl?: string) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
-  readonly detectTokenType: (token: string) => GitLabTokenType
   readonly createMergeRequest: (token: string, params: CreateMRParams) => Effect.Effect<MergeRequestResult, GitLabApiError>
   /** `baseUrl` is the instance origin (bare host or full URL); defaults to gitlab.com. */
   readonly listLabels: (token: string, owner: string, repo: string, baseUrl?: string) => Effect.Effect<string[], GitLabApiError>

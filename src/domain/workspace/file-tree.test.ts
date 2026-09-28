@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { buildFileTree, isBinaryExt } from "./file-tree.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import {
+  type FileTreeNode,
   MAX_FILE_TREE_FILES,
   MAX_FILE_CONTENT_SIZE,
   HEAVY_DIR_THRESHOLD,
@@ -14,6 +15,13 @@ const runTree = (
 ) =>
   Effect.runPromise(
     buildFileTree(rootPath).pipe(Effect.provide(makeTestFileSystem(files))),
+  )
+
+/** Counts file nodes at every depth of the tree. */
+const countFiles = (nodes: FileTreeNode[]): number =>
+  nodes.reduce(
+    (n, node) => n + (node.type === "file" ? 1 : countFiles(node.children)),
+    0,
   )
 
 describe("isBinaryExt", () => {
@@ -89,7 +97,7 @@ describe("buildFileTree", () => {
     expect(result.meta.totalFiles).toBe(1)
   })
 
-  it("stops including file content once totalFiles exceeds MAX_FILE_TREE_FILES", async () => {
+  it("omits files beyond MAX_FILE_TREE_FILES from the tree but still counts them", async () => {
     // Build (MAX + 5) tiny files under a top-level dir.
     const files: Record<string, string> = {}
     const N = MAX_FILE_TREE_FILES + 5
@@ -101,6 +109,8 @@ describe("buildFileTree", () => {
     // totalFiles is incremented for every file regardless of cap.
     expect(result.meta.totalFiles).toBe(N)
     expect(result.meta.truncatedTree).toBe(true)
+    // Exactly MAX files make it into the tree; the rest are dropped.
+    expect(countFiles(result.tree)).toBe(MAX_FILE_TREE_FILES)
     // The "many" subtree should be marked as a heavy dir because it has many
     // files above the threshold.
     const heavy = result.meta.heavyDirs.find((d) => d.path === "many")
@@ -108,12 +118,33 @@ describe("buildFileTree", () => {
     expect(heavy!.fileCount).toBe(N)
   })
 
-  it("does not flag a small dir as heavy", async () => {
-    // Just under the heavy-dir threshold AND below the file-tree cap.
-    const N = HEAVY_DIR_THRESHOLD - 1
+  it("reports only top-level dirs at or above HEAVY_DIR_THRESHOLD as heavy", async () => {
+    // THRESHOLD + (THRESHOLD - 1) files exceeds the cap, so the tree is
+    // truncated and heavyDirs is computed; the two dirs straddle the `>=`.
     const files: Record<string, string> = {}
-    for (let i = 0; i < N; i++) files[`/root/small/file${i}.txt`] = "x"
+    for (let i = 0; i < HEAVY_DIR_THRESHOLD; i++) {
+      files[`/root/heavy/file${i}.txt`] = "x"
+    }
+    for (let i = 0; i < HEAVY_DIR_THRESHOLD - 1; i++) {
+      files[`/root/light/file${i}.txt`] = "x"
+    }
     const result = await runTree(files)
+
+    expect(result.meta.truncatedTree).toBe(true)
+    expect(result.meta.heavyDirs).toEqual([
+      { path: "heavy", fileCount: HEAVY_DIR_THRESHOLD },
+    ])
+  })
+
+  it("reports no heavy dirs when the tree is not truncated", async () => {
+    // At the heavy-dir threshold but below the file-tree cap.
+    const files: Record<string, string> = {}
+    for (let i = 0; i < HEAVY_DIR_THRESHOLD; i++) {
+      files[`/root/big/file${i}.txt`] = "x"
+    }
+    const result = await runTree(files)
+
+    expect(result.meta.truncatedTree).toBe(false)
     expect(result.meta.heavyDirs).toEqual([])
   })
 

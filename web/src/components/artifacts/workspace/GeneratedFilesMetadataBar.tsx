@@ -5,7 +5,7 @@
  * Layout mirrors RepositoryMetadataBar for visual consistency.
  */
 
-import { cn } from '@/lib/utils'
+import { basename, cn } from '@/lib/utils'
 import { LocalPathRow } from './rows/LocalPathRow'
 
 interface GeneratedFilesMetadataBarProps {
@@ -28,7 +28,7 @@ export const GeneratedFilesMetadataBar = ({
   const displayText = relativePath
     ? `./${relativePath}`
     : absolutePath
-      ? `./${absolutePath.split('/').pop()}`
+      ? `./${basename(absolutePath)}`
       : null
 
   return (

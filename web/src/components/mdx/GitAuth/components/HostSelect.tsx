@@ -1,17 +1,20 @@
 import { KeyRound, RefreshCw } from "lucide-react"
-import type { GitLabHostEntry } from "../types"
+import type { GitHostEntry } from "../types"
 import { OTHER_INSTANCE_SENTINEL } from "../types"
+import type { ProviderConfig } from "../providers"
 
 interface HostSelectProps {
   /** Owning block id, used to derive a unique DOM id for the select. */
   id: string
-  /** The merged host union (glab config + env + session + recents). */
-  hosts: GitLabHostEntry[]
+  /** The provider whose hosts are listed (label, CLI name, "Other instance…"). */
+  provider: ProviderConfig
+  /** The merged host union (gh/glab config + env + session + recents). */
+  hosts: GitHostEntry[]
   /** The currently selected host. */
   value: string
   /** Called with the picked host, or the "__other__" sentinel. */
   onChange: (value: string) => void
-  /** Re-read glab's config, refresh trust, and re-run detection. */
+  /** Re-read the CLI's config, refresh trust, and re-run detection. */
   onReload: () => void
   /** Hosts whose credential failed validation this session (key icon downgrade). */
   downgradedHosts?: ReadonlySet<string>
@@ -19,7 +22,8 @@ interface HostSelectProps {
   disabled?: boolean
 }
 
-const SOURCE_LABELS: Record<GitLabHostEntry["sources"][number], string> = {
+const SOURCE_LABELS: Record<GitHostEntry["sources"][number], string> = {
+  gh: "gh",
   glab: "glab",
   env: "env",
   session: "session",
@@ -27,16 +31,17 @@ const SOURCE_LABELS: Record<GitLabHostEntry["sources"][number], string> = {
 }
 
 /**
- * GitLab host picker. Renders whenever there is at
+ * GitLab / GitHub host picker. For GitLab it renders whenever there is at
  * least ONE known host (the dropdown is what makes the "Other
- * instance…" row reachable). Entries carry provenance badges and a key icon
+ * instance…" row reachable); the parent shows it for GitHub only when there is
+ * more than one host. Entries carry provenance badges and a key icon
  * for the offline has-credential check; a failed validation downgrades the
  * icon for the rest of the session so the dropdown never contradicts the
- * warning chip. The parent hides this entirely for GitHub or when the author
- * pinned a `host`.
+ * warning chip. The parent hides this entirely when the author pinned a `host`.
  */
 export function HostSelect({
   id,
+  provider,
   hosts = [],
   value,
   onChange,
@@ -45,9 +50,9 @@ export function HostSelect({
   disabled,
 }: HostSelectProps) {
   const hasChoice = hosts.length >= 1
-  // Unique per block so two GitLab GitAuth blocks on one page don't emit
+  // Unique per block so two GitAuth blocks on one page don't emit
   // duplicate DOM ids (which break label association and are invalid HTML).
-  const selectId = `gitlab-host-${id}`
+  const selectId = `${provider.id}-host-${id}`
 
   const selected = hosts.find((h) => h.host === value)
   const selectedDowngraded = downgradedHosts?.has(value) ?? false
@@ -58,7 +63,7 @@ export function HostSelect({
       {hasChoice && (
         <>
           <label htmlFor={selectId} className="text-muted-foreground">
-            GitLab host:
+            {provider.label} host:
           </label>
           <select
             id={selectId}
@@ -73,8 +78,10 @@ export function HostSelect({
               </option>
             ))}
             {/* A never-configured instance is one click away instead of
-                buried in the PAT tab. */}
-            <option value={OTHER_INSTANCE_SENTINEL}>Other instance…</option>
+                buried in the PAT tab (GitLab only). */}
+            {provider.supportsManualInstance && (
+              <option value={OTHER_INSTANCE_SENTINEL}>Other instance…</option>
+            )}
           </select>
 
           {/* Provenance badges for the selected host. */}
@@ -125,7 +132,7 @@ export function HostSelect({
         type="button"
         onClick={onReload}
         disabled={disabled}
-        title="Re-read glab config, refresh trust, and re-check credentials"
+        title={`Re-read ${provider.cli.binary} config, refresh trust, and re-check credentials`}
         className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
       >
         <RefreshCw className={`size-3.5 ${disabled ? 'animate-spin' : ''}`} />

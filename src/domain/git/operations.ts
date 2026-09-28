@@ -14,6 +14,7 @@ import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { GitError } from "../../errors/index.ts"
 import { gitSpawnEnv } from "./env.ts"
 import { gitlabBaseUrlFromRemoteUrl } from "./gitlab-host.ts"
+import { gitCredentialUsername } from "./url.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -45,6 +46,13 @@ export interface CreatePullRequestParams {
   readonly commitMessage: string
   readonly labels?: string[]
   readonly repoPath: string
+  /**
+   * GitHub host whose API opens the PR (github.com, a GHES host, or a
+   * `<sub>.ghe.com` tenant) — the repo's origin host, which the caller has
+   * already checked the token belongs to. Defaults to github.com. Unused for
+   * GitLab merge requests, which derive their instance from the remote.
+   */
+  readonly host?: string
 }
 
 export interface SeedDefaultBranchParams {
@@ -52,6 +60,8 @@ export interface SeedDefaultBranchParams {
   /** Branch to create and push as the repo's first ref. */
   readonly branch: string
   readonly provider: "github" | "gitlab"
+  /** GitHub host the token belongs to (see CreatePullRequestParams.host). */
+  readonly host?: string
 }
 
 export interface ResolvedClonePaths {
@@ -140,10 +150,10 @@ const toCommitIdentity = (user: {
  * never blocks PR creation. Any failure (network, invalid token) resolves to
  * undefined, and the commit proceeds with whatever identity git already has.
  */
-const resolveGitHubAuthor = (token: string) =>
+const resolveGitHubAuthor = (token: string, host?: string) =>
   Effect.gen(function* () {
     const gh = yield* GitHubClient
-    const validation = yield* gh.validateToken(token)
+    const validation = yield* gh.validateToken(token, host)
     return toCommitIdentity(validation.user)
   }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
 
@@ -163,15 +173,16 @@ const makeReport =
 
 /**
  * Shared local-git half of opening a PR/MR: create + switch to the head branch,
- * stage all changes, commit, and push to origin. Provider-neutral — the push
- * authenticates with whatever host token the caller resolved (GitHub or GitLab;
- * the clone flow's oauth2 handling makes the push itself host-agnostic).
+ * stage all changes, commit, and push to origin. The push authenticates with
+ * the token the caller resolved, sent with `provider`'s credential username
+ * (`oauth2` for GitLab, `x-access-token` for GitHub; see gitCredentialUsername).
  *
  * `author` is the authenticated user's identity, applied to the commit only as a
  * fallback when the machine has no git identity configured (see CommitOptions).
  */
 const runGitSteps = (
   token: string,
+  provider: "github" | "gitlab",
   params: CreatePullRequestParams,
   author: GitIdentity | undefined,
   onProgress?: (line: string) => void,
@@ -204,6 +215,7 @@ const runGitSteps = (
     yield* report(`Pushing ${params.headBranch} to origin…`)
     yield* gitClient.push(params.repoPath, "origin", params.headBranch, {
       token,
+      username: gitCredentialUsername(provider),
       setUpstream: true,
     })
   })
@@ -226,8 +238,8 @@ export const createPullRequest = (
   Effect.gen(function* () {
     // Resolve the authenticated user's identity up front so the commit can be
     // attributed to them when the machine has no git identity configured.
-    const author = yield* resolveGitHubAuthor(token)
-    yield* runGitSteps(token, params, author, onProgress)
+    const author = yield* resolveGitHubAuthor(token, params.host)
+    yield* runGitSteps(token, "github", params, author, onProgress)
 
     const ghClient = yield* GitHubClient
     const report = makeReport(onProgress)
@@ -243,7 +255,7 @@ export const createPullRequest = (
       labels: params.labels,
     }
 
-    const pr = yield* ghClient.createPullRequest(token, prParams)
+    const pr = yield* ghClient.createPullRequest(token, prParams, params.host)
 
     if (params.labels && params.labels.length > 0) {
       yield* ghClient.addLabels(
@@ -252,6 +264,7 @@ export const createPullRequest = (
         params.repo,
         pr.number,
         params.labels,
+        params.host,
       )
     }
 
@@ -286,7 +299,7 @@ export const createMergeRequest = (
     // Resolve the authenticated user's identity so the commit can be attributed
     // to them when the machine has no git identity configured.
     const author = yield* resolveGitLabAuthor(token, baseUrl)
-    yield* runGitSteps(token, params, author, onProgress)
+    yield* runGitSteps(token, "gitlab", params, author, onProgress)
 
     // Create the MR via GitLab API (labels applied inline)
     yield* report("Opening merge request…")
@@ -353,7 +366,7 @@ export const seedDefaultBranch = (
             .pipe(Effect.orElseSucceed(() => ""))
           return yield* resolveGitLabAuthor(token, gitlabBaseUrlFromRemoteUrl(remoteUrl))
         })
-      : resolveGitHubAuthor(token))
+      : resolveGitHubAuthor(token, params.host))
 
     yield* report(`Creating branch ${params.branch}…`)
     yield* gitClient.createBranch(params.repoPath, params.branch)
@@ -370,6 +383,7 @@ export const seedDefaultBranch = (
     yield* report(`Pushing ${params.branch} to origin…`)
     yield* gitClient.push(params.repoPath, "origin", params.branch, {
       token,
+      username: gitCredentialUsername(params.provider),
       setUpstream: true,
     })
 

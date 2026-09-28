@@ -227,7 +227,7 @@ variables:
 
 <Command
   id="cmd-with-inputs"
-  command="echo 'String: {{ .inputs.plain_string }}, Int: {{ .inputs.int_field }}, Bool: {{ .inputs.bool_field }}, Enum: {{ .inputs.enum_field }}'"
+  command='echo "String: {{ .inputs.plain_string }}, Int: {{ .inputs.int_field }}, Bool: {{ .inputs.bool_field }}, Enum: {{ .inputs.enum_field }}"'
   inputsId="all-types"
   title="Command Using Inputs: {{ .inputs.enum_field }}"
   description="Reads from the all-types Inputs block. Current env: **{{ .inputs.enum_field }}**"
@@ -342,7 +342,7 @@ teams:
 
 <Check
   id="check-with-inputs"
-  command="echo 'Checking tool version: {{ .inputs.ToolVersion }}' && exit 0"
+  command='echo "Checking tool version: {{ .inputs.ToolVersion }}" && exit 0'
   title="Parameterized Check"
   description="A check with an inline Inputs form"
   successMessage="Version {{ .inputs.ToolVersion }} looks good!"
@@ -526,7 +526,7 @@ variables:
 <Command
   id="merged-inputs-cmd"
   inputsId={["defaults-merge", "overrides-merge"]}
-  command="echo 'Color: {{ .inputs.color }}, Size: {{ .inputs.size }}'"
+  command='echo "Color: {{ .inputs.color }}, Size: {{ .inputs.size }}"'
   title="Merged Inputs"
   description="Uses `inputsId` as an array. Color comes from first, size should show the override value."
 />
