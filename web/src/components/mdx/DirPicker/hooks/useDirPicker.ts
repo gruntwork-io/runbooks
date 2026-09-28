@@ -10,6 +10,11 @@ interface UseDirPickerOptions {
   gitCloneId?: string
   /** Maximum number of dropdown levels to show. */
   maxLevels?: number
+  /**
+   * Another block has the same id (or the same id after normalization). The
+   * duplicate renders nothing and leaves the PATH output to the other block.
+   */
+  isDuplicate?: boolean
 }
 
 /** Result of listing one directory: its subdirectories, or why it failed. */
@@ -27,7 +32,7 @@ interface DirLevel {
   dirs: string[]
 }
 
-export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPickerOptions) {
+export function useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate }: UseDirPickerOptions) {
   const api = useApi()
   const { isReady: sessionReady } = useSession()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
@@ -157,18 +162,30 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels }: UseDirPicke
 
   const publishedPath = allOutputs[normalizeBlockId(id)]?.values?.PATH
 
+  // Set when this instance has withdrawn PATH for its current empty path.
+  const withdrewRef = useRef(false)
+
   // Keep this block's PATH output in sync with the path shown in the input.
   // This effect is the only writer of PATH. An empty path clears the output
   // ({}), so downstream blocks see PATH as unmet again. Comparing against the
   // published value (rather than tracking what this instance wrote) also clears
   // a PATH left behind by DirPickerInstruction or a previous mount.
+  //
+  // An empty path withdraws PATH once. If PATH comes back while this block's
+  // path is still empty, another block with the same id published it, and
+  // the registry hasn't flagged the duplicate yet (it does so a tick after
+  // mount). Withdrawing again would fight the other block, which publishes
+  // its PATH again, until React stops the update loop.
   useEffect(() => {
+    if (isDuplicate) return
     if (manualPath) {
+      withdrewRef.current = false
       if (manualPath !== publishedPath) registerOutputs(id, { PATH: manualPath })
-    } else if (publishedPath !== undefined) {
+    } else if (publishedPath !== undefined && !withdrewRef.current) {
+      withdrewRef.current = true
       registerOutputs(id, {})
     }
-  }, [id, manualPath, publishedPath, registerOutputs])
+  }, [id, manualPath, publishedPath, registerOutputs, isDuplicate])
 
   return {
     levels,

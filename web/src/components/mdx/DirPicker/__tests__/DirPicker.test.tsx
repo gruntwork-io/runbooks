@@ -515,3 +515,59 @@ describe('DirPicker — GitClone root changes', () => {
     expect(optionValues(selects()[0])).toEqual(['alpha'])
   })
 })
+
+describe('DirPicker — duplicate ids', () => {
+  /** Records the values of every entry registered for block `dp`, in order. */
+  function OutputLog({ log }: { log: unknown[] }) {
+    const entry = useRunbookContext().blockOutputs.dp
+    useEffect(() => {
+      if (entry) log.push(entry.values)
+    }, [entry, log])
+    return null
+  }
+
+  /** Render one `dp` picker; `addDuplicate` mounts a second one after it. */
+  function renderWithLaterDuplicate(log: unknown[] = []) {
+    const { api } = makeApi()
+    const ui = (withDuplicate: boolean) => (
+      <Harness api={api}>
+        <OutputLog log={log} />
+        <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />
+        {withDuplicate && <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />}
+      </Harness>
+    )
+    const { rerender } = render(ui(false))
+    return { addDuplicate: () => rerender(ui(true)) }
+  }
+
+  it('keeps the first instance\'s PATH when a duplicate mounts later', async () => {
+    const { addDuplicate } = renderWithLaterDuplicate()
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    await select(0, 'prod')
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+    const consoleError = vi.spyOn(console, 'error')
+
+    addDuplicate()
+
+    // The later instance is flagged as a duplicate and renders nothing.
+    await waitFor(() => expect(screen.getAllByTestId('dp')).toHaveLength(1))
+    expect(pathInput().value).toBe('prod')
+    expect(publishedValues()).toEqual({ PATH: 'prod' })
+    expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining('Maximum update depth'))
+    consoleError.mockRestore()
+  })
+
+  it('leaves PATH to the first instance once the duplicate is flagged', async () => {
+    const log: unknown[] = []
+    const { addDuplicate } = renderWithLaterDuplicate(log)
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    addDuplicate()
+    await waitFor(() => expect(screen.getAllByTestId('dp')).toHaveLength(1))
+
+    await select(0, 'prod')
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+
+    // Only the first instance wrote: the duplicate never withdrew its PATH.
+    expect(log).toEqual([{ PATH: 'prod' }])
+  })
+})

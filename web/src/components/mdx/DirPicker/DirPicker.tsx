@@ -70,7 +70,7 @@ function DirPickerInteractive({
     isWorkspaceReady,
     selectDir,
     setPath,
-  } = useDirPicker({ id, rootDir, gitCloneId, maxLevels })
+  } = useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate })
 
   const missingRootConfig = !rootDir && !gitCloneId
 
