@@ -27,12 +27,16 @@ export const gitlabProviderConfig: ProviderConfig = {
     envCredentials: 'gitlab:env-credentials',
     cliCredentials: 'gitlab:cli-credentials',
     enumerateHosts: 'gitlab:enumerate-hosts',
+    hostPicked: 'gitlab:host-picked',
   },
   // GitLab users can be logged into gitlab.com and/or self-managed instances.
   supportsHostSelection: true,
+  defaultHost: 'gitlab.com',
+  supportsManualInstance: true,
   env: {
     tokenVar: 'GITLAB_TOKEN',
     userVar: 'GITLAB_USER',
+    hostVar: 'GITLAB_HOST',
     // glab and the Runbooks backend use GITLAB_TOKEN only (no GL_TOKEN).
     altTokenVars: [],
   },
@@ -51,6 +55,7 @@ export const gitlabProviderConfig: ProviderConfig = {
     showScopeWarning: true,
     requiredScope: 'write_repository',
     acceptableScopes: ['api', 'write_repository'],
+    scopeWarningDetail: 'Pushing branches and opening merge requests may fail.',
     showAppInstallBranch: false,
     showFineGrainedNote: false,
     unknownTokenLabel: 'Access Token',

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
   Dialog,
@@ -9,25 +9,30 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { useApi } from '@/contexts/ApiContext'
+import { cleanIpcErrorMessage } from '@/lib/ipcError'
 
 interface OpenUrlModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Opens the cloned runbook. Called only if the request wasn't cancelled. */
+  onOpened: (path: string, remoteSource: string) => void
 }
 
-const REMOTE_PREFIXES = ['http://', 'https://', 'git::']
-const REMOTE_SHORTHAND = /^(github\.com|gitlab\.com)\//
-
-function looksLikeRemoteUrl(input: string): boolean {
-  const trimmed = input.trim()
-  return REMOTE_PREFIXES.some((p) => trimmed.startsWith(p)) || REMOTE_SHORTHAND.test(trimmed)
-}
-
-export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
+/**
+ * "Open from URL" dialog. Hands whatever the user typed to the main process,
+ * which parses the source and clones it, then opens the result through
+ * `onOpened` unless the user cancelled meanwhile. Shows the main process's
+ * error message inline when that fails.
+ */
+export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps) {
   const api = useApi()
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  // Identifies the in-flight request. Closing the modal bumps it, so a clone
+  // that finishes (or fails) after Cancel is ignored: it neither opens the
+  // runbook nor leaves its error behind for the next time the modal opens.
+  const requestIdRef = useRef(0)
 
   const reset = useCallback(() => {
     setUrl('')
@@ -36,6 +41,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
   }, [])
 
   const handleClose = useCallback(() => {
+    requestIdRef.current++
     reset()
     onOpenChange(false)
   }, [reset, onOpenChange])
@@ -44,23 +50,23 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
     const trimmed = url.trim()
     if (!trimmed) return
 
-    if (!looksLikeRemoteUrl(trimmed)) {
-      setError('Please enter a GitHub, GitLab, or git:: URL')
-      return
-    }
-
+    // The main process parses the source; its error names what it accepts.
     setError(null)
     setIsLoading(true)
+    const requestId = ++requestIdRef.current
 
     try {
-      await api.invoke('runbook:open-remote', { url: trimmed })
+      const result = await api.invoke('runbook:open-remote', { url: trimmed })
+      if (requestId !== requestIdRef.current) return
+      onOpened(result.path, result.remoteSource)
       reset()
       onOpenChange(false)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to open remote runbook')
+      if (requestId !== requestIdRef.current) return
+      setError(err instanceof Error ? cleanIpcErrorMessage(err.message) : 'Failed to open remote runbook')
       setIsLoading(false)
     }
-  }, [url, api, onOpenChange, reset])
+  }, [url, api, onOpened, onOpenChange, reset])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -78,7 +84,8 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
         <DialogHeader>
           <DialogTitle>Open from URL</DialogTitle>
           <DialogDescription>
-            Paste a GitHub or GitLab URL to a runbook directory or file.
+            Paste a GitHub or GitLab link to a runbook directory or runbook.mdx file, or a
+            go-getter source such as <code className="text-xs">github.com/org/repo//path?ref=main</code>.
           </DialogDescription>
         </DialogHeader>
 
@@ -91,7 +98,7 @@ export function OpenUrlModal({ open, onOpenChange }: OpenUrlModalProps) {
               setError(null)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="https://github.com/owner/repo/tree/main/path/to/runbook"
+            placeholder="https://github.com/org/repo/tree/main/path/to/runbook"
             className="w-full rounded-md border border-input px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
             autoFocus
             disabled={isLoading}
