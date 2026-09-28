@@ -10,6 +10,8 @@
 import type { GitProvider } from "@/components/mdx/GitAuth/types"
 import type { BlockOutputs } from "@/contexts/RunbookContext"
 import { normalizeBlockId } from "@/lib/utils"
+import { gitRemoteWebHost, parseGitRemoteUrl, type GitRemoteUrl } from "@/lib/gitRemoteUrl"
+import { isGitHubRepoHost } from "./githubHost"
 
 export type { GitProvider }
 
@@ -39,33 +41,67 @@ export function deriveProviderFromAuth(
   return undefined
 }
 
+/**
+ * Parse a clone/remote URL in any form git accepts (see parseGitRemoteUrl),
+ * plus the scheme-less `host/owner/repo` a user may type, read as https.
+ */
+function parseRepoUrl(rawUrl: string): GitRemoteUrl | undefined {
+  return (
+    parseGitRemoteUrl(rawUrl) ??
+    (rawUrl.includes('://') ? undefined : parseGitRemoteUrl(`https://${rawUrl}`))
+  )
+}
+
 function hostOf(rawUrl: string): string | undefined {
-  try {
-    return new URL(rawUrl.includes('://') ? rawUrl : `https://${rawUrl}`).hostname
-  } catch {
-    const ssh = rawUrl.match(/^git@([^:]+):/)
-    return ssh ? ssh[1] : undefined
-  }
+  return parseRepoUrl(rawUrl)?.hostname
 }
 
 /**
- * The host of a repo's clone/remote URL (HTTPS or SSH form), or undefined if it
- * can't be parsed. Unlike deriveProviderFromRepoUrl this keeps the actual host
- * (incl. self-hosted), so callers can target the repo's own GitLab instance —
- * e.g. the label lookup, which must hit a self-hosted API base, not gitlab.com.
+ * The web/API host of a repo's clone/remote URL (HTTPS or SSH form), or
+ * undefined if it can't be parsed. Unlike deriveProviderFromRepoUrl this keeps
+ * the actual host (incl. self-hosted), so callers can target the repo's own
+ * GitLab instance — e.g. the label lookup, which must hit a self-hosted API
+ * base, not gitlab.com.
  *
- * Mirrors the backend's gitHostFromRemoteUrl: keeps the port (`.host`, not
- * `.hostname`, so a custom-port instance resolves to the right API base) and
- * accepts any SSH username (not just `git@`). hostOf above intentionally drops
- * the port and assumes git@, since it's only used to match the SaaS hosts.
+ * Mirrors the backend's gitHostFromRemoteUrl (both use gitRemoteWebHost): an
+ * HTTPS URL keeps its port, so a custom-port instance resolves to the right
+ * API base; an SSH remote's port is the SSH port and is dropped. hostOf above
+ * drops every port, since it's only used to match the SaaS hosts.
  */
 export function hostFromRepoUrl(repoUrl: string | undefined): string | undefined {
   if (!repoUrl) return undefined
-  const ssh = repoUrl.match(/^[^/@]+@([^:/]+):/)
-  if (ssh) return ssh[1]
+  return (
+    gitRemoteWebHost(repoUrl) ??
+    (repoUrl.includes('://') ? undefined : gitRemoteWebHost(`https://${repoUrl}`))
+  )
+}
+
+/**
+ * The web page of a repo, derived from its clone/remote URL (HTTPS, SCP-style
+ * SSH, or ssh://) plus the parsed owner and name. Returns undefined when any
+ * part is empty (e.g. a local checkout with no remote) or the URL can't be
+ * parsed, so callers render plain text rather than a dead link.
+ *
+ * An http(s) URL keeps its origin, so a custom web port survives and embedded
+ * credentials are dropped. For SSH and other schemes only the hostname is kept:
+ * their port (e.g. `ssh://git@host:2222/...`) is not a web port, which is why
+ * this doesn't use hostFromRepoUrl.
+ */
+export function repoWebUrl(
+  repoUrl: string | undefined,
+  owner: string | undefined,
+  name: string | undefined,
+): string | undefined {
+  if (!repoUrl || !owner || !name) return undefined
+  const path = `/${owner}/${name}`
+  // The host is a bracketed IPv6 literal (git@[::1]:o/r) or a plain name.
+  const scp = repoUrl.match(/^[^/@]+@(\[[^\]/]+\]|[^[\]:/@]+):/)
+  if (scp) return `https://${scp[1]}${path}`
   try {
-    const host = new URL(repoUrl.includes('://') ? repoUrl : `https://${repoUrl}`).host
-    return host || undefined
+    const url = new URL(repoUrl.includes('://') ? repoUrl : `https://${repoUrl}`)
+    if (!url.hostname) return undefined
+    if (url.protocol === 'http:' || url.protocol === 'https:') return `${url.origin}${path}`
+    return `https://${url.hostname}${path}`
   } catch {
     return undefined
   }
@@ -73,17 +109,18 @@ export function hostFromRepoUrl(repoUrl: string | undefined): string | undefined
 
 /**
  * Best-effort provider guess from a clone URL's host. Only the public SaaS
- * hosts (github.com / gitlab.com) are recognized; self-hosted/Enterprise hosts
- * return `undefined` (we can't tell GitHub Enterprise from GitLab self-managed
- * by hostname). Used ONLY as a last-resort default for the generic block's
- * displayed provider — NEVER to gate the wrong-auth-block error.
+ * hosts (github.com / *.ghe.com / gitlab.com) are recognized; self-hosted hosts
+ * return `undefined` (we can't tell GitHub Enterprise Server from GitLab
+ * self-managed by hostname). Used only for display (the generic block's default
+ * provider and the workspace repo icon) — NEVER to gate the wrong-auth-block
+ * error.
  */
 export function deriveProviderFromRepoUrl(
   repoUrl: string | undefined,
 ): GitProvider | undefined {
   if (!repoUrl) return undefined
   const host = hostOf(repoUrl)
-  if (host === 'github.com') return 'github'
+  if (isGitHubRepoHost(host)) return 'github'
   if (host === 'gitlab.com') return 'gitlab'
   return undefined
 }
