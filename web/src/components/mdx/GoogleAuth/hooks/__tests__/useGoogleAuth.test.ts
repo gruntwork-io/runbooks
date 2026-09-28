@@ -1555,7 +1555,7 @@ describe('useGoogleAuth — gcloud tab', () => {
   })
 
   it('routes to the project picker when the configuration sets no core/project', async () => {
-    const invoke = installApi((channel) => {
+    const invoke = installApi((channel, args) => {
       if (channel === 'google:gcloud-configurations') {
         return {
           ...GCLOUD_LISTING,
@@ -1564,6 +1564,7 @@ describe('useGoogleAuth — gcloud tab', () => {
               name: 'scratch',
               isActive: true,
               account: 'dev@example.com',
+              // Listed before `gcloud config set compute/region us-west1` ran.
               region: 'us-east1',
               authType: 'adc-user',
             },
@@ -1572,18 +1573,23 @@ describe('useGoogleAuth — gcloud tab', () => {
       }
       if (channel === 'google:gcloud-auth') {
         // No projectId: `gcloud config configurations create scratch` without a
-        // `core/project`, and no `project` prop to fall back on.
+        // `core/project`, and no `project` prop to fall back on. MAIN reads the
+        // configuration afresh and says which region it wrote.
         return {
           valid: true,
           account: { principal: 'dev@example.com', accountType: 'user' },
           credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          region: (args?.region as string | undefined) ?? 'us-west1',
           projects: [
             { projectId: 'proj-one', displayName: 'Project One' },
             { projectId: 'proj-two', displayName: 'Project Two' },
           ],
         }
       }
-      if (channel === 'google:set-project') return { ok: true, projectName: 'Project Two' }
+      if (channel === 'google:set-project') {
+        // MAIN keeps the region the block authenticated with when none is sent.
+        return { ok: true, projectName: 'Project Two', region: (args?.region as string | undefined) ?? 'us-west1' }
+      }
       if (channel === 'google:check-project') return { enabled: true }
       return {}
     })
@@ -1607,13 +1613,25 @@ describe('useGoogleAuth — gcloud tab', () => {
       await result.current.handleProjectSelect({ projectId: 'proj-two', displayName: 'Project Two' })
     })
 
-    // The configuration's own compute/region survives the picker detour.
-    expect(invoke).toHaveBeenCalledWith('google:set-project', {
-      blockId: 'gcp',
-      projectId: 'proj-two',
-      region: 'us-east1',
-    })
+    // The listing's stale region is sent to neither: MAIN's fresh read of the
+    // configuration decides, and survives the picker detour on the block's
+    // credential in MAIN.
+    expect(callsTo(invoke, 'google:gcloud-auth')).toEqual([
+      ['google:gcloud-auth', { blockId: 'gcp', configuration: 'scratch' }],
+    ])
+    expect(callsTo(invoke, 'google:set-project')).toEqual([
+      ['google:set-project', { blockId: 'gcp', projectId: 'proj-two' }],
+    ])
     expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      expect.objectContaining({
+        GOOGLE_CLOUD_PROJECT: 'proj-two',
+        GOOGLE_CLOUD_REGION: 'us-west1',
+        CLOUDSDK_COMPUTE_REGION: 'us-west1',
+        GOOGLE_REGION: 'us-west1',
+      }),
+    )
   })
 
   it('auto-selects the single visible project when the configuration sets none', async () => {
@@ -1662,6 +1680,83 @@ describe('useGoogleAuth — gcloud tab', () => {
         CLOUDSDK_CORE_PROJECT: 'proj-solo',
         GOOGLE_PROJECT: 'proj-solo',
         CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
+        GOOGLE_AUTH_TYPE: 'authorized_user',
+      }),
+    )
+  })
+
+  it('auto-selecting the single project publishes the region/zone MAIN read, not the listing\'s', async () => {
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:gcloud-configurations') {
+        return {
+          ...GCLOUD_LISTING,
+          configurations: [
+            {
+              name: 'scratch',
+              isActive: true,
+              account: 'dev@example.com',
+              // Listed before `gcloud config set compute/region us-west1` ran.
+              region: 'us-east1',
+              zone: 'us-east1-b',
+              authType: 'adc-user',
+            },
+          ],
+        }
+      }
+      if (channel === 'google:gcloud-auth') {
+        // MAIN reads the configuration afresh and says what it wrote.
+        return {
+          valid: true,
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          region: (args?.region as string | undefined) ?? 'us-west1',
+          zone: (args?.zone as string | undefined) ?? 'us-west1-a',
+          projects: [{ projectId: 'proj-solo', displayName: 'Solo Project' }],
+        }
+      }
+      if (channel === 'google:set-project') {
+        // MAIN keeps the block's own region/zone when none is sent.
+        return {
+          ok: true,
+          projectName: 'Solo Project',
+          region: (args?.region as string | undefined) ?? 'us-west1',
+          zone: (args?.zone as string | undefined) ?? 'us-west1-a',
+        }
+      }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: false })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    await act(async () => {
+      await result.current.handleGcloudAuth()
+    })
+
+    expect(callsTo(invoke, 'google:gcloud-auth')).toEqual([
+      ['google:gcloud-auth', { blockId: 'gcp', configuration: 'scratch' }],
+    ])
+    expect(callsTo(invoke, 'google:set-project')).toEqual([
+      ['google:set-project', { blockId: 'gcp', projectId: 'proj-solo' }],
+    ])
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      outputs({
+        GOOGLE_APPLICATION_CREDENTIALS: '/home/u/.config/gcloud/application_default_credentials.json',
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: '/home/u/.config/gcloud/application_default_credentials.json',
+        GOOGLE_CLOUD_PROJECT: 'proj-solo',
+        CLOUDSDK_CORE_PROJECT: 'proj-solo',
+        GOOGLE_PROJECT: 'proj-solo',
+        CLOUDSDK_CORE_ACCOUNT: 'dev@example.com',
+        GOOGLE_CLOUD_REGION: 'us-west1',
+        CLOUDSDK_COMPUTE_REGION: 'us-west1',
+        GOOGLE_REGION: 'us-west1',
+        CLOUDSDK_COMPUTE_ZONE: 'us-west1-a',
+        GOOGLE_ZONE: 'us-west1-a',
         GOOGLE_AUTH_TYPE: 'authorized_user',
       }),
     )
@@ -1739,14 +1834,16 @@ describe('useGoogleAuth — gcloud tab', () => {
   })
 
   it('"No default region" falls through to the configuration\'s own compute/region', async () => {
-    const invoke = installApi((channel) => {
+    const invoke = installApi((channel, args) => {
       if (channel === 'google:gcloud-configurations') return GCLOUD_LISTING
       if (channel === 'google:gcloud-auth') {
+        // MAIN falls back to the configuration's compute/region when none is sent.
         return {
           valid: true,
           account: { principal: 'dev@example.com', accountType: 'user' },
           projectId: 'proj-a',
           credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          region: (args?.region as string | undefined) ?? 'us-east1',
         }
       }
       if (channel === 'google:check-project') return { enabled: true }
@@ -1767,23 +1864,38 @@ describe('useGoogleAuth — gcloud tab', () => {
       await result.current.handleGcloudAuth()
     })
 
-    // The `default` configuration's compute/region, not the cleared prop.
-    expect(invoke).toHaveBeenCalledWith('google:gcloud-auth', {
-      blockId: 'gcp',
-      configuration: 'default',
-      projectId: 'proj-a',
-      region: 'us-east1',
-    })
+    // Not the cleared prop: no region is sent, so MAIN applies the `default`
+    // configuration's compute/region, and the block publishes it.
+    expect(callsTo(invoke, 'google:gcloud-auth')).toEqual([
+      ['google:gcloud-auth', { blockId: 'gcp', configuration: 'default', projectId: 'proj-a' }],
+    ])
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      expect.objectContaining({
+        GOOGLE_CLOUD_REGION: 'us-east1',
+        CLOUDSDK_COMPUTE_REGION: 'us-east1',
+        GOOGLE_REGION: 'us-east1',
+      }),
+    )
   })
 
   it('publishes the region/zone MAIN read from the configuration, not the listing the renderer holds', async () => {
     const invoke = installApi((channel, args) => {
       if (channel === 'google:gcloud-configurations') {
-        // Listed before `gcloud config set compute/region` ran.
+        // Listed before `gcloud config set compute/region us-west1` (and
+        // compute/zone) ran.
         return {
           ...GCLOUD_LISTING,
           configurations: [
-            { name: 'default', isActive: true, account: 'dev@example.com', project: 'proj-a', authType: 'adc-user' },
+            {
+              name: 'default',
+              isActive: true,
+              account: 'dev@example.com',
+              project: 'proj-a',
+              region: 'us-east1',
+              zone: 'us-east1-b',
+              authType: 'adc-user',
+            },
           ],
         }
       }
@@ -1837,16 +1949,75 @@ describe('useGoogleAuth — gcloud tab', () => {
     )
   })
 
-  it('"Change project" keeps publishing the configuration\'s compute/region', async () => {
+  it('sends an explicitly picked region/zone and publishes it over the configuration\'s', async () => {
     const invoke = installApi((channel, args) => {
       if (channel === 'google:gcloud-configurations') return GCLOUD_LISTING
       if (channel === 'google:gcloud-auth') {
+        // The configuration's compute/region only applies when none is sent.
         return {
           valid: true,
           account: { principal: 'dev@example.com', accountType: 'user' },
           projectId: 'proj-a',
           credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
-          region: args?.region as string | undefined,
+          region: (args?.region as string | undefined) ?? 'us-east1',
+          ...(args?.zone ? { zone: args.zone as string } : {}),
+        }
+      }
+      if (channel === 'google:check-project') return { enabled: true }
+      return {}
+    })
+
+    const { result } = renderGoogleAuth({
+      id: 'gcp',
+      defaultRegion: 'europe-west1',
+      defaultZone: 'europe-west4-a',
+      detectCredentials: false,
+    })
+
+    await act(async () => {
+      await result.current.loadGcloudConfigs()
+    })
+    act(() => result.current.setSelectedRegion('europe-west4'))
+    await act(async () => {
+      await result.current.handleGcloudAuth()
+    })
+
+    expect(callsTo(invoke, 'google:gcloud-auth')).toEqual([
+      [
+        'google:gcloud-auth',
+        {
+          blockId: 'gcp',
+          configuration: 'default',
+          projectId: 'proj-a',
+          region: 'europe-west4',
+          zone: 'europe-west4-a',
+        },
+      ],
+    ])
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenLastCalledWith(
+      'gcp',
+      expect.objectContaining({
+        GOOGLE_CLOUD_REGION: 'europe-west4',
+        CLOUDSDK_COMPUTE_REGION: 'europe-west4',
+        GOOGLE_REGION: 'europe-west4',
+        CLOUDSDK_COMPUTE_ZONE: 'europe-west4-a',
+        GOOGLE_ZONE: 'europe-west4-a',
+      }),
+    )
+  })
+
+  it('"Change project" keeps publishing the configuration\'s compute/region', async () => {
+    const invoke = installApi((channel, args) => {
+      if (channel === 'google:gcloud-configurations') return GCLOUD_LISTING
+      if (channel === 'google:gcloud-auth') {
+        // MAIN falls back to the configuration's compute/region when none is sent.
+        return {
+          valid: true,
+          account: { principal: 'dev@example.com', accountType: 'user' },
+          projectId: 'proj-a',
+          credentialsPath: '/home/u/.config/gcloud/application_default_credentials.json',
+          region: (args?.region as string | undefined) ?? 'us-east1',
           projects: [
             { projectId: 'proj-a', displayName: 'Project A' },
             { projectId: 'proj-b', displayName: 'Project B' },

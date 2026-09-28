@@ -334,12 +334,6 @@ export function useGoogleAuth({
   // picks a project still name the right file.
   const pendingCredentialsPathRef = useRef<string | null>(null)
 
-  // Region/zone the in-flight tab resolved, when they differ from the props —
-  // the gcloud tab inherits `compute/region` and `compute/zone` from the chosen
-  // configuration. Held across the `select_project` detour for the same reason
-  // as the credentials path: the picker must not silently drop them.
-  const pendingComputeRef = useRef<{ region?: string; zone?: string } | null>(null)
-
   // True only while the picker was opened by "Change project" from a green card
   // whose outputs are still live, so Cancel can return to that card instead of
   // starting over. Cleared by any commit attempt and by any output withdrawal.
@@ -476,9 +470,6 @@ export function useGoogleAuth({
       pendingCredentialsPathRef.current = result.credentialsPath
     }
     const credentialsPath = result.credentialsPath ?? pendingCredentialsPathRef.current ?? undefined
-    // The select_project detour is over; nothing should inherit its compute
-    // defaults on a later authentication.
-    pendingComputeRef.current = null
 
     setAccountInfo({
       ...(result.projectId ? { projectId: result.projectId } : {}),
@@ -521,16 +512,15 @@ export function useGoogleAuth({
   /**
    * Pin a project (picker click, single-project auto-select, or the `project`
    * prop after an OAuth login). MAIN owns the session-env write.
+   *
+   * Only the user's explicit region/zone is sent. With none, MAIN keeps the
+   * ones the block authenticated with (a gcloud configuration's compute
+   * defaults as MAIN read them, say) and echoes them.
    */
   const selectProject = useCallback(async (
     projectInfo: GoogleProjectInfo,
     account?: PendingAccount,
-    /** Region/zone the calling tab resolved, when they differ from the props. */
-    compute?: { region?: string; zone?: string },
   ) => {
-    const region = compute?.region ?? pendingComputeRef.current?.region ?? effectiveRegion
-    const zone = compute?.zone ?? pendingComputeRef.current?.zone ?? effectiveZone
-
     // Any commit attempt ends a "Change project" detour: success publishes new
     // outputs, and failure closes the picker.
     changingProjectRef.current = false
@@ -542,8 +532,8 @@ export function useGoogleAuth({
       const data = await api.invoke('google:set-project', {
         blockId: id,
         projectId: projectInfo.projectId,
-        ...(region ? { region } : {}),
-        ...(zone ? { zone } : {}),
+        ...(effectiveRegion ? { region: effectiveRegion } : {}),
+        ...(effectiveZone ? { zone: effectiveZone } : {}),
       })
 
       if (!data.ok) {
@@ -567,8 +557,8 @@ export function useGoogleAuth({
         // MAIN's answer, not the request: with nothing requested ("Change
         // project" after the gcloud tab) it keeps the region/zone this block
         // authenticated with, and the outputs must say the same.
-        region: data.region ?? region,
-        zone: data.zone ?? zone,
+        region: data.region ?? effectiveRegion,
+        zone: data.zone ?? effectiveZone,
         ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
@@ -1635,19 +1625,20 @@ export function useGoogleAuth({
     setWarningMessage(null)
     invalidateBlockOutputs()
 
-    // The configuration's own compute defaults apply when the block did not
-    // pin a region/zone.
-    const region = effectiveRegion || selectedConfig.region || ''
-    const zone = effectiveZone || selectedConfig.zone || ''
     const requestedProject = project || selectedConfig.project || ''
 
     try {
+      // Only the user's explicit region/zone is sent, never this listing's. With
+      // none, MAIN falls back to the configuration's compute defaults as it
+      // reads them now (the listing may predate a `gcloud config set
+      // compute/region`), keeps them on the block's credential for any
+      // set-project that follows, and echoes what it wrote.
       const data = await api.invoke('google:gcloud-auth', {
         blockId: id,
         configuration: selectedConfig.name,
         ...(requestedProject ? { projectId: requestedProject } : {}),
-        ...(region ? { region } : {}),
-        ...(zone ? { zone } : {}),
+        ...(effectiveRegion ? { region: effectiveRegion } : {}),
+        ...(effectiveZone ? { zone: effectiveZone } : {}),
         ...(scopes && scopes.length > 0 ? { scopes } : {}),
       })
 
@@ -1680,8 +1671,7 @@ export function useGoogleAuth({
         await completeAuthentication({
           ...identity,
           projectId: resolvedProjectId,
-          // MAIN's answer, not the request: with none sent it falls back to the
-          // configuration as it reads it now, which this listing may predate.
+          // MAIN's answer, not the request.
           region: data.region ?? '',
           zone: data.zone ?? '',
           ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
@@ -1689,8 +1679,10 @@ export function useGoogleAuth({
         return
       }
 
+      // Both project routes below end in a set-project, which sends only the
+      // explicit region/zone too, so MAIN's stay in force through the picker.
       if (visibleProjects.length === 1) {
-        await selectProject(visibleProjects[0], identity, { region, zone })
+        await selectProject(visibleProjects[0], identity)
         return
       }
 
@@ -1702,9 +1694,6 @@ export function useGoogleAuth({
           ...(identity.scopes ? { scopes: identity.scopes } : {}),
           ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
         })
-        // The configuration's own compute defaults have to survive the trip
-        // through the picker, which otherwise only knows about the props.
-        pendingComputeRef.current = { region, zone }
         appendWarning(data.sessionEnvWarning)
         setAuthStatus('select_project')
         return
@@ -1777,7 +1766,6 @@ export function useGoogleAuth({
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
     pendingCredentialsPathRef.current = null
-    pendingComputeRef.current = null
   }, [stopOAuthPolling, invalidateBlockOutputs])
 
   /**
