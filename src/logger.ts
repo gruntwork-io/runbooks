@@ -177,10 +177,12 @@ function formatError(err: Error, depth = 0): string {
   const head = err.stack ?? `${err.name}: ${err.message}`
   const hasCause = err.cause !== undefined
   // Effect's UnknownException also keeps its cause in an own `error` field;
-  // the [cause] line prints it, so a field holding the cause is skipped.
+  // the [cause] line prints it, so a field holding the same object as the
+  // cause is skipped. A field that only equals a primitive cause is kept.
+  const causeIsObject = typeof err.cause === "object" && err.cause !== null
   const fields = Object.fromEntries(
     Object.entries(err).filter(
-      ([key, value]) => !HEAD_KEYS.has(key) && !(hasCause && value === err.cause),
+      ([key, value]) => !HEAD_KEYS.has(key) && !(causeIsObject && value === err.cause),
     ),
   )
   const extra =

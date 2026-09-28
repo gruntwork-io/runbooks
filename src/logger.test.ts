@@ -299,4 +299,11 @@ describe("makeLogger error formatting", () => {
     expect(out).toContain("[cause] Error: EACCES")
     expect(out.match(/EACCES: permission denied/g)?.length).toBe(1)
   })
+
+  it("keeps a field that only equals a primitive cause", () => {
+    const err = Object.assign(new Error("outer", { cause: "EACCES" }), { code: "EACCES" })
+    const out = logged(err)
+    expect(out).toContain("code: 'EACCES'")
+    expect(out).toContain("[cause] 'EACCES'")
+  })
 })
