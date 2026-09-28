@@ -5,14 +5,15 @@ import { evaluate } from '@mdx-js/mdx';
 import * as runtime from 'react/jsx-runtime';
 import type { ReactNode } from 'react';
 import remarkGfm from 'remark-gfm';
+import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly';
 import { extractYamlFromChildren } from './extractYamlFromChildren';
 import { CodeBlock } from '../components/CodeBlock';
 
 /**
- * Compiles MDX containing a single <Inputs> block with the same evaluate and
- * remark-gfm options as MDXContainer, and returns the children MDX passes to
- * it. The app's rehype plugins (asset paths, task-list ids) are left out; they
- * don't touch Inputs content.
+ * Compiles MDX containing a single <Inputs> block with the same evaluate
+ * options and remark plugins as compileMDX in MDXContainer, and returns the
+ * children MDX passes to it. The app's rehype plugins (asset paths, task-list
+ * ids) are left out; they don't touch Inputs content.
  */
 async function compileInputsChildren(
   mdxContent: string,
@@ -21,8 +22,7 @@ async function compileInputsChildren(
   const compiledMDX = await evaluate(mdxContent, {
     ...runtime,
     development: false,
-    baseUrl: import.meta.url,
-    remarkPlugins: [remarkGfm],
+    remarkPlugins: [remarkGfm, remarkLiteralOnly],
     useMDXComponents: () => ({
       Inputs: () => React.createElement('div', {}, 'Test component'),
       ...components,
