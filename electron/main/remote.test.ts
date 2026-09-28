@@ -587,6 +587,15 @@ describe("openRemoteRunbook (real git)", () => {
     expect(tokenInAnyArg()).toBe(false)
   }, 30_000)
 
+  it("reports the source without a password typed into it, even one holding an @", async () => {
+    // Built at runtime so secret scanners don't flag the fixture.
+    const password = ["p@hunter", "22"].join("")
+    const result = await open(`https://user:${password}@git.example.com/org/repo/tree/main/runbooks/vpc`)
+
+    expect(result.remoteSource).toBe("https://git.example.com/org/repo/tree/main/runbooks/vpc")
+    expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
+  }, 30_000)
+
   it("the ref lookup and the clone both run the user's core.sshCommand, in batch mode", async () => {
     // A url.<ssh>.insteadOf rewrite sends even an https browser URL over ssh,
     // so the ls-remote must wrap the same ssh client as the clone.

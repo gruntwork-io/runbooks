@@ -158,6 +158,7 @@ describe("openRemoteRunbookInWindow", () => {
 
   it.each([
     ["https", "https://user:{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
+    ["https (an @ in the password)", "https://user:p@{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
     [
       "git::https",
       "git::https://deploy:{pw}@git.example.com/o/r.git//rb?ref=main",

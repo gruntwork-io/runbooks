@@ -70,19 +70,45 @@ export function isRemoteSource(input: string): boolean {
   return SCHEME_PREFIX.test(trimmed) || SCP_LIKE.test(trimmed) || SHORTHAND.test(trimmed)
 }
 
-/** The userinfo of a scheme-bearing source, after an optional `git::`. */
-const SOURCE_USERINFO = /^(git::)?(https?|ssh):\/\/([^/@]*)@/i
+/**
+ * The URL parser's "special" schemes (file aside): any run of `/` and `\`
+ * may follow the colon, and a `\` ends the host as a `/` does.
+ */
+const SPECIAL_SCHEME = /^(?:https?|ftp|wss?):/i
+const SPECIAL_USERINFO = /^((?:https?|ftp|wss?):[/\\]*)[^/\\]*@/i
+
+/** The userinfo of any other scheme's URL, which has a host only after `//`. */
+const URL_USERINFO = /^(([a-z][a-z0-9+.-]*):\/\/)([^/]*)@/i
 
 /**
- * `source` with any credentials in it removed, for logs and display. An
- * http(s) URL loses its whole userinfo (a token can pose as the username);
- * an ssh:// URL keeps its user and loses only a password.
+ * A scheme-less `user:password@` or `user@` before a host. An scp-like
+ * address (`git@host:path`) keeps its user, which is part of the address.
+ */
+const SCHEMELESS_USERINFO = /^(?:[^:/@]+:[^/]*@|[^:/@]+@(?![^/]*:))/
+
+/**
+ * `source` with any credentials in it removed, for logs and display. A URL
+ * or a scheme-less `user:password@host` loses its whole userinfo (a token
+ * can pose as the username); an ssh:// URL keeps its user and loses only a
+ * password.
+ *
+ * The userinfo runs to the last `@` before the path, as it does for the URL
+ * parser that finds the host, so a password holding an `@` goes whole. The
+ * parser also ends the host at a `?` or `#`, but a source with one before
+ * its path has no repository and never parses, so the userinfo runs past
+ * them: a password holding one goes whole too.
  */
 export function redactSourceCredentials(source: string): string {
-  return source.trim().replace(SOURCE_USERINFO, (_match, prefix = "", scheme: string, userinfo: string) => {
-    const user = scheme.toLowerCase() === "ssh" ? `${userinfo.split(":")[0]}@` : ""
-    return `${prefix}${scheme}://${user}`
-  })
+  const trimmed = source.trim()
+  const prefix = /^git::/i.test(trimmed) ? trimmed.slice(0, "git::".length) : ""
+  const address = trimmed.slice(prefix.length)
+  if (SPECIAL_SCHEME.test(address)) return prefix + address.replace(SPECIAL_USERINFO, "$1")
+  const redacted = address
+    .replace(URL_USERINFO, (_match, lead: string, scheme: string, userinfo: string) =>
+      scheme.toLowerCase() === "ssh" ? `${lead}${userinfo.split(":")[0]}@` : lead,
+    )
+    .replace(SCHEMELESS_USERINFO, "")
+  return prefix + redacted
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +282,13 @@ function parseGitSource(source: string): ParsedRemoteSource {
     const url = parseUrl(address)
     const protocol = url.protocol.toLowerCase()
     if (protocol !== "https:" && protocol !== "http:" && protocol !== "ssh:") {
-      throw new InvalidSource(`unsupported git transport "${url.protocol}" (use https, http or ssh)`)
+      // Named only when spelled as one (`file://…`): in `user:password@host`
+      // the "scheme" is the user, which may be a token.
+      throw new InvalidSource(
+        /^[a-z][a-z0-9+.-]*:\/\//i.test(address)
+          ? `unsupported git transport "${url.protocol}" (use https, http or ssh)`
+          : UNSUPPORTED,
+      )
     }
     host = url.host.toLowerCase()
     repoPath = url.pathname

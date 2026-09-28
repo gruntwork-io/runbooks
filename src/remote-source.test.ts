@@ -58,6 +58,26 @@ describe("redactSourceCredentials", () => {
     [withUserinfo("git::https", `u:${PASSWORD}`, "git.example.com/o/r.git//x?ref=main"), "git::https://git.example.com/o/r.git//x?ref=main"],
     [withUserinfo("git::ssh", `git:${PASSWORD}`, "github.com/o/r.git//x"), "git::ssh://git@github.com/o/r.git//x"],
     [withUserinfo("ssh", `deploy:${PASSWORD}`, "host:2222/o/r.git"), "ssh://deploy@host:2222/o/r.git"],
+    // The URL parser ends the userinfo at the last `@` before the path.
+    [withUserinfo("https", `user:p@${PASSWORD}`, "github.com/o/r/tree/main/x"), "https://github.com/o/r/tree/main/x"],
+    [withUserinfo("git::https", `u:p@${PASSWORD}`, "git.example.com/o/r.git//x"), "git::https://git.example.com/o/r.git//x"],
+    [withUserinfo("ssh", `git:p@${PASSWORD}`, "host/o/r.git"), "ssh://git@host/o/r.git"],
+    // A `?` or `#` before the path leaves no repository, so it can't hide one.
+    [withUserinfo("https", `user:p#${PASSWORD}`, "git.example.com/o/r"), "https://git.example.com/o/r"],
+    [withUserinfo("https", `user:p?${PASSWORD}`, "git.example.com/o/r"), "https://git.example.com/o/r"],
+    // Transports parseRemoteSource rejects still reach its error's url field.
+    [withUserinfo("ftp", `user:${PASSWORD}`, "host/o/r"), "ftp://host/o/r"],
+    [withUserinfo("git::ftp", `user:${PASSWORD}`, "host/o/r"), "git::ftp://host/o/r"],
+    [withUserinfo("git+https", `user:${PASSWORD}`, "host/o/r"), "git+https://host/o/r"],
+    [withUserinfo("git::git+https", `user:${PASSWORD}`, "host/o/r"), "git::git+https://host/o/r"],
+    // http(s) may drop or double its `//`: the URL parser reads userinfo either way.
+    [`git::https:/user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:/git.example.com/o/r.git//x"],
+    [`git::https:user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:git.example.com/o/r.git//x"],
+    [`git::https:\\\\user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:\\\\git.example.com/o/r.git//x"],
+    // Scheme-less credentials, as git's own URLs spell them.
+    [`user:${PASSWORD}@github.com/o/r`, "github.com/o/r"],
+    [`git::oauth2:p@${PASSWORD}@gitlab.com/g/p.git//x`, "git::gitlab.com/g/p.git//x"],
+    [`${PASSWORD}@github.com/o/r`, "github.com/o/r"],
   ])("%s → %s", (input, expected) => {
     expect(redactSourceCredentials(input)).toBe(expected)
   })
@@ -66,9 +86,19 @@ describe("redactSourceCredentials", () => {
     "https://github.com/o/r/tree/main/x",
     "ssh://git@github.com/o/r.git",
     "git@github.com:o/r.git//x?ref=main",
+    "git::git@github.com:o/r.git//x?ref=main",
     "github.com/o/r//x?ref=main",
+    "https://github.com/o/r/tree/main/a@b",
   ])("leaves %s alone", (input) => {
     expect(redactSourceCredentials(input)).toBe(input)
+  })
+
+  it("keeps the `\\@` of an https URL, whose host ends at the `\\`", () => {
+    // Taking `evil.example\` for userinfo would show a github.com source
+    // for a clone of evil.example.
+    const source = "https://evil.example\\@github.com/o/tree/main/x"
+    expect(parse(source).host).toBe("evil.example")
+    expect(redactSourceCredentials(source)).toBe(source)
   })
 })
 
@@ -458,12 +488,22 @@ describe("parseRemoteSource", () => {
       withUserinfo("https", `user:${PASSWORD}`, "gitlab.com/group/project/-/raw/main/x"),
       withUserinfo("git::https", `user:${PASSWORD}`, "git.example.com/"),
       withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/"),
-    ])("keeps credentials out of the error's url field: %s", (input) => {
+      withUserinfo("https", `user:p@${PASSWORD}`, "bitbucket.org/owner/repo"),
+      withUserinfo("ftp", `user:${PASSWORD}`, "host/o/r"),
+      withUserinfo("git::ftp", `user:${PASSWORD}`, "host/o/r"),
+      withUserinfo("git+https", `user:${PASSWORD}`, "host/o/r"),
+      withUserinfo("git::git+https", `user:${PASSWORD}`, "host/o/r"),
+      `user:${PASSWORD}@github.com/o/r`,
+      `git::user:${PASSWORD}@host/o/r`,
+      // A token posing as the user, which the URL parser reads as a scheme.
+      `git::${PASSWORD}:x-oauth-basic@github.com/o/r`,
+    ])("keeps credentials out of the error's url field and message: %s", (input) => {
       // The url field ends up in logs, like the message.
       const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
       if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
       expect(result.left.url).not.toContain(PASSWORD)
       expect(result.left.url).toBe(redactSourceCredentials(input))
+      expect(result.left.message).not.toContain(PASSWORD)
     })
   })
 })
