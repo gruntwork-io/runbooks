@@ -83,17 +83,53 @@ export interface Logger {
 /** How many nested errors (cause links and FiberFailure unwraps) are printed. */
 const MAX_ERROR_DEPTH = 4
 /**
- * Redaction runs on the inspected text, so nothing may be cut before it:
- * util.inspect's default maxStringLength (10000) would end a long field such
- * as a clone's stderr mid-string, and a token cut in half matches neither the
+ * The whole inspected text is redacted again, and for values redactDeep
+ * doesn't rebuild (class instances, Maps) that is the only pass, so inspect
+ * may not cut anything before it: its default maxStringLength (10000) would
+ * end a long string mid-token, and a token cut in half matches neither the
  * exact-value nor the shape patterns.
  */
 const INSPECT_OPTIONS = { depth: 4, maxStringLength: Infinity } as const
 /** Own properties already covered by the stack line or the cause chain. */
 const HEAD_KEYS = new Set(["name", "message", "stack", "cause"])
 
+/**
+ * Redact every string leaf before inspect prints it. inspect escapes
+ * newlines, backslashes and quotes and splits a multi-line string into
+ * '...\n' + '...' pieces, so a registered secret that spans lines (a Google
+ * credential document, its PEM private key) would no longer match exactly
+ * in the inspected text. Plain objects and arrays are rebuilt with redacted
+ * leaves down to the depth inspect prints (deeper ones show as [Object]);
+ * the copies map keeps a cycle a cycle. An Error cause goes through
+ * formatError instead; an Error or other object (class instance, Map) inside
+ * a field is printed as it is, and only the whole-text pass sees it.
+ */
+function redactDeep(value: unknown, level = 0, copies = new WeakMap<object, unknown>()): unknown {
+  if (typeof value === "string") return redactSecrets(value)
+  if (typeof value !== "object" || value === null || level > INSPECT_OPTIONS.depth) return value
+  if (copies.has(value)) return copies.get(value)
+  if (Array.isArray(value)) {
+    const copy: unknown[] = []
+    copies.set(value, copy)
+    // forEach skips holes, so a sparse array stays sparse.
+    copy.length = value.length
+    value.forEach((item, i) => {
+      copy[i] = redactDeep(item, level + 1, copies)
+    })
+    return copy
+  }
+  const proto: unknown = Object.getPrototypeOf(value)
+  if (proto !== Object.prototype && proto !== null) return value
+  const copy: Record<string, unknown> = proto === null ? Object.create(null) : {}
+  copies.set(value, copy)
+  for (const [key, item] of Object.entries(value)) copy[key] = redactDeep(item, level + 1, copies)
+  return copy
+}
+
 function formatUnknown(value: unknown, depth: number): string {
-  return value instanceof Error ? formatError(value, depth) : inspect(value, INSPECT_OPTIONS)
+  return value instanceof Error
+    ? formatError(value, depth)
+    : inspect(redactDeep(value), INSPECT_OPTIONS)
 }
 
 /**
@@ -116,7 +152,8 @@ function formatError(err: Error, depth = 0): string {
   }
   const head = err.stack ?? `${err.name}: ${err.message}`
   const fields = Object.fromEntries(Object.entries(err).filter(([key]) => !HEAD_KEYS.has(key)))
-  const extra = Object.keys(fields).length > 0 ? ` ${inspect(fields, INSPECT_OPTIONS)}` : ""
+  const extra =
+    Object.keys(fields).length > 0 ? ` ${inspect(redactDeep(fields), INSPECT_OPTIONS)}` : ""
   const cause =
     canNest && err.cause !== undefined ? `\n[cause] ${formatUnknown(err.cause, depth + 1)}` : ""
   return head + extra + cause
@@ -126,9 +163,11 @@ function formatError(err: Error, depth = 0): string {
  * Redaction pass: every string argument is scrubbed
  * of registered token values and token-shaped substrings before it reaches the
  * console. Error objects are formatted (stack, own fields such as a
- * TaggedError's stderr, and cause chain; FiberFailures are unwrapped first)
- * and the whole text goes through the same scrubber, so a token embedded in a
- * message or field (e.g. an authenticated clone URL) never hits a log.
+ * TaggedError's stderr, and cause chain; FiberFailures are unwrapped first),
+ * with every string in a field or non-Error cause scrubbed before inspect
+ * escapes it, and the whole text then goes through the same scrubber, so a
+ * token embedded in a message or field (e.g. an authenticated clone URL)
+ * never hits a log.
  */
 function sanitizeArgs(args: unknown[]): unknown[] {
   return args.map((arg) => {

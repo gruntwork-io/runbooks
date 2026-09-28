@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, spyOn } from "bun:test"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Data, Effect, Layer, ManagedRuntime } from "effect"
 import { compilePatterns, matchesPatterns, makeLogger } from "./logger.ts"
 import { clearRegisteredSecrets, registerSecret } from "./domain/vcs/redact.ts"
 import { GitError, SpawnError } from "./errors/index.ts"
@@ -146,6 +146,36 @@ describe("makeLogger error formatting", () => {
     expect(out).toContain(tail)
     expect(out).toContain("[REDACTED]")
     expect(out).not.toContain(token.slice(0, 16))
+  })
+
+  it("redacts a multi-line secret in a field and in a non-Error cause before inspect escapes it", () => {
+    // What google.ts's registerCredentialSecrets registers: the credential
+    // document and its private_key. inspect would print the key as
+    // '...\n' + '...' lines and the document with doubled backslashes, so
+    // neither would match exactly in the inspected text.
+    const privateKey = [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj",
+      "MzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDuictGeurT8jNbvJZHtCSuYEvu",
+      "-----END PRIVATE KEY-----",
+      "",
+    ].join("\n")
+    const document = JSON.stringify({ type: "service_account", private_key: privateKey })
+    registerSecret(document)
+    registerSecret(privateKey)
+    class CredentialError extends Data.TaggedError("CredentialError")<{
+      readonly privateKey: string
+      readonly document: string
+      readonly cause: unknown
+    }> {}
+    const out = logged(
+      new CredentialError({ privateKey, document, cause: { credentials: { private_key: privateKey } } }),
+    )
+    expect(out).toContain("[cause]")
+    expect(out).toContain("[REDACTED]")
+    for (const line of privateKey.split("\n").filter((l) => l.length > 0)) {
+      expect(out).not.toContain(line)
+    }
   })
 
   it("unwraps a FiberFailure from runPromise to the error it failed with", async () => {
