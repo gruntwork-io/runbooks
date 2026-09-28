@@ -40,15 +40,17 @@ export function useFileContent(): UseFileContentResult {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const cacheRef = useRef<Map<string, FileContentResult>>(new Map())
-  // Monotonic request counter: only the file requested last may be shown, so
-  // a slow read of file X can't land under the user's later click on file Y.
+  // Monotonic request counter, and the request whose result may be shown:
+  // only the file requested last may be shown, so a slow read of file X can't
+  // land under the user's later click on file Y.
   const seqRef = useRef(0)
+  const currentSeqRef = useRef(0)
+  // The newest read still in flight for each path.
+  const inFlightRef = useRef<Map<string, number>>(new Map())
   // Bumped by clearCache, so a read issued before the clear isn't cached after it.
   const cacheGenRef = useRef(0)
 
   const doFetch = useCallback(async (filePath: string, bypassCache: boolean): Promise<FileContentResult | null> => {
-    // Every call supersedes the previous one, cache hits included
-    const seq = ++seqRef.current
     const cache = cacheRef.current
     if (!bypassCache && cache.has(filePath)) {
       const cached = cache.get(filePath)!
@@ -56,8 +58,13 @@ export function useFileContent(): UseFileContentResult {
       cache.set(filePath, cached)
       setFileContent(cached)
       setError(null)
-      // The superseded request's finally no longer clears the spinner
-      setIsLoading(false)
+      // A cache hit supersedes every pending request (whose finally then no
+      // longer clears the spinner), except a read of this same file issued
+      // after the cached copy, e.g. a refetch after it changed on disk. Show
+      // the cached copy meanwhile and let that fresher read land.
+      const pending = inFlightRef.current.get(filePath)
+      currentSeqRef.current = pending ?? ++seqRef.current
+      setIsLoading(pending !== undefined)
       return cached
     }
 
@@ -65,6 +72,10 @@ export function useFileContent(): UseFileContentResult {
       cache.delete(filePath)
     }
 
+    // Every read supersedes the previous request
+    const seq = ++seqRef.current
+    currentSeqRef.current = seq
+    inFlightRef.current.set(filePath, seq)
     setIsLoading(true)
     setError(null)
     const cacheGen = cacheGenRef.current
@@ -84,17 +95,18 @@ export function useFileContent(): UseFileContentResult {
         cache.set(filePath, data)
       }
 
-      if (seq === seqRef.current) setFileContent(data)
+      if (seq === currentSeqRef.current) setFileContent(data)
       return data
     } catch (err) {
-      if (seq === seqRef.current) {
+      if (seq === currentSeqRef.current) {
         const message = err instanceof Error ? err.message : 'Failed to load file'
         setError(message)
         setFileContent(null)
       }
       return null
     } finally {
-      if (seq === seqRef.current) setIsLoading(false)
+      if (inFlightRef.current.get(filePath) === seq) inFlightRef.current.delete(filePath)
+      if (seq === currentSeqRef.current) setIsLoading(false)
     }
   }, [api])
 

@@ -22,12 +22,13 @@ function setup() {
   const api = { invoke, on: vi.fn(() => () => {}), once: vi.fn() } as unknown as RunbooksAPI
   const wrapper = ({ children }: { children: ReactNode }) => createElement(ApiProvider, { api, children })
   const { result } = renderHook(() => useFileContent(), { wrapper })
+  const readsOf = (filePath: string) => reads.filter(r => r.filePath === filePath)
   const pendingRead = (filePath: string) => {
-    const read = reads.filter(r => r.filePath === filePath).at(-1)
+    const read = readsOf(filePath).at(-1)
     if (!read) throw new Error(`no read issued for ${filePath}`)
     return read
   }
-  return { result, invoke, pendingRead }
+  return { result, invoke, pendingRead, readsOf }
 }
 
 const content = (path: string, text: string) => ({ path, content: text, language: 'hcl', size: text.length })
@@ -59,6 +60,71 @@ describe('useFileContent', () => {
       pendingRead('/repo/x.tf').resolve(content('/repo/x.tf', 'x'))
     })
     expect(result.current.fileContent?.content).toBe('y')
+    expect(result.current.isLoading).toBe(false)
+  })
+
+  it('lets a newer read of a file land when that file is clicked again from the cache', async () => {
+    const { result, invoke, pendingRead } = setup()
+
+    // A click, then a refetch after the file changed on disk: two reads of X in flight
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+    })
+    const olderRead = pendingRead('/repo/x.tf')
+    await act(async () => {
+      void result.current.refetchFileContent('/repo/x.tf')
+    })
+    const newerRead = pendingRead('/repo/x.tf')
+
+    // The older read lands first and fills the cache
+    await act(async () => {
+      olderRead.resolve(content('/repo/x.tf', 'before the write'))
+    })
+
+    // Clicking X again hits the cache while the newer read is still running
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+    })
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(result.current.fileContent?.content).toBe('before the write')
+    expect(result.current.isLoading).toBe(true)
+
+    await act(async () => {
+      newerRead.resolve(content('/repo/x.tf', 'after the write'))
+    })
+    expect(result.current.fileContent?.content).toBe('after the write')
+    expect(result.current.isLoading).toBe(false)
+  })
+
+  it('lets a newer read of a file land when it is clicked from the cache after another file', async () => {
+    const { result, pendingRead, readsOf } = setup()
+
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+      void result.current.refetchFileContent('/repo/x.tf')
+    })
+    const [olderRead, newerRead] = readsOf('/repo/x.tf')
+    await act(async () => {
+      olderRead.resolve(content('/repo/x.tf', 'before the write'))
+    })
+
+    // Y, then X again from the cache, while X's newer read still runs
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/y.tf')
+    })
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+    })
+    await act(async () => {
+      pendingRead('/repo/y.tf').resolve(content('/repo/y.tf', 'y'))
+    })
+    expect(result.current.fileContent?.content).toBe('before the write')
+    expect(result.current.isLoading).toBe(true)
+
+    await act(async () => {
+      newerRead.resolve(content('/repo/x.tf', 'after the write'))
+    })
+    expect(result.current.fileContent?.content).toBe('after the write')
     expect(result.current.isLoading).toBe(false)
   })
 
