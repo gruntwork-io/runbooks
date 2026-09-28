@@ -238,6 +238,7 @@ describe('useGitClone — reset', () => {
 
 describe('useGitClone — GitHub host of the linked auth block', () => {
   it('defaults to github.com and passes it on every github:* query', async () => {
+    invoke.mockImplementation(async (channel: string) => (channel.startsWith('github:') ? [] : {}))
     const { result } = renderHook(() => useGitClone({ id: 'clone' }))
     expect(result.current.githubHost).toBe('github.com')
     await act(async () => {

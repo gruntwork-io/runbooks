@@ -174,7 +174,7 @@ describe("GitHubBrowser — refs", () => {
     await waitFor(() => expect(refField()).toHaveValue("main"))
 
     await pick(user, 1, "fresh")
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "fresh" }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "fresh", host: "github.com" }))
     await act(async () => {})
 
     expect(refField()).toHaveValue("")
@@ -206,7 +206,7 @@ describe("GitHubBrowser — refs", () => {
     })
     renderGitClone({ prefilledUrl: "https://github.com/acme/infra", prefilledRef: "v1.2.0" })
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "infra" }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "infra", host: "github.com" }))
     await act(async () => { refs.resolve(branches("main", "v1.2.0-hotfix")) })
 
     expect(refField()).toHaveValue("v1.2.0")
