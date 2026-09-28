@@ -146,10 +146,26 @@ export function classifyCloneError(opts: {
   const ssh = transport === "ssh"
   // A plain git source can name a repo with no owner (`git.corp.net/infra.git`).
   const repoPath = [host, owner, repo].filter(Boolean).join("/")
-  if (ssh && (stderr ?? "").toLowerCase().includes("host key verification failed")) {
+  const lower = (stderr ?? "").toLowerCase()
+  if (ssh && lower.includes("host key verification failed")) {
     return {
       kind: "auth",
       hint: `the SSH host key for ${host} is not trusted yet: connect to it once from a terminal to verify and save its key, or use an https:// URL`,
+    }
+  }
+  // Before the auth check: after any ssh failure, a DNS error or a refused
+  // connection included, git adds "fatal: Could not read from remote
+  // repository.", which isAuthError counts.
+  if (
+    lower.includes("could not resolve host") ||
+    lower.includes("connection refused") ||
+    lower.includes("connection timed out") ||
+    lower.includes("connect to host") ||
+    lower.includes("network is unreachable")
+  ) {
+    return {
+      kind: "network",
+      hint: `Could not reach ${host}. Check your internet connection.`,
     }
   }
   if (isAuthError(stderr)) {
@@ -179,19 +195,6 @@ export function classifyCloneError(opts: {
       hint: hints
         ? `authentication failed for ${repoPath} (token may be invalid or expired): verify ${hints.envRemedy}, or re-run '${hints.cliCmd}'`
         : `authentication failed for ${repoPath} (token may be invalid or expired)`,
-    }
-  }
-  const lower = (stderr ?? "").toLowerCase()
-  if (
-    lower.includes("could not resolve host") ||
-    lower.includes("connection refused") ||
-    lower.includes("connection timed out") ||
-    lower.includes("connect to host") ||
-    lower.includes("network is unreachable")
-  ) {
-    return {
-      kind: "network",
-      hint: `Could not reach ${host}. Check your internet connection.`,
     }
   }
   return {

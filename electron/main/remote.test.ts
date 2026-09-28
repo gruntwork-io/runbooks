@@ -393,6 +393,25 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
     expect(result.hint).toContain("SSH host key for git.corp.net is not trusted yet")
   })
 
+  it.each([
+    "ssh: Could not resolve hostname git.corp.net: nodename nor servname provided, or not known",
+    "ssh: connect to host git.corp.net port 22: Connection refused",
+  ])("an SSH network failure is a network error, not a key problem: %s", (sshStderr) => {
+    // After any ssh failure git adds "Could not read from remote repository",
+    // which on its own reads as an auth failure.
+    const result = classifyCloneError({
+      host: "git.corp.net",
+      owner: "o",
+      repo: "r",
+      stderr:
+        `${sshStderr}\nfatal: Could not read from remote repository.\n\n` +
+        "Please make sure you have the correct access rights\nand the repository exists.",
+      hadToken: false,
+      transport: "ssh",
+    })
+    expect(result).toEqual({ kind: "network", hint: "Could not reach git.corp.net. Check your internet connection." })
+  })
+
   it("scrubs tokens from git's stderr before showing it", () => {
     // Assembled at runtime so no credential-shaped literal sits in the source.
     const token = "ghp_" + "a".repeat(36)
@@ -625,6 +644,19 @@ describe("openRemoteRunbook (real git)", () => {
     expect(err.message).toContain(hint)
     expect(tokenLookups).toEqual([])
     expect(sentToken("clone")).toBe(false)
+  }, 30_000)
+
+  it.each([
+    [
+      "git@git.example.com:org/repo.git//runbooks/vpc",
+      "ssh: Could not resolve hostname git.example.com: nodename nor servname provided, or not known",
+    ],
+    ["ssh://git@git.example.com/org/repo.git//runbooks/vpc", "ssh: connect to host git.example.com port 22: Connection refused"],
+  ])("%s: an ssh network failure says the host is unreachable, not to check the SSH key", async (source, sshStderr) => {
+    setEnv("FAKE_SSH_STDERR", sshStderr)
+    const err = await openError(source)
+
+    expect(err.message).toBe("Could not reach git.example.com. Check your internet connection.")
   }, 30_000)
 
   it("a failed ref lookup gets the classified hint and never clones on a guessed ref", async () => {
