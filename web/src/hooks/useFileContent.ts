@@ -47,6 +47,9 @@ export function useFileContent(): UseFileContentResult {
   const currentSeqRef = useRef(0)
   // The newest read still in flight for each path.
   const inFlightRef = useRef<Map<string, number>>(new Map())
+  // The newest read that has been cached for each path, so an older read of
+  // the same file landing later can't overwrite the fresher entry.
+  const cachedSeqRef = useRef<Map<string, number>>(new Map())
   // Bumped by clearCache, so a read issued before the clear isn't cached after it.
   const cacheGenRef = useRef(0)
 
@@ -84,8 +87,10 @@ export function useFileContent(): UseFileContentResult {
       const data: FileContentResult = await api.invoke('workspace:file', { worktreePath: '.', filePath }) as unknown as FileContentResult
 
       // The content is valid for its own path even when superseded, so cache it
-      // unless the cache was cleared while it was loading.
-      if (cacheGen === cacheGenRef.current) {
+      // unless the cache was cleared while it was loading or a newer read of
+      // this path has already been cached.
+      if (cacheGen === cacheGenRef.current && seq > (cachedSeqRef.current.get(filePath) ?? 0)) {
+        cachedSeqRef.current.set(filePath, seq)
         if (cache.size >= MAX_CACHE_SIZE) {
           const oldestKey = cache.keys().next().value
           if (oldestKey !== undefined) {
@@ -114,6 +119,7 @@ export function useFileContent(): UseFileContentResult {
   const refetchFileContent = useCallback((filePath: string) => doFetch(filePath, true), [doFetch])
   const clearCache = useCallback(() => {
     cacheRef.current.clear()
+    cachedSeqRef.current.clear()
     cacheGenRef.current++
   }, [])
 

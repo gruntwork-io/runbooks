@@ -128,6 +128,33 @@ describe('useFileContent', () => {
     expect(result.current.isLoading).toBe(false)
   })
 
+  it("does not let an older read of a file overwrite the cache after that file's newer read landed", async () => {
+    const { result, invoke, readsOf } = setup()
+
+    // A click, then a refetch after the file changed on disk: two reads of X in flight
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+      void result.current.refetchFileContent('/repo/x.tf')
+    })
+    const [olderRead, newerRead] = readsOf('/repo/x.tf')
+
+    // The newer read lands first, then the older one
+    await act(async () => {
+      newerRead.resolve(content('/repo/x.tf', 'after the write'))
+    })
+    await act(async () => {
+      olderRead.resolve(content('/repo/x.tf', 'before the write'))
+    })
+    expect(result.current.fileContent?.content).toBe('after the write')
+
+    // Clicking X again is a cache hit, and it must be the fresher content
+    await act(async () => {
+      void result.current.fetchFileContent('/repo/x.tf')
+    })
+    expect(invoke).toHaveBeenCalledTimes(2)
+    expect(result.current.fileContent?.content).toBe('after the write')
+  })
+
   it('still caches a superseded read, since the content is right for its own path', async () => {
     const { result, invoke, pendingRead } = setup()
 
