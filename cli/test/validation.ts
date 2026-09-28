@@ -6,7 +6,9 @@
  */
 import * as fs from "node:fs"
 import * as path from "node:path"
-import YAML from "yaml"
+import { Effect, Either } from "effect"
+import { parseBoilerplateConfig } from "../../src/domain/boilerplate/config.ts"
+import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
 import {
   extractProp,
   parseComponents,
@@ -17,6 +19,8 @@ import {
   findFencedCodeBlockRanges,
   isInsideFencedCodeBlock,
 } from "../../src/mdx.ts"
+import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
+import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,46 +42,17 @@ export interface InputsBlockSchema {
   variables: Map<string, BoilerplateVariable>
 }
 
-interface BoilerplateVariable {
-  name: string
-  type: string
-  description?: string
-  default?: unknown
-  options?: string[]
-  validations?: unknown[]
-}
-
-interface ParsedValidations {
-  required: boolean
-  minLength: number | undefined
-  maxLength: number | undefined
-  min: number | undefined
-  max: number | undefined
-  pattern: string
-  email: boolean
-  url: boolean
-}
-
-interface BoilerplateConfig {
-  variables: BoilerplateVariable[]
-}
-
 // ---------------------------------------------------------------------------
 // Known block types
 // ---------------------------------------------------------------------------
 
-const KNOWN_BLOCK_TYPES = new Set([
-  "Check", "Command", "Inputs", "Template", "TemplateInline",
-  "AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth", "GitClone",
-  "GitHubPullRequest", "DirPicker", "Admonition",
-])
+const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
 
 // ---------------------------------------------------------------------------
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-export const AUTH_BLOCK_TYPES = ["AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", "GitHubPullRequest"] as const
+const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", ...PR_BLOCK_TYPES] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
   GitHubAuth: "githubAuthId",
@@ -125,19 +100,16 @@ export class InputValidator {
     components.push(...this.parseRunBlocks(content, "Command"))
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
-    components.push(...this.parseAuthBlocks(content, "AwsAuth"))
-    components.push(...this.parseAuthBlocks(content, "GoogleAuth"))
-    components.push(...this.parseAuthBlocks(content, "GitAuth"))
-    components.push(...this.parseAuthBlocks(content, "GitHubAuth"))
-    components.push(...this.parseAuthBlocks(content, "GitLabAuth"))
+    for (const authType of AUTH_BLOCK_TYPES) {
+      components.push(...this.parseAuthBlocks(content, authType))
+    }
     components.push(...this.parseAuthBlocks(content, "GitClone"))
+    for (const prType of PR_BLOCK_TYPES) {
+      components.push(...this.parseAuthBlocks(content, prType))
+    }
 
-    // Sort by document position (use the order found in content via indexOf)
-    components.sort((a, b) => {
-      const posA = content.indexOf(`<${a.type}`)
-      const posB = content.indexOf(`<${b.type}`)
-      return posA - posB
-    })
+    // Sort by document position (each component's own offset in the source)
+    components.sort((a, b) => a.index - b.index)
 
     this.allComponents = components
   }
@@ -398,27 +370,23 @@ export interface TemplateBlock {
   target: string
 }
 
+// Both maps come from parseComponents, like the registry and InputValidator:
+// fenced examples are skipped and the first block with an id wins, so a
+// documented example can't replace the real block's content.
+
 export function parseTemplateInlineBlocks(runbookPath: string): Map<string, TemplateInlineBlock> {
   const content = fs.readFileSync(runbookPath, "utf-8")
   const blocks = new Map<string, TemplateInlineBlock>()
-  const re = /<TemplateInline\s+([^>]*?)>([\s\S]*?)<\/TemplateInline>/g
-  let match: RegExpExecArray | null
 
-  while ((match = re.exec(content)) !== null) {
-    const props = match[1]
-    const templateContent = match[2]
-    const id = extractProp(props, "id")
-    if (!id) continue
-
-    const generateFileStr = extractProp(props, "generateFile")
-
-    blocks.set(id, {
-      id,
-      content: extractTemplateContent(templateContent),
-      outputPath: extractProp(props, "outputPath"),
-      inputsId: extractProp(props, "inputsId"),
-      target: extractProp(props, "target"),
-      generateFile: generateFileStr === "true" || generateFileStr === "{true}",
+  for (const comp of parseComponents(content, "TemplateInline")) {
+    if (!comp.hasExplicitId) continue
+    blocks.set(comp.id, {
+      id: comp.id,
+      content: extractTemplateContent(comp.content),
+      outputPath: extractProp(comp.props, "outputPath"),
+      inputsId: extractProp(comp.props, "inputsId"),
+      target: extractProp(comp.props, "target"),
+      generateFile: extractProp(comp.props, "generateFile") === "true",
     })
   }
 
@@ -428,20 +396,15 @@ export function parseTemplateInlineBlocks(runbookPath: string): Map<string, Temp
 export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBlock> {
   const content = fs.readFileSync(runbookPath, "utf-8")
   const blocks = new Map<string, TemplateBlock>()
-  const re = /<Template\s+([^>]*?)(?:\/>|>(?:<\/Template>)?)/g
-  let match: RegExpExecArray | null
 
-  while ((match = re.exec(content)) !== null) {
-    const props = match[1]
-    const id = extractProp(props, "id")
-    const templatePath = extractProp(props, "path")
-    if (!id || !templatePath) continue
-
-    blocks.set(id, {
-      id,
+  for (const comp of parseComponents(content, "Template")) {
+    const templatePath = extractProp(comp.props, "path")
+    if (!comp.hasExplicitId || !templatePath) continue
+    blocks.set(comp.id, {
+      id: comp.id,
       templatePath,
-      inputsId: extractProp(props, "inputsId"),
-      target: extractProp(props, "target"),
+      inputsId: extractProp(comp.props, "inputsId"),
+      target: extractProp(comp.props, "target"),
     })
   }
 
@@ -518,19 +481,26 @@ function resolveBoilerplatePath(runbookDir: string, templatePath: string): strin
 
 function loadBoilerplateConfig(configPath: string): BoilerplateConfig {
   const content = fs.readFileSync(configPath, "utf-8")
-  const parsed = YAML.parse(content) as BoilerplateConfig
-  return { variables: parsed?.variables ?? [] }
+  return parseConfig(content)
 }
 
-function parseInlineYAML(content: string): BoilerplateConfig | null {
+function parseInlineYAML(content: string): BoilerplateConfig {
   let yamlContent = content
   const codeFenceRe = /```(?:yaml|yml)?\s*\n([\s\S]+?)```/
   const match = codeFenceRe.exec(content)
   if (match?.[1]) yamlContent = match[1]
 
-  const parsed = YAML.parse(yamlContent) as BoilerplateConfig | null
-  if (!parsed) return null
-  return { variables: parsed.variables ?? [] }
+  return parseConfig(yamlContent)
+}
+
+/**
+ * Parse boilerplate YAML with the app's parser, so `required`, variable types
+ * and `validations` are normalised exactly as the Inputs form sees them.
+ */
+function parseConfig(yamlContent: string): BoilerplateConfig {
+  const result = Effect.runSync(Effect.either(parseBoilerplateConfig(yamlContent)))
+  if (Either.isLeft(result)) throw result.left
+  return result.right
 }
 
 export function lowercaseFirst(s: string): string {
@@ -542,43 +512,18 @@ export function lowercaseFirst(s: string): string {
 // Value validation
 // ---------------------------------------------------------------------------
 
-function parseValidations(variable: BoilerplateVariable): ParsedValidations {
-  const result: ParsedValidations = {
-    required: false, minLength: undefined, maxLength: undefined,
-    min: undefined, max: undefined, pattern: "", email: false, url: false,
-  }
-
-  if (!variable.validations) return result
-
-  for (const val of variable.validations) {
-    if (typeof val === "string") {
-      if (val === "required") result.required = true
-      else if (val === "email") result.email = true
-      else if (val === "url") result.url = true
-    } else if (val && typeof val === "object") {
-      const obj = val as Record<string, unknown>
-      for (const [key, value] of Object.entries(obj)) {
-        switch (key) {
-          case "minLength": result.minLength = toInt(value); break
-          case "maxLength": result.maxLength = toInt(value); break
-          case "min": result.min = toInt(value); break
-          case "max": result.max = toInt(value); break
-          case "pattern": if (typeof value === "string") result.pattern = value; break
-        }
-      }
-    }
-  }
-
-  return result
-}
-
+/**
+ * Validate a test input value. The CLI checks the value's YAML type (enum
+ * membership, int, bool) itself, since the form's widgets enforce those; the
+ * `required` flag and `validations` rules go through the same
+ * validateVariableValue the Inputs form uses.
+ */
 function validateValue(
   key: string,
   value: unknown,
   variable: BoilerplateVariable,
 ): ValidationError[] {
   const errors: ValidationError[] = []
-  const constraints = parseValidations(variable)
 
   switch (variable.type) {
     case "enum": {
@@ -589,47 +534,11 @@ function validateValue(
       break
     }
 
-    case "string": {
-      const strVal = String(value)
-      if (constraints.minLength !== undefined && strVal.length < constraints.minLength) {
-        errors.push({ inputKey: key, message: `Length ${strVal.length} is less than minimum ${constraints.minLength}` })
-      }
-      if (constraints.maxLength !== undefined && strVal.length > constraints.maxLength) {
-        errors.push({ inputKey: key, message: `Length ${strVal.length} exceeds maximum ${constraints.maxLength}` })
-      }
-      if (constraints.pattern) {
-        try {
-          if (!new RegExp(constraints.pattern).test(strVal)) {
-            errors.push({ inputKey: key, message: `Value "${strVal}" does not match pattern "${constraints.pattern}"` })
-          }
-        } catch { /* ignore invalid patterns */ }
-      }
-      if (constraints.email) {
-        if (!strVal.includes("@") || !strVal.includes(".")) {
-          errors.push({ inputKey: key, message: `Value "${strVal}" is not a valid email address` })
-        }
-      }
-      if (constraints.url) {
-        try { new URL(strVal) } catch {
-          errors.push({ inputKey: key, message: `Value "${strVal}" is not a valid URL` })
-        }
-      }
-      break
-    }
-
-    case "int": {
+    case "int":
       if (typeof value !== "number" || !Number.isInteger(value)) {
         errors.push({ inputKey: key, message: `Expected integer, got ${typeof value}` })
-        break
-      }
-      if (constraints.min !== undefined && value < constraints.min) {
-        errors.push({ inputKey: key, message: `Value ${value} is less than minimum ${constraints.min}` })
-      }
-      if (constraints.max !== undefined && value > constraints.max) {
-        errors.push({ inputKey: key, message: `Value ${value} exceeds maximum ${constraints.max}` })
       }
       break
-    }
 
     case "bool":
       if (typeof value !== "boolean") {
@@ -638,22 +547,20 @@ function validateValue(
       break
   }
 
-  if (constraints.required && isEmpty(value)) {
-    errors.push({ inputKey: key, message: "Value is required but was empty" })
+  const message = validateVariableValue(variable, value)
+  if (message) {
+    // Fuzzed inputs change on every run and are only printed after validation
+    // passes, so name the failing value here (unless the variable is sensitive).
+    errors.push({ inputKey: key, message: variable.sensitive ? message : `${message} (got ${describeValue(value)})` })
   }
 
   return errors
 }
 
-function toInt(value: unknown): number {
-  if (typeof value === "number") return Math.floor(value)
-  return 0
-}
-
-function isEmpty(value: unknown): boolean {
-  if (value === null || value === undefined) return true
-  if (typeof value === "string") return value === ""
-  if (Array.isArray(value)) return value.length === 0
-  if (typeof value === "object") return Object.keys(value).length === 0
-  return false
+function describeValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
 }

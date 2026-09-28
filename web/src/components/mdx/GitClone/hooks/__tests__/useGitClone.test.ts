@@ -235,3 +235,36 @@ describe('useGitClone — reset', () => {
     expect(result.current.cloneStatus).toBe('ready')
   })
 })
+
+describe('useGitClone — GitHub host of the linked auth block', () => {
+  it('defaults to github.com and passes it on every github:* query', async () => {
+    const { result } = renderHook(() => useGitClone({ id: 'clone' }))
+    expect(result.current.githubHost).toBe('github.com')
+    await act(async () => {
+      await result.current.fetchOrgs()
+      await result.current.fetchRepos('acme')
+      await result.current.fetchRefs('acme', 'infra')
+    })
+    expect(invoke).toHaveBeenCalledWith('github:orgs', { host: 'github.com' })
+    expect(invoke).toHaveBeenCalledWith('github:repos', { org: 'acme', host: 'github.com' })
+    expect(invoke).toHaveBeenCalledWith('github:refs', { owner: 'acme', repo: 'infra', host: 'github.com' })
+  })
+
+  it("follows the auth block's GITHUB_HOST output (GitHub Enterprise)", async () => {
+    blockOutputs = { gitauth: { values: { __AUTHENTICATED: 'true', GIT_PROVIDER: 'github', GITHUB_HOST: 'GHES.corp' } } }
+    const { result } = renderHook(() => useGitClone({ id: 'clone', gitAuthId: 'gitauth' }))
+    expect(result.current.githubHost).toBe('ghes.corp')
+    await act(async () => {
+      await result.current.checkGitHubToken()
+      await result.current.fetchRepos('acme')
+    })
+    expect(invoke).toHaveBeenCalledWith('github:orgs', { host: 'ghes.corp' })
+    expect(invoke).toHaveBeenCalledWith('github:repos', { org: 'acme', host: 'ghes.corp' })
+  })
+
+  it('ignores an unparseable GITHUB_HOST output (falls back to github.com)', () => {
+    blockOutputs = { ghauth: { values: { __AUTHENTICATED: 'true', GITHUB_HOST: 'ftp://nope' } } }
+    const { result } = renderHook(() => useGitClone({ id: 'clone', githubAuthId: 'ghauth' }))
+    expect(result.current.githubHost).toBe('github.com')
+  })
+})

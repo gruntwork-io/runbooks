@@ -5,7 +5,7 @@ import type { BlockComponentType } from '@/contexts/ComponentIdRegistry'
 import { useTemplateContext } from '@/contexts/useRunbook'
 import { resolveTemplateReferences } from '@/lib/templateUtils'
 import type { GitAuthProps } from './types'
-import { PROVIDERS } from './providers'
+import { PROVIDERS, isGitProvider } from './providers'
 
 /**
  * Instruction-mode rendering of a GitAuth block (spec §6.4): a plain "Log into
@@ -22,7 +22,9 @@ export function GitAuthInstruction({
   oauthScopes,
   inputsId,
 }: GitAuthProps & { __registryType?: BlockComponentType }) {
-  const cfg = PROVIDERS[provider]
+  // The interactive block reports an invalid `provider` as a configuration
+  // error; here, fall back to GitHub rather than crash the runbook.
+  const cfg = isGitProvider(provider) ? PROVIDERS[provider] : PROVIDERS.github
   const scopes = oauthScopes ?? cfg.defaultInstructionScopes
   const templateCtx = useTemplateContext(inputsId)
 

@@ -110,7 +110,9 @@ export function detectInterpreter(
 }
 
 /**
- * Returns true if the interpreter is a bash-compatible shell.
+ * Returns true for shells whose scripts get the bash wrapper (bash and sh).
+ * The wrapper is bash code, so those scripts always run under bash; see
+ * resolveScriptRunner.
  */
 export function isBashInterpreter(interpreter: string): boolean {
   switch (interpreter) {
@@ -126,6 +128,29 @@ export function isBashInterpreter(interpreter: string): boolean {
   }
 }
 
+/**
+ * Decide how to run a script. Scripts whose interpreter is bash or sh get the
+ * env-capture wrapper, and the wrapper is bash code, so they always run under
+ * `bash`, even with a `#!/bin/sh` shebang. dash (/bin/sh on Debian/Ubuntu)
+ * can't parse the `trap()` override. bash-as-sh (macOS) runs in POSIX mode,
+ * where the special builtin `trap` wins over the override, so a user EXIT trap
+ * disables env capture. Shebang args (e.g. `-e`) are kept.
+ *
+ * sh scripts also get `-O xpg_echo`. dash and macOS /bin/sh both expand
+ * backslash escapes in `echo` ("a\nb" prints two lines), and plain bash does
+ * not, so without it a `#!/bin/sh` script's echo output would change.
+ */
+export function resolveScriptRunner(
+  content: string,
+  language: string,
+): { interpreter: string; args: string[]; wrap: boolean } {
+  const [detected, args] = detectInterpreter(content, language)
+  const wrap = isBashInterpreter(detected)
+  if (!wrap) return { interpreter: detected, args, wrap }
+  const isSh = detected.slice(detected.lastIndexOf("/") + 1) === "sh"
+  return { interpreter: "bash", args: isSh ? ["-O", "xpg_echo", ...args] : args, wrap }
+}
+
 // ---------------------------------------------------------------------------
 // Bash Script Wrapping
 // ---------------------------------------------------------------------------
@@ -137,6 +162,7 @@ export function isBashInterpreter(interpreter: string): boolean {
  *  3. EXIT trap interception -- chains user EXIT traps with our capture handler
  *
  * Uses `env -0` for NUL-terminated output to handle values with embedded newlines.
+ * The result is bash code: run it with `bash`, never `sh` (see resolveScriptRunner).
  */
 export function wrapBashScript(
   script: string,
@@ -182,11 +208,18 @@ __runbooks_capture_env() {
 #
 # When user calls: trap "rm -rf $TEMP_DIR" EXIT
 # Our function:
-#   1. Detects it's an EXIT trap
-#   2. Saves the handler to __RUNBOOKS_USER_EXIT_HANDLER
-#   3. Returns without setting the actual trap (ours remains active)
+#   1. Parses the arguments the way the builtin does: an optional leading '--',
+#      then the action and the signal list. A single operand ('trap EXIT') or
+#      an all-digit first operand ('trap 0 INT') resets every listed signal,
+#      same as 'trap - EXIT INT'.
+#   2. Saves the action for EXIT (any case, or 0) to __RUNBOOKS_USER_EXIT_HANDLER
+#      without setting the actual trap (ours remains active)
+#   3. Passes every other signal in the call to 'builtin trap', so
+#      'trap cleanup INT EXIT' still installs the INT handler
 #
-# For non-EXIT traps, we pass through to 'builtin trap' so they work normally.
+# Printing forms ('trap', 'trap -p', 'trap -l', 'trap -P') pass straight through.
+# So does every call in a subshell or command substitution: bash resets traps
+# there, so our EXIT handler isn't installed and a saved handler would never run.
 # -----------------------------------------------------------------------------
 
 # Store user's EXIT trap handler (if they set one)
@@ -194,40 +227,54 @@ __RUNBOOKS_USER_EXIT_HANDLER=""
 
 # Override the trap builtin to intercept EXIT handlers
 trap() {
-    # Handle query flags (-p, -l) immediately - pass through to builtin
-    if [[ "$1" == "-p" || "$1" == "-l" ]]; then
+    # Printing forms, and any call in a subshell, pass straight through to builtin
+    if [[ $BASH_SUBSHELL -gt 0 || $# -eq 0 || "$1" == "-p" || "$1" == "-l" || "$1" == "-P" ]]; then
         builtin trap "$@"
         return $?
     fi
-
-    # Check if EXIT (or signal 0, which is equivalent) is in the arguments
-    local has_exit=false
-    local i
-    for i in "$@"; do
-        if [[ "$i" == "EXIT" || "$i" == "0" ]]; then
-            has_exit=true
-            break
+    if [[ "$1" == "--" ]]; then
+        shift
+        # 'trap --' on its own prints, like 'trap'
+        if [[ $# -eq 0 ]]; then
+            builtin trap
+            return $?
         fi
-    done
-
-    if $has_exit && [[ $# -ge 2 ]]; then
-        # This is setting an EXIT trap - intercept it
-        local handler="$1"
-        if [[ "$handler" == "-" ]]; then
-            # trap - EXIT: reset to default (clear user handler)
-            __RUNBOOKS_USER_EXIT_HANDLER=""
-        elif [[ -z "$handler" ]]; then
-            # trap '' EXIT: ignore signal (clear user handler)
-            __RUNBOOKS_USER_EXIT_HANDLER=""
-        else
-            # Save user's handler to call during exit
-            __RUNBOOKS_USER_EXIT_HANDLER="$handler"
-        fi
-        return 0
     fi
 
-    # Not an EXIT trap (or just querying) - pass through to builtin
-    builtin trap "$@"
+    local handler
+    if [[ $# -eq 1 || "$1" =~ ^[0-9]+$ ]]; then
+        # Every operand is a signal to reset
+        handler="-"
+    else
+        handler="$1"
+        shift
+    fi
+
+    local sig
+    local -a others=()
+    for sig in "$@"; do
+        case "$sig" in
+            [Ee][Xx][Ii][Tt]|0)
+                if [[ "$handler" == "-" || -z "$handler" ]]; then
+                    # trap - EXIT (reset) or trap '' EXIT (ignore): clear user handler
+                    __RUNBOOKS_USER_EXIT_HANDLER=""
+                else
+                    # Save user's handler to call during exit
+                    __RUNBOOKS_USER_EXIT_HANDLER="$handler"
+                fi
+                ;;
+            *)
+                others+=("$sig")
+                ;;
+        esac
+    done
+
+    # Guarded: "\${others[@]}" on an empty array errors under 'set -u' in bash < 4.4
+    if [[ \${#others[@]} -gt 0 ]]; then
+        builtin trap -- "$handler" "\${others[@]}"
+        return $?
+    fi
+    return 0
 }
 
 # -----------------------------------------------------------------------------
@@ -288,8 +335,7 @@ export const prepareScript = (
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const [interpreter, args] = detectInterpreter(content, language)
-    const isBash = isBashInterpreter(interpreter)
+    const { interpreter, args, wrap: isBash } = resolveScriptRunner(content, language)
 
     let scriptToWrite = content
     let envCapturePath = ""
@@ -350,9 +396,56 @@ export function isValidEnvVarName(name: string): boolean {
 }
 
 /**
- * Parse the captured environment from temp files written by the bash wrapper.
- * The env file uses NUL-terminated entries (from `env -0`) to handle multiline values.
+ * Parse the contents of an env capture file written by the bash wrapper.
+ * Entries are NUL-terminated (from `env -0`) to handle multiline values.
  * Falls back to newline-delimited parsing if no NUL characters found.
+ *
+ * Pure, so the test CLI (which runs scripts synchronously) shares this parser
+ * with the app. Returns undefined when the capture holds no variables.
+ */
+export function parseEnvCaptureContent(data: string): Record<string, string> | undefined {
+  const parsed: Record<string, string> = {}
+
+  if (data.includes("\0")) {
+    // NUL-delimited: each entry is a complete KEY=VALUE pair
+    for (const entry of data.split("\0")) {
+      if (entry === "") continue
+      const idx = entry.indexOf("=")
+      if (idx !== -1) {
+        parsed[entry.slice(0, idx)] = entry.slice(idx + 1)
+      }
+    }
+  } else {
+    // Newline-delimited fallback: handle multiline values by detecting
+    // continuation lines (lines that don't start a new KEY=VALUE pair)
+    let currentKey = ""
+    let valueLines: string[] = []
+
+    for (const line of data.split("\n")) {
+      const idx = line.indexOf("=")
+      if (idx > 0 && isValidEnvVarName(line.slice(0, idx))) {
+        // Save previous key-value if any
+        if (currentKey) {
+          parsed[currentKey] = valueLines.join("\n")
+        }
+        currentKey = line.slice(0, idx)
+        valueLines = [line.slice(idx + 1)]
+      } else if (currentKey && line !== "") {
+        valueLines.push(line)
+      }
+    }
+    // Don't forget the last key
+    if (currentKey) {
+      parsed[currentKey] = valueLines.join("\n")
+    }
+  }
+
+  return Object.keys(parsed).length > 0 ? parsed : undefined
+}
+
+/**
+ * Parse the captured environment from temp files written by the bash wrapper.
+ * See parseEnvCaptureContent for the env file format.
  *
  * Returns { env, pwd } where env may be undefined if the file was empty/missing.
  */
@@ -373,46 +466,7 @@ export const parseEnvCapture = (
       .readFile(envCapturePath)
       .pipe(Effect.option)
     if (envResult._tag === "Some") {
-      const data = envResult.value
-      const parsed: Record<string, string> = {}
-
-      if (data.includes("\0")) {
-        // NUL-delimited: each entry is a complete KEY=VALUE pair
-        for (const entry of data.split("\0")) {
-          if (entry === "") continue
-          const idx = entry.indexOf("=")
-          if (idx !== -1) {
-            parsed[entry.slice(0, idx)] = entry.slice(idx + 1)
-          }
-        }
-      } else {
-        // Newline-delimited fallback: handle multiline values by detecting
-        // continuation lines (lines that don't start a new KEY=VALUE pair)
-        let currentKey = ""
-        let valueLines: string[] = []
-
-        for (const line of data.split("\n")) {
-          const idx = line.indexOf("=")
-          if (idx > 0 && isValidEnvVarName(line.slice(0, idx))) {
-            // Save previous key-value if any
-            if (currentKey) {
-              parsed[currentKey] = valueLines.join("\n")
-            }
-            currentKey = line.slice(0, idx)
-            valueLines = [line.slice(idx + 1)]
-          } else if (currentKey && line !== "") {
-            valueLines.push(line)
-          }
-        }
-        // Don't forget the last key
-        if (currentKey) {
-          parsed[currentKey] = valueLines.join("\n")
-        }
-      }
-
-      if (Object.keys(parsed).length > 0) {
-        env = parsed
-      }
+      env = parseEnvCaptureContent(envResult.value)
     }
 
     // Read working directory capture
@@ -432,6 +486,38 @@ export const parseEnvCapture = (
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse the contents of a RUNBOOK_OUTPUT file into key=value pairs. Pure, so
+ * the test CLI shares this parser with the app.
+ */
+export function parseBlockOutputsContent(content: string): Record<string, string> {
+  const outputs: Record<string, string> = {}
+
+  const lines = content.split("\n")
+  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+    const line = lines[lineNum].trim()
+    if (line === "") continue
+
+    const eqIdx = line.indexOf("=")
+    if (eqIdx === -1) {
+      // Invalid output line (no = sign), skip
+      continue
+    }
+
+    const key = line.slice(0, eqIdx).trim()
+    const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
+
+    if (!IDENT_RE.test(key)) {
+      // Invalid output key, skip
+      continue
+    }
+
+    outputs[key] = value
+  }
+
+  return outputs
+}
+
+/**
  * Read the RUNBOOK_OUTPUT file and parse key=value pairs.
  * Returns a map of outputs, or an empty record if the file is empty/missing.
  */
@@ -444,37 +530,13 @@ export const parseBlockOutputs = (
 > =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-    const outputs: Record<string, string> = {}
 
     const result = yield* fs.readFile(filePath).pipe(Effect.option)
     if (result._tag !== "Some") {
-      return outputs
+      return {}
     }
 
-    const content = result.value
-    const lines = content.split("\n")
-    for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-      const line = lines[lineNum].trim()
-      if (line === "") continue
-
-      const eqIdx = line.indexOf("=")
-      if (eqIdx === -1) {
-        // Invalid output line (no = sign), skip
-        continue
-      }
-
-      const key = line.slice(0, eqIdx).trim()
-      const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
-
-      if (!IDENT_RE.test(key)) {
-        // Invalid output key, skip
-        continue
-      }
-
-      outputs[key] = value
-    }
-
-    return outputs
+    return parseBlockOutputsContent(result.value)
   })
 
 // ---------------------------------------------------------------------------

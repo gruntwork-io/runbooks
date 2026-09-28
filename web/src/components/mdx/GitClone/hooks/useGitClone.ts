@@ -4,6 +4,7 @@ import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
 import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
+import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from '@/components/mdx/_shared/lib/githubHost'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef, LocalRepoInfo } from '../types'
 import type { GitCloneRequest } from '../../../../../../electron/shared/channels.ts'
@@ -94,6 +95,18 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     [gitAuthId, githubAuthId, allOutputs],
   )
 
+  // The GitHub host of the linked auth block (its GITHUB_HOST output):
+  // github.com, a *.ghe.com tenant, or a GHES host. The repo browser lists and
+  // builds clone URLs against it. Defaults to github.com.
+  const githubHost = useMemo((): string => {
+    for (const authId of [gitAuthId, githubAuthId]) {
+      if (!authId) continue
+      const host = tryNormalizeGitHubHost(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST)
+      if (host) return host
+    }
+    return DEFAULT_GITHUB_HOST
+  }, [gitAuthId, githubAuthId, allOutputs])
+
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
     try {
@@ -112,7 +125,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     fetchWorkingDir()
 
     try {
-      const orgs = await api.invoke('github:orgs')
+      const orgs = await api.invoke('github:orgs', { host: githubHost })
       // If we got orgs back (even just the user), we have a token
       setHasGitHubToken(Array.isArray(orgs) && orgs.length > 0)
     } catch {
@@ -123,22 +136,22 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       // already started a clone, which must stay running (or done).
       setCloneStatus(prev => (prev === 'pending' ? 'ready' : prev))
     }
-  }, [api, fetchWorkingDir])
+  }, [api, fetchWorkingDir, githubHost])
 
   // The GitHub browser fetchers reject on failure so the browser can show why
   // a list is empty, rather than an expired token or a 403 reading as "none".
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
-    return api.invoke('github:orgs')
-  }, [api])
+    return api.invoke('github:orgs', { host: githubHost })
+  }, [api, githubHost])
 
   const fetchRepos = useCallback(async (owner: string): Promise<GitHubRepo[]> => {
-    return api.invoke('github:repos', { org: owner })
-  }, [api])
+    return api.invoke('github:repos', { org: owner, host: githubHost })
+  }, [api, githubHost])
 
   const fetchRefs = useCallback(async (owner: string, repo: string): Promise<GitHubRef[]> => {
-    const refs = await api.invoke('github:refs', { owner, repo })
+    const refs = await api.invoke('github:refs', { owner, repo, host: githubHost })
     return refs.map((r) => ({ name: r.ref, type: r.type }))
-  }, [api])
+  }, [api, githubHost])
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
@@ -407,6 +420,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    githubHost,
     workingDir,
     localPreview,
     localPreviewStatus,

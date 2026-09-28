@@ -18,8 +18,11 @@ import {
 import { GitHubIcon } from "@/components/icons/GitHubIcon"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { GitHubOrg, GitHubRepo, GitHubRef } from "../types"
+import { DEFAULT_GITHUB_HOST, githubWebBase } from "@/components/mdx/_shared/lib/githubHost"
 
 interface GitHubBrowserProps {
+  /** GitHub host the repos live on (github.com, *.ghe.com, or GHES); builds clone URLs. */
+  host?: string
   /** Callback when a repo is selected (sets the URL field) */
   onRepoSelected: (url: string) => void
   /** Callback when a ref (branch/tag) is selected */
@@ -41,6 +44,7 @@ interface GitHubBrowserProps {
 }
 
 export function GitHubBrowser({
+  host = DEFAULT_GITHUB_HOST,
   onRepoSelected,
   onRefSelected,
   fetchOrgs,
@@ -191,7 +195,7 @@ export function GitHubBrowser({
     setRepoOpen(false)
     setRepoSearch("")
     // Auto-fill the URL
-    onRepoSelected(`https://github.com/${selectedOrg}/${repo.name}`)
+    onRepoSelected(`${githubWebBase(host)}/${selectedOrg}/${repo.name}`)
     // Re-picking the current repo keeps its ref
     if (repo.name === selectedRepo) return
     setSelectedRepo(repo.name)

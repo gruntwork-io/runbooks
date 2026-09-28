@@ -96,6 +96,7 @@ You can pre-populate the URL, ref, sparse checkout path, and local path fields. 
 | `title` | `string` | No | Display title for the block header. Supports inline markdown. |
 | `description` | `string` | No | Description text below the title. Supports inline markdown. |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
+| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth), [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block, for either provider. When set, the block waits for authentication to complete and clones with that provider's session token, including from a self-managed GitLab instance. |
 | `prefilledUrl` | `string` | No | Pre-fills the Git URL input field. The user can edit this value before cloning. |
 | `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
 | `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path: a directory relative to the repository root (e.g., `modules/vpc`). When set, only that directory is checked out, plus the loose files above it such as a top-level `README.md`. Empty or `.` clones the whole repository. See [Sparse Checkout](#sparse-checkout). |
@@ -151,20 +152,56 @@ The GitClone block accepts the following URL formats:
 
 | Format | Example | Notes |
 |--------|---------|-------|
-| HTTPS | `https://github.com/org/repo.git` | Recommended. Token auth injected automatically for GitHub URLs. |
+| HTTPS | `https://github.com/org/repo.git` | Recommended. Token auth injected automatically for URLs on the authenticated GitHub host. |
 | HTTPS (no .git) | `https://github.com/org/repo` | Also works without the `.git` suffix. |
 | Any host | `https://gitlab.com/org/repo.git` | Works with any git hosting provider. |
 | SSH | `git@github.com:org/repo.git` | Token auth does **not** apply to SSH URLs. Use HTTPS for token-based auth. |
+| SSH, bracketed host | `git@[2001:db8::1]:org/repo.git`, `git@[git.example.com:2222]:org/repo.git` | As in git, an IPv6 address, or a host with a non-default SSH port, goes in brackets. Without brackets, the text after the colon is always the repository path. |
 
 ### GitHub Authentication
 
 The GitClone block resolves GitHub credentials in the following order:
 
-1. **`githubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs.
-2. **Session environment** — Checks the session environment for `GITHUB_TOKEN` or `GH_TOKEN`.
+1. **`githubAuthId`** — If specified, uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs, for the host that block authenticated to.
+2. **Session environment** — Checks the session environment for a GitHub token bound to the host (see [environment variables and hosts](/authoring/blocks/githubauth/#environment-variables-and-hosts)).
 3. **No token** — The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
 
-When a GitHub token is available and the user enters a `github.com` HTTPS URL, the token is automatically injected on the server side for authentication. The token is never exposed in the browser.
+When a GitHub token is available and the user enters an HTTPS URL on the host that token belongs to, the token is automatically injected on the server side for authentication. The token is never exposed in the browser.
+
+#### GitHub Enterprise
+
+GitClone follows the GitHub host of the linked auth block (its `GITHUB_HOST` output; `github.com` by default). When the auth block authenticated to a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`:
+
+- The **Browse GitHub repositories** dropdown lists organizations, repositories, and refs from that host's API.
+- Repositories picked in the browser are cloned from `https://<host>/<org>/<repo>`, and the URL placeholder shows that host.
+- The token is only injected into clone URLs on that same host. A URL on any other host (including `github.com`) is cloned without it.
+
+```mdx
+<GitHubAuth
+  id="gh-auth"
+  title="Connect to GitHub Enterprise"
+  host="github.example.com"
+/>
+
+<GitClone
+  id="clone-repo"
+  githubAuthId="gh-auth"
+  title="Clone a Repo"
+  prefilledUrl="https://github.example.com/platform/infrastructure-live"
+/>
+```
+
+A `prefilledUrl` on `github.com`, a `*.ghe.com` tenant, or the auth block's host is recognized as a GitHub repository, so its organization and repository are pre-selected in the browser.
+
+The token is passed to git only for the clone itself (through the environment, which requires git 2.31 or later), so it is never saved in the checkout's `.git/config` or shown as part of its remote URL. A script that later runs `git pull`, `git fetch`, or `git push` in the checkout needs its own git credentials, such as a configured credential helper (`gh auth setup-git`), an SSH remote, or a one-off helper that reads the token from the environment:
+
+```bash
+git -c credential.helper= \
+  -c "credential.https://${GITHUB_HOST:-github.com}.helper="'!f() { echo username=x-access-token; echo "password=${GITHUB_TOKEN}"; }; f' \
+  pull
+```
+
+The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, set by the GitHub Auth block), so git never offers the token to another remote or over plain `http://`. For a GitLab checkout, scope it to your GitLab host (e.g. `credential.https://gitlab.com.helper`) and use `username=oauth2` and `${GITLAB_TOKEN}` in the helper instead.
 
 ### Sparse Checkout
 
@@ -191,6 +228,8 @@ Files that later blocks write for [`<GitPullRequest>`](/authoring/blocks/gitpull
 ### Custom Local Path
 
 The `prefilledLocalPath` prop (or the "Local Path" input field) controls where files are cloned, relative to the current working directory. If not set, the repository name is used.
+
+The local path must be a subdirectory of the working directory, because "Delete & Clone" removes an existing directory there before cloning. The block shows an error instead of cloning when the path is the working directory itself (for example `.`), when it leads outside the working directory (including through a symlink), or when it contains the runbook.
 
 ### Environment Variables
 
@@ -238,7 +277,7 @@ Reference outputs in downstream blocks using template variables:
 <Command
   id="list-files"
   title="List Cloned Files"
-  command="ls -la {{ .outputs.clone_repo.clone_path }}"
+  command='ls -la "{{ .outputs.clone_repo.clone_path }}"'
 />
 ```
 
@@ -280,6 +319,6 @@ The GitClone block includes a collapsible "View Logs" section (identical to the 
   id="apply-changes"
   githubAuthId="gh-auth"
   title="Apply OpenTofu Changes"
-  command="cd {{ .outputs.clone_infra.clone_path }} && tofu apply -auto-approve"
+  command='cd "{{ .outputs.clone_infra.clone_path }}" && tofu apply -auto-approve'
 />
 ```
