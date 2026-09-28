@@ -63,6 +63,8 @@ const RUNBOOK = `# Runbook assets
 
 <img src="./assets/pixel.png" width="40" alt="pixel" />
 
+<img src="./assets/icons/tiny pixel.png" width="40" alt="nested" />
+
 <audio src="./assets/tone.wav" controls preload="auto" />
 
 <video src="./assets/testsrc.webm" controls preload="auto" muted />
@@ -121,6 +123,8 @@ test.describe("Runbook assets", () => {
     fs.mkdirSync(path.join(runbookDir, "assets"), { recursive: true })
     fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), RUNBOOK)
     fs.writeFileSync(path.join(runbookDir, "assets/pixel.png"), PNG)
+    fs.mkdirSync(path.join(runbookDir, "assets/icons"))
+    fs.writeFileSync(path.join(runbookDir, "assets/icons/tiny pixel.png"), PNG)
     fs.writeFileSync(path.join(runbookDir, "assets/tone.wav"), wav(WAV_SECONDS))
     fs.copyFileSync(WEBM, path.join(runbookDir, "assets/testsrc.webm"))
   })
@@ -145,14 +149,21 @@ test.describe("Runbook assets", () => {
     return { app, page }
   }
 
-  test("loads an image, audio and video from the runbook's assets folder", async () => {
+  test("loads images, audio and video from the runbook's assets folder", async () => {
     const { app, page } = await launch()
     try {
-      const img = page.locator('img[alt="pixel"]')
-      await expect(img).toHaveAttribute("src", "runbook-asset://assets/pixel.png")
-      await expect
-        .poll(() => img.evaluate((el: HTMLImageElement) => (el.complete ? el.naturalWidth : 0)))
-        .toBeGreaterThan(0)
+      // A subfolder and a space exercise the URL's canonical form (host
+      // `assets`, `%20`) on its way back to a file path.
+      for (const [alt, src] of [
+        ["pixel", "runbook-asset://assets/pixel.png"],
+        ["nested", "runbook-asset://assets/icons/tiny pixel.png"],
+      ]) {
+        const img = page.locator(`img[alt="${alt}"]`)
+        await expect(img).toHaveAttribute("src", src)
+        await expect
+          .poll(() => img.evaluate((el: HTMLImageElement) => (el.complete ? el.naturalWidth : 0)))
+          .toBeGreaterThan(0)
+      }
 
       const audio = await mediaState(page, "audio")
       expect(audio.error).toBeNull()
