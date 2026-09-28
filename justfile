@@ -12,17 +12,12 @@ default:
 # Neither directory has a package.json any more; all dependencies come from the
 # root node_modules. A leftover web/node_modules or cli/node_modules would still
 # shadow the root tree for imports from that directory, silently giving stale
-# versions or two copies of react/effect. The `*` glob skips dot-directories
-# (.vite, .tmp), which are tool caches, not packages. Plain sh builtins only, so
-# it runs wherever `just build` does, Windows included.
+# versions or two copies of react/effect. Dot-directories (.vite, .tmp) are tool
+# caches, not packages, and are allowed. The check lives in
+# scripts/no-nested-node-modules.ts, which electron.vite.config.ts and
+# web/vitest.config.ts also call.
 _no-nested-node-modules:
-    @for pkg in web/node_modules/* cli/node_modules/*; do \
-        if [ -e "$pkg" ]; then \
-            echo "error: ${pkg%/*} contains packages from an old per-directory install." >&2; \
-            echo "All dependencies now come from the root node_modules. Remove it: rm -rf ${pkg%/*}" >&2; \
-            exit 1; \
-        fi; \
-    done
+    @mise x bun -- bun scripts/no-nested-node-modules.ts
 
 # Start Electron app in dev mode with HMR. Depends on fetch-boilerplate so
 # the app always renders with the vendored boilerplate under resources/ —
@@ -41,7 +36,7 @@ build: _no-nested-node-modules
     mise x node -- npx electron-vite build
 
 # Compile the test CLI as a standalone binary (no Node.js required)
-compile-test-cli:
+compile-test-cli: _no-nested-node-modules
     #!/usr/bin/env bash
     set -euo pipefail
     mise x bun -- bun build --compile --outfile resources/bin/runbooks-test cli/index.ts
@@ -253,7 +248,7 @@ test: test-unit test-e2e test-runbooks test-docs
 # Run backend unit tests (Bun test runner)
 # test/** is excluded: test/integration/ is the Node-environment Vitest suite
 # (Bun 1.3.x has no tls.setDefaultCACertificates) — see `just test-integration`.
-test-backend:
+test-backend: _no-nested-node-modules
     mise x bun -- bun test --path-ignore-patterns='web/**' --path-ignore-patterns='docs/**' --path-ignore-patterns='node_modules/**' --path-ignore-patterns='**/e2e/**' --path-ignore-patterns='test/**'
 
 # web/ has no package.json of its own: the renderer's dependencies live in the
@@ -277,7 +272,7 @@ test-e2e: build fetch-boilerplate
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
 # Run Playwright E2E tests without rebuilding (CI calls `just build` separately)
-test-e2e-run: fetch-boilerplate
+test-e2e-run: _no-nested-node-modules fetch-boilerplate
     mise x bun -- bunx playwright test --config web/playwright.config.ts
     mise x bun -- bunx playwright test --config electron/e2e/playwright.config.ts --workers=1
 
