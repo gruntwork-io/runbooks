@@ -4,9 +4,12 @@
  * carries anything but a real "region is not enabled" sentence puts a red
  * herring there (it once said a bare "true").
  *
- * Runs the real handler, shared runtime (AppLive), domain checkRegion and
- * AwsSdkClient layer; only `electron` is replaced, plus AccountClient's `send`
- * at the network boundary.
+ * The send-outcome cases run the real handler, shared runtime (AppLive),
+ * domain checkRegion and AwsSdkClient layer; only `electron` is replaced, plus
+ * AccountClient's `send` at the network boundary. The layer turns every
+ * rejected send into `true`, so nothing at that boundary ends the check in a
+ * defect or an interruption: those cases stub `runtime.runPromise` once and
+ * exercise only the handler's own catch.
  */
 import { describe, it, expect, afterEach, spyOn } from "bun:test"
 import { Effect } from "effect"
@@ -116,7 +119,12 @@ describe("aws:check-region", () => {
     expect(runPromise).toHaveBeenCalledTimes(1)
     const logged = handlerErrors()
     expect(logged).toHaveLength(1)
-    const text = logged[0].map(String).join(" ")
+    // Render each argument the way the console shows it. String() would turn
+    // a logged params or credentials object into "[object Object]" and hide
+    // any secret inside it; makeLogger only scrubs strings and Errors.
+    const text = logged[0]
+      .map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity })))
+      .join(" ")
     expect(text).toContain("Region opt-in check crashed")
     for (const secret of [PARAMS.accessKeyId, PARAMS.secretAccessKey, PARAMS.sessionToken]) {
       expect(text).not.toContain(secret)
