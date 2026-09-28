@@ -1,15 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { spawnSync } from "node:child_process"
+import { mockElectron } from "./test-utils/mock-electron.ts"
 
 // cli-install.ts reads electron's `app.isPackaged` only inside the exported
 // entry points, which these tests do not call. Stub the module so the import
-// graph resolves without an Electron runtime.
-mock.module("electron", () => ({
-  app: { isPackaged: false },
-}))
+// graph resolves without an Electron runtime. Through mockElectron, like every
+// electron mock: a bare mock.module declaring only `app` would fix the
+// module's export names for the whole bun process, and later files that
+// import `ipcMain` would fail to load.
+mockElectron({ app: { isPackaged: false } })
 
 const {
   LAUNCHER_MARKER,

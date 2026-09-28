@@ -12,7 +12,9 @@ import {
   prepareScript,
   wrapBashScript,
   parseEnvCapture,
+  parseEnvCaptureContent,
   parseBlockOutputs,
+  parseBlockOutputsContent,
   captureFilesFromDir,
 } from "./script.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
@@ -272,6 +274,18 @@ describe("parseEnvCapture", () => {
   })
 })
 
+// The pure parser the test CLI calls directly (it runs scripts synchronously,
+// so it can't go through the FileSystem service).
+describe("parseEnvCaptureContent", () => {
+  it("parses a NUL-delimited capture", () => {
+    expect(parseEnvCaptureContent("A=1\0B=line1\nline2\0")).toEqual({ A: "1", B: "line1\nline2" })
+  })
+
+  it("returns undefined for an empty capture", () => {
+    expect(parseEnvCaptureContent("")).toBeUndefined()
+  })
+})
+
 // ---------------------------------------------------------------------------
 // parseBlockOutputs
 // ---------------------------------------------------------------------------
@@ -340,6 +354,12 @@ describe("parseBlockOutputs", () => {
       { "/output.txt": "_PRIVATE=yes\n__DOUBLE=also\n" },
     )
     expect(result).toEqual({ _PRIVATE: "yes", __DOUBLE: "also" })
+  })
+})
+
+describe("parseBlockOutputsContent", () => {
+  it("keeps value whitespace and skips invalid or empty keys", () => {
+    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({ MSG: " hi", OK: "1" })
   })
 })
 
