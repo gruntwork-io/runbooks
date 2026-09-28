@@ -13,6 +13,7 @@
  */
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
 import * as fs from "fs"
+import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
 
@@ -21,23 +22,27 @@ const __dirname = path.dirname(__filename)
 const ROOT = path.resolve(__dirname, "../..")
 const MAIN_ENTRY = path.join(ROOT, "dist/main/index.js")
 const KITCHEN_SINK = path.join(ROOT, "testdata/kitchen-sink")
-// Written by the `gen-file-tpl` <TemplateInline generateFile> block.
-const GEN_FILE_TPL_OUTPUT = path.join(KITCHEN_SINK, "output/generated.yaml")
 
 // Shared state for the test suite — we launch the app once and reuse it.
 let app: ElectronApplication
 let page: Page
+let workDir: string
 
 // Collect console errors during the entire test suite
 const consoleErrors: string[] = []
 
 test.beforeAll(async () => {
-  // Remove a file left by an earlier run, so the TemplateInline write check
-  // below can only pass if this run wrote it.
-  fs.rmSync(GEN_FILE_TPL_OUTPUT, { force: true })
-
+  // Launch a temp copy with a throwaway profile so runs never write into
+  // testdata/ or the real app profile. Scripts and Templates write to the
+  // runbook's generated/ dir, and files an earlier run left there open the
+  // modal "existing generated files" alert, which hides the app from getByRole.
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-kitchen-sink-e2e-"))
+  const runbookDir = path.join(workDir, "kitchen-sink")
+  const userDataDir = path.join(workDir, "user-data")
+  fs.cpSync(KITCHEN_SINK, runbookDir, { recursive: true })
+  fs.mkdirSync(userDataDir)
   app = await electron.launch({
-    args: [MAIN_ENTRY, KITCHEN_SINK],
+    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
@@ -64,6 +69,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (app) await app.close()
+  if (workDir) fs.rmSync(workDir, { recursive: true, force: true })
 })
 
 // ---------------------------------------------------------------------------
@@ -350,8 +356,11 @@ test.describe("Templates", () => {
   test("template inline with generateFile writes the rendered file", async () => {
     // Pins boilerplate:render-inline's write path end to end: the component
     // tests mock IPC, so only a real run shows the file lands on disk.
+    // The `gen-file-tpl` block writes into the runbook copy's generated-files
+    // dir, which starts empty, so the check can only pass if this run wrote it.
+    const written = path.join(workDir, "kitchen-sink", "generated", "generated.yaml")
     await expect
-      .poll(() => (fs.existsSync(GEN_FILE_TPL_OUTPUT) ? fs.readFileSync(GEN_FILE_TPL_OUTPUT, "utf-8") : ""))
+      .poll(() => (fs.existsSync(written) ? fs.readFileSync(written, "utf-8") : ""))
       .toContain("name: hello world")
   })
 })

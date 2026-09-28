@@ -3,21 +3,29 @@
  *
  * Two concerns live here:
  *
- *  - `renderFile`: in-process Go text/template rendering via the boilerplate
- *    WASM runtime's `boilerplateRenderTemplate` export. Backs
- *    `<TemplateInline>` for per-keystroke previews of inline template
- *    snippets. The WASM bridge is already warm in the main process, so each
- *    call is a cheap JS→Go bounce with no subprocess startup.
+ *  - `renderFile` / `renderFileStrict`: in-process Go text/template rendering
+ *    via the boilerplate WASM runtime's `boilerplateRenderTemplate` export.
+ *    The WASM bridge is already warm in the main process, so each call is a
+ *    cheap JS→Go bounce with no subprocess startup.
  *
  *  - `renderTemplate`: shells out to the `boilerplate` CLI. This covers the
  *    full boilerplate feature surface (dependencies, skip_files, hooks,
  *    partials, all built-in functions) for the cold-render path.
  *
- * The WASM render hard-codes `OnMissingKey=ExitWithError`. To preserve the
- * permissive UX the hand-rolled engine used to provide (a typo like
- * `{{ .typoo }}` renders as `""` rather than blanking the whole preview),
- * we catch `WasmError(kind="internal")` and surface a single-line error
- * marker as the rendered output. Structural / load failures still propagate.
+ * The WASM render hard-codes `OnMissingKey=ExitWithError`, and every
+ * template-level failure (missing key, parse error, unknown function) comes
+ * back as `WasmError(kind="internal")`. The two single-string renders differ
+ * only in how they treat that:
+ *
+ *  - `renderFile` is lenient. It surfaces a single-line
+ *    `[template error: ...]` marker as the rendered output, so a typo in a
+ *    `<TemplateInline>` / View Source / instruction-mode preview shows the
+ *    error rather than blanking the whole preview. Structural / load
+ *    failures still propagate.
+ *
+ *  - `renderFileStrict` fails with `RenderError` on every failure. Command /
+ *    Check execution uses it, so a broken template fails the block with the
+ *    real error instead of the marker text being run as the script.
  */
 import path from "node:path"
 import { Effect, Layer, Stream } from "effect"
@@ -25,6 +33,7 @@ import { BoilerplateRenderer } from "../services/BoilerplateRenderer.ts"
 import type { BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
+import type { SpawnedProcess } from "../services/ProcessSpawner.ts"
 import { WasmRuntime } from "../services/WasmRuntime.ts"
 import { RenderError } from "../errors/index.ts"
 
@@ -70,7 +79,6 @@ function writeVarFile(
     const fs = yield* FileSystem
     const YAML = yield* Effect.promise(() => import("yaml"))
     const yamlText = YAML.stringify(variables ?? {})
-    console.log("[boilerplate] var-file YAML (first 1200 chars):\n" + yamlText.slice(0, 1200))
     const tmpDir = yield* fs.mkdtemp("boilerplate-vars-").pipe(
       Effect.mapError(
         (err) =>
@@ -95,81 +103,116 @@ function writeVarFile(
 }
 
 /**
- * Shell out to the boilerplate CLI to render a template tree.
+ * Run the vendored boilerplate CLI with `args` and collect its output.
  *
  * Streams stdout/stderr into buffers so that, on non-zero exit, the `stderr`
  * text can be surfaced through the resulting `RenderError` (makes
  * configuration mistakes in templates readable in the UI rather than a bare
- * "exit code 1").
+ * "exit code 1"). `label` names the command in that error and in the timing
+ * log.
+ *
+ * Every boilerplate subprocess goes through here: the cold render below and
+ * the bundle build in NodeBundleProducer.
+ */
+export function runBoilerplateCli(
+  args: string[],
+  label: string,
+): Effect.Effect<{ stdout: string[]; stderr: string[] }, RenderError, ProcessSpawner> {
+  return Effect.gen(function* () {
+    const spawner = yield* ProcessSpawner
+    const binary = yield* resolveBoilerplateBinary()
+
+    // Wait for the subprocess to finish and map its exit code.
+    const awaitExit = (proc: SpawnedProcess, dSpawn: number) =>
+      Effect.gen(function* () {
+        const tExec = Date.now()
+        // Drain output (the spawner collects lines and emits them once the
+        // process exits; stderr lines carry user-facing error detail).
+        const lines = yield* Stream.runCollect(proc.output).pipe(
+          Effect.catchAll(() =>
+            Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
+          ),
+        )
+        const stdout: string[] = []
+        const stderr: string[] = []
+        for (const l of lines) {
+          if (l.source === "stdout") stdout.push(l.line)
+          else stderr.push(l.line)
+        }
+
+        const code = yield* proc.exitCode.pipe(
+          Effect.catchAll(() => Effect.succeed(1)),
+        )
+        const dExec = Date.now() - tExec
+        console.log("[boilerplate subprocess] timing(ms)", {
+          command: label,
+          binary,
+          spawn: dSpawn,
+          exec: dExec,
+          exitCode: code,
+        })
+        if (code !== 0) {
+          const stderrText = stderr.join("\n").trim()
+          return yield* Effect.fail(
+            new RenderError({
+              message: stderrText.length > 0
+                ? `${label} exited with code ${code}: ${stderrText}`
+                : `${label} exited with code ${code}`,
+            }),
+          )
+        }
+        return { stdout, stderr }
+      })
+
+    // If our fiber is interrupted (e.g. a newer render superseded this one,
+    // or the bundle producer dropped a build), kill the subprocess so we
+    // stop paying for CPU/network we no longer want. Without this, a stale
+    // boilerplate CLI run would keep running in the background.
+    //
+    // Spawning and installing that kill are one uninterruptible step: the
+    // child exists once `spawn` resolves, so an interrupt landing during the
+    // spawn, or before `onInterrupt` is in place, would leave it running.
+    // Spawning only waits for the child's "spawn" event, so holding off an
+    // interrupt that long costs nothing. The interrupt then reaches the
+    // wait, which kills the child.
+    const tSpawn = Date.now()
+    return yield* Effect.uninterruptibleMask((restore) =>
+      spawner.spawn(binary, args).pipe(
+        Effect.mapError(
+          (err) =>
+            new RenderError({
+              message: `Failed to spawn vendored boilerplate binary "${binary}". The bundled copy is missing or not executable; run \`just fetch-boilerplate\`.`,
+              cause: err,
+            }),
+        ),
+        Effect.flatMap((proc) =>
+          restore(awaitExit(proc, Date.now() - tSpawn)).pipe(
+            Effect.onInterrupt(() => proc.kill),
+          ),
+        ),
+      ),
+    )
+  })
+}
+
+/**
+ * Shell out to the boilerplate CLI to render a template tree.
  */
 function runBoilerplate(
   templateDir: string,
   outputDir: string,
   varFilePath: string,
 ) {
-  return Effect.gen(function* () {
-    const spawner = yield* ProcessSpawner
-    const binary = yield* resolveBoilerplateBinary()
-    const args = [
+  return runBoilerplateCli(
+    [
       "--template-url", templateDir,
       "--output-folder", outputDir,
       "--var-file", varFilePath,
       "--non-interactive",
       "--disable-dependency-prompt",
-    ]
-
-    const tSpawn = Date.now()
-    const proc = yield* spawner.spawn(binary, args).pipe(
-      Effect.mapError(
-        (err) =>
-          new RenderError({
-            message: `Failed to spawn vendored boilerplate binary "${binary}". The bundled copy is missing or not executable; run \`just fetch-boilerplate\`.`,
-            cause: err,
-          }),
-      ),
-    )
-    const dSpawn = Date.now() - tSpawn
-
-    // Wait for the subprocess to finish, but if our fiber is interrupted
-    // (e.g. a newer render superseded this one), kill the subprocess so we
-    // stop paying for CPU/network we no longer want. Without this, a stale
-    // boilerplate CLI run would keep running in the background.
-    return yield* Effect.gen(function* () {
-      const tExec = Date.now()
-      // Drain output (the spawner collects lines and emits them once the
-      // process exits; stderr lines carry user-facing error detail).
-      const lines = yield* Stream.runCollect(proc.output).pipe(
-        Effect.catchAll(() =>
-          Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
-        ),
-      )
-      const stderrLines: string[] = []
-      for (const l of lines) {
-        if (l.source === "stderr") stderrLines.push(l.line)
-      }
-
-      const code = yield* proc.exitCode.pipe(
-        Effect.catchAll(() => Effect.succeed(1)),
-      )
-      const dExec = Date.now() - tExec
-      console.log("[boilerplate subprocess] timing(ms)", {
-        binary,
-        spawn: dSpawn,
-        exec: dExec,
-        exitCode: code,
-      })
-      if (code !== 0) {
-        const stderrText = stderrLines.join("\n").trim()
-        return yield* Effect.fail(
-          new RenderError({
-            message: stderrText.length > 0
-              ? `boilerplate exited with code ${code}: ${stderrText}`
-              : `boilerplate exited with code ${code}`,
-          }),
-        )
-      }
-    }).pipe(Effect.onInterrupt(() => proc.kill))
-  })
+    ],
+    "boilerplate",
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -177,9 +220,10 @@ function runBoilerplate(
 // ---------------------------------------------------------------------------
 
 /**
- * `renderFile` routes through the WASM `boilerplateRenderTemplate` export so
- * inline previews share the same template engine (and helper-function surface)
- * as the bundle-backed renders.
+ * `renderFile` and `renderFileStrict` route through the WASM
+ * `boilerplateRenderTemplate` export so inline previews and Command/Check
+ * scripts share the same template engine (and helper-function surface) as the
+ * bundle-backed renders. See the file header for the lenient/strict split.
  *
  * `renderTemplate` shells out to the real `boilerplate` binary for full
  * feature parity (dependencies, skip_files, hooks, partials, etc).
@@ -199,13 +243,25 @@ export const WasmBoilerplateLive = Layer.effect(
             // The WASM build hard-codes `OnMissingKey=ExitWithError`. Surface
             // missing-key / parse-time failures inline rather than blanking
             // the whole preview — matches the permissive UX the hand-rolled
-            // engine used to provide for `<TemplateInline>`.
+            // engine used to provide for previews. Never use this for
+            // content that runs: see renderFileStrict.
             Effect.catchTag("WasmError", (err) =>
               err.kind === "internal"
                 ? Effect.succeed(`[template error: ${err.message}]`)
                 : Effect.fail(
                     new RenderError({ message: err.message, cause: err }),
                   ),
+            ),
+          ),
+
+      renderFileStrict: (templateContent: string, variables: Record<string, unknown>) =>
+        wasm
+          .renderTemplate(templateContent, JSON.stringify(variables ?? {}))
+          .pipe(
+            // No inline fallback: the caller executes the result, so a
+            // template error must fail rather than become the script text.
+            Effect.mapError(
+              (err) => new RenderError({ message: err.message, cause: err }),
             ),
           ),
 

@@ -8,7 +8,8 @@ function makeCtx(outputDir: string, overrides: Partial<AssertionContext> = {}): 
   return {
     outputDir,
     blockOutputs: new Map(),
-    sessionEnv: [],
+    generatedFiles: new Map(),
+    env: {},
     timeout: 5_000,
     ...overrides,
   }
@@ -212,25 +213,34 @@ describe("output_equals / output_matches / output_exists", () => {
 // ---------------------------------------------------------------------------
 
 describe("files_generated", () => {
-  it("passes when output dir has >= min_count files", () => {
-    fs.writeFileSync(path.join(tmp, "a"), "")
-    fs.writeFileSync(path.join(tmp, "b"), "")
-    fs.mkdirSync(path.join(tmp, "sub"))
-    fs.writeFileSync(path.join(tmp, "sub", "c"), "")
-    const r = runAssertion(
-      { type: "files_generated", block: "x", min_count: 3 },
-      makeCtx(tmp),
-    )
+  const withGenerated = (counts: Record<string, number>) =>
+    makeCtx(tmp, { generatedFiles: new Map(Object.entries(counts)) })
+
+  it("fails without min_count when the block generated nothing, even if the output dir has files", () => {
+    fs.writeFileSync(path.join(tmp, "already-here"), "")
+    const r = runAssertion({ type: "files_generated", block: "x" }, makeCtx(tmp))
+    expect(r.passed).toBe(false)
+    expect(r.message).toBe('Block "x" generated 0 file(s), expected at least 1')
+  })
+
+  it("passes without min_count once the block generated a file", () => {
+    const r = runAssertion({ type: "files_generated", block: "x" }, withGenerated({ x: 1 }))
     expect(r.passed).toBe(true)
   })
 
-  it("fails with a count comparison when too few", () => {
-    const r = runAssertion(
-      { type: "files_generated", block: "x", min_count: 5 },
-      makeCtx(tmp),
-    )
+  it("compares the block's count against min_count", () => {
+    const ctx = withGenerated({ x: 3 })
+    expect(
+      runAssertion({ type: "files_generated", block: "x", min_count: 3 }, ctx).passed,
+    ).toBe(true)
+    const r = runAssertion({ type: "files_generated", block: "x", min_count: 5 }, ctx)
     expect(r.passed).toBe(false)
-    expect(r.message).toContain("at least 5")
+    expect(r.message).toContain("generated 3 file(s), expected at least 5")
+  })
+
+  it("doesn't count files another block generated", () => {
+    const r = runAssertion({ type: "files_generated", block: "x" }, withGenerated({ y: 4 }))
+    expect(r.passed).toBe(false)
   })
 })
 
@@ -254,5 +264,15 @@ describe("script", () => {
     )
     expect(r.passed).toBe(false)
     expect(r.message).toContain("Script assertion failed")
+  })
+  it("runs in the output dir even before any block has generated files", () => {
+    const outputDir = path.join(tmp, "generated")
+    const marker = path.join(tmp, "cwd.txt")
+    const r = runAssertion(
+      { type: "script", command: `pwd -P > "${marker}"` },
+      makeCtx(outputDir),
+    )
+    expect(r.passed).toBe(true)
+    expect(fs.readFileSync(marker, "utf-8").trim()).toBe(fs.realpathSync(outputDir))
   })
 })

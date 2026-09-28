@@ -76,7 +76,7 @@ export interface ScriptBlockProps {
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
   usePty?: boolean
-  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (5 minutes) applies. */
+  /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
   timeoutMs?: number
   /** Distinguishes the Command vs Check presentation. */
   variant: ScriptBlockVariant
@@ -221,8 +221,9 @@ export function ScriptBlock({
   const resolvedFailMessage = useMemo(() => resolveTemplateReferences(failMessage, templateContext), [failMessage, templateContext])
   const resolvedRunningMessage = useMemo(() => resolveTemplateReferences(runningMessage ?? variant.defaultRunningMessage, templateContext), [runningMessage, variant.defaultRunningMessage, templateContext])
 
-  // Check if component requires variables but none are configured
-  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !awsAuthId && !inlineInputsId
+  // Check if component requires variables but none are configured. Only Inputs
+  // blocks supply `.inputs` values; an auth block reference never does.
+  const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
 
   // Track block render on mount
   useEffect(() => {
@@ -320,6 +321,8 @@ export function ScriptBlock({
   // Instruction mode: flatten to a copy-pasteable instruction. Nothing runs —
   // no exec:run, no logs/outputs, no disabled Run button (spec §6.4). Resolve
   // from the raw script content so it works regardless of dependency state.
+  // A nested <Inputs> stays a form: it is how the user supplies the values
+  // substituted into the displayed command.
   if (instructionMode) {
     return (
       <Instruction
@@ -334,6 +337,7 @@ export function ScriptBlock({
             : undefined
         }
         templateContext={templateContext}
+        inputs={childrenWithVariant}
       />
     )
   }
