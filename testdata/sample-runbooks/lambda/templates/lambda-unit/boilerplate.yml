@@ -35,6 +35,7 @@ variables:
   - name: Description
     type: string
     description: Description of the Lambda function (optional)
+    default: ""
     x-section: Function Settings
 
   - name: Runtime
@@ -68,6 +69,7 @@ variables:
       - INFO
       - WARNING
       - ERROR
+    default: ""
     x-section: Function Settings
 
   - name: MemorySize
@@ -88,7 +90,8 @@ variables:
   
   - name: ReservedConcurrency
     type: int
-    description: Reserved concurrent executions (optional, enter a number, or leave empty for unreserved)
+    description: Reserved concurrent executions (optional, enter a number, or leave at 0 for unreserved)
+    default: 0
     x-section: Advanced Settings
 
 dependencies:
