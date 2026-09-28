@@ -12,6 +12,7 @@ import { useScriptExecution } from '../useScriptExecution'
 vi.mock('@/hooks/useExecutableRegistry', () => {
   const registry = {
     getExecutableByComponentId: (componentId: string) => ({ id: `exec-${componentId}`, componentId }),
+    registryVersion: 0,
   }
   return { useExecutableRegistry: () => registry }
 })

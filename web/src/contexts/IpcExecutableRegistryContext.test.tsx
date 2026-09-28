@@ -58,10 +58,13 @@ describe('IpcExecutableRegistryProvider', () => {
     const registryApi = createRegistryApi({ e1: executable('e1', 'greet') })
     const { result } = renderRegistry(registryApi.api)
     await waitFor(() => expect(result.current.getExecutableByComponentId('greet')?.id).toBe('e1'))
+    // The load on mount isn't a rebuild: blocks have nothing to re-read yet.
+    expect(result.current.registryVersion).toBe(0)
 
     act(() => registryApi.rebuild({ e2: executable('e2', 'greet') }))
 
     await waitFor(() => expect(result.current.getExecutableByComponentId('greet')?.id).toBe('e2'))
     expect(result.current.getExecutableByComponentId('missing')).toBeNull()
+    expect(result.current.registryVersion).toBe(1)
   })
 })

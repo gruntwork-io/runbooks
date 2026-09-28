@@ -13,12 +13,16 @@ interface IpcExecutableRegistryProviderProps {
  */
 export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistryProviderProps) {
   const [registry, setRegistry] = useState<ExecutableRegistry | null>(null)
+  const [registryVersion, setRegistryVersion] = useState(0)
   const api = useApi()
 
-  const fetchRegistry = useCallback(async () => {
+  const fetchRegistry = useCallback(async (rebuilt: boolean) => {
     try {
       const data = await api.invoke('runbook:executables')
       setRegistry(data.executables as unknown as ExecutableRegistry)
+      // Set with the registry, in the same render, so blocks re-read their
+      // script files against the registry that will run them.
+      if (rebuilt) setRegistryVersion(v => v + 1)
     } catch (err) {
       // runbook:executables only reads in-memory state, so this is an IPC
       // failure. Blocks report the missing executable when they're run.
@@ -29,9 +33,9 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
   // Fetch on mount, then again whenever the main process signals it has
   // rebuilt the registry (runbook:get on open and on watch-mode reloads).
   useEffect(() => {
-    fetchRegistry()
+    fetchRegistry(false)
     return api.on('registry:updated', () => {
-      fetchRegistry()
+      fetchRegistry(true)
     })
   }, [api, fetchRegistry])
 
@@ -45,8 +49,8 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
   // Individual components handle the missing-executable case gracefully.
 
   const value = useMemo<ExecutableRegistryContextValue>(
-    () => ({ getExecutableByComponentId }),
-    [getExecutableByComponentId],
+    () => ({ getExecutableByComponentId, registryVersion }),
+    [getExecutableByComponentId, registryVersion],
   )
 
   return (

@@ -223,7 +223,7 @@ export function useScriptExecution({
   timeoutMs,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
   // Get executable registry to look up executable ID
-  const { getExecutableByComponentId } = useExecutableRegistry()
+  const { getExecutableByComponentId, registryVersion } = useExecutableRegistry()
   
   // Get file tree context for updating when files are captured
   const { updateGeneratedFileTree } = useGeneratedFiles()
@@ -261,7 +261,19 @@ export function useScriptExecution({
   
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
-  const { data: fileData, error: getFileError } = useGetFile(path || '', shouldFetchFile)
+  const { data: fileData, error: getFileError, silentRefetch: rereadFile } = useGetFile(path || '', shouldFetchFile)
+
+  // Re-read the script file whenever the main process rebuilds the registry.
+  // A watch-mode reload rebuilds it even when runbook.mdx was saved unchanged,
+  // which neither recompiles the MDX nor remounts this block, so without this
+  // the block would keep showing (and drift-checking) the script it first read
+  // while Run executes the rebuilt registry's version.
+  const registryVersionRef = useRef(registryVersion)
+  useEffect(() => {
+    if (registryVersionRef.current === registryVersion) return
+    registryVersionRef.current = registryVersion
+    if (shouldFetchFile) rereadFile()
+  }, [registryVersion, shouldFetchFile, rereadFile])
   
   // Determine raw script content: command prop takes precedence over file path
   const rawScriptContent = command || fileData?.content || ''
