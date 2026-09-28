@@ -2,10 +2,12 @@
  * E2E tests for runbook assets served over the runbook-asset:// protocol.
  *
  * Opens a throwaway runbook whose assets/ folder holds a tiny PNG, a generated
- * PCM WAV of about 520 KB and a small checked-in WebM, and checks in the real
- * renderer that each one loads. Media elements need the scheme's `stream`
- * privilege (electron/main/index.ts): without it the WAV fails with
- * MEDIA_ELEMENT_ERROR "Format error".
+ * 2-minute PCM WAV (about 10 MB) and a small checked-in WebM, and checks in the
+ * real renderer that each one loads and that audio and video can seek.
+ * Seeking needs the handler's Range support (electron/main/asset-range.ts).
+ * The WAV is large enough that a seek near its end needs a second range
+ * request, which also needs the scheme's `standard` privilege
+ * (electron/main/index.ts).
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
@@ -32,7 +34,7 @@ const PNG = Buffer.from(
 // A 4-second 64x48 VP8 WebM with a keyframe every second (ffmpeg testsrc).
 const WEBM = path.join(__dirname, "fixtures/testsrc-4s.webm")
 
-const WAV_SECONDS = 6
+const WAV_SECONDS = 120
 
 /** A mono 16-bit PCM WAV holding `seconds` of a 440 Hz tone. */
 function wav(seconds: number, sampleRate = 44_100): Buffer {
@@ -159,6 +161,25 @@ test.describe("Runbook assets", () => {
       const video = await mediaState(page, "video")
       expect(video.error).toBeNull()
       expect(video.readyState).toBeGreaterThanOrEqual(1)
+    } finally {
+      await app.close()
+    }
+  })
+
+  // Without 206 responses Chromium treats the WAV as a live stream, with no
+  // duration and nothing seekable. With them but a non-standard scheme, the
+  // second range request fails with PIPELINE_ERROR_READ.
+  test("seeks within audio and video", async () => {
+    const { app, page } = await launch()
+    try {
+      for (const [selector, seconds] of [["audio", WAV_SECONDS], ["video", 4]] as const) {
+        const target = seconds - 1.5
+        const state = await mediaState(page, selector, target)
+        expect(state.error, selector).toBeNull()
+        expect(state.duration, selector).toBeCloseTo(seconds, 1)
+        expect(state.seekable, selector).toEqual([[0, expect.closeTo(seconds, 1)]])
+        expect(state.currentTime, selector).toBeCloseTo(target, 0)
+      }
     } finally {
       await app.close()
     }

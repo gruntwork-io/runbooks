@@ -24,6 +24,8 @@ import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
 import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
+import { byteRangeResponse } from "./asset-range.ts"
+import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
@@ -120,17 +122,25 @@ initSystemTrust()
 // Register the runbook-asset protocol as privileged so it can be used in img
 // src, video src, etc. Must be called before app.whenReady().
 //
-// `stream: true` is required for <video>/<audio>: the handler below returns
-// net.fetch's streamed body, and without the flag media elements expect a
-// buffered response and fail anything beyond a few tens of KB with
-// MEDIA_ELEMENT_ERROR "Format error". (Range requests are not handled yet, so
-// media plays but is not seekable.)
+// <video>/<audio> can seek only with `standard: true` and the handler's Range
+// support (asset-range.ts); electron/e2e/runbook-assets.spec.ts loads and
+// seeks both.
+// - `standard: true`: a seek past what the first response delivered makes
+//   Chromium's media loader send a second range request, and for a
+//   non-standard scheme it fails that response and playback stops with
+//   PIPELINE_ERROR_READ "data source error". The URL then parses with host
+//   `assets`, which resolveRunbookAssetPath joins back onto the path.
+// - `stream: true` is the privilege Electron documents for streaming media:
+//   without it Chromium treats the resource as already fully buffered. Before
+//   the handler answered Range requests, that made media elements fail its
+//   streamed body with MEDIA_ELEMENT_ERROR "Format error" (a 520 KB WAV and a
+//   65 MB MP4 did; a 446 KB faststart MP4 still played).
 // ---------------------------------------------------------------------------
 
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "runbook-asset",
-    privileges: { standard: false, secure: true, supportFetchAPI: true, stream: true },
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ])
 
@@ -349,6 +359,16 @@ app.whenReady().then(() => {
     )
     if (!resolved) {
       return new Response("Forbidden", { status: 403 })
+    }
+
+    // <video>/<audio> fetch byte ranges and can only seek when the answer is
+    // a 206 with a Content-Range, which net.fetch's file:// response never
+    // has, so ranged GETs are answered from the file here. Without a Range
+    // header, or with one byteRangeResponse ignores, the whole file is served.
+    const rangeHeader = request.headers.get("range")
+    if (rangeHeader && request.method === "GET") {
+      const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
+      if (partial) return partial
     }
 
     return net.fetch(pathToFileURL(resolved).href)
