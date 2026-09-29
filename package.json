@@ -71,7 +71,7 @@
     "cmdk": "^1.1.1",
     "copy-to-clipboard": "^3.3.3",
     "electron": "^41.1.1",
-    "electron-builder": "^26.8.0",
+    "electron-builder": "^26.16.1",
     "electron-vite": "^5.0.0",
     "jsdom": "^23.0.0",
     "jszip": "^3.10.1",
