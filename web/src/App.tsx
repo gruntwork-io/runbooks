@@ -5,6 +5,7 @@ import { BookOpen, Code } from "lucide-react"
 import { Header } from './components/layout/Header'
 import { WelcomeScreen } from './components/layout/WelcomeScreen'
 import { OpenUrlModal } from './components/layout/OpenUrlModal'
+import { FindBar } from './components/layout/FindBar'
 import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
 import { RunbookOpenError } from './components/layout/RunbookOpenError'
 import MDXContainer from './components/MDXContainer'
@@ -307,8 +308,9 @@ function App() {
           <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
           <>
-            {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
-            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10">
+            {/* Mobile Navigation - Fixed position toggle, visible only on small screens.
+                data-find-ignore: find in page skips its always-visible labels. */}
+            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10" data-find-ignore="">
               <div className="bg-muted border border-border inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
                 <ViewContainerToggle
                   activeView={activeMobileSection}
@@ -361,11 +363,14 @@ function App() {
                   )}
                 </div>
 
-                {/* Artifacts - Desktop layout (grows/shrinks width smoothly) */}
-                <div 
+                {/* Artifacts - Desktop layout (grows/shrinks width smoothly).
+                    Inert while hidden: it stays mounted at zero width, and
+                    find in page and the keyboard must skip its content. */}
+                <div
                   className={`hidden lg:block relative max-w-7xl transition-all duration-700 ease-in-out overflow-hidden ${
                     showArtifacts ? 'flex-2' : 'w-0'
                   }`}
+                  inert={!showArtifacts}
                 >
                   <ArtifactsContainer 
                     className="absolute top-0 left-0 right-0 h-full" 
@@ -413,6 +418,9 @@ function App() {
         onOpenChange={setIsUrlModalOpen}
         onOpened={getRunbookResult.openRunbook}
       />
+
+      {/* Edit > Find… (Cmd/Ctrl+F) */}
+      <FindBar />
     </>
   )
 }

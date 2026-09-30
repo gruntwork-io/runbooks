@@ -6,6 +6,7 @@
  */
 import * as path from "path"
 import { app, Menu, dialog, shell, type MenuItemConstructorOptions } from "electron"
+import type { FindAction } from "../shared/channels.ts"
 import { getMainWindow } from "./window.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runbookConfig } from "./ipc/runtime.ts"
@@ -77,6 +78,11 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
       },
     },
   ]
+}
+
+/** Open the renderer's find bar, or move it to the next or previous match. */
+function sendFind(action: FindAction): void {
+  getMainWindow()?.webContents.send("menu:find", { action })
 }
 
 function buildTemplate(): MenuItemConstructorOptions[] {
@@ -167,6 +173,10 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       { role: "paste" },
       { type: "separator" },
       { role: "selectAll" },
+      { type: "separator" },
+      { id: "find", label: "Find…", accelerator: "CmdOrCtrl+F", click: () => sendFind("open") },
+      { id: "find-next", label: "Find Next", accelerator: "CmdOrCtrl+G", click: () => sendFind("next") },
+      { id: "find-previous", label: "Find Previous", accelerator: "Shift+CmdOrCtrl+G", click: () => sendFind("previous") },
     ],
   })
 
