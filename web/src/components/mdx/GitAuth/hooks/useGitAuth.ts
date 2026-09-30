@@ -54,6 +54,11 @@ const DEFAULT_OAUTH_EXPIRES_IN = 900
 // passes first, so a timeout never reads as a denial.
 const OAUTH_CODE_EXPIRED_MESSAGE = 'Authorization request expired. Please try again.'
 
+// The manual-UI hint when the author turned detection off. Nothing was looked
+// for, so it must not read as a failed search or suggest a CLI login or env
+// var the block will ignore.
+const DETECTION_DISABLED_HINT = "This runbook doesn't use existing credentials — sign in below."
+
 /**
  * What a validated credential reports beyond its user: the token's scopes and
  * type, where it came from, and main's advisory copy. Every success path (each
@@ -1191,15 +1196,18 @@ export function useGitAuth({
     (unreachableInfo.errorKind === 'network' || unreachableInfo.errorKind === 'tls')
       ? `${unreachableInfo.host} is unreachable — fix connectivity first`
       : provider.supportsOAuth && isEnterpriseOAuthHost && !effectiveClientId
-        ? githubOAuthUnavailableReason(oauthHost)
+        ? githubOAuthUnavailableReason(oauthHost, { cliLogin: detectCredentials !== false })
         : null
 
   // Manual-UI hint line: a main-supplied contract copy (keyring
   // cases) wins; otherwise the vcs:cli-status-driven default. Suppressed when
-  // a warning chip already explains the situation.
+  // a warning chip already explains the situation. With detection disabled
+  // it is fixed, neutral copy instead: nothing was searched for, so there is
+  // no login command or env var to suggest.
   const manualHint = (() => {
     if (detectionHint) return detectionHint
     if (detectionWarning || unreachableInfo) return null
+    if (detectCredentials === false) return DETECTION_DISABLED_HINT
     const providerCliStatus = cliStatus?.[provider.cli.binary]
     if (!providerCliStatus) return null
     const lead = `No existing credentials found. Sign in below, set ${provider.env.tokenVar}, or`

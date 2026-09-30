@@ -131,7 +131,14 @@ export function resolveGitHubOAuthClientId(
   return undefined
 }
 
-/** Why the OAuth tab is disabled for an enterprise host without a client ID. */
-export function githubOAuthUnavailableReason(host: string): string {
-  return `Sign-in with GitHub isn't set up for ${host}. Use a personal access token or 'gh auth login --hostname ${host}' instead.`
+/**
+ * Why the OAuth tab is disabled for an enterprise host without a client ID.
+ * `cliLogin: false` (a block with credential detection disabled) leaves out
+ * the `gh auth login` alternative, which that block would never pick up.
+ */
+export function githubOAuthUnavailableReason(host: string, { cliLogin = true }: { cliLogin?: boolean } = {}): string {
+  const alternative = cliLogin
+    ? `a personal access token or 'gh auth login --hostname ${host}'`
+    : 'a personal access token'
+  return `Sign-in with GitHub isn't set up for ${host}. Use ${alternative} instead.`
 }
