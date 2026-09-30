@@ -7,6 +7,7 @@ import { resolveClonePaths } from "../../../src/domain/git/operations.ts"
 import { makeTestEnvironment } from "../../../src/test-utils/TestEnvironment.ts"
 import {
   resolveRunbookAssetPath,
+  runbookAssetHost,
   validateCloneDestination,
   validateSessionPath,
 } from "./path-guard.ts"
@@ -158,54 +159,56 @@ describe("validateCloneDestination", () => {
 })
 
 describe("resolveRunbookAssetPath", () => {
-  it("serves a regular file inside the runbook directory", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/ok.png", work)).toBe(
-      path.join(work, "assets", "ok.png"),
-    )
+  const HOST = "rtest"
+  /** Resolve `assetPath`, a path in assets/, as the open runbook's runbook-asset://<host>/<assetPath>. */
+  const resolve = (assetPath: string, runbookDir = work) =>
+    resolveRunbookAssetPath(`runbook-asset://${HOST}/${assetPath}`, runbookDir, HOST)
+
+  it("serves a regular file from the assets folder, which is the host's root", async () => {
+    expect(await resolve("ok.png")).toBe(path.join(work, "assets", "ok.png"))
+  })
+
+  it("refuses another runbook's host", async () => {
+    const url = "runbook-asset://rother/ok.png"
+    expect(await resolveRunbookAssetPath(url, work, HOST)).toBeNull()
+    // The host every runbook shared before hosts were per runbook.
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/ok.png", work, HOST)).toBeNull()
   })
 
   it("percent-decodes the path so the checked path is the served path", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/my%20image.png", work)).toBe(
-      path.join(work, "assets", "my image.png"),
-    )
+    expect(await resolve("my%20image.png")).toBe(path.join(work, "assets", "my image.png"))
   })
 
   it("refuses a symlink that points outside the runbook directory", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/leak.png", work)).toBeNull()
+    expect(await resolve("leak.png")).toBeNull()
   })
 
   it("refuses an outside symlink named with percent-encoding", async () => {
     // Checking the still-encoded "leak%20x.png" (which does not exist) would
     // pass, while the file:// fetch decodes it and follows the symlink.
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/leak%20x.png", work)).toBeNull()
+    expect(await resolve("leak%20x.png")).toBeNull()
   })
 
   it("refuses traversal, including percent-encoded separators", async () => {
-    // The URL parser keeps `..` path segments below the host, so a host of
-    // ".." is the only literal way up.
-    expect(await resolveRunbookAssetPath("runbook-asset://../outside/secret.txt", work)).toBeNull()
-    expect(
-      await resolveRunbookAssetPath("runbook-asset://assets/..%2F..%2Foutside%2Fsecret.txt", work),
-    ).toBeNull()
+    expect(await resolve("..%2Frunbook.mdx")).toBeNull()
+    expect(await resolve("..%2F..%2Foutside%2Fsecret.txt")).toBeNull()
   })
 
   it("refuses malformed percent-encoding", async () => {
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/%E0%A4%A.png", work)).toBeNull()
+    expect(await resolve("%E0%A4%A.png")).toBeNull()
   })
 
   it("refuses files in the runbook directory outside assets/", async () => {
     fs.mkdirSync(path.join(work, "generated"))
     fs.writeFileSync(path.join(work, "generated", "out.txt"), "output")
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/..%2Frunbook.mdx", work)).toBeNull()
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/..%2Fgenerated%2Fout.txt", work)).toBeNull()
-    expect(await resolveRunbookAssetPath("runbook-asset://generated/out.txt", work)).toBeNull()
+    expect(await resolve("..%2Fgenerated%2Fout.txt")).toBeNull()
   })
 
   it("refuses everything when assets/ is a symlink out of the runbook directory", async () => {
     const linked = path.join(root, "linked")
     fs.mkdirSync(linked)
     fs.symlinkSync("../outside", path.join(linked, "assets"))
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/secret.txt", linked)).toBeNull()
+    expect(await resolve("secret.txt", linked)).toBeNull()
   })
 
   it.each([
@@ -217,13 +220,34 @@ describe("resolveRunbookAssetPath", () => {
     fs.writeFileSync(path.join(linked, "runbook.mdx"), "# Runbook")
     fs.writeFileSync(path.join(linked, "generated", "out.txt"), "output")
     fs.symlinkSync(target, path.join(linked, "assets"))
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/generated/out.txt", linked)).toBeNull()
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/out.txt", linked)).toBeNull()
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/runbook.mdx", linked)).toBeNull()
+    expect(await resolve("generated/out.txt", linked)).toBeNull()
+    expect(await resolve("out.txt", linked)).toBeNull()
+    expect(await resolve("runbook.mdx", linked)).toBeNull()
   })
 
   it("refuses everything when the runbook has no assets/ folder", async () => {
     fs.rmSync(path.join(work, "assets"), { recursive: true })
-    expect(await resolveRunbookAssetPath("runbook-asset://assets/ok.png", work)).toBeNull()
+    expect(await resolve("ok.png")).toBeNull()
+  })
+})
+
+describe("runbookAssetHost", () => {
+  it("gives each runbook its own host, the same on every open", () => {
+    const a = runbookAssetHost({ localPath: "/runbooks/a/runbook.mdx" })
+    expect(runbookAssetHost({ localPath: "/runbooks/a/runbook.mdx" })).toBe(a)
+    expect(runbookAssetHost({ localPath: "/runbooks/b/runbook.mdx" })).not.toBe(a)
+  })
+
+  it("identifies a remote runbook by its URL, since each open clones it to a new folder", () => {
+    const remoteSourceURL = "https://github.com/org/repo/tree/main/runbooks/a"
+    expect(runbookAssetHost({ localPath: "/tmp/clone-1/runbook.mdx", remoteSourceURL })).toBe(
+      runbookAssetHost({ localPath: "/tmp/clone-2/runbook.mdx", remoteSourceURL }),
+    )
+  })
+
+  it("is a host the URL parser keeps as written", () => {
+    const host = runbookAssetHost({ localPath: "/runbooks/a/runbook.mdx" })
+    expect(host).toMatch(/^r[0-9a-f]{32}$/)
+    expect(new URL(`runbook-asset://${host}/a.png`).hostname).toBe(host)
   })
 })

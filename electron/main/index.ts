@@ -23,9 +23,9 @@ import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
-import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
+import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
-import { installPermissionHandlers } from "./permissions.ts"
+import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
 import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
@@ -339,19 +339,22 @@ app.on("open-file", (event, filePath) => {
 
 app.whenReady().then(() => {
   installPermissionHandlers(session.defaultSession)
+  installClientCertificateHandler(app)
 
   // Register a protocol handler to serve runbook assets (images, videos, etc.)
   // from the local filesystem. The renderer rewrites ./assets/foo.png to
-  // runbook-asset://assets/foo.png which this handler resolves relative to the
-  // runbook directory.
+  // runbook-asset://<host>/foo.png, where <host> is the open runbook's
+  // (runbookAssetHost, sent with runbook:get), which this handler resolves
+  // relative to the runbook's assets/ folder.
   protocol.handle("runbook-asset", async (request) => {
-    // URL looks like: runbook-asset://assets/foo.png
-    // Security: resolveRunbookAssetPath returns null unless the file is within
-    // the runbook's assets/ folder after resolving symlinks, so neither `..`
-    // nor a symlink shipped in the runbook dir can serve a file from outside it.
+    // Security: resolveRunbookAssetPath returns null unless the URL has the
+    // open runbook's host and the file is within its assets/ folder after
+    // resolving symlinks, so neither `..` nor a symlink shipped in the runbook
+    // dir can serve a file from outside it.
     const resolved = await resolveRunbookAssetPath(
       request.url,
       path.dirname(runbookConfig.localPath),
+      runbookAssetHost(runbookConfig),
     )
     if (!resolved) {
       return new Response("Forbidden", { status: 403 })

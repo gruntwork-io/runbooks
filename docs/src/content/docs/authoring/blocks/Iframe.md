@@ -51,6 +51,8 @@ Relative references such as `<script src="app.js">` or `href="./style.css"` reso
 
 A local page can only load files inside the runbook's `assets/` folder. It can't read `runbook.mdx`, generated files, or anything else in the runbook's folder.
 
+Each runbook's local pages get their own origin. A page can keep data in `localStorage` or other browser storage, and it's still there the next time the runbook opens, but pages from other runbooks can't read it.
+
 ## Sites that refuse to be embedded
 
 Many sites send an `X-Frame-Options` or `Content-Security-Policy: frame-ancestors` header that forbids other pages from framing them. For those sites the frame shows an error instead of the page. Runbooks respects the header. Link to the site instead, or use the **Open in browser** button in the frame's title bar.
@@ -58,7 +60,9 @@ Many sites send an `X-Frame-Options` or `Content-Security-Policy: frame-ancestor
 ## Behavior
 
 - The title bar shows the host the frame started on. The page can navigate itself elsewhere after it loads.
+- A host too long for the title bar is shortened from the start, so its end, which names the site, stays visible.
 - The title bar has a **Reload** button that loads `src` again, and for external sites an **Open in browser** button.
-- Links that open a new window, such as `target="_blank"`, open in your default browser.
+- The embedded page can't open new windows. Links with `target="_blank"` and calls to `window.open` do nothing. Use the **Open in browser** button to open an external site in your default browser.
 - The embedded page runs its own scripts, but it can't navigate the runbook away or call into the Runbooks app.
-- The embedded page gets no browser permissions. Requests for the microphone, camera, location, notifications and the like are denied without asking.
+- The embedded page gets no browser permissions. Requests for the microphone, camera, location, notifications, fullscreen and the like are denied without asking.
+- Runbooks never sends a client certificate, so a site that requires one to sign in won't load.

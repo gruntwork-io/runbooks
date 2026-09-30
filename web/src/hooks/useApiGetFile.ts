@@ -13,6 +13,8 @@ export interface GetFileReturn {
   warnings?: string[];
   /** The original remote URL when the runbook was opened from a remote source */
   remoteSource?: string;
+  /** The host of the runbook's runbook-asset:// URLs (runbook:get only) */
+  assetHost?: string;
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {

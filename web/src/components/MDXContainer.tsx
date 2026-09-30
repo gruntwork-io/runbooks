@@ -42,6 +42,7 @@ import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCh
  * @param props - The component props
  * @param props.content - The raw markdown/MDX content string to compile and render
  * @param props.runbookPath - The path to the runbook file
+ * @param props.assetHost - The host of the runbook's runbook-asset:// URLs, from runbook:get
  * @param props.className - Optional additional CSS classes for styling the container
  * @param props.ref - Receives the scroll container that wraps the rendered document
  */
@@ -50,10 +51,11 @@ interface MDXContainerProps {
   className?: string
   runbookPath?: string
   remoteSource?: string
+  assetHost?: string
   ref?: Ref<HTMLDivElement>
 }
 
-function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, remoteSource, assetHost, className, ref }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -70,7 +72,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MD
     const createMDXComponent = async () => {
       try {
         setError(null)
-        const compiledComponent = await compileMDX(content)
+        const compiledComponent = await compileMDX(content, assetHost)
         setCustomMDXComponent(() => compiledComponent)
       } catch (err) {
         console.error('Error processing MDX content:', err)
@@ -83,7 +85,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MD
     }
 
     createMDXComponent()
-  }, [content])
+  }, [content, assetHost])
 
   if (error) {
     return (
@@ -107,7 +109,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MD
   return (
     <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} storageScope={remoteSource ?? runbookPath}>
+        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} storageScope={remoteSource ?? runbookPath} assetHost={assetHost}>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >
@@ -161,11 +163,11 @@ interface RehypeNode {
 }
 
 // Custom rehype plugin to transform asset paths for all media types.
-// Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
-// Electron's custom protocol handler can serve them from the local filesystem.
-// Which tags and attributes are rewritten is decided by rewriteAssetUrl, which
-// InlineMarkdown shares. Exported for tests.
-export function rehypeTransformAssetPaths() {
+// Transforms ./assets/file.ext to runbook-asset://<assetHost>/file.ext so
+// that Electron's custom protocol handler can serve them from the local
+// filesystem. Which tags and attributes are rewritten is decided by
+// rewriteAssetUrl, which InlineMarkdown shares. Exported for tests.
+export function rehypeTransformAssetPaths({ assetHost }: { assetHost?: string } = {}) {
   return (tree: RehypeNode) => {
     // Walk through the tree and transform asset references. Markdown syntax
     // (![alt](./assets/a.png), [text](./assets/a.pdf)) produces hast `element`
@@ -177,11 +179,11 @@ export function rehypeTransformAssetPaths() {
         const tagName = node.tagName
         for (const [key, value] of Object.entries(node.properties)) {
           if (typeof value === 'string') {
-            node.properties[key] = rewriteAssetUrl(tagName, key, value)
+            node.properties[key] = rewriteAssetUrl(tagName, key, value, assetHost)
           } else if (Array.isArray(value)) {
             // hast stores comma-separated properties such as srcSet as a list
             node.properties[key] = value.map((item) =>
-              typeof item === 'string' ? rewriteAssetUrl(tagName, key, item) : item,
+              typeof item === 'string' ? rewriteAssetUrl(tagName, key, item, assetHost) : item,
             )
           }
         }
@@ -196,7 +198,7 @@ export function rehypeTransformAssetPaths() {
             attribute.name !== undefined &&
             typeof attribute.value === 'string'
           ) {
-            attribute.value = rewriteAssetUrl(node.name, attribute.name, attribute.value)
+            attribute.value = rewriteAssetUrl(node.name, attribute.name, attribute.value, assetHost)
           }
         }
       }
@@ -330,7 +332,7 @@ export const MDX_COMPONENTS = {
 
 // Compiles MDX content into a custom React component that can render the MDX content.
 // Exported so tests can compile runbooks with the exact production options.
-export const compileMDX = async (content: string): Promise<React.ComponentType> => {
+export const compileMDX = async (content: string, assetHost?: string): Promise<React.ComponentType> => {
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
 
@@ -343,7 +345,7 @@ export const compileMDX = async (content: string): Promise<React.ComponentType> 
       remarkGfm, // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
       remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
     ],
-    rehypePlugins: [rehypeTransformAssetPaths, rehypeTaskListIds],
+    rehypePlugins: [[rehypeTransformAssetPaths, { assetHost }], rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })
 
