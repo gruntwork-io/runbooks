@@ -11,9 +11,12 @@ function ReportedErrors() {
   return <ul data-testid="reported-errors">{errors.map((e) => <li key={e.componentId}>{e.message}</li>)}</ul>
 }
 
+// The open runbook's runbook-asset:// host, as runbook:get sends it.
+const ASSET_HOST = "rtest"
+
 function renderIframe(props: React.ComponentProps<typeof Iframe>) {
   return render(
-    <TestWrapper>
+    <TestWrapper assetHost={ASSET_HOST}>
       <Iframe {...props} />
       <ReportedErrors />
     </TestWrapper>,
@@ -63,6 +66,9 @@ describe("Iframe", () => {
     const sandbox = frame()!.getAttribute("sandbox")!.split(" ")
     expect(sandbox).toContain("allow-scripts")
     expect(sandbox).not.toContain("allow-top-navigation")
+    // The main process's window-open handler can't tell a framed page's
+    // window.open from the app's own links.
+    expect(sandbox).not.toContain("allow-popups")
     expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", "https://example.com/docs")
   })
 
@@ -86,9 +92,24 @@ describe("Iframe", () => {
   it("loads a file from the runbook's assets folder over runbook-asset:", async () => {
     await renderLoaded({ src: "./assets/site/index.html" })
 
-    expect(frame()!.getAttribute("src")).toBe("runbook-asset://assets/site/index.html")
+    // The runbook's own host gives the page an origin no other runbook's pages share.
+    expect(frame()!.getAttribute("src")).toBe(`runbook-asset://${ASSET_HOST}/site/index.html`)
     expect(screen.getByTestId("iframe-location")).toHaveTextContent("./assets/site/index.html")
     expect(screen.queryByRole("link", { name: "Open in browser" })).not.toBeInTheDocument()
+  })
+
+  it("rejects an assets path outside an open runbook", async () => {
+    render(
+      <TestWrapper>
+        <Iframe src="./assets/site/index.html" />
+        <ReportedErrors />
+      </TestWrapper>,
+    )
+
+    expect(frame()).toBeNull()
+    await waitFor(() =>
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent("can only be shown in an open runbook"),
+    )
   })
 
   it("sizes the frame from a pixel count or a CSS length", async () => {
@@ -140,14 +161,14 @@ describe("Iframe", () => {
   it("renders from runbook MDX", async () => {
     render(
       <TestWrapper>
-        <MDXContainer content={'<Iframe src="./assets/site/index.html" title="Dashboard" height={300} />\n'} />
+        <MDXContainer content={'<Iframe src="./assets/site/index.html" title="Dashboard" height={300} />\n'} assetHost={ASSET_HOST} />
       </TestWrapper>,
     )
 
     await userEvent.click(await screen.findByRole("button", { name: "Load page" }))
 
     const iframe = screen.getByTestId("runbook-content").querySelector("iframe")!
-    expect(iframe.getAttribute("src")).toBe("runbook-asset://assets/site/index.html")
+    expect(iframe.getAttribute("src")).toBe(`runbook-asset://${ASSET_HOST}/site/index.html`)
     expect(iframe.style.height).toBe("300px")
   })
 })

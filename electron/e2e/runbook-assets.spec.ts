@@ -152,12 +152,12 @@ test.describe("Runbook assets", () => {
   test("loads images, audio and video from the runbook's assets folder", async () => {
     const { app, page } = await launch()
     try {
-      // A subfolder and a space exercise the URL's canonical form (host
-      // `assets`, `%20`) on its way back to a file path.
+      // A subfolder and a space exercise the URL's canonical form (the
+      // runbook's own host, `%20`) on its way back to a file path.
       for (const [alt, src] of [
-        ["pixel", "runbook-asset://assets/pixel.png"],
-        ["nested", "runbook-asset://assets/icons/tiny pixel.png"],
-      ]) {
+        ["pixel", /^runbook-asset:\/\/r[0-9a-f]{32}\/pixel\.png$/],
+        ["nested", /^runbook-asset:\/\/r[0-9a-f]{32}\/icons\/tiny pixel\.png$/],
+      ] as const) {
         const img = page.locator(`img[alt="${alt}"]`)
         await expect(img).toHaveAttribute("src", src)
         await expect

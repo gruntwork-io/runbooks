@@ -128,6 +128,14 @@ export interface RunbookContextType {
    */
   storageScope: string | undefined
 
+  /**
+   * The host of the runbook's runbook-asset:// URLs, from runbook:get. Each
+   * runbook has its own, so framed asset pages of different runbooks never
+   * share an origin. Undefined outside a runbook, where ./assets/ URLs are
+   * left as written.
+   */
+  assetHost: string | undefined
+
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
 
@@ -187,7 +195,7 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ .outputs.create_account.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children, runbookName, remoteSource, storageScope }: { children: ReactNode, runbookName?: string, remoteSource?: string, storageScope?: string }) {
+export function RunbookContextProvider({ children, runbookName, remoteSource, storageScope, assetHost }: { children: ReactNode, runbookName?: string, remoteSource?: string, storageScope?: string, assetHost?: string }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
@@ -311,6 +319,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource, st
     runbookName,
     remoteSource,
     storageScope,
+    assetHost,
     blockInputs,
     registerInputs,
     getInputs,
@@ -318,7 +327,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource, st
     registerOutputs,
     getOutputs,
     getTemplateContext,
-  }), [runbookName, remoteSource, storageScope, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateContext])
+  }), [runbookName, remoteSource, storageScope, assetHost, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateContext])
 
   return (
     <RunbookContext.Provider value={contextValue}>

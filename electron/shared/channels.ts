@@ -22,10 +22,11 @@ export interface IpcChannelMap {
      * `reload: "watch"` marks a reload for a watch-mode change: it keeps the
      * session's working dir, which any other load of the same runbook resets.
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
-     * which useIpc ignores.
+     * which useIpc ignores. `assetHost` is the host of the runbook's
+     * runbook-asset:// URLs, the only one the protocol handler serves.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
-    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string }
+    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string; assetHost: string }
   }
   "runbook:open-remote": {
     params: { url: string }

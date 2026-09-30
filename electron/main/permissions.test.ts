@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
-import type { Session } from "electron"
-import { installPermissionHandlers } from "./permissions.ts"
+import type { App, Session } from "electron"
+import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
 
 type RequestHandler = Parameters<Session["setPermissionRequestHandler"]>[0]
 type CheckHandler = Parameters<Session["setPermissionCheckHandler"]>[0]
@@ -49,6 +49,12 @@ describe("installPermissionHandlers", () => {
     expect(checkAnswer("clipboard-sanitized-write", true)).toBe(true)
   })
 
+  // <video controls> has a fullscreen button.
+  it("lets the app's main frame go fullscreen", () => {
+    expect(requestAnswer("fullscreen", true)).toBe(true)
+    expect(checkAnswer("fullscreen", true)).toBe(true)
+  })
+
   it.each(["media", "geolocation", "notifications", "clipboard-read", "openExternal"])(
     "denies %s to the app's main frame",
     (permission) => {
@@ -57,8 +63,37 @@ describe("installPermissionHandlers", () => {
     },
   )
 
-  it.each(["media", "clipboard-sanitized-write", "geolocation"])("denies %s to a frame", (permission) => {
+  it.each(["media", "clipboard-sanitized-write", "fullscreen", "geolocation"])("denies %s to a frame", (permission) => {
     expect(requestAnswer(permission, false)).toBe(false)
     expect(checkAnswer(permission, false)).toBe(false)
+  })
+})
+
+describe("installClientCertificateHandler", () => {
+  it("sends no certificate, where Electron's default sends the first in the OS store", () => {
+    type Listener = (
+      event: { preventDefault: () => void },
+      webContents: unknown,
+      url: string,
+      certificates: unknown[],
+      callback: (certificate?: unknown) => void,
+    ) => void
+    const listeners = new Map<string, Listener>()
+    installClientCertificateHandler({
+      on: (event: string, listener: Listener) => listeners.set(event, listener),
+    } as unknown as App)
+
+    let prevented = false
+    const answers: unknown[][] = []
+    listeners.get("select-client-certificate")!(
+      { preventDefault: () => (prevented = true) },
+      {},
+      "https://tracker.example/",
+      [{ subjectName: "Jane Doe" }],
+      (...args) => answers.push(args),
+    )
+
+    expect(prevented).toBe(true)
+    expect(answers).toEqual([[]])
   })
 })

@@ -19,11 +19,14 @@ type FrameSource = { url: string; location: string; isLocal: boolean } | { error
 
 const DEFAULT_HEIGHT = 500
 
-// The frame's origin is never the app's (see resolveSource), so scripts and
-// same-origin storage are safe to allow. Leaving out allow-top-navigation
-// stops the page from navigating the app away. Popups reach the main
-// process's window-open handler, which opens http(s) URLs in the browser.
-const SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups"
+// The frame's origin is never the app's (see resolveSource), and a page from
+// the assets folder has its runbook's own origin, so scripts and same-origin
+// storage are safe to allow. Leaving out allow-top-navigation stops the page
+// from navigating the app away. Leaving out allow-popups stops it from opening
+// windows: the main process's window-open handler can't tell a framed page's
+// window.open from the app's own links, so it would open whatever the page
+// asked for in the browser, without a click.
+const SANDBOX = "allow-scripts allow-same-origin allow-forms"
 
 /**
  * Embeds a web page in the runbook: an external site, or an HTML file from
@@ -35,12 +38,12 @@ const SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups"
 export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
   const componentId = useId()
   const { reportError, clearError } = useErrorReporting()
-  const storageScope = useContext(RunbookContext)?.storageScope
-  const loadedKey = runbookStorageKey("iframe-loaded", storageScope, src)
+  const runbook = useContext(RunbookContext)
+  const loadedKey = runbookStorageKey("iframe-loaded", runbook?.storageScope, src)
   const [loaded, setLoaded] = useState(() => readLoaded(loadedKey))
   // Remounting the iframe reloads it from `src`.
   const [loadCount, setLoadCount] = useState(0)
-  const source = resolveSource(src)
+  const source = resolveSource(src, runbook?.assetHost)
   const error = "error" in source ? source.error : undefined
 
   useEffect(() => {
@@ -74,9 +77,18 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
       <div className="flex items-center gap-2 border-b border-border bg-muted px-3 py-1.5 text-sm text-muted-foreground">
         <Icon className="size-4 flex-shrink-0" />
         <div className="flex flex-1 min-w-0 items-baseline gap-2">
-          {title && <span className="truncate font-medium text-foreground">{title}</span>}
-          <span className="truncate font-mono text-xs" title={source.url} data-testid="iframe-location">
-            {source.location}
+          {title && <span className="min-w-0 truncate font-medium text-foreground">{title}</span>}
+          {/* The title gives way to the location, and a long location loses its
+              start, not its end: rtl puts the ellipsis on the left, so the part
+              of a host that names the site always shows
+              (…signin.evil.example, not console.aws.amazon.com…). bdi keeps
+              the text itself left-to-right. */}
+          <span
+            className="shrink-0 max-w-[70%] overflow-hidden text-ellipsis whitespace-nowrap text-left [direction:rtl] font-mono text-xs"
+            title={source.url}
+            data-testid="iframe-location"
+          >
+            <bdi dir="ltr">{source.location}</bdi>
           </span>
         </div>
         {loaded && (
@@ -144,14 +156,19 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"])
  * Only https URLs, http URLs on a loopback host, and `./assets/` paths are
  * allowed. Each gives the frame an origin other than the app's: a file://
  * frame would share the app's origin and could reach `window.api` through
- * `parent`.
+ * `parent`. An `./assets/` path loads from `assetHost`, the open runbook's
+ * runbook-asset:// host, so it can't share an origin with another runbook's
+ * pages either.
  */
-function resolveSource(src: unknown): FrameSource {
+function resolveSource(src: unknown, assetHost: string | undefined): FrameSource {
   if (typeof src !== "string" || src.trim() === "") {
     return { error: "The `src` prop is required." }
   }
   if (src.startsWith("./assets/")) {
-    return { url: toRunbookAssetUrl(src), location: src, isLocal: true }
+    if (!assetHost) {
+      return { error: `"${src}" can only be shown in an open runbook.` }
+    }
+    return { url: toRunbookAssetUrl(src, assetHost), location: src, isLocal: true }
   }
 
   const unsupported = {

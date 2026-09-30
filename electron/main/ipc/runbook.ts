@@ -19,6 +19,7 @@ import {
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
 import { startWatcher } from "./watch.ts"
+import { runbookAssetHost } from "./path-guard.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
 import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
@@ -198,6 +199,7 @@ export function registerRunbookHandlers(): void {
         isWatchMode: config.isWatchMode,
         warnings: registry.getWarnings(),
         remoteSource: params.remoteSource,
+        assetHost: runbookAssetHost(config),
       }
     },
   )

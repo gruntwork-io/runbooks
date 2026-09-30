@@ -12,14 +12,14 @@ import { TelemetryContext, defaultContextValue } from '@/contexts/TelemetryConte
  * Telemetry is provided via the raw context with a disabled default so tests
  * don't trigger an IPC init path that isn't what's under test here.
  */
-export function TestWrapper({ children, remoteSource }: { children: ReactNode; remoteSource?: string }) {
+export function TestWrapper({ children, remoteSource, assetHost }: { children: ReactNode; remoteSource?: string; assetHost?: string }) {
   return (
     <ThemeProvider>
       <InstructionModeProvider>
         <TelemetryContext.Provider value={defaultContextValue}>
           <ErrorReportingProvider>
             <ComponentIdRegistryProvider>
-              <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
+              <RunbookContextProvider runbookName="test" remoteSource={remoteSource} assetHost={assetHost}>
                 {children}
               </RunbookContextProvider>
             </ComponentIdRegistryProvider>
