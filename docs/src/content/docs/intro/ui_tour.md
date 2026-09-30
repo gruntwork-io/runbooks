@@ -26,6 +26,10 @@ It looks like this runbook will help us launch an AWS Lambda function.
 
 So far, the runbook is just rendering markdown text. Useful, but not very interesting. Let's see what else this runbook contains.
 
+:::tip[Find in page]
+Runbooks can get long. Press **Cmd+F** (**Ctrl+F** on Windows and Linux), or choose **Edit > Find…**, to search the runbook and any logs or outputs you have expanded. Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the find bar. Collapsed sections, such as logs you haven't opened, aren't searched.
+:::
+
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
 
 Here, the user is given some "pre-flight checks" to make sure their local system has the right tools installed (in this case `mise`, a package manager). The user can click "Check" and Runbooks will run the given command (in this case `mise --version && mise self-update --yes`) directly on their local machine.
