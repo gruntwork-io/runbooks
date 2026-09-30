@@ -263,12 +263,13 @@ export const executeScript = (
       const events: ExecEvent[] = []
 
       if (timedOut) {
+        const line = `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`
+        // Also end the log file with it, so the file says why the output
+        // stops. Best-effort, like the spawner's own writes to it.
+        yield* fs.appendFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
         events.push({
           _tag: "log",
-          event: {
-            line: `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`,
-            timestamp: new Date().toISOString(),
-          },
+          event: { line, timestamp: new Date().toISOString() },
         })
       }
 

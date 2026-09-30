@@ -348,6 +348,17 @@ else
 fi
 ```
 
+## Viewing Logs
+
+While a check runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar lets you:
+
+- **Copy log file path**: every run also writes its output to a log file on disk, which you can open or tail with other tools.
+- **Copy prompt for LLM**: copy a ready-to-paste prompt for an AI assistant. It names the block's ID, the runbook file and the log file, and ends with an instruction that matches the block's status. For example, when the block has failed, it asks the assistant to analyze the failure and suggest how to fix it. Because the prompt points at the log file rather than including the logs, it works best with assistants that can read local files, such as Claude Code or Cursor.
+- **Wrap** long lines, **copy** the logs as plain text, or **download** them as raw (`.log`) or structured (`.json`) logs.
+- **Maximize** the logs to fill the screen.
+
+Blocks that don't write a log file, such as [`<GitClone>`](/authoring/blocks/gitclone/) and [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), put the last 200 lines of their logs in the prompt instead.
+
 ## Block Outputs
 
 Check blocks can produce **outputs** that downstream blocks can consume. This enables multi-step workflows where each step builds on the previous one.

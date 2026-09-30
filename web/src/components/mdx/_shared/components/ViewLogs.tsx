@@ -1,6 +1,8 @@
-import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download, WrapText, FileText, Maximize2, Minimize2 } from "lucide-react"
-import { useState, useEffect, useRef } from "react"
+import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download, WrapText, FileText, Maximize2, Minimize2, Sparkles } from "lucide-react"
+import { useState, useEffect, useRef, useContext } from "react"
 import type { ExecutionStatus } from "../types"
+import { buildLlmPrompt } from "../lib/llmPrompt"
+import { RunbookContext } from "@/contexts/RunbookContext"
 import { TerminalText } from "@/components/shared/TerminalText"
 import type { LogEntry } from "@/hooks/useApiExec"
 import { Button } from "@/components/ui/button"
@@ -41,6 +43,11 @@ export function ViewLogs({
   const [maximized, setMaximized] = useState(false)
   const { didCopy: copied, copy: copyLogs } = useCopyToClipboard(2000)
   const { didCopy: pathCopied, copy: copyPath } = useCopyToClipboard(2000)
+  const { didCopy: promptCopied, copy: copyPrompt } = useCopyToClipboard(2000)
+  // Read the raw context rather than useRunbookContext() (which throws) so the
+  // log view still renders outside a provider; the prompt then falls back to a
+  // generic runbook description.
+  const runbook = useContext(RunbookContext)
   // Default to no-wrap: long log lines scroll horizontally rather than wrap.
   const [wrap, setWrap] = useState(false)
 
@@ -64,6 +71,18 @@ export function ViewLogs({
     e.stopPropagation()
     if (!logFilePath) return
     await copyPath(logFilePath)
+  }
+
+  const handleCopyPrompt = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    await copyPrompt(buildLlmPrompt({
+      blockId,
+      status,
+      runbookFilePath: runbook?.runbookFilePath,
+      remoteSource: runbook?.remoteSource,
+      logFilePath,
+      logText: getPlainTextLogs(),
+    }))
   }
 
   // Handle download raw logs
@@ -91,6 +110,8 @@ export function ViewLogs({
       logFilePath={logFilePath}
       pathCopied={pathCopied}
       onCopyPath={handleCopyPath}
+      promptCopied={promptCopied}
+      onCopyPrompt={handleCopyPrompt}
       wrap={wrap}
       onToggleWrap={() => setWrap(w => !w)}
       copied={copied}
@@ -279,15 +300,17 @@ function LogScroll({
 }
 
 /**
- * Copy-path / wrap / copy / download controls for a log view. Stateless: all
- * state and handlers live in the parent so the inline header and the maximized
- * overlay render identical, in-sync controls.
+ * Copy-path / copy-prompt / wrap / copy / download controls for a log view.
+ * Stateless: all state and handlers live in the parent so the inline header and
+ * the maximized overlay render identical, in-sync controls.
  */
 function LogActions({
   hasLogs,
   logFilePath,
   pathCopied,
   onCopyPath,
+  promptCopied,
+  onCopyPrompt,
   wrap,
   onToggleWrap,
   copied,
@@ -299,6 +322,8 @@ function LogActions({
   logFilePath?: string | null
   pathCopied: boolean
   onCopyPath: (e: React.MouseEvent) => void
+  promptCopied: boolean
+  onCopyPrompt: (e: React.MouseEvent) => void
   wrap: boolean
   onToggleWrap: () => void
   copied: boolean
@@ -328,6 +353,31 @@ function LogActions({
           </TooltipTrigger>
           <TooltipContent>
             <p>{pathCopied ? "Copied!" : "Copy log file path"}</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {/* Copy prompt for LLM — points at the log file when there is one,
+          otherwise inlines the most recent log lines */}
+      {(logFilePath || hasLogs) && (
+        <Tooltip delayDuration={350}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Copy prompt for LLM"
+              onClick={onCopyPrompt}
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+            >
+              {promptCopied ? (
+                <Check className="size-3.5 text-success" />
+              ) : (
+                <Sparkles className="size-3.5" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{promptCopied ? "Copied!" : "Copy prompt for LLM"}</p>
           </TooltipContent>
         </Tooltip>
       )}
