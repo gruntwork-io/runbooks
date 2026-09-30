@@ -40,7 +40,8 @@ import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCh
  * 
  * @param props - The component props
  * @param props.content - The raw markdown/MDX content string to compile and render
- * @param props.runbookPath - The path to the runbook file
+ * @param props.runbookPath - The path to the runbook's directory
+ * @param props.runbookFilePath - The path to the runbook's .mdx file
  * @param props.className - Optional additional CSS classes for styling the container
  * @param props.ref - Receives the scroll container that wraps the rendered document
  */
@@ -48,11 +49,12 @@ interface MDXContainerProps {
   content: string
   className?: string
   runbookPath?: string
+  runbookFilePath?: string
   remoteSource?: string
   ref?: Ref<HTMLDivElement>
 }
 
-function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MDXContainerProps) {
+function MDXContainer({ content, runbookPath, runbookFilePath, remoteSource, className, ref }: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -106,7 +108,7 @@ function MDXContainer({ content, runbookPath, remoteSource, className, ref }: MD
   return (
     <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} storageScope={remoteSource ?? runbookPath}>
+        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} runbookFilePath={runbookFilePath} storageScope={remoteSource ?? runbookPath}>
           <CustomMDXComponentErrorBoundary 
             onError={(error) => setError(error)}
           >

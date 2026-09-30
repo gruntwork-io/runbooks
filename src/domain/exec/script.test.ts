@@ -19,6 +19,7 @@ import {
   captureFilesFromDir,
 } from "./script.ts"
 import { encodeOutputs, isSensitiveOutput, revealOutput } from "./outputValues.ts"
+import { LOG_CHANNELS, logChannelFiles } from "./logChannels.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
@@ -525,21 +526,64 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     return nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "script-wrap-test-"))
   }
 
+  /**
+   * process.env without what a developer's shell may have set: a BASH_ENV
+   * that loads their own logging.sh, its load guard, and log file variables.
+   */
+  function cleanEnv(): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { ...process.env }
+    delete env.BASH_ENV
+    delete env._RUNBOOKS_LOGGING_LOADED
+    for (const { envVar } of LOG_CHANNELS) delete env[envVar]
+    return env
+  }
+
+  /**
+   * Empty log files under `dir`, as the executor makes them, in a directory
+   * whose name has a space so the helpers must quote the path. `read` returns
+   * RUNBOOK_LOG's contents, and the per-level files' contents joined.
+   */
+  function makeLogFiles(dir: string) {
+    const logDir = nodePath.join(dir, "log files")
+    nodeFs.mkdirSync(logDir)
+    const files = logChannelFiles(logDir, LOG_CHANNELS)
+    for (const { path } of files) nodeFs.writeFileSync(path, "")
+    const contents = (level: boolean) =>
+      files
+        .filter((f) => (f.level !== null) === level)
+        .map((f) => nodeFs.readFileSync(f.path, "utf8"))
+        .join("")
+    return {
+      env: Object.fromEntries(files.map((f) => [f.envVar, f.path])),
+      read: () => ({ log: contents(false), levelLogs: contents(true) }),
+    }
+  }
+
+  /**
+   * Run `userScript` in the wrapper under real bash. The log file variables
+   * are set, as in the app, unless `logFiles` is false. `log` holds what the
+   * script wrote to RUNBOOK_LOG, and `levelLogs` what it wrote to the
+   * per-level files.
+   */
   function runWrapped(
     userScript: string,
     extraEnv: Record<string, string> = {},
+    { logFiles = true }: { logFiles?: boolean } = {},
   ): {
     stdout: string
     stderr: string
     exitCode: number
     capturedEnv: Record<string, string> | null
     capturedPwd: string | null
+    log: string
+    levelLogs: string
   } {
     const tmp = makeTmp()
     try {
       const envPath = nodePath.join(tmp, "env.txt")
       const pwdPath = nodePath.join(tmp, "pwd.txt")
       const scriptPath = nodePath.join(tmp, "script.sh")
+      const logs = logFiles ? makeLogFiles(tmp) : null
 
       const wrapped = wrapBashScript(userScript, envPath, pwdPath)
       nodeFs.writeFileSync(scriptPath, wrapped)
@@ -547,7 +591,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
 
       const res = spawnSync("/bin/bash", [scriptPath], {
         encoding: "utf8",
-        env: { ...process.env, ...extraEnv },
+        env: { ...cleanEnv(), ...logs?.env, ...extraEnv },
       })
 
       const capturedEnv = nodeFs.existsSync(envPath)
@@ -563,6 +607,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
         exitCode: res.status ?? -1,
         capturedEnv,
         capturedPwd,
+        ...(logs?.read() ?? { log: "", levelLogs: "" }),
       }
     } finally {
       nodeFs.rmSync(tmp, { recursive: true, force: true })
@@ -772,34 +817,181 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(stdout).toBe("a\\nb\n")
   })
 
-  it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {
+  // Log lines start with "[<ISO-8601 zulu timestamp>] ". logLines checks
+  // that every line does and drops it, so tests can compare whole lines.
+  const LOG_TIMESTAMP = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+  const logLines = (text: string) =>
+    text.split("\n").filter(Boolean).map((line) => {
+      expect(line).toMatch(LOG_TIMESTAMP)
+      return line.replace(LOG_TIMESTAMP, "")
+    })
+
+  it("log_info/warn/error append timestamped lines to RUNBOOK_LOG, never stdout or stderr", () => {
     const result = runWrapped(
-      `log_info "info-msg"
+      `set -euo pipefail
+       log_info "info-msg"
        log_warn "warn-msg"
-       log_error "err-msg"`,
+       log_error "err-msg"
+       log_info two  words`,
     )
-    expect(result.stdout).toContain("[INFO]")
-    expect(result.stdout).toContain("info-msg")
-    expect(result.stdout).toContain("[WARN]")
-    expect(result.stdout).toContain("warn-msg")
-    expect(result.stdout).toContain("[ERROR]")
-    expect(result.stdout).toContain("err-msg")
-    // ISO-8601 zulu pattern: YYYY-MM-DDTHH:MM:SSZ
-    expect(result.stdout).toMatch(
-      /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]/,
+    expect(result.exitCode).toBe(0)
+    expect(logLines(result.log)).toEqual([
+      "[INFO]  info-msg",
+      "[WARN]  warn-msg",
+      "[ERROR] err-msg",
+      "[INFO]  two words",
+    ])
+    expect(result.levelLogs).toBe("")
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toBe("")
+  })
+
+  it("keeps lines of different levels in the order the script wrote them", () => {
+    const result = runWrapped(
+      `log_info "step 1: starting"
+       log_error "step 1 failed"
+       log_debug "retry count 1"
+       log_info "step 2: retrying"
+       log_warn "step 2 slow"
+       log_info "step 3: done"`,
+      { DEBUG: "true" },
     )
+    expect(logLines(result.log)).toEqual([
+      "[INFO]  step 1: starting",
+      "[ERROR] step 1 failed",
+      "[DEBUG] retry count 1",
+      "[INFO]  step 2: retrying",
+      "[WARN]  step 2 slow",
+      "[INFO]  step 3: done",
+    ])
   })
 
   it("log_debug is silent when DEBUG is unset", () => {
-    const result = runWrapped(`log_debug "should not appear"`)
-    expect(result.stdout).not.toContain("should not appear")
-    expect(result.stdout).not.toContain("[DEBUG]")
+    const result = runWrapped(`log_debug "should not appear"`, { DEBUG: "" })
+    expect(result.log).toBe("")
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toBe("")
   })
 
-  it("log_debug fires when DEBUG=true", () => {
+  it("log_debug logs when DEBUG=true", () => {
     const result = runWrapped(`log_debug "debug-msg"`, { DEBUG: "true" })
-    expect(result.stdout).toContain("[DEBUG]")
-    expect(result.stdout).toContain("debug-msg")
+    expect(logLines(result.log)).toEqual(["[DEBUG] debug-msg"])
+  })
+
+  // Regression for #269: a function that logs and then prints a value must
+  // return only the value through $(...).
+  it("log_* calls inside a function don't leak into its $(...) capture", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       get_json() {
+         log_info "info-msg"
+         log_warn "warn-msg"
+         log_error "err-msg"
+         log_debug "debug-msg"
+         echo '{"ok":true}'
+       }
+       json=$(get_json)
+       echo "json=[$json]"`,
+      { DEBUG: "true" },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('json=[{"ok":true}]\n')
+    expect(result.stderr).toBe("")
+    expect(logLines(result.log)).toEqual([
+      "[INFO]  info-msg",
+      "[WARN]  warn-msg",
+      "[ERROR] err-msg",
+      "[DEBUG] debug-msg",
+    ])
+  })
+
+  it("the helpers write to stderr when RUNBOOK_LOG is unset", () => {
+    const result = runWrapped(
+      `log_info "info-msg"
+       echo out
+       log_error "err-msg"`,
+      {},
+      { logFiles: false },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("out\n")
+    expect(logLines(result.stderr)).toEqual(["[INFO]  info-msg", "[ERROR] err-msg"])
+  })
+
+  // Once a run ends, Runbooks deletes the log files. A background job that
+  // keeps logging must not die on the failed append under an inherited set -e.
+  it("the helpers write to stderr when RUNBOOK_LOG can't be written, even under set -e", () => {
+    const result = runWrapped(
+      `set -euo pipefail
+       log_info "info-msg"
+       log_error "err-msg"
+       echo "still running"`,
+      { RUNBOOK_LOG: "/nonexistent-runbooks-log-dir/runbook.log" },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe("still running\n")
+    // Only the log lines: the failed redirect's own message is suppressed.
+    expect(logLines(result.stderr)).toEqual(["[INFO]  info-msg", "[ERROR] err-msg"])
+  })
+
+  it("the wrapper leaves the script's stdout and stderr apart", () => {
+    const result = runWrapped(`echo out\necho err >&2`)
+    expect(result.stdout).toBe("out\n")
+    expect(result.stderr).toBe("err\n")
+  })
+
+  // scripts/logging.sh is the copy authors load through BASH_ENV for local
+  // development. It must write the same lines as the injected helpers: to
+  // RUNBOOK_LOG when it is set, and to stderr when it isn't or can't be
+  // written.
+  it("scripts/logging.sh writes the same lines as the injected helpers", () => {
+    const calls = `set -euo pipefail
+       log_info "info 100%s"
+       log_warn two words
+       log_error "err-msg"
+       log_debug "debug-msg"`
+    const expected = [
+      "[INFO]  info 100%s",
+      "[WARN]  two words",
+      "[ERROR] err-msg",
+      "[DEBUG] debug-msg",
+    ]
+    const unwritable = { RUNBOOK_LOG: "/nonexistent-runbooks-log-dir/runbook.log" }
+    const loggingSh = nodePath.resolve(
+      import.meta.dirname,
+      "../../../scripts/logging.sh",
+    )
+    const tmp = makeTmp()
+    try {
+      const logFiles = makeLogFiles(tmp)
+      const runLocal = (env: Record<string, string>) =>
+        spawnSync("/bin/bash", ["-c", `source "$1"\n${calls}`, "_", loggingSh], {
+          encoding: "utf8",
+          env: { ...cleanEnv(), DEBUG: "true", ...env },
+        })
+
+      const local = runLocal(logFiles.env)
+      const injected = runWrapped(calls, { DEBUG: "true" })
+      expect(local.status).toBe(0)
+      expect(local.stdout).toBe("")
+      expect(local.stderr).toBe("")
+      const localLogs = logFiles.read()
+      expect(logLines(localLogs.log)).toEqual(expected)
+      expect(localLogs.levelLogs).toBe("")
+      expect(logLines(injected.log)).toEqual(expected)
+
+      for (const env of [{}, unwritable]) {
+        const outside = runLocal(env)
+        const injectedOutside = runWrapped(calls, { DEBUG: "true", ...env }, { logFiles: false })
+        expect(outside.status).toBe(0)
+        expect(outside.stdout).toBe("")
+        expect(logLines(outside.stderr)).toEqual(expected)
+        expect(injectedOutside.exitCode).toBe(0)
+        expect(logLines(injectedOutside.stderr)).toEqual(expected)
+      }
+    } finally {
+      nodeFs.rmSync(tmp, { recursive: true, force: true })
+    }
   })
 
   it("captures multi-line env values via NUL-delimited env -0", () => {

@@ -410,7 +410,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     api.invoke('git:clone-cancel', { cloneId }).catch(() => {}).finally(cancelled)
   }, [api])
 
-  // Start over ('Clone again' / 'Choose a different repo'). The previous
+  // Start over ('Clone again' / 'Stop using this repo'). The previous
   // repo's outputs are withdrawn, so downstream blocks wait for the next one
   // instead of carrying on against a repo the user moved away from. A seed
   // still in flight for that repo goes stale too.

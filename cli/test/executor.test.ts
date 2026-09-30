@@ -1516,6 +1516,80 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Log files ($RUNBOOK_LOG, $RUNBOOK_INFO_LOG etc.): the CLI shows their lines.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — log files", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-logs-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("shows the helpers' lines among stdout and stderr in script order, then the per-level files' lines", async () => {
+    fs.mkdirSync(path.join(tmp, "scripts"))
+    fs.writeFileSync(
+      path.join(tmp, "scripts", "logs.sh"),
+      [
+        "#!/bin/bash",
+        'log_info "starting"',
+        "get_json() {",
+        '  log_info "looking up"',
+        `  echo '{"ok":true}'`,
+        "}",
+        "json=$(get_json)",
+        'echo "json=$json"',
+        'log_error "step failed"',
+        'echo "to stderr" >&2',
+        'echo "raw error" >> "$RUNBOOK_ERROR_LOG"',
+        'log_warn "careful"',
+        "echo done",
+        "",
+      ].join("\n"),
+    )
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Logs\n\n<Command id="logs" path="scripts/logs.sh" />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({
+      name: "logs",
+      steps: [{ block: "logs", expect: "success" }],
+      // The log files belong to one block run, so the session env must not
+      // keep pointing at them.
+      assertions: [
+        {
+          type: "script",
+          command: 'test -z "${RUNBOOK_LOG:-}${RUNBOOK_INFO_LOG:-}${RUNBOOK_ERROR_LOG:-}"',
+        },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    const stamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+    const shown = result.stepResults[0]!.logs!
+      .trimEnd()
+      .split("\n")
+      .map((line) => line.replace(stamp, ""))
+    expect(shown).toEqual([
+      "[INFO]  starting",
+      "[INFO]  looking up",
+      // The capture holds only the JSON (#269).
+      'json={"ok":true}',
+      "[ERROR] step failed",
+      "to stderr",
+      "[WARN]  careful",
+      "done",
+      "[ERROR] raw error",
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GitClone with prefilledRepoPath: a sparse clone, built by the same
 // buildCloneSteps the app's git:clone handler uses.
 // ---------------------------------------------------------------------------

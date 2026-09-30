@@ -657,6 +657,34 @@ describe('useGitAuth — copy contracts', () => {
       ),
     )
   })
+
+  // With detection off, nothing was looked for: the hint must not read as a
+  // failed search or send the user to a CLI login the block will ignore.
+  it.each([
+    ['GitHub', PROVIDERS.github],
+    ['GitLab', PROVIDERS.gitlab],
+  ])('uses neutral hint copy when detectCredentials is false (%s)', async (_label, provider) => {
+    const invoke = installApi(async (channel) => {
+      if (channel === 'vcs:cli-status') {
+        return {
+          gh: { installed: true, version: '2.40.1', meetsFloor: true },
+          glab: { installed: true, version: '1.50.0', meetsFloor: true },
+        }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGitAuth({ id: 'git', provider, detectCredentials: false })
+
+    // The CLI probe still runs (the success card's schannel suggestion needs
+    // it); wait for it so the hint below is the settled one.
+    await waitFor(() => expect(result.current.cliStatus).not.toBeNull())
+    expect(result.current.detectionStatus).toBe('done')
+    expect(result.current.manualHint).toBe("This runbook doesn't use existing credentials — sign in below.")
+    expect(result.current.manualHint).not.toContain('auth login')
+    expect(result.current.manualHint).not.toContain('No existing credentials')
+    expect(invoke.mock.calls.filter(([channel]) => channel.endsWith('-credentials'))).toEqual([])
+  })
 })
 
 describe('useGitAuth — host union UX', () => {
@@ -1667,12 +1695,28 @@ describe('useGitAuth — GitHub Enterprise hosts', () => {
         provider: PROVIDERS.github,
         host: 'ghes.corp',
         oauthClientId: undefined,
-        detectCredentials: false,
       })
 
     expect(result.current.effectiveClientId).toBeUndefined()
     expect(result.current.oauthUnavailableReason).toMatch(/isn't set up for ghes\.corp/)
     expect(result.current.oauthUnavailableReason).toContain('gh auth login --hostname ghes.corp')
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+  })
+
+  it('with detection off, points an enterprise host without a client ID at a token only, not gh auth login', async () => {
+    installApi(async () => ({ found: false }))
+
+    const { result } = renderGitAuth({
+      id: 'gh',
+      provider: PROVIDERS.github,
+      host: 'ghes.corp',
+      detectCredentials: false,
+    })
+
+    expect(result.current.oauthUnavailableReason).toBe(
+      "Sign-in with GitHub isn't set up for ghes.corp. Use a personal access token instead.",
+    )
+    await waitFor(() => expect(result.current.cliStatus).not.toBeNull())
   })
 
   it('never applies an unscoped string client ID to a picked enterprise host', async () => {

@@ -26,6 +26,7 @@ import {
   captureFilesFromDir,
 } from "./script.ts"
 import type { ScriptSetup } from "./script.ts"
+import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "./logChannels.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -63,12 +64,16 @@ function setupExecEnvVars(
   outputFile: string,
   filesDir: string,
   workTreePath: string,
+  logFiles: ReadonlyArray<{ readonly envVar: string; readonly path: string }>,
 ): Record<string, string> {
   const result = { ...env }
   result["RUNBOOK_OUTPUT"] = outputFile
   result["GENERATED_FILES"] = filesDir
   if (workTreePath) {
     result["REPO_FILES"] = workTreePath
+  }
+  for (const { envVar, path } of logFiles) {
+    result[envVar] = path
   }
   return result
 }
@@ -144,9 +149,24 @@ export const executeScript = (
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    log.debug("step 3a: creating log channel files")
+    // The script's log files: RUNBOOK_LOG, which the log_* helpers append to,
+    // and one per level (RUNBOOK_INFO_LOG, ...). Anything the script runs can
+    // append to them too, and the spawner follows them into the log stream
+    // and exec.log. Once the run ends they're deleted, and the helpers fall
+    // back to stderr.
+    const logChannelDir = yield* fs.mkdtemp("runbook-log-channels-")
+    yield* Effect.addFinalizer(() =>
+      fs.rm(logChannelDir, { recursive: true, force: true }).pipe(Effect.ignore),
+    )
+    const logFiles = logChannelFiles(logChannelDir, LOG_CHANNELS)
+    for (const { path } of logFiles) {
+      yield* fs.writeFile(path, "")
+    }
+
     log.debug("step 3b: creating log file")
     // Create a durable log file for this execution. The spawner appends every
-    // stdout/stderr line here as it runs, so the file can be tailed externally
+    // output line here as it runs, so the file can be tailed externally
     // and inspected after the fact. NOTE: unlike the dirs above, we intentionally
     // do NOT register a cleanup finalizer — the file must outlive the execution
     // so the user can open it from the surfaced path. These live under the OS
@@ -203,8 +223,9 @@ export const executeScript = (
       }
     }
 
-    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES, REPO_FILES)
-    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath)
+    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES,
+    // REPO_FILES, and the log files: RUNBOOK_LOG and RUNBOOK_<LEVEL>_LOG)
+    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles)
 
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
@@ -213,6 +234,13 @@ export const executeScript = (
       cwd: sessionContext.workDir || undefined,
       env: execEnv,
       logFilePath,
+      // RUNBOOK_LOG's lines name their own level, so they're shown as
+      // written. A line in a per-level file without the helpers' prefix is
+      // tagged with the file's level and the time it was read.
+      logChannels: logFiles.map(({ path, level }) => ({
+        path,
+        formatLine: level ? (line: string) => tagLogLine(line, level, new Date()) : undefined,
+      })),
     })
 
     // Kill the process group when the scope closes. `kill` is a no-op once the
@@ -263,12 +291,13 @@ export const executeScript = (
       const events: ExecEvent[] = []
 
       if (timedOut) {
+        const line = `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`
+        // Also end the log file with it, so the file says why the output
+        // stops. Best-effort, like the spawner's own writes to it.
+        yield* fs.appendFile(logFilePath, `${line}\n`).pipe(Effect.ignore)
         events.push({
           _tag: "log",
-          event: {
-            line: `Script execution timed out after ${Math.round(effectiveTimeoutMs / 1000)} seconds`,
-            timestamp: new Date().toISOString(),
-          },
+          event: { line, timestamp: new Date().toISOString() },
         })
       }
 

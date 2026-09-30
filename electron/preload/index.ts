@@ -45,6 +45,7 @@ const EVENT_CHANNELS = {
   "menu:open-url-prompt": true,
   "menu:close-runbook": true,
   "menu:preferences": true,
+  "menu:find": true,
   "registry:updated": true,
   "vcs:session-changed": true,
 } satisfies Record<EventChannel, true>

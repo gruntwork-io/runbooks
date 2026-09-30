@@ -683,6 +683,9 @@ export interface IpcChannelMap {
 // Send channels (server-to-client events, replaces SSE)
 // ---------------------------------------------------------------------------
 
+/** What Edit > Find…, Find Next and Find Previous ask the renderer's find bar to do. */
+export type FindAction = "open" | "next" | "previous"
+
 export interface IpcEventMap {
   "exec:log": { line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { path: string }
@@ -706,6 +709,7 @@ export interface IpcEventMap {
   "menu:open-url-prompt": void
   "menu:close-runbook": void
   "menu:preferences": void
+  "menu:find": { action: FindAction }
   "registry:updated": void
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
