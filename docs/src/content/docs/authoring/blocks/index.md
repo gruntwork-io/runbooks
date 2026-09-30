@@ -36,7 +36,9 @@ Interactive blocks take an `id` prop, a unique identifier for the block. When on
 
 Each ID must be unique within a runbook. IDs that differ only in hyphens versus underscores (such as `create-account` and `create_account`) count as the same ID.
 
-In Runbooks, each block shows a small **ID** badge in its top-right corner. Hover over the badge (or Tab to it) to see the block's ID, and click it to copy the ID to your clipboard.
+Runbook tests use IDs too: each step in `runbook_test.yml` names the block it runs by its ID. See [Testing](/authoring/testing/#block-ids).
+
+In Runbooks, most blocks show a small **ID** badge in their top-right corner. `<TemplateInline>` doesn't, and neither does an `<Inputs>` block nested inside another block. Hover over the badge (or Tab to it) to see the block's ID, and click it to copy the ID to your clipboard.
 
 ## Advanced Topics
 
