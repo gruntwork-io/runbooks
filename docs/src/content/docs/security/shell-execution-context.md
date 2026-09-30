@@ -122,6 +122,8 @@ Runbooks exposes the following environment variables to all scripts:
 | `REPO_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
 | `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
 
+Each script also gets one log file per level, in `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG`. The `log_info`, `log_warn`, `log_error` and `log_debug` functions append to them, and so can any command or script. Their lines appear in the block's logs, at the file's level, as the script writes them. See [Log Files](/authoring/blocks/command/#log-files).
+
 ### Capturing Output Files
 
 To save files to the generated files directory, write them to `$GENERATED_FILES`:
