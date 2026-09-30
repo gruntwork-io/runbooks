@@ -344,13 +344,17 @@ export function ScriptBlock({
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
             This {variant.missingInputsSubject} requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured.
-            Please add {variant.inlineInputs === false ? 'an' : 'either'}:
-            <ul className="list-disc ml-6 mt-2">
-              {variant.inlineInputs !== false && (
-                <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
-              )}
-              <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
-            </ul>
+            {variant.inlineInputs === false ? (
+              <>Please add an <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs block.</>
+            ) : (
+              <>
+                Please add either:
+                <ul className="list-disc ml-6 mt-2">
+                  <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
+                  <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
+                </ul>
+              </>
+            )}
           </div>
         </div>
       </div>

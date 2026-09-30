@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import Finish from "../Finish"
@@ -37,9 +37,15 @@ const defaultScriptExecution = {
 }
 
 let mockScriptExecution = { ...defaultScriptExecution }
+// Captures the props Finish passes to useScriptExecution, to assert wiring the
+// mock would otherwise hide (the hook maps warn to fail for a 'command').
+let lastScriptExecutionProps: Record<string, unknown> | null = null
 
 vi.mock("@/components/mdx/_shared/hooks/useScriptExecution", () => ({
-  useScriptExecution: () => mockScriptExecution,
+  useScriptExecution: (props: Record<string, unknown>) => {
+    lastScriptExecutionProps = props
+    return mockScriptExecution
+  },
 }))
 
 vi.mock("@/contexts/useLogs", () => ({
@@ -66,6 +72,7 @@ function finish(props: Partial<React.ComponentProps<typeof Finish>> = {}) {
 describe("Finish", () => {
   beforeEach(() => {
     mockScriptExecution = { ...defaultScriptExecution, execute: vi.fn(), cancel: vi.fn() }
+    lastScriptExecutionProps = null
     vi.mocked(celebrate).mockClear()
   })
 
@@ -153,6 +160,11 @@ describe("Finish", () => {
       expect(celebrate).not.toHaveBeenCalled()
     })
 
+    it("runs the final check as a check, so an exit code 2 stays a warning rather than a failure", () => {
+      render(finish({ command: "test -f done.txt" }))
+      expect(lastScriptExecutionProps).toMatchObject({ componentType: "check" })
+    })
+
     it("celebrates again when a re-run passes", () => {
       const { rerender } = render(finish({ command: "test -f done.txt" }))
       for (const status of ["running", "success", "running", "success"]) {
@@ -179,7 +191,9 @@ describe("Finish", () => {
       render(finish({ command: 'test "{{ .inputs.Env }}" = prod' }))
 
       expect(screen.getByText(/Configuration Required/)).toBeInTheDocument()
-      expect(screen.getByText(/final check requires variables \(Env\)/)).toBeInTheDocument()
+      const message = screen.getByText(/final check requires variables \(Env\)/)
+      expect(message).toHaveTextContent(/Please add an inputsId prop referencing an existing Inputs block\.$/)
+      expect(within(message).queryByRole("list")).toBeNull()
       expect(screen.queryByText(/as a child/)).toBeNull()
     })
   })

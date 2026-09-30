@@ -30,13 +30,13 @@ A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runboo
 
 You can still use `{...}` for literal values: strings, numbers, booleans, `null`, template strings without `${...}` substitutions, and arrays or objects made only of those. For example, `usePty={false}`, `detectCredentials={['env']}` and `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}` are all allowed, and so are `{/* comments */}`.
 
-This means that opening a Runbook, whether from your machine or from a remote URL, cannot run code of its own. The scripts in `<Command>` and `<Check>` blocks only run when you click to run them.
+This means that opening a Runbook, whether from your machine or from a remote URL, cannot run code of its own. The scripts in `<Command>`, `<Check>` and `<Finish>` blocks only run when you click to run them.
 
 ### Executable Registry
 
 Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the main process will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).
 
-Here's how it works. When you open a runbook, Runbooks starts the main process and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
+Here's how it works. When you open a runbook, Runbooks starts the main process and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>`, `<Command>` and `<Finish>` components (a `<Finish>` only when it has a final check in a `command` or `path` prop). For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
 
 When you click "Run" in the UI, the renderer sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The main process validates that this executable ID exists in the registry (which was built from your Runbook when it was loaded), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate IPC messages, they cannot inject arbitrary code because the main process will only execute scripts that were present in your Runbook when it was loaded. Effectively, the registry acts as a whitelist of approved executables.
 
@@ -63,7 +63,7 @@ runbooks open path/to/runbook.mdx
 
 **How it works:**
 1. Main process loads the runbook file
-2. Builds an **Executable Registry** containing all `<Check>` and `<Command>` components
+2. Builds an **Executable Registry** containing all `<Check>` and `<Command>` components, and every `<Finish>` with a final check
 3. Assigns each script a unique ID
 4. At execution time, validates the ID exists in the registry
 5. Executes only pre-approved scripts
