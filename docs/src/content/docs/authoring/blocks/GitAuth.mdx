@@ -87,7 +87,7 @@ Both providers support more than their public SaaS host. Set `host` to pin the b
 
 For GitHub, the picker's initial host is the host the user last picked (if a credential for it is still available), then `GH_HOST`, then `github.com`. Environment tokens are bound to a single host: `GITHUB_TOKEN` / `GH_TOKEN` go to `GH_HOST` when it is `github.com` or a `*.ghe.com` tenant (otherwise `github.com`), and `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN` go only to the Enterprise Server host `GH_HOST` names. Tokens never cross hosts.
 
-The Gruntwork OAuth app only exists on `github.com`. On an enterprise host, **Sign in with GitHub** needs `oauthClientId` set to the client ID of an OAuth app registered on that instance with device flow enabled; without one, the block offers a personal access token and the GitHub CLI instead, and explains why.
+The Gruntwork OAuth app only exists on `github.com`. On an enterprise host, **Sign in with GitHub** needs `oauthClientId` set to the client ID of an OAuth app registered on that instance with device flow enabled; without one, the block offers a personal access token and the GitHub CLI instead (only the token when `detectCredentials={false}`), and explains why.
 
 See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for the full host, environment variable, API URL, and OAuth details.
 
