@@ -17,10 +17,16 @@ import type { CapturedFile } from "../../types.ts"
 /**
  * Logging functions injected into every bash script wrapper.
  * Provides log_info, log_warn, log_error, log_debug.
+ *
+ * All four write to stderr, so a function that logs and then prints a value
+ * returns only that value through `$(...)`. The spawner streams stderr into
+ * the log view and exec.log alongside stdout, so users still see every line.
+ * Keep in sync with scripts/logging.sh.
  */
 const LOGGING_FUNCTIONS = `
 # --- Runbooks Logging Functions ---
 # (auto-injected; see also scripts/logging.sh for local development)
+# All helpers write to stderr so they never end up in a $(...) capture.
 _RUNBOOKS_LOGGING_LOADED=1
 
 _log_timestamp() {
@@ -28,20 +34,20 @@ _log_timestamp() {
 }
 
 log_info() {
-    printf '[%s] [INFO]  %s\\n' "$(_log_timestamp)" "$*"
+    printf '[%s] [INFO]  %s\\n' "$(_log_timestamp)" "$*" >&2
 }
 
 log_warn() {
-    printf '[%s] [WARN]  %s\\n' "$(_log_timestamp)" "$*"
+    printf '[%s] [WARN]  %s\\n' "$(_log_timestamp)" "$*" >&2
 }
 
 log_error() {
-    printf '[%s] [ERROR] %s\\n' "$(_log_timestamp)" "$*"
+    printf '[%s] [ERROR] %s\\n' "$(_log_timestamp)" "$*" >&2
 }
 
 log_debug() {
     if [ "\${DEBUG:-}" = "true" ]; then
-        printf '[%s] [DEBUG] %s\\n' "$(_log_timestamp)" "$*"
+        printf '[%s] [DEBUG] %s\\n' "$(_log_timestamp)" "$*" >&2
     fi
 }
 # --- End Runbooks Logging Functions ---

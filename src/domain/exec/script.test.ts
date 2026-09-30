@@ -710,34 +710,103 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(stdout).toBe("a\\nb\n")
   })
 
-  it("log_info/warn/error emit ISO-8601 timestamps and correct level prefixes", () => {
+  it("log_info/warn/error write ISO-8601 timestamps and level prefixes to stderr", () => {
     const result = runWrapped(
       `log_info "info-msg"
        log_warn "warn-msg"
        log_error "err-msg"`,
     )
-    expect(result.stdout).toContain("[INFO]")
-    expect(result.stdout).toContain("info-msg")
-    expect(result.stdout).toContain("[WARN]")
-    expect(result.stdout).toContain("warn-msg")
-    expect(result.stdout).toContain("[ERROR]")
-    expect(result.stdout).toContain("err-msg")
+    expect(result.stderr).toContain("[INFO]")
+    expect(result.stderr).toContain("info-msg")
+    expect(result.stderr).toContain("[WARN]")
+    expect(result.stderr).toContain("warn-msg")
+    expect(result.stderr).toContain("[ERROR]")
+    expect(result.stderr).toContain("err-msg")
     // ISO-8601 zulu pattern: YYYY-MM-DDTHH:MM:SSZ
-    expect(result.stdout).toMatch(
+    expect(result.stderr).toMatch(
       /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]/,
     )
+    expect(result.stdout).toBe("")
   })
 
   it("log_debug is silent when DEBUG is unset", () => {
-    const result = runWrapped(`log_debug "should not appear"`)
+    const result = runWrapped(`log_debug "should not appear"`, { DEBUG: "" })
     expect(result.stdout).not.toContain("should not appear")
     expect(result.stdout).not.toContain("[DEBUG]")
+    expect(result.stderr).not.toContain("should not appear")
+    expect(result.stderr).not.toContain("[DEBUG]")
   })
 
-  it("log_debug fires when DEBUG=true", () => {
+  it("log_debug writes to stderr when DEBUG=true", () => {
     const result = runWrapped(`log_debug "debug-msg"`, { DEBUG: "true" })
-    expect(result.stdout).toContain("[DEBUG]")
-    expect(result.stdout).toContain("debug-msg")
+    expect(result.stderr).toContain("[DEBUG]")
+    expect(result.stderr).toContain("debug-msg")
+    expect(result.stdout).toBe("")
+  })
+
+  // Regression for #269: a function that logs and then prints a value must
+  // return only the value through $(...).
+  it("log_* calls inside a function don't leak into its $(...) capture", () => {
+    const result = runWrapped(
+      `get_json() {
+         log_info "info-msg"
+         log_warn "warn-msg"
+         log_error "err-msg"
+         log_debug "debug-msg"
+         echo '{"ok":true}'
+       }
+       json=$(get_json)
+       echo "json=[$json]"`,
+      { DEBUG: "true" },
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe('json=[{"ok":true}]\n')
+    expect(result.stderr).toContain("[INFO]  info-msg")
+    expect(result.stderr).toContain("[WARN]  warn-msg")
+    expect(result.stderr).toContain("[ERROR] err-msg")
+    expect(result.stderr).toContain("[DEBUG] debug-msg")
+  })
+
+  // scripts/logging.sh is the copy authors load through BASH_ENV for local
+  // development. It must behave like the injected helpers.
+  it("scripts/logging.sh writes the same lines to stderr as the injected helpers", () => {
+    const calls = `log_info "info 100%s"
+       log_warn two words
+       log_error "err-msg"
+       log_debug "debug-msg"`
+    const logLine = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+    const stripTimestamps = (out: string) =>
+      out.split("\n").filter(Boolean).map((line) => {
+        expect(line).toMatch(logLine)
+        return line.replace(logLine, "")
+      })
+
+    const loggingSh = nodePath.resolve(
+      import.meta.dirname,
+      "../../../scripts/logging.sh",
+    )
+    // Drop BASH_ENV and the load guard so a developer's own copy of
+    // logging.sh can't pre-empt the one under test.
+    const env: Record<string, string | undefined> = { ...process.env, DEBUG: "true" }
+    delete env.BASH_ENV
+    delete env._RUNBOOKS_LOGGING_LOADED
+    const local = spawnSync(
+      "/bin/bash",
+      ["-c", `source "$1"\n${calls}`, "_", loggingSh],
+      { encoding: "utf8", env },
+    )
+    const injected = runWrapped(calls, { DEBUG: "true" })
+
+    expect(local.status).toBe(0)
+    expect(local.stdout).toBe("")
+    expect(injected.stdout).toBe("")
+    expect(stripTimestamps(local.stderr)).toEqual([
+      "[INFO]  info 100%s",
+      "[WARN]  two words",
+      "[ERROR] err-msg",
+      "[DEBUG] debug-msg",
+    ])
+    expect(stripTimestamps(injected.stderr)).toEqual(stripTimestamps(local.stderr))
   })
 
   it("captures multi-line env values via NUL-delimited env -0", () => {

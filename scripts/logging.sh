@@ -6,10 +6,15 @@
 # Provides standardized logging functions for Runbooks scripts:
 #   log_info  - Informational messages
 #   log_warn  - Warning messages
-#   log_error - Error messages (written to stderr)
+#   log_error - Error messages
 #   log_debug - Debug messages (only when DEBUG=true)
 #
 # Output format: [ISO-8601-TIMESTAMP] [LEVEL] Message
+#
+# Every function writes to stderr, so it is safe to log inside a function
+# whose stdout is captured with $(...): the capture holds only what the
+# function prints, never the log lines. Runbooks shows stdout and stderr
+# together in a block's logs.
 #
 # Compatible with Bash 3.2+ (macOS default version) and POSIX shells where possible.
 # =============================================================================
@@ -28,37 +33,36 @@ _log_timestamp() {
 }
 
 # -----------------------------------------------------------------------------
-# log_info - Log an informational message
+# log_info - Log an informational message to stderr
 # Usage: log_info "message"
 # -----------------------------------------------------------------------------
 log_info() {
-  printf '[%s] [INFO]  %s\n' "$(_log_timestamp)" "$*"
+  printf '[%s] [INFO]  %s\n' "$(_log_timestamp)" "$*" >&2
 }
 
 # -----------------------------------------------------------------------------
-# log_warn - Log a warning message
+# log_warn - Log a warning message to stderr
 # Usage: log_warn "message"
 # -----------------------------------------------------------------------------
 log_warn() {
-  printf '[%s] [WARN]  %s\n' "$(_log_timestamp)" "$*"
+  printf '[%s] [WARN]  %s\n' "$(_log_timestamp)" "$*" >&2
 }
 
 # -----------------------------------------------------------------------------
-# log_error - Log an error message
+# log_error - Log an error message to stderr
 # Usage: log_error "message"
-# Note: Writes to stdout for deterministic ordering. Use >&2 if stderr is needed.
 # -----------------------------------------------------------------------------
 log_error() {
-  printf '[%s] [ERROR] %s\n' "$(_log_timestamp)" "$*"
+  printf '[%s] [ERROR] %s\n' "$(_log_timestamp)" "$*" >&2
 }
 
 # -----------------------------------------------------------------------------
-# log_debug - Log a debug message (only when DEBUG=true)
+# log_debug - Log a debug message to stderr (only when DEBUG=true)
 # Usage: log_debug "message"
 # -----------------------------------------------------------------------------
 log_debug() {
   if [ "${DEBUG:-}" = "true" ]; then
-    printf '[%s] [DEBUG] %s\n' "$(_log_timestamp)" "$*"
+    printf '[%s] [DEBUG] %s\n' "$(_log_timestamp)" "$*" >&2
   fi
 }
 

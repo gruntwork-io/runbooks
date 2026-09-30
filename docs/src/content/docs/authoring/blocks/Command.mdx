@@ -160,6 +160,17 @@ Runbooks provides standardized logging functions for your scripts by automatical
 | `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
 | `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
 
+The logging functions write to stderr. Runbooks shows stdout and stderr together in the block's logs, so you still see every line. It also means you can call them inside a function whose output you capture with `$(...)`: the captured value holds only what the function prints, not the log lines.
+
+```bash
+get_account_id() {
+  log_info "Looking up the AWS account ID..."
+  aws sts get-caller-identity --query Account --output text
+}
+
+ACCOUNT_ID=$(get_account_id)
+```
+
 #### Usage Example
 
 ```bash
@@ -188,6 +199,8 @@ mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/grun
 ```
 
 This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
+
+The one-liner overwrites `~/.config/runbooks/logging.sh`, so re-run it to pick up changes to the logging functions. Copies downloaded before the functions moved to stderr still write to stdout.
 
 :::note[Fish shell]
 The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also does not read `BASH_ENV` itself, but child `bash` processes will if the variable is exported. Use the fish equivalent:
