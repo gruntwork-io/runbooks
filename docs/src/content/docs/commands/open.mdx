@@ -109,3 +109,12 @@ Make sure the path points to a valid `runbook.mdx` file or a directory containin
 
 **Authentication errors for remote runbooks:**
 If you see "authentication required", make sure you have set the appropriate token for the git host. See the Authentication section above.
+
+**Run from a folder that was deleted:**
+If your terminal is still in a folder that has since been deleted (a removed git worktree, for example), your shell prints a warning like this when you run `runbooks`:
+
+```text
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: No such file or directory
+```
+
+Runbooks still starts, or focuses the window that is already open. A relative path such as `runbooks open .` usually still points into the deleted folder, so the app shows "This path no longer exists" unless a folder has been created again at that path. Some shells can't say which folder they were in (`zsh -c` started from the deleted folder, for example), and then relative paths resolve against your home folder instead. Either way, `cd` into a folder that exists, or pass an absolute path.
