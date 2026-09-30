@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Instruction } from './Instruction'
@@ -74,6 +74,39 @@ describe('Instruction', () => {
     expect(
       screen.getByTestId('instruction-step-1').getAttribute('data-completed'),
     ).toBe('true')
+    localStorage.clear()
+  })
+
+  it('calls onMarkedDone when the block is marked done, not when it is un-marked', () => {
+    localStorage.clear()
+    const onMarkedDone = vi.fn()
+    renderInstruction(
+      <Instruction id="step-1" title="Run this:" command="echo hi" onMarkedDone={onMarkedDone} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /mark step as done/i }))
+    expect(onMarkedDone).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: /mark step as not done/i }))
+    expect(onMarkedDone).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: /mark step as done/i }))
+    expect(onMarkedDone).toHaveBeenCalledTimes(2)
+    localStorage.clear()
+  })
+
+  it('does not call onMarkedDone for a block restored as done', () => {
+    localStorage.clear()
+    const { unmount } = renderInstruction(<Instruction id="step-1" title="Run this:" command="echo hi" />)
+    fireEvent.click(screen.getByRole('button', { name: /mark step as done/i }))
+    unmount()
+
+    const onMarkedDone = vi.fn()
+    renderInstruction(
+      <Instruction id="step-1" title="Run this:" command="echo hi" onMarkedDone={onMarkedDone} />,
+    )
+    expect(screen.getByTestId('instruction-step-1').getAttribute('data-completed')).toBe('true')
+    expect(onMarkedDone).not.toHaveBeenCalled()
     localStorage.clear()
   })
 

@@ -11,6 +11,7 @@
 export const BLOCK_TYPES = [
   "Check",
   "Command",
+  "Finish",
   "Inputs",
   "Template",
   "TemplateInline",

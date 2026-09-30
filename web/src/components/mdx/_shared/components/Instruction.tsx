@@ -42,6 +42,11 @@ export interface InstructionProps {
   icon?: LucideIcon
   /** Block id — surfaces the ID label and a stable test id. */
   id?: string
+  /**
+   * Called when the user marks the block done (not when they un-mark it, and
+   * not for a done state restored on load). <Finish> celebrates with it.
+   */
+  onMarkedDone?: () => void
 }
 
 const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
@@ -67,6 +72,7 @@ export function Instruction({
   note,
   icon: Icon = ListChecks,
   id,
+  onMarkedDone,
 }: InstructionProps) {
   const commandList = normalizeCommandList(command)
   // Resolve commands and the source content in a single pass so manual fields
@@ -81,6 +87,11 @@ export function Instruction({
   const resolvedSource = source ? resolvedCommands[commandList.length] : undefined
 
   const { completed, toggle } = useBlockCompletion(id ?? '')
+  // Called here, not inside toggle's state updater, which StrictMode runs twice.
+  const handleToggle = () => {
+    if (!completed) onMarkedDone?.()
+    toggle()
+  }
 
   return (
     <div
@@ -105,7 +116,7 @@ export function Instruction({
         <div className="flex-1 min-w-0 space-y-3">
           {id && (
             <div className="flex justify-end mr-8 -mb-1">
-              <CompletionCheckbox completed={completed} onToggle={toggle} />
+              <CompletionCheckbox completed={completed} onToggle={handleToggle} />
             </div>
           )}
           <div className="text-md font-bold text-foreground">

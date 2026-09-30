@@ -19,6 +19,7 @@ import { MDX_COMPONENTS } from '@/components/MDXContainer'
 const INTERACTIVE_BLOCKS = [
   'Command',
   'Check',
+  'Finish',
   'AwsAuth',
   'GoogleAuth',
   'GitAuth',
@@ -38,7 +39,7 @@ const INTERACTIVE_BLOCKS = [
 // src/components/mdx/) that actually carries it:
 //  - <GitHubAuth>/<GitLabAuth> alias the generic GitAuth block.
 //  - <GitHubPullRequest>/<GitLabMergeRequest> alias the generic GitPullRequest block.
-//  - <Command>/<Check> are thin wrappers that delegate to the shared ScriptBlock.
+//  - <Command>/<Check>/<Finish> are thin wrappers that delegate to the shared ScriptBlock.
 const ALIAS_SOURCE: Record<string, string> = {
   GitHubAuth: 'GitAuth/GitAuth.tsx',
   GitLabAuth: 'GitAuth/GitAuth.tsx',
@@ -46,6 +47,7 @@ const ALIAS_SOURCE: Record<string, string> = {
   GitLabMergeRequest: 'GitPullRequest/GitPullRequest.tsx',
   Command: '_shared/components/ScriptBlock.tsx',
   Check: '_shared/components/ScriptBlock.tsx',
+  Finish: '_shared/components/ScriptBlock.tsx',
 }
 
 // Blocks intentionally identical in both modes:

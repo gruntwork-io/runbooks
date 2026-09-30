@@ -15,6 +15,7 @@ import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
 import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
+import { Finish } from '@/components/mdx/Finish'
 import { Admonition } from '@/components/mdx/Admonition'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
 import { GoogleAuth } from '@/components/mdx/GoogleAuth'
@@ -308,6 +309,7 @@ export const MDX_COMPONENTS = {
   // Script execution components
   Check,
   Command,
+  Finish,
   // Authentication components
   AwsAuth,
   GoogleAuth,
