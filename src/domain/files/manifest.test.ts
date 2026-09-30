@@ -436,6 +436,7 @@ describe("applyDiffFromContent idempotency", () => {
         writeCount += 1
         return Effect.void
       },
+      appendFile: () => Effect.void,
       mkdir: () => Effect.void,
       rm: () => {
         rmCount += 1

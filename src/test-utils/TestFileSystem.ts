@@ -27,6 +27,11 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
         files[path] = String(content)
       }),
 
+    appendFile: (path, content) =>
+      Effect.sync(() => {
+        files[path] = (files[path] ?? "") + content
+      }),
+
     readdir: (path) =>
       Effect.succeed(
         Object.keys(files)

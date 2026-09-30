@@ -10,14 +10,19 @@ const RUNBOOK = '/work/runbooks/setup/runbook.mdx'
 const LOG_FILE = '/tmp/runbook-logs-abc123/exec.log'
 const FAIL_INSTRUCTION =
   'The step has failed. Analyze the failure and suggest steps for remediation to address the errors shown.'
+const SUCCESS_INSTRUCTION =
+  'The step succeeded. Summarize what it did and point out anything in the logs that needs attention.'
 
 function entry(line: string): LogEntry {
   return { line, timestamp: '2026-01-01T00:00:00.000Z' }
 }
 
-function renderViewLogs(props: Partial<ComponentProps<typeof ViewLogs>> = {}) {
+function renderViewLogs(
+  props: Partial<ComponentProps<typeof ViewLogs>> = {},
+  remoteSource?: string,
+) {
   return render(
-    <RunbookContextProvider runbookName="setup" runbookFilePath={RUNBOOK}>
+    <RunbookContextProvider runbookName="setup" runbookFilePath={RUNBOOK} remoteSource={remoteSource}>
       <ViewLogs logs={[]} status="pending" blockId="deploy-infra" {...props} />
     </RunbookContextProvider>,
   )
@@ -51,7 +56,10 @@ describe('ViewLogs — Copy prompt for LLM', () => {
   })
 
   it('is hidden when there are neither logs nor a log file', () => {
-    renderViewLogs({ status: 'pending' })
+    // A GitClone or GitPullRequest run starts like this: the toolbar is up
+    // (Maximize is offered) but there is nothing yet to build a prompt from.
+    renderViewLogs({ status: 'running' })
+    expect(screen.getByRole('button', { name: 'Maximize logs' })).toBeInTheDocument()
     expect(screen.queryByRole('button', PROMPT_BUTTON)).not.toBeInTheDocument()
   })
 
@@ -79,5 +87,17 @@ describe('ViewLogs — Copy prompt for LLM', () => {
 
     const copied = await navigator.clipboard.readText()
     expect(copied).toContain('The logs for step `deploy-infra` of a Gruntwork Runbook are in this file:')
+    expect(copied.endsWith(SUCCESS_INSTRUCTION)).toBe(true)
+  })
+
+  it('names the URL a remote runbook was opened from', async () => {
+    const user = userEvent.setup()
+    const url = 'https://github.com/org/repo/tree/main/runbooks/setup'
+    renderViewLogs({ status: 'fail', logs: [entry('Error: access denied')], logFilePath: LOG_FILE }, url)
+
+    await user.click(promptButton())
+
+    const copied = await navigator.clipboard.readText()
+    expect(copied).toContain(`of the Gruntwork Runbook ${RUNBOOK} (opened from ${url}) are in this file:`)
   })
 })

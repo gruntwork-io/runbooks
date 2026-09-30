@@ -84,6 +84,12 @@ const impl: FileSystemShape = {
       catch: (err) => new FileWriteError({ path: filePath, cause: err }),
     }),
 
+  appendFile: (filePath: string, content: string) =>
+    Effect.tryPromise({
+      try: () => fs.appendFile(filePath, content),
+      catch: (err) => new FileWriteError({ path: filePath, cause: err }),
+    }),
+
   mkdir: (dirPath: string, options?: { recursive?: boolean }) =>
     Effect.tryPromise({
       try: () => fs.mkdir(dirPath, options).then(() => undefined),

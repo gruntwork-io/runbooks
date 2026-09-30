@@ -9,6 +9,7 @@ import { GeneratedFilesProvider } from '@/contexts/GeneratedFilesContext'
 import { IpcGitWorkTreeProvider } from '@/contexts/IpcGitWorkTreeContext'
 import { LogsProvider } from '@/contexts/LogsContext'
 import { useLogs } from '@/contexts/useLogs'
+import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import App from '../App'
 
 // The artifacts panel polls the workspace over IPC and the welcome screen
@@ -24,6 +25,11 @@ vi.mock('@/components/layout/ArtifactsContainer', () => ({
 vi.mock('@/components/layout/WelcomeScreen', () => ({
   WelcomeScreen: () => <div>Welcome</div>,
 }))
+// The real provider, wrapped so a test can see the props App passes down to it.
+vi.mock('@/contexts/RunbookContext', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/contexts/RunbookContext')>()
+  return { ...actual, RunbookContextProvider: vi.fn(actual.RunbookContextProvider) }
+})
 
 interface RunbookFixture {
   path: string
@@ -330,6 +336,23 @@ describe('App runbook switching', () => {
       expect(screen.queryByText(resultTitle)).not.toBeInTheDocument()
     },
   )
+})
+
+describe('App runbook context', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => {
+    window.api = originalApi
+  })
+
+  it("passes the open runbook's file path down to its blocks", async () => {
+    // Blocks read it from the runbook context, e.g. to name the runbook in
+    // the logs' "Copy prompt for LLM".
+    const { emit } = renderApp()
+    await openRunbook(emit, '/work/a', 'Runbook A')
+
+    const props = vi.mocked(RunbookContextProvider).mock.lastCall?.[0]
+    expect(props?.runbookFilePath).toBe('/work/a/runbook.mdx')
+  })
 })
 
 describe('App failed runbook opens', () => {

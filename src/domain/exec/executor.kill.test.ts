@@ -218,6 +218,40 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
   )
 
   it(
+    "writes the timeout notice to the log file, after the script's output",
+    async () => {
+      // The log file is what "Copy log file path" and "Copy prompt for LLM"
+      // hand out, so it has to say why the output stops, as the UI does.
+      const logFilePath = await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const run = yield* executeScript(
+              "echo start\nsleep 10\n",
+              "bash",
+              { timeoutMs: 2000 },
+              { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
+              "",
+              "",
+            )
+            yield* Stream.runDrain(run.logStream)
+            yield* run.completionEffect
+            return run.logFilePath
+          }),
+        ).pipe(Effect.provide(liveLayer)),
+      )
+
+      try {
+        const lines = fs.readFileSync(logFilePath, "utf8").trimEnd().split("\n")
+        expect(lines[0]).toBe("start")
+        expect(lines.at(-1)).toBe("Script execution timed out after 2 seconds")
+      } finally {
+        fs.rmSync(path.dirname(logFilePath), { recursive: true, force: true })
+      }
+    },
+    20000,
+  )
+
+  it(
     "times out a script whose background job keeps stdout open",
     async () => {
       // bash exits right after the echo, but the backgrounded sleep inherits
