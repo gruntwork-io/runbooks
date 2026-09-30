@@ -185,7 +185,7 @@ Runbooks keeps a sensitive value off screen where it shows outputs:
 
 - **View Outputs** shows `••••••••` in place of the value. The copy button on its row still copies the real value.
 - **Copy JSON** writes `"[REDACTED]"` in place of the value.
-- The [test CLI](/authoring/testing/)'s `--verbose` output prints `[REDACTED]` in place of the value.
+- The [test CLI](/authoring/testing/) prints `[REDACTED]` in place of the value in its `--verbose` output and in the message of a failed `output_equals` or `output_matches` assertion.
 
 Once any line marks a key `sensitive:`, that output stays sensitive, even if a later line writes the same key without the prefix. The prefix is lowercase and comes first on the line.
 
@@ -193,7 +193,7 @@ Once any line marks a key `sensitive:`, that output stays sensitive, even if a l
 Marking an output sensitive only masks it where Runbooks shows outputs. It doesn't remove the value from anywhere else:
 
 - The block's log shows everything your script prints, so don't `echo` the value.
-- A downstream block that uses the value in a template, such as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`, shows it wherever it shows its rendered script or file. To use a credential in later blocks, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/) instead.
+- A downstream block that uses the value in a template, such as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`, shows it wherever it shows its rendered script or file. To use a credential in later blocks, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/) instead. For a credential no auth block handles, `export` it in the producing script, and later Command and Check scripts read it from the environment (see [Shell Execution Context](/security/shell-execution-context/)).
 </Aside>
 
 ### Consuming Outputs

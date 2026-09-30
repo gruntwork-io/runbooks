@@ -246,7 +246,7 @@ echo "api_user=$API_USER" >> "$RUNBOOK_OUTPUT"
 echo "sensitive:api_token=$API_TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-After you run the command below, **View Outputs** shows `api_user` as usual but masks `api_token` as `••••••••`. The copy button on its row still copies the real value, and **Copy JSON** writes `[REDACTED]` in its place. The output's key is still `api_token`, so downstream blocks read the real value as `{{ .outputs.fetch_api_token.api_token }}`.
+After you run the command below, **View Outputs** shows `api_user` as usual but masks `api_token` as `••••••••`. The copy button on its row still copies the real value, and **Copy JSON** writes `[REDACTED]` in its place. The output's key is still `api_token`, so downstream blocks read the real value as `{{ .outputs.fetch_api_token.api_token }}`. A block that uses that template shows the token in its rendered script, though. To use a token in later scripts without showing it, `export` it in the script that fetches it instead.
 
 <Command
   id="fetch-api-token"

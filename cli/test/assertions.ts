@@ -15,6 +15,8 @@ export interface AssertionContext {
   outputDir: string
   /** Block outputs collected during test execution. */
   blockOutputs: Map<string, Map<string, string>>
+  /** Output keys each block's script marked `sensitive:`, by block ID. Failure messages never print their values. */
+  sensitiveOutputs: Map<string, ReadonlySet<string>>
   /** Number of files each block has generated this test case, by block ID. */
   generatedFiles: Map<string, number>
   /** Env for script assertions: the session env with the test's `env` on top. */
@@ -172,6 +174,15 @@ function assertFileEquals(filePath: string, expected: string, ctx: AssertionCont
 // Output assertions
 // ---------------------------------------------------------------------------
 
+/**
+ * An output's value as a failure message shows it. Failure messages print
+ * without --verbose and go into the JUnit file, so a sensitive value shows as
+ * [REDACTED].
+ */
+function displayOutput(blockId: string, outputName: string, value: string, ctx: AssertionContext): string {
+  return ctx.sensitiveOutputs.get(blockId)?.has(outputName) ? "[REDACTED]" : `"${value}"`
+}
+
 function assertOutputEquals(
   blockId: string,
   outputName: string,
@@ -189,7 +200,7 @@ function assertOutputEquals(
   if (actual === expected) {
     return { type: "output_equals", passed: true }
   }
-  return { type: "output_equals", passed: false, message: `output ${blockId}.${outputName} = "${actual}", expected "${expected}"` }
+  return { type: "output_equals", passed: false, message: `output ${blockId}.${outputName} = ${displayOutput(blockId, outputName, actual, ctx)}, expected "${expected}"` }
 }
 
 function assertOutputMatches(
@@ -211,7 +222,7 @@ function assertOutputMatches(
     if (re.test(actual)) {
       return { type: "output_matches", passed: true }
     }
-    return { type: "output_matches", passed: false, message: `output ${blockId}.${outputName} = "${actual}" does not match pattern "${pattern}"` }
+    return { type: "output_matches", passed: false, message: `output ${blockId}.${outputName} = ${displayOutput(blockId, outputName, actual, ctx)} does not match pattern "${pattern}"` }
   } catch {
     return { type: "output_matches", passed: false, message: `Invalid regex pattern: ${pattern}` }
   }

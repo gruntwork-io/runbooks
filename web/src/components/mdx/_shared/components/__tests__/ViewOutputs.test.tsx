@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ViewOutputs } from '../ViewOutputs'
 
@@ -51,18 +51,26 @@ describe('ViewOutputs sensitive outputs', () => {
   })
 
   it('never shows a long sensitive value, even on hover', async () => {
-    const secret = 'S'.repeat(150)
-    const plain = 'p'.repeat(150)
-    const { user } = setup({ TOKEN: secret, LONG_PLAIN: plain }, ['TOKEN'])
+    // Fake timers, so the check below runs well after any tooltip's open delay
+    // (350ms) however slow the runner is
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const secret = 'S'.repeat(150)
+      const plain = 'p'.repeat(150)
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      render(<ViewOutputs outputs={{ TOKEN: secret, LONG_PLAIN: plain }} sensitiveKeys={['TOKEN']} autoOpen />)
 
-    // A long plain value shows in full in a tooltip on hover...
-    await user.hover(screen.getByText(`${'p'.repeat(100)}...`))
-    await waitFor(() => expect(document.body.innerHTML).toContain(plain))
+      // A long plain value shows in full in a tooltip on hover...
+      await user.hover(screen.getByText(`${'p'.repeat(100)}...`))
+      await waitFor(() => expect(document.body.innerHTML).toContain(plain))
 
-    // ...but a sensitive one has nothing to hover but the mask
-    await user.hover(screen.getByText('••••••••'))
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    expect(document.body.innerHTML).not.toContain('S'.repeat(20))
+      // ...but a sensitive one has nothing to hover but the mask
+      await user.hover(screen.getByText('••••••••'))
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      expect(document.body.innerHTML).not.toContain('S'.repeat(20))
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows and copies values as before when nothing is sensitive', async () => {

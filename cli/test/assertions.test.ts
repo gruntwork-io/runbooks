@@ -8,6 +8,7 @@ function makeCtx(outputDir: string, overrides: Partial<AssertionContext> = {}): 
   return {
     outputDir,
     blockOutputs: new Map(),
+    sensitiveOutputs: new Map(),
     generatedFiles: new Map(),
     env: {},
     timeout: 5_000,
@@ -195,6 +196,18 @@ describe("output_equals / output_matches / output_exists", () => {
       ctx,
     )
     expect(r.passed).toBe(true)
+  })
+
+  it("prints [REDACTED] for a sensitive output in a failure message", () => {
+    const ctx = {
+      ...withOutputs({ b1: { token: "hunter2-SECRET" } }),
+      sensitiveOutputs: new Map([["b1", new Set(["token"])]]),
+    }
+    const equals = runAssertion({ type: "output_equals", block: "b1", output: "token", value: "x" }, ctx)
+    const matches = runAssertion({ type: "output_matches", block: "b1", output: "token", pattern: "^x$" }, ctx)
+
+    expect(equals.message).toBe('output b1.token = [REDACTED], expected "x"')
+    expect(matches.message).toBe('output b1.token = [REDACTED] does not match pattern "^x$"')
   })
 
   it("output_exists passes when output exists, fails otherwise", () => {

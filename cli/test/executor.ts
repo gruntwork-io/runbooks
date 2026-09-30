@@ -262,6 +262,8 @@ export class TestExecutor {
   private sessionEnv: string[] = []
   private sessionWorkDir: string
   private blockOutputs = new Map<string, Map<string, string>>()
+  // Output keys each block marked sensitive:, by block ID, for assertion messages
+  private sensitiveOutputs = new Map<string, ReadonlySet<string>>()
   // Files each block wrote this test case, by block ID, for files_generated
   private generatedFileCounts = new Map<string, number>()
   private testInputs: Record<string, unknown> = {}
@@ -442,6 +444,7 @@ export class TestExecutor {
     this.sessionEnv = [...this.initialSessionEnv]
     this.sessionWorkDir = workingDir
     this.blockOutputs = new Map()
+    this.sensitiveOutputs = new Map()
     this.generatedFileCounts = new Map()
     this.blockStates = new Map()
     this.authBlockCredentials = new Map()
@@ -875,7 +878,7 @@ export class TestExecutor {
       result.logs = logs
 
       // Parse outputs. Sensitive ones keep their real values for later blocks
-      // and assertions; only the verbose printout masks them.
+      // and assertions to check; only what the CLI prints masks them.
       let sensitiveKeys: string[] = []
       if (status === "success" || status === "warn") {
         try {
@@ -900,6 +903,7 @@ export class TestExecutor {
         const map = new Map<string, string>()
         for (const [k, v] of Object.entries(result.outputs)) map.set(k, v)
         this.blockOutputs.set(block.id, map)
+        this.sensitiveOutputs.set(block.id, new Set(sensitiveKeys))
       }
 
       result.passed = this.matchesExpectedStatus(step.expect, status)
@@ -1766,6 +1770,7 @@ export class TestExecutor {
     return {
       outputDir: this.resolveOutputPath(),
       blockOutputs: this.blockOutputs,
+      sensitiveOutputs: this.sensitiveOutputs,
       generatedFiles: this.generatedFileCounts,
       env: this.sessionEnvWithTestEnv(),
       timeout: this.options.timeout,

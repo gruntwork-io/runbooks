@@ -189,6 +189,25 @@ describe('useScriptExecution — execute', () => {
   })
 })
 
+describe('useScriptExecution — outputs', () => {
+  it('reports the sensitive keys for display and registers the real values for downstream blocks', () => {
+    // Record what the run subscribes to, so the test can send its events
+    const handlers = new Map<string, (data: unknown) => void>()
+    vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
+      handlers.set(channel, handler)
+      return () => handlers.delete(channel)
+    }) as unknown as RunbooksAPI['on'])
+    const { result } = renderScriptExecution({ command: 'mint-token' })
+
+    act(() => result.current.exec.execute())
+    act(() => handlers.get('exec:outputs')?.({ outputs: { TOKEN: 'x', user: 'u' }, sensitiveKeys: ['TOKEN'] }))
+
+    expect(result.current.exec.outputs).toEqual({ TOKEN: 'x', user: 'u' })
+    expect(result.current.exec.sensitiveOutputKeys).toEqual(['TOKEN'])
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ TOKEN: 'x', user: 'u' })
+  })
+})
+
 describe('useScriptExecution — template render', () => {
   beforeEach(() => {
     vi.useFakeTimers()
