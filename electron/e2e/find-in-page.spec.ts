@@ -103,6 +103,16 @@ test.describe("Find in page", () => {
       item.click()
     }, id)
 
+  /**
+   * Edit > Find…, then wait for the find bar's input to take focus. The menu
+   * item only sends an IPC event, so keys typed before the renderer has
+   * handled it would land on the page instead of in the input.
+   */
+  async function openFind() {
+    await clickMenuItem("find")
+    await expect(page.getByRole("textbox", { name: "Find in page" })).toBeFocused()
+  }
+
   const highlightSize = (name: string) =>
     page.evaluate((name) => (CSS.highlights.get(name) as Set<Range> | undefined)?.size ?? 0, name)
 
@@ -138,11 +148,10 @@ test.describe("Find in page", () => {
 
   test("finds, steps through and highlights matches without losing focus", async () => {
     await launch(RUNBOOK, "Find in page")
-    await clickMenuItem("find")
+    await openFind()
 
     const input = page.getByRole("textbox", { name: "Find in page" })
     const status = page.getByRole("search").getByRole("status")
-    await expect(input).toBeFocused()
 
     // Typed a key at a time: every keystroke searches, and none may be lost.
     await page.keyboard.type("needle")
@@ -178,13 +187,14 @@ test.describe("Find in page", () => {
 
   test("reopens with the last query and reports no results", async () => {
     await launch(RUNBOOK, "Find in page")
-    await clickMenuItem("find")
+    await openFind()
+    const input = page.getByRole("textbox", { name: "Find in page" })
     await page.keyboard.type("needle")
+    await expect(input).toHaveValue("needle")
     await expect(page.getByRole("search").getByRole("status")).toHaveText("1 of 3")
     await page.keyboard.press("Escape")
 
-    await clickMenuItem("find")
-    const input = page.getByRole("textbox", { name: "Find in page" })
+    await openFind()
     await expect(input).toHaveValue("needle")
     await expect(page.getByRole("search").getByRole("status")).toHaveText("1 of 3")
 
@@ -204,7 +214,7 @@ test.describe("Find in page", () => {
     // Read from paragraph 40 on: paragraph 5's needle is above the view.
     await page.getByText("Paragraph 40.", { exact: true }).evaluate((p) => p.scrollIntoView({ block: "start" }))
 
-    await clickMenuItem("find")
+    await openFind()
     await page.keyboard.type("needle")
     const status = page.getByRole("search").getByRole("status")
     await expect(status).toHaveText("2 of 4")
@@ -228,7 +238,7 @@ test.describe("Find in page", () => {
       // bar floats over the row's right-hand end.
       await page.getByText(/^needle needle/).evaluate((p) => p.scrollIntoView({ block: "start" }))
 
-      await clickMenuItem("find")
+      await openFind()
       await page.keyboard.type("needle")
       const status = page.getByRole("search").getByRole("status")
       await expect(status).toHaveText(`1 of ${NEEDLE_ROWS}`)
@@ -250,7 +260,7 @@ test.describe("Find in page", () => {
     const codeTab = page.getByRole("button", { name: "Code", exact: true })
     await expect(codeTab).toBeVisible()
 
-    await clickMenuItem("find")
+    await openFind()
     // The toggle is app chrome, like the header, so its labels aren't matches.
     await page.keyboard.type("markdown")
     await expect(page.getByRole("search").getByRole("status")).toHaveText("No results")
