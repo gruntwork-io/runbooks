@@ -199,7 +199,7 @@ Everywhere Runbooks only shows the value, it masks it:
 
 An empty sensitive output reveals nothing, so wherever `<redacted>` would stand in for it, it stays empty. An `{{ if }}` on it then takes the same branch in the script view as when the script runs.
 
-`<redacted>` only stands in for the value, so a template that processes the value can't process `<redacted>`. For example, the script view of `{{ (fromJson .outputs.<block_id>.creds).user }}` shows a render error that explains this, though the script runs with the real value. A `<TemplateInline>` preview of it shows the same error.
+`<redacted>` only stands in for the value, so a template that processes the value can't process `<redacted>`. For example, the script view of `{{ (fromJson .outputs.<block_id>.credentials).user }}` shows a render error that explains this, though the script runs with the real value. A `<TemplateInline>` preview of it shows the same error.
 
 [Instruction mode](/intro/instruction-mode/) treats a sensitive output like one that hasn't been produced yet, even if its step already ran. The command shows a `<name>` placeholder, with a field to paste the value into.
 
