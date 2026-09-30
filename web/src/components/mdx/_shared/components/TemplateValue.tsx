@@ -16,6 +16,11 @@ interface TemplateValueTextProps {
   value: unknown
   id?: string
   className?: string
+  /**
+   * The value is sensitive: show only what it is linked to ("Based on …"),
+   * never its literal text or, on hover, its expression.
+   */
+  masked?: boolean
 }
 
 /**
@@ -25,8 +30,16 @@ interface TemplateValueTextProps {
  * single "Based on …" token. Hovering shows the raw expression. Anything else
  * is shown as String(value).
  */
-export const TemplateValueText: React.FC<TemplateValueTextProps> = ({ value, id, className }) => {
+export const TemplateValueText: React.FC<TemplateValueTextProps> = ({ value, id, className, masked }) => {
   if (!isTemplateValue(value)) return <>{String(value)}</>
+
+  if (masked) {
+    return (
+      <span id={id} className={className}>
+        <TemplateToken label={summarizeTemplateValue(value)} />
+      </span>
+    )
+  }
 
   const parsed = parseTemplateValue(value)
   return (
@@ -49,6 +62,8 @@ interface LinkedValueChipProps {
   expression: string
   error?: string
   disabled?: boolean
+  /** The field is sensitive: show only the variables the value is linked to. */
+  sensitive?: boolean
   /** Show the raw expression for editing. */
   onEdit: () => void
   /** Drop the link and start from an empty value. */
@@ -60,7 +75,7 @@ interface LinkedValueChipProps {
  * expression. Clicking it hands over to the text input with the raw
  * expression; the X clears the link. Read-only (no buttons) when disabled.
  */
-export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({ id, expression, error, disabled, onEdit, onClear }) => {
+export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({ id, expression, error, disabled, sensitive, onEdit, onClear }) => {
   const boxClassName = cn(
     'flex w-full items-center gap-2 rounded-md border px-3 py-2',
     error ? 'border-destructive' : 'border-input',
@@ -70,7 +85,7 @@ export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({ id, expression
   if (disabled) {
     return (
       <div id={id} className={boxClassName}>
-        <TemplateValueText value={expression} className="min-w-0 flex-1" />
+        <TemplateValueText value={expression} masked={sensitive} className="min-w-0 flex-1" />
       </div>
     )
   }
@@ -85,7 +100,7 @@ export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({ id, expression
         aria-describedby={valueId}
         className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left focus:outline-none"
       >
-        <TemplateValueText id={valueId} value={expression} className="min-w-0 flex-1" />
+        <TemplateValueText id={valueId} value={expression} masked={sensitive} className="min-w-0 flex-1" />
         <Pencil className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
       </button>
       <button

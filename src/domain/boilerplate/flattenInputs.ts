@@ -21,13 +21,9 @@
 import { Effect } from "effect"
 import { WasmRuntime } from "../../services/WasmRuntime.ts"
 import type { WasmRuntimeShape } from "../../services/WasmRuntime.ts"
+import { TEMPLATE_EXPR_RE, isTemplateString } from "./templateString.ts"
 
-/** Matches any Go-template expression. `s` flag so `.` spans multi-line defaults. */
-const TEMPLATE_EXPR_RE = /\{\{.*?\}\}/s
-
-export function isTemplateString(v: unknown): boolean {
-  return typeof v === "string" && TEMPLATE_EXPR_RE.test(v)
-}
+export { isTemplateString }
 
 /**
  * `inputs` and `outputs` are namespace keys in the var-file boilerplate

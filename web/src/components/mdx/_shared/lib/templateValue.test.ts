@@ -84,6 +84,11 @@ describe('parseTemplateValue', () => {
       kind: 'computed',
       refs: ['Host'],
     })
+    // A literal whose text starts with a dot, or has one after a space, looks
+    // like a field reference unless the literal is skipped.
+    expect(parseTemplateValue('{{ if eq .Env ".prod" }}a{{ end }}')).toEqual({ kind: 'computed', refs: ['Env'] })
+    expect(parseTemplateValue('{{ printf "see .Docs" .A }}')).toEqual({ kind: 'computed', refs: ['A'] })
+    expect(parseTemplateValue('{{ printf `x .Raw` .A }}')).toEqual({ kind: 'computed', refs: ['A'] })
   })
 
   it('reads a pipeline or function call as computed, with each variable it uses once', () => {

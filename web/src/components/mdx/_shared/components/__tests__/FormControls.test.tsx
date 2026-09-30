@@ -255,6 +255,21 @@ describe('FormControls template-valued values', () => {
     expect(container.querySelector('input[type="password"]')).toHaveFocus()
   })
 
+  // Only the names of the linked variables are shown: literal text in a
+  // sensitive value can be a secret, and the expression holds all of it.
+  it.each([false, true])('never shows the literal text of a linked sensitive value (disabled: %s)', (disabled) => {
+    const { container } = render(
+      <FormControl
+        id="f" variable={stringVar({ sensitive: true })} onChange={vi.fn()} disabled={disabled}
+        value="postgres://admin:hunter2@{{ .DbHost }}/app"
+      />,
+    )
+
+    expect(screen.getByText('Based on DB Host')).toBeInTheDocument()
+    expect(container.innerHTML).not.toContain('hunter2')
+    expect(container.innerHTML).not.toContain('postgres://')
+  })
+
   it('still shows a plain string in a textbox', () => {
     render(<FormControl id="f" variable={stringVar()} value="v1.2.3" onChange={vi.fn()} />)
 

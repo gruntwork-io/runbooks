@@ -9,9 +9,8 @@
  */
 
 import { formatVariableLabel } from './formatVariableLabel'
+import { isTemplateString } from '../../../../../../src/domain/boilerplate/templateString'
 
-/** Same pattern as TEMPLATE_EXPR_RE in src/domain/boilerplate/flattenInputs.ts, so a value shown as linked is exactly one main resolves. */
-const TEMPLATE_EXPR_RE = /\{\{.*?\}\}/s
 const ACTION_RE = /\{\{(.*?)\}\}/gs
 
 /** A whole action that is just `.Name` or `.inputs.Name`. */
@@ -31,8 +30,9 @@ export type ParsedTemplateValue =
   /** Anything more (conditionals, pipelines, functions): only the variables it uses. */
   | { kind: 'computed'; refs: string[] }
 
+/** The same test main uses to pick the values it resolves, so a value shown as linked is exactly one main resolves. */
 export function isTemplateValue(value: unknown): value is string {
-  return typeof value === 'string' && TEMPLATE_EXPR_RE.test(value)
+  return isTemplateString(value)
 }
 
 /** A form variable name, not a namespace or a boilerplate internal like `__each__`. */

@@ -84,7 +84,8 @@ const RemoveEntryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
  * Renders a standard text input field with validation error styling.
  * A template value (e.g. a boilerplate default of `{{ .OtherVar }}`) is shown
  * as a linked chip instead, until the user clicks it, clears it or types into
- * the field; after that the raw expression is edited as text.
+ * the field; after that the raw expression is edited as text. A sensitive
+ * field's chip names only the variables it is linked to.
  */
 export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
   const [showSensitive, setShowSensitive] = React.useState(false)
@@ -112,6 +113,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
         expression={value}
         error={error}
         disabled={disabled}
+        sensitive={variable.sensitive}
         onEdit={showInput}
         onClear={() => {
           showInput()
