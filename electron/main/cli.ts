@@ -41,9 +41,11 @@ const UNSUPPORTED_VALUE_FLAGS = new Set(["--working-dir", "--output-path"])
  * @param argv    The arguments to parse: this process's argv, or a second
  *                instance's argv from the "second-instance" event (see
  *                secondInstanceArgv).
- * @param cwd     The directory relative paths are resolved against. For a
- *                second instance this is the directory it was launched from
- *                (Electron's `workingDirectory`), not this process's cwd.
+ * @param cwd     The directory relative paths are resolved against: the
+ *                launch directory from recoverLaunchDirectory (launch-dir.ts).
+ *                For a second instance it is the directory that instance was
+ *                launched from (see secondInstanceLaunchDirectory), not this
+ *                process's cwd.
  * @param appPath The Electron app's own path (`app.getAppPath()`). An
  *                unpackaged run (`electron .`, as electron-vite dev does)
  *                passes it as a positional argument, and it is not a runbook.
@@ -122,9 +124,11 @@ export function parseCliArgs(
  * is not the list the second instance was started with: Chromium moves every
  * switch ahead of the positionals and adds switches of its own, so
  * `--working-dir /path` no longer sits next to its value. The second instance
- * therefore forwards its own process.argv as the lock's additionalData
- * (`app.requestSingleInstanceLock({ argv: process.argv })`). Use that when it
- * is a string array, and fall back to Electron's `argv` otherwise.
+ * therefore forwards its own process.argv, with its launch directory, as the
+ * lock's additionalData (`app.requestSingleInstanceLock({ argv, cwd })`; the
+ * `cwd` is read by secondInstanceLaunchDirectory and preferred over Electron's
+ * `workingDirectory`). Use `argv` when it is a string array, and fall back to
+ * Electron's `argv` otherwise.
  */
 export function secondInstanceArgv(argv: string[], additionalData: unknown): string[] {
   const forwarded = (additionalData as { argv?: unknown } | null | undefined)?.argv
