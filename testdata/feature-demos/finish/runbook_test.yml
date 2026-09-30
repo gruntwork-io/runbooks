@@ -1,0 +1,21 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: happy-path
+    description: |
+      Every block runs in document order: setup exports DEMO_READY, so the
+      final check passes and the runbook finishes.
+
+  - name: final-check-fails-without-setup
+    description: |
+      Without the setup block, DEMO_READY is unset and the final check fails.
+    steps:
+      - block: setup
+        expect: skip
+      - block: finish
+        expect: fail

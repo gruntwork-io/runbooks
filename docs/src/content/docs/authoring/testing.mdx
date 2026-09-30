@@ -170,6 +170,7 @@ Each step references a block by its ID. How a block gets its ID depends on the b
 |------------|-----------|---------|
 | `<Check>` | Explicit `id` prop | `<Check id="verify-install" ...>` → `verify-install` |
 | `<Command>` | Explicit `id` prop | `<Command id="create-account" ...>` → `create-account` |
+| `<Finish>` | Explicit `id` prop | `<Finish id="finish" ...>` → `finish` |
 | `<Template>` | Explicit `id` prop | `<Template id="generate-config" ...>` → `generate-config` |
 | `<TemplateInline>` | Explicit `id` prop | `<TemplateInline id="settings-preview" ...>` → `settings-preview` |
 | `<AwsAuth>` | Explicit `id` prop | `<AwsAuth id="aws-auth" ...>` → `aws-auth` |
@@ -639,6 +640,21 @@ tests:
         expect: skip
       - block: create-pr
         expect: skip
+```
+
+## Testing Finish Blocks
+
+A `<Finish>` with a final check (`command` or `path`) runs it like a `<Check>`: exit code 0 is `success`, 2 is `warn`, and anything else is `fail`. A `<Finish>` without a final check has nothing to run, so its step succeeds straight away. Either way, the test can't see the celebration.
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: final-check-fails-without-setup
+    steps:
+      - block: setup
+        expect: skip
+      - block: finish
+        expect: fail
 ```
 
 ## Running Tests

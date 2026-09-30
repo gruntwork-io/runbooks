@@ -1,8 +1,8 @@
 /**
  * Executable registry.
  *
- * Scans a runbook MDX file for executable components (Command, Check, etc.)
- * and maintains an in-memory registry of all executables. Only registered
+ * Scans a runbook MDX file for executable components (Command, Check and
+ * Finish) and maintains an in-memory registry of all executables. Only registered
  * executables can be run via the API, preventing arbitrary command
  * invocation.
  */
@@ -26,8 +26,12 @@ import type { Executable, ExecutableType } from "../../types.js"
 // Component types that are scanned
 // ---------------------------------------------------------------------------
 
-/** Component types that carry scripts. */
-const SCRIPT_COMPONENT_TYPES = ["Command", "Check"] as const
+/**
+ * Component types that carry scripts. A <Finish> block's final check is
+ * optional: one with neither `command` nor `path` registers nothing, and the
+ * renderer completes it without running anything.
+ */
+const SCRIPT_COMPONENT_TYPES = ["Command", "Check", "Finish"] as const
 
 // ---------------------------------------------------------------------------
 // Regex helpers
@@ -227,7 +231,8 @@ export class ExecutableRegistry {
   // -----------------------------------------------------------------------
 
   /**
-   * Parse the runbook MDX content and register all Command/Check entries.
+   * Parse the runbook MDX content and register every Command, Check and
+   * Finish that has a script (a `command` or `path` prop).
    */
   parseAndRegister(runbookPath: string, contentOverride?: string) {
     return Effect.gen(this, function* () {

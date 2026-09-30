@@ -320,4 +320,57 @@ describe("ExecutableRegistry", () => {
     expect(entry.templateVars).toContain("Name")
     expect(entry.templateVars).toContain("Region")
   })
+
+  it("registers a <Finish> block's inline and file-based final checks", async () => {
+    const mdx = [
+      '<Finish id="finish-inline" command="test -f done.txt">',
+      "",
+      "Next steps go here.",
+      "",
+      "</Finish>",
+      '<Finish id="finish-file" path="scripts/final-check.sh" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({
+      "/runbook.mdx": mdx,
+      "/scripts/final-check.sh": "exit 0",
+    })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const entries = Object.values(registry.getAllExecutables())
+      .map((e) => [e.componentId, e.componentType, e.type])
+      .sort()
+    expect(entries).toEqual([
+      ["finish-file", "finish", "file"],
+      ["finish-inline", "finish", "inline"],
+    ])
+    expect(registry.getWarnings()).toEqual([])
+  })
+
+  it("registers nothing, and warns about nothing, for a <Finish> with no final check", async () => {
+    const mdx = '<Finish id="done">\n\nYou did it.\n\n</Finish>\n<Finish id="also-done" />'
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(registry.getAllExecutables()).toEqual({})
+    expect(registry.getWarnings()).toEqual([])
+  })
+
+  it("warns about a <Finish> whose final-check script file is missing", async () => {
+    const mdx = '<Finish id="finish" path="missing.sh" />'
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(registry.getWarnings()).toEqual([
+      '<Finish id="finish">: Script file not found: missing.sh',
+    ])
+  })
 })

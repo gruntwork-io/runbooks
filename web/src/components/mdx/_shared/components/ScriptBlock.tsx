@@ -17,7 +17,7 @@ import type { ComponentType, ExecutionStatus } from "../types"
 import type { StatusStyles } from "../lib/statusStyles"
 
 /**
- * The per-block configuration that distinguishes <Command> from <Check>.
+ * The per-block configuration that distinguishes <Command>, <Check> and <Finish>.
  * Everything else (execution wiring, dependency/auth warnings, drift handling,
  * logs/outputs/source viewers, error states) is shared by ScriptBlock below.
  */
@@ -25,7 +25,7 @@ export interface ScriptBlockVariant {
   /** componentType forwarded to useScriptExecution. */
   componentType: ComponentType
   /** Registry/telemetry/error-reporting name and the `<Name>` shown in messages. */
-  name: 'Command' | 'Check'
+  name: 'Command' | 'Check' | 'Finish'
   /** Primary action button label. */
   runLabel: string
   /** runningMessage used when the author doesn't provide one. */
@@ -50,6 +50,14 @@ export interface ScriptBlockVariant {
   instructionPathTitle: string
   /** status → container / icon / icon-color accessors. */
   statusStyles: StatusStyles<ExecutionStatus>
+  /**
+   * The script is optional (Finish only). With neither `command` nor `path`,
+   * the Run button completes the block in the renderer without running
+   * anything, and there are no logs or Stop button.
+   */
+  scriptOptional?: boolean
+  /** Whether a nested <Inputs> child can supply the script's values. Defaults to true. */
+  inlineInputs?: boolean
 }
 
 export interface ScriptBlockProps {
@@ -78,15 +86,20 @@ export interface ScriptBlockProps {
   usePty?: boolean
   /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
   timeoutMs?: number
-  /** Distinguishes the Command vs Check presentation. */
+  /** Shown inside the block once it succeeds (Finish's next steps). In instruction mode it is always shown. */
+  successContent?: ReactNode
+  /** Called each time the block goes to success (never on mount), or is marked done in instruction mode. */
+  onComplete?: () => void
+  /** Distinguishes the Command, Check and Finish presentation. */
   variant: ScriptBlockVariant
 }
 
 /**
- * Shared implementation behind the <Command> and <Check> MDX blocks. The two
- * differ only in the `variant` config (labels, status styling, instruction
- * wording, and a couple of Command-only UI affordances); all execution,
- * dependency, and error-handling behavior is identical.
+ * Shared implementation behind the <Command>, <Check> and <Finish> MDX blocks.
+ * They differ only in the `variant` config (labels, status styling, instruction
+ * wording, a couple of Command-only UI affordances, and Finish's optional
+ * script) and Finish's successContent/onComplete; all execution, dependency,
+ * and error-handling behavior is identical.
  */
 export function ScriptBlock({
   id,
@@ -106,6 +119,8 @@ export function ScriptBlock({
   children,
   usePty,
   timeoutMs,
+  successContent,
+  onComplete,
   variant,
 }: ScriptBlockProps) {
   const validationError = useMemo((): AppError | null => {
@@ -148,7 +163,7 @@ export function ScriptBlock({
     isRendering,
     renderError,
     templateContext,
-    status,
+    status: execStatus,
     logs,
     logFilePath,
     execError,
@@ -170,6 +185,21 @@ export function ScriptBlock({
     usePty,
     timeoutMs,
   })
+
+  // With no script to run (a <Finish> without a final check), the Run button
+  // completes the block right here: nothing reaches IPC.
+  const scriptless = !!variant.scriptOptional && !command && !path
+  const [scriptlessDone, setScriptlessDone] = useState(false)
+  const status: ExecutionStatus = scriptless ? (scriptlessDone ? 'success' : 'pending') : execStatus
+
+  // Call onComplete on each transition into success: a first run or a re-run,
+  // but never a block that mounts already succeeded.
+  const prevStatusRef = useRef(status)
+  useEffect(() => {
+    const prev = prevStatusRef.current
+    prevStatusRef.current = status
+    if (status === 'success' && prev !== 'success') onComplete?.()
+  }, [status, onComplete])
 
   // Clone children and add variant="embedded" prop if it's an Inputs component
   const childrenWithVariant = useMemo(() => {
@@ -314,11 +344,17 @@ export function ScriptBlock({
           <div className="text-md">
             <strong>Configuration Required:</strong><br />
             This {variant.missingInputsSubject} requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured.
-            Please add either:
-            <ul className="list-disc ml-6 mt-2">
-              <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
-              <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
-            </ul>
+            {variant.inlineInputs === false ? (
+              <>Please add an <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs block.</>
+            ) : (
+              <>
+                Please add either:
+                <ul className="list-disc ml-6 mt-2">
+                  <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
+                  <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
+                </ul>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -337,7 +373,7 @@ export function ScriptBlock({
         icon={variant.instructionIcon}
         title={resolvedTitle || (path ? variant.instructionPathTitle : variant.instructionInlineTitle)}
         description={resolvedDescription}
-        command={path ? undefined : rawScriptContent}
+        command={scriptless || path ? undefined : rawScriptContent}
         source={
           path
             ? { content: rawScriptContent, path, language, fileName: variant.fileName }
@@ -345,6 +381,8 @@ export function ScriptBlock({
         }
         templateContext={templateContext}
         inputs={childrenWithVariant}
+        note={successContent}
+        onMarkedDone={onComplete}
       />
     )
   }
@@ -357,7 +395,8 @@ export function ScriptBlock({
     !hasAllOutputDependencies ||
     !hasAwsAuthDependency ||
     !hasGitHubAuthDependency ||
-    !hasGoogleAuthDependency;
+    !hasGoogleAuthDependency ||
+    (scriptless && status === 'success');
 
   // Main render
   return (
@@ -421,6 +460,9 @@ export function ScriptBlock({
             <div className="text-info font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
             </div>
+          )}
+          {status === 'success' && successContent && (
+            <div className="mb-3">{successContent}</div>
           )}
 
           {/* Render inline Inputs children if present */}
@@ -537,28 +579,32 @@ export function ScriptBlock({
                 variant="outline"
                 size="sm"
                 disabled={isRunDisabled}
-                onClick={() => handleExecute()}
+                onClick={() => (scriptless ? setScriptlessDone(true) : handleExecute())}
               >
                 {variant.runLabel}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => cancel()}
-                disabled={status !== 'running'}
-                className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
-              >
-                <Square className="size-4 mr-1" />
-                Stop
-              </Button>
+              {!scriptless && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => cancel()}
+                  disabled={status !== 'running'}
+                  className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
+                >
+                  <Square className="size-4 mr-1" />
+                  Stop
+                </Button>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Expandable sections inside the main box */}
-      <div className="mt-4 space-y-2">
-        <ViewLogs
+      {/* Expandable sections inside the main box. Without a script there are
+          no logs, outputs or source to show. */}
+      {!scriptless && (
+        <div className="mt-4 space-y-2">
+          <ViewLogs
             logs={logs}
             status={status}
             autoOpen={status === 'running'}
@@ -582,7 +628,8 @@ export function ScriptBlock({
               />
             </div>
           )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

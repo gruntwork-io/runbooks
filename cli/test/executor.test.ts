@@ -558,6 +558,143 @@ describe("TestExecutor — block outputs", () => {
 })
 
 // ---------------------------------------------------------------------------
+// <Finish>: an optional final check that runs like a <Check>. Without one the
+// block has nothing to run, and succeeds.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — Finish block", () => {
+  let tmp: string
+
+  const makeExecutor = async (mdx: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, mdx)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  // The final check passes only once `setup` has created the file.
+  const FINAL_CHECK_RUNBOOK = [
+    "# Final check",
+    "",
+    '<Command id="setup" command="touch setup-done" />',
+    "",
+    '<Finish id="finish" command="test -f setup-done">',
+    "",
+    "Next: deploy it.",
+    "",
+    "</Finish>",
+    "",
+  ].join("\n")
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-finish-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("succeeds without running anything when there is no final check", async () => {
+    const executor = await makeExecutor(
+      `# Done\n\n<Finish id="done">\n\n- Tell your team.\n\n</Finish>\n`,
+    )
+
+    const result = executor.runTest({ name: "no-check" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([["finish:done", "success"]])
+    // Only a script run records logs.
+    expect(result.stepResults[0]?.logs).toBeUndefined()
+  })
+
+  it("fails a step that expects a Finish with no final check to fail", async () => {
+    const executor = await makeExecutor(`# Done\n\n<Finish id="done" />\n`)
+
+    const result = executor.runTest({ name: "expect-fail", steps: [{ block: "done", expect: "fail" }] })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]).toMatchObject({ actualStatus: "success", passed: false })
+  })
+
+  it("runs the final check after the blocks before it", async () => {
+    const executor = await makeExecutor(FINAL_CHECK_RUNBOOK)
+
+    const result = executor.runTest({ name: "happy-path" })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:setup", "success"],
+      ["finish:finish", "success"],
+    ])
+    expect(result.stepResults[1]?.exitCode).toBe(0)
+  })
+
+  it("fails the final check when an earlier block didn't run", async () => {
+    const executor = await makeExecutor(FINAL_CHECK_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "skip-setup",
+      steps: [
+        { block: "setup", expect: "skip" },
+        { block: "finish", expect: "fail" },
+      ],
+    })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[1]).toMatchObject({ block: "finish:finish", actualStatus: "fail", exitCode: 1 })
+  })
+
+  it("maps exit code 2 to warn, as for a Check", async () => {
+    const executor = await makeExecutor(`# Warn\n\n<Finish id="finish" command="exit 2" />\n`)
+
+    const result = executor.runTest({ name: "warn", steps: [{ block: "finish", expect: "warn" }] })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[0]?.actualStatus).toBe("warn")
+  })
+
+  it("is blocked when the auth block its final check needs was skipped", async () => {
+    const executor = await makeExecutor(
+      `# Auth\n\n<GitAuth id="git" />\n\n<Finish id="finish" gitAuthId="git" command="echo done" />\n`,
+    )
+
+    const result = executor.runTest({
+      name: "auth-skipped",
+      steps: [
+        { block: "git", expect: "skip" },
+        { block: "finish", expect: "blocked" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[1]?.actualStatus).toBe("blocked")
+  })
+
+  it("reports a config error for a Finish without an id", async () => {
+    const executor = await makeExecutor(`# No id\n\n<Finish command="exit 0" />\n`)
+
+    const result = executor.runTest({ name: "no-id" })
+
+    expect(result.stepResults[0]?.actualStatus).toBe("config_error")
+    expect(result.stepResults[0]?.error).toBe("The 'id' prop is required")
+  })
+
+  it("reports a config error when the final-check script file is missing", async () => {
+    const executor = await makeExecutor(`# Missing\n\n<Finish id="finish" path="missing.sh" />\n`)
+
+    const result = executor.runTest({
+      name: "missing-script",
+      steps: [{ block: "finish", expect: "config_error", error_contains: "Script file not found" }],
+    })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[0]?.actualStatus).toBe("config_error")
+  })
+})
+
+// ---------------------------------------------------------------------------
 // files_generated counts the files the named block wrote this test case, not
 // whatever happens to be in the output dir.
 // ---------------------------------------------------------------------------

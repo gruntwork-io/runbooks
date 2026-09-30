@@ -620,7 +620,7 @@ export class TestExecutor {
   }
 
   private getConfigErrorForBlock(block: ParsedComponent, registryWarnings: string[]): string {
-    if (block.type === "Check" || block.type === "Command") {
+    if (block.type === "Check" || block.type === "Command" || block.type === "Finish") {
       const warning = registryWarnings.find((w) => w.includes(`id="${block.id}"`))
       if (warning) return warning
     }
@@ -717,6 +717,18 @@ export class TestExecutor {
 
       case "Check":
       case "Command":
+        return this.runCheckOrCommand(block, step, start)
+
+      // A <Finish> runs its final check like a <Check>. Without one there is
+      // nothing to run: finishing the runbook is the whole block, as in the app.
+      case "Finish":
+        if (!extractProp(block.props, "command") && !extractProp(block.props, "path")) {
+          result.actualStatus = "success"
+          result.passed = this.matchesExpectedStatus(step.expect, "success")
+          result.duration = Date.now() - start
+          if (this.options.verbose) console.log("  (no final check to run)")
+          return result
+        }
         return this.runCheckOrCommand(block, step, start)
 
       case "GitHubAuth":

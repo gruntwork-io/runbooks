@@ -4,7 +4,7 @@ sidebar:
    order: 6
 ---
 
-This page covers advanced configuration options for Command and Check blocks.
+This page covers advanced configuration options for Command, Check and Finish blocks.
 
 ## Pseudo-Terminal (PTY) Support
 
@@ -37,7 +37,7 @@ Cloning into 'my-repo'...
 
 ### Controlling PTY Mode
 
-Both `<Command>` and `<Check>` blocks support the `usePty` prop:
+`<Command>`, `<Check>` and `<Finish>` blocks support the `usePty` prop:
 
 ```mdx
 {/* Default: uses PTY for full terminal emulation */}

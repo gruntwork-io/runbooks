@@ -52,7 +52,7 @@ const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", ...PR_BLOCK_TYPES] as const
+const AUTH_DEPENDENT_TYPES = ["Check", "Command", "Finish", "GitClone", ...PR_BLOCK_TYPES] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
   GitHubAuth: "githubAuthId",
@@ -98,6 +98,7 @@ export class InputValidator {
     components.push(...this.parseInputsBlocks(content, runbookDir))
     components.push(...this.parseRunBlocks(content, "Check"))
     components.push(...this.parseRunBlocks(content, "Command"))
+    components.push(...this.parseRunBlocks(content, "Finish"))
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
     for (const authType of AUTH_BLOCK_TYPES) {
@@ -470,6 +471,7 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
 
     case "Check":
     case "Command":
+    case "Finish":
       if (!comp.hasExplicitId) {
         errors.push({ componentType: comp.type, componentId: comp.id, message: "The 'id' prop is required" })
       }
