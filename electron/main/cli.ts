@@ -125,8 +125,8 @@ export function parseCliArgs(
  * switch ahead of the positionals and adds switches of its own, so
  * `--working-dir /path` no longer sits next to its value. The second instance
  * therefore forwards its own process.argv, with its launch directory, as the
- * lock's additionalData (`app.requestSingleInstanceLock({ argv, cwd })`; the
- * `cwd` is read by secondInstanceLaunchDirectory and preferred over Electron's
+ * lock's additionalData (`{ argv, cwd }`, see requestLaunchLock; the `cwd` is
+ * read by secondInstanceLaunchDirectory and preferred over Electron's
  * `workingDirectory`). Use `argv` when it is a string array, and fall back to
  * Electron's `argv` otherwise.
  */

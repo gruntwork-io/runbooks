@@ -16,7 +16,7 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
-import { recoverLaunchDirectory, secondInstanceLaunchDirectory } from "./launch-dir.ts"
+import { requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
@@ -149,17 +149,19 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
-// Must run before the lock: when `runbooks` is run from a folder that has
-// been deleted, process.cwd() throws and Chromium's hand-off to the running
-// app fails (see launch-dir.ts). launchDir is what relative CLI paths
-// resolve against.
-const launchDir = recoverLaunchDirectory()
-
+// requestLaunchLock first makes the cwd readable: when `runbooks` is run from
+// a folder that has been deleted, process.cwd() throws and Chromium's hand-off
+// to the running app fails (see launch-dir.ts). launchDir is what relative CLI
+// paths resolve against.
+//
 // A second instance sends its unmodified argv along: the `argv` Electron
 // hands to "second-instance" has been reordered by Chromium (see
 // secondInstanceArgv). It sends launchDir too: after a recovery, Electron's
 // `workingDirectory` is the folder it moved to, not the one it was run from.
-const gotLock = app.requestSingleInstanceLock({ argv: process.argv, cwd: launchDir })
+const { gotLock, launchDir } = requestLaunchLock(
+  (data) => app.requestSingleInstanceLock(data),
+  process.argv,
+)
 
 if (!gotLock) {
   app.quit()

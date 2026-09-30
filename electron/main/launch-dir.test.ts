@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn, type Mock } from "bun:test"
-import { parseCliArgs } from "./cli.ts"
+import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import {
   recoverLaunchDirectory,
+  requestLaunchLock,
   secondInstanceLaunchDirectory,
+  type LaunchLockData,
   type ProcessDirectory,
 } from "./launch-dir.ts"
 
@@ -84,9 +86,19 @@ describe("recoverLaunchDirectory", () => {
   })
 
   it("returns home when $PWD is relative", () => {
-    const { proc, chdirs } = fakeProcess({ pwd: "gone" })
+    // `zsh -c` started in a deleted folder exports PWD=".".
+    const { proc, chdirs } = fakeProcess({ pwd: "." })
     expect(recoverLaunchDirectory(proc)).toBe("/home/me")
     expect(chdirs).toEqual(["/home/me"])
+    // The warning says the folder is unknown, not just where paths now go.
+    expect(warnings()).toHaveLength(1)
+    expect(warnings()[0]).toContain("didn't say which folder")
+    expect(warnings()[0]).toContain("home folder (/home/me)")
+  })
+
+  it("reads this process's real cwd when given no process", () => {
+    expect(recoverLaunchDirectory()).toBe(process.cwd())
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it("falls back to / when home can't be entered", () => {
@@ -133,6 +145,70 @@ describe("recoverLaunchDirectory", () => {
       expect(config.remoteUrl).toBe(url)
       expect(config.runbookPath).toBeNull()
     })
+
+    it("resolves `.` against home when the shell didn't say which folder it was in", () => {
+      const home = recoverLaunchDirectory(fakeProcess({ pwd: "." }).proc)
+      expect(parseCliArgs(["runbooks", "."], home).runbookPath).toBe("/home/me")
+    })
+  })
+})
+
+describe("requestLaunchLock", () => {
+  let warn: Mock<typeof console.warn>
+  beforeEach(() => {
+    warn = spyOn(console, "warn").mockImplementation(() => {})
+  })
+  afterEach(() => {
+    warn.mockRestore()
+  })
+
+  it("recovers the cwd before requesting the lock, and sends argv with the launch directory", () => {
+    const { proc } = fakeProcess({ pwd: "/work/gone" })
+    const argv = ["runbooks", "./rb"]
+    let cwdAtLock: string | undefined
+    let sent: LaunchLockData | undefined
+    const result = requestLaunchLock(
+      (data) => {
+        // Chromium reads the cwd while taking the lock: it must be readable.
+        cwdAtLock = proc.cwd()
+        sent = data
+        return false
+      },
+      argv,
+      proc,
+    )
+    expect(cwdAtLock).toBe("/home/me")
+    expect(sent).toEqual({ argv, cwd: "/work/gone" })
+    expect(result).toEqual({ gotLock: false, launchDir: "/work/gone" })
+  })
+
+  it("returns the lock and the live cwd when nothing needs recovering", () => {
+    const { proc, chdirs } = fakeProcess({ cwd: "/work/here" })
+    const result = requestLaunchLock(() => true, ["runbooks"], proc)
+    expect(result).toEqual({ gotLock: true, launchDir: "/work/here" })
+    expect(chdirs).toEqual([])
+  })
+
+  it("lets the running app resolve a second instance's relative path against its deleted folder", () => {
+    // The second instance, run from a deleted folder, has moved to home, so
+    // Electron reports home as its workingDirectory.
+    const { proc } = fakeProcess({ pwd: "/work/gone" })
+    let sent: unknown
+    requestLaunchLock(
+      (data) => {
+        sent = data
+        return false
+      },
+      ["runbooks", "open", "./rb"],
+      proc,
+    )
+    const workingDirectory = proc.cwd()
+    const chromiumArgv = ["/Applications/Runbooks", "--some-switch", "open", "./rb"]
+    const config = parseCliArgs(
+      secondInstanceArgv(chromiumArgv, sent),
+      secondInstanceLaunchDirectory(workingDirectory, sent),
+    )
+    expect(config.runbookPath).toBe("/work/gone/rb")
   })
 })
 

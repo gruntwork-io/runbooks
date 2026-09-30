@@ -14,13 +14,15 @@
  *   requestSingleInstanceLock() returns false: the running window is never
  *   told, so nothing happens.
  *
- * recoverLaunchDirectory() runs before the lock is requested. It moves the
- * process to a directory that exists, so the hand-off and every later
- * process.cwd() work, and it returns the folder relative CLI paths should
- * resolve against: $PWD, the shell's name for the folder the user typed the
- * path in. If a folder has been recreated at that path (a branch switch, a
- * re-clone), `runbooks .` opens it; otherwise runbook:get reports that the
- * path no longer exists.
+ * recoverLaunchDirectory() runs before the lock is requested (requestLaunchLock
+ * does both, in that order). It moves the process to a directory that exists,
+ * so the hand-off and every later process.cwd() work, and it returns the
+ * folder relative CLI paths should resolve against: $PWD, the shell's name for
+ * the folder the user typed the path in. If a folder has been recreated at
+ * that path (a branch switch, a re-clone), `runbooks .` opens it; otherwise
+ * runbook:get reports that the path no longer exists. When $PWD isn't an
+ * absolute path, the folder is unknown and relative paths resolve against the
+ * home directory.
  *
  * This module doesn't import electron, so it runs under `bun test`.
  */
@@ -66,7 +68,11 @@ export function recoverLaunchDirectory(proc: ProcessDirectory = currentProcess()
     reason = (err as NodeJS.ErrnoException | null)?.code ?? err
   }
 
-  const launchDir = proc.pwd && path.isAbsolute(proc.pwd) ? proc.pwd : proc.home
+  // `zsh -c` started in a deleted folder exports PWD=".", so $PWD isn't
+  // always the folder's name.
+  const pwd = proc.pwd
+  const knowsFolder = pwd !== undefined && path.isAbsolute(pwd)
+  const launchDir = knowsFolder ? pwd : proc.home
 
   let movedTo: string | undefined
   for (const dir of [proc.home, "/"]) {
@@ -81,19 +87,49 @@ export function recoverLaunchDirectory(proc: ProcessDirectory = currentProcess()
 
   log.warn(
     `Can't read the directory runbooks was run from (${String(reason)}). ` +
-      `Relative paths resolve against ${launchDir}; ` +
+      (knowsFolder
+        ? `Relative paths resolve against ${launchDir}; `
+        : `The shell didn't say which folder that was, so relative paths resolve against the home folder (${launchDir}); `) +
       (movedTo ? `Runbooks now runs from ${movedTo}.` : "Runbooks couldn't move to another directory."),
   )
   return launchDir
 }
 
 /**
+ * What a second instance sends the running app as the single-instance lock's
+ * additionalData. The running app reads `argv` with secondInstanceArgv
+ * (cli.ts) and `cwd` with secondInstanceLaunchDirectory.
+ */
+export interface LaunchLockData {
+  /** This process's unmodified argv. */
+  argv: string[]
+  /** The launch directory from recoverLaunchDirectory. */
+  cwd: string
+}
+
+/**
+ * Recover the launch directory, then request the single-instance lock
+ * (`requestLock`, which is app.requestSingleInstanceLock) with `argv` and that
+ * directory. Recovery has to come first: Chromium reads the cwd while taking
+ * the lock, and the hand-off fails when it can't. Returns whether this process
+ * got the lock, and the directory its own relative CLI paths resolve against.
+ */
+export function requestLaunchLock(
+  requestLock: (data: LaunchLockData) => boolean,
+  argv: string[],
+  proc: ProcessDirectory = currentProcess(),
+): { gotLock: boolean; launchDir: string } {
+  const launchDir = recoverLaunchDirectory(proc)
+  return { gotLock: requestLock({ argv, cwd: launchDir }), launchDir }
+}
+
+/**
  * The directory a second instance was launched from, for resolving the
  * relative paths in its argv. The second instance forwards its launch
- * directory as `additionalData.cwd` (see index.ts). Prefer that: when its own
- * folder was deleted it has already moved to the home directory, which is what
- * Electron then reports as `workingDirectory`. A sender without an absolute
- * `cwd` string (an older build) falls back to `workingDirectory`.
+ * directory as `additionalData.cwd` (see requestLaunchLock). Prefer that:
+ * when its own folder was deleted it has already moved to the home directory,
+ * which is what Electron then reports as `workingDirectory`. A sender without
+ * an absolute `cwd` string (an older build) falls back to `workingDirectory`.
  */
 export function secondInstanceLaunchDirectory(workingDirectory: string, additionalData: unknown): string {
   const forwarded = (additionalData as { cwd?: unknown } | null | undefined)?.cwd
