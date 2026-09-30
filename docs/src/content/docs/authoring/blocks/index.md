@@ -25,6 +25,19 @@ Blocks are special React components that you can use in your `runbook.mdx` files
 - [Template](/authoring/blocks/template)
 - [TemplateInline](/authoring/blocks/templateinline)
 
+## Block IDs
+
+Interactive blocks take an `id` prop, a unique identifier for the block. When one block references another, it does so by the other block's ID:
+
+- `inputsId` uses the values collected by an `<Inputs>` or `<Template>` block. See [Wiring Blocks with `inputsId`](/authoring/inputs-and-outputs/#wiring-blocks-with-inputsid).
+- `awsAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
+- `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
+- `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
+
+Each ID must be unique within a runbook. IDs that differ only in hyphens versus underscores (such as `create-account` and `create_account`) count as the same ID.
+
+In Runbooks, each block shows a small **ID** badge in its top-right corner. Hover over the badge (or Tab to it) to see the block's ID, and click it to copy the ID to your clipboard.
+
 ## Advanced Topics
 
 - [Advanced](/authoring/blocks/advanced) - PTY support and other advanced configuration options
