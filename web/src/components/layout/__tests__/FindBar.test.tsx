@@ -1,6 +1,10 @@
+import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { FIND_ACTIVE_HIGHLIGHT, FIND_MATCH_HIGHLIGHT } from '@/lib/findInPage'
 import { FindBar } from '../FindBar'
 
@@ -42,6 +46,9 @@ function renderPage(api: ReturnType<typeof makeApi>['api']) {
 }
 
 const input = () => screen.getByRole('textbox', { name: 'Find in page' })
+// Not a role query: those skip what a modal has aria-hidden, and the bar
+// sitting unusable behind a modal is the failure being tested.
+const barMounted = () => document.querySelector('[role="search"]') !== null
 const status = () => within(screen.getByRole('search')).getByRole('status')
 const activeText = () => [...(registry.get(FIND_ACTIVE_HIGHLIGHT) ?? [])].map((r) => r.toString())
 
@@ -133,6 +140,11 @@ describe('FindBar', () => {
     expect(status()).toHaveTextContent('1 of 2')
     await find('previous')
     expect(status()).toHaveTextContent('2 of 2')
+
+    // Clicking a button keeps focus in the input, so typing carries on.
+    for (const name of ['Previous match', 'Next match', 'Close find bar']) {
+      expect(fireEvent.mouseDown(screen.getByRole('button', { name }))).toBe(false)
+    }
 
     fireEvent.click(screen.getByRole('button', { name: 'Previous match' }))
     expect(status()).toHaveTextContent('1 of 2')
@@ -236,6 +248,74 @@ describe('FindBar', () => {
     } finally {
       document.removeEventListener('focusin', keepFocus)
     }
+  })
+
+  it('closes when a modal dialog opens over it', async () => {
+    const { api, find } = makeApi()
+    // Like maximizing a block's logs, which shows them again in a dialog.
+    function Page() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Maximize</button>
+          <p>alpha one</p>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogContent aria-describedby={undefined}>
+              <DialogTitle>Logs</DialogTitle>
+              <p>alpha in the dialog</p>
+            </DialogContent>
+          </Dialog>
+          <FindBar />
+        </>
+      )
+    }
+    render(<ApiProvider api={api}><Page /></ApiProvider>)
+    await find('open')
+    fireEvent.change(input(), { target: { value: 'alpha' } })
+    expect(status()).toHaveTextContent('1 of 1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize' }))
+
+    await waitFor(() => expect(barMounted()).toBe(false))
+    expect(registry.size).toBe(0)
+  })
+
+  it('stays open for menus and popovers, which leave the page usable', async () => {
+    const { api, find } = makeApi()
+    function Page({ menu, popover }: { menu: boolean; popover: boolean }) {
+      return (
+        <>
+          <p>alpha one</p>
+          <DropdownMenu open={menu}>
+            <DropdownMenuTrigger>Download</DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem>Raw</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Popover open={popover}>
+            <PopoverTrigger>Region</PopoverTrigger>
+            <PopoverContent>
+              <button type="button">us-east-1</button>
+            </PopoverContent>
+          </Popover>
+          <FindBar />
+        </>
+      )
+    }
+    const { rerender } = render(<ApiProvider api={api}><Page menu={false} popover={false} /></ApiProvider>)
+    await find('open')
+    fireEvent.change(input(), { target: { value: 'alpha' } })
+
+    // A menu hides the rest of the page while it is open, but isn't a dialog.
+    rerender(<ApiProvider api={api}><Page menu popover={false} /></ApiProvider>)
+    await waitFor(() => expect(screen.getByRole('menu', { hidden: true })).toBeInTheDocument())
+    // A popover is a dialog, but not a modal one.
+    rerender(<ApiProvider api={api}><Page menu={false} popover /></ApiProvider>)
+    screen.getByRole('button', { name: 'us-east-1' }).focus()
+    await act(async () => {})
+
+    expect(barMounted()).toBe(true)
+    expect(status()).toHaveTextContent('1 of 1')
   })
 
   it('still counts matches without the Highlight API', async () => {

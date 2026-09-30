@@ -16,6 +16,19 @@ import './FindBar.css'
 const RESCAN_DELAY_MS = 150
 
 /**
+ * Whether a modal dialog (such as maximized logs) has taken over the page:
+ * focus is in a dialog, and the rest of the page, `bar` included, is hidden
+ * from assistive technology or inert. A popover is a dialog that hides
+ * nothing, and a menu hides the page but isn't a dialog, so neither counts.
+ */
+function coveredByModal(bar: Element): boolean {
+  return (
+    bar.closest('[aria-hidden="true"], [inert]') !== null &&
+    !!document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')
+  )
+}
+
+/**
  * The find-in-page bar, opened by Edit > Find… (Cmd/Ctrl+F). It searches the
  * rendered page, highlights every match, and steps through them with Enter /
  * Shift+Enter, the buttons, or Edit > Find Next / Find Previous
@@ -114,6 +127,24 @@ export function FindBar() {
     if (document.activeElement !== input) close()
   }, [open, focusRequest, close])
 
+  // Close when a modal dialog opens over the open bar, which would otherwise
+  // sit unusable behind it while counting the dialog's text. A modal can
+  // hide the page before or after taking focus, so both are watched.
+  useEffect(() => {
+    if (!open) return
+    const check = () => {
+      const bar = barRef.current
+      if (bar && coveredByModal(bar)) close()
+    }
+    const observer = new MutationObserver(check)
+    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-hidden', 'inert'] })
+    document.addEventListener('focusin', check)
+    return () => {
+      observer.disconnect()
+      document.removeEventListener('focusin', check)
+    }
+  }, [open, close])
+
   // Search again for the kept query when the bar reopens.
   useEffect(() => {
     if (open && openRef.current && queryRef.current.trim()) search(queryRef.current, true)
@@ -161,7 +192,8 @@ export function FindBar() {
   const buttonClass = 'h-6 w-6 text-muted-foreground hover:text-foreground'
 
   return (
-    // data-find-ignore leaves the bar's own text out of the search.
+    // data-find-ignore leaves the bar's own text out of the search. Below lg,
+    // it sits under App's Markdown/Code toggle (top-18, h-12) rather than on it.
     <div
       ref={barRef}
       role="search"
@@ -171,7 +203,7 @@ export function FindBar() {
         e.preventDefault()
         close()
       }}
-      className="fixed top-18 right-4 z-50 flex items-center gap-1 rounded-md border border-border bg-popover py-1 pr-1 pl-2 text-popover-foreground shadow-md"
+      className="fixed top-32 right-4 z-50 lg:top-18 flex items-center gap-1 rounded-md border border-border bg-popover py-1 pr-1 pl-2 text-popover-foreground shadow-md"
     >
       <input
         ref={inputRef}

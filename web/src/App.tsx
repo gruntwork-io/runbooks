@@ -308,8 +308,9 @@ function App() {
           <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
           <>
-            {/* Mobile Navigation - Fixed position toggle, visible only on small screens */}
-            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10">
+            {/* Mobile Navigation - Fixed position toggle, visible only on small screens.
+                data-find-ignore: find in page skips its always-visible labels. */}
+            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10" data-find-ignore="">
               <div className="bg-muted border border-border inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
                 <ViewContainerToggle
                   activeView={activeMobileSection}
