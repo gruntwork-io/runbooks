@@ -13,7 +13,7 @@ import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, maskTemplateOutputs, revealTemplateOutputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
+import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, maskTemplateOutputs, referencesSensitiveOutput, revealTemplateOutputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
 import { revealOutput, revealOutputs, type OutputValues } from '@/lib/outputValues'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
@@ -145,6 +145,14 @@ export function buildGoogleAuthEnvVars(
     revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ''
   return envVars
 }
+
+/**
+ * The details under a script view render error when the script uses a
+ * sensitive output: that render shows it as <redacted>, which a template that
+ * processes the value can't handle, while the run renders the real value.
+ */
+export const SENSITIVE_DISPLAY_RENDER_NOTE =
+  'The script view shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here. Running the script uses the real value.'
 
 interface UseScriptExecutionReturn {
   // Script content
@@ -466,6 +474,13 @@ export function useScriptExecution({
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0
+
+  // Whether the script view's render shows a sensitive output as <redacted>
+  // (see the render effect below)
+  const displayMasksSensitiveOutput = useMemo(
+    () => referencesSensitiveOutput(outputDeps, allOutputs),
+    [outputDeps, allOutputs]
+  )
   
   // State for rendered script content
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
@@ -533,8 +548,9 @@ export function useScriptExecution({
     }
   }, [status, invalidateGitFileTree])
 
-  // Function to render script with inputs
-  const renderScript = useCallback(async (inputs: TemplateValue[]) => {
+  // Function to render script with inputs. `errorDetails` explains a failed
+  // render under its error message.
+  const renderScript = useCallback(async (inputs: TemplateValue[], errorDetails = 'Failed to render script with variables') => {
     // Supersede any pending render request
     const seq = ++renderSeqRef.current
     
@@ -578,7 +594,7 @@ export function useScriptExecution({
       if (!isMountedRef.current || seq !== renderSeqRef.current) return
       
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
+      setRenderError(createAppError(errorMessage, errorDetails))
       setIsRendering(false)
     }
   }, [api, rawScriptContent])
@@ -639,7 +655,10 @@ export function useScriptExecution({
 
     // Build payload with inputs and outputs namespaces. This render is only
     // shown (execute() renders again, with the real values), so a sensitive
-    // output shows as <redacted> in the script view.
+    // output shows as <redacted> in the script view. A template that
+    // processes its value (e.g. fromJson) can then fail here and not when the
+    // script runs, so such an error says why.
+    const errorDetails = displayMasksSensitiveOutput ? SENSITIVE_DISPLAY_RENDER_NOTE : undefined
     const inputsForRender = buildTemplatePayload({
       inputs: templateContext.inputs,
       outputs: maskTemplateOutputs(templateContext.outputs),
@@ -668,7 +687,7 @@ export function useScriptExecution({
     // Debounce: wait 300ms after last change before rendering
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = keyToStore
-      renderScript(inputsToRender)
+      renderScript(inputsToRender, errorDetails)
     }, 300)
     
     // Cleanup: clear timer when effect re-runs or on unmount
@@ -677,7 +696,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, rawScriptContent, renderScript])
+  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, rawScriptContent, renderScript, displayMasksSensitiveOutput])
 
   // Handle starting execution
   const execute = useCallback(() => {

@@ -110,19 +110,21 @@ type BlockProps = {
   values?: Record<string, unknown>
   /** Outputs of a block `mint` that ran earlier. */
   mintOutputs?: OutputValues
+  /** The template to render, in place of TEMPLATE. */
+  template?: string
 }
 
 function renderBlock(initial: BlockProps = {}) {
   const invoke = makeInvoke()
   const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  const ui = ({ generateFile, target, values, mintOutputs }: BlockProps) => (
+  const ui = ({ generateFile, target, values, mintOutputs, template = TEMPLATE }: BlockProps) => (
     <ApiProvider api={api}>
       <TestWrapper>
         <InstructionModeToggle />
         {values && <RegisterInputs values={values} />}
         {mintOutputs && <RegisterOutputs blockId="mint" values={mintOutputs} />}
         <TemplateInline id="tpl" inputsId="form" outputPath="out.txt" generateFile={generateFile} target={target}>
-          <pre><code className="language-txt">{TEMPLATE}</code></pre>
+          <pre><code className="language-txt">{template}</code></pre>
         </TemplateInline>
       </TestWrapper>
     </ApiProvider>
@@ -240,6 +242,32 @@ describe("TemplateInline", () => {
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
     const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "<redacted>", user: "alice" } })
+  })
+
+  // boilerplate's fromJson can't parse <redacted>, so a preview that parses a
+  // sensitive output fails. The error says why.
+  describe("preview only: a render error", () => {
+    const FROM_JSON = "user={{ (fromJson .outputs.mint.creds).user }}"
+    const failRender = (invoke: ReturnType<typeof makeInvoke>) =>
+      invoke.mockRejectedValue(new Error('nil data; no entry for key "user"'))
+
+    it("explains that the preview masks a sensitive output", async () => {
+      const { invoke } = renderBlock({ values: WORLD, template: FROM_JSON, mintOutputs: { creds: sensitiveOutput('{"user":"bob"}') } })
+      failRender(invoke)
+
+      const error = await screen.findByTestId("component-error")
+      expect(error).toHaveTextContent('nil data; no entry for key "user"')
+      expect(error).toHaveTextContent("This preview shows sensitive outputs as <redacted>")
+    })
+
+    it("says nothing about sensitive outputs when the template uses none", async () => {
+      const { invoke } = renderBlock({ values: WORLD, template: FROM_JSON, mintOutputs: { creds: '{"user":"bob"}' } })
+      failRender(invoke)
+
+      const error = await screen.findByTestId("component-error")
+      expect(error).toHaveTextContent('nil data; no entry for key "user"')
+      expect(error).not.toHaveTextContent("sensitive")
+    })
   })
 
   it("generateFile: renders a sensitive output with its real value", async () => {

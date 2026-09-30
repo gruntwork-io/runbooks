@@ -176,10 +176,11 @@ function assertFileEquals(filePath: string, expected: string, ctx: AssertionCont
 /**
  * An output's value as a failure message shows it. Failure messages print
  * without --verbose and go into the JUnit file, so a sensitive value shows as
- * <redacted>.
+ * <redacted>. An empty one shows as `""`, like a plain empty value.
  */
 function formatOutput(value: OutputValue): string {
-  return isSensitiveOutput(value) ? maskOutput(value) : `"${value}"`
+  const shown = maskOutput(value)
+  return isSensitiveOutput(value) && shown !== "" ? shown : `"${shown}"`
 }
 
 function assertOutputEquals(

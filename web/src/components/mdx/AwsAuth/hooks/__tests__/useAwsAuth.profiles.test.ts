@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { useAwsAuth } from '../useAwsAuth'
+import { sensitiveOutput } from '@/lib/outputValues'
 import type { ProfileInfo } from '../../types'
 
 /**
@@ -104,9 +105,9 @@ describe('useAwsAuth — local profiles', () => {
     expect(result.current.authStatus).toBe('authenticated')
     expect(registerOutputs).toHaveBeenCalledWith('aws', {
       AWS_ACCESS_KEY_ID: 'AKIA_DEV',
-      AWS_SECRET_ACCESS_KEY: 'dev-secret',
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('dev-secret'),
       AWS_REGION: 'us-west-2',
-      AWS_SESSION_TOKEN: '',
+      AWS_SESSION_TOKEN: sensitiveOutput(''),
     })
   })
 })

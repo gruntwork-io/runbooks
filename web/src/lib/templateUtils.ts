@@ -7,7 +7,7 @@ import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { OutputDependency } from '@/lib/extractTemplateDependencies'
 import { normalizeBlockId } from '@/lib/utils'
-import { maskOutputs, maskOutput, revealOutputs, type OutputValue } from '@/lib/outputValues'
+import { isSensitiveOutput, maskOutputs, maskOutput, revealOutputs, type OutputValue } from '@/lib/outputValues'
 
 export type { OutputValue }
 
@@ -63,6 +63,38 @@ export function revealTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOu
 /** Every output as it may be shown: sensitive ones as `<redacted>`. For a render that is only displayed. */
 export function maskTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
   return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]))
+}
+
+/**
+ * Every output except the sensitive ones. For instruction mode: it can't show
+ * a sensitive value, so it asks the user to paste it, as it does for an
+ * output that hasn't been produced yet.
+ */
+export function omitSensitiveTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [
+      blockId,
+      Object.fromEntries(
+        Object.entries(values).filter((entry): entry is [OutputName, string] => !isSensitiveOutput(entry[1])),
+      ),
+    ]),
+  )
+}
+
+/**
+ * Whether any of these output references names an output that is sensitive.
+ * A display render shows such an output as `<redacted>`, so a template that
+ * processes its value (e.g. with `fromJson`) can fail there while the real
+ * render succeeds.
+ */
+export function referencesSensitiveOutput(
+  outputDependencies: OutputDependency[],
+  allOutputs: Record<string, BlockOutputs>,
+): boolean {
+  return outputDependencies.some((dep) => {
+    const value = allOutputs[normalizeBlockId(dep.blockId)]?.values[dep.outputName]
+    return value !== undefined && isSensitiveOutput(value)
+  })
 }
 
 /** A block and the specific outputs referenced from it */

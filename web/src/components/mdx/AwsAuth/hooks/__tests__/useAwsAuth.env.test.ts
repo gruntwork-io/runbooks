@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { useAwsAuth } from '../useAwsAuth'
+import { sensitiveOutput } from '@/lib/outputValues'
 
 /**
  * Env credential detection and confirm, driven by replies in the shape MAIN's
@@ -165,15 +166,20 @@ describe('useAwsAuth — env credential confirm', () => {
     })
     expect(result.current.authStatus).toBe('authenticated')
     expect(result.current.accountInfo).toEqual(IDENTITY)
-    const published = {
+    const env = {
       AWS_ACCESS_KEY_ID: 'AKIA_PROD',
       AWS_SECRET_ACCESS_KEY: 'prod-secret',
       AWS_REGION: 'eu-central-1',
       AWS_SESSION_TOKEN: '',
     }
-    expect(registerOutputs).toHaveBeenCalledWith('aws', published)
-    // The renderer, not MAIN's confirm handler, writes the session env.
-    expect(invoke).toHaveBeenCalledWith('session:set-env', { env: published })
+    // The outputs carry the secrets as sensitive values
+    expect(registerOutputs).toHaveBeenCalledWith('aws', {
+      ...env,
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('prod-secret'),
+      AWS_SESSION_TOKEN: sensitiveOutput(''),
+    })
+    // The renderer, not MAIN's confirm handler, writes the session env, with the real values.
+    expect(invoke).toHaveBeenCalledWith('session:set-env', { env })
   })
 
   it('asks again, publishing nothing, when the credentials now belong to another account', async () => {

@@ -4,7 +4,7 @@ import { renderHook, act, cleanup } from '@testing-library/react'
 import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { useRunbookContext, type TemplateValue } from '@/contexts/useRunbook'
-import { useScriptExecution } from '../useScriptExecution'
+import { SENSITIVE_DISPLAY_RENDER_NOTE, useScriptExecution } from '../useScriptExecution'
 import { isSensitiveOutput, revealOutputs, sensitiveOutput, type OutputValues } from '@/lib/outputValues'
 
 // The hook runs inside the real RunbookContextProvider, so inputs and block
@@ -312,6 +312,47 @@ describe('useScriptExecution — template render', () => {
         templateVarValues: { inputs: {}, outputs: { a: { token: 's3cr3t', url: 'https://x' } } },
       }),
     )
+  })
+
+  // The script view renders `<redacted>`, which a template that parses the
+  // value can't handle, as boilerplate's fromJson fails on it. The error says
+  // why, since the run renders the real value and succeeds.
+  describe('when the script view render fails', () => {
+    const FROM_JSON_ERROR = 'template: script.sh:1:26: executing "script.sh" at <.outputs.a.creds>: nil data; no entry for key "user"'
+    beforeEach(() => {
+      invoke.mockImplementation(async (channel: string) => {
+        if (channel === 'boilerplate:render-inline') throw new Error(FROM_JSON_ERROR)
+        return {}
+      })
+    })
+
+    it('explains it when the script uses a sensitive output', async () => {
+      const { result } = renderScriptExecution({ command: 'echo user={{ (fromJson .outputs.a.creds).user }}' })
+
+      act(() => result.current.runbook.registerOutputs('a', { creds: sensitiveOutput('{"user":"bob"}') }))
+      await advance(300)
+
+      expect(result.current.exec.renderError).toEqual({ message: FROM_JSON_ERROR, details: SENSITIVE_DISPLAY_RENDER_NOTE })
+    })
+
+    it('keeps the usual details when it does not', async () => {
+      const { result } = renderScriptExecution({ command: 'echo user={{ (fromJson .outputs.a.creds).user }}' })
+
+      act(() => result.current.runbook.registerOutputs('a', { creds: '{"user":"bob"}' }))
+      await advance(300)
+
+      expect(result.current.exec.renderError).toEqual({ message: FROM_JSON_ERROR, details: 'Failed to render script with variables' })
+    })
+  })
+
+  // An empty value reveals nothing, and the script view's `{{ if }}` then takes the same branch as the run
+  it('renders an empty sensitive output as empty in the script view', async () => {
+    const { result } = renderScriptExecution({ command: 'echo [{{ .outputs.a.token }}]' })
+
+    act(() => result.current.runbook.registerOutputs('a', { token: sensitiveOutput('') }))
+    await advance(300)
+
+    expect(result.current.exec.sourceCode).toBe('echo []')
   })
 
   it('renders the new command when the command changes but the values do not', async () => {

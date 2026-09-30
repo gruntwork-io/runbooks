@@ -4,8 +4,9 @@
  * The renderer bundles it directly, so it must stay free of Node and Electron
  * imports.
  *
- * An output the script marked `sensitive:` is carried as an Effect `Redacted`
- * rather than a string. `String()`, template literals, `JSON.stringify` and
+ * An output the script marked `sensitive:`, and the secret credentials an auth
+ * block publishes (AwsAuth's secret key and session token, GitAuth's token),
+ * are carried as an Effect `Redacted` rather than a string. `String()`, template literals, `JSON.stringify` and
  * Node's inspect all print it as `<redacted>`, and the type checker rejects
  * using it where a string is expected. So a consumer that forgets about
  * sensitive outputs shows `<redacted>`, not the secret.
@@ -19,7 +20,7 @@
  *    blocks' credential detection, the copy button on a View Outputs row,
  *    the test CLI's assertion comparisons.
  *  - `maskOutput` returns what to show: the value, or `<redacted>` for a
- *    sensitive one.
+ *    sensitive one (unless it's empty).
  */
 
 import { Redacted } from "effect"
@@ -30,7 +31,7 @@ export type OutputValue = string | Redacted.Redacted<string>
 /** A block's outputs by key. */
 export type OutputValues = Record<string, OutputValue>
 
-/** Wrap a value the script marked `sensitive:`. */
+/** Wrap a sensitive value: one the script marked `sensitive:`, or an auth block's secret credential. */
 export function sensitiveOutput(value: string): Redacted.Redacted<string> {
   return Redacted.make(value)
 }
@@ -52,9 +53,15 @@ export function revealOutput(value: OutputValue | undefined): string | undefined
   return value !== undefined && isSensitiveOutput(value) ? Redacted.value(value) : value
 }
 
-/** The text to show for an output: its value, or `<redacted>` if it's sensitive. */
+/**
+ * The text to show for an output: its value, or `<redacted>` if it's
+ * sensitive. An empty sensitive value shows as empty. That reveals nothing,
+ * and it keeps what a display render decides the same as the real render:
+ * `{{ if .outputs.a.token }}` takes the same branch with either.
+ */
 export function maskOutput(value: OutputValue): string {
-  return isSensitiveOutput(value) ? String(value) : value
+  if (!isSensitiveOutput(value)) return value
+  return revealOutput(value) === "" ? "" : String(value)
 }
 
 /** `revealOutput` for each of a block's outputs. */

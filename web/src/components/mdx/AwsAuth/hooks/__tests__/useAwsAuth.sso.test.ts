@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react'
 import { renderHook, act } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { useAwsAuth } from '../useAwsAuth'
+import { sensitiveOutput } from '@/lib/outputValues'
 
 /**
  * The SSO device flow, driven by replies in the shape MAIN's aws:sso-poll /
@@ -172,9 +173,9 @@ describe('useAwsAuth — SSO sign-in', () => {
     expect(result.current.accountInfo).toEqual(IDENTITY)
     expect(registerOutputs).toHaveBeenCalledWith('aws', {
       AWS_ACCESS_KEY_ID: 'ASIA_ROLE',
-      AWS_SECRET_ACCESS_KEY: 'role-secret',
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('role-secret'),
       AWS_REGION: 'us-west-2',
-      AWS_SESSION_TOKEN: 'role-token',
+      AWS_SESSION_TOKEN: sensitiveOutput('role-token'),
     })
     // The loop ended at select_account.
     expect(polledDeviceCodes()).toHaveLength(3)
@@ -197,9 +198,9 @@ describe('useAwsAuth — SSO sign-in', () => {
     expect(result.current.accountInfo).toEqual(IDENTITY)
     expect(registerOutputs).toHaveBeenCalledWith('aws', {
       AWS_ACCESS_KEY_ID: 'ASIA_ROLE',
-      AWS_SECRET_ACCESS_KEY: 'role-secret',
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('role-secret'),
       AWS_REGION: 'us-west-2',
-      AWS_SESSION_TOKEN: 'role-token',
+      AWS_SESSION_TOKEN: sensitiveOutput('role-token'),
     })
   })
 

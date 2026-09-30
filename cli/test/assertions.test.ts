@@ -215,6 +215,13 @@ describe("output_equals / output_matches / output_exists", () => {
     expect(matches.message).toBe('output b1.token = <redacted> does not match pattern "^x$"')
   })
 
+  it('prints an empty sensitive output as "" in a failure message', () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("") } })
+    const equals = runAssertion({ type: "output_equals", block: "b1", output: "token", value: "x" }, ctx)
+
+    expect(equals.message).toBe('output b1.token = "", expected "x"')
+  })
+
   it("output_exists passes when output exists, fails otherwise", () => {
     const ctx = withOutputs({ b1: { present: "yes" } })
     expect(

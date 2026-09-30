@@ -3,7 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
-import { revealOutputs } from "@/lib/outputValues"
+import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
 import type {
   GitAuthMethod,
   GitAuthStatus,
@@ -332,10 +332,13 @@ export function useGitAuth({
   // env during validation). Used by the PAT path and the non-GitAuth
   // {block:'id'} path, where the renderer legitimately holds the token.
   // GIT_PROVIDER lets a downstream PR/MR block derive its channel;
-  // __AUTHENTICATED is the session-env chaining marker.
+  // __AUTHENTICATED is the session-env chaining marker. The token is a
+  // sensitive output, whatever it came from (including a block that marked it
+  // `sensitive:`), so a template that shows it shows <redacted>. Its readers
+  // (gitAuthId/githubAuthId, a {block} source) reveal the real value.
   const registerCredentials = useCallback((token: string, user: GitUserInfo): void => {
     registerOutputs(id, {
-      [provider.env.tokenVar]: token,
+      [provider.env.tokenVar]: sensitiveOutput(token),
       [provider.env.userVar]: user.login,
       [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
       GIT_PROVIDER: provider.id,

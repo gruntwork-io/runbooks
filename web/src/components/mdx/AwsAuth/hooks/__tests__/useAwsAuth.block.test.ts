@@ -196,9 +196,39 @@ describe('useAwsAuth — confirming { block } credentials', () => {
     expect(result.current.accountInfo).toEqual(ACCOUNT_A)
     expect(registerOutputs).toHaveBeenCalledWith('aws', {
       AWS_ACCESS_KEY_ID: 'ASIA_A',
-      AWS_SECRET_ACCESS_KEY: 'secret-a',
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('secret-a'),
       AWS_REGION: 'eu-west-1',
-      AWS_SESSION_TOKEN: 'token-a',
+      AWS_SESSION_TOKEN: sensitiveOutput('token-a'),
+    })
+  })
+
+  // A Command marked the keys `sensitive:`. AwsAuth reads the real values and
+  // must publish them sensitive again, or a template showing
+  // {{ .outputs.aws.AWS_SECRET_ACCESS_KEY }} would show the secret.
+  it('keeps keys the block marked sensitive sensitive when it publishes them', async () => {
+    blockOutputs({
+      ...KEYS_A,
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('secret-a'),
+      AWS_SESSION_TOKEN: sensitiveOutput('token-a'),
+    })
+    const { result } = renderAwsAuth([{ block: 'assume-role' }])
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+
+    await act(() => result.current.handleConfirmDetected())
+
+    expect(result.current.authStatus).toBe('authenticated')
+    expect(registerOutputs).toHaveBeenCalledTimes(1)
+    const [, published] = registerOutputs.mock.calls[0] as [string, OutputValues]
+    expect(published).toEqual({
+      AWS_ACCESS_KEY_ID: 'ASIA_A',
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('secret-a'),
+      AWS_REGION: 'eu-west-1',
+      AWS_SESSION_TOKEN: sensitiveOutput('token-a'),
+    })
+    expect(JSON.stringify(published)).not.toMatch(/secret-a|token-a/)
+    // The session env is what scripts run with, so it gets the real values
+    expect(invoke).toHaveBeenCalledWith('session:set-env', {
+      env: { AWS_ACCESS_KEY_ID: 'ASIA_A', AWS_SECRET_ACCESS_KEY: 'secret-a', AWS_REGION: 'eu-west-1', AWS_SESSION_TOKEN: 'token-a' },
     })
   })
 
@@ -248,9 +278,9 @@ describe('useAwsAuth — confirming { block } credentials', () => {
     expect(registerOutputs).toHaveBeenCalledTimes(1)
     expect(registerOutputs).toHaveBeenCalledWith('aws', {
       AWS_ACCESS_KEY_ID: 'ASIA_A2',
-      AWS_SECRET_ACCESS_KEY: 'secret-a2',
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('secret-a2'),
       AWS_REGION: 'eu-west-1',
-      AWS_SESSION_TOKEN: 'token-a2',
+      AWS_SESSION_TOKEN: sensitiveOutput('token-a2'),
     })
   })
 

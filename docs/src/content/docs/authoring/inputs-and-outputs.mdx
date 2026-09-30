@@ -193,9 +193,17 @@ Everywhere Runbooks only shows the value, it masks it:
 
 - **View Outputs** shows `••••••••`, and **Copy JSON** writes `"<redacted>"`.
 - The script view of a Command or Check that references the output shows `<redacted>` in its place, though the script runs with the real value.
-- A `<TemplateInline>` without `generateFile` shows `<redacted>` in its preview. So does instruction mode.
+- A `<TemplateInline>` without `generateFile` shows `<redacted>` in its preview.
 - A block prop that references the output, such as a title, a description, a clone URL or a pull request's title and body, gets `<redacted>`.
 - The test CLI prints `<redacted>` in its `--verbose` output, in the rendered output of a `<TemplateInline>` and in the message of a failed `output_equals` or `output_matches` assertion.
+
+An empty sensitive output reveals nothing, so wherever `<redacted>` would stand in for it, it stays empty. An `{{ if }}` on it then takes the same branch in the script view as when the script runs.
+
+`<redacted>` only stands in for the value, so a template that processes the value can't process `<redacted>`. For example, the script view of `{{ (fromJson .outputs.<block_id>.creds).user }}` shows a render error that explains this, though the script runs with the real value. A `<TemplateInline>` preview of it shows the same error.
+
+[Instruction mode](/intro/instruction-mode/) treats a sensitive output like one that hasn't been produced yet, even if its step already ran. The command shows a `<name>` placeholder, with a field to paste the value into.
+
+Auth blocks mark their own secrets the same way, including a credential they read from a block that marked it `sensitive:`. [`<AwsAuth>`](/authoring/blocks/awsauth/) publishes `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` as sensitive outputs. [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitHubAuth>`](/authoring/blocks/githubauth/) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) publish their token as one when their outputs include it, which they do for a personal access token or a `{ block }` source. So `{{ .outputs.<auth_block_id>.AWS_SECRET_ACCESS_KEY }}` is masked like any other sensitive output.
 
 Once any line marks a key `sensitive:`, that output stays sensitive, even if a later line writes the same key without the prefix. The prefix is lowercase and comes first on the line.
 

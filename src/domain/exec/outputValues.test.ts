@@ -43,6 +43,13 @@ describe("a sensitive output", () => {
     expect(maskOutput(outputs.token)).toBe("<redacted>")
     expect(maskOutputs(outputs)).toEqual({ user: "alice", token: "<redacted>" })
   })
+
+  // An empty value reveals nothing, and a masked `{{ if }}` then takes the same branch as the real one
+  it("shows as empty through maskOutput when its value is empty", () => {
+    const empty = sensitiveOutput("")
+    expect(isSensitiveOutput(empty)).toBe(true)
+    expect(maskOutput(empty)).toBe("")
+  })
 })
 
 describe("a plain output", () => {

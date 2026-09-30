@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { Instruction } from './Instruction'
 import type { TemplateContext } from '@/lib/templateUtils'
+import { sensitiveOutput } from '@/lib/outputValues'
 
 /**
  * Cross-cutting instruction-mode guarantees that live in the shared resolution
@@ -16,7 +17,9 @@ import type { TemplateContext } from '@/lib/templateUtils'
  *  - an input referenced only inside template logic is never given a
  *    placeholder, so that logic is never evaluated against one;
  *  - an input that has a value, even `''`, is never given a placeholder, so
- *    the command's logic decides as it would when the command runs.
+ *    the command's logic decides as it would when the command runs;
+ *  - a sensitive output is never shown, as its value or as `<redacted>`: the
+ *    user pastes it, as they would an output that hasn't been produced.
  */
 
 const FORBIDDEN_CHANNELS = [
@@ -257,5 +260,44 @@ describe('instruction mode — no unresolved template references', () => {
     )
     expect(document.body.textContent).not.toContain('<var_file>')
     expect(screen.queryByText(/simplified resolver/)).toBeNull()
+  })
+})
+
+describe('instruction mode — sensitive outputs', () => {
+  // The user ran the step that produced the token, then switched to
+  // instruction mode, so the context holds it. Instruction mode never shows a
+  // sensitive value, so it asks for the token as if the step hadn't run.
+  const command = 'curl -H "Authorization: Bearer {{ .outputs.fetch_token.api_token }}" {{ .outputs.fetch_token.url }}'
+  const ctx: TemplateContext = {
+    inputs: {},
+    outputs: { fetch_token: { url: 'https://api', api_token: sensitiveOutput('real-secret') } },
+  }
+  const sentOutputs = (invoke: ReturnType<typeof vi.fn>) =>
+    invoke.mock.calls.map(([, params]) => params.inputs.find((v: { name: string }) => v.name === 'outputs')?.value)
+
+  it('prompts for the value and sends the engine a placeholder, then the pasted value', async () => {
+    const invoke = vi.fn().mockResolvedValue({ renderedFiles: {} })
+
+    renderWithApi(<Instruction title="Run this:" command={command} templateContext={ctx} />, invoke)
+
+    const field = screen.getByPlaceholderText(/paste the api_token value/i)
+    await waitFor(() => expect(invoke).toHaveBeenCalled())
+    expect(sentOutputs(invoke).at(-1)).toEqual({ fetch_token: { url: 'https://api', api_token: '<api_token>' } })
+
+    fireEvent.change(field, { target: { value: 'pasted-token' } })
+    await waitFor(() =>
+      expect(sentOutputs(invoke).at(-1)).toEqual({ fetch_token: { url: 'https://api', api_token: 'pasted-token' } }),
+    )
+    expect(JSON.stringify(invoke.mock.calls)).not.toMatch(/real-secret|<redacted>/)
+  })
+
+  it('shows a placeholder, never the value or <redacted>, engine offline', async () => {
+    const invoke = vi.fn().mockRejectedValue(new Error('engine offline'))
+
+    renderWithApi(<Instruction title="Run this:" command={command} templateContext={ctx} />, invoke)
+
+    await screen.findByText(/simplified resolver/)
+    expect(screen.getByText('curl -H "Authorization: Bearer <api_token>" https://api')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/real-secret|<redacted>/)
   })
 })

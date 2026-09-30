@@ -245,7 +245,8 @@ describe('GitAuth — Re-authenticate (real hook)', () => {
     fireEvent.change(screen.getByPlaceholderText(/GitLab access token/i), { target: { value: 'glpat-abc' } })
     fireEvent.click(screen.getByRole('button', { name: 'Authenticate' }))
     await screen.findByRole('button', { name: 'Re-authenticate' })
-    expect(publishedOutputs()).toMatchObject({ GITLAB_TOKEN: 'glpat-abc', __AUTHENTICATED: 'true' })
+    // The token is a sensitive output, so the probe's JSON shows it as <redacted>
+    expect(publishedOutputs()).toMatchObject({ GITLAB_TOKEN: '<redacted>', __AUTHENTICATED: 'true' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Re-authenticate' }))
 
