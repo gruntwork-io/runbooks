@@ -20,6 +20,11 @@
  * older Go-based `runbooks` CLI. The launcher therefore carries a marker line,
  * and install and uninstall only replace or remove a file that has it.
  *
+ * The launchers are templates in ./cli-launcher/, whose notes say why each
+ * line is there. They are imported as text, which Bun does natively and the
+ * textImports plugin in electron.vite.config.ts does for the build, so they
+ * are bundled into the main process and nothing is read from disk at runtime.
+ *
  * Everything that decides what to write, and whether a file is ours, is a pure
  * function or takes its paths as parameters so it can be tested without an
  * Electron app; the exported entry points read `app` / `process` and hand the
@@ -31,6 +36,8 @@ import * as os from "os"
 import * as path from "path"
 import { execFile as execFileCb } from "child_process"
 import { promisify } from "util"
+import unixLauncherTemplate from "./cli-launcher/runbooks.sh" with { type: "text" }
+import windowsLauncherTemplate from "./cli-launcher/runbooks.cmd" with { type: "text" }
 
 const execFile = promisify(execFileCb)
 
@@ -120,68 +127,51 @@ export function shellSingleQuote(value: string): string {
 const VERBOSE_FLAG = "--verbose"
 
 /**
- * The macOS/Linux launcher. It starts the app in the background with its
- * output discarded and returns at once, like `code .`. The app still gets the
- * caller's arguments, working directory and environment, so relative paths
- * and the handoff to an already running instance work as before.
+ * Fill in a launcher template from ./cli-launcher/.
  *
- * Not `open -a`: for an app that is already running, LaunchServices only
- * activates it and drops the arguments, and it starts the app in `/` with
- * its own environment rather than the terminal's.
- *
- * A plain `&` is not enough to keep the terminal from reaching the app. From
- * a shell script, the app would stay in the launcher's process group. When
- * the launcher is a terminal's own command (a VS Code task, `xterm -e`), the
- * kernel sends SIGHUP to that group as the launcher exits, killing the app
- * before it opens a window. When a wrapper script runs `runbooks .`, Ctrl+C
- * reaches it, because Electron replaces the SIGINT that sh ignores for
- * background commands with its own handler. So the app gets a session of its
- * own from setsid(1), which Linux has. macOS has no setsid(1), but its
- * /bin/sh is bash, whose job control (`set -m`) gives the app a process group
- * of its own, outside the terminal's foreground group. Not under dash, which
- * would stop `runbooks . &` for terminal input. SIGHUP is ignored for the
- * moment between starting setsid and the app leaving the session. Runbook
- * scripts do not inherit ignored signals, because child_process resets every
- * signal to its default in the processes it spawns.
- *
- * The existence check keeps a moved or deleted app from failing silently now
- * that stderr is discarded; 127 is what sh itself exits with then.
+ * Lines that start with `notePrefix`, after any indentation, are notes for
+ * whoever edits the template and are dropped. The rest is joined with `eol`,
+ * whatever line endings the checkout gave the template, and then each
+ * `{{name}}` is replaced with `values[name]`. The values go in last, in one
+ * pass and verbatim, so nothing in a path (a `$`, a `{{`, a newline) is
+ * reinterpreted.
  */
-export function renderUnixLauncher(target: string): string {
-  const start = `"$app" "$@" </dev/null >/dev/null 2>&1 &`
-  return [
-    "#!/bin/sh",
-    `# ${LAUNCHER_MARKER}`,
-    `app=${shellSingleQuote(target)}`,
-    `if [ ! -x "$app" ]; then`,
-    `  printf "runbooks: Runbooks was not found at %s. If you moved or reinstalled it, open Runbooks and install the 'runbooks' command again.\\n" "$app" >&2`,
-    "  exit 127",
-    "fi",
-    `for arg in "$@"; do`,
-    `  if [ "$arg" = ${VERBOSE_FLAG} ]; then exec "$app" "$@"; fi`,
-    "done",
-    "trap '' HUP",
-    "if command -v setsid >/dev/null 2>&1; then",
-    `  setsid ${start}`,
-    "else",
-    `  if [ -n "\${BASH_VERSION-}" ]; then set -m; fi`,
-    `  ${start}`,
-    "fi",
-    "",
-  ].join("\n")
+export function renderTemplate(
+  template: string,
+  notePrefix: string,
+  eol: string,
+  values: Record<string, string>,
+): string {
+  return template
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith(notePrefix))
+    .join(eol)
+    .replace(/\{\{(\w+)\}\}/g, (placeholder, name: string) => {
+      if (!Object.hasOwn(values, name)) {
+        throw new Error(`The 'runbooks' launcher template has no value for ${placeholder}.`)
+      }
+      return values[name]
+    })
 }
 
 /**
- * The Windows launcher. Like the macOS/Linux one it returns at once: a batch
- * file would otherwise wait for the app to quit, even though it is a GUI
- * program. `start` keeps the caller's working directory and environment.
- * ELECTRON_NO_ATTACH_CONSOLE stops Electron from attaching to the caller's
- * console and printing the app's logs there; setlocal keeps that variable
- * out of the caller's shell.
- *
- * --verbose is looked for with `shift`, which leaves %* as it was. A
- * `for %%a in (%*)` loop would treat the `?` in a go-getter `?ref=` as a
- * wildcard and expand it against the working directory.
+ * The macOS/Linux launcher: ./cli-launcher/runbooks.sh with the app's path,
+ * quoted for sh, filled in. It starts the app in the background with its
+ * output discarded and returns at once, like `code .`; the template's notes
+ * say why each line is there.
+ */
+export function renderUnixLauncher(target: string): string {
+  return renderTemplate(unixLauncherTemplate, "##", "\n", {
+    marker: LAUNCHER_MARKER,
+    app: shellSingleQuote(target),
+    verboseFlag: VERBOSE_FLAG,
+  })
+}
+
+/**
+ * The Windows launcher: ./cli-launcher/runbooks.cmd with the app's path
+ * filled in. Like the macOS/Linux one it returns at once; the template's
+ * notes say why each line is there. The escaping is done here:
  *
  * cmd.exe expands `%VAR%` even inside double quotes, so a literal `%` in the
  * path is doubled; Windows paths cannot contain `"`. CRLF line endings,
@@ -198,23 +188,11 @@ export function renderWindowsLauncher(target: string, localAppData?: string): st
     base && target.toLowerCase().startsWith(`${base.toLowerCase()}\\`)
       ? `%LOCALAPPDATA%${target.slice(base.length).replace(/%/g, "%%")}`
       : target.replace(/%/g, "%%")
-  return [
-    "@echo off",
-    `rem ${LAUNCHER_MARKER}`,
-    "setlocal",
-    ":scan",
-    `if "%~1"=="" goto detach`,
-    `if /i "%~1"=="${VERBOSE_FLAG}" goto verbose`,
-    "shift",
-    "goto scan",
-    ":verbose",
-    `"${exe}" %*`,
-    "exit /b %ERRORLEVEL%",
-    ":detach",
-    `set "ELECTRON_NO_ATTACH_CONSOLE=1"`,
-    `start "" "${exe}" %*`,
-    "",
-  ].join("\r\n")
+  return renderTemplate(windowsLauncherTemplate, "::", "\r\n", {
+    marker: LAUNCHER_MARKER,
+    exe,
+    verboseFlag: VERBOSE_FLAG,
+  })
 }
 
 // ---------------------------------------------------------------------------

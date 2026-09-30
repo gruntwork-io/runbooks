@@ -17,6 +17,7 @@ const {
   LAUNCHER_MARKER,
   resolveLaunchTarget,
   shellSingleQuote,
+  renderTemplate,
   renderUnixLauncher,
   renderWindowsLauncher,
   probeLauncher,
@@ -148,6 +149,39 @@ describe("resolveLaunchTarget", () => {
 // ---------------------------------------------------------------------------
 // Launcher contents
 // ---------------------------------------------------------------------------
+
+describe("renderTemplate", () => {
+  it("drops note lines, indented ones too, and writes the given line endings", () => {
+    const template = "#!/bin/sh\n## a note\nif true; then\n  ## an indented note\n  echo {{word}}\nfi\n"
+    expect(renderTemplate(template, "##", "\r\n", { word: "hi" })).toBe(
+      "#!/bin/sh\r\nif true; then\r\n  echo hi\r\nfi\r\n",
+    )
+  })
+
+  it("renders the same from a checkout that gave the template CRLF endings", () => {
+    const lf = "@echo off\n:: a note\nrem {{marker}}\n"
+    const crlf = lf.replace(/\n/g, "\r\n")
+    const values = { marker: LAUNCHER_MARKER }
+    expect(renderTemplate(crlf, "::", "\r\n", values)).toBe(renderTemplate(lf, "::", "\r\n", values))
+    expect(renderTemplate(crlf, "::", "\n", values)).toBe(`@echo off\nrem ${LAUNCHER_MARKER}\n`)
+  })
+
+  it("inserts values verbatim, never as replacement patterns or further placeholders", () => {
+    // String.replace would read $& and $' in a replacement string, and a
+    // second pass would expand a {{name}} that came from a path. A newline in
+    // a value is not a template line ending, so it is left as it is.
+    const value = "/opt/{{other}}/$&/$'/$`/$1\nnext"
+    expect(renderTemplate("a={{value}} b={{other}}\n", "##", "\r\n", { value, other: "x" })).toBe(
+      `a=${value} b=x\r\n`,
+    )
+  })
+
+  it("refuses a placeholder it has no value for", () => {
+    expect(() => renderTemplate("{{app}} {{typo}}\n", "##", "\n", { app: "x" })).toThrow(/\{\{typo\}\}/)
+    // Not even one that names an Object.prototype member.
+    expect(() => renderTemplate("{{constructor}}\n", "##", "\n", {})).toThrow(/\{\{constructor\}\}/)
+  })
+})
 
 describe("renderUnixLauncher", () => {
   it("starts the target in the background by absolute path and carries the marker", () => {
