@@ -1,9 +1,9 @@
-import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle, Copy, Check } from "lucide-react"
+import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle } from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
 import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
-import { copyTextToClipboard } from "@/lib/utils"
+import { LocalPathRow } from "@/components/artifacts/workspace/rows/LocalPathRow"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
@@ -179,7 +179,6 @@ function GitCloneInteractive({
   // registration effect can read it — including on a later pass, once an empty
   // repo has been given its default branch.
   const [selectedLocalInfo, setSelectedLocalInfo] = useState<LocalRepoInfo | null>(null)
-  const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null)
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
   )
@@ -221,14 +220,6 @@ function GitCloneInteractive({
     setSelectedLocalInfo(info)
   }, [selectLocalRepo, repoDir])
 
-  const handleCopyPath = useCallback(async (key: string, value: string) => {
-    const ok = await copyTextToClipboard(value)
-    if (ok) {
-      setCopiedPathKey(key)
-      setTimeout(() => setCopiedPathKey(null), 2000)
-    }
-  }, [])
-
   // Compute path preview from the current form state
   const pathPreview = useMemo(() => {
     if (!workingDir) return null
@@ -242,7 +233,11 @@ function GitCloneInteractive({
     }
     if (!effectivePath) return null
 
-    const relative = effectivePath.startsWith('./') ? effectivePath : `./${effectivePath}`
+    // An absolute path has no shorter form to show, so it is displayed as-is
+    // rather than prefixed into ".//abs/path".
+    const relative = effectivePath.startsWith('./') || effectivePath.startsWith('/')
+      ? effectivePath
+      : `./${effectivePath}`
     const absolute = effectivePath.startsWith('/')
       ? effectivePath
       : `${workingDir}/${effectivePath.replace(/^\.\//, '')}`
@@ -610,37 +605,13 @@ function GitCloneInteractive({
                           disabled={isFormDisabled}
                           className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                         />
+                        {/* Relative destination; hover shows, and copy copies, the absolute path. */}
                         {pathPreview && (
-                          <div className="mt-1.5 text-xs text-muted-foreground space-y-0.5">
-                            <div className="flex items-center gap-1">
-                              <span className="text-muted-foreground">Relative:</span>
-                              <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.relative}</code>
-                              <button
-                                onClick={() => handleCopyPath('relative', pathPreview.relative)}
-                                className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
-                              >
-                                {copiedPathKey === 'relative' ? (
-                                  <Check className="size-3 text-success" />
-                                ) : (
-                                  <Copy className="size-3" />
-                                )}
-                              </button>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-muted-foreground">Absolute:</span>
-                              <code className="bg-muted px-1 py-0.5 rounded font-mono text-muted-foreground">{pathPreview.absolute}</code>
-                              <button
-                                onClick={() => handleCopyPath('absolute', pathPreview.absolute)}
-                                className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground cursor-pointer"
-                              >
-                                {copiedPathKey === 'absolute' ? (
-                                  <Check className="size-3 text-success" />
-                                ) : (
-                                  <Copy className="size-3" />
-                                )}
-                              </button>
-                            </div>
-                          </div>
+                          <LocalPathRow
+                            displayText={pathPreview.relative}
+                            copyPath={pathPreview.absolute}
+                            className="mt-1.5"
+                          />
                         )}
                       </div>
                     </div>
@@ -668,9 +639,8 @@ function GitCloneInteractive({
                   <div className="flex-1">
                     <p className="text-sm font-medium text-warning-foreground m-0">Local path already exists</p>
                     <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                      The local path{pathPreview?.relative ? <> (<code className="text-warning-foreground">{pathPreview.relative}</code>)</> : ''} is not empty.
+                      The local path{pathPreview?.relative ? <> (<code className="text-warning-foreground" title={pathPreview.absolute}>{pathPreview.relative}</code>)</> : ''} is not empty.
                       Delete it and continue with git clone? Any changes you&apos;ve made to files in this directory will be lost.
-                      {pathPreview?.absolute && <> See <strong>Additional Settings</strong> above for the full path.</>}
                     </p>
                     <div className="flex items-center gap-2 mt-2">
                       <Button
