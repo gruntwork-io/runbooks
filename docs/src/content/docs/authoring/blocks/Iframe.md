@@ -24,7 +24,7 @@ Embed a page from the runbook's `assets/` folder:
 
 ### Required Props
 
-- `src` (string) - The page to load: an `http://` or `https://` URL, or a path that starts with `./assets/` for a file in the runbook's `assets/` folder.
+- `src` (string) - The page to load: an `https://` URL, an `http://` URL on `localhost` or `127.0.0.1` (such as a local dev server), or a path that starts with `./assets/` for a file in the runbook's `assets/` folder.
 
 ### Optional Props
 

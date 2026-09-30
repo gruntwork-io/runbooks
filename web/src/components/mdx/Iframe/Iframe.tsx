@@ -6,7 +6,7 @@ import { toRunbookAssetUrl } from "@/lib/assetPaths"
 import { runbookStorageKey } from "@/components/mdx/_shared/lib/runbookStorageKey"
 
 interface IframeProps {
-  /** An http(s) URL, or a path to a file in the runbook's assets folder (`./assets/site/index.html`). */
+  /** An https URL, an http URL on localhost or 127.0.0.1, or a path to a file in the runbook's assets folder (`./assets/site/index.html`). */
   src: string
   /** Label shown above the frame and read by screen readers. The frame's location is always shown next to it. */
   title?: string
@@ -133,12 +133,18 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
 
 Iframe.displayName = "Iframe"
 
+// Hosts whose plain-http traffic never leaves the machine, so nothing on the
+// network can rewrite the page. Matches the http sources in the CSP's
+// frame-src (electron/main/csp.ts), which can't express an IPv6 literal.
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"])
+
 /**
  * The URL the frame loads for `src`, or why `src` is not allowed.
  *
- * Only http(s) URLs and `./assets/` paths are allowed. Either way the frame
- * gets an origin other than the app's: a file:// frame would share the app's
- * origin and could reach `window.api` through `parent`.
+ * Only https URLs, http URLs on a loopback host, and `./assets/` paths are
+ * allowed. Each gives the frame an origin other than the app's: a file://
+ * frame would share the app's origin and could reach `window.api` through
+ * `parent`.
  */
 function resolveSource(src: unknown): FrameSource {
   if (typeof src !== "string" || src.trim() === "") {
@@ -149,7 +155,7 @@ function resolveSource(src: unknown): FrameSource {
   }
 
   const unsupported = {
-    error: `Unsupported src "${src}". Use an http:// or https:// URL, or a path that starts with ./assets/ for a file in the runbook's assets folder.`,
+    error: `Unsupported src "${src}". Use an https:// URL, an http:// URL on localhost or 127.0.0.1, or a path that starts with ./assets/ for a file in the runbook's assets folder.`,
   }
   let url: URL
   try {
@@ -157,7 +163,8 @@ function resolveSource(src: unknown): FrameSource {
   } catch {
     return unsupported
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
+  const isLoopbackHttp = url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname)
+  if (url.protocol !== "https:" && !isLoopbackHttp) {
     return unsupported
   }
   return { url: url.href, location: url.host, isLocal: false }

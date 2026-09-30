@@ -73,6 +73,16 @@ describe("Iframe", () => {
     expect(screen.getByTestId("iframe-location")).toHaveTextContent("login.evil.example")
   })
 
+  it.each([
+    ["localhost", "http://localhost:3000/", "localhost:3000"],
+    ["127.0.0.1", "http://127.0.0.1:8080/dashboard", "127.0.0.1:8080"],
+  ])("loads a plain-http page on %s", async (_name, src, location) => {
+    await renderLoaded({ src })
+
+    expect(frame()!.getAttribute("src")).toBe(src)
+    expect(screen.getByTestId("iframe-location")).toHaveTextContent(location)
+  })
+
   it("loads a file from the runbook's assets folder over runbook-asset:", async () => {
     await renderLoaded({ src: "./assets/site/index.html" })
 
@@ -101,6 +111,10 @@ describe("Iframe", () => {
   })
 
   it.each([
+    ["a plain-http URL off the machine", "http://example.com/"],
+    ["a plain-http LAN address", "http://192.168.1.10:3000/"],
+    ["a plain-http host that only starts with localhost", "http://localhost.evil.example/"],
+    ["a plain-http IPv6 loopback address", "http://[::1]:3000/"],
     ["a file: URL", "file:///etc/hosts"],
     ["a data: URL", "data:text/html,<h1>hi</h1>"],
     ["a javascript: URL", "javascript:alert(1)"],

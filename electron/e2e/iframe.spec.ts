@@ -60,7 +60,8 @@ test.beforeEach(() => {
   fs.mkdirSync(siteDir, { recursive: true })
   fs.writeFileSync(
     path.join(runbookDir, "runbook.mdx"),
-    `# Iframes\n\n<Iframe src="./assets/site/index.html" title="Local" />\n\n<Iframe src="${serverUrl}" title="External" />\n`,
+    `# Iframes\n\n<Iframe src="./assets/site/index.html" title="Local" />\n\n<Iframe src="${serverUrl}" title="External" />\n\n` +
+      `<Iframe src="${serverUrl.replace("127.0.0.1", "localhost")}" title="Localhost" />\n`,
   )
   fs.writeFileSync(path.join(runbookDir, "secret.txt"), "secret")
   fs.writeFileSync(path.join(siteDir, "index.html"), LOCAL_PAGE)
@@ -90,7 +91,11 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
 
 /** Click the Load button of the block titled `title`. */
 async function loadFrame(page: Page, title: string): Promise<void> {
-  await page.locator(".runbook-block", { hasText: title }).getByRole("button", { name: "Load page" }).click()
+  await page
+    .locator(".runbook-block")
+    .filter({ has: page.getByText(title, { exact: true }) })
+    .getByRole("button", { name: "Load page" })
+    .click()
 }
 
 /** The frame that has loaded `url`, once it has. */
@@ -114,7 +119,7 @@ test.describe("Iframe block", () => {
   test("loads nothing until the user clicks Load", async () => {
     const { app, page } = await launch()
     try {
-      await expect(page.getByRole("button", { name: "Load page" })).toHaveCount(2)
+      await expect(page.getByRole("button", { name: "Load page" })).toHaveCount(3)
       expect(page.frames()).toHaveLength(1)
     } finally {
       await app.close()
@@ -139,11 +144,13 @@ test.describe("Iframe block", () => {
     }
   })
 
-  test("loads an external http page", async () => {
+  test("loads plain-http pages on 127.0.0.1 and localhost", async () => {
     const { app, page } = await launch()
     try {
       await loadFrame(page, "External")
+      await loadFrame(page, "Localhost")
       await expect(page.frameLocator('iframe[title="External"]').getByRole("heading", { name: "External page" })).toBeVisible()
+      await expect(page.frameLocator('iframe[title="Localhost"]').getByRole("heading", { name: "External page" })).toBeVisible()
 
       expect(await canReachAppApi(await frameAt(page, serverUrl))).toBe(false)
     } finally {

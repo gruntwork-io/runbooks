@@ -37,8 +37,13 @@ describe("buildContentSecurityPolicy", () => {
     expect(policy).toContain("script-src 'self' 'unsafe-eval'")
   })
 
-  it("frames may load http(s) pages and runbook assets, never file: URLs", () => {
-    expect(sources(buildContentSecurityPolicy(), "frame-src")).toEqual(["http:", "https:", "runbook-asset:"])
+  it("frames may load https pages, http pages on loopback hosts and runbook assets, never file: URLs", () => {
+    expect(sources(buildContentSecurityPolicy(), "frame-src")).toEqual([
+      "https:",
+      "http://localhost:*",
+      "http://127.0.0.1:*",
+      "runbook-asset:",
+    ])
   })
 
   it("a GHES host adds https://<host> and https://avatars.<host>", () => {
