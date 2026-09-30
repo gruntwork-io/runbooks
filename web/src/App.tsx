@@ -345,6 +345,7 @@ function App() {
                     ref={runbookScrollRef}
                     content={content}
                     runbookPath={runbookPath}
+                    runbookFilePath={getRunbookResult.data?.path}
                     remoteSource={getRunbookResult.data?.remoteSource}
                     className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
                   />
