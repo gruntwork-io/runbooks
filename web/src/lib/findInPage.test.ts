@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { findTextRanges, firstMatchInView, indexAtOrAfter } from './findInPage'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { findTextRanges, firstMatchInView, indexAtOrAfter, scrollRangeIntoView } from './findInPage'
 
 function mount(html: string): HTMLElement {
   const root = document.createElement('div')
@@ -111,10 +111,97 @@ describe('indexAtOrAfter', () => {
   })
 })
 
+/** A rect in window coordinates, for jsdom, which has no layout. */
+function box(top: number, left: number, width: number, height: number): DOMRect {
+  const rect = { top, left, bottom: top + height, right: left + width, width, height, x: left, y: top }
+  return { ...rect, toJSON: () => rect }
+}
+
+/**
+ * Stand in for layout: jsdom computes '' for an unset overflow, where a
+ * browser computes 'visible', and implements no Range rects.
+ */
+function withLayout() {
+  vi.stubGlobal('getComputedStyle', (el: Element) => {
+    const { overflowX, overflowY } = (el as HTMLElement).style
+    return { overflowX: overflowX || 'visible', overflowY: overflowY || 'visible' }
+  })
+}
+
+/** Where the find bar floats, over the top-right of a 1024x768 window. */
+const BAR = box(70, 600, 400, 35)
+
 describe('firstMatchInView', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('falls back to the first match without layout', () => {
     const root = mount('<p>needle</p><p>needle</p>')
     expect(firstMatchInView(findTextRanges(root, 'needle'))).toBe(0)
     expect(firstMatchInView([])).toBe(-1)
+  })
+
+  /** Four matches: above the view, under the bar, and `nextTop` and 2000px down. */
+  function matches(nextTop: number): Range[] {
+    withLayout()
+    const root = mount('<p>needle</p><p>needle</p><p>needle</p><p>needle</p>')
+    const ranges = findTextRanges(root, 'needle')
+    const rects = [box(-40, 10, 50, 20), box(78, 900, 50, 20), box(nextTop, 10, 50, 20), box(2000, 10, 50, 20)]
+    ranges.forEach((range, i) => (range.getBoundingClientRect = () => rects[i]))
+    return ranges
+  }
+
+  it('passes over a match under the find bar for the next one on screen', () => {
+    expect(firstMatchInView(matches(300), BAR)).toBe(2)
+    // Nothing in the way: the match at the top of the view.
+    expect(firstMatchInView(matches(300))).toBe(1)
+  })
+
+  it('keeps the match under the find bar when the next one is off screen', () => {
+    expect(firstMatchInView(matches(1000), BAR)).toBe(1)
+  })
+})
+
+describe('scrollRangeIntoView', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /**
+   * A 400px-high scroll box at the top of the window, scrolled 500px, and a
+   * match on its first visible line at `left`. The match moves as the box
+   * scrolls.
+   */
+  function scrolledBox(left: number) {
+    withLayout()
+    const root = mount('<div style="overflow-y: auto"><p>needle</p></div>')
+    const scroller = root.firstElementChild as HTMLElement
+    let scrollTop = 500
+    Object.defineProperties(scroller, {
+      clientHeight: { value: 400 },
+      clientWidth: { value: 1000 },
+      scrollHeight: { value: 3000 },
+      scrollWidth: { value: 1000 },
+      scrollTop: { get: () => scrollTop, set: (value: number) => (scrollTop = value) },
+    })
+    scroller.getBoundingClientRect = () => box(76, 0, 1000, 400)
+    const [range] = findTextRanges(root, 'needle')
+    range.getBoundingClientRect = () => box(80 + 500 - scrollTop, left, 50, 20)
+    return { range, scrollTop: () => scrollTop }
+  }
+
+  it('scrolls a match out from under the find bar', () => {
+    const { range, scrollTop } = scrolledBox(900)
+    scrollRangeIntoView(range, BAR)
+    // Centred in the box, clear of the bar.
+    expect(range.getBoundingClientRect().top).toBe(76 + 200 - 10)
+    expect(scrollTop()).toBe(500 - 186)
+  })
+
+  it('leaves a match on screen where it is', () => {
+    const { range, scrollTop } = scrolledBox(10)
+    scrollRangeIntoView(range, BAR)
+    expect(scrollTop()).toBe(500)
   })
 })

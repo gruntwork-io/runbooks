@@ -65,13 +65,15 @@ export function FindBar() {
    * the next match after it; without one, the search starts at the first
    * match in view. `scroll` brings that match into view, which a recount
    * after a page change doesn't do, so streaming logs don't move the page.
+   * The bar floats over the page, so a match under it counts as hidden.
    */
   const search = useCallback((text: string, scroll: boolean) => {
     const anchor = rangesRef.current[currentRef.current]
     const ranges = findTextRanges(document.body, text)
-    const current = anchor ? indexAtOrAfter(ranges, anchor) : firstMatchInView(ranges)
+    const bar = barRef.current?.getBoundingClientRect()
+    const current = anchor ? indexAtOrAfter(ranges, anchor) : firstMatchInView(ranges, bar)
     show(ranges, current)
-    if (scroll && current >= 0) scrollRangeIntoView(ranges[current])
+    if (scroll && current >= 0) scrollRangeIntoView(ranges[current], bar)
   }, [show])
 
   const step = useCallback((delta: 1 | -1) => {
@@ -80,7 +82,7 @@ export function FindBar() {
     const from = currentRef.current
     const current = from < 0 ? (delta > 0 ? 0 : ranges.length - 1) : (from + delta + ranges.length) % ranges.length
     show(ranges, current)
-    scrollRangeIntoView(ranges[current])
+    scrollRangeIntoView(ranges[current], barRef.current?.getBoundingClientRect())
   }, [show])
 
   const openBar = useCallback(() => {

@@ -9,7 +9,8 @@
  * header would be a fourth match if the header weren't left out.
  * A long runbook checks what jsdom can't: that a search starts where the
  * reader is and that every match, even one far along a code line, scrolls
- * into view.
+ * into view, including out from under the find bar, which floats over the
+ * top of the runbook.
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
@@ -43,6 +44,15 @@ const LONG_RUNBOOK = [
   "# Long runbook",
   ...Array.from({ length: 90 }, (_, i) => `Paragraph ${i + 1}${[5, 45, 85].includes(i + 1) ? " has a needle" : ""}.`),
   "```\n" + "x".repeat(400) + " needle\n```",
+].join("\n\n")
+
+/** Rows of needles as wide as the runbook, far enough down to scroll either way. */
+const NEEDLE_ROWS = 60
+const ROWS_RUNBOOK = [
+  "# Long rows",
+  ...Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1}.`),
+  Array(NEEDLE_ROWS).fill("needle").join(" "),
+  ...Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 41}.`),
 ].join("\n\n")
 
 test.describe("Find in page", () => {
@@ -96,7 +106,10 @@ test.describe("Find in page", () => {
   const highlightSize = (name: string) =>
     page.evaluate((name) => (CSS.highlights.get(name) as Set<Range> | undefined)?.size ?? 0, name)
 
-  /** Whether the current match is on screen: inside the window and every box that clips it. */
+  /**
+   * Whether the current match is on screen: inside the window and every box
+   * that clips it, and not under the find bar, which floats over the page.
+   */
   const currentMatchInView = () =>
     page.evaluate(() => {
       const active = CSS.highlights.get("runbooks-find-active") as Set<Range> | undefined
@@ -113,7 +126,14 @@ test.describe("Find in page", () => {
           return false
         }
       }
-      return true
+      const bar = document.querySelector('[role="search"]')?.getBoundingClientRect()
+      const underBar =
+        !!bar &&
+        rect.top < bar.bottom - 1 &&
+        rect.bottom > bar.top + 1 &&
+        rect.left < bar.right - 1 &&
+        rect.right > bar.left + 1
+      return !underBar
     })
 
   test("finds, steps through and highlights matches without losing focus", async () => {
@@ -198,6 +218,30 @@ test.describe("Find in page", () => {
       await expect.poll(currentMatchInView).toBe(true)
     }
   })
+
+  // The bar sits lower in the narrow layout, under its Markdown/Code toggle.
+  for (const [layout, width] of [["wide", 1280], ["narrow", 900]] as const) {
+    test(`brings a match out from under the find bar (${layout} layout)`, async () => {
+      const launched = await launch(ROWS_RUNBOOK, "Long rows", "rows")
+      await (await launched.browserWindow(page)).evaluate((win, width) => win.setSize(width, 800), width)
+      // The first row of needles at the top of the runbook's box, where the
+      // bar floats over the row's right-hand end.
+      await page.getByText(/^needle needle/).evaluate((p) => p.scrollIntoView({ block: "start" }))
+
+      await clickMenuItem("find")
+      await page.keyboard.type("needle")
+      const status = page.getByRole("search").getByRole("status")
+      await expect(status).toHaveText(`1 of ${NEEDLE_ROWS}`)
+      await expect.poll(currentMatchInView).toBe(true)
+
+      // Along the first row, under the bar, and on into the next rows.
+      for (let current = 2; current <= 30; current++) {
+        await page.keyboard.press("Enter")
+        await expect(status).toHaveText(`${current} of ${NEEDLE_ROWS}`)
+        await expect.poll(currentMatchInView).toBe(true)
+      }
+    })
+  }
 
   test("stays clear of the narrow layout's Markdown/Code toggle", async () => {
     const launched = await launch(RUNBOOK, "Find in page")

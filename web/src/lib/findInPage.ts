@@ -162,11 +162,26 @@ export function indexAtOrAfter(ranges: Range[], anchor: Range): number {
   return ranges.length - 1
 }
 
-interface Box {
+/** A rectangle in window coordinates. A DOMRect is one. */
+export interface Box {
   top: number
   bottom: number
   left: number
   right: number
+}
+
+/**
+ * Whether `rect` is under `obstruction`: something that floats over the page,
+ * such as the find bar, so a match there is on screen but hidden.
+ */
+function covered(rect: Box, obstruction: Box | undefined): boolean {
+  if (!obstruction || obstruction.bottom <= obstruction.top || obstruction.right <= obstruction.left) return false
+  return (
+    rect.top < obstruction.bottom &&
+    rect.bottom > obstruction.top &&
+    rect.left < obstruction.right &&
+    rect.right > obstruction.left
+  )
 }
 
 /**
@@ -205,18 +220,23 @@ function rectOf(range: Range): DOMRect | null {
 /**
  * Where a new search starts: the first match that is in view or below it,
  * else the first match. Starting from the top would pull the reader of a long
- * runbook away from where they are.
+ * runbook away from where they are. A match under `obstruction` (the find
+ * bar) gives way to the next match when that one is on screen, so the search
+ * starts on a match the reader can see without the page moving.
  */
-export function firstMatchInView(ranges: Range[]): number {
+export function firstMatchInView(ranges: Range[], obstruction?: Box): number {
   if (ranges.length === 0) return -1
   const cache = new Map<Element, Box>()
+  let hidden = -1
   for (let i = 0; i < ranges.length; i++) {
     const rect = rectOf(ranges[i])
     if (!rect) return 0
     const area = visibleArea(ranges[i].startContainer.parentElement, cache)
-    if (rect.bottom > area.top) return i
+    if (rect.bottom <= area.top) continue
+    if (!covered(rect, obstruction)) return hidden >= 0 && rect.top >= area.bottom ? hidden : i
+    if (hidden < 0) hidden = i
   }
-  return 0
+  return Math.max(hidden, 0)
 }
 
 /** Whether a scroll container scrolls along `axis`. */
@@ -229,11 +249,12 @@ function scrolls(el: Element, axis: 'x' | 'y'): boolean {
 
 /**
  * Scroll `range` into the middle of every scroll container it sits in, but
- * only where it is out of view, so stepping between matches on screen doesn't
- * move the page. Works on the range itself, not its element, so a match far
- * along a long log line scrolls into view horizontally too.
+ * only where it is out of view or under `obstruction` (the find bar, which
+ * floats over the page), so stepping between matches on screen doesn't move
+ * the page. Works on the range itself, not its element, so a match far along
+ * a long log line scrolls into view horizontally too.
  */
-export function scrollRangeIntoView(range: Range): void {
+export function scrollRangeIntoView(range: Range, obstruction?: Box): void {
   const parent = range.startContainer.parentElement
   if (!rectOf(range)) {
     parent?.scrollIntoView({ block: 'center', inline: 'nearest' })
@@ -247,7 +268,7 @@ export function scrollRangeIntoView(range: Range): void {
     const box = el.getBoundingClientRect()
     const top = box.top + el.clientTop
     const left = box.left + el.clientLeft
-    if (scrollY && (rect.top < top || rect.bottom > top + el.clientHeight)) {
+    if (scrollY && (rect.top < top || rect.bottom > top + el.clientHeight || covered(rect, obstruction))) {
       el.scrollTop += (rect.top + rect.bottom) / 2 - (top + el.clientHeight / 2)
     }
     if (scrollX && (rect.left < left || rect.right > left + el.clientWidth)) {
@@ -255,7 +276,7 @@ export function scrollRangeIntoView(range: Range): void {
     }
   }
   const rect = range.getBoundingClientRect()
-  if (rect.top < 0 || rect.bottom > window.innerHeight) {
+  if (rect.top < 0 || rect.bottom > window.innerHeight || covered(rect, obstruction)) {
     window.scrollBy({ top: (rect.top + rect.bottom) / 2 - window.innerHeight / 2 })
   }
 }
