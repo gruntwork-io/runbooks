@@ -4,6 +4,7 @@
  * Ensures renderer-supplied paths stay within the session working directory
  * or a registered worktree path.
  */
+import fs from "fs"
 import path from "path"
 import { Effect } from "effect"
 import { sessionManager, runbookConfig } from "./runtime.ts"
@@ -107,13 +108,18 @@ export const validateCloneDestination = (
   })
 
 /**
- * Map a runbook-asset:// request URL to the file it names in the runbook
- * directory, or null if it must not be served. The URL's host + path
+ * Map a runbook-asset:// request URL to the file it names in the runbook's
+ * assets/ folder, or null if it must not be served. The URL's host + path
  * (runbook-asset://assets/foo.png -> assets/foo.png) is percent-decoded
  * before the check, so the path that is checked is the path that is served.
- * Containment is checked on the symlink-resolved path, so a symlink in the
- * runbook directory (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file
- * from outside it.
+ *
+ * Only files under assets/ are served, because a page the Iframe block frames
+ * runs scripts that can fetch any runbook-asset:// URL. Containment is checked
+ * on the symlink-resolved path, so a symlinked file
+ * (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file from outside
+ * assets/. Nothing is served when assets/ is itself a symlink, because
+ * `assets -> .` would make the whole runbook directory, generated files
+ * included, count as assets/.
  */
 export async function resolveRunbookAssetPath(
   requestUrl: string,
@@ -126,8 +132,14 @@ export async function resolveRunbookAssetPath(
   } catch {
     return null
   }
+  const assetsDir = path.join(runbookDir, "assets")
+  try {
+    if ((await fs.promises.lstat(assetsDir)).isSymbolicLink()) return null
+  } catch {
+    return null
+  }
   const resolved = path.resolve(path.join(runbookDir, assetRelative))
-  return (await isContainedInReal(resolved, runbookDir)) ? resolved : null
+  return (await isContainedInReal(resolved, assetsDir)) ? resolved : null
 }
 
 /**

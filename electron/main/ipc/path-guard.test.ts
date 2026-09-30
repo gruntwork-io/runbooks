@@ -192,4 +192,38 @@ describe("resolveRunbookAssetPath", () => {
   it("refuses malformed percent-encoding", async () => {
     expect(await resolveRunbookAssetPath("runbook-asset://assets/%E0%A4%A.png", work)).toBeNull()
   })
+
+  it("refuses files in the runbook directory outside assets/", async () => {
+    fs.mkdirSync(path.join(work, "generated"))
+    fs.writeFileSync(path.join(work, "generated", "out.txt"), "output")
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/..%2Frunbook.mdx", work)).toBeNull()
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/..%2Fgenerated%2Fout.txt", work)).toBeNull()
+    expect(await resolveRunbookAssetPath("runbook-asset://generated/out.txt", work)).toBeNull()
+  })
+
+  it("refuses everything when assets/ is a symlink out of the runbook directory", async () => {
+    const linked = path.join(root, "linked")
+    fs.mkdirSync(linked)
+    fs.symlinkSync("../outside", path.join(linked, "assets"))
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/secret.txt", linked)).toBeNull()
+  })
+
+  it.each([
+    ["the runbook directory", "."],
+    ["another folder in the runbook directory", "generated"],
+  ])("refuses everything when assets/ is a symlink to %s", async (_name, target) => {
+    const linked = path.join(root, "linked")
+    fs.mkdirSync(path.join(linked, "generated"), { recursive: true })
+    fs.writeFileSync(path.join(linked, "runbook.mdx"), "# Runbook")
+    fs.writeFileSync(path.join(linked, "generated", "out.txt"), "output")
+    fs.symlinkSync(target, path.join(linked, "assets"))
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/generated/out.txt", linked)).toBeNull()
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/out.txt", linked)).toBeNull()
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/runbook.mdx", linked)).toBeNull()
+  })
+
+  it("refuses everything when the runbook has no assets/ folder", async () => {
+    fs.rmSync(path.join(work, "assets"), { recursive: true })
+    expect(await resolveRunbookAssetPath("runbook-asset://assets/ok.png", work)).toBeNull()
+  })
 })

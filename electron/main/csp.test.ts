@@ -1,14 +1,16 @@
 import { describe, it, expect } from "bun:test"
 import { buildContentSecurityPolicy, githubImageOrigins } from "./csp.ts"
 
-/** The img-src directive's source list. */
-const imgSrc = (policy: string): string[] => {
+/** The source list of the directive `name`. */
+const sources = (policy: string, name: string): string[] => {
   const directive = policy
     .split(";")
     .map((d) => d.trim())
-    .find((d) => d.startsWith("img-src "))
+    .find((d) => d.startsWith(`${name} `))
   return directive ? directive.split(/\s+/).slice(1) : []
 }
+
+const imgSrc = (policy: string): string[] => sources(policy, "img-src")
 
 /** Directive names in order. */
 const directives = (policy: string): string[] =>
@@ -17,7 +19,7 @@ const directives = (policy: string): string[] =>
     .map((d) => d.trim().split(/\s+/)[0])
     .filter(Boolean)
 
-const BASE_DIRECTIVES = ["default-src", "script-src", "style-src", "img-src", "media-src", "font-src"]
+const BASE_DIRECTIVES = ["default-src", "script-src", "style-src", "img-src", "media-src", "font-src", "frame-src"]
 
 describe("buildContentSecurityPolicy", () => {
   it("with no hosts: the static policy (github.com + every ghe.com tenant + gitlab.com + gravatar)", () => {
@@ -33,6 +35,10 @@ describe("buildContentSecurityPolicy", () => {
       "https://secure.gravatar.com",
     ])
     expect(policy).toContain("script-src 'self' 'unsafe-eval'")
+  })
+
+  it("frames may load http(s) pages and runbook assets, never file: URLs", () => {
+    expect(sources(buildContentSecurityPolicy(), "frame-src")).toEqual(["http:", "https:", "runbook-asset:"])
   })
 
   it("a GHES host adds https://<host> and https://avatars.<host>", () => {

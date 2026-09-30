@@ -25,6 +25,7 @@ describe('remarkLiteralOnly', () => {
       ['nested blocks', '<Admonition title="Outer">\n  <Command args={["x"]} />\n</Admonition>'],
       ['plain HTML elements', '<div style="color: red;">\nRed text\n</div>\n\nInline <img src="./x.png" alt="x" /> image'],
       ['object keys that only resemble __proto__', `<X a={{ proto: 1, '__proto': 2, constructor: 3 }} />`],
+      ['a block whose name matches a blocked element', '<Iframe src="https://example.com" />'],
       ['links and text that only mention javascript:', '<a href="https://example.com/javascript:">Docs</a>\n\n<Command command="echo javascript: is off" />'],
     ])('%s', async (_name, source) => {
       await expect(compileRunbook(source)).resolves.toBeDefined()
@@ -62,7 +63,7 @@ describe('remarkLiteralOnly', () => {
       ['a frame element', '<frame src="./page.html" />'],
       ['an object element', '<object data="./page.html" />'],
       ['an embed element', '<embed src="./page.svg" />'],
-      ['an uppercase blocked element', '<IFRAME src="./page.html" />'],
+      ['a mixed-case blocked element', '<iFrame src="./page.html" />'],
       ['dangerouslySetInnerHTML', `<div dangerouslySetInnerHTML={{ __html: '<img src=x onerror="alert(1)">' }} />`],
       ['a srcDoc prop', `<div srcDoc="<script>alert(1)</script>" />`],
       ['a lowercase srcdoc prop', `Inline <span srcdoc="<script>alert(1)</script>" /> text`],

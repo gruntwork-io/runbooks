@@ -16,6 +16,7 @@ import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { Check } from '@/components/mdx/Check'
 import { Command } from '@/components/mdx/Command'
 import { Admonition } from '@/components/mdx/Admonition'
+import { Iframe } from '@/components/mdx/Iframe'
 import { AwsAuth } from '@/components/mdx/AwsAuth'
 import { GoogleAuth } from '@/components/mdx/GoogleAuth'
 import { GitAuth } from '@/components/mdx/GitAuth'
@@ -321,6 +322,7 @@ export const MDX_COMPONENTS = {
   GitLabMergeRequest,
   // Utility components
   Admonition,
+  Iframe,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
   pre: CodeBlock, // Code blocks with copy-on-hover button
   input: TaskListCheckbox, // Make GFM task-list checkboxes interactive + persistent

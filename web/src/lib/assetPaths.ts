@@ -28,9 +28,11 @@ const ASSET_ATTRS = new Map<string, readonly string[]>([
   ['a', ['href']], // <a href="./assets/document.pdf">
 ])
 
-// `./assets/a.png` -> `runbook-asset://assets/a.png`; any other URL unchanged.
-// Only the prefix changes, so anything after the URL (a srcset descriptor) is kept.
-function toRunbookAssetUrl(url: string): string {
+/**
+ * `./assets/a.png` -> `runbook-asset://assets/a.png`; any other URL unchanged.
+ * Only the prefix changes, so anything after the URL (a srcset descriptor) is kept.
+ */
+export function toRunbookAssetUrl(url: string): string {
   if (!url.startsWith('./assets/')) {
     return url
   }

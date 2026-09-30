@@ -1,0 +1,5 @@
+version: 1
+
+tests:
+  - name: happy-path
+    description: The runbook has no executable blocks, so this checks that it parses.

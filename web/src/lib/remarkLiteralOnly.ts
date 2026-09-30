@@ -110,7 +110,11 @@ function checkElement(element: MdxNode) {
   const name = element.name ?? ''
   const tag = `<${name}>`
 
-  if (BLOCKED_ELEMENTS.has(name.toLowerCase())) {
+  // MDX renders only a name that starts with a lowercase letter as an HTML
+  // tag, and the DOM matches tag names case-insensitively, so `<iFrame>` is an
+  // iframe. Any other name is a block from MDX_COMPONENTS: `<Iframe>` is the
+  // Iframe block, and `<IFRAME>` fails to render as an unknown block.
+  if (/^[a-z]/.test(name) && BLOCKED_ELEMENTS.has(name.toLowerCase())) {
     throw notAllowed(element, `${tag} elements are not allowed in runbooks.`)
   }
   if (name.includes('.')) {

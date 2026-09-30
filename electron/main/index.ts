@@ -5,7 +5,7 @@ if (process.env.ELECTRON_RENDERER_URL) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
 }
 
-import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
+import { app, shell, ipcMain, dialog, protocol, net, nativeTheme, session } from "electron"
 import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
@@ -25,6 +25,7 @@ import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
 import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
+import { installPermissionHandlers } from "./permissions.ts"
 import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
@@ -337,6 +338,8 @@ app.on("open-file", (event, filePath) => {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(() => {
+  installPermissionHandlers(session.defaultSession)
+
   // Register a protocol handler to serve runbook assets (images, videos, etc.)
   // from the local filesystem. The renderer rewrites ./assets/foo.png to
   // runbook-asset://assets/foo.png which this handler resolves relative to the
@@ -344,8 +347,8 @@ app.whenReady().then(() => {
   protocol.handle("runbook-asset", async (request) => {
     // URL looks like: runbook-asset://assets/foo.png
     // Security: resolveRunbookAssetPath returns null unless the file is within
-    // the runbook directory after resolving symlinks, so neither `..` nor a
-    // symlink shipped in the runbook dir can serve a file from outside it.
+    // the runbook's assets/ folder after resolving symlinks, so neither `..`
+    // nor a symlink shipped in the runbook dir can serve a file from outside it.
     const resolved = await resolveRunbookAssetPath(
       request.url,
       path.dirname(runbookConfig.localPath),
