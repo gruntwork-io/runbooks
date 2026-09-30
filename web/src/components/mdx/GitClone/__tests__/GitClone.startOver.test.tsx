@@ -122,7 +122,8 @@ describe("GitClone — stopping use of a local checkout", () => {
 
     await user.click(screen.getByRole("button", { name: /Stop using this repo/i }))
 
-    // Nothing of the checkout stays live for later blocks...
+    // Nothing of the checkout stays in this block's outputs or the workspace
+    // panel ($REPO_FILES is not held back; see the GitClone docs)...
     expect(publishedOutputs()).toEqual({})
     expect(unregisterWorkTree).toHaveBeenCalledWith("test-clone")
     expect(screen.queryByText("Using local checkout")).not.toBeInTheDocument()
