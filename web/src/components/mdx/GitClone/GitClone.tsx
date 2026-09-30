@@ -233,14 +233,18 @@ function GitCloneInteractive({
     }
     if (!effectivePath) return null
 
-    // An absolute path has no shorter form to show, so it is displayed as-is
-    // rather than prefixed into ".//abs/path".
-    const relative = effectivePath.startsWith('./') || effectivePath.startsWith('/')
-      ? effectivePath
-      : `./${effectivePath}`
-    const absolute = effectivePath.startsWith('/')
-      ? effectivePath
-      : `${workingDir}/${effectivePath.replace(/^\.\//, '')}`
+    // An absolute path (POSIX, Windows drive or UNC) inside the working
+    // directory is shown relative to it, as the result panel shows it once
+    // cloned. Only one outside it, which the clone rejects, is shown as-is.
+    if (/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(effectivePath)) {
+      const base = workingDir.replace(/[\\/]+$/, '')
+      const rest = effectivePath.startsWith(base) ? effectivePath.slice(base.length) : ''
+      const inside = /^[\\/]/.test(rest) ? rest.replace(/^[\\/]+/, '') : ''
+      return { relative: inside ? `./${inside}` : effectivePath, absolute: effectivePath }
+    }
+
+    const relative = effectivePath.startsWith('./') ? effectivePath : `./${effectivePath}`
+    const absolute = `${workingDir}/${effectivePath.replace(/^\.\//, '')}`
 
     return { relative, absolute }
   }, [workingDir, localPath, gitUrl])

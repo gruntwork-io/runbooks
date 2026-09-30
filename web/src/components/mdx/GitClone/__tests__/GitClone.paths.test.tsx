@@ -73,11 +73,34 @@ describe("GitClone — Local Path preview", () => {
     expect(await navigator.clipboard.readText()).toBe("/work/infra-live")
   })
 
-  it("shows an absolute Local Path as-is, without a ./ prefix", async () => {
+  it("shows an absolute Local Path inside the working directory relative to it", async () => {
+    const user = userEvent.setup()
     renderGitClone({ prefilledUrl: REPO_URL, prefilledLocalPath: "/work/nested/infra" })
 
-    expect(await screen.findByText("/work/nested/infra")).toHaveAttribute("title", "/work/nested/infra")
-    expect(screen.queryByText(".//work/nested/infra")).not.toBeInTheDocument()
+    expect(await screen.findByText("./nested/infra")).toHaveAttribute("title", "/work/nested/infra")
+    expect(screen.queryByText("/work/nested/infra")).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /Copy full path/i }))
+
+    expect(await navigator.clipboard.readText()).toBe("/work/nested/infra")
+  })
+
+  it("does not treat a sibling that shares the working directory's prefix as inside it", async () => {
+    renderGitClone({ prefilledUrl: REPO_URL, prefilledLocalPath: "/workshop/infra" })
+
+    expect(await screen.findByText("/workshop/infra")).toHaveAttribute("title", "/workshop/infra")
+  })
+
+  it("recognises a Windows absolute Local Path", async () => {
+    mockIpc({ "session:get": { workingDir: "C:\\work" } })
+    const user = userEvent.setup()
+    renderGitClone({ prefilledUrl: REPO_URL, prefilledLocalPath: "C:\\work\\infra" })
+
+    expect(await screen.findByText("./infra")).toHaveAttribute("title", "C:\\work\\infra")
+
+    await user.click(screen.getByRole("button", { name: /Copy full path/i }))
+
+    expect(await navigator.clipboard.readText()).toBe("C:\\work\\infra")
   })
 })
 
@@ -120,6 +143,6 @@ describe("GitClone — overwrite confirmation", () => {
     const heading = await screen.findByText("Local path already exists")
     const warning = heading.parentElement as HTMLElement
     expect(within(warning).getByText("./infra-live")).toHaveAttribute("title", "/work/infra-live")
-    expect(screen.queryByText(/See Additional Settings/i)).not.toBeInTheDocument()
+    expect(warning).not.toHaveTextContent(/Additional Settings/i)
   })
 })
