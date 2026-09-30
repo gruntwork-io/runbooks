@@ -1,34 +1,65 @@
 /**
- * Per-level log files for scripts.
+ * Log files for scripts.
  *
- * Every run gets one file per log level, named by an environment variable the
- * way RUNBOOK_OUTPUT names the outputs file. The injected log_* helpers append
- * to them, and so can any command (`tofu plan 2>>"$RUNBOOK_ERROR_LOG"`) or a
- * script in another language. Nothing written there touches stdout, so it
- * never ends up in a `$(...)` capture. The spawner follows the files while
- * the script runs, so their lines reach the log view and exec.log live.
+ * Every run gets log files named by environment variables, the way
+ * RUNBOOK_OUTPUT names the outputs file:
+ *
+ *  - RUNBOOK_LOG: the log_* helpers append every line here, whatever its
+ *    level. One file keeps the lines in the order the script wrote them.
+ *    Each line names its own level, so it is shown as written.
+ *  - RUNBOOK_INFO_LOG, RUNBOOK_WARN_LOG, RUNBOOK_ERROR_LOG, RUNBOOK_DEBUG_LOG:
+ *    one per level, for lines that don't name one, such as a tool's stderr
+ *    (`tofu plan 2>>"$RUNBOOK_ERROR_LOG"`). Each line gets the file's level.
+ *
+ * Any command, or a script in another language, can append to them. Nothing
+ * written there touches stdout, so it never ends up in a `$(...)` capture.
+ * The spawner follows the files while the script runs, so their lines reach
+ * the log view and exec.log live.
  */
 
 export type LogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG"
 
 export interface LogChannel {
-  readonly level: LogLevel
+  /**
+   * The level a line in the file gets when it doesn't already have the
+   * helpers' prefix, or null for a file whose lines are shown as written.
+   */
+  readonly level: LogLevel | null
   /** Environment variable that holds the file's path. */
   readonly envVar: string
   /** File name inside the run's log directory. */
   readonly fileName: string
 }
 
-export const LOG_CHANNELS: readonly LogChannel[] = [
+/** A per-level file: every line in it is shown at `level`. */
+export interface LevelLogChannel extends LogChannel {
+  readonly level: LogLevel
+}
+
+/** The file the log_* helpers append to. Its lines name their own level. */
+export const RUNBOOK_LOG_CHANNEL: LogChannel = {
+  level: null,
+  envVar: "RUNBOOK_LOG",
+  fileName: "runbook.log",
+}
+
+/** One file per level, for lines that don't name one. */
+export const LEVEL_LOG_CHANNELS: readonly LevelLogChannel[] = [
   { level: "INFO", envVar: "RUNBOOK_INFO_LOG", fileName: "info.log" },
   { level: "WARN", envVar: "RUNBOOK_WARN_LOG", fileName: "warn.log" },
   { level: "ERROR", envVar: "RUNBOOK_ERROR_LOG", fileName: "error.log" },
   { level: "DEBUG", envVar: "RUNBOOK_DEBUG_LOG", fileName: "debug.log" },
 ]
 
-/** The channels, each with its file's path inside `dir`. */
-export const logChannelFiles = (dir: string) =>
-  LOG_CHANNELS.map((channel) => ({ ...channel, path: `${dir}/${channel.fileName}` }))
+/**
+ * Every log file a run gets. RUNBOOK_LOG comes first, so when lines turn up
+ * in several files at once, the helpers' lines are read first.
+ */
+export const LOG_CHANNELS: readonly LogChannel[] = [RUNBOOK_LOG_CHANNEL, ...LEVEL_LOG_CHANNELS]
+
+/** `channels`, each with its file's path inside `dir`. */
+export const logChannelFiles = <C extends LogChannel>(dir: string, channels: readonly C[]) =>
+  channels.map((channel) => ({ ...channel, path: `${dir}/${channel.fileName}` }))
 
 /**
  * The start of a line the helpers write: "[<UTC timestamp>] [<LEVEL>] ".
@@ -43,12 +74,13 @@ export const logTimestamp = (date: Date): string =>
 /**
  * The line to show for `line`, read from `level`'s file.
  *
- * A helper's line already names its level, so it passes through, as does a
- * blank line. Any other line was written straight to the file, so it gets
- * the helpers' prefix with the file's level: `[<at>] [ERROR] <line>`. The log
- * view's parser (web/src/lib/logs.ts) then files it under that level, even
- * when the line itself starts with something in brackets. `at` is when
- * Runbooks read the line; without it the prefix is only `[ERROR] `.
+ * A line with the helpers' prefix already names its level, so it passes
+ * through, as does a blank line. Any other line was written straight to the
+ * file, so it gets the helpers' prefix with the file's level:
+ * `[<at>] [ERROR] <line>`. The log view's parser (web/src/lib/logs.ts) then
+ * files it under that level, even when the line itself starts with something
+ * in brackets. `at` is when Runbooks read the line; without it the prefix is
+ * only `[ERROR] `.
  */
 export function tagLogLine(line: string, level: LogLevel, at?: Date): string {
   if (line.trim() === "" || HELPER_PREFIX.test(line)) return line
@@ -57,17 +89,17 @@ export function tagLogLine(line: string, level: LogLevel, at?: Date): string {
 }
 
 /**
- * Every line in a finished run's log files, tagged, in one list. For a
- * reader that only gets the files after the script has exited (the test CLI
- * runs scripts with spawnSync), so it can't order them by arrival.
+ * Every line in a finished run's per-level log files, tagged, in one list.
+ * For a reader that only gets the files after the script has exited (the
+ * test CLI runs scripts with spawnSync), so it can't order them by arrival.
  *
- * Each file keeps its own order. Across files, lines are ordered by the
- * helpers' timestamps, which are to the second; lines from the same second
- * keep the INFO, WARN, ERROR, DEBUG order of LOG_CHANNELS. A line written
- * straight to a file has no timestamp: it sorts with the next helper line in
- * that file, since it was written before it. After the last helper line (or
- * in a file with none), lines sort at `lastWritten`, the file's modification
- * time, or with the last helper line if that isn't known.
+ * Each file keeps its own order. Across files, lines are ordered by time, to
+ * the second: a line with the helpers' prefix by its timestamp, and a line
+ * without one with the next such line in its file, since it was written
+ * before it. After the last such line (or in a file with none, the usual
+ * case), lines sort at `lastWritten`, the file's modification time, or with
+ * the last timestamped line if that isn't known. Lines from the same second
+ * keep the INFO, WARN, ERROR, DEBUG order of LEVEL_LOG_CHANNELS.
  */
 export function orderLogChannelLines(
   files: ReadonlyArray<{
@@ -88,7 +120,7 @@ export function orderLogChannelLines(
       next = stamps[i] || next
       keys[i] = next
     }
-    // Lines after the last helper line have no next one.
+    // Lines after the last timestamped line have no next one.
     let previous = ""
     for (let i = 0; i < lines.length; i++) {
       previous = stamps[i] || previous

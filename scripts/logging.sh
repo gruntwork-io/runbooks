@@ -11,11 +11,13 @@
 #
 # Output format: [ISO-8601-TIMESTAMP] [LEVEL] Message
 #
-# Each function appends to the log file Runbooks names in an environment
-# variable: RUNBOOK_INFO_LOG, RUNBOOK_WARN_LOG, RUNBOOK_ERROR_LOG or
-# RUNBOOK_DEBUG_LOG. Outside Runbooks the variable is unset and the function
-# writes to stderr instead. Either way nothing goes to stdout, so it is safe
-# to log inside a function whose output is captured with $(...).
+# Every function appends to the log file Runbooks names in RUNBOOK_LOG, so
+# the lines keep the order they were written in. Outside Runbooks the variable
+# is unset, and the functions write to stderr instead. They also fall back to
+# stderr when the file can't be written, e.g. from a background job that is
+# still logging after the run ended and Runbooks deleted the file. Either way
+# nothing goes to stdout, so it is safe to log inside a function whose output
+# is captured with $(...).
 #
 # Compatible with Bash 3.2+ (macOS default version) and POSIX shells where possible.
 # =============================================================================
@@ -34,49 +36,50 @@ _log_timestamp() {
 }
 
 # -----------------------------------------------------------------------------
-# Helper: Append a log line to FILE, or to stderr if FILE is empty
-# Usage: _log_write FILE TAG MESSAGE...
+# Helper: Append a log line to $RUNBOOK_LOG, or write it to stderr if
+# RUNBOOK_LOG is unset or the append fails
+# Usage: _log_write TAG MESSAGE...
 # -----------------------------------------------------------------------------
 _log_write() {
-  local file="$1" tag="$2"
-  shift 2
-  if [ -n "$file" ]; then
-    printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >> "$file"
-  else
-    printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >&2
+  local tag="$1"
+  shift
+  if [ -n "${RUNBOOK_LOG:-}" ] &&
+    { printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >> "$RUNBOOK_LOG"; } 2>/dev/null; then
+    return 0
   fi
+  printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >&2
 }
 
 # -----------------------------------------------------------------------------
-# log_info - Log an informational message to $RUNBOOK_INFO_LOG
+# log_info - Log an informational message
 # Usage: log_info "message"
 # -----------------------------------------------------------------------------
 log_info() {
-  _log_write "${RUNBOOK_INFO_LOG:-}" "[INFO] " "$@"
+  _log_write "[INFO] " "$@"
 }
 
 # -----------------------------------------------------------------------------
-# log_warn - Log a warning message to $RUNBOOK_WARN_LOG
+# log_warn - Log a warning message
 # Usage: log_warn "message"
 # -----------------------------------------------------------------------------
 log_warn() {
-  _log_write "${RUNBOOK_WARN_LOG:-}" "[WARN] " "$@"
+  _log_write "[WARN] " "$@"
 }
 
 # -----------------------------------------------------------------------------
-# log_error - Log an error message to $RUNBOOK_ERROR_LOG
+# log_error - Log an error message
 # Usage: log_error "message"
 # -----------------------------------------------------------------------------
 log_error() {
-  _log_write "${RUNBOOK_ERROR_LOG:-}" "[ERROR]" "$@"
+  _log_write "[ERROR]" "$@"
 }
 
 # -----------------------------------------------------------------------------
-# log_debug - Log a debug message to $RUNBOOK_DEBUG_LOG (only when DEBUG=true)
+# log_debug - Log a debug message (only when DEBUG=true)
 # Usage: log_debug "message"
 # -----------------------------------------------------------------------------
 log_debug() {
   if [ "${DEBUG:-}" = "true" ]; then
-    _log_write "${RUNBOOK_DEBUG_LOG:-}" "[DEBUG]" "$@"
+    _log_write "[DEBUG]" "$@"
   fi
 }

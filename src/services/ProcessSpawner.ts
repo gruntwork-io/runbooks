@@ -14,12 +14,14 @@ export interface SpawnOptions {
    */
   readonly logFilePath?: string
   /**
-   * Files the child appends log lines to as it runs (a script's per-level log
-   * files). The spawner follows each one and adds its lines to `output` and
-   * `logFilePath` as they are written, with source "file". Their order
-   * relative to stdout and stderr is best effort. Before `output` ends, each
-   * file is read to the end, including a last line with no newline. The
-   * caller owns the files' lifecycle (creation and cleanup).
+   * Files the child appends log lines to as it runs (a script's log files).
+   * The spawner follows each one and adds its lines to `output` and
+   * `logFilePath` as they are written, with source "file". Each file's lines
+   * keep their order. Across files, and relative to stdout and stderr, the
+   * order is best effort: lines that reach several files between two reads
+   * come out grouped by file, in the order the files are given. Before
+   * `output` ends, each file is read to the end, including a last line with
+   * no newline. The caller owns the files' lifecycle (creation and cleanup).
    */
   readonly logChannels?: ReadonlyArray<SpawnLogChannel>
 }

@@ -219,11 +219,11 @@ describe("executeScript — missing Google credential file", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Per-level log files ($RUNBOOK_INFO_LOG etc.)
+// Log files ($RUNBOOK_LOG, $RUNBOOK_INFO_LOG etc.)
 // ---------------------------------------------------------------------------
 
 describe("executeScript — log files", () => {
-  it("names a log file per level in the env and asks the spawner to follow each one", async () => {
+  it("names RUNBOOK_LOG and a log file per level in the env and asks the spawner to follow each one", async () => {
     let received: SpawnOptions | undefined
     let atSpawn: Record<string, string> = {}
     const files: Record<string, string> = {}
@@ -233,10 +233,10 @@ describe("executeScript — log files", () => {
           received = options
           atSpawn = { ...files }
           // What a line written straight to each file turns into.
-          const lines = (options?.logChannels ?? []).map((channel) => ({
-            line: channel.formatLine ? channel.formatLine(`raw ${channel.path}`) : "",
-            source: "file" as const,
-          }))
+          const lines = (options?.logChannels ?? []).map((channel) => {
+            const raw = `raw ${channel.path}`
+            return { line: channel.formatLine ? channel.formatLine(raw) : raw, source: "file" as const }
+          })
           return { output: Stream.fromIterable(lines), exitCode: Effect.succeed(0), kill: Effect.void }
         }),
     })
@@ -267,12 +267,14 @@ describe("executeScript — log files", () => {
     const env = (received?.env ?? {}) as Record<string, string>
     const paths = (received?.logChannels ?? []).map((channel) => channel.path)
     expect(paths).toEqual([
+      env.RUNBOOK_LOG,
       env.RUNBOOK_INFO_LOG,
       env.RUNBOOK_WARN_LOG,
       env.RUNBOOK_ERROR_LOG,
       env.RUNBOOK_DEBUG_LOG,
     ])
     expect(paths.map((p) => p?.split("/").pop())).toEqual([
+      "runbook.log",
       "info.log",
       "warn.log",
       "error.log",
@@ -284,8 +286,11 @@ describe("executeScript — log files", () => {
       expect(files[p!]).toBeUndefined()
     }
 
+    // RUNBOOK_LOG's lines name their own level, so they're shown as written.
+    // The per-level files' lines get a timestamp and the file's level.
     const stamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
-    const lines = events.flatMap((e) => (e._tag === "log" ? [e.event.line] : []))
+    const [first, ...lines] = events.flatMap((e) => (e._tag === "log" ? [e.event.line] : []))
+    expect(first).toBe(`raw ${env.RUNBOOK_LOG}`)
     expect(lines.every((line) => stamp.test(line))).toBe(true)
     expect(lines.map((line) => line.replace(stamp, ""))).toEqual([
       `[INFO]  raw ${env.RUNBOOK_INFO_LOG}`,

@@ -22,8 +22,9 @@
  * The same stack also covers the other two ways a run ends: `timeoutMs` must
  * kill a script that is still running, and a script that finishes on its own
  * must NOT take down background jobs it deliberately left running. It also
- * checks that lines written to the per-level log files reach the log stream
- * while the script runs, and all of them before the status event.
+ * checks that lines written to the log files reach the log stream while the
+ * script runs, in order, and all of them before the status event, and that a
+ * background job can keep logging once the run has ended.
  */
 import { describe, it, expect, afterEach } from "bun:test"
 import { Effect, Fiber, Layer, Stream } from "effect"
@@ -268,7 +269,8 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
 
 describe("executeScript log files (e2e, real process)", () => {
   // Log lines start with "[<ISO-8601 zulu timestamp>] ": the helpers write
-  // one, and Runbooks adds one to a line written straight to a log file.
+  // one, and Runbooks adds one to a line written straight to a per-level
+  // log file.
   const unstamped = (lines: string[]) =>
     lines.map((l) => l.replace(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /, ""))
 
@@ -320,6 +322,40 @@ describe("executeScript log files (e2e, real process)", () => {
   )
 
   it(
+    "keeps the helpers' lines of different levels in the order the script wrote them",
+    async () => {
+      const script = [
+        "DEBUG=true",
+        'log_info "step 1: starting"',
+        'log_error "step 1 failed"',
+        'log_debug "retry 1"',
+        'log_info "step 2: retrying"',
+        'log_warn "step 2 slow"',
+        'echo "retrying"',
+        'log_info "step 3: done"',
+        "",
+      ].join("\n")
+
+      // With the event loop blocked, the script has written every line before
+      // the spawner reads any of them.
+      const { events } = await runToCompletion(script, {}, 0, { blockAfterSpawnMs: 500 })
+
+      expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+      const shown = unstamped(logLines(events))
+      expect(shown.filter((l) => l !== "retrying")).toEqual([
+        "[INFO]  step 1: starting",
+        "[ERROR] step 1 failed",
+        "[DEBUG] retry 1",
+        "[INFO]  step 2: retrying",
+        "[WARN]  step 2 slow",
+        "[INFO]  step 3: done",
+      ])
+      expect(shown).toContain("retrying")
+    },
+    20000,
+  )
+
+  it(
     "reads the log files to the end before the status event",
     async () => {
       const script = [
@@ -332,6 +368,7 @@ describe("executeScript log files (e2e, real process)", () => {
         // More than one read's worth (64 KiB) in a single write.
         'seq 1 20000 | sed "s/^/bulk /" >> "$RUNBOOK_INFO_LOG"',
         'echo "straight to the file" >> "$RUNBOOK_ERROR_LOG"',
+        'echo "[WARN] from a tool" >> "$RUNBOOK_LOG"',
         'echo "[INFO] not a helper line" >> "$RUNBOOK_ERROR_LOG"',
         "printf 'no newline at the end' >> \"$RUNBOOK_WARN_LOG\"",
         "",
@@ -356,6 +393,8 @@ describe("executeScript log files (e2e, real process)", () => {
             "[INFO]  looking up",
             "v=[value]",
             "[ERROR] straight to the file",
+            // RUNBOOK_LOG's lines name their own level: shown as written.
+            "[WARN] from a tool",
             "[ERROR] [INFO] not a helper line",
             "[WARN]  no newline at the end",
           ]),
@@ -439,6 +478,44 @@ describe("executeScript success path (e2e, real process tree)", () => {
       // job is still running.
       await new Promise((r) => setTimeout(r, 1000))
       expect(isAlive(backgroundPid)).toBe(true)
+    },
+    20000,
+  )
+
+  it(
+    "lets a background job keep logging after the run ends, to its own stderr",
+    async () => {
+      pidFile = path.join(
+        os.tmpdir(),
+        `runbook-bgtest-${process.pid}-${Math.random().toString(36).slice(2)}.pid`,
+      )
+      const outFile = `${pidFile}.out`
+      // The job inherits set -e. Once the run ends, its log file is deleted,
+      // so a log call that failed on the append would end the job.
+      const script = [
+        "set -euo pipefail",
+        `( for i in $(seq 1 100); do log_info "heartbeat $i"; sleep 0.1; done ) > '${outFile}' 2>&1 &`,
+        `echo $! > '${pidFile}'`,
+        "",
+      ].join("\n")
+
+      try {
+        const { events } = await runToCompletion(script, {})
+        expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+
+        backgroundPid = Number.parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10)
+        expect(backgroundPid).toBeGreaterThan(0)
+
+        // The run's scope has closed, so the log files are gone. The job's
+        // next log lines go to its stderr, and it keeps running.
+        const out = () => (fs.existsSync(outFile) ? fs.readFileSync(outFile, "utf8") : "")
+        await waitUntil(() => out().split("\n").filter(Boolean).length >= 3, 5000)
+        expect(out()).toMatch(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]  heartbeat \d+$/m)
+        expect(out()).not.toContain("No such file")
+        expect(isAlive(backgroundPid)).toBe(true)
+      } finally {
+        fs.rmSync(outFile, { force: true })
+      }
     },
     20000,
   )

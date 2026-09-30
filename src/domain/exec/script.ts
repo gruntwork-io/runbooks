@@ -18,11 +18,13 @@ import type { CapturedFile } from "../../types.ts"
  * Logging functions injected into every bash script wrapper.
  * Provides log_info, log_warn, log_error, log_debug.
  *
- * Each one appends to its level's log file, named by RUNBOOK_INFO_LOG,
- * RUNBOOK_WARN_LOG, RUNBOOK_ERROR_LOG or RUNBOOK_DEBUG_LOG (see
- * logChannels.ts), and never writes to stdout, so a function that logs and
- * then prints a value returns only that value through `$(...)`. With the
- * variable unset they write to stderr. Keep in sync with scripts/logging.sh.
+ * All four append to the one file named by RUNBOOK_LOG (see logChannels.ts),
+ * so their lines keep the order the script wrote them in, and each line names
+ * its level. They never write to stdout, so a function that logs and then
+ * prints a value returns only that value through `$(...)`. When RUNBOOK_LOG
+ * is unset, or the file can't be written (a background job still logging
+ * after the run ended and the file was deleted), they write to stderr
+ * instead of failing. Keep in sync with scripts/logging.sh.
  */
 const LOGGING_FUNCTIONS = `
 # --- Runbooks Logging Functions ---
@@ -33,32 +35,33 @@ _log_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
-# _log_write FILE TAG MESSAGE...: append a line to FILE, or stderr if FILE is empty
+# _log_write TAG MESSAGE...: append a line to $RUNBOOK_LOG, or write it to
+# stderr if RUNBOOK_LOG is unset or the append fails
 _log_write() {
-    local file="$1" tag="$2"
-    shift 2
-    if [ -n "$file" ]; then
-        printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >> "$file"
-    else
-        printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >&2
+    local tag="$1"
+    shift
+    if [ -n "\${RUNBOOK_LOG:-}" ] &&
+        { printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >> "$RUNBOOK_LOG"; } 2>/dev/null; then
+        return 0
     fi
+    printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >&2
 }
 
 log_info() {
-    _log_write "\${RUNBOOK_INFO_LOG:-}" "[INFO] " "$@"
+    _log_write "[INFO] " "$@"
 }
 
 log_warn() {
-    _log_write "\${RUNBOOK_WARN_LOG:-}" "[WARN] " "$@"
+    _log_write "[WARN] " "$@"
 }
 
 log_error() {
-    _log_write "\${RUNBOOK_ERROR_LOG:-}" "[ERROR]" "$@"
+    _log_write "[ERROR]" "$@"
 }
 
 log_debug() {
     if [ "\${DEBUG:-}" = "true" ]; then
-        _log_write "\${RUNBOOK_DEBUG_LOG:-}" "[DEBUG]" "$@"
+        _log_write "[DEBUG]" "$@"
     fi
 }
 # --- End Runbooks Logging Functions ---

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "bun:test"
 import {
+  LEVEL_LOG_CHANNELS,
   LOG_CHANNELS,
+  RUNBOOK_LOG_CHANNEL,
   logChannelFiles,
   logTimestamp,
   orderLogChannelLines,
@@ -8,14 +10,15 @@ import {
 } from "./logChannels.ts"
 
 describe("LOG_CHANNELS", () => {
-  it("names one RUNBOOK_<LEVEL>_LOG file per helper level", () => {
-    expect(logChannelFiles("/tmp/logs")).toEqual([
+  it("names RUNBOOK_LOG, for the helpers, and then one RUNBOOK_<LEVEL>_LOG file per level", () => {
+    expect(logChannelFiles("/tmp/logs", LOG_CHANNELS)).toEqual([
+      { level: null, envVar: "RUNBOOK_LOG", fileName: "runbook.log", path: "/tmp/logs/runbook.log" },
       { level: "INFO", envVar: "RUNBOOK_INFO_LOG", fileName: "info.log", path: "/tmp/logs/info.log" },
       { level: "WARN", envVar: "RUNBOOK_WARN_LOG", fileName: "warn.log", path: "/tmp/logs/warn.log" },
       { level: "ERROR", envVar: "RUNBOOK_ERROR_LOG", fileName: "error.log", path: "/tmp/logs/error.log" },
       { level: "DEBUG", envVar: "RUNBOOK_DEBUG_LOG", fileName: "debug.log", path: "/tmp/logs/debug.log" },
     ])
-    expect(LOG_CHANNELS).toHaveLength(4)
+    expect(LOG_CHANNELS).toEqual([RUNBOOK_LOG_CHANNEL, ...LEVEL_LOG_CHANNELS])
   })
 })
 

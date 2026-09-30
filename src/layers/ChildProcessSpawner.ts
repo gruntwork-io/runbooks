@@ -156,9 +156,11 @@ const impl: ProcessSpawnerShape = {
           logFile?.write(line + "\n")
         }
 
-        // Log channel files (e.g. RUNBOOK_INFO_LOG): followed on a timer, and
-        // also read whenever a pipe delivers data, before readline splits it,
-        // so a log line written before an `echo` is recorded before it.
+        // Log channel files (e.g. RUNBOOK_LOG): followed on a timer, and also
+        // read whenever a pipe delivers data, before readline splits it, so a
+        // log line written before an `echo` is recorded before it. Each read
+        // goes through the files in the order given, so lines that reach two
+        // files between reads come out grouped by file.
         const tails = (options?.logChannels ?? []).map((channel) =>
           openFileTail(channel.path, (line) =>
             record(channel.formatLine ? channel.formatLine(line) : line, "file"),
