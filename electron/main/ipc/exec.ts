@@ -17,6 +17,8 @@ import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
+import { encodeOutputs } from "../../../src/domain/exec/outputValues.ts"
+import type { IpcEventMap } from "../../shared/channels.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
@@ -149,9 +151,11 @@ export function registerExecHandlers(): void {
                     finalStatus = execEvent.event
                     event.sender.send("exec:status", execEvent.event)
                     break
-                  case "outputs":
-                    event.sender.send("exec:outputs", execEvent.event)
+                  case "outputs": {
+                    const payload: IpcEventMap["exec:outputs"] = { outputs: encodeOutputs(execEvent.event.outputs) }
+                    event.sender.send("exec:outputs", payload)
                     break
+                  }
                   case "files_captured":
                     event.sender.send("exec:files-captured", execEvent.event)
                     break

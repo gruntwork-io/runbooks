@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { useAwsAuth } from '../useAwsAuth'
+import { sensitiveOutput, type OutputValues } from '@/lib/outputValues'
 
 /**
  * Detection from a `{ block }` source and the confirm step that follows it. The
@@ -13,7 +14,7 @@ import { useAwsAuth } from '../useAwsAuth'
  */
 
 const registerOutputs = vi.fn()
-const runbookState: { blockOutputs: Record<string, { values: Record<string, string> }> } = {
+const runbookState: { blockOutputs: Record<string, { values: OutputValues }> } = {
   blockOutputs: {},
 }
 
@@ -82,7 +83,7 @@ const renderAwsAuth = (detectCredentials: Parameters<typeof useAwsAuth>[0]['dete
  * The source block (re-)runs and publishes these outputs. The runbook context
  * keys outputs by normalized id, so `assume-role` lands under `assume_role`.
  */
-function blockOutputs(values: Record<string, string>) {
+function blockOutputs(values: OutputValues) {
   runbookState.blockOutputs = { assume_role: { values } }
 }
 
@@ -131,6 +132,23 @@ describe('useAwsAuth — { block } detection', () => {
     expect(channelsCalled()).not.toContain('aws:env-credentials')
     // Detection is read-only: nothing is published until the user confirms.
     expect(registerOutputs).not.toHaveBeenCalled()
+  })
+
+  it('validates keys the block marked sensitive with their real values', async () => {
+    blockOutputs({
+      ...KEYS_A,
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput('secret-a'),
+      AWS_SESSION_TOKEN: sensitiveOutput('token-a'),
+    })
+    const { result } = renderAwsAuth([{ block: 'assume-role' }])
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+    expect(invoke).toHaveBeenCalledWith('aws:validate', {
+      accessKeyId: 'ASIA_A',
+      secretAccessKey: 'secret-a',
+      sessionToken: 'token-a',
+      region: 'eu-west-1',
+    })
   })
 
   it('falls back to the next source once the block runs without AWS keys', async () => {

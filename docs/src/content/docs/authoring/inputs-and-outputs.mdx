@@ -179,21 +179,33 @@ echo "sensitive:AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY" >> "$RUNBOOK_OUTPUT"
 echo "sensitive:AWS_SESSION_TOKEN=$SESSION_TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-The prefix isn't part of the key. The second output above is named `AWS_SECRET_ACCESS_KEY`, so downstream blocks read its real value as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`. Auth blocks that take credentials from a block, such as `<AwsAuth detectCredentials={[{ block: '<block-id>' }]} />`, find it by its usual name too.
+The prefix isn't part of the key. The second output above is named `AWS_SECRET_ACCESS_KEY`, so downstream blocks read it as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`. Auth blocks that take credentials from a block, such as `<AwsAuth detectCredentials={[{ block: '<block-id>' }]} />`, find it by its usual name too.
 
-Runbooks keeps a sensitive value off screen where it shows outputs:
+Runbooks hands a sensitive output's real value only to what uses it:
 
-- **View Outputs** shows `••••••••` in place of the value. The copy button on its row still copies the real value.
-- **Copy JSON** writes `"[REDACTED]"` in place of the value.
-- The [test CLI](/authoring/testing/) prints `[REDACTED]` in place of the value in its `--verbose` output and in the message of a failed `output_equals` or `output_matches` assertion.
+- A Command or Check script that references it in a template runs with the real value.
+- A [`<Template>`](/authoring/blocks/template/), or a [`<TemplateInline>`](/authoring/blocks/templateinline/) with `generateFile`, writes the real value into the file it generates.
+- An auth block's `detectCredentials` block source reads the real value.
+- The copy button on the output's row in **View Outputs** copies the real value.
+- The [test CLI](/authoring/testing/)'s `output_equals` and `output_matches` assertions compare the real value.
+
+Everywhere Runbooks only shows the value, it masks it:
+
+- **View Outputs** shows `••••••••`, and **Copy JSON** writes `"<redacted>"`.
+- The script view of a Command or Check that references the output shows `<redacted>` in its place, though the script runs with the real value.
+- A `<TemplateInline>` without `generateFile` shows `<redacted>` in its preview. So does instruction mode.
+- A block prop that references the output, such as a title, a description, a clone URL or a pull request's title and body, gets `<redacted>`.
+- The test CLI prints `<redacted>` in its `--verbose` output, in the rendered output of a `<TemplateInline>` and in the message of a failed `output_equals` or `output_matches` assertion.
 
 Once any line marks a key `sensitive:`, that output stays sensitive, even if a later line writes the same key without the prefix. The prefix is lowercase and comes first on the line.
 
 <Aside type="caution">
-Marking an output sensitive only masks it where Runbooks shows outputs. It doesn't remove the value from anywhere else:
+Runbooks can't mask what your scripts and templates produce from the real value:
 
-- The block's log shows everything your script prints, so don't `echo` the value.
-- A downstream block that uses the value in a template, such as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`, shows it wherever it shows its rendered script or file. To use a credential in later blocks, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/) instead. For a credential no auth block handles, `export` it in the producing script, and later Command and Check scripts read it from the environment (see [Shell Execution Context](/security/shell-execution-context/)).
+- A block's log shows everything its script prints, so don't `echo` a sensitive value, in the script that produces it or in one that uses it.
+- A file that a `<Template>` or a `<TemplateInline>` with `generateFile` writes holds the real value, and the block's preview and the generated files show it.
+
+To use a credential in later blocks without writing it anywhere, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/). For a credential no auth block handles, `export` it in the producing script, and later Command and Check scripts read it from the environment (see [Shell Execution Context](/security/shell-execution-context/)).
 </Aside>
 
 ### Consuming Outputs

@@ -5,6 +5,7 @@ import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { RunbookContextProvider } from '@/contexts/RunbookContext'
 import { useRunbookContext, type TemplateValue } from '@/contexts/useRunbook'
 import { useScriptExecution } from '../useScriptExecution'
+import { isSensitiveOutput, revealOutputs, sensitiveOutput, type OutputValues } from '@/lib/outputValues'
 
 // The hook runs inside the real RunbookContextProvider, so inputs and block
 // outputs reach it through registerInputs/registerOutputs exactly as they do in
@@ -81,7 +82,7 @@ function renderScriptExecution(props: Props) {
   )
 }
 
-function renderWithOutputs(props: Props, outputs: Record<string, Record<string, string>>) {
+function renderWithOutputs(props: Props, outputs: Record<string, OutputValues>) {
   const hook = renderScriptExecution(props)
   act(() => {
     for (const [blockId, values] of Object.entries(outputs)) {
@@ -187,10 +188,26 @@ describe('useScriptExecution — execute', () => {
       }),
     )
   })
+
+  it('passes the real value of a credential the referenced block marked sensitive', () => {
+    const { result } = renderWithOutputs(
+      { command: 'aws sts get-caller-identity', awsAuthId: 'mint' },
+      { mint: { AWS_ACCESS_KEY_ID: 'AKIA', AWS_SECRET_ACCESS_KEY: sensitiveOutput('topsecret') } },
+    )
+
+    act(() => result.current.exec.execute())
+
+    expect(invoke).toHaveBeenCalledWith(
+      'exec:run',
+      expect.objectContaining({
+        envVarsOverride: expect.objectContaining({ AWS_ACCESS_KEY_ID: 'AKIA', AWS_SECRET_ACCESS_KEY: 'topsecret' }),
+      }),
+    )
+  })
 })
 
 describe('useScriptExecution — outputs', () => {
-  it('reports the sensitive keys for display and registers the real values for downstream blocks', () => {
+  it('keeps a sensitive output wrapped, for display and for downstream blocks', () => {
     // Record what the run subscribes to, so the test can send its events
     const handlers = new Map<string, (data: unknown) => void>()
     vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
@@ -200,11 +217,20 @@ describe('useScriptExecution — outputs', () => {
     const { result } = renderScriptExecution({ command: 'mint-token' })
 
     act(() => result.current.exec.execute())
-    act(() => handlers.get('exec:outputs')?.({ outputs: { TOKEN: 'x', user: 'u' }, sensitiveKeys: ['TOKEN'] }))
+    act(() =>
+      handlers.get('exec:outputs')?.({
+        outputs: { TOKEN: { value: 'x', sensitive: true }, user: { value: 'u', sensitive: false } },
+      }),
+    )
 
-    expect(result.current.exec.outputs).toEqual({ TOKEN: 'x', user: 'u' })
-    expect(result.current.exec.sensitiveOutputKeys).toEqual(['TOKEN'])
-    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ TOKEN: 'x', user: 'u' })
+    // ViewOutputs gets the wrapped value, so it masks it
+    const shown = result.current.exec.outputs ?? {}
+    expect(isSensitiveOutput(shown.TOKEN)).toBe(true)
+    expect(shown.user).toBe('u')
+    // Downstream blocks get the same, and read the real value through revealOutput
+    const registered = result.current.runbook.blockOutputs.target?.values ?? {}
+    expect(isSensitiveOutput(registered.TOKEN)).toBe(true)
+    expect(revealOutputs(registered)).toEqual({ TOKEN: 'x', user: 'u' })
   })
 })
 
@@ -266,6 +292,26 @@ describe('useScriptExecution — template render', () => {
     await advance(300)
     expect(result.current.exec.hasAllOutputDependencies).toBe(true)
     expect(result.current.exec.sourceCode).toBe('echo foo')
+  })
+
+  it('shows a sensitive output as <redacted> in the rendered script, but runs with its real value', async () => {
+    const { result } = renderScriptExecution({ command: 'curl -H "Authorization: {{ .outputs.a.token }}" {{ .outputs.a.url }}' })
+
+    act(() => result.current.runbook.registerOutputs('a', { token: sensitiveOutput('s3cr3t'), url: 'https://x' }))
+    await advance(300)
+
+    // The script view is only shown, so its render never gets the secret
+    expect(result.current.exec.sourceCode).toBe('curl -H "Authorization: <redacted>" https://x')
+    expect(JSON.stringify(renderCalls())).not.toContain('s3cr3t')
+
+    // execute() renders the script again in the main process, with the real value
+    act(() => result.current.exec.execute())
+    expect(invoke).toHaveBeenCalledWith(
+      'exec:run',
+      expect.objectContaining({
+        templateVarValues: { inputs: {}, outputs: { a: { token: 's3cr3t', url: 'https://x' } } },
+      }),
+    )
   })
 
   it('renders the new command when the command changes but the values do not', async () => {

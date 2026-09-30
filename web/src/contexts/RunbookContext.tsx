@@ -15,7 +15,8 @@
  *
  * **Outputs**: Key-value pairs produced by `<Check>` and `<Command>` blocks after
  * execution. Scripts can write to $RUNBOOK_OUTPUT to expose values (e.g., account IDs,
- * resource ARNs) that downstream blocks can consume.
+ * resource ARNs) that downstream blocks can consume. A value the script marked
+ * `sensitive:` is stored as a `Redacted` (see lib/outputValues.ts).
  *
  * ## Data Flow
  *
@@ -47,6 +48,7 @@ import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { normalizeBlockId } from '@/lib/utils'
 import { flattenBlockOutputs } from '@/lib/templateUtils'
 import type { TemplateContext } from '@/lib/templateUtils'
+import type { OutputValue as BlockOutputValue, OutputValues } from '@/lib/outputValues'
 
 /**
  * Data stored for each registered Inputs block.
@@ -74,19 +76,20 @@ export interface TemplateValue {
 
 /**
  * An output value with its name and value - produced by Check/Command blocks.
- * Outputs are always strings (written via $RUNBOOK_OUTPUT as key=value pairs).
+ * Outputs are strings (written via $RUNBOOK_OUTPUT as key=value pairs), or a
+ * `Redacted` string for one the script marked `sensitive:`.
  */
 export interface OutputValue {
   name: string
-  value: string
+  value: BlockOutputValue
 }
 
 /**
  * Data stored for each Command/Check block's outputs, including metadata.
  */
 export interface BlockOutputs {
-  /** The output values from the script (key-value pairs) */
-  values: Record<string, string>
+  /** The output values from the script (key-value pairs). Sensitive ones are `Redacted`. */
+  values: OutputValues
   /** When outputs were captured */
   timestamp: string
 }
@@ -103,7 +106,7 @@ export function flattenInputs(inputs: TemplateValue[]): Record<string, unknown> 
  * Helper function to convert a values map to OutputValue[].
  * Useful when you need the array form.
  */
-export function valuesToOutputs(values: Record<string, string>): OutputValue[] {
+export function valuesToOutputs(values: OutputValues): OutputValue[] {
   return Object.entries(values).map(([name, value]) => ({ name, value }))
 }
 
@@ -145,7 +148,7 @@ export interface RunbookContextType {
   blockOutputs: Record<string, BlockOutputs>
 
   /** Register or replace a block's outputs (completely replaces previous outputs) */
-  registerOutputs: (blockId: string, values: Record<string, string>) => void
+  registerOutputs: (blockId: string, values: OutputValues) => void
 
   /** Get outputs for a specific block */
   getOutputs: (blockId: string) => OutputValue[] | undefined
@@ -161,6 +164,9 @@ export interface RunbookContextType {
    * The `inputsId` parameter controls **input scoping only** — it determines which
    * Inputs blocks contribute to the `inputs` namespace. Outputs are always global
    * because output producers (Command/Check) and consumers are independent.
+   *
+   * Sensitive outputs stay `Redacted` here. A render sends plain strings, so it
+   * picks revealTemplateOutputs or maskTemplateOutputs (see templateUtils).
    *
    * @param inputsId - One or more Inputs block IDs to read input values from
    * @returns TemplateContext with { inputs, outputs } namespaces
@@ -283,7 +289,7 @@ export function RunbookContextProvider({ children, runbookName, remoteSource, st
     return result
   }, [getConfig, getValues])
 
-  const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
+  const registerOutputs = useCallback((blockId: string, values: OutputValues) => {
     const normalizedId = normalizeBlockId(blockId)
     console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]: keys=${Object.keys(values).length}`)
     setBlockOutputs(prev => ({

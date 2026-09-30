@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useApi } from '@/contexts/ApiContext'
-import { buildTemplatePayload, type TemplateContext } from '@/lib/templateUtils'
+import { buildTemplatePayload, maskTemplateOutputs, type TemplateContext } from '@/lib/templateUtils'
 import {
   detectManualFields,
   fieldsNeedingPrompt,
@@ -149,7 +149,11 @@ export function useInstructionResolution({
     commands.forEach((c, i) => {
       templateFiles[`cmd-${i}`] = c
     })
-    const inputs = buildTemplatePayload(mergedContext)
+    // Instruction mode only shows the command, so a sensitive output shows as <redacted>
+    const inputs = buildTemplatePayload({
+      inputs: mergedContext.inputs,
+      outputs: maskTemplateOutputs(mergedContext.outputs),
+    })
 
     api
       .invoke('boilerplate:render-inline', { templateFiles, inputs })

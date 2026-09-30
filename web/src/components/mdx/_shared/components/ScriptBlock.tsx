@@ -155,7 +155,6 @@ export function ScriptBlock({
     execute: handleExecute,
     cancel,
     outputs,
-    sensitiveOutputKeys,
     hasScriptDrift,
   } = useScriptExecution({
     componentId: id,
@@ -568,7 +567,6 @@ export function ScriptBlock({
           />
           <ViewOutputs
             outputs={outputs}
-            sensitiveKeys={sensitiveOutputKeys}
             autoOpen={outputs !== null && Object.keys(outputs).length > 0}
           />
           {/* Only show ViewSourceCode if path is used */}

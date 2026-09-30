@@ -18,7 +18,7 @@ import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useInstructionMode } from '@/contexts/useInstructionMode'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, resolveTemplateReferences } from '@/lib/templateUtils'
+import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, maskTemplateOutputs, resolveTemplateReferences, revealTemplateOutputs } from '@/lib/templateUtils'
 
 interface RenderInlineResult {
   renderedFiles: Record<string, File>
@@ -197,7 +197,13 @@ function TemplateInline({
     if (key === lastRenderedKeyRef.current) return;
     lastRenderedKeyRef.current = key;
 
-    const payload = buildTemplatePayload({ inputs: inputValues, outputs: flattenedOutputs });
+    // A sensitive output renders with its real value only when the render
+    // writes a file, which needs it. The preview shows that same render, so it
+    // shows the value too. A preview-only render shows <redacted>.
+    const payload = buildTemplatePayload({
+      inputs: inputValues,
+      outputs: effectiveGenerateFile ? revealTemplateOutputs(flattenedOutputs) : maskTemplateOutputs(flattenedOutputs),
+    });
 
     // blockId lets main clean up the file this block wrote at its previous
     // outputPath when the path changes (e.g. it follows a DirPicker output):

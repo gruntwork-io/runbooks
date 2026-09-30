@@ -9,6 +9,7 @@ import type {
   FileNotFoundError,
 } from "../../errors/index.ts"
 import type { CapturedFile } from "../../types.ts"
+import { sensitiveOutput, type OutputValues } from "./outputValues.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -492,23 +493,17 @@ export const parseEnvCapture = (
  */
 const SENSITIVE_OUTPUT_PREFIX = "sensitive:"
 
-export interface ParsedBlockOutputs {
-  /** Output values by key, with any `sensitive:` prefix removed from the key. */
-  readonly outputs: Record<string, string>
-  /** Keys that any line marked `sensitive:`, so the UI can mask their values. */
-  readonly sensitiveKeys: string[]
-}
-
 /**
  * Parse the contents of a RUNBOOK_OUTPUT file into key=value pairs. Pure, so
  * the test CLI shares this parser with the app.
  *
  * A key written as `sensitive:KEY` is stored as `KEY`, so templates and auth
- * blocks read it by its plain name, and is listed in `sensitiveKeys`. Once any
- * line marks a key, it stays sensitive even if a later line rewrites it.
+ * blocks read it by its plain name, and its value is wrapped as a `Redacted`
+ * (see outputValues.ts). Once any line marks a key, it stays sensitive even if
+ * a later line rewrites it; the last value still wins.
  */
-export function parseBlockOutputsContent(content: string): ParsedBlockOutputs {
-  const outputs: Record<string, string> = {}
+export function parseBlockOutputsContent(content: string): OutputValues {
+  const values: Record<string, string> = {}
   const sensitiveKeys = new Set<string>()
 
   const lines = content.split("\n")
@@ -535,11 +530,15 @@ export function parseBlockOutputsContent(content: string): ParsedBlockOutputs {
       continue
     }
 
-    outputs[key] = value
+    values[key] = value
     if (sensitive) sensitiveKeys.add(key)
   }
 
-  return { outputs, sensitiveKeys: [...sensitiveKeys] }
+  const outputs: OutputValues = {}
+  for (const [key, value] of Object.entries(values)) {
+    outputs[key] = sensitiveKeys.has(key) ? sensitiveOutput(value) : value
+  }
+  return outputs
 }
 
 /**
@@ -549,7 +548,7 @@ export function parseBlockOutputsContent(content: string): ParsedBlockOutputs {
 export const parseBlockOutputs = (
   filePath: string,
 ): Effect.Effect<
-  ParsedBlockOutputs,
+  OutputValues,
   never,
   FileSystem
 > =>
@@ -558,7 +557,7 @@ export const parseBlockOutputs = (
 
     const result = yield* fs.readFile(filePath).pipe(Effect.option)
     if (result._tag !== "Some") {
-      return { outputs: {}, sensitiveKeys: [] }
+      return {}
     }
 
     return parseBlockOutputsContent(result.value)

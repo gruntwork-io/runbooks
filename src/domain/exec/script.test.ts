@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
+import { inspect } from "node:util"
 import {
   detectInterpreter,
   isBashInterpreter,
@@ -17,6 +18,7 @@ import {
   parseBlockOutputsContent,
   captureFilesFromDir,
 } from "./script.ts"
+import { encodeOutputs, isSensitiveOutput, revealOutput } from "./outputValues.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
@@ -297,11 +299,8 @@ describe("parseBlockOutputs", () => {
       { "/output.txt": "CLUSTER_NAME=my-cluster\nREGION=us-east-1\n" },
     )
     expect(result).toEqual({
-      outputs: {
-        CLUSTER_NAME: "my-cluster",
-        REGION: "us-east-1",
-      },
-      sensitiveKeys: [],
+      CLUSTER_NAME: "my-cluster",
+      REGION: "us-east-1",
     })
   })
 
@@ -311,7 +310,7 @@ describe("parseBlockOutputs", () => {
       { "/output.txt": "MSG= hello world \n" },
     )
     // The line is trimmed before parsing, so trailing space is removed
-    expect(result.outputs.MSG).toBe(" hello world")
+    expect(result.MSG).toBe(" hello world")
   })
 
   it("skips invalid keys", async () => {
@@ -319,7 +318,7 @@ describe("parseBlockOutputs", () => {
       parseBlockOutputs("/output.txt"),
       { "/output.txt": "VALID=yes\n123INVALID=no\n-bad=no\n" },
     )
-    expect(result.outputs).toEqual({ VALID: "yes" })
+    expect(result).toEqual({ VALID: "yes" })
   })
 
   it("skips lines without equals sign", async () => {
@@ -327,20 +326,20 @@ describe("parseBlockOutputs", () => {
       parseBlockOutputs("/output.txt"),
       { "/output.txt": "GOOD=val\nno-equals-here\n" },
     )
-    expect(result.outputs).toEqual({ GOOD: "val" })
+    expect(result).toEqual({ GOOD: "val" })
   })
 
-  it("returns no outputs for a missing file", async () => {
+  it("returns empty object for missing file", async () => {
     const result = await runFs(parseBlockOutputs("/nonexistent"), {})
-    expect(result).toEqual({ outputs: {}, sensitiveKeys: [] })
+    expect(result).toEqual({})
   })
 
-  it("returns no outputs for an empty file", async () => {
+  it("returns empty object for empty file", async () => {
     const result = await runFs(
       parseBlockOutputs("/output.txt"),
       { "/output.txt": "" },
     )
-    expect(result).toEqual({ outputs: {}, sensitiveKeys: [] })
+    expect(result).toEqual({})
   })
 
   it("handles values containing equals signs", async () => {
@@ -348,7 +347,7 @@ describe("parseBlockOutputs", () => {
       parseBlockOutputs("/output.txt"),
       { "/output.txt": "CONFIG=key=value=extra\n" },
     )
-    expect(result.outputs.CONFIG).toBe("key=value=extra")
+    expect(result.CONFIG).toBe("key=value=extra")
   })
 
   it("accepts underscore-prefixed keys", async () => {
@@ -356,85 +355,72 @@ describe("parseBlockOutputs", () => {
       parseBlockOutputs("/output.txt"),
       { "/output.txt": "_PRIVATE=yes\n__DOUBLE=also\n" },
     )
-    expect(result.outputs).toEqual({ _PRIVATE: "yes", __DOUBLE: "also" })
+    expect(result).toEqual({ _PRIVATE: "yes", __DOUBLE: "also" })
   })
 
-  it("reports the keys a sensitive: prefix marks", async () => {
+  it("wraps a value the sensitive: prefix marks", async () => {
     const result = await runFs(
       parseBlockOutputs("/output.txt"),
       { "/output.txt": "AWS_REGION=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc/123\n" },
     )
-    expect(result).toEqual({
-      outputs: { AWS_REGION: "us-west-2", AWS_SECRET_ACCESS_KEY: "abc/123" },
-      sensitiveKeys: ["AWS_SECRET_ACCESS_KEY"],
+    expect(encodeOutputs(result)).toEqual({
+      AWS_REGION: { value: "us-west-2", sensitive: false },
+      AWS_SECRET_ACCESS_KEY: { value: "abc/123", sensitive: true },
     })
   })
 })
 
 describe("parseBlockOutputsContent", () => {
   it("keeps value whitespace and skips invalid or empty keys", () => {
-    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({
-      outputs: { MSG: " hi", OK: "1" },
-      sensitiveKeys: [],
-    })
+    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({ MSG: " hi", OK: "1" })
   })
 
   describe("sensitive: prefix", () => {
-    it("stores the value under the plain key and lists the key as sensitive", () => {
-      expect(parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")).toEqual({
-        outputs: { TOKEN: "s3cr3t", USER: "alice" },
-        sensitiveKeys: ["TOKEN"],
-      })
+    // toEqual can't see inside a Redacted, so compare each output's real
+    // value and whether it's sensitive
+    const parse = (content: string) => encodeOutputs(parseBlockOutputsContent(content))
+
+    it("stores the value under the plain key, wrapped as sensitive", () => {
+      const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
+      expect(Object.keys(outputs)).toEqual(["TOKEN", "USER"])
+      expect(isSensitiveOutput(outputs.TOKEN)).toBe(true)
+      expect(revealOutput(outputs.TOKEN)).toBe("s3cr3t")
+      expect(outputs.USER).toBe("alice")
+    })
+
+    it("never shows the value when the parsed outputs are printed", () => {
+      const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
+      expect(String(outputs.TOKEN)).toBe("<redacted>")
+      expect(JSON.stringify(outputs)).toBe('{"TOKEN":"<redacted>","USER":"alice"}')
+      expect(inspect(outputs)).not.toContain("s3cr3t")
     })
 
     it("trims whitespace between the prefix and the key", () => {
-      expect(parseBlockOutputsContent("sensitive: TOKEN =s3cr3t\n")).toEqual({
-        outputs: { TOKEN: "s3cr3t" },
-        sensitiveKeys: ["TOKEN"],
-      })
+      expect(parse("sensitive: TOKEN =s3cr3t\n")).toEqual({ TOKEN: { value: "s3cr3t", sensitive: true } })
     })
 
     it("keeps the value's leading whitespace, as for a plain key", () => {
-      expect(parseBlockOutputsContent("sensitive:TOKEN= s3cr3t\n").outputs.TOKEN).toBe(" s3cr3t")
+      expect(parse("sensitive:TOKEN= s3cr3t\n")).toEqual({ TOKEN: { value: " s3cr3t", sensitive: true } })
     })
 
-    it("skips an invalid or empty key after the prefix and doesn't list it", () => {
-      expect(parseBlockOutputsContent("sensitive:bad-key=x\nsensitive:=y\nsensitive:1ABC=z\n")).toEqual({
-        outputs: {},
-        sensitiveKeys: [],
-      })
+    it("skips an invalid or empty key after the prefix", () => {
+      expect(parseBlockOutputsContent("sensitive:bad-key=x\nsensitive:=y\nsensitive:1ABC=z\n")).toEqual({})
     })
 
     it("recognises only the exact lowercase prefix", () => {
-      expect(parseBlockOutputsContent("SENSITIVE:K=v\nSensitive:J=w\n")).toEqual({
-        outputs: {},
-        sensitiveKeys: [],
-      })
+      expect(parseBlockOutputsContent("SENSITIVE:K=v\nSensitive:J=w\n")).toEqual({})
     })
 
     it("doesn't treat sensitive: inside a value as a marker", () => {
-      expect(parseBlockOutputsContent("NOTE=sensitive:TOKEN=x\n")).toEqual({
-        outputs: { NOTE: "sensitive:TOKEN=x" },
-        sensitiveKeys: [],
-      })
+      expect(parse("NOTE=sensitive:TOKEN=x\n")).toEqual({ NOTE: { value: "sensitive:TOKEN=x", sensitive: false } })
     })
 
     it("keeps a key sensitive when a later plain line rewrites it", () => {
-      expect(parseBlockOutputsContent("sensitive:T=a\nT=b\n")).toEqual({
-        outputs: { T: "b" },
-        sensitiveKeys: ["T"],
-      })
+      expect(parse("sensitive:T=a\nT=b\n")).toEqual({ T: { value: "b", sensitive: true } })
     })
 
     it("marks a key sensitive when a later line adds the prefix", () => {
-      expect(parseBlockOutputsContent("T=a\nsensitive:T=b\n")).toEqual({
-        outputs: { T: "b" },
-        sensitiveKeys: ["T"],
-      })
-    })
-
-    it("lists a key marked more than once only once", () => {
-      expect(parseBlockOutputsContent("sensitive:T=a\nsensitive:T=b\n").sensitiveKeys).toEqual(["T"])
+      expect(parse("T=a\nsensitive:T=b\n")).toEqual({ T: { value: "b", sensitive: true } })
     })
   })
 })

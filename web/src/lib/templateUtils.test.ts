@@ -1,11 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildRenderVariables,
+  buildTemplatePayload,
   flattenBlockOutputs,
   computeUnmetInputDependencies,
   extractInputValueReferences,
+  maskTemplateOutputs,
   resolveTemplateReferences,
+  revealTemplateOutputs,
+  type TemplateOutputs,
 } from './templateUtils'
+import { sensitiveOutput } from './outputValues'
 import type { TemplateContext } from './templateUtils'
 import { extractTemplateDependenciesFromString } from './extractTemplateDependencies'
 import type { BlockOutputs } from '@/contexts/RunbookContext'
@@ -57,6 +62,43 @@ describe('flattenBlockOutputs', () => {
     expect(flattenBlockOutputs(allOutputs)).toEqual({
       create_account: { account_id: '123', role_arn: 'arn:aws:iam::123:role/Admin' },
       deploy: { status: 'success' },
+    })
+  })
+})
+
+// A render sends plain strings over IPC, so each one chooses what a sensitive
+// output renders as: its real value when the result is run or written to a
+// file, <redacted> when it's only shown.
+describe('sensitive outputs in a render', () => {
+  const outputs: TemplateOutputs = {
+    mint: { user: 'alice', token: sensitiveOutput('s3cr3t') },
+    other: { region: 'us-west-2' },
+  }
+
+  it('revealTemplateOutputs gives every output its real value', () => {
+    expect(revealTemplateOutputs(outputs)).toEqual({
+      mint: { user: 'alice', token: 's3cr3t' },
+      other: { region: 'us-west-2' },
+    })
+  })
+
+  it('maskTemplateOutputs shows a sensitive output as <redacted>', () => {
+    expect(maskTemplateOutputs(outputs)).toEqual({
+      mint: { user: 'alice', token: '<redacted>' },
+      other: { region: 'us-west-2' },
+    })
+  })
+
+  it('the template engine gets the real value from a revealed payload', () => {
+    const payload = buildTemplatePayload({ inputs: {}, outputs: revealTemplateOutputs(outputs) })
+    const sent = structuredClone(payload)
+    expect(sent.find((v) => v.name === 'outputs')?.value).toEqual({
+      mint: { user: 'alice', token: 's3cr3t' },
+      other: { region: 'us-west-2' },
+    })
+    expect(buildRenderVariables({}, revealTemplateOutputs(outputs)).outputs).toEqual({
+      mint: { user: 'alice', token: 's3cr3t' },
+      other: { region: 'us-west-2' },
     })
   })
 })
@@ -128,6 +170,12 @@ describe('resolveTemplateReferences', () => {
 
   it('should resolve input references', () => {
     expect(resolveTemplateReferences('{{ .inputs.region }}', ctx)).toBe('us-west-2')
+  })
+
+  // Its results are titles, descriptions, form fields and PR text
+  it('should resolve a sensitive output to <redacted>, never its value', () => {
+    const withSecret = { ...ctx, outputs: { ...ctx.outputs, mint: { token: sensitiveOutput('s3cr3t') } } }
+    expect(resolveTemplateReferences('token: {{ .outputs.mint.token }}', withSecret)).toBe('token: <redacted>')
   })
 
   it('should resolve output references', () => {

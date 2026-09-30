@@ -10,6 +10,7 @@
 // these types from channels.ts directly.
 import type { ExecRequest, Section, SessionMetadata } from '../../src/types.ts'
 export type { ExecRequest, Section, SessionMetadata }
+import type { EncodedOutputValues } from '../../src/domain/exec/outputValues.ts'
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -686,7 +687,8 @@ export interface IpcEventMap {
   "exec:log": { line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { path: string }
   "exec:status": { status: string; exitCode: number }
-  "exec:outputs": { outputs: Record<string, string>; sensitiveKeys: string[] }
+  /** Encoded, since a sensitive output's `Redacted` can't cross IPC (see encodeOutputs). */
+  "exec:outputs": { outputs: EncodedOutputValues }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
   /**
    * `path` is the runbook the watcher watches (as runbook:get resolved it), so

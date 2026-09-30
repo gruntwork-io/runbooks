@@ -9,7 +9,7 @@ import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from '@/co
 import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
 import { useErrorReporting } from '@/contexts/useErrorReporting'
 import { useTelemetry } from '@/contexts/useTelemetry'
-import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs } from '@/lib/templateUtils'
+import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs, revealTemplateOutputs } from '@/lib/templateUtils'
 import { computeChangeKey } from '@/lib/changeDetection'
 import { markStage } from '@/lib/renderPerf'
 import { XCircle } from 'lucide-react'
@@ -213,8 +213,11 @@ function TemplateInteractive({
     });
   }, [boilerplateConfig]);
 
-  // Flatten block outputs for template rendering (used in the outputs namespace)
-  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
+  // Flatten block outputs for template rendering (used in the outputs namespace).
+  // A Template writes files, so sensitive outputs render with their real
+  // values. That also keeps them in the dedupe key below, so a new value
+  // re-renders.
+  const flattenedOutputs = useMemo(() => revealTemplateOutputs(flattenBlockOutputs(allOutputs)), [allOutputs]);
 
   const lastRenderedKeyRef = useRef<string | null>(null);
 

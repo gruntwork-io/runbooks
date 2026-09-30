@@ -3,6 +3,7 @@ import { useApi } from '@/contexts/ApiContext'
 import { useSession } from '@/contexts/useSession'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
+import { revealOutput } from '@/lib/outputValues'
 
 interface UseDirPickerOptions {
   id: string
@@ -54,7 +55,7 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate }
     if (!gitCloneId) return null
     const normalizedId = normalizeBlockId(gitCloneId)
     const blockData = allOutputs[normalizedId]
-    return blockData?.values?.clone_path ?? null
+    return revealOutput(blockData?.values?.clone_path) ?? null
   }, [rootDir, gitCloneId, allOutputs])
 
   // Whether the root directory is available (immediately if rootDir is set, otherwise when GitClone completes)

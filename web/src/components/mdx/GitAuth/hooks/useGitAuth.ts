@@ -3,6 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs } from "@/lib/outputValues"
 import type {
   GitAuthMethod,
   GitAuthStatus,
@@ -288,12 +289,14 @@ export function useGitAuth({
   // channels' useSessionToken mode.
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; token?: string; isGitAuthBlock?: boolean; error?: string } => {
     const normalizedId = normalizeBlockId(blockId)
-    const outputs = blockOutputs[normalizedId]?.values
+    const values = blockOutputs[normalizedId]?.values
 
-    if (!outputs) {
+    if (!values) {
       return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
     }
 
+    // The script may have marked the token sensitive; GitAuth needs its real value
+    const outputs: Partial<Record<string, string>> = revealOutputs(values)
     const isGitAuthBlock = outputs.__AUTHENTICATED === 'true'
     const token = outputs[provider.env.tokenVar] ||
       provider.env.altTokenVars.map((v) => outputs[v]).find(Boolean)
@@ -318,8 +321,9 @@ export function useGitAuth({
   // GIT_PROVIDER, and a block chained off it must keep waiting for the real
   // auth rather than fall through to later sources.
   const blockPending = useCallback((blockId: string): boolean => {
-    const outputs = blockOutputs[normalizeBlockId(blockId)]?.values
-    if (outputs === undefined) return true
+    const values = blockOutputs[normalizeBlockId(blockId)]?.values
+    if (values === undefined) return true
+    const outputs: Partial<Record<string, string>> = revealOutputs(values)
     const hasToken = [provider.env.tokenVar, ...provider.env.altTokenVars].some((v) => Boolean(outputs[v]))
     return outputs.GIT_PROVIDER !== undefined && outputs.__AUTHENTICATED !== 'true' && !hasToken
   }, [blockOutputs, provider])

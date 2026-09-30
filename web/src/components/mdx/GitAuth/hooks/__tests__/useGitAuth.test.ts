@@ -4,6 +4,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { useGitAuth } from '../useGitAuth'
 import { PROVIDERS } from '../../providers'
+import { sensitiveOutput, type OutputValues } from '@/lib/outputValues'
 
 // The hook depends on the runbook + session contexts; mock them so the test
 // can focus on the provider-aware IPC behavior. Reassign `blockOutputs` (and
@@ -11,7 +12,7 @@ import { PROVIDERS } from '../../providers'
 // the map by identity, as it does the real context's state. IPC is the one
 // faked boundary, injected through the real ApiProvider.
 const registerOutputs = vi.fn()
-let blockOutputs: Record<string, { values: Record<string, string> }> = {}
+let blockOutputs: Record<string, { values: OutputValues }> = {}
 
 vi.mock('@/contexts/useRunbook', () => ({
   useRunbookContext: () => ({ registerOutputs, blockOutputs }),
@@ -1249,6 +1250,22 @@ describe('useGitAuth — {block} detection sources', () => {
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.detectionWarning).toBe(WARNING)
+  })
+
+  it('validates a token the block marked sensitive with its real value', async () => {
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: sensitiveOutput('ghp_abc') } } }
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:validate') {
+        return { valid: true, user: { login: 'octocat' }, tokenType: 'classic_pat', scopes: ['repo'], validatedVia: 'direct' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('block')
+    expect(invoke).toHaveBeenCalledWith('github:validate', expect.objectContaining({ token: 'ghp_abc' }))
   })
 
   it('warns about a block token that lacks the repo scope', async () => {

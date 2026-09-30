@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Layer, Stream } from "effect"
 import { executeScript, type ExecEvent } from "./executor.ts"
+import { encodeOutputs } from "./outputValues.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
@@ -341,18 +342,20 @@ describe("executeScript — outputs", () => {
     )
   }
 
-  it("sends the real values under their plain keys, and which keys are sensitive", async () => {
+  it("carries a sensitive output wrapped, under its plain key", async () => {
     const outputs = await runWritingOutputs("region=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc\n")
 
-    expect(outputs?.event).toEqual({
-      outputs: { region: "us-west-2", AWS_SECRET_ACCESS_KEY: "abc" },
-      sensitiveKeys: ["AWS_SECRET_ACCESS_KEY"],
+    // toEqual can't see inside a Redacted, so compare the encoded form
+    expect(encodeOutputs(outputs?.event.outputs ?? {})).toEqual({
+      region: { value: "us-west-2", sensitive: false },
+      AWS_SECRET_ACCESS_KEY: { value: "abc", sensitive: true },
     })
+    expect(JSON.stringify(outputs?.event)).toBe('{"outputs":{"region":"us-west-2","AWS_SECRET_ACCESS_KEY":"<redacted>"}}')
   })
 
-  it("sends an empty sensitive list when nothing is marked", async () => {
+  it("carries plain outputs as strings", async () => {
     const outputs = await runWritingOutputs("region=us-west-2\n")
 
-    expect(outputs?.event).toEqual({ outputs: { region: "us-west-2" }, sensitiveKeys: [] })
+    expect(outputs?.event).toEqual({ outputs: { region: "us-west-2" } })
   })
 })

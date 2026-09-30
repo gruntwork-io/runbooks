@@ -7,6 +7,9 @@ import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import type { OutputDependency } from '@/lib/extractTemplateDependencies'
 import { normalizeBlockId } from '@/lib/utils'
+import { maskOutputs, maskOutput, revealOutputs, type OutputValue } from '@/lib/outputValues'
+
+export type { OutputValue }
 
 // --- Shared types for the new inputs/outputs architecture ---
 
@@ -22,19 +25,44 @@ export type BlockId = string
 /** An output key produced by a Command/Check block (e.g., "account_id") */
 export type OutputName = string
 
-/** The string value of a block output (always string — parsed from stdout key=value) */
-export type OutputValue = string
-
 /** Flattened input values. Matches {{ .inputs.<InputName> }} */
 export type TemplateInputs = Record<InputName, TemplateInputValue>
 
-/** Flattened output values. Matches {{ .outputs.<BlockId>.<OutputName> }} */
+/**
+ * Flattened output values. Matches {{ .outputs.<BlockId>.<OutputName> }}.
+ * An output the script marked `sensitive:` is a `Redacted`.
+ */
 export type TemplateOutputs = Record<BlockId, Record<OutputName, OutputValue>>
 
 /** The template data context — mirrors the Go template engine's dot context */
 export interface TemplateContext {
   inputs: TemplateInputs
   outputs: TemplateOutputs
+}
+
+/**
+ * Outputs as a render sends them over IPC: plain strings. A `Redacted` can't
+ * cross IPC (structured clone turns it into `{}`), so each render decides what
+ * a sensitive output renders as: its real value (revealTemplateOutputs) when
+ * the result is run or written to a file, or `<redacted>`
+ * (maskTemplateOutputs) when the result is only shown.
+ */
+export type PlainTemplateOutputs = Record<BlockId, Record<OutputName, string>>
+
+/** A TemplateContext whose outputs are plain strings, ready to send to the template engine. */
+export interface PlainTemplateContext {
+  inputs: TemplateInputs
+  outputs: PlainTemplateOutputs
+}
+
+/** Every output with its real value, for a render whose result is run or written to a file. */
+export function revealTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
+  return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, revealOutputs(values)]))
+}
+
+/** Every output as it may be shown: sensitive ones as `<redacted>`. For a render that is only displayed. */
+export function maskTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
+  return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]))
 }
 
 /** A block and the specific outputs referenced from it */
@@ -52,7 +80,7 @@ export interface BlockOutput {
  */
 export function buildRenderVariables(
   inputValues: Record<string, unknown>,
-  outputs: TemplateOutputs,
+  outputs: PlainTemplateOutputs,
 ): Record<string, unknown> {
   return {
     inputs: { ...inputValues },
@@ -65,7 +93,7 @@ export function buildRenderVariables(
  * Wraps both namespaces as Map-typed entries — the Go template engine navigates them
  * via {{ .inputs.X }} and {{ .outputs.X.Y }}.
  */
-export function buildTemplatePayload(ctx: TemplateContext): TemplateValue[] {
+export function buildTemplatePayload(ctx: PlainTemplateContext): TemplateValue[] {
   return [
     { name: 'inputs', type: BoilerplateVariableType.Map, value: ctx.inputs },
     { name: 'outputs', type: BoilerplateVariableType.Map, value: ctx.outputs },
@@ -229,6 +257,10 @@ export function extractInputValueReferences(text: string): InputName[] {
  * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
  * Client-side string resolver for blocks that don't go through the Go template engine
  * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
+ *
+ * Its results are shown on screen (titles, descriptions, form fields) or sent
+ * where a secret doesn't belong (a PR title or body), so a sensitive output
+ * resolves to `<redacted>`, never its real value.
  */
 export function resolveTemplateReferences(
   text: string,
@@ -249,7 +281,8 @@ export function resolveTemplateReferences(
         if (dotIdx > 0) {
           const blockId = normalizeBlockId(path.slice(0, dotIdx))
           const outputName = path.slice(dotIdx + 1)
-          return ctx.outputs[blockId]?.[outputName] ?? `\`${match}\``
+          const value = ctx.outputs[blockId]?.[outputName]
+          return value !== undefined ? maskOutput(value) : `\`${match}\``
         }
       }
       return `\`${match}\``

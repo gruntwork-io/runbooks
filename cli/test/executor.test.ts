@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+import { inspect } from "node:util"
 import { TestExecutor } from "./executor.ts"
+import { revealOutputs } from "../../src/domain/exec/outputValues.ts"
 import { loadConfig, type CleanupAction, type ExpectedStatus } from "./config.ts"
 
 // Resolve relative to the test file so this works regardless of cwd.
@@ -660,9 +662,10 @@ describe("TestExecutor — files_generated", () => {
 })
 
 // ---------------------------------------------------------------------------
-// An output marked sensitive: keeps its plain key and real value for later
-// blocks and assertions, but the CLI never prints it: not in --verbose
-// output, and not in a failed assertion's message.
+// An output marked sensitive: is Redacted. It keeps its plain key, and later
+// blocks' templates and assertions use its real value, but the CLI never
+// prints it: not in --verbose output, not in a failed assertion's message,
+// and not in a serialized result.
 // ---------------------------------------------------------------------------
 
 describe("TestExecutor — sensitive outputs", () => {
@@ -694,7 +697,7 @@ describe("TestExecutor — sensitive outputs", () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  const makeExecutor = async (verbose: boolean) => {
+  const makeExecutor = async (verbose: boolean, moreBlocks: string[] = []) => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(
       rb,
@@ -705,6 +708,7 @@ describe("TestExecutor — sensitive outputs", () => {
         "",
         '<Command id="use" command="echo got-{{ .outputs.mint.token }}" />',
         "",
+        ...moreBlocks.flatMap((block) => [block, ""]),
       ].join("\n"),
     )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose })
@@ -712,7 +716,7 @@ describe("TestExecutor — sensitive outputs", () => {
     return executor
   }
 
-  it("passes the real value on and prints [REDACTED] for it in verbose mode", async () => {
+  it("passes the real value on and prints <redacted> for it in verbose mode", async () => {
     const executor = await makeExecutor(true)
 
     const { result, printed } = captureConsoleLog(() =>
@@ -724,17 +728,60 @@ describe("TestExecutor — sensitive outputs", () => {
 
     expect(result.status).toBe("passed")
     expect(result.assertions[0]?.passed).toBe(true)
-    expect(result.stepResults[0]?.outputs).toEqual({ user: "alice", token: SECRET })
+    expect(revealOutputs(result.stepResults[0]?.outputs ?? {})).toEqual({ user: "alice", token: SECRET })
     // The downstream block got the real value through its template
     expect(result.stepResults[1]?.logs).toContain(`got-${SECRET}`)
     // ...but the producing block's Outputs section never shows it
     expect(printed).toContain("  user = alice")
-    expect(printed).toContain("  token = [REDACTED]")
+    expect(printed).toContain("  token = <redacted>")
     expect(printed.filter((line) => line.startsWith("  token = ") && line.includes(SECRET))).toEqual([])
+    // ...and neither does the step result, however it's serialized
+    expect(JSON.stringify(result.stepResults[0])).not.toContain(SECRET)
+    expect(inspect(result.stepResults[0])).not.toContain(SECRET)
+  })
+
+  it("writes a TemplateInline's file with the real value, but logs and prints <redacted>", async () => {
+    const executor = await makeExecutor(true, [
+      '<TemplateInline id="cfg" outputPath="cfg.txt" generateFile={true}>\n```\ntoken={{ .outputs.mint.token }}\n```\n</TemplateInline>',
+    ])
+
+    const { result, printed } = captureConsoleLog(() =>
+      executor.runTest({
+        name: "inline",
+        steps: [
+          { block: "mint", expect: "success" },
+          { block: "cfg", expect: "success" },
+        ],
+      }),
+    )
+
+    expect(result.status).toBe("passed")
+    expect(fs.readFileSync(path.join(tmp, "generated", "cfg.txt"), "utf-8")).toContain(`token=${SECRET}`)
+    expect(result.stepResults[1]?.logs).toContain("token=<redacted>")
+    expect(printed.join("\n")).not.toContain(SECRET)
+  })
+
+  // The app resolves block props for display, so a sensitive output in one is
+  // <redacted> there, and the CLI matches it
+  it("gives a block prop <redacted>, as the app does", async () => {
+    const executor = await makeExecutor(false, [
+      '<GitClone id="clone" source="local" prefilledRepoDir="{{ .outputs.mint.token }}" />',
+    ])
+
+    const result = executor.runTest({
+      name: "prop",
+      steps: [
+        { block: "mint", expect: "success" },
+        { block: "clone", expect: "fail" },
+      ],
+    })
+
+    expect(result.stepResults[1]?.error).toContain("<redacted>")
+    expect(result.stepResults[1]?.error).not.toContain(SECRET)
   })
 
   // The reporters print result.error without --verbose and write it to JUnit
-  it("prints [REDACTED] for it when an output assertion on it fails", async () => {
+  it("prints <redacted> for it when an output assertion on it fails", async () => {
     const executor = await makeExecutor(false)
 
     const afterTest = executor.runTest({
@@ -742,7 +789,7 @@ describe("TestExecutor — sensitive outputs", () => {
       assertions: [{ type: "output_equals", block: "mint", output: "token", value: "something-else" }],
     })
     expect(afterTest.status).toBe("failed")
-    expect(afterTest.error).toBe('Assertion failed: output mint.token = [REDACTED], expected "something-else"')
+    expect(afterTest.error).toBe('Assertion failed: output mint.token = <redacted>, expected "something-else"')
 
     const inStep = executor.runTest({
       name: "matches",
@@ -756,7 +803,7 @@ describe("TestExecutor — sensitive outputs", () => {
     })
     expect(inStep.status).toBe("failed")
     expect(inStep.error).toBe(
-      'Command block "mint" assertion failed: output mint.token = [REDACTED] does not match pattern "^nope$"',
+      'Command block "mint" assertion failed: output mint.token = <redacted> does not match pattern "^nope$"',
     )
 
     // A plain output's value still shows, so its failure stays easy to read

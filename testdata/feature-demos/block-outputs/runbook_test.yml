@@ -114,6 +114,12 @@ tests:
         block: fetch-api-token
         output: api_token
         pattern: "^demo-[0-9]+-token$"
+      # A downstream script's template gets the real token (demo-<10-digit
+      # timestamp>-token, 21 characters), not <redacted> (10)
+      - type: output_equals
+        block: use-api-token
+        output: token_length
+        value: "21"
 
     # cleanup:
     #   - command: rm -rf /tmp/test-resources

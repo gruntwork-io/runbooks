@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
+import { revealOutput, revealOutputs } from '@/lib/outputValues'
 import { cleanIpcErrorMessage } from '@/lib/ipcError'
 import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
 import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from '@/components/mdx/_shared/lib/githubHost'
@@ -81,10 +82,13 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const gitHubAuthMet = useMemo((): boolean => {
     const isAuthMet = (authId: string | undefined): boolean => {
       if (!authId) return true // No dependency
-      const values = allOutputs[normalizeBlockId(authId)]?.values
-      if (values?.GITHUB_TOKEN && values.GITHUB_TOKEN !== '') return true
-      if (values?.GITLAB_TOKEN && values.GITLAB_TOKEN !== '') return true
-      if (values?.__AUTHENTICATED === 'true') return true
+      const outputs = allOutputs[normalizeBlockId(authId)]?.values
+      if (!outputs) return false
+      // A token counts only if it isn't empty, which needs its real value
+      const values: Partial<Record<string, string>> = revealOutputs(outputs)
+      if (values.GITHUB_TOKEN && values.GITHUB_TOKEN !== '') return true
+      if (values.GITLAB_TOKEN && values.GITLAB_TOKEN !== '') return true
+      if (values.__AUTHENTICATED === 'true') return true
       return false
     }
     return isAuthMet(githubAuthId) && isAuthMet(gitAuthId)
@@ -105,7 +109,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const githubHost = useMemo((): string => {
     for (const authId of [gitAuthId, githubAuthId]) {
       if (!authId) continue
-      const host = tryNormalizeGitHubHost(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST)
+      const host = tryNormalizeGitHubHost(revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST))
       if (host) return host
     }
     return DEFAULT_GITHUB_HOST

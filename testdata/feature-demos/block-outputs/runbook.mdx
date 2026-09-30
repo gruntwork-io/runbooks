@@ -246,13 +246,22 @@ echo "api_user=$API_USER" >> "$RUNBOOK_OUTPUT"
 echo "sensitive:api_token=$API_TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-After you run the command below, **View Outputs** shows `api_user` as usual but masks `api_token` as `••••••••`. The copy button on its row still copies the real value, and **Copy JSON** writes `[REDACTED]` in its place. The output's key is still `api_token`, so downstream blocks read the real value as `{{ .outputs.fetch_api_token.api_token }}`. A block that uses that template shows the token in its rendered script, though. To use a token in later scripts without showing it, `export` it in the script that fetches it instead.
+After you run the command below, **View Outputs** shows `api_user` as usual but masks `api_token` as `••••••••`. The copy button on its row still copies the real value, and **Copy JSON** writes `<redacted>` in its place.
 
 <Command
   id="fetch-api-token"
   path="scripts/fetch-api-token.sh"
   title="Fetch API Token"
   description="Outputs an API user and a token marked sensitive"
+/>
+
+The output's key is still `api_token`, so a downstream block reads it as `{{ .outputs.fetch_api_token.api_token }}`. The script below does. Its script view shows `<redacted>` in place of the token, but it runs with the real value: the length it prints is the token's, not the 10 characters of `<redacted>`.
+
+<Command
+  id="use-api-token"
+  path="scripts/use-api-token.sh"
+  title="Use API Token"
+  description="Uses the sensitive token through a template"
 />
 
 ## Step 8: Verify Setup

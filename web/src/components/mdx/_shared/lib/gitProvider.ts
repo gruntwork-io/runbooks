@@ -10,6 +10,7 @@
 import type { GitProvider } from "@/components/mdx/GitAuth/types"
 import type { BlockOutputs } from "@/contexts/RunbookContext"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs } from "@/lib/outputValues"
 import { gitRemoteWebHost, parseGitRemoteUrl, type GitRemoteUrl } from "@/lib/gitRemoteUrl"
 import { isGitHubRepoHost } from "./githubHost"
 
@@ -32,8 +33,10 @@ export function deriveProviderFromAuth(
   allOutputs: Record<string, BlockOutputs>,
 ): GitProvider | undefined {
   if (!authId) return undefined
-  const values = allOutputs[normalizeBlockId(authId)]?.values
-  if (!values) return undefined
+  const outputs = allOutputs[normalizeBlockId(authId)]?.values
+  if (!outputs) return undefined
+  // A token counts only if it isn't empty, which needs its real value
+  const values: Partial<Record<string, string>> = revealOutputs(outputs)
   const explicit = values.GIT_PROVIDER
   if (explicit === 'github' || explicit === 'gitlab') return explicit
   if (values.GITHUB_TOKEN) return 'github'
