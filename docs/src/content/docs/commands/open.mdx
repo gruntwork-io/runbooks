@@ -90,19 +90,26 @@ These tokens are used only for HTTPS sources. SSH sources (`git@...` or `ssh://.
 
 - `--watch` - Enable [watch mode](/commands/watch) for live-reload during authoring.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
+- `--verbose` - Keep the command attached to the terminal and print the app's logs there until you quit Runbooks. Use it to troubleshoot a launch that shows no window.
 
 ## What it does
 
-When you run `runbooks open`:
+When you run `runbooks open`, the command gives you your prompt back right away without printing anything, like `code .`, and Runbooks carries on in the background:
 
 1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone. If the download fails (for example, a private repo with no token), the app shows an error dialog that explains why.
 2. **Launches the app** - Opens the Runbooks desktop window and loads the specified runbook
 3. **Renders the runbook** - The app parses and renders the `runbook.mdx` file, providing an interactive UI for the runbook's steps, scripts, and forms
-4. **Keeps running** - The app continues running until you close the window
+4. **Keeps running** - The app keeps running until you quit it, even if you close the terminal you started it from
 
 If the app is already running, a second invocation focuses the existing window and opens the new runbook in it. A relative path is resolved from the directory you ran the command in.
 
 ## Troubleshooting
+
+**Nothing happens:**
+The command doesn't show the app's output, so a launch that fails is silent. Run the same command again with `--verbose` to see the app's logs in the terminal.
+
+**"Runbooks was not found":**
+The `runbooks` command records where Runbooks is installed. If you moved or reinstalled Runbooks, open it and [install the command again](/intro/installation/#installing-the-runbooks-command).
 
 **Runbook not found:**
 Make sure the path points to a valid `runbook.mdx` file or a directory containing one. For a remote source, check that the path exists at the branch, tag or commit you named. A go-getter source without `?ref=` reads the repo's default branch.

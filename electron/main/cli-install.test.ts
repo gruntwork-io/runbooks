@@ -28,12 +28,13 @@ const {
   installUnixLauncher,
   uninstallUnixLauncher,
 } = await import("./cli-install.ts")
+const { parseCliArgs } = await import("./cli.ts")
 
 const isWindows = process.platform === "win32"
 
 /** Runs a command the way the unprivileged install path does. */
 function runWithSh(command: string): Promise<void> {
-  const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8" })
+  const result = spawnSync("/bin/sh", ["-c", command], { encoding: "utf8", env: process.env })
   if (result.status !== 0) {
     return Promise.reject(new Error(`sh exited ${result.status}: ${result.stderr}`))
   }
@@ -149,12 +150,22 @@ describe("resolveLaunchTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("renderUnixLauncher", () => {
-  it("execs the target by absolute path and carries the marker", () => {
+  it("starts the target in the background by absolute path and carries the marker", () => {
     expect(renderUnixLauncher("/Applications/Runbooks.app/Contents/MacOS/Runbooks")).toBe(
       [
         "#!/bin/sh",
+        // Still line 2, as in every earlier release: it is how install and
+        // uninstall recognise a launcher an older version wrote.
         `# ${LAUNCHER_MARKER}`,
-        `exec '/Applications/Runbooks.app/Contents/MacOS/Runbooks' "$@"`,
+        `app='/Applications/Runbooks.app/Contents/MacOS/Runbooks'`,
+        `if [ ! -x "$app" ]; then`,
+        `  printf "runbooks: Runbooks was not found at %s. If you moved or reinstalled it, open Runbooks and install the 'runbooks' command again.\\n" "$app" >&2`,
+        "  exit 127",
+        "fi",
+        `for arg in "$@"; do`,
+        `  if [ "$arg" = --verbose ]; then exec "$app" "$@"; fi`,
+        "done",
+        `"$app" "$@" </dev/null >/dev/null 2>&1 &`,
         "",
       ].join("\n"),
     )
@@ -162,40 +173,146 @@ describe("renderUnixLauncher", () => {
 
   it("quotes a path with a single quote in it", () => {
     expect(shellSingleQuote("/Users/o'brien/Runbooks")).toBe("'/Users/o'\\''brien/Runbooks'")
-    expect(renderUnixLauncher("/Users/o'brien/Runbooks")).toContain(
-      `exec '/Users/o'\\''brien/Runbooks' "$@"`,
-    )
+    expect(renderUnixLauncher("/Users/o'brien/Runbooks")).toContain(`app='/Users/o'\\''brien/Runbooks'\n`)
   })
 
-  it.skipIf(isWindows)("runs a hostile target path and passes arguments and exit code through", () => {
+  // Arguments a shell would expand or split if the launcher mishandled them.
+  const args = ["./my runbook.mdx", "*", "$HOME", "it's"]
+
+  /** Writes a stand-in for the app at a path no shell would take unquoted. */
+  function hostileApp(script: string): string {
     const appDir = nodePath.join(tmp, `My "Apps" it's $HOME \\ dir`)
     fs.mkdirSync(appDir)
     const target = nodePath.join(appDir, "Runbooks")
-    // Stand-in for the app: prints each argument on its own line.
-    fs.writeFileSync(target, '#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done\nexit 7\n', {
-      mode: 0o755,
-    })
+    fs.writeFileSync(target, script, { mode: 0o755 })
+    return target
+  }
+
+  function writeLauncher(target: string): string {
     const launcher = nodePath.join(tmp, "runbooks")
     fs.writeFileSync(launcher, renderUnixLauncher(target), { mode: 0o755 })
+    return launcher
+  }
 
-    const args = ["./my runbook.mdx", "*", "$HOME", "it's"]
-    const result = spawnSync(launcher, args, { encoding: "utf8" })
-    expect(result.stderr).toBe("")
-    expect(result.stdout).toBe(args.map((a) => `${a}\n`).join(""))
-    expect(result.status).toBe(7)
+  it.skipIf(isWindows)(
+    "starts the app in the background with its output discarded, and returns at once",
+    async () => {
+      const out = nodePath.join(tmp, "out")
+      const hold = nodePath.join(tmp, "hold")
+      // Stand-in for the app: writes to both streams, records where it ran and
+      // what it was given, then keeps running while the hold file exists (for
+      // 30 seconds at most, so a failed test cannot leave it behind for long).
+      const target = hostileApp(
+        [
+          "#!/bin/sh",
+          "echo out-noise",
+          "echo err-noise >&2",
+          `pwd -P > "$OUT.tmp"`,
+          `for a in "$@"; do printf "%s\\n" "$a" >> "$OUT.tmp"; done`,
+          `mv "$OUT.tmp" "$OUT"`,
+          "i=0",
+          `while [ -e "$HOLD" ] && [ "$i" -lt 300 ]; do sleep 0.1; i=$((i + 1)); done`,
+          "exit 7",
+          "",
+        ].join("\n"),
+      )
+      const launcher = writeLauncher(target)
+      const workDir = nodePath.join(tmp, "work dir")
+      fs.mkdirSync(workDir)
+      fs.writeFileSync(hold, "")
+      try {
+        // Were the launcher to wait for the app, or hand it these pipes,
+        // spawnSync would block while the stand-in holds and time out.
+        const result = spawnSync(launcher, args, {
+          cwd: workDir,
+          env: { ...process.env, OUT: out, HOLD: hold },
+          encoding: "utf8",
+          timeout: 5_000,
+        })
+        expect(result.error).toBeUndefined()
+        expect(result.stdout).toBe("")
+        expect(result.stderr).toBe("")
+        expect(result.status).toBe(0)
+
+        // The app got the caller's working directory, arguments and environment.
+        const deadline = Date.now() + 5_000
+        while (!fs.existsSync(out) && Date.now() < deadline) await Bun.sleep(20)
+        expect(fs.readFileSync(out, "utf8")).toBe([workDir, ...args].map((l) => `${l}\n`).join(""))
+      } finally {
+        fs.rmSync(hold, { force: true })
+      }
+    },
+    15_000,
+  )
+
+  it.skipIf(isWindows)(
+    "--verbose runs the app in the foreground and passes output, arguments and exit code through",
+    () => {
+      // Stand-in for the app: prints each argument on its own line.
+      const target = hostileApp(
+        '#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done\necho err-noise >&2\nexit 7\n',
+      )
+      const launcher = writeLauncher(target)
+      // Recognised anywhere, and passed on: the app ignores it (see below).
+      const verboseArgs = [args[0], "--verbose", ...args.slice(1)]
+      const result = spawnSync(launcher, verboseArgs, { encoding: "utf8", env: process.env })
+      expect(result.stderr).toBe("err-noise\n")
+      expect(result.stdout).toBe(verboseArgs.map((a) => `${a}\n`).join(""))
+      expect(result.status).toBe(7)
+    },
+  )
+
+  it.skipIf(isWindows)("reports a moved or deleted app instead of failing silently", () => {
+    const target = nodePath.join(tmp, `Gone "Apps" it's $HOME`, "Runbooks")
+    const launcher = writeLauncher(target)
+    const result = spawnSync(launcher, ["."], { encoding: "utf8", env: process.env })
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toContain(`not found at ${target}.`)
+    expect(result.stderr).toContain("install the 'runbooks' command again")
+    expect(result.status).toBe(127)
+  })
+})
+
+describe("the --verbose flag the launcher passes on", () => {
+  it("is ignored by the app, never taken for a runbook", () => {
+    const x = nodePath.join(tmp, "x")
+    expect(parseCliArgs(["Runbooks", "--verbose", "./x"], tmp).runbookPath).toBe(x)
+    expect(parseCliArgs(["Runbooks", "./x", "--verbose"], tmp).runbookPath).toBe(x)
+    expect(parseCliArgs(["Runbooks", "open", "--verbose", "./x"], tmp).runbookPath).toBe(x)
+    expect(parseCliArgs(["Runbooks", "--verbose"], tmp).runbookPath).toBeNull()
   })
 })
 
 describe("renderWindowsLauncher", () => {
-  it("runs the executable by absolute path with CRLF line endings", () => {
+  it("starts the executable by absolute path with CRLF line endings", () => {
     const text = renderWindowsLauncher("C:\\Program Files\\Runbooks\\Runbooks.exe", "C:\\Users\\dev\\AppData\\Local")
     expect(text).toBe(
-      ["@echo off", `rem ${LAUNCHER_MARKER}`, '"C:\\Program Files\\Runbooks\\Runbooks.exe" %*', ""].join("\r\n"),
+      [
+        "@echo off",
+        `rem ${LAUNCHER_MARKER}`,
+        "setlocal",
+        // Look for --verbose with shift, not `for %%a in (%*)`, which would
+        // expand the ? in a go-getter ?ref= as a wildcard. shift leaves %* alone.
+        ":scan",
+        'if "%~1"=="" goto detach',
+        'if /i "%~1"=="--verbose" goto verbose',
+        "shift",
+        "goto scan",
+        ":verbose",
+        '"C:\\Program Files\\Runbooks\\Runbooks.exe" %*',
+        "exit /b %ERRORLEVEL%",
+        ":detach",
+        'set "ELECTRON_NO_ATTACH_CONSOLE=1"',
+        'start "" "C:\\Program Files\\Runbooks\\Runbooks.exe" %*',
+        "",
+      ].join("\r\n"),
     )
   })
 
   it("doubles a literal percent sign so cmd.exe does not expand it", () => {
-    expect(renderWindowsLauncher("C:\\100%done\\Runbooks.exe")).toContain('"C:\\100%%done\\Runbooks.exe" %*')
+    const text = renderWindowsLauncher("C:\\100%done\\Runbooks.exe")
+    expect(text).toContain('\r\n"C:\\100%%done\\Runbooks.exe" %*\r\n')
+    expect(text).toContain('\r\nstart "" "C:\\100%%done\\Runbooks.exe" %*\r\n')
   })
 
   it("writes a per-user install path through %LOCALAPPDATA%", () => {
@@ -234,6 +351,16 @@ describe("classifyLauncher", () => {
     expect(classifyLauncher({ present: true }, expected)).toBe("occupied")
     // Someone else's script.
     expect(classifyLauncher({ present: true, content: "#!/bin/sh\necho hi\n" }, expected)).toBe("occupied")
+  })
+
+  it("reports the foreground launcher earlier releases wrote as stale, so install offers to replace it", () => {
+    const target = "/Applications/Runbooks.app/Contents/MacOS/Runbooks"
+    const previous = ["#!/bin/sh", `# ${LAUNCHER_MARKER}`, `exec '${target}' "$@"`, ""].join("\n")
+    expect(classifyLauncher({ present: true, content: previous }, renderUnixLauncher(target))).toBe("stale")
+
+    const exe = "C:\\Program Files\\Runbooks\\Runbooks.exe"
+    const previousWindows = ["@echo off", `rem ${LAUNCHER_MARKER}`, `"${exe}" %*`, ""].join("\r\n")
+    expect(classifyLauncher({ present: true, content: previousWindows }, renderWindowsLauncher(exe))).toBe("stale")
   })
 })
 
@@ -442,7 +569,7 @@ describe("install and remove commands", () => {
       const launcher = nodePath.join(tmp, "bin", "runbooks")
 
       const script = `do shell script ${appleScriptQuote(installCommand(staged, launcher))}`
-      const result = spawnSync("osascript", ["-e", script], { encoding: "utf8" })
+      const result = spawnSync("osascript", ["-e", script], { encoding: "utf8", env: process.env })
       expect(result.stderr).toBe("")
       expect(result.status).toBe(0)
       expect(fs.statSync(launcher).mode & 0o777).toBe(0o755)
