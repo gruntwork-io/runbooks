@@ -157,7 +157,7 @@ The built-in Gruntwork Runbooks OAuth app only exists on `github.com`. To offer 
 />
 ```
 
-`github.com` keeps using the Gruntwork app unless the map (or a string without `host`) overrides it. For an enterprise host with no client ID, the OAuth tab is disabled with an explanation, and users can still sign in with a personal access token or `gh auth login --hostname <host>`. Runbooks never sends the `github.com` client ID to an enterprise host.
+`github.com` keeps using the Gruntwork app unless the map (or a string without `host`) overrides it. For an enterprise host with no client ID, the OAuth tab is disabled with an explanation, and users can still sign in with a personal access token or `gh auth login --hostname <host>`. With `detectCredentials={false}` the block ignores the `gh` login, so only the personal access token is offered. Runbooks never sends the `github.com` client ID to an enterprise host.
 
 ## Props
 
@@ -312,6 +312,8 @@ Force manual authentication only:
   detectCredentials={false}
 />
 ```
+
+The block then ignores environment tokens such as `GITHUB_TOKEN` and the user's `gh` login, and doesn't offer to check for them again. The user signs in with OAuth or a personal access token. See [Disabling detection](/authoring/blocks/gitauth/#disabling-detection).
 
 #### From Command Output
 
