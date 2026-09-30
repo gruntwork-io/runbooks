@@ -59,13 +59,21 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
     <div className="space-y-3">
       {/* Result panel */}
       <div className={t.panel}>
-        <div className={t.heading}>
-          {warn ? (
-            <AlertTriangle className="size-5 text-warning" />
-          ) : (
-            <CheckCircle className="size-5 text-success" />
-          )}
-          {isLocal ? 'Using local checkout' : 'Clone complete'}
+        {/* Start over sits in the header row so it reads as part of the
+            result. It stays a sibling of the heading, not a child: the e2e
+            specs match the heading's whole text ("Clone complete") exactly. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className={t.heading}>
+            {warn ? (
+              <AlertTriangle className="size-5 text-warning" />
+            ) : (
+              <CheckCircle className="size-5 text-success" />
+            )}
+            {isLocal ? 'Using local checkout' : 'Clone complete'}
+          </div>
+          <Button variant="outline" size="sm" onClick={onCloneAgain}>
+            {isLocal ? 'Stop using this repo' : 'Clone again'}
+          </Button>
         </div>
 
         <div className={t.row}>
@@ -124,16 +132,6 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
           </div>
         </div>
       </div>
-
-      {/* Start over: clone again, or pick a different checkout */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onCloneAgain}
-        className="text-muted-foreground"
-      >
-        {isLocal ? 'Choose a different repo' : 'Clone again'}
-      </Button>
     </div>
   )
 }
