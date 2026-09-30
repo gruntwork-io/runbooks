@@ -69,7 +69,7 @@ log_warn "Optional dependency not found, continuing anyway"
 log_error "Critical failure, exiting"
 ```
 
-The functions write to log files, one per level, never to stdout, so they are safe to call inside a function whose output you capture with `$(...)`. Any command can append to the same files through `$RUNBOOK_INFO_LOG`, `$RUNBOOK_WARN_LOG`, `$RUNBOOK_ERROR_LOG` and `$RUNBOOK_DEBUG_LOG`:
+The functions write to a log file, `$RUNBOOK_LOG`, never to stdout, so they are safe to call inside a function whose output you capture with `$(...)`. For output that doesn't name a level, any command can append to `$RUNBOOK_INFO_LOG`, `$RUNBOOK_WARN_LOG`, `$RUNBOOK_ERROR_LOG` or `$RUNBOOK_DEBUG_LOG`, and its lines show up at that level:
 
 ```bash
 tofu plan -no-color 2>>"$RUNBOOK_ERROR_LOG"

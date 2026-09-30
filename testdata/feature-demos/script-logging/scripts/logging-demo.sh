@@ -37,8 +37,8 @@ log_error "Use log_error for failures before exiting"
 
 echo ""
 
-# Any command can append to the log files directly. Runbooks shows each line
-# at the file's level.
+# Any command can append to the per-level log files directly. Runbooks shows
+# each line at the file's level.
 echo "This line was appended to \$RUNBOOK_WARN_LOG directly" >> "$RUNBOOK_WARN_LOG"
 
 # The logging functions never write to stdout, so they are safe inside a

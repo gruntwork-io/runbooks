@@ -160,7 +160,7 @@ Runbooks provides standardized logging functions for your scripts by automatical
 | `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
 | `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
 
-The logging functions append to [log files](#log-files) that Runbooks creates for each run, one per level, and Runbooks shows those lines in the block's logs as your script writes them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)`: the captured value holds only what the function prints.
+The logging functions append to a [log file](#log-files) that Runbooks creates for each run, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)`: the captured value holds only what the function prints.
 
 ```bash
 get_account_id() {
@@ -192,16 +192,19 @@ log_info "Deployment complete"
 
 #### Log Files
 
-Each run gets one log file per level. Runbooks puts their paths in environment variables, the way `$RUNBOOK_OUTPUT` holds the path of the [outputs](#block-outputs) file:
+Each run gets a set of log files. Runbooks puts their paths in environment variables, the way `$RUNBOOK_OUTPUT` holds the path of the [outputs](#block-outputs) file:
 
 | Variable | Written by | Level in the logs |
 |----------|------------|-------------------|
-| `RUNBOOK_INFO_LOG` | `log_info` | `INFO` |
-| `RUNBOOK_WARN_LOG` | `log_warn` | `WARN` |
-| `RUNBOOK_ERROR_LOG` | `log_error` | `ERROR` |
-| `RUNBOOK_DEBUG_LOG` | `log_debug` | `DEBUG` |
+| `RUNBOOK_LOG` | `log_info`, `log_warn`, `log_error`, `log_debug` | The level each line names |
+| `RUNBOOK_INFO_LOG` | Your commands | `INFO` |
+| `RUNBOOK_WARN_LOG` | Your commands | `WARN` |
+| `RUNBOOK_ERROR_LOG` | Your commands | `ERROR` |
+| `RUNBOOK_DEBUG_LOG` | Your commands | `DEBUG` |
 
-Any command can append to these files directly. Runbooks adds a timestamp and the file's level to each line that doesn't already start with them, so the line shows up at that level:
+All four logging functions append to `$RUNBOOK_LOG`, so their lines keep the order your script wrote them in, whatever their level. Runbooks shows the lines in `$RUNBOOK_LOG` as they are written, so a line you add there yourself should name its level the same way, for example `[WARN] Quota is almost used up`.
+
+The per-level files are for output that doesn't name a level, such as a tool's stderr. Any command can append to them directly. Runbooks adds a timestamp and the file's level to each line that doesn't already start with them, so the line shows up at that level:
 
 ```bash
 # tofu's errors appear as [ERROR] lines; its JSON output stays in the variable
@@ -219,7 +222,9 @@ with open(os.environ["RUNBOOK_WARN_LOG"], "a") as log:
     print("Quota is almost used up", file=log)
 ```
 
-Runbooks reads the log files while your script runs, so their lines appear next to its stdout and stderr, normally in the order the script wrote them. `log_debug` only writes when `DEBUG=true`, but every line in `$RUNBOOK_DEBUG_LOG` is shown, whoever wrote it. The files are deleted when the run ends, so lines that a background job writes after the script exits don't appear.
+Runbooks reads the log files while your script runs, so their lines appear next to its stdout and stderr, normally in the order the script wrote them. Lines written to different log files close together can appear grouped by file, with the lines from `$RUNBOOK_LOG` first. `log_debug` only writes when `DEBUG=true`, but every line in `$RUNBOOK_DEBUG_LOG` is shown, whoever wrote it.
+
+The files are deleted when the run ends, so lines that a [background job](#background-processes) writes after the script exits don't appear. From then on, the logging functions write to stderr instead, so the job's later log lines go wherever you redirected its output. Don't redirect a background job's output to the log files: once they are deleted, a command whose output is redirected to one of them fails without running.
 
 #### Local Development
 
@@ -231,7 +236,7 @@ mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/grun
 
 This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
 
-Outside Runbooks the `RUNBOOK_*_LOG` variables aren't set, so the logging functions write to stderr instead. The one-liner overwrites `~/.config/runbooks/logging.sh`, so re-run it to pick up changes to the logging functions. Copies downloaded before the log files existed write to stdout, where the log lines end up in `$(...)` captures.
+Outside Runbooks `RUNBOOK_LOG` isn't set, so the logging functions write to stderr instead. The one-liner overwrites `~/.config/runbooks/logging.sh`, so re-run it to pick up changes to the logging functions. Copies downloaded before the log files existed write to stdout, where the log lines end up in `$(...)` captures.
 
 :::note[Fish shell]
 The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also does not read `BASH_ENV` itself, but child `bash` processes will if the variable is exported. Use the fish equivalent:

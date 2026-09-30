@@ -161,7 +161,7 @@ Runbooks provides standardized logging functions for your scripts by automatical
 | `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
 | `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
 
-The logging functions append to log files that Runbooks creates for each run, one per level, and Runbooks shows those lines in the block's logs as your script writes them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)` without the log lines ending up in the captured value. Any command, or a script in another language, can append to the same files through `$RUNBOOK_INFO_LOG`, `$RUNBOOK_WARN_LOG`, `$RUNBOOK_ERROR_LOG` and `$RUNBOOK_DEBUG_LOG`. See [Log Files](/authoring/blocks/command/#log-files) in the Command block docs.
+The logging functions append to a log file that Runbooks creates for each run, `$RUNBOOK_LOG`, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)` without the log lines ending up in the captured value. For output that doesn't name a level, such as a tool's stderr, any command or a script in another language can append to `$RUNBOOK_INFO_LOG`, `$RUNBOOK_WARN_LOG`, `$RUNBOOK_ERROR_LOG` or `$RUNBOOK_DEBUG_LOG`, and its lines show up at that level. See [Log Files](/authoring/blocks/command/#log-files) in the Command block docs.
 
 #### Usage Example
 
