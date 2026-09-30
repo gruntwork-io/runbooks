@@ -173,9 +173,9 @@ else
         '{scope: [$scope], lifetime: $lifetime}')" \
       "${IAM_CREDENTIALS_URI}/projects/-/serviceAccounts/${TARGET_SA}:generateAccessToken")
 
-  if [ "$(echo "$response" | jq -r 'has("error")')" = "true" ]; then
+  if [ "$(jq -r 'has("error")' <<< "$response")" = "true" ]; then
     echo "Failed to impersonate: $TARGET_SA"
-    echo "Error: $(echo "$response" | jq -r '.error.message')"
+    echo "Error: $(jq -r '.error.message' <<< "$response")"
     echo ""
     echo "The caller needs roles/iam.serviceAccountTokenCreator on the target"
     echo "service account, and the IAM Service Account Credentials API must be"
@@ -183,8 +183,8 @@ else
     exit 1
   fi
 
-  impersonated_token=$(echo "$response" | jq -r '.accessToken // empty')
-  expire_time=$(echo "$response" | jq -r '.expireTime // empty')
+  impersonated_token=$(jq -r '.accessToken // empty' <<< "$response")
+  expire_time=$(jq -r '.expireTime // empty' <<< "$response")
 fi
 
 if [ -z "$impersonated_token" ]; then

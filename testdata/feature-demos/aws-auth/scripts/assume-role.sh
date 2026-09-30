@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Example script that assumes a role and outputs credentials
 # The target account ID and role name can be customized via inputs
 
@@ -18,9 +18,9 @@ CREDS=$(aws sts assume-role \
 if [ $? -eq 0 ]; then
   # Output credentials in the format expected by AwsAuth. The sensitive: prefix
   # masks the secrets in View Outputs; AwsAuth still reads them by their plain names.
-  echo "AWS_ACCESS_KEY_ID=$(echo "$CREDS" | jq -r '.Credentials.AccessKeyId')" >> "$RUNBOOK_OUTPUT"
-  echo "sensitive:AWS_SECRET_ACCESS_KEY=$(echo "$CREDS" | jq -r '.Credentials.SecretAccessKey')" >> "$RUNBOOK_OUTPUT"
-  echo "sensitive:AWS_SESSION_TOKEN=$(echo "$CREDS" | jq -r '.Credentials.SessionToken')" >> "$RUNBOOK_OUTPUT"
+  echo "AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' <<< "$CREDS")" >> "$RUNBOOK_OUTPUT"
+  echo "sensitive:AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' <<< "$CREDS")" >> "$RUNBOOK_OUTPUT"
+  echo "sensitive:AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' <<< "$CREDS")" >> "$RUNBOOK_OUTPUT"
   echo "Successfully assumed role: $ROLE_ARN"
 else
   echo "Failed to assume role: $ROLE_ARN"

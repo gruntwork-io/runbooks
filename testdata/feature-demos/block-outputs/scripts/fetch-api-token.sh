@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 echo "Fetching an API token..."
 
 # Simulate fetching a credential. Never echo it: the log isn't masked.
