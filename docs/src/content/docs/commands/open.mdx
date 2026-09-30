@@ -90,7 +90,7 @@ These tokens are used only for HTTPS sources. SSH sources (`git@...` or `ssh://.
 
 - `--watch` - Enable [watch mode](/commands/watch) for live-reload during authoring.
 - `--no-telemetry` - Disable anonymous telemetry. Can also be set via `RUNBOOKS_TELEMETRY_DISABLE=1` environment variable.
-- `--verbose` - Keep the command attached to the terminal and print the app's logs there until you quit Runbooks. Use it to troubleshoot a launch that shows no window.
+- `--verbose` - Keep the command attached to the terminal and print the app's logs there until you quit Runbooks. Use it to troubleshoot a launch that shows no window. It shows logs only for a Runbooks it starts: if Runbooks is already running, the command hands the runbook to it and exits.
 
 ## What it does
 
@@ -103,10 +103,14 @@ When you run `runbooks open`, the command gives you your prompt back right away 
 
 If the app is already running, a second invocation focuses the existing window and opens the new runbook in it. A relative path is resolved from the directory you ran the command in.
 
+<Aside type="note">
+The `runbooks` command that the Linux `.deb` package puts in `/usr/bin` runs the app itself, so it holds the terminal and prints the app's logs until you quit Runbooks. To get the command described here, [install it from Runbooks](/intro/installation/#installing-the-runbooks-command). It goes in `/usr/local/bin`, which comes before `/usr/bin` in the default `PATH`.
+</Aside>
+
 ## Troubleshooting
 
 **Nothing happens:**
-The command doesn't show the app's output, so a launch that fails is silent. Run the same command again with `--verbose` to see the app's logs in the terminal.
+The command doesn't show the app's output, so a launch that fails is silent. Run the same command again with `--verbose` to see the app's logs in the terminal. If Runbooks is already running, even with no window, quit it first, or `--verbose` hands the runbook to it and exits without showing its logs. To quit a Runbooks with no window, end its process in Activity Monitor on macOS, your system monitor on Linux, or Task Manager on Windows.
 
 **"Runbooks was not found":**
 The `runbooks` command records where Runbooks is installed. If you moved or reinstalled Runbooks, open it and [install the command again](/intro/installation/#installing-the-runbooks-command).

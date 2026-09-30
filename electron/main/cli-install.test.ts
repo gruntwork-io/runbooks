@@ -165,7 +165,13 @@ describe("renderUnixLauncher", () => {
         `for arg in "$@"; do`,
         `  if [ "$arg" = --verbose ]; then exec "$app" "$@"; fi`,
         "done",
-        `"$app" "$@" </dev/null >/dev/null 2>&1 &`,
+        "trap '' HUP",
+        "if command -v setsid >/dev/null 2>&1; then",
+        `  setsid "$app" "$@" </dev/null >/dev/null 2>&1 &`,
+        "else",
+        `  if [ -n "\${BASH_VERSION-}" ]; then set -m; fi`,
+        `  "$app" "$@" </dev/null >/dev/null 2>&1 &`,
+        "fi",
         "",
       ].join("\n"),
     )
@@ -243,6 +249,66 @@ describe("renderUnixLauncher", () => {
       }
     },
     15_000,
+  )
+
+  // script(1) runs a command as the session leader of a new terminal, as a
+  // VS Code task, `xterm -e runbooks .` or `tmux new-window 'runbooks .'` do.
+  // When that leader exits, the kernel sends SIGHUP to the terminal's
+  // foreground process group.
+  const hasScript =
+    !isWindows && spawnSync("/bin/sh", ["-c", "command -v script"], { env: process.env }).status === 0
+
+  it.skipIf(!hasScript)(
+    "puts the app in a process group of its own, which outlives a launcher that is a terminal's own command",
+    async () => {
+      const info = nodePath.join(tmp, "info")
+      const go = nodePath.join(tmp, "go")
+      const survived = nodePath.join(tmp, "survived")
+      // Stand-in for the app: records its PID and process group, then waits
+      // for the test's go-ahead (for 10 seconds at most) and records that it
+      // was still running to get it.
+      const target = hostileApp(
+        [
+          "#!/bin/sh",
+          `echo "$$ $(ps -o pgid= -p $$)" > "$INFO.tmp"`,
+          `mv "$INFO.tmp" "$INFO"`,
+          "i=0",
+          `while [ ! -e "$GO" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done`,
+          `if [ -e "$GO" ]; then : > "$SURVIVED"; fi`,
+          "",
+        ].join("\n"),
+      )
+      const launcher = writeLauncher(target)
+      // BSD script takes the command as arguments; util-linux script runs a
+      // command line with $SHELL -c.
+      const scriptArgs =
+        process.platform === "darwin"
+          ? ["-q", "/dev/null", launcher, "."]
+          : ["-q", "-e", "-c", `${shellSingleQuote(launcher)} .`, "/dev/null"]
+      try {
+        const result = spawnSync("script", scriptArgs, {
+          env: { ...process.env, SHELL: "/bin/sh", INFO: info, GO: go, SURVIVED: survived },
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf8",
+          timeout: 10_000,
+        })
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(0)
+      } finally {
+        // The launcher has exited, so any SIGHUP its exit caused is already sent.
+        fs.writeFileSync(go, "")
+      }
+
+      const deadline = Date.now() + 5_000
+      while (!fs.existsSync(survived) && Date.now() < deadline) await Bun.sleep(20)
+      expect({ survived: fs.existsSync(survived) }).toEqual({ survived: true })
+
+      // Its own group, never the terminal's foreground one, so Ctrl+C in the
+      // terminal does not reach it either.
+      const [pid, pgid] = fs.readFileSync(info, "utf8").trim().split(/\s+/)
+      expect(pgid).toBe(pid)
+    },
+    20_000,
   )
 
   it.skipIf(isWindows)(

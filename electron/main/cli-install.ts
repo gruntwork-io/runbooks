@@ -129,17 +129,26 @@ const VERBOSE_FLAG = "--verbose"
  * activates it and drops the arguments, and it starts the app in `/` with
  * its own environment rather than the terminal's.
  *
- * Started from a non-interactive shell, the app stays in the launcher's
- * process group. That group is orphaned once the launcher exits, and it is
- * not a job of the user's shell, so neither Ctrl+C nor closing the terminal
- * reaches the app. sh also starts it with SIGINT and SIGQUIT ignored; runbook
- * scripts do not inherit that, because child_process resets every signal to
- * its default in the processes it spawns.
+ * A plain `&` is not enough to keep the terminal from reaching the app. From
+ * a shell script, the app would stay in the launcher's process group. When
+ * the launcher is a terminal's own command (a VS Code task, `xterm -e`), the
+ * kernel sends SIGHUP to that group as the launcher exits, killing the app
+ * before it opens a window. When a wrapper script runs `runbooks .`, Ctrl+C
+ * reaches it, because Electron replaces the SIGINT that sh ignores for
+ * background commands with its own handler. So the app gets a session of its
+ * own from setsid(1), which Linux has. macOS has no setsid(1), but its
+ * /bin/sh is bash, whose job control (`set -m`) gives the app a process group
+ * of its own, outside the terminal's foreground group. Not under dash, which
+ * would stop `runbooks . &` for terminal input. SIGHUP is ignored for the
+ * moment between starting setsid and the app leaving the session. Runbook
+ * scripts do not inherit ignored signals, because child_process resets every
+ * signal to its default in the processes it spawns.
  *
  * The existence check keeps a moved or deleted app from failing silently now
  * that stderr is discarded; 127 is what sh itself exits with then.
  */
 export function renderUnixLauncher(target: string): string {
+  const start = `"$app" "$@" </dev/null >/dev/null 2>&1 &`
   return [
     "#!/bin/sh",
     `# ${LAUNCHER_MARKER}`,
@@ -151,7 +160,13 @@ export function renderUnixLauncher(target: string): string {
     `for arg in "$@"; do`,
     `  if [ "$arg" = ${VERBOSE_FLAG} ]; then exec "$app" "$@"; fi`,
     "done",
-    `"$app" "$@" </dev/null >/dev/null 2>&1 &`,
+    "trap '' HUP",
+    "if command -v setsid >/dev/null 2>&1; then",
+    `  setsid ${start}`,
+    "else",
+    `  if [ -n "\${BASH_VERSION-}" ]; then set -m; fi`,
+    `  ${start}`,
+    "fi",
     "",
   ].join("\n")
 }
