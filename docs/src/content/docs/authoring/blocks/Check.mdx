@@ -161,7 +161,7 @@ Runbooks provides standardized logging functions for your scripts by automatical
 | `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
 | `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
 
-The logging functions write to stderr. Runbooks shows stdout and stderr together in the block's logs, so you still see every line, and you can call them inside a function whose output you capture with `$(...)` without the log lines ending up in the captured value.
+The logging functions write to stderr. Runbooks shows stdout and stderr together in the block's logs, in the order your script writes them, so you still see every line. Writing to stderr also means you can call them inside a function whose output you capture with `$(...)` without the log lines ending up in the captured value.
 
 #### Usage Example
 

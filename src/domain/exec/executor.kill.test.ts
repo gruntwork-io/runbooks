@@ -21,7 +21,8 @@
  *
  * The same stack also covers the other two ways a run ends: `timeoutMs` must
  * kill a script that is still running, and a script that finishes on its own
- * must NOT take down background jobs it deliberately left running.
+ * must NOT take down background jobs it deliberately left running. It also
+ * checks that the injected log_* helpers reach the log stream in script order.
  */
 import { describe, it, expect, afterEach } from "bun:test"
 import { Effect, Fiber, Layer, Stream } from "effect"
@@ -159,12 +160,15 @@ describe("executeScript cancellation (e2e, real process tree)", () => {
  * Run a block to completion the way exec:run does: drain the log stream, then
  * run completionEffect, inside one scope that closes before this returns.
  * `pauseBeforeCompletionMs` holds the fiber between the two phases, standing in
- * for slow completion processing.
+ * for slow completion processing. `blockAfterSpawnMs` blocks the event loop
+ * right after the spawn, standing in for a busy main process (GC, another IPC
+ * handler) that reads nothing from the child's pipes meanwhile.
  */
 async function runToCompletion(
   script: string,
   request: ExecRequest,
   pauseBeforeCompletionMs = 0,
+  blockAfterSpawnMs = 0,
 ): Promise<{ events: ExecEvent[]; elapsedMs: number }> {
   const startedAt = Date.now()
   const events = await Effect.runPromise(
@@ -178,6 +182,10 @@ async function runToCompletion(
           "",
           "",
         )
+        const blockUntil = Date.now() + blockAfterSpawnMs
+        while (Date.now() < blockUntil) {
+          // Busy-wait: nothing else on the event loop runs until this ends.
+        }
         const logs = Array.from(yield* Stream.runCollect(logStream))
         if (pauseBeforeCompletionMs > 0) yield* Effect.sleep(pauseBeforeCompletionMs)
         const completion = yield* completionEffect
@@ -241,6 +249,40 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
 
       expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
       expect(logLines(events).some((l) => l.includes("timed out"))).toBe(false)
+    },
+    20000,
+  )
+})
+
+describe("executeScript log helpers (e2e, real process)", () => {
+  it(
+    "streams log_* lines in script order and keeps them out of $(...) captures",
+    async () => {
+      const script = [
+        "get_value() {",
+        '  log_info "looking up"',
+        "  echo value",
+        "}",
+        'log_info "start"',
+        "v=$(get_value)",
+        'echo "v=[$v]"',
+        'log_warn "end"',
+        "",
+      ].join("\n")
+
+      // bash finishes while the event loop is blocked, so all of its output
+      // is waiting when the spawner next reads. The order has to come from
+      // the script, not from which of the child's pipes is read first.
+      const { events } = await runToCompletion(script, {}, 0, 500)
+
+      expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+      const timestamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+      expect(logLines(events).map((l) => l.replace(timestamp, ""))).toEqual([
+        "[INFO]  start",
+        "[INFO]  looking up",
+        "v=[value]",
+        "[WARN]  end",
+      ])
     },
     20000,
   )

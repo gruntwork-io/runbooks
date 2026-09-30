@@ -710,23 +710,50 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(stdout).toBe("a\\nb\n")
   })
 
-  it("log_info/warn/error write ISO-8601 timestamps and level prefixes to stderr", () => {
+  // Log lines start with "[<ISO-8601 zulu timestamp>] ". logLines drops that
+  // prefix so tests can compare whole lines, in order.
+  const LOG_TIMESTAMP = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+  const logLines = (out: string) =>
+    out.split("\n").filter(Boolean).map((line) => line.replace(LOG_TIMESTAMP, ""))
+
+  it("log_info/warn/error write ISO-8601 timestamps and level prefixes", () => {
     const result = runWrapped(
       `log_info "info-msg"
        log_warn "warn-msg"
        log_error "err-msg"`,
     )
-    expect(result.stderr).toContain("[INFO]")
-    expect(result.stderr).toContain("info-msg")
-    expect(result.stderr).toContain("[WARN]")
-    expect(result.stderr).toContain("warn-msg")
-    expect(result.stderr).toContain("[ERROR]")
-    expect(result.stderr).toContain("err-msg")
     // ISO-8601 zulu pattern: YYYY-MM-DDTHH:MM:SSZ
-    expect(result.stderr).toMatch(
-      /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]/,
+    expect(result.stdout).toMatch(
+      /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] \[INFO\]  info-msg\n/,
     )
-    expect(result.stdout).toBe("")
+    expect(logLines(result.stdout)).toEqual([
+      "[INFO]  info-msg",
+      "[WARN]  warn-msg",
+      "[ERROR] err-msg",
+    ])
+  })
+
+  // The helpers write to stderr, and the wrapper points stderr at stdout
+  // before the user script runs. The spawner then reads a single pipe, so log
+  // lines can't drift past the script's own output in the log view or
+  // exec.log, however late it drains the pipe.
+  it("log lines and the script's stdout and stderr all arrive on stdout, in script order", () => {
+    const result = runWrapped(
+      `log_info "first"
+       echo "second"
+       log_warn "third"
+       echo "fourth" >&2
+       log_error "fifth"`,
+    )
+    expect(result.exitCode).toBe(0)
+    expect(logLines(result.stdout)).toEqual([
+      "[INFO]  first",
+      "second",
+      "[WARN]  third",
+      "fourth",
+      "[ERROR] fifth",
+    ])
+    expect(result.stderr).toBe("")
   })
 
   it("log_debug is silent when DEBUG is unset", () => {
@@ -737,15 +764,14 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.stderr).not.toContain("[DEBUG]")
   })
 
-  it("log_debug writes to stderr when DEBUG=true", () => {
+  it("log_debug logs when DEBUG=true", () => {
     const result = runWrapped(`log_debug "debug-msg"`, { DEBUG: "true" })
-    expect(result.stderr).toContain("[DEBUG]")
-    expect(result.stderr).toContain("debug-msg")
-    expect(result.stdout).toBe("")
+    expect(logLines(result.stdout)).toEqual(["[DEBUG] debug-msg"])
   })
 
   // Regression for #269: a function that logs and then prints a value must
-  // return only the value through $(...).
+  // return only the value through $(...). The log lines still reach the
+  // block's output, in order.
   it("log_* calls inside a function don't leak into its $(...) capture", () => {
     const result = runWrapped(
       `get_json() {
@@ -760,16 +786,20 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
       { DEBUG: "true" },
     )
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBe('json=[{"ok":true}]\n')
-    expect(result.stderr).toContain("[INFO]  info-msg")
-    expect(result.stderr).toContain("[WARN]  warn-msg")
-    expect(result.stderr).toContain("[ERROR] err-msg")
-    expect(result.stderr).toContain("[DEBUG] debug-msg")
+    expect(logLines(result.stdout)).toEqual([
+      "[INFO]  info-msg",
+      "[WARN]  warn-msg",
+      "[ERROR] err-msg",
+      "[DEBUG] debug-msg",
+      'json=[{"ok":true}]',
+    ])
+    expect(result.stderr).toBe("")
   })
 
   // scripts/logging.sh is the copy authors load through BASH_ENV for local
-  // development. It must behave like the injected helpers.
-  it("scripts/logging.sh writes the same lines to stderr as the injected helpers", () => {
+  // development. It must write to stderr and print the same lines as the
+  // injected helpers, which the wrapper's stderr redirect delivers on stdout.
+  it("scripts/logging.sh writes to stderr and prints the same lines as the injected helpers", () => {
     const calls = `log_info "info 100%s"
        log_warn two words
        log_error "err-msg"
@@ -799,14 +829,14 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
 
     expect(local.status).toBe(0)
     expect(local.stdout).toBe("")
-    expect(injected.stdout).toBe("")
+    expect(injected.stderr).toBe("")
     expect(stripTimestamps(local.stderr)).toEqual([
       "[INFO]  info 100%s",
       "[WARN]  two words",
       "[ERROR] err-msg",
       "[DEBUG] debug-msg",
     ])
-    expect(stripTimestamps(injected.stderr)).toEqual(stripTimestamps(local.stderr))
+    expect(stripTimestamps(injected.stdout)).toEqual(stripTimestamps(local.stderr))
   })
 
   it("captures multi-line env values via NUL-delimited env -0", () => {

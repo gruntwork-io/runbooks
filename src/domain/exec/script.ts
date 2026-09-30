@@ -19,9 +19,10 @@ import type { CapturedFile } from "../../types.ts"
  * Provides log_info, log_warn, log_error, log_debug.
  *
  * All four write to stderr, so a function that logs and then prints a value
- * returns only that value through `$(...)`. The spawner streams stderr into
- * the log view and exec.log alongside stdout, so users still see every line.
- * Keep in sync with scripts/logging.sh.
+ * returns only that value through `$(...)`. wrapBashScript points stderr at
+ * stdout before the user script runs, so the spawner reads one pipe and log
+ * lines keep their order relative to the script's output in the log view and
+ * exec.log. Keep in sync with scripts/logging.sh.
  */
 const LOGGING_FUNCTIONS = `
 # --- Runbooks Logging Functions ---
@@ -187,8 +188,9 @@ export function wrapBashScript(
 #   1. Define our capture function and trap override
 #   2. Set our combined EXIT handler (using builtin to bypass override)
 #   3. Inject logging functions (log_info, log_warn, log_error, log_debug)
-#   4. Execute user script (which may call 'trap ... EXIT')
-#   5. On exit: run user's handler first, then capture env
+#   4. Redirect stderr to stdout so all output shares one ordered pipe
+#   5. Execute user script (which may call 'trap ... EXIT')
+#   6. On exit: run user's handler first, then capture env
 # =============================================================================
 
 __RUNBOOKS_ENV_CAPTURE_PATH=${JSON.stringify(envCapturePath)}
@@ -309,6 +311,11 @@ builtin trap __runbooks_combined_exit EXIT
 # Logging Functions
 # =============================================================================
 ${LOGGING_FUNCTIONS}
+# Send stderr down the stdout pipe, so log_* lines and the script's own stderr
+# reach the log view in the order they were written. A $(...) capture only
+# replaces stdout, so the log_* helpers still stay out of captured values.
+exec 2>&1
+
 # =============================================================================
 # USER SCRIPT BEGIN
 # =============================================================================
