@@ -237,7 +237,25 @@ Generated from block outputs and user selection.
 ```
 </TemplateInline>
 
-## Step 7: Verify Setup
+## Step 7: Sensitive Outputs
+
+A script can mark an output as sensitive by writing `sensitive:` before its key:
+
+```bash
+echo "api_user=$API_USER" >> "$RUNBOOK_OUTPUT"
+echo "sensitive:api_token=$API_TOKEN" >> "$RUNBOOK_OUTPUT"
+```
+
+After you run the command below, **View Outputs** shows `api_user` as usual but masks `api_token` as `••••••••`. The copy button on its row still copies the real value, and **Copy JSON** writes `[REDACTED]` in its place. The output's key is still `api_token`, so downstream blocks read the real value as `{{ .outputs.fetch_api_token.api_token }}`.
+
+<Command
+  id="fetch-api-token"
+  path="scripts/fetch-api-token.sh"
+  title="Fetch API Token"
+  description="Outputs an API user and a token marked sensitive"
+/>
+
+## Step 8: Verify Setup
 
 This check validates that everything was set up correctly.
 

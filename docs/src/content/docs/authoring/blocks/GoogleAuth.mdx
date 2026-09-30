@@ -506,6 +506,8 @@ echo "GOOGLE_CLOUD_PROJECT=my-project-123456" >> "$RUNBOOK_OUTPUT"
 
 Accepted output keys are `GOOGLE_APPLICATION_CREDENTIALS` (a path), `GOOGLE_CREDENTIALS` (inline JSON), or `GOOGLE_OAUTH_ACCESS_TOKEN` / `CLOUDSDK_AUTH_ACCESS_TOKEN`. The project falls back to `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_PROJECT`, and finally the `project` prop.
 
+When a script writes the credential itself, rather than a path to it, mark it sensitive, as in `echo "sensitive:GOOGLE_OAUTH_ACCESS_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. The Command's **View Outputs** then masks it, and GoogleAuth still reads it by its plain name. See [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
+
 If the referenced block has not run yet, GoogleAuth shows *Waiting for "impersonate-sa" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order.
 
 <Aside type="caution">

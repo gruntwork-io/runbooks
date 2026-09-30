@@ -200,6 +200,8 @@ interface UseScriptExecutionReturn {
 
   // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT)
   outputs: Record<string, string> | null
+  /** Output keys the script marked `sensitive:`, masked by ViewOutputs. */
+  sensitiveOutputKeys: string[]
   
   // Drift detection (script changed on disk since runbook was opened)
   hasScriptDrift: boolean
@@ -772,6 +774,7 @@ export function useScriptExecution({
     
     // Block outputs
     outputs,
+    sensitiveOutputKeys: execState.sensitiveOutputKeys,
     
     // Drift detection
     hasScriptDrift,

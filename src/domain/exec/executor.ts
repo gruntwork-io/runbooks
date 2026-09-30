@@ -275,9 +275,9 @@ export const executeScript = (
       events.push({ _tag: "status", event: statusEvent })
 
       if (isSuccessOrWarn) {
-        const outputs = yield* parseBlockOutputs(outputFilePath)
+        const { outputs, sensitiveKeys } = yield* parseBlockOutputs(outputFilePath)
         if (Object.keys(outputs).length > 0) {
-          events.push({ _tag: "outputs", event: { outputs } })
+          events.push({ _tag: "outputs", event: { outputs, sensitiveKeys } })
         }
       }
 

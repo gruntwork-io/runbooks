@@ -5,13 +5,23 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { copyTextToClipboard } from "@/lib/utils"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
+/** Shown in place of a sensitive value. Fixed length, so it doesn't reveal the value's. */
+const SENSITIVE_MASK = "••••••••"
+/** Written in place of a sensitive value by Copy JSON. */
+const REDACTED = "[REDACTED]"
+
 interface ViewOutputsProps {
   outputs: Record<string, string> | null
+  /** Keys whose values are masked on screen and redacted in Copy JSON. */
+  sensitiveKeys?: readonly string[]
   autoOpen?: boolean
 }
 
-export function ViewOutputs({ 
-  outputs, 
+const NO_SENSITIVE_KEYS: readonly string[] = []
+
+export function ViewOutputs({
+  outputs,
+  sensitiveKeys = NO_SENSITIVE_KEYS,
   autoOpen = false,
 }: ViewOutputsProps) {
   const [showOutputs, setShowOutputs] = useState(autoOpen)
@@ -24,8 +34,16 @@ export function ViewOutputs({
     }
   }, [autoOpen])
 
+  const isSensitive = (key: string) => sensitiveKeys.includes(key)
+  const hasSensitive = Object.keys(outputs || {}).some(isSensitive)
+
+  // Copy JSON is what gets pasted into bug reports, so it never carries a
+  // sensitive value. The row's own copy button copies the real one.
   const getOutputsJson = () => {
-    return JSON.stringify(outputs || {}, null, 2)
+    const shown = Object.fromEntries(
+      Object.entries(outputs || {}).map(([key, value]) => [key, isSensitive(key) ? REDACTED : value]),
+    )
+    return JSON.stringify(shown, null, 2)
   }
 
   // Handle copy to clipboard (full JSON)
@@ -86,7 +104,13 @@ export function ViewOutputs({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            <p>{copied ? "Copied!" : "Copy outputs as JSON"}</p>
+            <p>
+              {copied
+                ? "Copied!"
+                : hasSensitive
+                  ? "Copy outputs as JSON (sensitive values redacted)"
+                  : "Copy outputs as JSON"}
+            </p>
           </TooltipContent>
         </Tooltip>
       </div>
@@ -108,7 +132,12 @@ export function ViewOutputs({
                   <td className="py-1.5 px-2 font-mono text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span className="break-all">
-                        {value.length > 100 ? (
+                        {isSensitive(key) ? (
+                          <span title="Sensitive value hidden. The copy button copies it.">
+                            <span aria-hidden="true">{SENSITIVE_MASK}</span>
+                            <span className="sr-only">Sensitive value hidden</span>
+                          </span>
+                        ) : value.length > 100 ? (
                           <Tooltip delayDuration={350}>
                             <TooltipTrigger asChild>
                               <span className="cursor-help">
@@ -125,6 +154,7 @@ export function ViewOutputs({
                       </span>
                       <button
                         onClick={() => handleCopyValue(key, value)}
+                        aria-label={`Copy value of ${key}`}
                         className="shrink-0 p-1 text-muted-foreground hover:text-foreground cursor-pointer"
                       >
                         {copiedKey === key ? (

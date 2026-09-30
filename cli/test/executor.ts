@@ -874,10 +874,14 @@ export class TestExecutor {
       result.exitCode = exitCode
       result.logs = logs
 
-      // Parse outputs
+      // Parse outputs. Sensitive ones keep their real values for later blocks
+      // and assertions; only the verbose printout masks them.
+      let sensitiveKeys: string[] = []
       if (status === "success" || status === "warn") {
         try {
-          result.outputs = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
+          const parsed = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
+          result.outputs = parsed.outputs
+          sensitiveKeys = parsed.sensitiveKeys
         } catch { /* no outputs */ }
 
         // Carry the script's exports and final cwd into later blocks
@@ -888,7 +892,7 @@ export class TestExecutor {
       }
 
       if (this.options.verbose) {
-        this.printBlockOutput(block.id, logs, result.outputs, status, result.error)
+        this.printBlockOutput(block.id, logs, result.outputs, sensitiveKeys, status, result.error)
       }
 
       // Store outputs
@@ -1796,6 +1800,7 @@ export class TestExecutor {
     _blockId: string,
     logs: string,
     outputs: Record<string, string>,
+    sensitiveKeys: readonly string[],
     status: string,
     error?: string,
   ): void {
@@ -1808,7 +1813,9 @@ export class TestExecutor {
     if (Object.keys(outputs).length > 0) {
       console.log("--- Outputs ---")
       for (const [key, value] of Object.entries(outputs)) {
-        const display = value.length > 100 ? value.slice(0, 97) + "..." : value
+        const display = sensitiveKeys.includes(key)
+          ? "[REDACTED]"
+          : value.length > 100 ? value.slice(0, 97) + "..." : value
         console.log(`  ${key} = ${display}`)
       }
     }

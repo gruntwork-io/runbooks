@@ -194,10 +194,11 @@ fi
 
 # Publish the token as block outputs. GoogleAuth's { block: ... } source reads
 # GOOGLE_APPLICATION_CREDENTIALS, then GOOGLE_CREDENTIALS, then either of the
-# access-token names below.
+# access-token names below. The sensitive: prefix masks the token in View
+# Outputs; GoogleAuth still reads it by its plain name.
 {
-  echo "GOOGLE_OAUTH_ACCESS_TOKEN=${impersonated_token}"
-  echo "CLOUDSDK_AUTH_ACCESS_TOKEN=${impersonated_token}"
+  echo "sensitive:GOOGLE_OAUTH_ACCESS_TOKEN=${impersonated_token}"
+  echo "sensitive:CLOUDSDK_AUTH_ACCESS_TOKEN=${impersonated_token}"
   if [ -n "$project" ]; then
     echo "CLOUDSDK_CORE_PROJECT=${project}"
   fi

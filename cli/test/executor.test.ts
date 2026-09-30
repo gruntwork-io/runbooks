@@ -558,6 +558,75 @@ describe("TestExecutor — block outputs", () => {
 })
 
 // ---------------------------------------------------------------------------
+// An output marked sensitive: keeps its plain key and real value for later
+// blocks and assertions, but --verbose never prints it.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — sensitive outputs", () => {
+  const SECRET = "s3cr3t-value-123"
+
+  /** Run `fn` with console.log silenced, returning its result and what it printed. */
+  const captureConsoleLog = <T>(fn: () => T): { result: T; printed: string[] } => {
+    const logSpy = spyOn(console, "log").mockImplementation(() => {})
+    try {
+      const result = fn()
+      return { result, printed: logSpy.mock.calls.map((args) => args.join(" ")) }
+    } finally {
+      logSpy.mockRestore()
+    }
+  }
+
+  let tmp: string
+  let savedHome: string | undefined
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-sensitive-"))
+    // The blocks run with a throwaway HOME
+    savedHome = process.env.HOME
+    process.env.HOME = path.join(tmp, "home")
+    fs.mkdirSync(process.env.HOME)
+  })
+  afterEach(() => {
+    if (savedHome === undefined) delete process.env.HOME
+    else process.env.HOME = savedHome
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("passes the real value on and prints [REDACTED] for it in verbose mode", async () => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Sensitive",
+        "",
+        `<Command id="mint" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; echo "sensitive:token=${SECRET}" >> "$RUNBOOK_OUTPUT"' />`,
+        "",
+        '<Command id="use" command="echo got-{{ .outputs.mint.token }}" />',
+        "",
+      ].join("\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: true })
+    await executor.init()
+
+    const { result, printed } = captureConsoleLog(() =>
+      executor.runTest({
+        name: "sensitive",
+        assertions: [{ type: "output_equals", block: "mint", output: "token", value: SECRET }],
+      }),
+    )
+
+    expect(result.status).toBe("passed")
+    expect(result.assertions[0]?.passed).toBe(true)
+    expect(result.stepResults[0]?.outputs).toEqual({ user: "alice", token: SECRET })
+    // The downstream block got the real value through its template
+    expect(result.stepResults[1]?.logs).toContain(`got-${SECRET}`)
+    // ...but the producing block's Outputs section never shows it
+    expect(printed).toContain("  user = alice")
+    expect(printed).toContain("  token = [REDACTED]")
+    expect(printed.filter((line) => line.startsWith("  token = ") && line.includes(SECRET))).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // files_generated counts the files the named block wrote this test case, not
 // whatever happens to be in the output dir.
 // ---------------------------------------------------------------------------

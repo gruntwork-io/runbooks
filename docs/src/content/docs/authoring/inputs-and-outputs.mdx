@@ -169,6 +169,33 @@ echo 'users=["alice","bob","charlie"]' >> "$RUNBOOK_OUTPUT"
 
 You don't need to define the `$RUNBOOK_OUTPUT` environment variable in your script. Runbooks will automatically create it for you.
 
+### Sensitive Outputs
+
+When an output holds a credential, such as a secret key, token or password, write `sensitive:` before its key:
+
+```bash
+echo "AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID" >> "$RUNBOOK_OUTPUT"
+echo "sensitive:AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY" >> "$RUNBOOK_OUTPUT"
+echo "sensitive:AWS_SESSION_TOKEN=$SESSION_TOKEN" >> "$RUNBOOK_OUTPUT"
+```
+
+The prefix isn't part of the key. The second output above is named `AWS_SECRET_ACCESS_KEY`, so downstream blocks read its real value as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`. Auth blocks that take credentials from a block, such as `<AwsAuth detectCredentials={[{ block: '<block-id>' }]} />`, find it by its usual name too.
+
+Runbooks keeps a sensitive value off screen where it shows outputs:
+
+- **View Outputs** shows `••••••••` in place of the value. The copy button on its row still copies the real value.
+- **Copy JSON** writes `"[REDACTED]"` in place of the value.
+- The [test CLI](/authoring/testing/)'s `--verbose` output prints `[REDACTED]` in place of the value.
+
+Once any line marks a key `sensitive:`, that output stays sensitive, even if a later line writes the same key without the prefix. The prefix is lowercase and comes first on the line.
+
+<Aside type="caution">
+Marking an output sensitive only masks it where Runbooks shows outputs. It doesn't remove the value from anywhere else:
+
+- The block's log shows everything your script prints, so don't `echo` the value.
+- A downstream block that uses the value in a template, such as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`, shows it wherever it shows its rendered script or file. To use a credential in later blocks, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/) instead.
+</Aside>
+
 ### Consuming Outputs
 
 Downstream blocks reference outputs using the `outputs` namespace:
@@ -207,7 +234,7 @@ If a block references outputs from another block that hasn't run yet:
 2. The **Run / Generate button is disabled** until the upstream block executes
 3. The template shows the raw syntax until outputs are available
 
-After a block runs, you can click **"View Outputs"** below the log viewer to inspect its outputs in a table.
+After a block runs, you can click **"View Outputs"** below the log viewer to inspect its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 
 <Aside type="note">
 Block outputs are stored in browser memory and cleared on page refresh.

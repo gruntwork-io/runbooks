@@ -245,6 +245,11 @@ export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
 
 export interface BlockOutputsEvent {
   outputs: Record<string, string>
+  /**
+   * Keys the script marked `sensitive:`. Their real values are in `outputs`,
+   * for downstream blocks; the UI masks them.
+   */
+  sensitiveKeys: string[]
 }
 
 // ---------------------------------------------------------------------------

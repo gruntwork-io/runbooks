@@ -297,3 +297,62 @@ describe("executeScript — captured files", () => {
     expect(event.totalFiles).toBe(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Outputs written to $RUNBOOK_OUTPUT
+// ---------------------------------------------------------------------------
+
+describe("executeScript — outputs", () => {
+  /** Run a step whose (fake) process writes `content` to $RUNBOOK_OUTPUT. */
+  async function runWritingOutputs(content: string) {
+    const files: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          const outputFile = options?.env?.RUNBOOK_OUTPUT
+          if (outputFile) files[outputFile] = content
+          return { output: Stream.empty, exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          "write outputs",
+          "",
+          {},
+          { env: { PATH: "/usr/bin" }, workDir: "/work" },
+          "",
+          "/output",
+        )
+        yield* Stream.runDrain(logStream)
+        return yield* completionEffect
+      }),
+    )
+
+    const events = await Effect.runPromise(program.pipe(Effect.provide(layer)))
+    return events.find(
+      (e): e is Extract<ExecEvent, { _tag: "outputs" }> => e._tag === "outputs",
+    )
+  }
+
+  it("sends the real values under their plain keys, and which keys are sensitive", async () => {
+    const outputs = await runWritingOutputs("region=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc\n")
+
+    expect(outputs?.event).toEqual({
+      outputs: { region: "us-west-2", AWS_SECRET_ACCESS_KEY: "abc" },
+      sensitiveKeys: ["AWS_SECRET_ACCESS_KEY"],
+    })
+  })
+
+  it("sends an empty sensitive list when nothing is marked", async () => {
+    const outputs = await runWritingOutputs("region=us-west-2\n")
+
+    expect(outputs?.event).toEqual({ outputs: { region: "us-west-2" }, sensitiveKeys: [] })
+  })
+})

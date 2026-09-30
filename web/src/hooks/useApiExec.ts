@@ -33,6 +33,9 @@ const FilesCapturedEventSchema = z.object({
 
 const BlockOutputsEventSchema = z.object({
   outputs: z.record(z.string(), z.string()),
+  // Keys the script marked `sensitive:`. Defaulted so a payload without the
+  // field still delivers its outputs.
+  sensitiveKeys: z.array(z.string()).default([]),
 })
 
 // Inferred types from Zod schemas
@@ -62,6 +65,8 @@ export interface ExecState {
   exitCode: number | null
   error: AppError | null
   outputs: Record<string, string> | null
+  /** Output keys the script marked `sensitive:`, whose values the UI masks. */
+  sensitiveOutputKeys: string[]
   /** Absolute path to the on-disk log file for this execution, if available. */
   logFilePath: string | null
 }
@@ -105,6 +110,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     exitCode: null,
     error: null,
     outputs: null,
+    sensitiveOutputKeys: [],
     logFilePath: null,
   })
 
@@ -167,6 +173,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       exitCode: null,
       error: null,
       outputs: null,
+      sensitiveOutputKeys: [],
       logFilePath: null,
     })
   }, [cancel])
@@ -202,6 +209,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       exitCode: null,
       error: null,
       outputs: null,
+      sensitiveOutputKeys: [],
       logFilePath: null,
     })
 
@@ -236,7 +244,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       if (activeExecId !== execId) return
       const parsed = BlockOutputsEventSchema.safeParse(data)
       if (parsed.success) {
-        setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
+        setState((prev) => ({
+          ...prev,
+          outputs: parsed.data.outputs,
+          sensitiveOutputKeys: parsed.data.sensitiveKeys,
+        }))
+        // Downstream blocks get the real values; only the display masks them
         options?.onOutputsCaptured?.(parsed.data.outputs)
       }
     }))
