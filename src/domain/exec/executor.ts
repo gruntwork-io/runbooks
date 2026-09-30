@@ -26,6 +26,7 @@ import {
   captureFilesFromDir,
 } from "./script.ts"
 import type { ScriptSetup } from "./script.ts"
+import { logChannelFiles, tagLogLine } from "./logChannels.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -63,12 +64,16 @@ function setupExecEnvVars(
   outputFile: string,
   filesDir: string,
   workTreePath: string,
+  logFiles: ReadonlyArray<{ readonly envVar: string; readonly path: string }>,
 ): Record<string, string> {
   const result = { ...env }
   result["RUNBOOK_OUTPUT"] = outputFile
   result["GENERATED_FILES"] = filesDir
   if (workTreePath) {
     result["REPO_FILES"] = workTreePath
+  }
+  for (const { envVar, path } of logFiles) {
+    result[envVar] = path
   }
   return result
 }
@@ -144,9 +149,22 @@ export const executeScript = (
       fs.rm(filesDir, { recursive: true, force: true }).pipe(Effect.ignore),
     )
 
+    log.debug("step 3a: creating log channel files")
+    // One file per log level (RUNBOOK_INFO_LOG, RUNBOOK_WARN_LOG, ...). The
+    // log_* helpers and anything else the script runs append to them, and the
+    // spawner follows them into the log stream and exec.log.
+    const logChannelDir = yield* fs.mkdtemp("runbook-log-channels-")
+    yield* Effect.addFinalizer(() =>
+      fs.rm(logChannelDir, { recursive: true, force: true }).pipe(Effect.ignore),
+    )
+    const logFiles = logChannelFiles(logChannelDir)
+    for (const { path } of logFiles) {
+      yield* fs.writeFile(path, "")
+    }
+
     log.debug("step 3b: creating log file")
     // Create a durable log file for this execution. The spawner appends every
-    // stdout/stderr line here as it runs, so the file can be tailed externally
+    // output line here as it runs, so the file can be tailed externally
     // and inspected after the fact. NOTE: unlike the dirs above, we intentionally
     // do NOT register a cleanup finalizer — the file must outlive the execution
     // so the user can open it from the surfaced path. These live under the OS
@@ -203,8 +221,9 @@ export const executeScript = (
       }
     }
 
-    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES, REPO_FILES)
-    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath)
+    // Add standard runbook env vars (RUNBOOK_OUTPUT, GENERATED_FILES,
+    // REPO_FILES, and the RUNBOOK_*_LOG files)
+    execEnv = setupExecEnvVars(execEnv, outputFilePath, filesDir, workTreePath, logFiles)
 
     const cmdArgs = [...scriptSetup.args, scriptSetup.scriptPath]
 
@@ -213,6 +232,12 @@ export const executeScript = (
       cwd: sessionContext.workDir || undefined,
       env: execEnv,
       logFilePath,
+      // A line written straight to a log file, without the helpers' prefix,
+      // is tagged with the file's level and the time it was read.
+      logChannels: logFiles.map(({ path, level }) => ({
+        path,
+        formatLine: (line: string) => tagLogLine(line, level, new Date()),
+      })),
     })
 
     // Kill the process group when the scope closes. `kill` is a no-op once the

@@ -9,6 +9,7 @@ import { Effect } from "effect"
 import { Environment } from "../../services/Environment.js"
 import { SessionError, SessionNotFoundError } from "../../errors/index.js"
 import type { SessionMetadata, SessionExecSnapshot } from "../../types.js"
+import { LOG_CHANNELS } from "../exec/logChannels.js"
 
 // ---------------------------------------------------------------------------
 // Excluded env vars — shell internals that should never be captured
@@ -20,6 +21,8 @@ const EXCLUDED_ENV_VARS = new Set<string>([
   "RUNBOOK_OUTPUT",
   "GENERATED_FILES",
   "REPO_FILES",
+  // RUNBOOK_INFO_LOG etc.: per-run files, removed when the run ends
+  ...LOG_CHANNELS.map((channel) => channel.envVar),
   "OLDPWD",
   "FUNCNAME",
   "LINENO",

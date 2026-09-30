@@ -24,6 +24,7 @@ import {
   resolveScriptRunner,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
+import { logChannelFiles, orderLogChannelLines } from "../../src/domain/exec/logChannels.ts"
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
 import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
@@ -800,6 +801,10 @@ export class TestExecutor {
     const outputFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")), "output.txt")
     fs.writeFileSync(outputFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
+    // One file per log level (RUNBOOK_INFO_LOG etc.), as in the app
+    const logChannelDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-log-channels-"))
+    const logFiles = logChannelFiles(logChannelDir)
+    for (const { path: logFile } of logFiles) fs.writeFileSync(logFile, "")
     // Made below; declared here so the finally can remove them
     let envDir = ""
     let pwdDir = ""
@@ -833,6 +838,7 @@ export class TestExecutor {
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
+      for (const { envVar, path: logFile } of logFiles) env[envVar] = logFile
 
       // Inject auth block credentials if this block has an auth dependency
       if (this.authDeps.has(foundExec.componentId)) {
@@ -855,7 +861,23 @@ export class TestExecutor {
         maxBuffer: 10 * 1024 * 1024,
       })
 
-      const logs = (proc.stdout?.toString() ?? "") + (proc.stderr?.toString() ?? "")
+      // spawnSync returns only once the script has exited, so the log files'
+      // lines can't be placed among stdout and stderr by arrival; they follow
+      // them, merged by the helpers' timestamps (see orderLogChannelLines).
+      const logFileLines = orderLogChannelLines(
+        logFiles.map(({ level, path: logFile }) => {
+          try {
+            return { level, text: fs.readFileSync(logFile, "utf-8"), lastWritten: fs.statSync(logFile).mtime }
+          } catch {
+            return { level, text: "" } // the script removed it
+          }
+        }),
+      )
+      let logs = (proc.stdout?.toString() ?? "") + (proc.stderr?.toString() ?? "")
+      if (logFileLines.length > 0) {
+        if (logs !== "" && !logs.endsWith("\n")) logs += "\n"
+        logs += logFileLines.join("\n") + "\n"
+      }
       const exitCode = proc.status ?? -1
       let status: string
 
@@ -905,7 +927,7 @@ export class TestExecutor {
     } finally {
       // Cleanup temp files. The env capture holds every variable the script
       // saw, credentials included, so it must not outlive the block.
-      for (const dir of [path.dirname(outputFile), filesDir, envDir, pwdDir, scriptDir]) {
+      for (const dir of [path.dirname(outputFile), filesDir, logChannelDir, envDir, pwdDir, scriptDir]) {
         if (dir) try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
       }
     }

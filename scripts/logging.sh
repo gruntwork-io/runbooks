@@ -11,10 +11,11 @@
 #
 # Output format: [ISO-8601-TIMESTAMP] [LEVEL] Message
 #
-# Every function writes to stderr, so it is safe to log inside a function
-# whose stdout is captured with $(...): the capture holds only what the
-# function prints, never the log lines. Runbooks shows stdout and stderr
-# together in a block's logs.
+# Each function appends to the log file Runbooks names in an environment
+# variable: RUNBOOK_INFO_LOG, RUNBOOK_WARN_LOG, RUNBOOK_ERROR_LOG or
+# RUNBOOK_DEBUG_LOG. Outside Runbooks the variable is unset and the function
+# writes to stderr instead. Either way nothing goes to stdout, so it is safe
+# to log inside a function whose output is captured with $(...).
 #
 # Compatible with Bash 3.2+ (macOS default version) and POSIX shells where possible.
 # =============================================================================
@@ -33,36 +34,49 @@ _log_timestamp() {
 }
 
 # -----------------------------------------------------------------------------
-# log_info - Log an informational message to stderr
+# Helper: Append a log line to FILE, or to stderr if FILE is empty
+# Usage: _log_write FILE TAG MESSAGE...
+# -----------------------------------------------------------------------------
+_log_write() {
+  local file="$1" tag="$2"
+  shift 2
+  if [ -n "$file" ]; then
+    printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >> "$file"
+  else
+    printf '[%s] %s %s\n' "$(_log_timestamp)" "$tag" "$*" >&2
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# log_info - Log an informational message to $RUNBOOK_INFO_LOG
 # Usage: log_info "message"
 # -----------------------------------------------------------------------------
 log_info() {
-  printf '[%s] [INFO]  %s\n' "$(_log_timestamp)" "$*" >&2
+  _log_write "${RUNBOOK_INFO_LOG:-}" "[INFO] " "$@"
 }
 
 # -----------------------------------------------------------------------------
-# log_warn - Log a warning message to stderr
+# log_warn - Log a warning message to $RUNBOOK_WARN_LOG
 # Usage: log_warn "message"
 # -----------------------------------------------------------------------------
 log_warn() {
-  printf '[%s] [WARN]  %s\n' "$(_log_timestamp)" "$*" >&2
+  _log_write "${RUNBOOK_WARN_LOG:-}" "[WARN] " "$@"
 }
 
 # -----------------------------------------------------------------------------
-# log_error - Log an error message to stderr
+# log_error - Log an error message to $RUNBOOK_ERROR_LOG
 # Usage: log_error "message"
 # -----------------------------------------------------------------------------
 log_error() {
-  printf '[%s] [ERROR] %s\n' "$(_log_timestamp)" "$*" >&2
+  _log_write "${RUNBOOK_ERROR_LOG:-}" "[ERROR]" "$@"
 }
 
 # -----------------------------------------------------------------------------
-# log_debug - Log a debug message to stderr (only when DEBUG=true)
+# log_debug - Log a debug message to $RUNBOOK_DEBUG_LOG (only when DEBUG=true)
 # Usage: log_debug "message"
 # -----------------------------------------------------------------------------
 log_debug() {
   if [ "${DEBUG:-}" = "true" ]; then
-    printf '[%s] [DEBUG] %s\n' "$(_log_timestamp)" "$*" >&2
+    _log_write "${RUNBOOK_DEBUG_LOG:-}" "[DEBUG]" "$@"
   fi
 }
-

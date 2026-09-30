@@ -2,12 +2,95 @@
  * Live implementation of the ProcessSpawner service using child_process.spawn.
  */
 import { spawn as cpSpawn } from "node:child_process"
-import { createWriteStream, type WriteStream } from "node:fs"
+import { closeSync, createWriteStream, fstatSync, openSync, readSync, type WriteStream } from "node:fs"
 import * as readline from "node:readline"
+import { StringDecoder } from "node:string_decoder"
 import { Effect, Layer, Option, Stream } from "effect"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import type { ProcessSpawnerShape, SpawnedProcess, OutputLine, SpawnOptions } from "../services/ProcessSpawner.ts"
 import { SpawnError } from "../errors/index.ts"
+
+/** How often the spawner checks a run's log channel files for new lines. */
+const LOG_CHANNEL_POLL_MS = 100
+
+export interface FileTail {
+  /** Emit every complete line appended since the last call. */
+  readonly read: () => void
+  /** Read to the end, emit a last line that has no newline, and close the file. */
+  readonly finish: () => void
+}
+
+/**
+ * Follow a file that another process appends to, calling `onLine` with each
+ * line (without its "\n" or "\r\n"). Nothing happens until `read` is called:
+ * the spawner calls it on a timer and whenever the child writes to a pipe.
+ *
+ * Polling, not fs.watch: the file is on a local disk and read with plain
+ * syscalls that behave the same on macOS, Linux and Windows, and fs.watch can
+ * drop or merge events, so it would need a polling fallback anyway.
+ *
+ * The reads are synchronous so that a pipe's data handler can pick up log
+ * lines written before that data and record them first. Each read only
+ * fetches what was appended since the last one.
+ *
+ * Best effort: a file that doesn't exist yet is opened on a later read, and
+ * a read error is ignored. A file that shrinks was overwritten (`>` instead
+ * of `>>`), so reading starts again from the top.
+ */
+export function openFileTail(path: string, onLine: (line: string) => void): FileTail {
+  let fd: number | null = null
+  let offset = 0
+  let partial = ""
+  let decoder = new StringDecoder("utf8")
+  let finished = false
+  const buffer = Buffer.alloc(64 * 1024)
+
+  const emit = (text: string) => {
+    const lines = (partial + text).split("\n")
+    partial = lines.pop() ?? ""
+    for (const line of lines) onLine(line.endsWith("\r") ? line.slice(0, -1) : line)
+  }
+
+  const read = () => {
+    if (finished) return
+    try {
+      fd ??= openSync(path, "r")
+      const size = fstatSync(fd).size
+      if (size < offset) {
+        offset = 0
+        partial = ""
+        decoder = new StringDecoder("utf8")
+      }
+      while (offset < size) {
+        const n = readSync(fd, buffer, 0, buffer.length, offset)
+        if (n === 0) break
+        offset += n
+        emit(decoder.write(buffer.subarray(0, n)))
+      }
+    } catch {
+      // Not created yet, or unreadable: try again on the next read.
+    }
+  }
+
+  const finish = () => {
+    if (finished) return
+    read()
+    finished = true
+    const last = partial + decoder.end()
+    partial = ""
+    if (last !== "") onLine(last.endsWith("\r") ? last.slice(0, -1) : last)
+    if (fd !== null) {
+      try {
+        closeSync(fd)
+      } catch {
+        /* already closed */
+      }
+      fd = null
+    }
+  }
+
+  return { read, finish }
+}
 
 const impl: ProcessSpawnerShape = {
   spawn: (command: string, args: string[], options?: SpawnOptions) =>
@@ -68,17 +151,33 @@ const impl: ProcessSpawnerShape = {
         // Gates `kill` below; deliberately not set on "error".
         let exited = false
 
-        const record = (line: string, source: "stdout" | "stderr") => {
+        const record = (line: string, source: OutputLine["source"]) => {
           collectedLines.push({ line, source })
           logFile?.write(line + "\n")
         }
 
+        // Log channel files (e.g. RUNBOOK_INFO_LOG): followed on a timer, and
+        // also read whenever a pipe delivers data, before readline splits it,
+        // so a log line written before an `echo` is recorded before it.
+        const tails = (options?.logChannels ?? []).map((channel) =>
+          openFileTail(channel.path, (line) =>
+            record(channel.formatLine ? channel.formatLine(line) : line, "file"),
+          ),
+        )
+        const readTails = () => {
+          for (const tail of tails) tail.read()
+        }
+        const tailTimer = tails.length > 0 ? setInterval(readTails, LOG_CHANNEL_POLL_MS) : null
+        tailTimer?.unref?.()
+
         if (proc.stdout) {
+          if (tails.length > 0) proc.stdout.on("data", readTails)
           const stdoutRl = readline.createInterface({ input: proc.stdout })
           stdoutRl.on("line", (line) => record(line, "stdout"))
         }
 
         if (proc.stderr) {
+          if (tails.length > 0) proc.stderr.on("data", readTails)
           const stderrRl = readline.createInterface({ input: proc.stderr })
           stderrRl.on("line", (line) => record(line, "stderr"))
         }
@@ -86,11 +185,16 @@ const impl: ProcessSpawnerShape = {
         // Single exit promise — eagerly registered to never miss the event.
         // The process "close" event fires after all stdio streams have ended, so
         // by the time it runs every readline "line" event has already been
-        // delivered into collectedLines. The "error" branch only matters for a
+        // delivered into collectedLines. The log channel files are then read to
+        // the end before the stream is marked closed, so `output` carries every
+        // line the script wrote to them. A background job that writes to them
+        // after this point isn't followed. The "error" branch only matters for a
         // post-spawn error (e.g. a failed kill): a PRE-spawn error fails the
         // whole effect below and nobody ever consumes this promise.
         const exitPromise = new Promise<number>((resolve) => {
           const finish = (code: number) => {
+            if (tailTimer) clearInterval(tailTimer)
+            for (const tail of tails) tail.finish()
             streamClosed = true
             logFile?.end()
             resolve(code)

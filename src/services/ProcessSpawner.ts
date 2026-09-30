@@ -13,11 +13,27 @@ export interface SpawnOptions {
    * data. The caller owns the file's lifecycle (creation and cleanup).
    */
   readonly logFilePath?: string
+  /**
+   * Files the child appends log lines to as it runs (a script's per-level log
+   * files). The spawner follows each one and adds its lines to `output` and
+   * `logFilePath` as they are written, with source "file". Their order
+   * relative to stdout and stderr is best effort. Before `output` ends, each
+   * file is read to the end, including a last line with no newline. The
+   * caller owns the files' lifecycle (creation and cleanup).
+   */
+  readonly logChannels?: ReadonlyArray<SpawnLogChannel>
+}
+
+export interface SpawnLogChannel {
+  readonly path: string
+  /** Maps each line read from the file to the line to emit, e.g. to tag its level. */
+  readonly formatLine?: (line: string) => string
 }
 
 export interface OutputLine {
   readonly line: string
-  readonly source: "stdout" | "stderr"
+  /** "file" lines come from one of SpawnOptions.logChannels. */
+  readonly source: "stdout" | "stderr" | "file"
 }
 
 export interface SpawnedProcess {

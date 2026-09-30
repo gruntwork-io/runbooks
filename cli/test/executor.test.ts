@@ -1360,6 +1360,68 @@ describe("TestExecutor — #!/bin/sh blocks", () => {
 })
 
 // ---------------------------------------------------------------------------
+// Per-level log files ($RUNBOOK_INFO_LOG etc.): the CLI shows their lines.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — log files", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-logs-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("adds the log files' lines after the script's output", async () => {
+    fs.mkdirSync(path.join(tmp, "scripts"))
+    fs.writeFileSync(
+      path.join(tmp, "scripts", "logs.sh"),
+      [
+        "#!/bin/bash",
+        "get_json() {",
+        '  log_info "looking up"',
+        `  echo '{"ok":true}'`,
+        "}",
+        "json=$(get_json)",
+        'echo "json=$json"',
+        'echo "raw error" >> "$RUNBOOK_ERROR_LOG"',
+        'log_warn "careful"',
+        "",
+      ].join("\n"),
+    )
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, `# Logs\n\n<Command id="logs" path="scripts/logs.sh" />\n`)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+
+    const result = executor.runTest({
+      name: "logs",
+      steps: [{ block: "logs", expect: "success" }],
+      // The log files belong to one block run, so the session env must not
+      // keep pointing at them.
+      assertions: [{ type: "script", command: 'test -z "${RUNBOOK_INFO_LOG:-}${RUNBOOK_ERROR_LOG:-}"' }],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    const stamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+    const [first, ...logFileLines] = result.stepResults[0]!.logs!.trimEnd().split("\n")
+    // The capture holds only the JSON (#269).
+    expect(first).toBe('json={"ok":true}')
+    // Which second "raw error" was written in decides where it lands among
+    // the others, so only its presence is checked.
+    const shown = logFileLines.map((line) => line.replace(stamp, ""))
+    expect(shown.filter((line) => line !== "[ERROR] raw error")).toEqual([
+      "[INFO]  looking up",
+      "[WARN]  careful",
+    ])
+    expect(shown).toContain("[ERROR] raw error")
+    expect(shown).toHaveLength(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // GitClone with prefilledRepoPath: a sparse clone, built by the same
 // buildCloneSteps the app's git:clone handler uses.
 // ---------------------------------------------------------------------------

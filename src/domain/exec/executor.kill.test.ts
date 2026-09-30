@@ -22,7 +22,8 @@
  * The same stack also covers the other two ways a run ends: `timeoutMs` must
  * kill a script that is still running, and a script that finishes on its own
  * must NOT take down background jobs it deliberately left running. It also
- * checks that the injected log_* helpers reach the log stream in script order.
+ * checks that lines written to the per-level log files reach the log stream
+ * while the script runs, and all of them before the status event.
  */
 import { describe, it, expect, afterEach } from "bun:test"
 import { Effect, Fiber, Layer, Stream } from "effect"
@@ -161,22 +162,27 @@ describe("executeScript cancellation (e2e, real process tree)", () => {
  * run completionEffect, inside one scope that closes before this returns.
  * `pauseBeforeCompletionMs` holds the fiber between the two phases, standing in
  * for slow completion processing. `blockAfterSpawnMs` blocks the event loop
- * right after the spawn, standing in for a busy main process (GC, another IPC
- * handler) that reads nothing from the child's pipes meanwhile.
+ * right after the spawn, standing in for a busy main process that reads
+ * nothing from the child meanwhile. `onLogLine` sees each log line as it
+ * arrives.
  */
 async function runToCompletion(
   script: string,
   request: ExecRequest,
   pauseBeforeCompletionMs = 0,
-  blockAfterSpawnMs = 0,
-): Promise<{ events: ExecEvent[]; elapsedMs: number }> {
+  {
+    language = "bash",
+    blockAfterSpawnMs = 0,
+    onLogLine,
+  }: { language?: string; blockAfterSpawnMs?: number; onLogLine?: (line: string) => void } = {},
+): Promise<{ events: ExecEvent[]; elapsedMs: number; logFilePath: string }> {
   const startedAt = Date.now()
-  const events = await Effect.runPromise(
+  const { events, logFilePath } = await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const { logStream, completionEffect } = yield* executeScript(
+        const { logStream, completionEffect, logFilePath } = yield* executeScript(
           script,
-          "bash",
+          language,
           request,
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
           "",
@@ -186,14 +192,20 @@ async function runToCompletion(
         while (Date.now() < blockUntil) {
           // Busy-wait: nothing else on the event loop runs until this ends.
         }
-        const logs = Array.from(yield* Stream.runCollect(logStream))
+        const logs: ExecEvent[] = []
+        yield* Stream.runForEach(logStream, (event) =>
+          Effect.sync(() => {
+            logs.push(event)
+            onLogLine?.(event.event.line)
+          }),
+        )
         if (pauseBeforeCompletionMs > 0) yield* Effect.sleep(pauseBeforeCompletionMs)
         const completion = yield* completionEffect
-        return [...logs, ...completion]
+        return { events: [...logs, ...completion], logFilePath }
       }),
     ).pipe(Effect.provide(liveLayer)),
   )
-  return { events, elapsedMs: Date.now() - startedAt }
+  return { events, elapsedMs: Date.now() - startedAt, logFilePath }
 }
 
 const statusOf = (events: ExecEvent[]) =>
@@ -254,35 +266,130 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
   )
 })
 
-describe("executeScript log helpers (e2e, real process)", () => {
+describe("executeScript log files (e2e, real process)", () => {
+  // Log lines start with "[<ISO-8601 zulu timestamp>] ": the helpers write
+  // one, and Runbooks adds one to a line written straight to a log file.
+  const unstamped = (lines: string[]) =>
+    lines.map((l) => l.replace(/^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /, ""))
+
+  let dir: string | null = null
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true })
+    dir = null
+  })
+
   it(
-    "streams log_* lines in script order and keeps them out of $(...) captures",
+    "shows log file lines while the script runs, in order with its stdout",
+    async () => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-live-log-"))
+      const marker = (name: string) => path.join(dir!, name)
+      // The script waits until the test has seen a line before it goes on. A
+      // line that only arrived once the script exited would stall it until
+      // timeoutMs failed the run.
+      const waitFor = (name: string) =>
+        `while [ ! -e '${marker(name)}' ]; do sleep 0.05; done`
+      const script = [
+        'log_info "first"',
+        'echo "second"',
+        waitFor("saw-second"),
+        'log_warn "third"',
+        waitFor("saw-third"),
+        'echo "fourth"',
+        "",
+      ].join("\n")
+
+      const { events } = await runToCompletion(script, { timeoutMs: 10000 }, 0, {
+        onLogLine: (line) => {
+          if (line === "second") fs.writeFileSync(marker("saw-second"), "")
+          if (line.endsWith("[WARN]  third")) fs.writeFileSync(marker("saw-third"), "")
+        },
+      })
+
+      expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+      // "first" goes to a file and "second" down a pipe. The spawner reads
+      // the log files whenever a pipe has data, before splitting it into
+      // lines, so "first" still comes first.
+      expect(unstamped(logLines(events))).toEqual([
+        "[INFO]  first",
+        "second",
+        "[WARN]  third",
+        "fourth",
+      ])
+    },
+    20000,
+  )
+
+  it(
+    "reads the log files to the end before the status event",
     async () => {
       const script = [
         "get_value() {",
         '  log_info "looking up"',
         "  echo value",
         "}",
-        'log_info "start"',
         "v=$(get_value)",
         'echo "v=[$v]"',
-        'log_warn "end"',
+        // More than one read's worth (64 KiB) in a single write.
+        'seq 1 20000 | sed "s/^/bulk /" >> "$RUNBOOK_INFO_LOG"',
+        'echo "straight to the file" >> "$RUNBOOK_ERROR_LOG"',
+        'echo "[INFO] not a helper line" >> "$RUNBOOK_ERROR_LOG"',
+        "printf 'no newline at the end' >> \"$RUNBOOK_WARN_LOG\"",
         "",
       ].join("\n")
 
-      // bash finishes while the event loop is blocked, so all of its output
-      // is waiting when the spawner next reads. The order has to come from
-      // the script, not from which of the child's pipes is read first.
-      const { events } = await runToCompletion(script, {}, 0, 500)
+      // bash exits while the event loop is blocked, so nothing is read from
+      // the log files before the process closes: the final read has to get
+      // every line, including the last one that has no newline.
+      const { events, logFilePath } = await runToCompletion(script, {}, 0, {
+        blockAfterSpawnMs: 500,
+      })
+
+      try {
+        expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
+        const lines = logLines(events)
+        const shown = unstamped(lines)
+        const bulk = shown.filter((l) => l.startsWith("[INFO]  bulk "))
+        expect(bulk).toHaveLength(20000)
+        expect(bulk.at(-1)).toBe("[INFO]  bulk 20000")
+        expect(shown.filter((l) => !l.startsWith("[INFO]  bulk "))).toEqual(
+          expect.arrayContaining([
+            "[INFO]  looking up",
+            "v=[value]",
+            "[ERROR] straight to the file",
+            "[ERROR] [INFO] not a helper line",
+            "[WARN]  no newline at the end",
+          ]),
+        )
+        // Every line came through the log stream, ahead of the status.
+        const tags = events.map((e) => e._tag)
+        expect(tags.lastIndexOf("log")).toBeLessThan(tags.indexOf("status"))
+
+        // exec.log gets the same lines, in the same order.
+        const written = () => fs.readFileSync(logFilePath, "utf8").split("\n").slice(0, -1)
+        await waitUntil(() => written().length >= lines.length, 5000)
+        expect(written()).toEqual(lines)
+      } finally {
+        fs.rmSync(path.dirname(logFilePath), { recursive: true, force: true })
+      }
+    },
+    20000,
+  )
+
+  it.skipIf(!Bun.which("python3"))(
+    "gives a script in another language the same log files",
+    async () => {
+      const script = [
+        "import os",
+        'with open(os.environ["RUNBOOK_ERROR_LOG"], "a") as log:',
+        '    print("from python", file=log)',
+        'print("to stdout")',
+        "",
+      ].join("\n")
+
+      const { events } = await runToCompletion(script, {}, 0, { language: "python3" })
 
       expect(statusOf(events)).toEqual({ status: "success", exitCode: 0 })
-      const timestamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
-      expect(logLines(events).map((l) => l.replace(timestamp, ""))).toEqual([
-        "[INFO]  start",
-        "[INFO]  looking up",
-        "v=[value]",
-        "[WARN]  end",
-      ])
+      expect(unstamped(logLines(events)).sort()).toEqual(["[ERROR] from python", "to stdout"])
     },
     20000,
   )

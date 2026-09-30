@@ -18,37 +18,47 @@ import type { CapturedFile } from "../../types.ts"
  * Logging functions injected into every bash script wrapper.
  * Provides log_info, log_warn, log_error, log_debug.
  *
- * All four write to stderr, so a function that logs and then prints a value
- * returns only that value through `$(...)`. wrapBashScript points stderr at
- * stdout before the user script runs, so the spawner reads one pipe and log
- * lines keep their order relative to the script's output in the log view and
- * exec.log. Keep in sync with scripts/logging.sh.
+ * Each one appends to its level's log file, named by RUNBOOK_INFO_LOG,
+ * RUNBOOK_WARN_LOG, RUNBOOK_ERROR_LOG or RUNBOOK_DEBUG_LOG (see
+ * logChannels.ts), and never writes to stdout, so a function that logs and
+ * then prints a value returns only that value through `$(...)`. With the
+ * variable unset they write to stderr. Keep in sync with scripts/logging.sh.
  */
 const LOGGING_FUNCTIONS = `
 # --- Runbooks Logging Functions ---
 # (auto-injected; see also scripts/logging.sh for local development)
-# All helpers write to stderr so they never end up in a $(...) capture.
 _RUNBOOKS_LOGGING_LOADED=1
 
 _log_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# _log_write FILE TAG MESSAGE...: append a line to FILE, or stderr if FILE is empty
+_log_write() {
+    local file="$1" tag="$2"
+    shift 2
+    if [ -n "$file" ]; then
+        printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >> "$file"
+    else
+        printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >&2
+    fi
+}
+
 log_info() {
-    printf '[%s] [INFO]  %s\\n' "$(_log_timestamp)" "$*" >&2
+    _log_write "\${RUNBOOK_INFO_LOG:-}" "[INFO] " "$@"
 }
 
 log_warn() {
-    printf '[%s] [WARN]  %s\\n' "$(_log_timestamp)" "$*" >&2
+    _log_write "\${RUNBOOK_WARN_LOG:-}" "[WARN] " "$@"
 }
 
 log_error() {
-    printf '[%s] [ERROR] %s\\n' "$(_log_timestamp)" "$*" >&2
+    _log_write "\${RUNBOOK_ERROR_LOG:-}" "[ERROR]" "$@"
 }
 
 log_debug() {
     if [ "\${DEBUG:-}" = "true" ]; then
-        printf '[%s] [DEBUG] %s\\n' "$(_log_timestamp)" "$*" >&2
+        _log_write "\${RUNBOOK_DEBUG_LOG:-}" "[DEBUG]" "$@"
     fi
 }
 # --- End Runbooks Logging Functions ---
@@ -188,9 +198,8 @@ export function wrapBashScript(
 #   1. Define our capture function and trap override
 #   2. Set our combined EXIT handler (using builtin to bypass override)
 #   3. Inject logging functions (log_info, log_warn, log_error, log_debug)
-#   4. Redirect stderr to stdout so all output shares one ordered pipe
-#   5. Execute user script (which may call 'trap ... EXIT')
-#   6. On exit: run user's handler first, then capture env
+#   4. Execute user script (which may call 'trap ... EXIT')
+#   5. On exit: run user's handler first, then capture env
 # =============================================================================
 
 __RUNBOOKS_ENV_CAPTURE_PATH=${JSON.stringify(envCapturePath)}
@@ -311,11 +320,6 @@ builtin trap __runbooks_combined_exit EXIT
 # Logging Functions
 # =============================================================================
 ${LOGGING_FUNCTIONS}
-# Send stderr down the stdout pipe, so log_* lines and the script's own stderr
-# reach the log view in the order they were written. A $(...) capture only
-# replaces stdout, so the log_* helpers still stay out of captured values.
-exec 2>&1
-
 # =============================================================================
 # USER SCRIPT BEGIN
 # =============================================================================
