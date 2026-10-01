@@ -17,9 +17,9 @@ export interface GitRepoInfo {
   /** Git ref: branch name, tag name, or commit SHA */
   ref: string
   /** Type of ref: "branch", "tag", or "commit" */
-  refType?: "branch" | "tag" | "commit"
+  refType?: "branch" | "tag" | "commit" | undefined
   /** Commit SHA */
-  commitSha?: string
+  commitSha?: string | undefined
 }
 
 /**

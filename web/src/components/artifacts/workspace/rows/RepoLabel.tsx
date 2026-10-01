@@ -15,7 +15,13 @@ import type { GitRepoInfo } from "@/types/workspace"
  * with no remote get a generic git icon, since the host can't tell us which
  * provider it is.
  */
-export function RepoIcon({ repoUrl, className }: { repoUrl?: string; className?: string }) {
+export function RepoIcon({
+  repoUrl,
+  className,
+}: {
+  repoUrl?: string | undefined
+  className?: string | undefined
+}) {
   switch (deriveProviderFromRepoUrl(repoUrl)) {
     case "github":
       return <GitHubIcon data-testid="repo-icon-github" className={className} />

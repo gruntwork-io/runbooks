@@ -149,9 +149,11 @@ describe("withTlsOrchestration", () => {
     expect(probeCalls).toEqual([{ host: HOST, token: "glpat-token", source: "manual" }])
   })
 
+  const { token: _token, ...noToken } = TLS_WALL
+  const { source: _source, ...noSource } = TLS_WALL
   it.each([
-    ["token", { ...TLS_WALL, token: undefined }],
-    ["source", { ...TLS_WALL, source: undefined }],
+    ["token", noToken],
+    ["source", noSource],
   ])("skips the probe without a %s and returns the tls result", async (_name, wall) => {
     const detect = detectSequence(wall)
 

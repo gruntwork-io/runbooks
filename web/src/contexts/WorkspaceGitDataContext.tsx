@@ -382,9 +382,10 @@ function mergeSubtree(
  * main tree uses IDs relative to the repo root.
  */
 function prefixTreeIds(nodes: WorkspaceTreeNode[], prefix: string): WorkspaceTreeNode[] {
-  return nodes.map((node) => ({
-    ...node,
-    id: `${prefix}/${node.id}`,
-    children: node.children ? prefixTreeIds(node.children, prefix) : undefined,
-  }))
+  return nodes.map((node) => {
+    const id = `${prefix}/${node.id}`
+    return node.children
+      ? { ...node, id, children: prefixTreeIds(node.children, prefix) }
+      : { ...node, id }
+  })
 }

@@ -4,22 +4,22 @@ import type { AwsAuthError, AwsConfigError, AwsSsoError } from "../errors/index.
 export interface AwsCredentials {
   readonly accessKeyId: string
   readonly secretAccessKey: string
-  readonly sessionToken?: string
+  readonly sessionToken?: string | undefined
   readonly region: string
 }
 
 export interface AwsIdentity {
   readonly accountId: string
-  readonly accountName?: string
+  readonly accountName?: string | undefined
   readonly arn: string
 }
 
 export interface ProfileInfo {
   readonly name: string
   readonly authType: "sso" | "static" | "assume_role" | "unsupported"
-  readonly ssoStartUrl?: string
-  readonly ssoRegion?: string
-  readonly region?: string
+  readonly ssoStartUrl?: string | undefined
+  readonly ssoRegion?: string | undefined
+  readonly region?: string | undefined
 }
 
 export interface SsoDeviceAuth {
@@ -39,7 +39,7 @@ export interface SsoPollParams {
 }
 
 export interface SsoTokenResult {
-  readonly accessToken?: string
+  readonly accessToken?: string | undefined
   /** The user has not approved yet (AuthorizationPending or SlowDown). */
   readonly pending?: boolean
 }
@@ -54,7 +54,7 @@ export interface SsoCompleteParams {
 export interface SsoAccount {
   readonly accountId: string
   readonly accountName: string
-  readonly emailAddress?: string
+  readonly emailAddress?: string | undefined
 }
 
 export interface SsoRole {

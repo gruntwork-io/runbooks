@@ -18,13 +18,13 @@ interface RepositoryMetadataBarProps {
   /** Git repository information for the active worktree */
   gitInfo: GitRepoInfo | null
   /** Local path where files are downloaded */
-  localPath?: string
+  localPath?: string | undefined
   /** When 2+ worktrees, the bar shows a dropdown switcher instead of static repo/branch */
-  workTrees?: GitWorkTree[]
-  activeWorkTreeId?: string | null
-  onWorktreeSelect?: (id: string) => void
+  workTrees?: GitWorkTree[] | undefined
+  activeWorkTreeId?: string | null | undefined
+  onWorktreeSelect?: ((id: string) => void) | undefined
   /** Additional CSS classes */
-  className?: string
+  className?: string | undefined
 }
 
 export const RepositoryMetadataBar = ({

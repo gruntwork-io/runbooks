@@ -64,30 +64,30 @@ export interface ScriptBlockVariant {
 
 export interface ScriptBlockProps {
   id: string
-  title?: string
-  description?: string
-  path?: string
-  command?: string
+  title?: string | undefined
+  description?: string | undefined
+  path?: string | undefined
+  command?: string | undefined
   /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  inputsId?: string | string[]
+  inputsId?: string | string[] | undefined
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
-  awsAuthId?: string
+  awsAuthId?: string | undefined
   /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
-  githubAuthId?: string
+  githubAuthId?: string | undefined
   /** Reference to a GitAuth block by ID (GitHub or GitLab). The block's credentials (GITHUB_TOKEN/GITHUB_USER or GITLAB_TOKEN/GITLAB_USER) will be passed as environment variables. */
-  gitAuthId?: string
+  gitAuthId?: string | undefined
   /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
-  googleAuthId?: string
-  successMessage?: string
+  googleAuthId?: string | undefined
+  successMessage?: string | undefined
   /** Warning message (Check only — Command never reaches the warn state). */
-  warnMessage?: string
-  failMessage?: string
-  runningMessage?: string
+  warnMessage?: string | undefined
+  failMessage?: string | undefined
+  runningMessage?: string | undefined
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
-  usePty?: boolean
+  usePty?: boolean | undefined
   /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
-  timeoutMs?: number
+  timeoutMs?: number | undefined
   /** Distinguishes the Command vs Check presentation. */
   variant: ScriptBlockVariant
 }

@@ -41,24 +41,24 @@ import { createAppError } from "@/types/error"
 
 interface UseScriptExecutionProps {
   componentId: string
-  path?: string
-  command?: string
+  path?: string | undefined
+  command?: string | undefined
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  inputsId?: string | string[]
+  inputsId?: string | string[] | undefined
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables for this execution only. */
-  awsAuthId?: string
+  awsAuthId?: string | undefined
   /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables for this execution only. */
-  githubAuthId?: string
+  githubAuthId?: string | undefined
   /** Reference to a GitAuth block by ID (GitHub or GitLab). Whichever token/user vars the referenced block emitted (GITHUB_* or GITLAB_*) are passed as environment variables for this execution only. */
-  gitAuthId?: string
+  gitAuthId?: string | undefined
   /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credential path and project/region/zone vars are passed as environment variables for this execution only. */
-  googleAuthId?: string
+  googleAuthId?: string | undefined
   children?: ReactNode
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
-  usePty?: boolean
+  usePty?: boolean | undefined
   /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout applies. */
-  timeoutMs?: number
+  timeoutMs?: number | undefined
 }
 
 /** Information about an unmet auth dependency (AWS or GitHub) */
@@ -190,7 +190,7 @@ interface UseScriptExecutionReturn {
    * dependency state — instruction mode resolves from it directly (spec §6.4).
    */
   rawScriptContent: string
-  language?: string
+  language?: string | undefined
 
   // File loading
   fileError: AppError | null

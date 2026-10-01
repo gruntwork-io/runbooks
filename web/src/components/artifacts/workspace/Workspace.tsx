@@ -35,17 +35,17 @@ interface WorkspaceProps {
   /** Generated files tree (from GeneratedFilesContext) */
   generatedFiles: FileTreeNode[]
   /** Truncation metadata from the backend (when file tree exceeds limits) */
-  truncationInfo?: TruncationInfo | null
+  truncationInfo?: TruncationInfo | null | undefined
   /** Additional CSS classes */
-  className?: string
+  className?: string | undefined
   /** Callback to hide the workspace */
-  onHide?: () => void
+  onHide?: (() => void) | undefined
   /** Whether to hide content (for animations) */
-  hideContent?: boolean
+  hideContent?: boolean | undefined
   /** Absolute path to generated files output */
-  absoluteOutputPath?: string
+  absoluteOutputPath?: string | undefined
   /** Relative path to generated files output */
-  relativeOutputPath?: string
+  relativeOutputPath?: string | undefined
 }
 
 export const Workspace = ({

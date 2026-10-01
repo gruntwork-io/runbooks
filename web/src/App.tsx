@@ -39,7 +39,7 @@ import type { AppError } from "./types/error"
  * in the same commit, which is fine, because the next runbook's blocks only
  * register logs once its MDX has compiled.
  */
-function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string }) {
+function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string | undefined }) {
   const { clearLogs } = useLogs()
   useEffect(() => {
     clearLogs()

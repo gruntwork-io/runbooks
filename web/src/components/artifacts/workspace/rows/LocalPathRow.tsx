@@ -18,9 +18,9 @@ export function LocalPathRow({
   /** Text shown next to the folder icon (e.g. "./my-repo" or a relative path). */
   displayText: string
   /** Absolute path copied to clipboard. When omitted the copy button is hidden. */
-  copyPath?: string
+  copyPath?: string | undefined
   /** Additional CSS classes (e.g. for top margin). */
-  className?: string
+  className?: string | undefined
 }) {
   const { didCopy, copy } = useCopyToClipboard()
 

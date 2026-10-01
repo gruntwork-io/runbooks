@@ -10,7 +10,7 @@ export interface GitWorkTree {
   /** Clone URL (e.g., "https://github.com/gruntwork-io/terraform-aws-lambda") */
   repoUrl: string
   /** Sparse checkout path (if used) */
-  repoPath?: string
+  repoPath?: string | undefined
   /** Absolute local path where the repo was cloned */
   localPath: string
   /** Git metadata: ref, refType, commit, owner, repoName */

@@ -493,7 +493,7 @@ describe("openRemoteRunbook (real git)", () => {
 
   let root = ""
   const savedEnv: Record<string, string | undefined> = {}
-  const spawns: Array<{ args: string[]; env?: Record<string, string | undefined> }> = []
+  const spawns: Array<{ args: string[]; env?: Record<string, string | undefined> | undefined }> = []
   const tokenLookups: string[] = []
 
   const spawnerLayer = Layer.effect(

@@ -83,14 +83,14 @@ export type VcsTransportErrorKind = "tls" | "server-cert" | "network"
 export class GitHubApiError extends Data.TaggedError("GitHubApiError")<{
   readonly status: number
   readonly message: string
-  readonly kind?: VcsTransportErrorKind
+  readonly kind?: VcsTransportErrorKind | undefined
 }> {}
 
 // GitLab
 export class GitLabApiError extends Data.TaggedError("GitLabApiError")<{
   readonly status: number
   readonly message: string
-  readonly kind?: VcsTransportErrorKind
+  readonly kind?: VcsTransportErrorKind | undefined
 }> {}
 
 // Git

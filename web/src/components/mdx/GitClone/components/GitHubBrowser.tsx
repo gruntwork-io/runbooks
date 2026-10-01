@@ -18,7 +18,7 @@ import { DEFAULT_GITHUB_HOST, githubWebBase } from "@/components/mdx/_shared/lib
 
 interface GitHubBrowserProps {
   /** GitHub host the repos live on (github.com, *.ghe.com, or GHES); builds clone URLs. */
-  host?: string
+  host?: string | undefined
   /** Callback when a repo is selected (sets the URL field) */
   onRepoSelected: (url: string) => void
   /** Callback when a ref (branch/tag) is selected */
@@ -30,13 +30,13 @@ interface GitHubBrowserProps {
   /** Function to fetch refs (branches + tags) for a repo */
   fetchRefs: (owner: string, repo: string) => Promise<GitHubRef[]>
   /** Whether the browser is disabled */
-  disabled?: boolean
+  disabled?: boolean | undefined
   /** Initial org to pre-select (parsed from URL) */
-  initialOrg?: string
+  initialOrg?: string | undefined
   /** Initial repo to pre-select (parsed from URL) */
-  initialRepo?: string
+  initialRepo?: string | undefined
   /** Whether to start expanded */
-  defaultOpen?: boolean
+  defaultOpen?: boolean | undefined
 }
 
 /** A list response tagged with the selection it was fetched for. */

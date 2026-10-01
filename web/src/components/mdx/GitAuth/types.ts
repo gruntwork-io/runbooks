@@ -51,7 +51,7 @@ export interface GitUnreachableInfo {
    * For errorKind 'tls': false when the cold out-of-process trust-refresh
    * child failed, degrading the card copy to "…then restart Runbooks".
    */
-  coldReadOk?: boolean
+  coldReadOk?: boolean | undefined
 }
 
 export interface GitUserInfo {
@@ -162,11 +162,11 @@ export const OTHER_INSTANCE_SENTINEL = "__other__"
 /** Provenance metadata for the success card's source/transport lines. */
 export interface GitSuccessMeta {
   /** Which source produced the credential. */
-  source?: "env" | "cli" | "config"
+  source?: "env" | "cli" | "config" | undefined
   /** The env var the token came from (source line: "Detected from GITHUB_TOKEN"). */
-  envVar?: string
+  envVar?: string | undefined
   /** 'cli' marks probe-validated degraded auth (transport line). */
-  validatedVia?: "direct" | "cli"
+  validatedVia?: "direct" | "cli" | undefined
 }
 
 // Helper functions for CLI credentials response

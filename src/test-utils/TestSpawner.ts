@@ -27,7 +27,7 @@ export interface SpawnResponse {
 export interface RecordedSpawn {
   readonly command: string
   readonly args: string[]
-  readonly env?: Record<string, string | undefined>
+  readonly env?: Record<string, string | undefined> | undefined
 }
 
 export const makeRecordingSpawner = (

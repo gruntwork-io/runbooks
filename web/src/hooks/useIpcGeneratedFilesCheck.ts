@@ -23,8 +23,8 @@ export interface GeneratedFilesCheckResult {
  * output directory). Don't use `refetch` for this — it ignores `disabled`.
  */
 export function useIpcGeneratedFilesCheck(options?: {
-  disabled?: boolean
-  runbookPath?: string
+  disabled?: boolean | undefined
+  runbookPath?: string | undefined
 }): UseIpcReturn<GeneratedFilesCheckResult> {
   return useIpc<GeneratedFilesCheckResult>(
     "generated-files:check",

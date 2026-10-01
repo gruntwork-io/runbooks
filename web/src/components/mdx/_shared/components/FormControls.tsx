@@ -24,15 +24,15 @@ interface BaseFormControlProps {
   /** Current value of the form field */
   value: unknown
   /** Optional validation error message */
-  error?: string
+  error?: string | undefined
   /** Callback function when the field value changes */
   onChange: (value: unknown) => void
   /** Callback function when the field loses focus (for validation) */
-  onBlur?: () => void
+  onBlur?: (() => void) | undefined
   /** Unique identifier for the form field */
   id: string
   /** Whether the field is disabled (read-only) */
-  disabled?: boolean
+  disabled?: boolean | undefined
 }
 
 /**
@@ -61,7 +61,10 @@ function valueText(value: unknown): string {
 }
 
 /** Header row showing the entry count (and an "(inherited)" badge when disabled). */
-const EntryCountHeader: React.FC<{ count: number; disabled?: boolean }> = ({ count, disabled }) => (
+const EntryCountHeader: React.FC<{ count: number; disabled?: boolean | undefined }> = ({
+  count,
+  disabled,
+}) => (
   <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
     <span className="text-sm font-medium text-foreground">
       {count} entr{count !== 1 ? "ies" : "y"}

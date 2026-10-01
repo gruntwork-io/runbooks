@@ -155,8 +155,8 @@ const FALLBACK_COMMIT_EMAIL = "runbooks-noreply@gruntwork.io"
 /** Build a commit identity from a validated provider user, with safe fallbacks. */
 const toCommitIdentity = (user: {
   readonly login: string
-  readonly name?: string
-  readonly email?: string
+  readonly name?: string | undefined
+  readonly email?: string | undefined
 }): GitIdentity => ({
   name: user.name?.trim() || user.login || "Runbooks",
   email: user.email?.trim() || FALLBACK_COMMIT_EMAIL,

@@ -102,10 +102,12 @@ export function registerRunbookHandlers(): void {
       if (superseded()) return SUPERSEDED
       const config: RunbookConfig = {
         localPath: runbookPath,
-        remoteSourceURL: params.remoteSource,
+        ...(params.remoteSource !== undefined ? { remoteSourceURL: params.remoteSource } : {}),
         // The renderer doesn't send watchMode; keep what --watch set at launch.
         isWatchMode: params.watchMode ?? runbookConfig.isWatchMode,
-        disableLiveFileReload: runbookConfig.disableLiveFileReload,
+        ...(runbookConfig.disableLiveFileReload !== undefined
+          ? { disableLiveFileReload: runbookConfig.disableLiveFileReload }
+          : {}),
       }
       setRunbookConfig(config)
 

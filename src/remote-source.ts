@@ -342,7 +342,7 @@ function parseGitSource(source: string): ParsedRemoteSource {
 function repoSource(
   host: string,
   ownerRepoPath: string,
-  extra: { ref?: string; path?: string } = {},
+  extra: { ref?: string | undefined; path?: string | undefined } = {},
 ): ParsedRemoteSource {
   const { owner, repo } = splitOwnerRepo(ownerRepoPath)
   return {
@@ -381,7 +381,11 @@ function browserSource(
  * as a space, which no git ref can contain, while a tag can hold one (semver
  * build metadata, `v1.0.0+build.1`). `%2B` still decodes to `+`.
  */
-function splitGoGetter(raw: string): { address: string; subdir?: string; ref?: string } {
+function splitGoGetter(raw: string): {
+  address: string
+  subdir?: string
+  ref?: string | undefined
+} {
   const hashStart = raw.indexOf("#")
   const source = hashStart === -1 ? raw : raw.slice(0, hashStart)
   const queryStart = source.indexOf("?")

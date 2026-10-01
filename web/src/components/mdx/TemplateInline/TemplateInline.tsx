@@ -51,13 +51,13 @@ interface TemplateInlineProps {
   /** Unique identifier for this block */
   id: string
   /** ID or array of IDs of Inputs components to get variable values from. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  inputsId?: string | string[]
+  inputsId?: string | string[] | undefined
   /** Path of the rendered file, relative to the output dir (e.g. "docs/account.hcl") */
-  outputPath?: string
+  outputPath?: string | undefined
   /** Whether to also save the rendered file to the workspace (default: false, preview only) */
-  generateFile?: boolean
+  generateFile?: boolean | undefined
   /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). Only used when generateFile is true. */
-  target?: "generated" | "worktree"
+  target?: "generated" | "worktree" | undefined
   /** Inline template content (code blocks with file paths) */
   children?: ReactNode
 }

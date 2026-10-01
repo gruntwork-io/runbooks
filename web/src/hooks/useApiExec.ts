@@ -3,6 +3,7 @@ import { z } from "zod"
 import { createAppError, type AppError } from "@/types/error"
 import { FileTreeNodeArraySchema } from "@/components/artifacts/code/FileTree.types"
 import { decodeOutputs, type OutputValues } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
 // Zod schemas for IPC events
 const ExecLogEventSchema = z.object({
   line: z.string(),
@@ -379,13 +380,15 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       usePty?: boolean,
       timeoutMs?: number,
     ) => {
-      void executeScript({
-        executableId,
-        templateVarValues,
-        envVarsOverride,
-        usePty,
-        timeoutMs,
-      })
+      void executeScript(
+        omitUndefined({
+          executableId,
+          templateVarValues,
+          envVarsOverride,
+          usePty,
+          timeoutMs,
+        }),
+      )
     },
     [executeScript],
   )

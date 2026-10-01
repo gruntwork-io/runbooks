@@ -6,8 +6,8 @@ import { getSourceLabel } from "../utils"
 interface AuthSuccessProps {
   accountInfo: AccountInfo
   warningMessage: string | null
-  onReAuthenticate?: () => void
-  detectionSource?: AwsDetectionSource
+  onReAuthenticate?: (() => void) | undefined
+  detectionSource?: AwsDetectionSource | undefined
 }
 
 export function AuthSuccess({

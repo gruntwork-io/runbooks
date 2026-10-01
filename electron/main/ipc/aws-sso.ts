@@ -14,12 +14,16 @@ export type SsoPollRequest = {
   clientId: string
   clientSecret: string
   deviceCode: string
-  region?: string
+  region?: string | undefined
   accountId?: string
   roleName?: string
 }
 
-export type SsoRolesRequest = { accessToken: string; accountId: string; region?: string }
+export type SsoRolesRequest = {
+  accessToken: string
+  accountId: string
+  region?: string | undefined
+}
 
 /** Every SSO call must go to the region the device flow was started in. */
 const MISSING_REGION = "SSO region is required"

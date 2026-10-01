@@ -289,11 +289,11 @@ function buildPrParams(params: GitPrParams, repoPath: string): CreatePullRequest
     owner: params.owner,
     repo: params.repo,
     title: params.title,
-    body: params.body,
+    ...(params.body !== undefined ? { body: params.body } : {}),
     baseBranch: params.baseBranch,
     headBranch: params.headBranch,
     commitMessage: params.commitMessage,
-    labels: params.labels,
+    ...(params.labels !== undefined ? { labels: params.labels } : {}),
     repoPath,
   }
 }
@@ -429,8 +429,8 @@ export function registerGitHandlers(): void {
             }
 
             const options: CloneOptions = {
-              ref: params.ref,
-              token: resolvedToken,
+              ...(params.ref !== undefined ? { ref: params.ref } : {}),
+              ...(resolvedToken !== undefined ? { token: resolvedToken } : {}),
             }
 
             // Spawn git directly instead of going through GitClient.cloneSimple:
@@ -449,8 +449,8 @@ export function registerGitHandlers(): void {
             // clone step) backs up isValidGitURL: the URL is never read as a git
             // option.
             const cloneSteps = yield* buildCloneSteps(params.url, paths.absolutePath, {
-              ref: options.ref,
-              repoPath,
+              ...(options.ref !== undefined ? { ref: options.ref } : {}),
+              ...(repoPath !== undefined ? { repoPath } : {}),
             })
 
             // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
@@ -744,10 +744,10 @@ export function registerGitHandlers(): void {
           absolutePath: info.absolutePath,
           relativePath: info.relativePath,
           fileCount: info.fileCount,
-          remoteUrl: info.remoteUrl,
+          ...(info.remoteUrl !== undefined ? { remoteUrl: info.remoteUrl } : {}),
           ref: info.branch,
           refType: info.refType,
-          commitSha: info.commitSha,
+          ...(info.commitSha !== undefined ? { commitSha: info.commitSha } : {}),
           hasCommits: info.hasCommits,
           outputs,
         }
@@ -847,7 +847,11 @@ export function registerGitHandlers(): void {
               }
 
         const branch = params.branch.trim() || "main"
-        return yield* seedDefaultBranch(token, { repoPath, branch, provider, host }, sendLog)
+        return yield* seedDefaultBranch(
+          token,
+          { repoPath, branch, provider, ...(host !== undefined ? { host } : {}) },
+          sendLog,
+        )
       })
 
       const exit = await runtime.runPromiseExit(program)

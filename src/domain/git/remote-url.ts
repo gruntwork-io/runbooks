@@ -35,14 +35,14 @@ export interface GitRemoteUrl {
   /** Lowercase URL scheme without the colon (`https`, `ssh`, …); `ssh` for scp-like remotes. */
   readonly scheme: string
   /** Username from the userinfo, if any. A password is never returned. */
-  readonly user?: string
+  readonly user?: string | undefined
   /**
    * Lowercase hostname. An IPv6 literal keeps its brackets, as
    * `URL.hostname` does. Empty only for a host-less URL such as `file:///srv/repo.git`.
    */
   readonly hostname: string
   /** Port, when one was given (a scheme's default port is dropped, as `URL.port` does). */
-  readonly port?: string
+  readonly port?: string | undefined
   /** `hostname` plus `:port` when there is a port: what `URL.host` returns. */
   readonly host: string
   /**

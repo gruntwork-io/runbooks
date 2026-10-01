@@ -69,10 +69,10 @@ interface VariableFieldProps {
   id: string
   variable: BoilerplateVariable
   value: unknown
-  error?: string
+  error?: string | undefined
   onChange: (value: unknown) => void
-  onBlur?: () => void
-  disabled?: boolean
+  onBlur?: (() => void) | undefined
+  disabled?: boolean | undefined
 }
 
 const VariableField: React.FC<VariableFieldProps> = ({

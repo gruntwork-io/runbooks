@@ -14,7 +14,7 @@ export interface CloneOptions {
    * checked out with everything under it; a file brings its whole parent
    * directory.
    */
-  readonly sparse?: string
+  readonly sparse?: string | undefined
 }
 
 export interface PushOptions {
@@ -31,7 +31,7 @@ export interface DiffEntry {
   readonly additions: number
   readonly deletions: number
   /** The file's content at HEAD; undefined when it has none (new file, unborn branch, binary). */
-  readonly originalContent?: string
+  readonly originalContent?: string | undefined
   readonly isBinary: boolean
 }
 
@@ -41,7 +41,7 @@ export interface StatusEntry {
   /** Porcelain v1 XY code, trimmed (e.g. "M", "??", "R"). */
   readonly status: string
   /** For a rename/copy (R/C), the path it came from. */
-  readonly origPath?: string
+  readonly origPath?: string | undefined
 }
 
 export interface GitInfo {
@@ -51,8 +51,8 @@ export interface GitInfo {
    */
   readonly branch: string
   readonly refType: "branch" | "tag" | "detached"
-  readonly remoteUrl?: string
-  readonly commitSha?: string
+  readonly remoteUrl?: string | undefined
+  readonly commitSha?: string | undefined
 }
 
 /** A git author/committer identity (name + email). */
@@ -72,7 +72,7 @@ export interface CommitOptions {
    * configured an identity (local or global), theirs is respected and this is
    * ignored.
    */
-  readonly author?: GitIdentity
+  readonly author?: GitIdentity | undefined
 }
 
 export interface GitClientShape {

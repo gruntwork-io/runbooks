@@ -23,12 +23,12 @@ interface PatFormProps {
   onSubmit: () => void
   provider: ProviderConfig
   /** The active host (picked/pinned). GitHub's token link follows it. */
-  host?: string
+  host?: string | undefined
   /** GitLab self-hosted instance URL (GitLab only). */
-  instanceUrl?: string
-  setInstanceUrl?: (value: string) => void
+  instanceUrl?: string | undefined
+  setInstanceUrl?: ((value: string) => void) | undefined
   /** Attached to the instance-URL input so the block can focus it. */
-  instanceInputRef?: Ref<HTMLInputElement>
+  instanceInputRef?: Ref<HTMLInputElement> | undefined
 }
 
 export function PatForm({

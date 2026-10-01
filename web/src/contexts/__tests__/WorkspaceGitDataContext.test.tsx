@@ -265,7 +265,7 @@ describe("WorkspaceGitDataProvider", () => {
   it("never renders the previous clone's tree under a worktree re-registered at a new path", async () => {
     const { api, callsTo } = createApi()
     let workTrees!: GitWorkTreeContextType
-    const renders: Array<{ path?: string; tree?: string[] }> = []
+    const renders: Array<{ path?: string | undefined; tree?: string[] | undefined }> = []
     function Consumer() {
       const value = useGitWorkTree()
       useEffect(() => {
@@ -307,7 +307,7 @@ describe("WorkspaceGitDataProvider", () => {
   it("keeps the current tree on screen, without a spinner, while a same-path invalidation refetches it", async () => {
     const { api, callsTo } = createApi()
     let workTrees!: GitWorkTreeContextType
-    const renders: Array<{ tree?: string[]; isLoading: boolean }> = []
+    const renders: Array<{ tree?: string[] | undefined; isLoading: boolean }> = []
     function Consumer() {
       const value = useGitWorkTree()
       useEffect(() => {

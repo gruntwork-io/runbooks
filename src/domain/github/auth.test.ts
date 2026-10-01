@@ -52,7 +52,7 @@ describe("detectEnvCredentials", () => {
   it("returns GITHUB_TOKEN when set", async () => {
     const layer = makeTestEnvironment({ GITHUB_TOKEN: "ghp_test123" })
     const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
-    expect(result).toEqual({ token: "ghp_test123", envVar: "GITHUB_TOKEN", shadowedVar: undefined })
+    expect(result).toEqual({ token: "ghp_test123", envVar: "GITHUB_TOKEN" })
   })
 
   it("falls back to GH_TOKEN when GITHUB_TOKEN is missing", async () => {
@@ -290,7 +290,7 @@ describe("gh hosts.yml fallback", () => {
 
   it("reports an entry with no token (gh keyring storage)", () => {
     const yaml = `github.com:\n    user: someone\n    git_protocol: https\n`
-    expect(parseGhHostsToken(yaml)).toEqual({ entryExists: true, token: undefined })
+    expect(parseGhHostsToken(yaml)).toEqual({ entryExists: true })
   })
 
   it("reports a missing github.com entry", () => {

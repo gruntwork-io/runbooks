@@ -4,6 +4,7 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
 import type {
   AuthMethod,
   AuthStatus,
@@ -20,14 +21,14 @@ import { resolveDefaultAuthMethod } from "../utils"
 
 interface UseAwsAuthOptions {
   id: string
-  ssoStartUrl?: string
+  ssoStartUrl?: string | undefined
   ssoRegion: string
-  ssoAccountId?: string
-  ssoRoleName?: string
+  ssoAccountId?: string | undefined
+  ssoRoleName?: string | undefined
   defaultRegion: string
-  detectCredentials?: false | AwsCredentialSource[]
+  detectCredentials?: false | AwsCredentialSource[] | undefined
   /** Tab to open on; validated by resolveDefaultAuthMethod. */
-  defaultTab?: string
+  defaultTab?: string | undefined
 }
 
 /**
@@ -35,7 +36,7 @@ interface UseAwsAuthOptions {
  * applyDetectionOutcome writes it to state.
  */
 type DetectionOutcome =
-  | { kind: "detected"; credentials: DetectedAwsCredentials; warning?: string }
+  | { kind: "detected"; credentials: DetectedAwsCredentials; warning?: string | undefined }
   /** Paused on a block source that has not run; `remaining` follow it. */
   | { kind: "waiting"; blockId: string; remaining: AwsCredentialSource[] }
   | { kind: "done"; warnings: string[]; isRetry: boolean }
@@ -169,12 +170,12 @@ export function useAwsAuth({
 
       return {
         found: true,
-        creds: {
+        creds: omitUndefined({
           accessKeyId: blockAccessKeyId,
           secretAccessKey: blockSecretAccessKey,
           sessionToken: outputs.AWS_SESSION_TOKEN,
           region: outputs.AWS_REGION || defaultRegion,
-        },
+        }),
       }
     },
     [blockOutputs, defaultRegion],
@@ -184,12 +185,15 @@ export function useAwsAuth({
   const checkRegionStatus = useCallback(
     async (creds: AwsCredentials) => {
       try {
-        const data = await api.invoke("aws:check-region", {
-          accessKeyId: creds.accessKeyId,
-          secretAccessKey: creds.secretAccessKey,
-          sessionToken: creds.sessionToken,
-          region: creds.region,
-        })
+        const data = await api.invoke(
+          "aws:check-region",
+          omitUndefined({
+            accessKeyId: creds.accessKeyId,
+            secretAccessKey: creds.secretAccessKey,
+            sessionToken: creds.sessionToken,
+            region: creds.region,
+          }),
+        )
         if (data.warning) {
           setWarningMessage(data.warning)
         }
@@ -236,16 +240,16 @@ export function useAwsAuth({
   // Returns metadata only - does NOT register credentials (user must confirm first)
   const tryEnvCredentials = useCallback(
     async (options?: {
-      prefix?: string
+      prefix?: string | undefined
     }): Promise<{
       success: boolean
-      accountId?: string
-      accountName?: string
-      arn?: string
-      region?: string
-      hasSessionToken?: boolean
-      warning?: string
-      error?: string
+      accountId?: string | undefined
+      accountName?: string | undefined
+      arn?: string | undefined
+      region?: string | undefined
+      hasSessionToken?: boolean | undefined
+      warning?: string | undefined
+      error?: string | undefined
       foundButInvalid?: boolean
     }> => {
       try {
@@ -291,12 +295,12 @@ export function useAwsAuth({
     ): Promise<{
       success: boolean
       creds?: AwsCredentials
-      accountId?: string
-      accountName?: string
-      arn?: string
+      accountId?: string | undefined
+      accountName?: string | undefined
+      arn?: string | undefined
       region?: string
       hasSessionToken?: boolean
-      error?: string
+      error?: string | undefined
     }> => {
       const result = getBlockCredentials(blockId)
 
@@ -546,12 +550,14 @@ export function useAwsAuth({
           return
         }
 
-        await registerCredentials({
-          accessKeyId: data.accessKeyId,
-          secretAccessKey: data.secretAccessKey,
-          sessionToken: data.sessionToken,
-          region: data.region || defaultRegion,
-        })
+        await registerCredentials(
+          omitUndefined({
+            accessKeyId: data.accessKeyId,
+            secretAccessKey: data.secretAccessKey,
+            sessionToken: data.sessionToken,
+            region: data.region || defaultRegion,
+          }),
+        )
         setAuthStatus("authenticated")
         setAccountInfo({
           accountId: data.accountId,
@@ -731,12 +737,14 @@ export function useAwsAuth({
       setErrorMessage("Access Key ID and Secret Access Key are required")
       return
     }
-    void validateCredentials({
-      accessKeyId,
-      secretAccessKey,
-      sessionToken: sessionToken || undefined,
-      region: selectedDefaultRegion,
-    })
+    void validateCredentials(
+      omitUndefined({
+        accessKeyId,
+        secretAccessKey,
+        sessionToken: sessionToken || undefined,
+        region: selectedDefaultRegion,
+      }),
+    )
   }, [accessKeyId, secretAccessKey, sessionToken, selectedDefaultRegion, validateCredentials])
 
   // Poll for SSO authentication completion. `flow` is the attempt this loop
@@ -751,14 +759,17 @@ export function useAwsAuth({
         if (stale()) return
 
         try {
-          const data = await api.invoke("aws:sso-poll", {
-            deviceCode,
-            clientId,
-            clientSecret,
-            region: ssoRegion,
-            accountId: ssoAccountId,
-            roleName: ssoRoleName,
-          })
+          const data = await api.invoke(
+            "aws:sso-poll",
+            omitUndefined({
+              deviceCode,
+              clientId,
+              clientSecret,
+              region: ssoRegion,
+              accountId: ssoAccountId,
+              roleName: ssoRoleName,
+            }),
+          )
 
           if (stale()) return
 
@@ -778,12 +789,14 @@ export function useAwsAuth({
               accountName: data.accountName,
               arn: data.arn,
             })
-            void registerCredentials({
-              accessKeyId: data.accessKeyId!,
-              secretAccessKey: data.secretAccessKey!,
-              sessionToken: data.sessionToken,
-              region: selectedDefaultRegion,
-            })
+            void registerCredentials(
+              omitUndefined({
+                accessKeyId: data.accessKeyId!,
+                secretAccessKey: data.secretAccessKey!,
+                sessionToken: data.sessionToken,
+                region: selectedDefaultRegion,
+              }),
+            )
           } else {
             setAuthStatus("failed")
             setErrorMessage(data.error || "SSO authentication timed out or failed")
@@ -814,12 +827,15 @@ export function useAwsAuth({
     setErrorMessage(null)
 
     try {
-      const data = await api.invoke("aws:sso-start", {
-        startUrl: ssoStartUrl,
-        region: ssoRegion,
-        accountId: ssoAccountId,
-        roleName: ssoRoleName,
-      })
+      const data = await api.invoke(
+        "aws:sso-start",
+        omitUndefined({
+          startUrl: ssoStartUrl,
+          region: ssoRegion,
+          accountId: ssoAccountId,
+          roleName: ssoRoleName,
+        }),
+      )
 
       // Cancelled (or superseded) while the device flow was starting: don't
       // open the browser or start polling for an attempt the user abandoned.
@@ -905,12 +921,14 @@ export function useAwsAuth({
       if (data.accessKeyId) {
         setAuthStatus("authenticated")
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        void registerCredentials({
-          accessKeyId: data.accessKeyId!,
-          secretAccessKey: data.secretAccessKey!,
-          sessionToken: data.sessionToken,
-          region: selectedDefaultRegion,
-        })
+        void registerCredentials(
+          omitUndefined({
+            accessKeyId: data.accessKeyId!,
+            secretAccessKey: data.secretAccessKey!,
+            sessionToken: data.sessionToken,
+            region: selectedDefaultRegion,
+          }),
+        )
       } else {
         setAuthStatus("failed")
         setErrorMessage(data.error || "Failed to complete SSO authentication")
@@ -967,13 +985,15 @@ export function useAwsAuth({
       if (data.valid) {
         setAuthStatus("authenticated")
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        void registerCredentials({
-          accessKeyId: data.accessKeyId!,
-          secretAccessKey: data.secretAccessKey!,
-          sessionToken: data.sessionToken,
-          // The region main validated in: the profile's own, else the chosen one.
-          region: data.region || selectedDefaultRegion,
-        })
+        void registerCredentials(
+          omitUndefined({
+            accessKeyId: data.accessKeyId!,
+            secretAccessKey: data.secretAccessKey!,
+            sessionToken: data.sessionToken,
+            // The region main validated in: the profile's own, else the chosen one.
+            region: data.region || selectedDefaultRegion,
+          }),
+        )
       } else {
         setAuthStatus("failed")
         setErrorMessage(data.error || "Failed to authenticate with profile")

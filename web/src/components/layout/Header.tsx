@@ -78,7 +78,7 @@ function CopyButton({
 interface HeaderProps {
   pathName: string
   /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
-  localPath?: string
+  localPath?: string | undefined
 }
 
 /**

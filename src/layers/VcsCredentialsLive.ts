@@ -95,7 +95,7 @@ const absent = (extra: Partial<DetectionResult> = {}): DetectionResult => ({
 interface DirectValidation {
   readonly ok: boolean
   readonly user?: VcsUserInfo
-  readonly scopes?: string[]
+  readonly scopes?: string[] | undefined
   readonly status?: number
   readonly kind?: DetectionResult["errorKind"]
   readonly message?: string

@@ -283,7 +283,7 @@ const runEither = <A, E>(
  */
 describe("readApplicationDefaultCredentials", () => {
   const ENV_KEYS = ["CLOUDSDK_CONFIG", "GOOGLE_APPLICATION_CREDENTIALS"] as const
-  let saved: Partial<Record<(typeof ENV_KEYS)[number], string>>
+  let saved: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>>
   let root: string
 
   beforeEach(() => {

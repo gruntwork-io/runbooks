@@ -7,21 +7,21 @@ import { CodeFileHeader } from "./CodeFileHeader"
 export interface CodeFileProps {
   // File identification
   fileName: string
-  filePath?: string // Optional path for copy functionality
+  filePath?: string | undefined // Optional path for copy functionality
 
   // Code content
   code: string
 
   // Syntax highlighting
-  language?: string // Default: 'text'
-  showLineNumbers?: boolean // Default: true
+  language?: string | undefined // Default: 'text'
+  showLineNumbers?: boolean | undefined // Default: true
 
   // Header options
-  showCopyCodeButton?: boolean
-  showCopyPathButton?: boolean
+  showCopyCodeButton?: boolean | undefined
+  showCopyPathButton?: boolean | undefined
 
   // Styling
-  className?: string
+  className?: string | undefined
 }
 
 // Memoized so a parent re-render with the same `code` string doesn't re-run

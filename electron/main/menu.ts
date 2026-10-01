@@ -102,7 +102,7 @@ async function openRunbookFromDialog(): Promise<void> {
   try {
     const result = await dialog.showOpenDialog(win, {
       properties: ["openFile", "openDirectory"],
-      defaultPath: runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : undefined,
+      ...(runbookConfig.localPath ? { defaultPath: path.dirname(runbookConfig.localPath) } : {}),
       filters: [
         { name: "Runbook files", extensions: ["mdx", "md"] },
         { name: "All Files", extensions: ["*"] },

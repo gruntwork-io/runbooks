@@ -8,8 +8,8 @@ interface AuthTabsProps {
   provider: ProviderConfig
   /** Disable the OAuth tab when the host is unreachable — the device
    *  flow would hit the same TLS/network wall. */
-  oauthDisabled?: boolean
-  oauthDisabledReason?: string
+  oauthDisabled?: boolean | undefined
+  oauthDisabledReason?: string | undefined
 }
 
 export function AuthTabs({

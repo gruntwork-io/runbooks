@@ -6,11 +6,11 @@ import { cleanIpcErrorMessage } from "@/lib/ipcError"
 
 export interface UseIpcOptions {
   /** When true, skip the initial auto-fetch. Requests are only made via refetch. */
-  lazy?: boolean
+  lazy?: boolean | undefined
   /** Debounce delay in milliseconds for the debouncedRequest function. */
-  debounceMs?: number
+  debounceMs?: number | undefined
   /** When true, disable fetching entirely. */
-  disabled?: boolean
+  disabled?: boolean | undefined
 }
 
 export interface UseIpcReturn<T> {

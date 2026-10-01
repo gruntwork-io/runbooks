@@ -5,10 +5,7 @@ import type { SVGProps } from "react"
  * surrounding text color like GitHubIcon. For the full-color brand mark see
  * GitAuth's GitLabLogo.
  */
-export const GitLabIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({
-  className,
-  ...props
-}) => (
+export const GitLabIcon: React.FC<SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 256 236"

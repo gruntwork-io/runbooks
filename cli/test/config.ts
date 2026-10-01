@@ -26,12 +26,12 @@ export interface TestSettings {
 
 export interface TestCase {
   name: string
-  description?: string
-  env?: Record<string, string>
-  inputs?: Record<string, InputValue>
-  steps?: TestStep[]
-  assertions?: TestAssertion[]
-  cleanup?: CleanupAction[]
+  description?: string | undefined
+  env?: Record<string, string> | undefined
+  inputs?: Record<string, InputValue> | undefined
+  steps?: TestStep[] | undefined
+  assertions?: TestAssertion[] | undefined
+  cleanup?: CleanupAction[] | undefined
 }
 
 export interface TestStep {

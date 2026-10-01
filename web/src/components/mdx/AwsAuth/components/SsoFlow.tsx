@@ -7,7 +7,7 @@ import type { AuthStatus, SSOAccount, SSORole } from "../types"
 
 interface SsoFormProps {
   authStatus: AuthStatus
-  ssoStartUrl?: string
+  ssoStartUrl?: string | undefined
   selectedDefaultRegion: string
   setSelectedDefaultRegion: (value: string) => void
   onSsoAuth: () => void

@@ -37,7 +37,7 @@ export type GitProvider = "github" | "gitlab"
  * second GitLab block replacing the single GITLAB_TOKEN/GITLAB_HOST pair)
  * and support diagnostics. Never holds tokens.
  */
-export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: string }>()
+export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: string | undefined }>()
 
 /**
  * Resolve the GitHub session credential for `host` (undefined = the

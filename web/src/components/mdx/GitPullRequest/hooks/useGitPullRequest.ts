@@ -4,6 +4,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
 import type { LogEntry } from "@/hooks/useApiExec"
 import type { GitProvider } from "@/components/mdx/GitAuth/types"
 import type { PRProviderConfig } from "../providers"
@@ -76,13 +77,13 @@ interface UseGitPullRequestOptions {
   /** Provider configuration driving channels, token var, and copy. */
   cfg: PRProviderConfig
   /** Linked auth block id (gitAuthId ?? githubAuthId), if any. */
-  authId?: string
+  authId?: string | undefined
   /**
    * Provider derived from the linked auth block (auth outputs ONLY). Used to
    * detect a wrong-auth-block link; undefined means "not derivable" and must
    * never trip the wrong-provider guard.
    */
-  authDerivedProvider?: GitProvider
+  authDerivedProvider?: GitProvider | undefined
 }
 
 export function useGitPullRequest({
@@ -169,9 +170,9 @@ export function useGitPullRequest({
       const seq = ++labelsSeqRef.current
       setLabelsLoading(true)
       try {
-        const data = await api.invoke(cfg.channels.labels, { owner, repo, host })
+        const data = await api.invoke(cfg.channels.labels, omitUndefined({ owner, repo, host }))
         if (seq !== labelsSeqRef.current) return
-        setLabels((data.labels ?? []).map((name) => ({ name, color: "", description: undefined })))
+        setLabels((data.labels ?? []).map((name) => ({ name, color: "" })))
       } catch {
         // Non-critical
       } finally {

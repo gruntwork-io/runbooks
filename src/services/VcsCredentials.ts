@@ -20,9 +20,9 @@ export type VcsProvider = "github" | "gitlab"
 
 export interface VcsUserInfo {
   readonly login: string
-  readonly name?: string
-  readonly avatarUrl?: string
-  readonly email?: string
+  readonly name?: string | undefined
+  readonly avatarUrl?: string | undefined
+  readonly email?: string | undefined
 }
 
 /** Where a detected credential came from. "manual" = user-pasted PAT. */
@@ -35,18 +35,18 @@ export interface DetectionResult {
   readonly outcome: "valid" | "invalid" | "unreachable" | "absent"
   readonly token?: string
   readonly source?: "env" | "cli" | "config"
-  readonly user?: VcsUserInfo
-  readonly scopes?: string[]
+  readonly user?: VcsUserInfo | undefined
+  readonly scopes?: string[] | undefined
   readonly warnings: string[]
   readonly errorKind?: VcsTransportErrorKind
   /** HTTP status of a failed validation (renderer distinguishes 401/403). */
-  readonly status?: number
+  readonly status?: number | undefined
   /** Raw failure message (sanitized before crossing IPC). */
-  readonly error?: string
+  readonly error?: string | undefined
   /** The env var the token came from (env source). */
   readonly envVar?: string
   /** both-set-and-differ visibility hint (env source). */
-  readonly divergenceHint?: string
+  readonly divergenceHint?: string | undefined
   /** Manual-UI hint copy (the keyring contracts). */
   readonly hint?: string
   /** How the accepted token was validated — "cli" marks degraded auth. */
@@ -56,7 +56,7 @@ export interface DetectionResult {
 /** Successful probe result. */
 export interface CliValidation {
   readonly user: VcsUserInfo
-  readonly scopes?: string[]
+  readonly scopes?: string[] | undefined
 }
 
 export interface VcsCliStatusInfo {

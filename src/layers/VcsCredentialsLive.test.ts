@@ -147,7 +147,7 @@ describe("VcsCredentialsLive — env binding in the GitLab leg", () => {
   })
 
   it("never sends an env token over plain http, prefixed or not (https unchanged)", async () => {
-    const validated: Array<{ token: string; baseUrl?: string }> = []
+    const validated: Array<{ token: string; baseUrl?: string | undefined }> = []
     const harness = makeHarness({
       env: { GITLAB_TOKEN: "glpat-plain", CI_GITLAB_TOKEN: "glpat-ci" },
       gitlab: {
@@ -674,7 +674,7 @@ describe("VcsCredentialsLive — GitHub enterprise hosts", () => {
 
   /** A GitHubClient that records which host each validation targeted. */
   const recordingGitHub = () => {
-    const validated: Array<{ token: string; host?: string }> = []
+    const validated: Array<{ token: string; host?: string | undefined }> = []
     const github: Partial<GitHubClientShape> = {
       validateToken: (token, host) => {
         validated.push({ token, host })

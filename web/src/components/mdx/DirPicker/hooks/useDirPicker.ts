@@ -7,15 +7,15 @@ import { revealOutput } from "@/lib/outputValues"
 
 interface UseDirPickerOptions {
   id: string
-  rootDir?: string
-  gitCloneId?: string
+  rootDir?: string | undefined
+  gitCloneId?: string | undefined
   /** Maximum number of dropdown levels to show. */
-  maxLevels?: number
+  maxLevels?: number | undefined
   /**
    * Another block has the same id (or the same id after normalization). The
    * duplicate renders nothing and leaves the PATH output to the other block.
    */
-  isDuplicate?: boolean
+  isDuplicate?: boolean | undefined
 }
 
 /** Result of listing one directory: its subdirectories, or why it failed. */

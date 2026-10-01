@@ -39,14 +39,14 @@ export type AwsCredentialSource =
 export interface DetectedAwsCredentials {
   accountId: string
   /** Account alias, if available (best-effort) */
-  accountName?: string
+  accountName?: string | undefined
   arn: string
   region: string
   source: AwsDetectionSource
   /** Whether the credentials include a session token (temporary credentials) */
   hasSessionToken: boolean
   /** For env source: the prefix used to detect credentials (e.g., 'PROD_' for PROD_AWS_ACCESS_KEY_ID) */
-  envPrefix?: string
+  envPrefix?: string | undefined
 }
 
 // SSO account and role types
@@ -101,10 +101,10 @@ export interface AwsAuthProps {
 }
 
 export interface AccountInfo {
-  accountId?: string
+  accountId?: string | undefined
   /** Account alias, if available (best-effort) */
-  accountName?: string
-  arn?: string
+  accountName?: string | undefined
+  arn?: string | undefined
 }
 
 export interface AwsCredentials {
