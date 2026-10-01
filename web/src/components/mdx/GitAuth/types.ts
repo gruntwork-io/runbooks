@@ -2,41 +2,41 @@
 // Provider-neutral Git auth types (canonical)
 // ---------------------------------------------------------------------------
 
-export type GitProvider = 'github' | 'gitlab'
+export type GitProvider = "github" | "gitlab"
 
-export type GitAuthMethod = 'pat' | 'oauth'
-export type GitAuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed'
-export type GitDetectionStatus = 'pending' | 'done'
+export type GitAuthMethod = "pat" | "oauth"
+export type GitAuthStatus = "pending" | "authenticating" | "authenticated" | "failed"
+export type GitDetectionStatus = "pending" | "done"
 
 // Token type as detected by prefix. 'pat' is the generic GitLab access-token
 // classification; the remaining values are GitHub-specific.
 export type GitTokenType =
-  | 'classic_pat'
-  | 'fine_grained_pat'
-  | 'oauth'
-  | 'github_app'
-  | 'pat'
-  | 'unknown'
+  | "classic_pat"
+  | "fine_grained_pat"
+  | "oauth"
+  | "github_app"
+  | "pat"
+  | "unknown"
 
 // Credential detection source types
 export type GitCredentialSource =
-  | 'env'                                                   // Check the provider's token env vars
-  | { env: { prefix?: string } }                            // Check PREFIX_<TOKEN>, etc.
-  | 'cli'                                                   // Check the provider's CLI (gh / glab)
-  | { block: string }                                       // From block output
+  | "env" // Check the provider's token env vars
+  | { env: { prefix?: string } } // Check PREFIX_<TOKEN>, etc.
+  | "cli" // Check the provider's CLI (gh / glab)
+  | { block: string } // From block output
 
 // Detection source for UI badges
-export type GitDetectionSource = 'env' | 'cli' | 'block' | null
+export type GitDetectionSource = "env" | "cli" | "block" | null
 
 // ---------------------------------------------------------------------------
 // Tri-state validation outcomes
 // ---------------------------------------------------------------------------
 
 /** Tri-state outcome reported by the detection/validation channels. */
-export type GitAuthOutcome = 'valid' | 'invalid' | 'unreachable' | 'absent'
+export type GitAuthOutcome = "valid" | "invalid" | "unreachable" | "absent"
 
 /** Transport-failure classification — selects the TLS/server-cert/network card. */
-export type GitErrorKind = 'tls' | 'server-cert' | 'network'
+export type GitErrorKind = "tls" | "server-cert" | "network"
 
 /**
  * Everything the error card needs when a host is unreachable. An unreachable
@@ -133,9 +133,9 @@ export interface GitCliCredentialsResponse {
   /** Both-set-and-differ visibility hint. */
   divergenceHint?: string
   /** Which source produced the credential (cli-channel results may be 'config'). */
-  source?: 'env' | 'cli' | 'config'
+  source?: "env" | "cli" | "config"
   /** 'cli' marks probe-validated degraded auth. */
-  validatedVia?: 'direct' | 'cli'
+  validatedVia?: "direct" | "cli"
   /** Validation succeeded but main's session-env write failed (success-card warning). */
   sessionEnvWarning?: string
 }
@@ -151,27 +151,26 @@ export interface VcsCliStatusResult {
 export interface GitHostEntry {
   host: string
   /** Provenance badges: where this host is known from. */
-  sources: Array<'gh' | 'glab' | 'env' | 'session' | 'recent'>
+  sources: Array<"gh" | "glab" | "env" | "session" | "recent">
   /** Offline-only check: credential FOUND (not yet validated). */
   hasCredential: boolean
 }
 
 /** Sentinel option value for the "Other instance…" dropdown row. */
-export const OTHER_INSTANCE_SENTINEL = '__other__'
+export const OTHER_INSTANCE_SENTINEL = "__other__"
 
 /** Provenance metadata for the success card's source/transport lines. */
 export interface GitSuccessMeta {
   /** Which source produced the credential. */
-  source?: 'env' | 'cli' | 'config'
+  source?: "env" | "cli" | "config"
   /** The env var the token came from (source line: "Detected from GITHUB_TOKEN"). */
   envVar?: string
   /** 'cli' marks probe-validated degraded auth (transport line). */
-  validatedVia?: 'direct' | 'cli'
+  validatedVia?: "direct" | "cli"
 }
 
 // Helper functions for CLI credentials response
-export const isCliAuthFound = (r: GitCliCredentialsResponse): boolean =>
-  r.user != null && !r.error
+export const isCliAuthFound = (r: GitCliCredentialsResponse): boolean => r.user != null && !r.error
 
 // ---------------------------------------------------------------------------
 // Locked-provider wrapper props
@@ -181,6 +180,6 @@ export const isCliAuthFound = (r: GitCliCredentialsResponse): boolean =>
 // ---------------------------------------------------------------------------
 
 /** Props for the legacy <GitHubAuth> block (no provider/hideProviderSelect). */
-export type GitHubAuthProps = Omit<GitAuthProps, 'provider' | 'hideProviderSelect'>
+export type GitHubAuthProps = Omit<GitAuthProps, "provider" | "hideProviderSelect">
 /** Props for the <GitLabAuth> block (no provider/hideProviderSelect). */
-export type GitLabAuthProps = Omit<GitAuthProps, 'provider' | 'hideProviderSelect'>
+export type GitLabAuthProps = Omit<GitAuthProps, "provider" | "hideProviderSelect">

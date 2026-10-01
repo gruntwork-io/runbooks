@@ -8,12 +8,12 @@ import { makeStatusStyles } from "../_shared/lib/statusStyles"
 // repeated lookup boilerplate.
 export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatusStyles<AuthStatus>({
   container: {
-    authenticated: 'bg-success-muted border-success/30',
-    failed: 'bg-destructive-muted border-destructive/30',
-    authenticating: 'bg-warning-muted border-warning/30',
-    pending: 'bg-warning-muted/50 border-warning/30',
-    select_account: 'bg-info-muted border-info/40',
-    select_role: 'bg-info-muted border-info/40',
+    authenticated: "bg-success-muted border-success/30",
+    failed: "bg-destructive-muted border-destructive/30",
+    authenticating: "bg-warning-muted border-warning/30",
+    pending: "bg-warning-muted/50 border-warning/30",
+    select_account: "bg-info-muted border-info/40",
+    select_role: "bg-info-muted border-info/40",
   },
   icon: {
     authenticated: CheckCircle,
@@ -24,12 +24,12 @@ export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatus
     select_role: User,
   },
   iconColor: {
-    authenticated: 'text-success',
-    failed: 'text-destructive',
-    authenticating: 'text-warning',
-    pending: 'text-warning',
-    select_account: 'text-info',
-    select_role: 'text-info',
+    authenticated: "text-success",
+    failed: "text-destructive",
+    authenticating: "text-warning",
+    pending: "text-warning",
+    select_account: "text-info",
+    select_role: "text-info",
   },
 })
 
@@ -37,19 +37,19 @@ export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatus
 // Returns null for unknown/null sources so callers can conditionally hide the label.
 export function getSourceLabel(source: AwsDetectionSource): string | null {
   switch (source) {
-    case 'env':
-      return 'Environment Variables'
-    case 'block':
-      return 'Command Output'
+    case "env":
+      return "Environment Variables"
+    case "block":
+      return "Command Output"
     default:
       return null
   }
 }
 
 // The tab the block opens on when the author sets no `defaultTab`.
-const FALLBACK_AUTH_METHOD: AuthMethod = 'credentials'
+const FALLBACK_AUTH_METHOD: AuthMethod = "credentials"
 
-const AUTH_METHODS: readonly AuthMethod[] = ['credentials', 'sso', 'profile']
+const AUTH_METHODS: readonly AuthMethod[] = ["credentials", "sso", "profile"]
 
 /**
  * Resolve the `defaultTab` prop to the tab the block opens on. Runbook authors

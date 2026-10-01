@@ -12,7 +12,12 @@ import {
 } from "../../../src/errors/index.ts"
 import { clearRegisteredSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { cleanIpcErrorMessage } from "../../shared/ipc-error-message.ts"
-import { describeCause, describeFailure, installIpcErrorNormalization, toIpcError } from "./ipc-error.ts"
+import {
+  describeCause,
+  describeFailure,
+  installIpcErrorNormalization,
+  toIpcError,
+} from "./ipc-error.ts"
 
 // A real ManagedRuntime, so failures reject with the same FiberFailure the
 // handlers' `runtime.runPromise(...)` produces.
@@ -34,13 +39,20 @@ const enoent = () => new Error("ENOENT: no such file or directory, open '/ws/a.t
 describe("toIpcError", () => {
   it("uses a tagged failure's message", async () => {
     const err = await rejectionOf(
-      Effect.fail(new PathTraversalError({ path: "/etc/passwd", message: "path is outside session working directory" })),
+      Effect.fail(
+        new PathTraversalError({
+          path: "/etc/passwd",
+          message: "path is outside session working directory",
+        }),
+      ),
     )
     expect(toIpcError(err).message).toBe("path is outside session working directory")
   })
 
   it("builds a message for a tagged failure without one from its tag, path and cause", async () => {
-    const err = await rejectionOf(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() })))
+    const err = await rejectionOf(
+      Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() })),
+    )
     expect(toIpcError(err).message).toBe(
       "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
     )
@@ -50,7 +62,9 @@ describe("toIpcError", () => {
     const notFound = await rejectionOf(Effect.fail(new ExecutableNotFoundError({ id: "build" })))
     expect(toIpcError(notFound).message).toBe("ExecutableNotFoundError (id: build)")
 
-    const apiError = await rejectionOf(Effect.fail(new GitHubApiError({ status: 404, message: "" })))
+    const apiError = await rejectionOf(
+      Effect.fail(new GitHubApiError({ status: 404, message: "" })),
+    )
     expect(toIpcError(apiError).message).toBe("GitHubApiError (status 404)")
   })
 
@@ -61,11 +75,15 @@ describe("toIpcError", () => {
 
   it("uses a GitError's stderr, or the command and exit code when stderr is empty", async () => {
     const withStderr = await rejectionOf(
-      Effect.fail(new GitError({ command: "git push", stderr: "remote: Permission denied", exitCode: 128 })),
+      Effect.fail(
+        new GitError({ command: "git push", stderr: "remote: Permission denied", exitCode: 128 }),
+      ),
     )
     expect(toIpcError(withStderr).message).toBe("remote: Permission denied")
 
-    const withoutStderr = await rejectionOf(Effect.fail(new GitError({ command: "git push", stderr: "", exitCode: 128 })))
+    const withoutStderr = await rejectionOf(
+      Effect.fail(new GitError({ command: "git push", stderr: "", exitCode: 128 })),
+    )
     expect(toIpcError(withoutStderr).message).toBe("git push failed (exit 128)")
   })
 
@@ -79,7 +97,9 @@ describe("toIpcError", () => {
   })
 
   it("describes a tagged defect (Effect.orDie) like a typed failure", async () => {
-    const err = await rejectionOf(Effect.orDie(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() }))))
+    const err = await rejectionOf(
+      Effect.orDie(Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: enoent() }))),
+    )
     expect(toIpcError(err).message).toBe(
       "FileReadError (/ws/a.txt): ENOENT: no such file or directory, open '/ws/a.txt'",
     )
@@ -123,8 +143,12 @@ describe("toIpcError", () => {
   })
 
   it("describes an unwrapped tagged error (boilerplate:render's Cause.squash)", () => {
-    expect(toIpcError(new RenderError({ message: "template: unexpected EOF" })).message).toBe("template: unexpected EOF")
-    expect(toIpcError(new FileReadError({ path: "/x", cause: enoent() })).message).toMatch(/^FileReadError \(\/x\): ENOENT/)
+    expect(toIpcError(new RenderError({ message: "template: unexpected EOF" })).message).toBe(
+      "template: unexpected EOF",
+    )
+    expect(toIpcError(new FileReadError({ path: "/x", cause: enoent() })).message).toMatch(
+      /^FileReadError \(\/x\): ENOENT/,
+    )
   })
 
   it("keeps an already-clean Error's message, in a new Error that has the original as its cause", () => {
@@ -151,23 +175,30 @@ describe("toIpcError", () => {
         Effect.fail(
           new GitError({
             command: "git push",
-            stderr: "fatal: unable to access 'https://supersecrettoken123@git.example.com/o/r.git/'",
+            stderr:
+              "fatal: unable to access 'https://supersecrettoken123@git.example.com/o/r.git/'",
             exitCode: 128,
           }),
         ),
       )
-      expect(toIpcError(err).message).toBe("fatal: unable to access 'https://[REDACTED]@git.example.com/o/r.git/'")
+      expect(toIpcError(err).message).toBe(
+        "fatal: unable to access 'https://[REDACTED]@git.example.com/o/r.git/'",
+      )
     })
 
     it("redacts every message it passes through: a plain Error, a defect and a token shape", async () => {
       registerSecret("supersecrettoken123")
-      expect(toIpcError(new Error("bad token supersecrettoken123")).message).toBe("bad token [REDACTED]")
+      expect(toIpcError(new Error("bad token supersecrettoken123")).message).toBe(
+        "bad token [REDACTED]",
+      )
 
       const defect = await rejectionOf(Effect.die(new Error("bad token supersecrettoken123")))
       expect(toIpcError(defect).message).toBe("bad token [REDACTED]")
 
       const pat = "ghp_" + "a".repeat(36)
-      expect(toIpcError(new RenderError({ message: `template saw ${pat}` })).message).toBe("template saw [REDACTED]")
+      expect(toIpcError(new RenderError({ message: `template saw ${pat}` })).message).toBe(
+        "template saw [REDACTED]",
+      )
     })
   })
 })
@@ -198,7 +229,9 @@ describe("describeCause", () => {
   it("describes a typed failure with describeFailure, even when a defect rides along", () => {
     expect(describeCause(Cause.fail(new SessionNotFoundError()))).toBe("SessionNotFoundError")
     expect(
-      describeCause(Cause.sequential(Cause.fail(new SessionNotFoundError()), Cause.die(new Error("finalizer")))),
+      describeCause(
+        Cause.sequential(Cause.fail(new SessionNotFoundError()), Cause.die(new Error("finalizer"))),
+      ),
     ).toBe("SessionNotFoundError")
   })
 
@@ -210,7 +243,10 @@ describe("describeCause", () => {
     for (const [cause, expected] of [
       [Cause.die(new Error("boom")), "boom"],
       [Cause.die("a string defect"), "a string defect"],
-      [Cause.die(new FileReadError({ path: "/x", cause: enoent() })), `FileReadError (/x): ${enoent().message}`],
+      [
+        Cause.die(new FileReadError({ path: "/x", cause: enoent() })),
+        `FileReadError (/x): ${enoent().message}`,
+      ],
       [Cause.sequential(Cause.die(new Error("boom")), Cause.interrupt(FiberId.none)), "boom"],
     ] as const) {
       const text = describeCause(cause)
@@ -242,11 +278,16 @@ describe("installIpcErrorNormalization", () => {
    * "Error invoking remote method '<channel>': <sent>", and the preload cleans
    * that with cleanIpcErrorMessage().
    */
-  async function rendererMessage(listeners: Map<string, Listener>, channel: string): Promise<string> {
+  async function rendererMessage(
+    listeners: Map<string, Listener>,
+    channel: string,
+  ): Promise<string> {
     try {
       await listeners.get(channel)!({} as IpcMainInvokeEvent)
     } catch (err) {
-      return cleanIpcErrorMessage(`Error invoking remote method '${channel}': ${(err as Error).toString()}`)
+      return cleanIpcErrorMessage(
+        `Error invoking remote method '${channel}': ${(err as Error).toString()}`,
+      )
     }
     throw new Error(`expected ${channel} to reject`)
   }
@@ -284,8 +325,12 @@ describe("installIpcErrorNormalization", () => {
   it("passes arguments through and resolves with the handler's result", async () => {
     const { ipc, listeners } = makeFakeIpc()
     installIpcErrorNormalization(ipc)
-    ipc.handle("session:get", (_event, params: { id: string }) => runtime.runPromise(Effect.succeed({ id: params.id })))
+    ipc.handle("session:get", (_event, params: { id: string }) =>
+      runtime.runPromise(Effect.succeed({ id: params.id })),
+    )
 
-    expect(await listeners.get("session:get")!({} as IpcMainInvokeEvent, { id: "s1" })).toEqual({ id: "s1" })
+    expect(await listeners.get("session:get")!({} as IpcMainInvokeEvent, { id: "s1" })).toEqual({
+      id: "s1",
+    })
   })
 })

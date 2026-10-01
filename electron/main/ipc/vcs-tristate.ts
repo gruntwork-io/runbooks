@@ -65,9 +65,8 @@ export async function appendSessionEnvAndRecord(
   return undefined
 }
 
-export const withVcs = <A>(
-  use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>,
-): Promise<A> => runtime.runPromise(Effect.flatMap(VcsCredentials, use))
+export const withVcs = <A>(use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>): Promise<A> =>
+  runtime.runPromise(Effect.flatMap(VcsCredentials, use))
 
 /**
  * Run a detection/validation step with the TLS recovery ladder:

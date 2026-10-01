@@ -9,11 +9,11 @@
  */
 
 /** CSS.highlights names; FindBar.css styles them with ::highlight(). */
-export const FIND_MATCH_HIGHLIGHT = 'runbooks-find-match'
-export const FIND_ACTIVE_HIGHLIGHT = 'runbooks-find-active'
+export const FIND_MATCH_HIGHLIGHT = "runbooks-find-match"
+export const FIND_ACTIVE_HIGHLIGHT = "runbooks-find-active"
 
 /** Elements whose text is never shown as page text, or can't hold a match. */
-const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TEXTAREA', 'SELECT'])
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "TEXTAREA", "SELECT"])
 
 /**
  * Elements that start a new line of text. A match may span inline elements
@@ -22,18 +22,57 @@ const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TEXTAREA'
  * heuristic rather than computed styles, which would be far slower.
  */
 const BLOCK_SELECTOR = [
-  'address', 'article', 'aside', 'blockquote', 'body', 'button', 'caption', 'dd', 'details',
-  'dialog', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer', 'form',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'legend', 'li', 'main', 'nav', 'ol',
-  'p', 'pre', 'section', 'summary', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
-].join(',')
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "body",
+  "button",
+  "caption",
+  "dd",
+  "details",
+  "dialog",
+  "div",
+  "dl",
+  "dt",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "hr",
+  "legend",
+  "li",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "summary",
+  "table",
+  "tbody",
+  "td",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "ul",
+].join(",")
 
 /**
  * Marks a subtree the search leaves out: the find bar itself, and app chrome
  * such as the header, whose runbook path is always on screen and would
  * otherwise be where every search that matches the path starts.
  */
-export const FIND_IGNORE_ATTRIBUTE = 'data-find-ignore'
+export const FIND_IGNORE_ATTRIBUTE = "data-find-ignore"
 
 /**
  * A case-insensitive pattern for `query` that treats every character
@@ -42,8 +81,8 @@ export const FIND_IGNORE_ATTRIBUTE = 'data-find-ignore'
  */
 function queryPattern(query: string): RegExp | null {
   if (!query.trim()) return null
-  const source = query.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&').replace(/\s+/g, '\\s+')
-  return new RegExp(source, 'giu')
+  const source = query.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/\s+/g, "\\s+")
+  return new RegExp(source, "giu")
 }
 
 interface Run {
@@ -78,7 +117,10 @@ export function findTextRanges(root: Node, query: string): Range[] {
     let result = visible.get(el)
     if (result === undefined) {
       // Missing in jsdom; every rendered element passes there.
-      result = typeof el.checkVisibility === 'function' ? el.checkVisibility({ visibilityProperty: true }) : true
+      result =
+        typeof el.checkVisibility === "function"
+          ? el.checkVisibility({ visibilityProperty: true })
+          : true
       visible.set(el, result)
     }
     return result
@@ -97,16 +139,22 @@ export function findTextRanges(root: Node, query: string): Range[] {
     acceptNode(node) {
       if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT
       const el = node as Element
-      if (SKIP_TAGS.has(el.tagName) || el.hasAttribute('inert') || el.hasAttribute(FIND_IGNORE_ATTRIBUTE)) {
+      if (
+        SKIP_TAGS.has(el.tagName) ||
+        el.hasAttribute("inert") ||
+        el.hasAttribute(FIND_IGNORE_ATTRIBUTE)
+      ) {
         return NodeFilter.FILTER_REJECT
       }
       // Surface line breaks and block elements, which end the current run.
-      return el.tagName === 'BR' || el.matches(BLOCK_SELECTOR) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
+      return el.tagName === "BR" || el.matches(BLOCK_SELECTOR)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP
     },
   })
 
   const ranges: Range[] = []
-  let run: Run = { text: '', nodes: [] }
+  let run: Run = { text: "", nodes: [] }
   let runContainer: Element | null = null
 
   const flush = () => {
@@ -121,7 +169,7 @@ export function findTextRanges(root: Node, query: string): Range[] {
         ranges.push(range)
       }
     }
-    run = { text: '', nodes: [] }
+    run = { text: "", nodes: [] }
   }
 
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -175,7 +223,12 @@ export interface Box {
  * such as the find bar, so a match there is on screen but hidden.
  */
 function covered(rect: Box, obstruction: Box | undefined): boolean {
-  if (!obstruction || obstruction.bottom <= obstruction.top || obstruction.right <= obstruction.left) return false
+  if (
+    !obstruction ||
+    obstruction.bottom <= obstruction.top ||
+    obstruction.right <= obstruction.left
+  )
+    return false
   return (
     rect.top < obstruction.bottom &&
     rect.bottom > obstruction.top &&
@@ -192,14 +245,19 @@ function covered(rect: Box, obstruction: Box | undefined): boolean {
 function visibleArea(el: Element | null, cache: Map<Element, Box>): Box {
   if (!el) {
     const view = document.documentElement
-    return { top: 0, left: 0, bottom: window.innerHeight || view.clientHeight, right: window.innerWidth || view.clientWidth }
+    return {
+      top: 0,
+      left: 0,
+      bottom: window.innerHeight || view.clientHeight,
+      right: window.innerWidth || view.clientWidth,
+    }
   }
   const cached = cache.get(el)
   if (cached) return cached
   const outer = visibleArea(el.parentElement, cache)
   let area = outer
   const style = getComputedStyle(el)
-  if (style.overflowX !== 'visible' || style.overflowY !== 'visible') {
+  if (style.overflowX !== "visible" || style.overflowY !== "visible") {
     const box = el.getBoundingClientRect()
     area = {
       top: Math.max(outer.top, box.top + el.clientTop),
@@ -214,7 +272,7 @@ function visibleArea(el: Element | null, cache: Map<Element, Box>): Box {
 
 /** Range.getBoundingClientRect, which jsdom doesn't implement. */
 function rectOf(range: Range): DOMRect | null {
-  return typeof range.getBoundingClientRect === 'function' ? range.getBoundingClientRect() : null
+  return typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : null
 }
 
 /**
@@ -240,11 +298,11 @@ export function firstMatchInView(ranges: Range[], obstruction?: Box): number {
 }
 
 /** Whether a scroll container scrolls along `axis`. */
-function scrolls(el: Element, axis: 'x' | 'y'): boolean {
+function scrolls(el: Element, axis: "x" | "y"): boolean {
   const style = getComputedStyle(el)
-  const overflow = axis === 'x' ? style.overflowX : style.overflowY
-  if (overflow !== 'auto' && overflow !== 'scroll') return false
-  return axis === 'x' ? el.scrollWidth > el.clientWidth : el.scrollHeight > el.clientHeight
+  const overflow = axis === "x" ? style.overflowX : style.overflowY
+  if (overflow !== "auto" && overflow !== "scroll") return false
+  return axis === "x" ? el.scrollWidth > el.clientWidth : el.scrollHeight > el.clientHeight
 }
 
 /**
@@ -257,18 +315,21 @@ function scrolls(el: Element, axis: 'x' | 'y'): boolean {
 export function scrollRangeIntoView(range: Range, obstruction?: Box): void {
   const parent = range.startContainer.parentElement
   if (!rectOf(range)) {
-    parent?.scrollIntoView({ block: 'center', inline: 'nearest' })
+    parent?.scrollIntoView({ block: "center", inline: "nearest" })
     return
   }
   for (let el = parent; el; el = el.parentElement) {
-    const scrollY = scrolls(el, 'y')
-    const scrollX = scrolls(el, 'x')
+    const scrollY = scrolls(el, "y")
+    const scrollX = scrolls(el, "x")
     if (!scrollY && !scrollX) continue
     const rect = range.getBoundingClientRect()
     const box = el.getBoundingClientRect()
     const top = box.top + el.clientTop
     const left = box.left + el.clientLeft
-    if (scrollY && (rect.top < top || rect.bottom > top + el.clientHeight || covered(rect, obstruction))) {
+    if (
+      scrollY &&
+      (rect.top < top || rect.bottom > top + el.clientHeight || covered(rect, obstruction))
+    ) {
       el.scrollTop += (rect.top + rect.bottom) / 2 - (top + el.clientHeight / 2)
     }
     if (scrollX && (rect.left < left || rect.right > left + el.clientWidth)) {
@@ -283,7 +344,9 @@ export function scrollRangeIntoView(range: Range, obstruction?: Box): void {
 
 /** The page's highlight registry, when the Custom Highlight API exists (not in jsdom). */
 function highlightRegistry(): HighlightRegistry | null {
-  return typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight === 'function' ? CSS.highlights : null
+  return typeof CSS !== "undefined" && CSS.highlights && typeof Highlight === "function"
+    ? CSS.highlights
+    : null
 }
 
 /** Paint every match, and the current one on top of the rest. */

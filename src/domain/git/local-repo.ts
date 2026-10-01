@@ -61,11 +61,7 @@ export const resolveLocalRepoPath = (dir: string, workingDir: string): string =>
 export const inspectLocalRepo = (
   dir: string,
   workingDir: string,
-): Effect.Effect<
-  LocalRepoInfo,
-  GitError,
-  GitClient | FileSystem | ProcessSpawner
-> =>
+): Effect.Effect<LocalRepoInfo, GitError, GitClient | FileSystem | ProcessSpawner> =>
   Effect.gen(function* () {
     const trimmed = dir.trim()
     if (!trimmed) {
@@ -120,11 +116,9 @@ export const inspectLocalRepo = (
 
     // A repo with no commits yet has no HEAD to describe — treat the whole
     // lookup as best-effort so an empty checkout is still selectable.
-    const info = yield* git.getInfo(absolutePath).pipe(
-      Effect.catchAll(() =>
-        Effect.succeed({ branch: "", refType: "branch" } as GitInfo),
-      ),
-    )
+    const info = yield* git
+      .getInfo(absolutePath)
+      .pipe(Effect.catchAll(() => Effect.succeed({ branch: "", refType: "branch" } as GitInfo)))
 
     // getInfo only knows about `origin`. A checkout can legitimately name its
     // remote something else — a fork whose upstream is the interesting one, or
@@ -143,9 +137,7 @@ export const inspectLocalRepo = (
     // orElseSucceed keeps this best-effort, like the getInfo lookup above: a
     // repo we can't query is treated as having history, so an unreadable git
     // never gets mistaken for an empty one and offered a seeded branch.
-    const hasCommits = yield* git
-      .hasCommits(absolutePath)
-      .pipe(Effect.orElseSucceed(() => true))
+    const hasCommits = yield* git.hasCommits(absolutePath).pipe(Effect.orElseSucceed(() => true))
 
     return {
       absolutePath,

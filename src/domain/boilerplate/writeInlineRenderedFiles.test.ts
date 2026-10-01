@@ -28,7 +28,11 @@ describe("writeInlineRenderedFiles", () => {
     )
 
   /** Run a render that must succeed and return what it recorded. */
-  const write = async (files: Record<string, string>, previous?: InlineWriteRecord, dir = baseDir) => {
+  const write = async (
+    files: Record<string, string>,
+    previous?: InlineWriteRecord,
+    dir = baseDir,
+  ) => {
     const exit = await run(files, previous, dir)
     if (!Exit.isSuccess(exit)) throw new Error(`render failed: ${String(exit.cause)}`)
     return exit.value

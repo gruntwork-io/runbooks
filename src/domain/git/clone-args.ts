@@ -16,7 +16,11 @@ export interface GitCloneArgsOptions {
   readonly sparse?: boolean
 }
 
-export function gitCloneArgs(url: string, dest: string, options: GitCloneArgsOptions = {}): string[] {
+export function gitCloneArgs(
+  url: string,
+  dest: string,
+  options: GitCloneArgsOptions = {},
+): string[] {
   const args = ["clone", "--progress"]
   if (options.sparse) args.push("--filter=blob:none", "--no-checkout")
   if (options.ref) args.push("--branch", options.ref)

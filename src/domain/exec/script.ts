@@ -3,11 +3,7 @@
  */
 import { Effect, type Scope } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
-import type {
-  FileWriteError,
-  FileReadError,
-  FileNotFoundError,
-} from "../../errors/index.ts"
+import type { FileWriteError, FileReadError, FileNotFoundError } from "../../errors/index.ts"
 import type { CapturedFile } from "../../types.ts"
 import { sensitiveOutput, type OutputValues } from "./outputValues.ts"
 
@@ -92,10 +88,7 @@ export interface ScriptSetup {
  * Detect the interpreter from a shebang line or the provided language parameter.
  * Returns [interpreter, args].
  */
-export function detectInterpreter(
-  script: string,
-  providedLang: string,
-): [string, string[]] {
+export function detectInterpreter(script: string, providedLang: string): [string, string[]] {
   // If language is explicitly provided, use it
   if (providedLang) {
     return [providedLang, []]
@@ -348,11 +341,7 @@ ${script}
 export const prepareScript = (
   content: string,
   language: string,
-): Effect.Effect<
-  ScriptSetup,
-  FileWriteError,
-  FileSystem | Scope.Scope
-> =>
+): Effect.Effect<ScriptSetup, FileWriteError, FileSystem | Scope.Scope> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
@@ -473,28 +462,20 @@ export function parseEnvCaptureContent(data: string): Record<string, string> | u
 export const parseEnvCapture = (
   envCapturePath: string,
   pwdCapturePath: string,
-): Effect.Effect<
-  { env: Record<string, string> | undefined; pwd: string },
-  never,
-  FileSystem
-> =>
+): Effect.Effect<{ env: Record<string, string> | undefined; pwd: string }, never, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
     // Read environment capture
     let env: Record<string, string> | undefined = undefined
-    const envResult = yield* fs
-      .readFile(envCapturePath)
-      .pipe(Effect.option)
+    const envResult = yield* fs.readFile(envCapturePath).pipe(Effect.option)
     if (envResult._tag === "Some") {
       env = parseEnvCaptureContent(envResult.value)
     }
 
     // Read working directory capture
     let pwd = ""
-    const pwdResult = yield* fs
-      .readFile(pwdCapturePath)
-      .pipe(Effect.option)
+    const pwdResult = yield* fs.readFile(pwdCapturePath).pipe(Effect.option)
     if (pwdResult._tag === "Some") {
       pwd = pwdResult.value.trim()
     }
@@ -567,11 +548,7 @@ export function parseBlockOutputsContent(content: string): OutputValues {
  */
 export const parseBlockOutputs = (
   filePath: string,
-): Effect.Effect<
-  OutputValues,
-  never,
-  FileSystem
-> =>
+): Effect.Effect<OutputValues, never, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
@@ -595,11 +572,7 @@ export const parseBlockOutputs = (
 export const captureFilesFromDir = (
   srcDir: string,
   outputDir: string,
-): Effect.Effect<
-  CapturedFile[],
-  FileWriteError | FileReadError | FileNotFoundError,
-  FileSystem
-> =>
+): Effect.Effect<CapturedFile[], FileWriteError | FileReadError | FileNotFoundError, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 

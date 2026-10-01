@@ -84,9 +84,21 @@ export function Admonition({
 }: AdmonitionProps) {
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
-  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
-  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
-  const resolvedConfirmationText = useMemo(() => confirmationText ? resolveTemplateReferences(confirmationText, templateCtx) : confirmationText, [confirmationText, templateCtx])
+  const resolvedTitle = useMemo(
+    () => (title ? resolveTemplateReferences(title, templateCtx) : title),
+    [title, templateCtx],
+  )
+  const resolvedDescription = useMemo(
+    () => (description ? resolveTemplateReferences(description, templateCtx) : description),
+    [description, templateCtx],
+  )
+  const resolvedConfirmationText = useMemo(
+    () =>
+      confirmationText
+        ? resolveTemplateReferences(confirmationText, templateCtx)
+        : confirmationText,
+    [confirmationText, templateCtx],
+  )
   // Check localStorage on mount to see if user has permanently hidden this
   const [isVisible, setIsVisible] = useState(
     () => !(allowPermanentHide && storageKey) || shouldShowAlert(`admonition_hide_${storageKey}`),
@@ -103,8 +115,8 @@ export function Admonition({
       const validTypes = VALID_ADMONITION_TYPES.map((t) => `"${t}"`).join(", ")
       reportError({
         componentId,
-        componentType: 'Admonition',
-        severity: 'error',
+        componentType: "Admonition",
+        severity: "error",
         message: `Invalid admonition type "${String(type)}". Valid types are: ${validTypes}.`,
       })
     } else {
@@ -141,15 +153,15 @@ export function Admonition({
       <div
         className={cn(
           "runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5",
-          "bg-destructive-muted border-destructive/30 text-destructive"
+          "bg-destructive-muted border-destructive/30 text-destructive",
         )}
       >
         <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-destructive" />
         <div>
           <div className="text-md font-bold mb-1">Invalid Admonition Type</div>
           <p>
-            Unknown type <code className="bg-destructive-muted px-1 rounded">"{String(type)}"</code>.
-            Valid types are: {validTypes}.
+            Unknown type <code className="bg-destructive-muted px-1 rounded">"{String(type)}"</code>
+            . Valid types are: {validTypes}.
           </p>
         </div>
       </div>
@@ -170,7 +182,7 @@ export function Admonition({
         config.borderColor,
         config.textColor,
         isFadingOut && "opacity-0",
-        className
+        className,
       )}
     >
       <Icon className={cn("size-4 mt-0.5 flex-shrink-0", config.iconColor)} />
@@ -185,7 +197,7 @@ export function Admonition({
             contentToDisplay
           )}
         </div>
-        
+
         {resolvedConfirmationText && (
           <div className="mt-3">
             <button
@@ -195,19 +207,19 @@ export function Admonition({
             >
               <InlineMarkdown>{resolvedConfirmationText}</InlineMarkdown>
             </button>
-            
+
             {allowPermanentHide && storageKey && (
               <div className="mt-3">
-                <label className={`flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity opacity-80`}>
+                <label
+                  className={`flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity opacity-80`}
+                >
                   <input
                     type="checkbox"
                     checked={dontShowAgain}
                     onChange={(e) => setDontShowAgain(e.target.checked)}
                     className="cursor-pointer"
                   />
-                  <span className="text-sm text-muted-foreground">
-                    Don't show me this again
-                  </span>
+                  <span className="text-sm text-muted-foreground">Don't show me this again</span>
                 </label>
               </div>
             )}
@@ -219,7 +231,7 @@ export function Admonition({
           onClick={() => setIsVisible(false)}
           className={cn(
             "flex-shrink-0 hover:opacity-70 transition-opacity cursor-pointer",
-            config.iconColor
+            config.iconColor,
           )}
           aria-label="Close"
         >
@@ -231,7 +243,6 @@ export function Admonition({
 }
 
 // Set displayName for React DevTools and component detection
-Admonition.displayName = 'Admonition';
+Admonition.displayName = "Admonition"
 
 export default Admonition
-

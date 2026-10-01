@@ -1,23 +1,43 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import type { ReactNode } from 'react'
-import { useApi } from '@/contexts/ApiContext'
-import { useGetFile } from '@/hooks/useApiGetFile'
-import { useInputs, useRunbookContext, useAllOutputs, flattenInputs, type TemplateValue } from '@/contexts/useRunbook'
-import { useApiExec } from '@/hooks/useApiExec'
-import type { FilesCapturedEvent, LogEntry } from '@/hooks/useApiExec'
-import { useExecutableRegistry } from '@/hooks/useExecutableRegistry'
-import { useGeneratedFiles } from '@/hooks/useGeneratedFiles'
-import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import { useLogs } from '@/contexts/useLogs'
-import { extractInlineInputsId } from '../lib/extractInlineInputsId'
-import { extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
-import { computeSha256Hash } from '@/lib/hash'
-import { normalizeBlockId } from '@/lib/utils'
-import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, maskTemplateOutputs, referencesSensitiveOutput, revealTemplateOutputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
-import { revealOutput, revealOutputs, type OutputValues } from '@/lib/outputValues'
-import type { ComponentType, ExecutionStatus } from '../types'
-import type { AppError } from '@/types/error'
-import { createAppError } from '@/types/error'
+import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import type { ReactNode } from "react"
+import { useApi } from "@/contexts/ApiContext"
+import { useGetFile } from "@/hooks/useApiGetFile"
+import {
+  useInputs,
+  useRunbookContext,
+  useAllOutputs,
+  flattenInputs,
+  type TemplateValue,
+} from "@/contexts/useRunbook"
+import { useApiExec } from "@/hooks/useApiExec"
+import type { FilesCapturedEvent, LogEntry } from "@/hooks/useApiExec"
+import { useExecutableRegistry } from "@/hooks/useExecutableRegistry"
+import { useGeneratedFiles } from "@/hooks/useGeneratedFiles"
+import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useLogs } from "@/contexts/useLogs"
+import { extractInlineInputsId } from "../lib/extractInlineInputsId"
+import {
+  extractTemplateDependenciesFromString,
+  splitDependencies,
+} from "@/lib/extractTemplateDependencies"
+import { computeSha256Hash } from "@/lib/hash"
+import { normalizeBlockId } from "@/lib/utils"
+import {
+  buildTemplatePayload,
+  computeUnmetInputDependencies,
+  computeUnmetOutputDependencies,
+  flattenBlockOutputs,
+  hasEmptyNumericInputs,
+  maskTemplateOutputs,
+  referencesSensitiveOutput,
+  revealTemplateOutputs,
+  type BlockOutput,
+  type TemplateContext,
+} from "@/lib/templateUtils"
+import { revealOutput, revealOutputs, type OutputValues } from "@/lib/outputValues"
+import type { ComponentType, ExecutionStatus } from "../types"
+import type { AppError } from "@/types/error"
+import { createAppError } from "@/types/error"
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -74,7 +94,7 @@ export function checkAuthDependency(
 
   const normalizedId = normalizeBlockId(authId)
   const blockOutputs = allOutputs[normalizedId]
-  if (blockOutputs?.values?.__AUTHENTICATED === 'true') return null
+  if (blockOutputs?.values?.__AUTHENTICATED === "true") return null
 
   return { blockId: authId }
 }
@@ -87,17 +107,17 @@ export function checkAuthDependency(
  * under a different name.
  */
 export const GOOGLE_AUTH_ENV_KEYS = [
-  'GOOGLE_APPLICATION_CREDENTIALS',
-  'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE',
-  'GOOGLE_CLOUD_PROJECT',
-  'CLOUDSDK_CORE_PROJECT',
-  'GOOGLE_PROJECT',
-  'CLOUDSDK_CORE_ACCOUNT',
-  'GOOGLE_CLOUD_REGION',
-  'CLOUDSDK_COMPUTE_REGION',
-  'GOOGLE_REGION',
-  'CLOUDSDK_COMPUTE_ZONE',
-  'GOOGLE_ZONE',
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+  "GOOGLE_CLOUD_PROJECT",
+  "CLOUDSDK_CORE_PROJECT",
+  "GOOGLE_PROJECT",
+  "CLOUDSDK_CORE_ACCOUNT",
+  "GOOGLE_CLOUD_REGION",
+  "CLOUDSDK_COMPUTE_REGION",
+  "GOOGLE_REGION",
+  "CLOUDSDK_COMPUTE_ZONE",
+  "GOOGLE_ZONE",
 ] as const
 
 /**
@@ -118,7 +138,7 @@ export function buildAuthEnvVars(
   const envVars: Record<string, string> = {}
   for (const key of keys) {
     const value = values[key]
-    if (value && value !== '') {
+    if (value && value !== "") {
       envVars[key] = value
     }
   }
@@ -142,7 +162,7 @@ export function buildGoogleAuthEnvVars(
   if (!blockOutputs?.values) return undefined
   const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_KEYS) ?? {}
   envVars.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE =
-    revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ''
+    revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ""
   return envVars
 }
 
@@ -152,14 +172,14 @@ export function buildGoogleAuthEnvVars(
  * processes the value can't handle, while the run renders the real value.
  */
 export const SENSITIVE_DISPLAY_RENDER_NOTE =
-  'The script view shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here. Running the script uses the real value.'
+  "The script view shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here. Running the script uses the real value."
 
 /**
  * How the auto-render treats the script: 'raw' has no template dependencies,
  * the two awaiting modes wait on referenced inputs or block outputs, and
  * 'render' renders it.
  */
-type RenderMode = 'raw' | 'awaiting-inputs' | 'awaiting-outputs' | 'render'
+type RenderMode = "raw" | "awaiting-inputs" | "awaiting-outputs" | "render"
 
 interface UseScriptExecutionReturn {
   // Script content
@@ -171,10 +191,10 @@ interface UseScriptExecutionReturn {
    */
   rawScriptContent: string
   language?: string
-  
+
   // File loading
   fileError: AppError | null
-  
+
   // Variables
   /** All input dependency names found in the script (for "missing config" detection) */
   inputDependencies: string[]
@@ -189,7 +209,7 @@ interface UseScriptExecutionReturn {
 
   // Template context for prop resolution by callers
   templateContext: TemplateContext
-  
+
   // AWS Auth dependency
   unmetAwsAuthDependency: UnmetAuthDependency | null
   hasAwsAuthDependency: boolean
@@ -205,7 +225,7 @@ interface UseScriptExecutionReturn {
   // Rendering
   isRendering: boolean
   renderError: AppError | null
-  
+
   // Execution
   status: ExecutionStatus
   logs: LogEntry[]
@@ -218,7 +238,7 @@ interface UseScriptExecutionReturn {
   // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT).
   // Sensitive ones are Redacted, so ViewOutputs masks them.
   outputs: OutputValues | null
-  
+
   // Drift detection (script changed on disk since runbook was opened)
   hasScriptDrift: boolean
 }
@@ -246,44 +266,54 @@ export function useScriptExecution({
 
   // Get executable registry to look up executable ID
   const { getExecutableByComponentId, registryVersion } = useExecutableRegistry()
-  
+
   // Get file tree context for updating when files are captured
   const { updateGeneratedFileTree } = useGeneratedFiles()
 
   // Get worktree context for triggering immediate changelog refresh
   const { invalidateGitFileTree } = useGitWorkTree()
-  
+
   // Get logs context for global log aggregation
   const { registerLogs } = useLogs()
-  
+
   // Get runbook context for registering outputs and getting template context
   const { registerOutputs, getTemplateContext } = useRunbookContext()
-  
+
   // Callback to handle files captured from command execution
-  const handleFilesCaptured = useCallback((event: FilesCapturedEvent) => {
-    // Update the file tree with the new tree from the backend
-    // The fileTree is already validated by Zod in useApiExec
-    if (event.fileTree) {
-      updateGeneratedFileTree({
-        fileTree: event.fileTree,
-        truncatedTree: event.truncatedTree,
-        totalFiles: event.totalFiles,
-        heavyDirs: event.heavyDirs,
-      })
-    }
-    // Trigger immediate changelog refresh so changes appear without waiting for next poll
-    invalidateGitFileTree()
-  }, [updateGeneratedFileTree, invalidateGitFileTree])
-  
+  const handleFilesCaptured = useCallback(
+    (event: FilesCapturedEvent) => {
+      // Update the file tree with the new tree from the backend
+      // The fileTree is already validated by Zod in useApiExec
+      if (event.fileTree) {
+        updateGeneratedFileTree({
+          fileTree: event.fileTree,
+          truncatedTree: event.truncatedTree,
+          totalFiles: event.totalFiles,
+          heavyDirs: event.heavyDirs,
+        })
+      }
+      // Trigger immediate changelog refresh so changes appear without waiting for next poll
+      invalidateGitFileTree()
+    },
+    [updateGeneratedFileTree, invalidateGitFileTree],
+  )
+
   // Callback to handle outputs captured from script execution
-  const handleOutputsCaptured = useCallback((outputValues: OutputValues) => {
-    // Register outputs in the runbook context so other blocks can access them
-    registerOutputs(componentId, outputValues)
-  }, [componentId, registerOutputs])
-  
+  const handleOutputsCaptured = useCallback(
+    (outputValues: OutputValues) => {
+      // Register outputs in the runbook context so other blocks can access them
+      registerOutputs(componentId, outputValues)
+    },
+    [componentId, registerOutputs],
+  )
+
   // Only load file content if path is provided (not for inline commands)
   const shouldFetchFile = !!path && !command
-  const { data: fileData, error: getFileError, silentRefetch: rereadFile } = useGetFile(path || '', shouldFetchFile)
+  const {
+    data: fileData,
+    error: getFileError,
+    silentRefetch: rereadFile,
+  } = useGetFile(path || "", shouldFetchFile)
 
   // Re-read the script file whenever the main process rebuilds the registry.
   // A watch-mode reload rebuilds it even when runbook.mdx was saved unchanged,
@@ -296,32 +326,35 @@ export function useScriptExecution({
     registryVersionRef.current = registryVersion
     if (shouldFetchFile) rereadFile()
   }, [registryVersion, shouldFetchFile, rereadFile])
-  
+
   // Determine raw script content: command prop takes precedence over file path
-  const rawScriptContent = command || fileData?.content || ''
+  const rawScriptContent = command || fileData?.content || ""
   const language = fileData?.language
-  
+
   // State for computed hash of inline command content (for drift detection)
   // Store the command along with its hash to avoid race conditions when command prop changes
-  const [commandHashResult, setCommandHashResult] = useState<{ command: string; hash: string } | null>(null)
-  
+  const [commandHashResult, setCommandHashResult] = useState<{
+    command: string
+    hash: string
+  } | null>(null)
+
   // Compute hash of inline command content when it changes
   useEffect(() => {
     if (!command) return
 
     // Track if this effect instance is still active (handles unmount and re-runs)
     let isActive = true
-    computeSha256Hash(command).then(hash => {
+    computeSha256Hash(command).then((hash) => {
       if (isActive) {
         setCommandHashResult({ command, hash })
       }
     })
-    
+
     return () => {
       isActive = false
     }
   }, [command])
-  
+
   // Detect script drift: when the current content differs from what's registered
   // This applies to both file-based scripts AND inline commands
   const hasScriptDrift = useMemo(() => {
@@ -342,14 +375,14 @@ export function useScriptExecution({
     if (!fileData?.contentHash) return false
     return fileData.contentHash !== executable.contentHash
   }, [command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
-  
+
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
-  
+
   // Build the complete list of inputsIds to merge (inline has highest precedence, so it goes last)
   const allInputsIds = useMemo(() => {
     const ids: string[] = []
-    
+
     // Add external inputsId(s) first
     if (inputsId) {
       if (Array.isArray(inputsId)) {
@@ -358,41 +391,47 @@ export function useScriptExecution({
         ids.push(inputsId)
       }
     }
-    
+
     // Add inline inputsId last (highest precedence)
     if (inlineInputsId) {
       ids.push(inlineInputsId)
     }
-    
+
     return ids
   }, [inputsId, inlineInputsId])
-  
+
   // Get inputs for API requests and derive values map for lookups
   const inputs = useInputs(allInputsIds.length > 0 ? allInputsIds : undefined)
   const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
-  
+
   // Extract all template dependencies (inputs + outputs) from script content
-  const allDeps = useMemo(() => extractTemplateDependenciesFromString(rawScriptContent), [rawScriptContent])
-  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
+  const allDeps = useMemo(
+    () => extractTemplateDependenciesFromString(rawScriptContent),
+    [rawScriptContent],
+  )
+  const { inputs: inputDeps, outputs: outputDeps } = useMemo(
+    () => splitDependencies(allDeps),
+    [allDeps],
+  )
 
   // Check which input dependencies are not yet satisfied
   const unmetInputDependencies = useMemo(
     () => computeUnmetInputDependencies(inputDeps, inputValues),
-    [inputDeps, inputValues]
+    [inputDeps, inputValues],
   )
   const hasAllInputDependencies = unmetInputDependencies.length === 0
-  
+
   // Get all block outputs from context to check dependencies
   const allOutputs = useAllOutputs()
-  
+
   // Get AWS auth credentials from outputs if awsAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)
   const awsAuthEnvVars = useMemo((): Record<string, string> | undefined => {
     if (!awsAuthId) return undefined
-    
+
     const normalizedId = normalizeBlockId(awsAuthId)
     const blockOutputs = allOutputs[normalizedId]
-    
+
     if (!blockOutputs?.values) return undefined
 
     // The env vars are the credentials themselves, so sensitive outputs pass their real values
@@ -402,7 +441,7 @@ export function useScriptExecution({
     const accessKeyId = values.AWS_ACCESS_KEY_ID
     const secretAccessKey = values.AWS_SECRET_ACCESS_KEY
     if (!accessKeyId || !secretAccessKey) return undefined
-    
+
     // Return credentials as env vars
     // IMPORTANT: We include AWS_SESSION_TOKEN even if empty to explicitly clear any
     // session token that might be in the session environment from a different auth block.
@@ -411,24 +450,24 @@ export function useScriptExecution({
     const envVars: Record<string, string> = {
       AWS_ACCESS_KEY_ID: accessKeyId,
       AWS_SECRET_ACCESS_KEY: secretAccessKey,
-      AWS_REGION: values.AWS_REGION || '',
-      AWS_SESSION_TOKEN: values.AWS_SESSION_TOKEN || '',
+      AWS_REGION: values.AWS_REGION || "",
+      AWS_SESSION_TOKEN: values.AWS_SESSION_TOKEN || "",
     }
-    
+
     return envVars
   }, [awsAuthId, allOutputs])
-  
+
   const unmetAwsAuthDependency = useMemo(
     () => checkAuthDependency(awsAuthId, awsAuthEnvVars, allOutputs),
-    [awsAuthId, awsAuthEnvVars, allOutputs]
+    [awsAuthId, awsAuthEnvVars, allOutputs],
   )
   const hasAwsAuthDependency = unmetAwsAuthDependency === null
-  
+
   // Get GitHub auth credentials from outputs if githubAuthId is specified
   // These will be passed as per-execution env vars (overriding session env)
   const githubAuthEnvVars = useMemo(
-    () => buildAuthEnvVars(githubAuthId, allOutputs, ['GITHUB_TOKEN', 'GITHUB_USER']),
-    [githubAuthId, allOutputs]
+    () => buildAuthEnvVars(githubAuthId, allOutputs, ["GITHUB_TOKEN", "GITHUB_USER"]),
+    [githubAuthId, allOutputs],
   )
 
   // Get git auth credentials from outputs if gitAuthId is specified. Unlike
@@ -439,12 +478,12 @@ export function useScriptExecution({
   const gitAuthEnvVars = useMemo(
     () =>
       buildAuthEnvVars(gitAuthId, allOutputs, [
-        'GITHUB_TOKEN',
-        'GITHUB_USER',
-        'GITLAB_TOKEN',
-        'GITLAB_USER',
+        "GITHUB_TOKEN",
+        "GITHUB_USER",
+        "GITLAB_TOKEN",
+        "GITLAB_USER",
       ]),
-    [gitAuthId, allOutputs]
+    [gitAuthId, allOutputs],
   )
 
   // A block referencing either a GitHubAuth (githubAuthId) or a GitAuth
@@ -454,28 +493,28 @@ export function useScriptExecution({
     () =>
       checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs) ??
       checkAuthDependency(gitAuthId, gitAuthEnvVars, allOutputs),
-    [githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs]
+    [githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs],
   )
   const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
 
   // Get Google Cloud credentials from outputs if googleAuthId is specified.
   const googleAuthEnvVars = useMemo(
     () => buildGoogleAuthEnvVars(googleAuthId, allOutputs),
-    [googleAuthId, allOutputs]
+    [googleAuthId, allOutputs],
   )
 
   const unmetGoogleAuthDependency = useMemo(
     () => checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs, true),
-    [googleAuthId, googleAuthEnvVars, allOutputs]
+    [googleAuthId, googleAuthEnvVars, allOutputs],
   )
   const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
 
   // Check which output dependencies are not yet satisfied
   const unmetOutputDependencies = useMemo(
     () => computeUnmetOutputDependencies(outputDeps, allOutputs),
-    [outputDeps, allOutputs]
+    [outputDeps, allOutputs],
   )
-  
+
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0
 
@@ -483,9 +522,9 @@ export function useScriptExecution({
   // (see the render effect below)
   const displayMasksSensitiveOutput = useMemo(
     () => referencesSensitiveOutput(outputDeps, allOutputs),
-    [outputDeps, allOutputs]
+    [outputDeps, allOutputs],
   )
-  
+
   // State for rendered script content
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
   const [renderError, setRenderError] = useState<AppError | null>(null)
@@ -499,45 +538,54 @@ export function useScriptExecution({
   // (a failed re-run registers {} for the block, then a later run restores
   // them), so the dedupe key must go too or that render would be skipped as a
   // duplicate.
-  const renderMode = getRenderMode(allDeps.length > 0, hasAllInputDependencies, hasAllOutputDependencies)
+  const renderMode = getRenderMode(
+    allDeps.length > 0,
+    hasAllInputDependencies,
+    hasAllOutputDependencies,
+  )
   const [prevRenderMode, setPrevRenderMode] = useState(renderMode)
 
   // State for registry errors (when executable not found)
   const [registryError, setRegistryError] = useState<AppError | null>(null)
-  
+
   // Track last rendered variables to prevent duplicate renders
   const lastRenderedVariablesRef = useRef<string | null>(null)
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)
-  
+
   // Track if component is mounted to prevent setState on unmounted component
   const isMountedRef = useRef(true)
-  
+
   // Monotonic render counter: only the latest render may commit. IPC calls
   // can't be cancelled, so a slower earlier render is dropped instead.
   const renderSeqRef = useRef(0)
-  
+
   // Determine the actual script content to use
-  const sourceCode = !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
-  
+  const sourceCode =
+    !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
+
   // Files written to $GENERATED_FILES are auto-captured after successful execution:
   // onFilesCaptured updates the file tree, onOutputsCaptured registers outputs.
-  const { state: execState, execute: executeScript, cancel: cancelExec } = useApiExec({
+  const {
+    state: execState,
+    execute: executeScript,
+    cancel: cancelExec,
+  } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
     onOutputsCaptured: handleOutputsCaptured,
   })
-  
+
   // Map exec state to our status type, handling warn status for Check components
   // Note: componentType never changes, so we can directly check without memoization
-  const status: ExecutionStatus = 
-    execState.status === 'warn' && componentType === 'command' 
-      ? 'fail' 
-      : execState.status as ExecutionStatus
-  
+  const status: ExecutionStatus =
+    execState.status === "warn" && componentType === "command"
+      ? "fail"
+      : (execState.status as ExecutionStatus)
+
   const logs = execState.logs
   const logFilePath = execState.logFilePath
   const execError = execState.error
   const outputs = execState.outputs
-  
+
   // Register logs with global context whenever they change
   useEffect(() => {
     registerLogs(componentId, logs)
@@ -548,7 +596,7 @@ export function useScriptExecution({
   // "block hasn't run yet" (no entry in blockOutputs) from "block ran but produced
   // no outputs" (entry exists with empty values).
   useEffect(() => {
-    const isTerminal = status === 'success' || status === 'fail' || status === 'warn'
+    const isTerminal = status === "success" || status === "fail" || status === "warn"
     if (isTerminal && outputs === null) {
       registerOutputs(componentId, {})
     }
@@ -558,69 +606,74 @@ export function useScriptExecution({
   // Scripts may write directly to $REPO_FILES without using $GENERATED_FILES,
   // so we need to refresh even when no files_captured event was emitted.
   useEffect(() => {
-    if (status === 'success' || status === 'warn') {
+    if (status === "success" || status === "warn") {
       invalidateGitFileTree()
     }
   }, [status, invalidateGitFileTree])
 
   // Function to render script with inputs. `errorDetails` explains a failed
   // render under its error message.
-  const renderScript = useCallback(async (inputs: TemplateValue[], errorDetails = 'Failed to render script with variables') => {
-    // Supersede any pending render request
-    const seq = ++renderSeqRef.current
-    
-    setIsRendering(true)
-    setRenderError(null)
-    
-    // Build template files object with just the script content
-    // For Command/Check, we only need simple variable substitution - we don't need the full
-    // boilerplate.yml config (which may include dependencies that aren't relevant here).
-    // We just need to render {{ .inputs.VarName }} / {{ .outputs.X.Y }} templates with the variable values.
-    const templateFiles: Record<string, string> = {
-      // 'script.sh' is just a filename identifier for the API request/response
-      // Each API call is isolated, so no risk of collision between components
-      'script.sh': rawScriptContent,
-    }
-    
-    try {
-      const responseData = await api.invoke('boilerplate:render-inline', {
-        templateFiles,
-        inputs,
-      })
+  const renderScript = useCallback(
+    async (inputs: TemplateValue[], errorDetails = "Failed to render script with variables") => {
+      // Supersede any pending render request
+      const seq = ++renderSeqRef.current
 
-      // Check if component is still mounted and this is still the latest render
-      if (!isMountedRef.current || seq !== renderSeqRef.current) return
-      const renderedFiles = responseData.renderedFiles
-      
-      // Check if we got the expected file structure
-      if (!renderedFiles || !renderedFiles['script.sh']) {
-        setRenderError(createAppError(
-          'Render response missing expected file',
-          'The API did not return the rendered script.sh file'
-        ))
-        setIsRendering(false)
-        return
+      setIsRendering(true)
+      setRenderError(null)
+
+      // Build template files object with just the script content
+      // For Command/Check, we only need simple variable substitution - we don't need the full
+      // boilerplate.yml config (which may include dependencies that aren't relevant here).
+      // We just need to render {{ .inputs.VarName }} / {{ .outputs.X.Y }} templates with the variable values.
+      const templateFiles: Record<string, string> = {
+        // 'script.sh' is just a filename identifier for the API request/response
+        // Each API call is isolated, so no risk of collision between components
+        "script.sh": rawScriptContent,
       }
-      
-      setRenderedScript(renderedFiles['script.sh'].content)
-      setIsRendering(false)
-    } catch (err) {
-      // Check if component is still mounted and this is still the latest render
-      if (!isMountedRef.current || seq !== renderSeqRef.current) return
-      
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setRenderError(createAppError(errorMessage, errorDetails))
-      setIsRendering(false)
-    }
-  }, [api, rawScriptContent])
-  
+
+      try {
+        const responseData = await api.invoke("boilerplate:render-inline", {
+          templateFiles,
+          inputs,
+        })
+
+        // Check if component is still mounted and this is still the latest render
+        if (!isMountedRef.current || seq !== renderSeqRef.current) return
+        const renderedFiles = responseData.renderedFiles
+
+        // Check if we got the expected file structure
+        if (!renderedFiles || !renderedFiles["script.sh"]) {
+          setRenderError(
+            createAppError(
+              "Render response missing expected file",
+              "The API did not return the rendered script.sh file",
+            ),
+          )
+          setIsRendering(false)
+          return
+        }
+
+        setRenderedScript(renderedFiles["script.sh"].content)
+        setIsRendering(false)
+      } catch (err) {
+        // Check if component is still mounted and this is still the latest render
+        if (!isMountedRef.current || seq !== renderSeqRef.current) return
+
+        const errorMessage = err instanceof Error ? err.message : "Unknown error"
+        setRenderError(createAppError(errorMessage, errorDetails))
+        setIsRendering(false)
+      }
+    },
+    [api, rawScriptContent],
+  )
+
   // Compute flattened outputs for template context (used by render and prop resolution)
   const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])
 
   // Template context for prop resolution by callers (Command/Check resolve display string props)
   const templateContext = useMemo(
     () => ({ inputs: inputValues, outputs: flattenedOutputs }),
-    [inputValues, flattenedOutputs]
+    [inputValues, flattenedOutputs],
   )
 
   // The payload and dedupe key for the next auto-render, or null when the
@@ -629,7 +682,7 @@ export function useScriptExecution({
     // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
     // a number field before typing a new value). Sending "" to the backend would
     // cause type-conversion errors like strconv.Atoi("").
-    if (renderMode !== 'render' || hasEmptyNumericInputs(inputs)) return null
+    if (renderMode !== "render" || hasEmptyNumericInputs(inputs)) return null
     // This render is only shown (execute() renders again, with the real
     // values), so a sensitive output shows as <redacted> in the script view. A
     // template that processes its value (e.g. fromJson) can then fail here and
@@ -651,7 +704,7 @@ export function useScriptExecution({
       setIsRendering(false)
       setRenderedScript(null)
       setPrevRenderKey(null)
-      if (renderMode === 'awaiting-outputs') {
+      if (renderMode === "awaiting-outputs") {
         setRenderError(null)
       }
     }
@@ -714,7 +767,7 @@ export function useScriptExecution({
       inputs: ctx.inputs,
       outputs: revealTemplateOutputs(ctx.outputs),
     }
-    
+
     // Merge AWS, GitHub, generic Git, and Google Cloud auth env vars
     const authEnvVars = {
       ...awsAuthEnvVars,
@@ -723,32 +776,46 @@ export function useScriptExecution({
       ...googleAuthEnvVars,
     }
     const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
-    
+
     // Look up the executable in the registry and run it by executable ID
     const executable = getExecutableByComponentId(componentId)
 
     if (!executable) {
       // Show error to user instead of silently failing
-      setRegistryError(createAppError(
-        `Executable not found for component "${componentId}"`,
-        'This means that Runbooks attempted to run a script or command that was not defined when the runbook was loaded. ' +
-        'Common causes include changing a script before reloading the runbook, or syntax errors in the command or script path. ' +
-        'Try closing and reopening your runbook (if Runbooks was started with --disable-live-file-reload, quit and restart the app instead), ' +
-        'or check the runbooks server logs for details.'
-      ))
+      setRegistryError(
+        createAppError(
+          `Executable not found for component "${componentId}"`,
+          "This means that Runbooks attempted to run a script or command that was not defined when the runbook was loaded. " +
+            "Common causes include changing a script before reloading the runbook, or syntax errors in the command or script path. " +
+            "Try closing and reopening your runbook (if Runbooks was started with --disable-live-file-reload, quit and restart the app instead), " +
+            "or check the runbooks server logs for details.",
+        ),
+      )
       return
     }
 
     executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
-  }, [executeScript, componentId, getExecutableByComponentId, allInputsIds, getTemplateContext, awsAuthEnvVars, githubAuthEnvVars, gitAuthEnvVars, googleAuthEnvVars, usePty, timeoutMs])
+  }, [
+    executeScript,
+    componentId,
+    getExecutableByComponentId,
+    allInputsIds,
+    getTemplateContext,
+    awsAuthEnvVars,
+    githubAuthEnvVars,
+    gitAuthEnvVars,
+    googleAuthEnvVars,
+    usePty,
+    timeoutMs,
+  ])
 
   // Cleanup on unmount: cancel all pending operations
   useEffect(() => {
     isMountedRef.current = true
-    
+
     return () => {
       isMountedRef.current = false
-      
+
       // Cancel any ongoing execution
       cancelExec()
     }
@@ -762,10 +829,10 @@ export function useScriptExecution({
     sourceCode,
     rawScriptContent,
     language,
-    
+
     // File loading
     fileError: getFileError,
-    
+
     // Variables
     inputDependencies: inputDeps,
     unmetInputDependencies,
@@ -778,11 +845,11 @@ export function useScriptExecution({
 
     // Template context for prop resolution
     templateContext,
-    
+
     // AWS Auth dependency
     unmetAwsAuthDependency,
     hasAwsAuthDependency,
-    
+
     // GitHub Auth dependency
     unmetGitHubAuthDependency,
     hasGitHubAuthDependency,
@@ -794,7 +861,7 @@ export function useScriptExecution({
     // Rendering
     isRendering,
     renderError,
-    
+
     // Execution
     status,
     logs,
@@ -802,10 +869,10 @@ export function useScriptExecution({
     execError: combinedExecError,
     execute,
     cancel: cancelExec,
-    
+
     // Block outputs
     outputs,
-    
+
     // Drift detection
     hasScriptDrift,
   }
@@ -816,13 +883,13 @@ function getRenderMode(
   hasAllInputDependencies: boolean,
   hasAllOutputDependencies: boolean,
 ): RenderMode {
-  if (!hasTemplateDeps) return 'raw'
-  if (!hasAllInputDependencies) return 'awaiting-inputs'
-  if (!hasAllOutputDependencies) return 'awaiting-outputs'
-  return 'render'
+  if (!hasTemplateDeps) return "raw"
+  if (!hasAllInputDependencies) return "awaiting-inputs"
+  if (!hasAllOutputDependencies) return "awaiting-outputs"
+  return "render"
 }
 
 /** Reports whether the mode shows the raw script and drops any rendered one. */
 function discardsRender(mode: RenderMode): boolean {
-  return mode === 'raw' || mode === 'awaiting-outputs'
+  return mode === "raw" || mode === "awaiting-outputs"
 }

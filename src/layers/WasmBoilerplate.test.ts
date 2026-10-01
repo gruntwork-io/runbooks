@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import { Effect, Either, Fiber, Layer } from "effect"
 import { RenderError, WasmError } from "../errors/index.ts"
-import { BoilerplateRenderer, type BoilerplateRendererShape } from "../services/BoilerplateRenderer.ts"
+import {
+  BoilerplateRenderer,
+  type BoilerplateRendererShape,
+} from "../services/BoilerplateRenderer.ts"
 import { WasmRuntime, type WasmRuntimeShape } from "../services/WasmRuntime.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { makeControlledSpawner, makeTestSpawner } from "../test-utils/TestSpawner.ts"
@@ -115,9 +118,7 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
   it("fails with the CLI's stderr when boilerplate exits non-zero", async () => {
     const { spawner, renderer } = makeRenderer()
 
-    const render = Effect.runPromise(
-      Effect.either(renderer.renderTemplate("/tpl", "/out", {})),
-    )
+    const render = Effect.runPromise(Effect.either(renderer.renderTemplate("/tpl", "/out", {})))
     await until(() => spawner.processes.length === 1)
     spawner.processes[0].finish(1, [{ line: "missing required variable Name", source: "stderr" }])
 
@@ -174,16 +175,13 @@ describe("WasmBoilerplateLive single-string renders", () => {
     }
     return Layer.provide(
       WasmBoilerplateLive,
-      Layer.mergeAll(
-        makeTestFileSystem(),
-        makeTestSpawner(),
-        Layer.succeed(WasmRuntime, wasm),
-      ),
+      Layer.mergeAll(makeTestFileSystem(), makeTestSpawner(), Layer.succeed(WasmRuntime, wasm)),
     )
   }
 
   const templateError = new WasmError({
-    message: 'template: template:1:22: executing "template" at <.Names>: map has no entry for key "Names"',
+    message:
+      'template: template:1:22: executing "template" at <.Names>: map has no entry for key "Names"',
     kind: "internal",
   })
 
@@ -198,7 +196,9 @@ describe("WasmBoilerplateLive single-string renders", () => {
 
   it("renderFileStrict fails with RenderError on a template error", async () => {
     const layer = rendererOver(() => Effect.fail(templateError))
-    const result = await run(layer, (r) => r.renderFileStrict("docker ps --format '{{.Names}}'", {}))
+    const result = await run(layer, (r) =>
+      r.renderFileStrict("docker ps --format '{{.Names}}'", {}),
+    )
     expect(Either.isLeft(result)).toBe(true)
     if (Either.isLeft(result)) {
       expect(result.left).toBeInstanceOf(RenderError)

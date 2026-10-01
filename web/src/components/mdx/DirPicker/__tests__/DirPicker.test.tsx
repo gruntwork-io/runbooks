@@ -1,16 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useEffect, type ReactNode } from 'react'
-import DirPicker from '../DirPicker'
-import type { DirPickerProps } from '../types'
-import { TestWrapper } from '@/test/test-utils'
-import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { useInstructionMode } from '@/contexts/useInstructionMode'
-import { INSTRUCTION_MODE_STORAGE_KEY } from '@/contexts/InstructionModeContext.types'
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useEffect, type ReactNode } from "react"
+import DirPicker from "../DirPicker"
+import type { DirPickerProps } from "../types"
+import { TestWrapper } from "@/test/test-utils"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { INSTRUCTION_MODE_STORAGE_KEY } from "@/contexts/InstructionModeContext.types"
 
 // Mock useSession
-vi.mock('@/contexts/useSession', () => ({
+vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({
     isReady: true,
   }),
@@ -18,11 +18,11 @@ vi.mock('@/contexts/useSession', () => ({
 
 /** Directory tree served by the `workspace:dirs` stub, keyed by absolute path. */
 const TREE: Record<string, string[]> = {
-  '/root': ['dev', 'prod'],
-  '/root/dev': ['sandbox'],
-  '/root/prod': ['us-east-1', 'us-west-2'],
-  '/root/prod/us-east-1': ['svc'],
-  '/root2': ['alpha'],
+  "/root": ["dev", "prod"],
+  "/root/dev": ["sandbox"],
+  "/root/prod": ["us-east-1", "us-west-2"],
+  "/root/prod/us-east-1": ["svc"],
+  "/root2": ["alpha"],
 }
 
 type DirsResult = { dirs: string[] }
@@ -33,11 +33,11 @@ type DirsResult = { dirs: string[] }
  */
 function makeApi(pending: Record<string, Promise<DirsResult>> = {}) {
   const invoke = vi.fn(async (channel: string, params?: { worktreePath: string }) => {
-    if (channel === 'workspace:dirs') {
+    if (channel === "workspace:dirs") {
       const worktreePath = params!.worktreePath
       return pending[worktreePath] ?? { dirs: TREE[worktreePath] ?? [] }
     }
-    if (channel === 'native:set-theme') return { ok: true }
+    if (channel === "native:set-theme") return { ok: true }
     throw new Error(`unexpected channel: ${channel}`)
   })
   const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
@@ -47,7 +47,10 @@ function makeApi(pending: Record<string, Promise<DirsResult>> = {}) {
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
   return { promise, resolve, reject }
 }
 
@@ -57,7 +60,7 @@ function PublishedOutputs() {
   return <pre data-testid="dp-outputs">{JSON.stringify(blockOutputs.dp?.values ?? null)}</pre>
 }
 
-const publishedValues = () => JSON.parse(screen.getByTestId('dp-outputs').textContent!)
+const publishedValues = () => JSON.parse(screen.getByTestId("dp-outputs").textContent!)
 
 /**
  * Registers a GitClone-style `clone_path` output for block `clone`, or
@@ -66,7 +69,7 @@ const publishedValues = () => JSON.parse(screen.getByTestId('dp-outputs').textCo
 function CloneOutput({ clonePath }: { clonePath: string | null }) {
   const { registerOutputs } = useRunbookContext()
   useEffect(() => {
-    registerOutputs('clone', clonePath ? { clone_path: clonePath } : {})
+    registerOutputs("clone", clonePath ? { clone_path: clonePath } : {})
   }, [clonePath, registerOutputs])
   return null
 }
@@ -79,7 +82,7 @@ function renderClonePicker(clonePath: string | null, api = makeApi().api) {
   const ui = (path: string | null) => (
     <Harness api={api}>
       <CloneOutput clonePath={path} />
-      <DirPicker id="dp" gitCloneId="clone" dirLabels={['Env', 'Region']} />
+      <DirPicker id="dp" gitCloneId="clone" dirLabels={["Env", "Region"]} />
     </Harness>
   )
   const { rerender } = render(ui(clonePath))
@@ -102,19 +105,21 @@ function Harness({ api, children }: { api: RunbooksAPI; children: ReactNode }) {
   )
 }
 
-const selects = () => screen.getAllByRole('combobox') as HTMLSelectElement[]
+const selects = () => screen.getAllByRole("combobox") as HTMLSelectElement[]
 const optionValues = (select: HTMLSelectElement) =>
-  Array.from(select.options).map(o => o.value).filter(Boolean)
-const pathInput = () => screen.getByRole('textbox') as HTMLInputElement
+  Array.from(select.options)
+    .map((o) => o.value)
+    .filter(Boolean)
+const pathInput = () => screen.getByRole("textbox") as HTMLInputElement
 
 /** Render a rootDir-backed picker and wait for the root dropdown to fill. */
 async function renderPicker(props: Partial<DirPickerProps> = {}, api = makeApi().api) {
   render(
     <Harness api={api}>
-      <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} {...props} />
+      <DirPicker id="dp" rootDir="/root" dirLabels={["Env", "Region"]} {...props} />
     </Harness>,
   )
-  await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+  await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
 }
 
 async function select(levelIndex: number, value: string) {
@@ -123,217 +128,230 @@ async function select(levelIndex: number, value: string) {
   })
 }
 
-describe('DirPicker', () => {
+describe("DirPicker", () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('renders without crashing when dirLabels is omitted', async () => {
+  it("renders without crashing when dirLabels is omitted", async () => {
     // Regression guard: dirLabels was a required prop dereferenced via
     // `dirLabels.length`, so omitting it crashed the block at render.
     render(
       <Harness api={makeApi().api}>
         <DirPicker id="test-picker" rootDir="/root" />
-      </Harness>
+      </Harness>,
     )
 
-    expect(screen.getByTestId('test-picker')).toBeDefined()
+    expect(screen.getByTestId("test-picker")).toBeDefined()
     expect(screen.queryByText(/requires either a/)).toBeNull()
     // Without dirLabels, levels fall back to "Level N" labels.
-    expect(await screen.findByText('Level 1')).toBeDefined()
+    expect(await screen.findByText("Level 1")).toBeDefined()
   })
 
-  it('renders title and description', () => {
+  it("renders title and description", () => {
     render(
       <TestWrapper>
-        <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} title="Pick a dir" description="Choose wisely" />
-      </TestWrapper>
+        <DirPicker
+          id="test-picker"
+          dirLabels={["Environment", "Region"]}
+          title="Pick a dir"
+          description="Choose wisely"
+        />
+      </TestWrapper>,
     )
 
-    expect(screen.getByText('Pick a dir')).toBeDefined()
-    expect(screen.getByText('Choose wisely')).toBeDefined()
+    expect(screen.getByText("Pick a dir")).toBeDefined()
+    expect(screen.getByText("Choose wisely")).toBeDefined()
   })
 
-  it('renders with default title and description', () => {
+  it("renders with default title and description", () => {
     render(
       <TestWrapper>
-        <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} />
-      </TestWrapper>
+        <DirPicker id="test-picker" dirLabels={["Environment", "Region"]} />
+      </TestWrapper>,
     )
 
-    expect(screen.getByText('Select Directory')).toBeDefined()
-    expect(screen.getByText('Choose a target directory')).toBeDefined()
+    expect(screen.getByText("Select Directory")).toBeDefined()
+    expect(screen.getByText("Choose a target directory")).toBeDefined()
   })
 
-  it('shows unmet dependency warning when gitCloneId outputs are not yet available', () => {
+  it("shows unmet dependency warning when gitCloneId outputs are not yet available", () => {
     render(
       <TestWrapper>
-        <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} gitCloneId="clone-repo" />
-      </TestWrapper>
+        <DirPicker id="test-picker" dirLabels={["Environment", "Region"]} gitCloneId="clone-repo" />
+      </TestWrapper>,
     )
 
     // Shows the block ID in a code badge and a helpful message
-    expect(screen.getByText('clone-repo')).toBeDefined()
-    expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
+    expect(screen.getByText("clone-repo")).toBeDefined()
+    expect(
+      screen.getByText("Complete the GitClone block above to browse directories."),
+    ).toBeDefined()
   })
 
-  it('shows error when neither rootDir nor gitCloneId is provided', () => {
+  it("shows error when neither rootDir nor gitCloneId is provided", () => {
     render(
       <TestWrapper>
-        <DirPicker id="test-picker" dirLabels={['Environment', 'Region']} />
-      </TestWrapper>
+        <DirPicker id="test-picker" dirLabels={["Environment", "Region"]} />
+      </TestWrapper>,
     )
 
     expect(screen.getByText(/requires either a/)).toBeDefined()
-    expect(screen.queryByText('Complete the GitClone block above to browse directories.')).toBeNull()
+    expect(
+      screen.queryByText("Complete the GitClone block above to browse directories."),
+    ).toBeNull()
   })
 
-  it('renders without waiting state when rootDir is provided', async () => {
+  it("renders without waiting state when rootDir is provided", async () => {
     await renderPicker()
 
     // Should not show waiting message or missing-config error
-    expect(screen.queryByText('Complete the GitClone block above to browse directories.')).toBeNull()
+    expect(
+      screen.queryByText("Complete the GitClone block above to browse directories."),
+    ).toBeNull()
     expect(screen.queryByText(/requires either a/)).toBeNull()
   })
 
-  it('renders custom pathLabel', async () => {
-    await renderPicker({ pathLabel: 'Deployment Path' })
+  it("renders custom pathLabel", async () => {
+    await renderPicker({ pathLabel: "Deployment Path" })
 
-    expect(screen.getByText('Deployment Path')).toBeDefined()
-    expect(screen.queryByText('Target Path')).toBeNull()
+    expect(screen.getByText("Deployment Path")).toBeDefined()
+    expect(screen.queryByText("Target Path")).toBeNull()
   })
 })
 
-describe('DirPicker — cascading dropdowns', () => {
-  it('fills the root dropdown from workspace:dirs and adds a level for the selected directory', async () => {
+describe("DirPicker — cascading dropdowns", () => {
+  it("fills the root dropdown from workspace:dirs and adds a level for the selected directory", async () => {
     const { api, invoke } = makeApi()
     await renderPicker({}, api)
-    expect(invoke).toHaveBeenCalledWith('workspace:dirs', { worktreePath: '/root' })
+    expect(invoke).toHaveBeenCalledWith("workspace:dirs", { worktreePath: "/root" })
 
-    await select(0, 'prod')
+    await select(0, "prod")
 
     await waitFor(() => expect(selects()).toHaveLength(2))
-    expect(invoke).toHaveBeenCalledWith('workspace:dirs', { worktreePath: '/root/prod' })
-    expect(optionValues(selects()[1])).toEqual(['us-east-1', 'us-west-2'])
-    expect(screen.getByText('Region')).toBeDefined()
+    expect(invoke).toHaveBeenCalledWith("workspace:dirs", { worktreePath: "/root/prod" })
+    expect(optionValues(selects()[1])).toEqual(["us-east-1", "us-west-2"])
+    expect(screen.getByText("Region")).toBeDefined()
   })
 
-  it('stops at dirLabels.length levels unless dirLabelsExtra is set', async () => {
+  it("stops at dirLabels.length levels unless dirLabelsExtra is set", async () => {
     const { api, invoke } = makeApi()
     await renderPicker({}, api)
-    await select(0, 'prod')
+    await select(0, "prod")
     await waitFor(() => expect(selects()).toHaveLength(2))
 
-    await select(1, 'us-east-1')
+    await select(1, "us-east-1")
 
     expect(selects()).toHaveLength(2)
-    expect(invoke).not.toHaveBeenCalledWith('workspace:dirs', { worktreePath: '/root/prod/us-east-1' })
+    expect(invoke).not.toHaveBeenCalledWith("workspace:dirs", {
+      worktreePath: "/root/prod/us-east-1",
+    })
   })
 
   it('drills past dirLabels.length with dirLabelsExtra, labelling extra levels "Level N"', async () => {
     await renderPicker({ dirLabelsExtra: true })
-    await select(0, 'prod')
+    await select(0, "prod")
     await waitFor(() => expect(selects()).toHaveLength(2))
 
-    await select(1, 'us-east-1')
+    await select(1, "us-east-1")
 
     await waitFor(() => expect(selects()).toHaveLength(3))
-    expect(optionValues(selects()[2])).toEqual(['svc'])
-    expect(screen.getByText('Level 3')).toBeDefined()
+    expect(optionValues(selects()[2])).toEqual(["svc"])
+    expect(screen.getByText("Level 3")).toBeDefined()
   })
 
-  it('discards a slow fetch for a selection the user has since changed', async () => {
+  it("discards a slow fetch for a selection the user has since changed", async () => {
     const prodFetch = deferred<DirsResult>()
-    await renderPicker({}, makeApi({ '/root/prod': prodFetch.promise }).api)
+    await renderPicker({}, makeApi({ "/root/prod": prodFetch.promise }).api)
 
-    await select(0, 'prod')
-    await select(0, 'dev')
+    await select(0, "prod")
+    await select(0, "dev")
     await waitFor(() => expect(selects()).toHaveLength(2))
-    expect(optionValues(selects()[1])).toEqual(['sandbox'])
+    expect(optionValues(selects()[1])).toEqual(["sandbox"])
 
     await act(async () => {
-      prodFetch.resolve({ dirs: TREE['/root/prod'] })
+      prodFetch.resolve({ dirs: TREE["/root/prod"] })
     })
 
     expect(selects()).toHaveLength(2)
-    expect(optionValues(selects()[1])).toEqual(['sandbox'])
+    expect(optionValues(selects()[1])).toEqual(["sandbox"])
   })
 
-  it('shows no error for a failed fetch for a selection the user has since changed', async () => {
+  it("shows no error for a failed fetch for a selection the user has since changed", async () => {
     const prodFetch = deferred<DirsResult>()
-    await renderPicker({}, makeApi({ '/root/prod': prodFetch.promise }).api)
+    await renderPicker({}, makeApi({ "/root/prod": prodFetch.promise }).api)
 
-    await select(0, 'prod')
-    await select(0, 'dev')
+    await select(0, "prod")
+    await select(0, "dev")
     await waitFor(() => expect(selects()).toHaveLength(2))
 
     await act(async () => {
-      prodFetch.reject(new Error('cannot list /root/prod'))
+      prodFetch.reject(new Error("cannot list /root/prod"))
     })
 
-    expect(screen.queryByText('cannot list /root/prod')).toBeNull()
-    expect(optionValues(selects()[1])).toEqual(['sandbox'])
+    expect(screen.queryByText("cannot list /root/prod")).toBeNull()
+    expect(optionValues(selects()[1])).toEqual(["sandbox"])
   })
 })
 
-describe('DirPicker — PATH output', () => {
+describe("DirPicker — PATH output", () => {
   afterEach(() => {
     localStorage.removeItem(INSTRUCTION_MODE_STORAGE_KEY)
   })
 
-  it('publishes the composed dropdown path', async () => {
+  it("publishes the composed dropdown path", async () => {
     await renderPicker()
-    await select(0, 'prod')
+    await select(0, "prod")
     await waitFor(() => expect(selects()).toHaveLength(2))
-    await select(1, 'us-east-1')
+    await select(1, "us-east-1")
 
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod/us-east-1' }))
-    expect(pathInput().value).toBe('prod/us-east-1')
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod/us-east-1" }))
+    expect(pathInput().value).toBe("prod/us-east-1")
   })
 
-  it('publishes a manually edited path', async () => {
+  it("publishes a manually edited path", async () => {
     await renderPicker()
-    await select(0, 'prod')
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+    await select(0, "prod")
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
 
-    fireEvent.change(pathInput(), { target: { value: 'custom/path' } })
+    fireEvent.change(pathInput(), { target: { value: "custom/path" } })
 
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'custom/path' }))
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "custom/path" }))
   })
 
-  it('removes PATH when the root dropdown is reset to its placeholder', async () => {
+  it("removes PATH when the root dropdown is reset to its placeholder", async () => {
     await renderPicker()
-    await select(0, 'prod')
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+    await select(0, "prod")
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
 
-    await select(0, '')
+    await select(0, "")
 
-    expect(pathInput().value).toBe('')
+    expect(pathInput().value).toBe("")
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('removes PATH when a manually typed path is cleared', async () => {
+  it("removes PATH when a manually typed path is cleared", async () => {
     await renderPicker()
-    fireEvent.change(pathInput(), { target: { value: 'typed' } })
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'typed' }))
+    fireEvent.change(pathInput(), { target: { value: "typed" } })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "typed" }))
 
-    fireEvent.change(pathInput(), { target: { value: '' } })
+    fireEvent.change(pathInput(), { target: { value: "" } })
 
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('removes PATH when the GitClone root changes and the dropdowns reset', async () => {
+  it("removes PATH when the GitClone root changes and the dropdowns reset", async () => {
     const { api } = makeApi()
-    const picker = <DirPicker id="dp" gitCloneId="clone" dirLabels={['Env', 'Region']} />
+    const picker = <DirPicker id="dp" gitCloneId="clone" dirLabels={["Env", "Region"]} />
     const { rerender } = render(
       <Harness api={api}>
         <CloneOutput clonePath="/root" />
         {picker}
       </Harness>,
     )
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    await select(0, 'prod')
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    await select(0, "prod")
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
 
     rerender(
       <Harness api={api}>
@@ -342,181 +360,193 @@ describe('DirPicker — PATH output', () => {
       </Harness>,
     )
 
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["alpha"]))
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('publishes no PATH for an empty field in instruction mode', async () => {
-    localStorage.setItem(INSTRUCTION_MODE_STORAGE_KEY, 'true')
+  it("publishes no PATH for an empty field in instruction mode", async () => {
+    localStorage.setItem(INSTRUCTION_MODE_STORAGE_KEY, "true")
     render(
       <Harness api={makeApi().api}>
-        <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />
+        <DirPicker id="dp" rootDir="/root" dirLabels={["Env", "Region"]} />
       </Harness>,
     )
     // An entry with no PATH, not a missing entry or PATH: ''.
     expect(publishedValues()).toEqual({})
 
-    fireEvent.change(pathInput(), { target: { value: 'prod' } })
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+    fireEvent.change(pathInput(), { target: { value: "prod" } })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
 
-    fireEvent.change(pathInput(), { target: { value: '' } })
+    fireEvent.change(pathInput(), { target: { value: "" } })
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('removes a PATH typed in instruction mode when switching back to the interactive picker', async () => {
-    localStorage.setItem(INSTRUCTION_MODE_STORAGE_KEY, 'true')
+  it("removes a PATH typed in instruction mode when switching back to the interactive picker", async () => {
+    localStorage.setItem(INSTRUCTION_MODE_STORAGE_KEY, "true")
     render(
       <Harness api={makeApi().api}>
         <InstructionModeToggle />
-        <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />
+        <DirPicker id="dp" rootDir="/root" dirLabels={["Env", "Region"]} />
       </Harness>,
     )
-    fireEvent.change(pathInput(), { target: { value: 'typed-in-instruction' } })
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'typed-in-instruction' }))
+    fireEvent.change(pathInput(), { target: { value: "typed-in-instruction" } })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "typed-in-instruction" }))
 
-    fireEvent.click(screen.getByText('toggle instruction mode'))
+    fireEvent.click(screen.getByText("toggle instruction mode"))
 
     // The interactive picker starts with an empty path, so the published PATH
     // must go too rather than keep pointing at the instruction-mode value.
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    expect(pathInput().value).toBe('')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    expect(pathInput().value).toBe("")
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 })
 
-describe('DirPicker — GitClone root changes', () => {
-  const rootFetches = (invoke: ReturnType<typeof makeApi>['invoke'], path: string) =>
-    invoke.mock.calls.filter(([channel, params]) => channel === 'workspace:dirs' && params?.worktreePath === path)
+describe("DirPicker — GitClone root changes", () => {
+  const rootFetches = (invoke: ReturnType<typeof makeApi>["invoke"], path: string) =>
+    invoke.mock.calls.filter(
+      ([channel, params]) => channel === "workspace:dirs" && params?.worktreePath === path,
+    )
 
-  it('publishes no output entry until a path is chosen', async () => {
-    renderClonePicker('/root')
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+  it("publishes no output entry until a path is chosen", async () => {
+    renderClonePicker("/root")
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
 
     expect(publishedValues()).toBeNull()
   })
 
-  it('removes PATH when clone_path is withdrawn', async () => {
-    const { setClonePath } = renderClonePicker('/root')
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    await select(0, 'prod')
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+  it("removes PATH when clone_path is withdrawn", async () => {
+    const { setClonePath } = renderClonePicker("/root")
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    await select(0, "prod")
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
 
     setClonePath(null)
 
-    expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
+    expect(
+      screen.getByText("Complete the GitClone block above to browse directories."),
+    ).toBeDefined()
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('re-lists the root when the same clone_path comes back, with PATH still removed', async () => {
+  it("re-lists the root when the same clone_path comes back, with PATH still removed", async () => {
     const { api, invoke } = makeApi()
-    const { setClonePath } = renderClonePicker('/root', api)
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    await select(0, 'prod')
+    const { setClonePath } = renderClonePicker("/root", api)
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    await select(0, "prod")
     await waitFor(() => expect(selects()).toHaveLength(2))
 
     setClonePath(null)
-    setClonePath('/root')
+    setClonePath("/root")
 
-    await waitFor(() => expect(rootFetches(invoke, '/root')).toHaveLength(2))
+    await waitFor(() => expect(rootFetches(invoke, "/root")).toHaveLength(2))
     await waitFor(() => expect(selects()).toHaveLength(1))
-    expect(selects()[0].value).toBe('')
-    expect(pathInput().value).toBe('')
+    expect(selects()[0].value).toBe("")
+    expect(pathInput().value).toBe("")
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('clears a typed path when clone_path changes', async () => {
-    const { setClonePath } = renderClonePicker('/root')
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    fireEvent.change(pathInput(), { target: { value: 'typed' } })
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'typed' }))
+  it("clears a typed path when clone_path changes", async () => {
+    const { setClonePath } = renderClonePicker("/root")
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    fireEvent.change(pathInput(), { target: { value: "typed" } })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "typed" }))
 
-    setClonePath('/root2')
+    setClonePath("/root2")
 
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
-    expect(pathInput().value).toBe('')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["alpha"]))
+    expect(pathInput().value).toBe("")
     await waitFor(() => expect(publishedValues()).toEqual({}))
   })
 
-  it('hides the old root\'s dropdowns until the new root is listed', async () => {
+  it("hides the old root's dropdowns until the new root is listed", async () => {
     const root2Fetch = deferred<DirsResult>()
-    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root2': root2Fetch.promise }).api)
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    const { setClonePath } = renderClonePicker(
+      "/root",
+      makeApi({ "/root2": root2Fetch.promise }).api,
+    )
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
 
-    setClonePath('/root2')
+    setClonePath("/root2")
 
     // A selection in the old root's dropdown would be joined onto the new root.
-    expect(screen.queryAllByRole('combobox')).toHaveLength(0)
+    expect(screen.queryAllByRole("combobox")).toHaveLength(0)
     await act(async () => {
-      root2Fetch.resolve({ dirs: TREE['/root2'] })
+      root2Fetch.resolve({ dirs: TREE["/root2"] })
     })
-    expect(optionValues(selects()[0])).toEqual(['alpha'])
+    expect(optionValues(selects()[0])).toEqual(["alpha"])
   })
 
-  it('discards a root listing that resolves after clone_path changed', async () => {
+  it("discards a root listing that resolves after clone_path changed", async () => {
     const rootFetch = deferred<DirsResult>()
-    const { api, invoke } = makeApi({ '/root': rootFetch.promise })
-    const { setClonePath } = renderClonePicker('/root', api)
-    expect(rootFetches(invoke, '/root')).toHaveLength(1)
+    const { api, invoke } = makeApi({ "/root": rootFetch.promise })
+    const { setClonePath } = renderClonePicker("/root", api)
+    expect(rootFetches(invoke, "/root")).toHaveLength(1)
 
-    setClonePath('/root2')
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+    setClonePath("/root2")
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["alpha"]))
 
     await act(async () => {
-      rootFetch.resolve({ dirs: TREE['/root'] })
+      rootFetch.resolve({ dirs: TREE["/root"] })
     })
 
     expect(selects()).toHaveLength(1)
-    expect(optionValues(selects()[0])).toEqual(['alpha'])
+    expect(optionValues(selects()[0])).toEqual(["alpha"])
   })
 
-  it('shows no error for a root listing that fails after clone_path changed', async () => {
+  it("shows no error for a root listing that fails after clone_path changed", async () => {
     const rootFetch = deferred<DirsResult>()
-    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root': rootFetch.promise }).api)
+    const { setClonePath } = renderClonePicker("/root", makeApi({ "/root": rootFetch.promise }).api)
 
-    setClonePath('/root2')
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+    setClonePath("/root2")
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["alpha"]))
 
     await act(async () => {
-      rootFetch.reject(new Error('cannot list /root'))
+      rootFetch.reject(new Error("cannot list /root"))
     })
 
-    expect(screen.queryByText('cannot list /root')).toBeNull()
-    expect(optionValues(selects()[0])).toEqual(['alpha'])
+    expect(screen.queryByText("cannot list /root")).toBeNull()
+    expect(optionValues(selects()[0])).toEqual(["alpha"])
   })
 
-  it('clears a root listing error when clone_path is withdrawn', async () => {
+  it("clears a root listing error when clone_path is withdrawn", async () => {
     const rootFetch = deferred<DirsResult>()
-    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root': rootFetch.promise }).api)
+    const { setClonePath } = renderClonePicker("/root", makeApi({ "/root": rootFetch.promise }).api)
     await act(async () => {
-      rootFetch.reject(new Error('cannot list /root'))
+      rootFetch.reject(new Error("cannot list /root"))
     })
-    expect(screen.getByText('cannot list /root')).toBeDefined()
+    expect(screen.getByText("cannot list /root")).toBeDefined()
 
     setClonePath(null)
 
-    expect(screen.getByText('Complete the GitClone block above to browse directories.')).toBeDefined()
-    expect(screen.queryByText('cannot list /root')).toBeNull()
+    expect(
+      screen.getByText("Complete the GitClone block above to browse directories."),
+    ).toBeDefined()
+    expect(screen.queryByText("cannot list /root")).toBeNull()
   })
 
-  it('discards a subdirectory listing that resolves after clone_path changed', async () => {
+  it("discards a subdirectory listing that resolves after clone_path changed", async () => {
     const prodFetch = deferred<DirsResult>()
-    const { setClonePath } = renderClonePicker('/root', makeApi({ '/root/prod': prodFetch.promise }).api)
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    await select(0, 'prod')
+    const { setClonePath } = renderClonePicker(
+      "/root",
+      makeApi({ "/root/prod": prodFetch.promise }).api,
+    )
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    await select(0, "prod")
 
-    setClonePath('/root2')
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['alpha']))
+    setClonePath("/root2")
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["alpha"]))
 
     await act(async () => {
-      prodFetch.resolve({ dirs: TREE['/root/prod'] })
+      prodFetch.resolve({ dirs: TREE["/root/prod"] })
     })
 
     expect(selects()).toHaveLength(1)
-    expect(optionValues(selects()[0])).toEqual(['alpha'])
+    expect(optionValues(selects()[0])).toEqual(["alpha"])
   })
 })
 
-describe('DirPicker — duplicate ids', () => {
+describe("DirPicker — duplicate ids", () => {
   /** Records the values of every entry registered for block `dp`, in order. */
   function OutputLog({ log }: { log: unknown[] }) {
     const entry = useRunbookContext().blockOutputs.dp
@@ -532,42 +562,42 @@ describe('DirPicker — duplicate ids', () => {
     const ui = (withDuplicate: boolean) => (
       <Harness api={api}>
         <OutputLog log={log} />
-        <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />
-        {withDuplicate && <DirPicker id="dp" rootDir="/root" dirLabels={['Env', 'Region']} />}
+        <DirPicker id="dp" rootDir="/root" dirLabels={["Env", "Region"]} />
+        {withDuplicate && <DirPicker id="dp" rootDir="/root" dirLabels={["Env", "Region"]} />}
       </Harness>
     )
     const { rerender } = render(ui(false))
     return { addDuplicate: () => rerender(ui(true)) }
   }
 
-  it('keeps the first instance\'s PATH when a duplicate mounts later', async () => {
+  it("keeps the first instance's PATH when a duplicate mounts later", async () => {
     const { addDuplicate } = renderWithLaterDuplicate()
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
-    await select(0, 'prod')
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
-    const consoleError = vi.spyOn(console, 'error')
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
+    await select(0, "prod")
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
+    const consoleError = vi.spyOn(console, "error")
 
     addDuplicate()
 
     // The later instance is flagged as a duplicate and renders nothing.
-    await waitFor(() => expect(screen.getAllByTestId('dp')).toHaveLength(1))
-    expect(pathInput().value).toBe('prod')
-    expect(publishedValues()).toEqual({ PATH: 'prod' })
-    expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining('Maximum update depth'))
+    await waitFor(() => expect(screen.getAllByTestId("dp")).toHaveLength(1))
+    expect(pathInput().value).toBe("prod")
+    expect(publishedValues()).toEqual({ PATH: "prod" })
+    expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining("Maximum update depth"))
     consoleError.mockRestore()
   })
 
-  it('leaves PATH to the first instance once the duplicate is flagged', async () => {
+  it("leaves PATH to the first instance once the duplicate is flagged", async () => {
     const log: unknown[] = []
     const { addDuplicate } = renderWithLaterDuplicate(log)
-    await waitFor(() => expect(optionValues(selects()[0])).toEqual(['dev', 'prod']))
+    await waitFor(() => expect(optionValues(selects()[0])).toEqual(["dev", "prod"]))
     addDuplicate()
-    await waitFor(() => expect(screen.getAllByTestId('dp')).toHaveLength(1))
+    await waitFor(() => expect(screen.getAllByTestId("dp")).toHaveLength(1))
 
-    await select(0, 'prod')
-    await waitFor(() => expect(publishedValues()).toEqual({ PATH: 'prod' }))
+    await select(0, "prod")
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod" }))
 
     // Only the first instance wrote: the duplicate never withdrew its PATH.
-    expect(log).toEqual([{ PATH: 'prod' }])
+    expect(log).toEqual([{ PATH: "prod" }])
   })
 })

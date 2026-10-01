@@ -326,7 +326,9 @@ export async function installUnixLauncher(
   }
 
   if (classifyLauncher(probeLauncher(launcherPath), content) !== "installed") {
-    throw new Error(`Install reported success, but ${launcherPath} does not contain the Runbooks launcher.`)
+    throw new Error(
+      `Install reported success, but ${launcherPath} does not contain the Runbooks launcher.`,
+    )
   }
 }
 
@@ -370,7 +372,11 @@ function isDirWritable(dir: string): boolean {
 }
 
 async function runLauncherDirShell(command: string): Promise<void> {
-  const { file, args } = shellInvocation(process.platform, command, isDirWritable(UNIX_LAUNCHER_DIR))
+  const { file, args } = shellInvocation(
+    process.platform,
+    command,
+    isDirWritable(UNIX_LAUNCHER_DIR),
+  )
   await execFile(file, args)
 }
 
@@ -383,7 +389,8 @@ async function runLauncherDirShell(command: string): Promise<void> {
  * directory is added to the user's PATH.
  */
 function getWindowsInstallDir(): string {
-  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Local")
+  const localAppData =
+    process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || "", "AppData", "Local")
   return path.join(localAppData, "Runbooks", "bin")
 }
 
@@ -436,7 +443,12 @@ export async function checkCliInstall(): Promise<CliInstallStatus> {
   // app, or another tool's `runbooks`, reports not installed so that install
   // is offered (and repairs the former, or explains the latter).
   const state = classifyLauncher(probeLauncher(launcherPath), currentLauncherContent(target))
-  return { installed: state === "installed", symlinkPath: launcherPath, targetPath: target, platform }
+  return {
+    installed: state === "installed",
+    symlinkPath: launcherPath,
+    targetPath: target,
+    platform,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -472,12 +484,9 @@ async function installWindows(target: string): Promise<{ ok: true; symlinkPath: 
 
 async function addToWindowsPath(dir: string): Promise<void> {
   // Read current user PATH from the registry
-  const { stdout } = await execFile("reg", [
-    "query",
-    "HKCU\\Environment",
-    "/v",
-    "Path",
-  ]).catch(() => ({ stdout: "" }))
+  const { stdout } = await execFile("reg", ["query", "HKCU\\Environment", "/v", "Path"]).catch(
+    () => ({ stdout: "" }),
+  )
 
   const match = stdout.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.*)/i)
   const currentPath = match ? match[1].trim() : ""
@@ -543,20 +552,15 @@ async function uninstallWindows(): Promise<{ ok: true; removed: boolean }> {
 }
 
 async function removeFromWindowsPath(dir: string): Promise<void> {
-  const { stdout } = await execFile("reg", [
-    "query",
-    "HKCU\\Environment",
-    "/v",
-    "Path",
-  ]).catch(() => ({ stdout: "" }))
+  const { stdout } = await execFile("reg", ["query", "HKCU\\Environment", "/v", "Path"]).catch(
+    () => ({ stdout: "" }),
+  )
 
   const match = stdout.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.*)/i)
   if (!match) return
 
   const currentPath = match[1].trim()
-  const entries = currentPath.split(";").filter(
-    (e) => e.toLowerCase() !== dir.toLowerCase(),
-  )
+  const entries = currentPath.split(";").filter((e) => e.toLowerCase() !== dir.toLowerCase())
   const newPath = entries.join(";")
   // Uninstall runs even when nothing was installed; leave PATH untouched then.
   if (newPath === currentPath) return

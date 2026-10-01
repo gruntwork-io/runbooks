@@ -110,31 +110,31 @@ describe("gitSpawnEnv", () => {
 
     it.each([
       ["/opt/putty/plink", `'/opt/putty/plink' -batch`],
-      [
-        "C:\\Program Files\\PuTTY\\PLINK.EXE",
-        `'C:\\Program Files\\PuTTY\\PLINK.EXE' -batch`,
-      ],
-    ])("runs a plink GIT_SSH (%s) with -batch, since git only adds it for TortoisePlink", (gitSsh, expected) => {
-      // GIT_SSH is a bare program run without a shell, so the path is quoted
-      // to stay one word — git still reads plink from its basename.
-      process.env.GIT_SSH = gitSsh
-      expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(expected)
-    })
+      ["C:\\Program Files\\PuTTY\\PLINK.EXE", `'C:\\Program Files\\PuTTY\\PLINK.EXE' -batch`],
+    ])(
+      "runs a plink GIT_SSH (%s) with -batch, since git only adds it for TortoisePlink",
+      (gitSsh, expected) => {
+        // GIT_SSH is a bare program run without a shell, so the path is quoted
+        // to stay one word — git still reads plink from its basename.
+        process.env.GIT_SSH = gitSsh
+        expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(expected)
+      },
+    )
 
     it("quotes a GIT_SSH path containing a single quote", () => {
       process.env.GIT_SSH = "/opt/o'brien/ssh"
       expect(gitSpawnEnv().GIT_SSH_COMMAND).toBe(`'/opt/o'\\''brien/ssh' ${BATCH_OPTIONS}`)
     })
 
-    it.each(["C:\\Program Files\\TortoiseGit\\bin\\TortoisePlink.exe", "/usr/local/bin/my-ssh-wrapper"])(
-      "leaves any other GIT_SSH (%s) for git to run as-is",
-      (gitSsh) => {
-        process.env.GIT_SSH = gitSsh
-        const env = gitSpawnEnv()
-        expect(env.GIT_SSH_COMMAND).toBeUndefined()
-        expect(env.GIT_SSH).toBe(gitSsh)
-      },
-    )
+    it.each([
+      "C:\\Program Files\\TortoiseGit\\bin\\TortoisePlink.exe",
+      "/usr/local/bin/my-ssh-wrapper",
+    ])("leaves any other GIT_SSH (%s) for git to run as-is", (gitSsh) => {
+      process.env.GIT_SSH = gitSsh
+      const env = gitSpawnEnv()
+      expect(env.GIT_SSH_COMMAND).toBeUndefined()
+      expect(env.GIT_SSH).toBe(gitSsh)
+    })
 
     it("gives a plink command -batch rather than ssh options it would reject", () => {
       const command = `"C:\\Program Files\\PuTTY\\plink.exe" -ssh`
@@ -190,7 +190,9 @@ describe("resolveSshCommand timeout", () => {
 
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const lookup = yield* Effect.fork(resolveSshCommand("/repo").pipe(Effect.provide(spawner.layer)))
+        const lookup = yield* Effect.fork(
+          resolveSshCommand("/repo").pipe(Effect.provide(spawner.layer)),
+        )
         // Let the lookup spawn git and register its timeout with the TestClock.
         yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)))
         expect(spawner.processes).toHaveLength(1)
@@ -205,7 +207,13 @@ describe("resolveSshCommand timeout", () => {
 })
 
 describe("remote-source resolveRef ssh command (real git)", () => {
-  isolateEnv(["GIT_SSH_COMMAND", "GIT_SSH", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"])
+  isolateEnv([
+    "GIT_SSH_COMMAND",
+    "GIT_SSH",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0",
+  ])
   let tmp: string
 
   beforeEach(() => {

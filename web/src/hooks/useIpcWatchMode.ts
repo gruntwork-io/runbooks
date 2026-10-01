@@ -1,12 +1,15 @@
-import { useEffect, useEffectEvent } from 'react'
-import { useApi } from '@/contexts/ApiContext'
+import { useEffect, useEffectEvent } from "react"
+import { useApi } from "@/contexts/ApiContext"
 
 /**
  * IPC hook for watch mode - calls `onFileChange` with the watched runbook's
  * path whenever the main process reports that it changed on disk. The main
  * process owns the file watcher; this only listens for its events.
  */
-export function useIpcWatchMode(onFileChange: (runbookPath: string) => void, isWatchMode: boolean = false) {
+export function useIpcWatchMode(
+  onFileChange: (runbookPath: string) => void,
+  isWatchMode: boolean = false,
+) {
   const api = useApi()
 
   // An effect event so a new callback identity on each render doesn't tear
@@ -21,7 +24,7 @@ export function useIpcWatchMode(onFileChange: (runbookPath: string) => void, isW
     }
 
     // Subscribe to file change events from the Electron main process
-    const unsubscribe = api.on('watch:file-change', (change) => {
+    const unsubscribe = api.on("watch:file-change", (change) => {
       handleFileChange(change.path)
     })
 

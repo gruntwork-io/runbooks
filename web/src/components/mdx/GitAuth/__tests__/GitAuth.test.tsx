@@ -98,7 +98,7 @@ describe("GitAuth", () => {
     expect(cancelOAuth).toHaveBeenCalled()
     // New provider is passed so GIT_PROVIDER is written immediately on switch,
     // before authentication completes — lets downstream blocks derive the provider.
-    expect(clearRegisteredOutputs).toHaveBeenCalledWith('gitlab')
+    expect(clearRegisteredOutputs).toHaveBeenCalledWith("gitlab")
     expect(resetAuth).toHaveBeenCalled()
     // Not the Re-authenticate path: that would re-register the old provider.
     expect(reAuthenticate).not.toHaveBeenCalled()

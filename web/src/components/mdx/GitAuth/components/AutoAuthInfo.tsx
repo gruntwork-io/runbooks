@@ -30,19 +30,22 @@ export function AutoAuthInfo({ provider }: AutoAuthInfoProps) {
       {show && (
         <div className="mt-2 p-3 bg-muted rounded border border-border text-muted-foreground space-y-2">
           <p>
-            Runbooks can automatically detect your {provider.label} credentials so you don't have to sign in manually each time.
+            Runbooks can automatically detect your {provider.label} credentials so you don't have to
+            sign in manually each time.
           </p>
           <p>
-            <strong>Option 1: {provider.cli.label}</strong> — Run{' '}
-            <code className="bg-accent px-1 rounded text-xs">{provider.cli.loginCmd}</code> in your terminal.
+            <strong>Option 1: {provider.cli.label}</strong> — Run{" "}
+            <code className="bg-accent px-1 rounded text-xs">{provider.cli.loginCmd}</code> in your
+            terminal.
           </p>
           <p>
-            <strong>Option 2: Environment variable</strong> — Set{' '}
-            <code className="bg-accent px-1 rounded text-xs">{provider.env.tokenVar}</code> to your {provider.label} access token.
+            <strong>Option 2: Environment variable</strong> — Set{" "}
+            <code className="bg-accent px-1 rounded text-xs">{provider.env.tokenVar}</code> to your{" "}
+            {provider.label} access token.
           </p>
           <p className="text-muted-foreground">
-            After setting up either option, click "Check again" (or Reload for GitLab) and
-            Runbooks will detect your credentials automatically — no need to reload the runbook.
+            After setting up either option, click "Check again" (or Reload for GitLab) and Runbooks
+            will detect your credentials automatically — no need to reload the runbook.
           </p>
         </div>
       )}

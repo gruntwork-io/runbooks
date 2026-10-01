@@ -151,7 +151,10 @@ function computeDirtyPaths(
   prevVars: Record<string, unknown> | undefined,
   currentVars: Record<string, unknown>,
   allKnownPaths: ReadonlyArray<string>,
-): { paths: ReadonlyArray<string>; reason: "first-render" | "outputs-changed" | "vars-diff" | "no-change" } {
+): {
+  paths: ReadonlyArray<string>
+  reason: "first-render" | "outputs-changed" | "vars-diff" | "no-change"
+} {
   if (!prevVars) {
     return { paths: allKnownPaths, reason: "first-render" }
   }
@@ -317,10 +320,13 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
               // We don't want a prepare failure to block all rendering.
               Effect.catchAll((err) =>
                 Effect.sync(() => {
-                  console.log("[WarmRenderDispatcher] prepareBundle failed, will use non-handle path", {
-                    templateId,
-                    error: (err as { message?: string }).message ?? String(err),
-                  })
+                  console.log(
+                    "[WarmRenderDispatcher] prepareBundle failed, will use non-handle path",
+                    {
+                      templateId,
+                      error: (err as { message?: string }).message ?? String(err),
+                    },
+                  )
                   return ""
                 }),
               ),
@@ -355,11 +361,14 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
                       // for THIS render, fall through to the non-handle
                       // path so the user gets a result.
                       if (err instanceof WasmError && err.kind === "structural") {
-                        console.log("[WarmRenderDispatcher] handle rejected, falling back to renderFiles", {
-                          templateId,
-                          handle,
-                          message: err.message,
-                        })
+                        console.log(
+                          "[WarmRenderDispatcher] handle rejected, falling back to renderFiles",
+                          {
+                            templateId,
+                            handle,
+                            message: err.message,
+                          },
+                        )
                         handlesByTemplate.delete(templateId)
                         handle = undefined
                         return Effect.succeed(null as WasmRenderFilesResult | null)

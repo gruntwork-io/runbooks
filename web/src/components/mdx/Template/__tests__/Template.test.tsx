@@ -92,7 +92,9 @@ describe("Template", () => {
   beforeEach(() => {
     mockConfigReturn = {
       data: {
-        variables: [{ name: "region", type: "string", description: "AWS region", default: "us-east-1" }],
+        variables: [
+          { name: "region", type: "string", description: "AWS region", default: "us-east-1" },
+        ],
         outputDependencies: [],
       },
       isLoading: false,
@@ -152,7 +154,13 @@ describe("Template", () => {
         ...mockConfigReturn,
         data: {
           variables: [
-            { name: "region", type: "string", description: "", default: "tpl-default", validations: [{ type: "required" }] },
+            {
+              name: "region",
+              type: "string",
+              description: "",
+              default: "tpl-default",
+              validations: [{ type: "required" }],
+            },
             { name: "name", type: "string", description: "", default: "app" },
           ],
           outputDependencies: [],
@@ -205,7 +213,8 @@ describe("Template", () => {
   describe("sensitive outputs", () => {
     function renderedTokens() {
       return renderMock.autoRender.mock.calls.map(
-        ([, vars]) => (vars as { outputs: Record<string, Record<string, unknown>> }).outputs.mint?.token,
+        ([, vars]) =>
+          (vars as { outputs: Record<string, Record<string, unknown>> }).outputs.mint?.token,
       )
     }
 

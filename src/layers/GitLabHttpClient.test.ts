@@ -183,7 +183,8 @@ describe("GitLabHttpClient.validateToken", () => {
     const cause = Object.assign(new Error("unable to verify the first certificate"), {
       code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
     })
-    globalThis.fetch = (() => Promise.reject(new TypeError("fetch failed", { cause }))) as unknown as typeof fetch
+    globalThis.fetch = (() =>
+      Promise.reject(new TypeError("fetch failed", { cause }))) as unknown as typeof fetch
 
     const result = await Effect.runPromise(Effect.either(validate("glpat-abc")))
 
@@ -293,7 +294,11 @@ describe("GitLabHttpClient.createMergeRequest", () => {
     let sentBody: Record<string, unknown> | null = null
     mockFetch((_url, init) => {
       sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
-      return json({ iid: 1, web_url: "https://gitlab.com/x/y/-/merge_requests/1", source_branch: "b" })
+      return json({
+        iid: 1,
+        web_url: "https://gitlab.com/x/y/-/merge_requests/1",
+        source_branch: "b",
+      })
     })
 
     await Effect.runPromise(
@@ -310,7 +315,9 @@ describe("GitLabHttpClient.createMergeRequest", () => {
   })
 
   it("fails with GitLabApiError carrying status 409 when an MR already exists", async () => {
-    mockFetch(() => new Response("Cannot Create: This merge request already exists", { status: 409 }))
+    mockFetch(
+      () => new Response("Cannot Create: This merge request already exists", { status: 409 }),
+    )
 
     const result = await Effect.runPromise(Effect.either(createMR("glpat-abc")))
     expect(result._tag).toBe("Left")

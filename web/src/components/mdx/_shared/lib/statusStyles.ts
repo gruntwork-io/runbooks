@@ -1,6 +1,6 @@
-import { createElement } from 'react'
-import type { ReactElement } from 'react'
-import type { LucideIcon, LucideProps } from 'lucide-react'
+import { createElement } from "react"
+import type { ReactElement } from "react"
+import type { LucideIcon, LucideProps } from "lucide-react"
 
 /** Props for the {@link StatusStyles.StatusIcon} component: a status plus any Lucide icon prop. */
 export type StatusIconProps<S extends string> = LucideProps & { status: S }

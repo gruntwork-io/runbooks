@@ -41,14 +41,7 @@ export interface FileTreeResult {
 // Boilerplate types
 // ---------------------------------------------------------------------------
 
-export type BoilerplateVarType =
-  | "string"
-  | "int"
-  | "float"
-  | "bool"
-  | "list"
-  | "map"
-  | "enum"
+export type BoilerplateVarType = "string" | "int" | "float" | "bool" | "list" | "map" | "enum"
 
 export type BoilerplateValidationType =
   | "required"

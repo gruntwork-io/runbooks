@@ -1,29 +1,32 @@
-import './css/App.css'
-import './css/github-markdown.css'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import "./css/App.css"
+import "./css/github-markdown.css"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { BookOpen, Code } from "lucide-react"
-import { Header } from './components/layout/Header'
-import { WelcomeScreen } from './components/layout/WelcomeScreen'
-import { OpenUrlModal } from './components/layout/OpenUrlModal'
-import { FindBar } from './components/layout/FindBar'
-import { ErrorSummaryBanner } from './components/layout/ErrorSummaryBanner'
-import { RunbookOpenError } from './components/layout/RunbookOpenError'
-import MDXContainer from './components/MDXContainer'
-import { ArtifactsContainer } from './components/layout/ArtifactsContainer'
-import { ViewContainerToggle } from './components/layout/ViewContainerToggle'
-import { GeneratedFilesAlert, shouldShowGeneratedFilesAlert } from './components/layout/GeneratedFilesAlert'
-import { getDirectoryPath, hasGeneratedFiles } from './lib/utils'
-import { useIpcGetRunbook } from './hooks/useIpcGetRunbook'
-import { useGeneratedFiles } from './hooks/useGeneratedFiles'
-import { useGitWorkTree } from './contexts/useGitWorkTree'
-import { useIpcWatchMode } from './hooks/useIpcWatchMode'
-import { useIpcGeneratedFilesCheck } from './hooks/useIpcGeneratedFilesCheck'
-import { useWheelScrollFallback } from './hooks/useWheelScrollFallback'
-import { useErrorReporting } from './contexts/useErrorReporting'
-import { useLogs } from './contexts/useLogs'
-import { useApi } from './contexts/ApiContext'
-import { cn } from './lib/utils'
-import type { AppError } from './types/error'
+import { Header } from "./components/layout/Header"
+import { WelcomeScreen } from "./components/layout/WelcomeScreen"
+import { OpenUrlModal } from "./components/layout/OpenUrlModal"
+import { FindBar } from "./components/layout/FindBar"
+import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
+import { RunbookOpenError } from "./components/layout/RunbookOpenError"
+import MDXContainer from "./components/MDXContainer"
+import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
+import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
+import {
+  GeneratedFilesAlert,
+  shouldShowGeneratedFilesAlert,
+} from "./components/layout/GeneratedFilesAlert"
+import { getDirectoryPath, hasGeneratedFiles } from "./lib/utils"
+import { useIpcGetRunbook } from "./hooks/useIpcGetRunbook"
+import { useGeneratedFiles } from "./hooks/useGeneratedFiles"
+import { useGitWorkTree } from "./contexts/useGitWorkTree"
+import { useIpcWatchMode } from "./hooks/useIpcWatchMode"
+import { useIpcGeneratedFilesCheck } from "./hooks/useIpcGeneratedFilesCheck"
+import { useWheelScrollFallback } from "./hooks/useWheelScrollFallback"
+import { useErrorReporting } from "./contexts/useErrorReporting"
+import { useLogs } from "./contexts/useLogs"
+import { useApi } from "./contexts/ApiContext"
+import { cn } from "./lib/utils"
+import type { AppError } from "./types/error"
 
 /**
  * Clears the root logs store whenever the loaded runbook changes, including
@@ -46,25 +49,25 @@ function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string }) {
 
 function App() {
   const api = useApi()
-  const [activeMobileSection, setActiveMobileSection] = useState<'markdown' | 'code'>('markdown')
-  const [isArtifactsHidden, setIsArtifactsHidden] = useState(true);
-  const [showCodeButton, setShowCodeButton] = useState(false);
-  const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false);
-  const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false);
-  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+  const [activeMobileSection, setActiveMobileSection] = useState<"markdown" | "code">("markdown")
+  const [isArtifactsHidden, setIsArtifactsHidden] = useState(true)
+  const [showCodeButton, setShowCodeButton] = useState(false)
+  const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false)
+  const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false)
+  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false)
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
-  const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null);
+  const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null)
   const runbookScrollRef = useRef<HTMLDivElement>(null)
   const handleWheel = useWheelScrollFallback(runbookScrollRef)
 
   const handleOpenRunbook = useCallback(async () => {
-    await api.invoke('native:open-runbook-dialog')
+    await api.invoke("native:open-runbook-dialog")
   }, [api])
 
   // Listen for "Open from URL" menu command
   useEffect(() => {
-    const cleanup = api.on('menu:open-url-prompt', () => {
+    const cleanup = api.on("menu:open-url-prompt", () => {
       setIsUrlModalOpen(true)
     })
     return cleanup
@@ -80,17 +83,17 @@ function App() {
     disabled: !getRunbookResult.data,
     runbookPath: getRunbookResult.data?.path,
   })
-  
+
   // Get error counts from the error reporting context (populated by MDX components)
   const { errors, errorCount, warningCount, clearAllErrors } = useErrorReporting()
-  
+
   // Clear errors when runbook content changes (to avoid stale errors)
   useEffect(() => {
     if (getRunbookResult.data?.content) {
       clearAllErrors()
     }
   }, [getRunbookResult.data?.content, clearAllErrors])
-  
+
   // Watch mode: reload the runbook, without a loading flash, when the main
   // process reports that the runbook it watches changed. A failed open leaves
   // the previous runbook on screen, and main keeps watching it, while the last
@@ -98,19 +101,22 @@ function App() {
   // every save, so reload the displayed runbook instead. Either way the reload
   // keeps the session's working dir, unlike re-opening the runbook.
   const { data: displayedRunbook, error: runbookError, reloadForWatch } = getRunbookResult
-  const handleRunbookFileChange = useCallback((changedPath: string) => {
-    if (runbookError && displayedRunbook?.path === changedPath) {
-      reloadForWatch(displayedRunbook.path, displayedRunbook.remoteSource)
-    } else {
-      reloadForWatch()
-    }
-  }, [runbookError, displayedRunbook, reloadForWatch])
-  useIpcWatchMode(handleRunbookFileChange, displayedRunbook?.isWatchMode ?? false);
-  
+  const handleRunbookFileChange = useCallback(
+    (changedPath: string) => {
+      if (runbookError && displayedRunbook?.path === changedPath) {
+        reloadForWatch(displayedRunbook.path, displayedRunbook.remoteSource)
+      } else {
+        reloadForWatch()
+      }
+    },
+    [runbookError, displayedRunbook, reloadForWatch],
+  )
+  useIpcWatchMode(handleRunbookFileChange, displayedRunbook?.isWatchMode ?? false)
+
   // Get file tree state to detect when files are generated
   const { fileTree, updateGeneratedFileTree } = useGeneratedFiles()
   const hasFiles = hasGeneratedFiles(fileTree)
-  
+
   // Get git worktree state to detect when a repo is cloned
   const { workTrees, resetWorkTrees } = useGitWorkTree()
   const hasWorkTrees = workTrees.length > 0
@@ -137,8 +143,8 @@ function App() {
     const repoCloned = hasWorkTrees !== prevHasWorkTrees && hasWorkTrees
     if (filesGenerated || repoCloned) {
       revealArtifacts()
-      if (activeMobileSection === 'markdown') {
-        setActiveMobileSection('code')
+      if (activeMobileSection === "markdown") {
+        setActiveMobileSection("code")
       }
     }
   }
@@ -171,7 +177,7 @@ function App() {
     generatedFilesCheck.data !== staleFilesCheck &&
     generatedFilesCheck.data?.hasFiles &&
     !alertDismissedThisSession &&
-    shouldShowGeneratedFilesAlert()
+    shouldShowGeneratedFilesAlert(),
   )
   const [prevAlertReady, setPrevAlertReady] = useState(false)
   if (alertReady !== prevAlertReady) {
@@ -205,9 +211,9 @@ function App() {
   }, [loadedRunbookPath])
 
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
-  const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ''
-  const content = getRunbookResult.data?.content || ''
-  const runbookPath = getDirectoryPath(getRunbookResult.data?.path || '')
+  const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""
+  const content = getRunbookResult.data?.content || ""
+  const runbookPath = getDirectoryPath(getRunbookResult.data?.path || "")
 
   // Track whether we've ever successfully loaded runbook content.
   // Once true, never let loading/error states unmount MDXContainer — doing so
@@ -222,7 +228,7 @@ function App() {
   // own state; here we drop the "has ever loaded" latch and any error
   // banners so the WelcomeScreen renders again.
   useEffect(() => {
-    const cleanup = api.on('menu:close-runbook', () => {
+    const cleanup = api.on("menu:close-runbook", () => {
       setHasEverLoaded(false)
       clearAllErrors()
     })
@@ -238,18 +244,18 @@ function App() {
 
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
-    setShowGeneratedFilesAlert(false);
-    setAlertDismissedThisSession(true);
-  };
+    setShowGeneratedFilesAlert(false)
+    setAlertDismissedThisSession(true)
+  }
 
   // Handle successful deletion of generated files
   const handleFilesDeleted = () => {
-    setShowGeneratedFilesAlert(false);
-    setAlertDismissedThisSession(true);
+    setShowGeneratedFilesAlert(false)
+    setAlertDismissedThisSession(true)
     // Clear the file tree so stale generated files (including hidden files/folders
     // like .github) are removed from the UI after deletion
-    updateGeneratedFileTree(null);
-  };
+    updateGeneratedFileTree(null)
+  }
 
   return (
     <>
@@ -258,7 +264,7 @@ function App() {
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
         <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
-        
+
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
         {(showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
@@ -284,7 +290,7 @@ function App() {
             )}
           </div>
         )}
-        
+
         {/* Loading and Error States
              Once content has successfully loaded (hasEverLoaded), skip these
              branches so MDXContainer is never unmounted. A transient isLoading
@@ -305,19 +311,25 @@ function App() {
             onRetry={() => getRunbookResult.refetch()}
           />
         ) : !getRunbookResult.data && !hasEverLoaded ? (
-          <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
+          <WelcomeScreen
+            onOpenUrl={() => setIsUrlModalOpen(true)}
+            onOpenRunbook={handleOpenRunbook}
+          />
         ) : (
           <>
             {/* Mobile Navigation - Fixed position toggle, visible only on small screens.
                 data-find-ignore: find in page skips its always-visible labels. */}
-            <div className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10" data-find-ignore="">
+            <div
+              className="lg:hidden flex items-center justify-center mb-6 fixed top-18 left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out z-10"
+              data-find-ignore=""
+            >
               <div className="bg-muted border border-border inline-flex h-12 w-fit items-center justify-center rounded-full p-1">
                 <ViewContainerToggle
                   activeView={activeMobileSection}
-                  onViewChange={(view) => setActiveMobileSection(view as 'markdown' | 'code')}
+                  onViewChange={(view) => setActiveMobileSection(view as "markdown" | "code")}
                   views={[
-                    { label: 'Markdown', value: 'markdown', icon: BookOpen },
-                    { label: 'Code', value: 'code', icon: Code }
+                    { label: "Markdown", value: "markdown", icon: BookOpen },
+                    { label: "Code", value: "code", icon: Code },
                   ]}
                   className="w-full"
                 />
@@ -327,18 +339,16 @@ function App() {
             {/* Single MDXContainer that adapts to screen size - used by both mobile and desktop views */}
             <div className="lg:m-6 lg:mt-0 translate translate-y-19 lg:mb-20 pt-20 lg:pt-0">
               <div className="flex flex-col lg:flex-row gap-0 lg:gap-8 lg:h-[calc(100vh-5rem)] lg:overflow-hidden justify-start lg:justify-center">
-                
                 {/* MDX Container - Single instance with responsive visibility
                     Desktop: always visible, sizing depends on artifacts panel
                     Mobile: visible only when 'markdown' tab is active */}
-                <div className={cn(
-                  'relative w-full px-4 lg:px-0 lg:block',
-                  {
-                    'lg:flex-1 lg:max-w-3xl lg:min-w-xl': showArtifacts,
-                    'lg:w-full lg:max-w-4xl': !showArtifacts,
-                    'hidden': activeMobileSection !== 'markdown',
-                  }
-                )}>
+                <div
+                  className={cn("relative w-full px-4 lg:px-0 lg:block", {
+                    "lg:flex-1 lg:max-w-3xl lg:min-w-xl": showArtifacts,
+                    "lg:w-full lg:max-w-4xl": !showArtifacts,
+                    hidden: activeMobileSection !== "markdown",
+                  })}
+                >
                   {/* Keyed by the runbook's file path so opening a different
                       runbook starts from fresh block inputs/outputs and trust
                       banner, while same-path reloads keep them. */}
@@ -351,7 +361,7 @@ function App() {
                     remoteSource={getRunbookResult.data?.remoteSource}
                     className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
                   />
-                  
+
                   {/* Show code icon button - desktop only, when artifacts panel is hidden */}
                   {showCodeButton && (
                     <button
@@ -369,12 +379,12 @@ function App() {
                     find in page and the keyboard must skip its content. */}
                 <div
                   className={`hidden lg:block relative max-w-7xl transition-all duration-700 ease-in-out overflow-hidden ${
-                    showArtifacts ? 'flex-2' : 'w-0'
+                    showArtifacts ? "flex-2" : "w-0"
                   }`}
                   inert={!showArtifacts}
                 >
-                  <ArtifactsContainer 
-                    className="absolute top-0 left-0 right-0 h-full" 
+                  <ArtifactsContainer
+                    className="absolute top-0 left-0 right-0 h-full"
                     onHide={() => setIsArtifactsHidden(true)}
                     hideContent={!showArtifacts}
                     absoluteOutputPath={generatedFilesCheck.data?.absoluteOutputPath}
@@ -383,7 +393,9 @@ function App() {
                 </div>
 
                 {/* Artifacts - Mobile layout (shown when 'code' tab is active) */}
-                <div className={`lg:hidden px-4 ${activeMobileSection === 'code' ? 'block' : 'hidden'}`}>
+                <div
+                  className={`lg:hidden px-4 ${activeMobileSection === "code" ? "block" : "hidden"}`}
+                >
                   <div className="w-full h-[calc(100vh-12rem)] border border-border rounded-lg shadow-md overflow-hidden">
                     <ArtifactsContainer
                       className="w-full h-full"
@@ -398,7 +410,7 @@ function App() {
           </>
         )}
       </div>
-      
+
       {/* Generated Files Alert Dialog. Keyed by the runbook's file path so
           the delete result (success or failure) from the previous runbook
           doesn't replace the next runbook's Keep/Delete prompt. */}

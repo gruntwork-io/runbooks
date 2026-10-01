@@ -13,13 +13,8 @@ import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
 import { computeContentHash } from "../workspace/file.js"
-import {
-  ExecutableNotFoundError,
-} from "../../errors/index.js"
-import {
-  findFencedCodeBlockRanges,
-  isInsideFencedCodeBlock,
-} from "../../mdx.js"
+import { ExecutableNotFoundError } from "../../errors/index.js"
+import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../mdx.js"
 import type { Executable, ExecutableType } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -81,10 +76,7 @@ export function extractProp(props: string, propName: string): string {
  * Compute a deterministic ID from a component ID and its script content.
  * Uses the first 16 hex characters of a SHA-256 hash.
  */
-export function computeExecutableId(
-  componentId: string,
-  content: string,
-): string {
+export function computeExecutableId(componentId: string, content: string): string {
   const hash = crypto
     .createHash("sha256")
     .update(componentId + content)
@@ -96,10 +88,7 @@ export function computeExecutableId(
  * Compute a deterministic component ID when no explicit `id` prop is provided.
  * Uses SHA-256 of the component type and props, prefixed with the type.
  */
-export function computeComponentId(
-  componentType: string,
-  props: string,
-): string {
+export function computeComponentId(componentType: string, props: string): string {
   const hash = crypto
     .createHash("sha256")
     .update(componentType + props)
@@ -156,10 +145,7 @@ export interface ParsedComponent {
  * Parse all components of a given type from MDX content, skipping those inside
  * fenced code blocks (documentation examples).
  */
-export function parseComponents(
-  content: string,
-  componentType: string,
-): ParsedComponent[] {
+export function parseComponents(content: string, componentType: string): ParsedComponent[] {
   const re = getComponentRegex(componentType)
   const codeBlockRanges = findFencedCodeBlockRanges(content)
 
@@ -233,8 +219,7 @@ export class ExecutableRegistry {
     return Effect.gen(this, function* () {
       const fs = yield* FileSystem
 
-      const content =
-        contentOverride ?? (yield* fs.readFile(runbookPath))
+      const content = contentOverride ?? (yield* fs.readFile(runbookPath))
       const runbookDir = path.dirname(runbookPath)
 
       for (const componentType of SCRIPT_COMPONENT_TYPES) {
@@ -245,19 +230,9 @@ export class ExecutableRegistry {
           const pathProp = extractProp(comp.props, "path")
 
           if (commandProp) {
-            this.registerInlineEntry(
-              comp.id,
-              componentType,
-              commandProp,
-            )
+            this.registerInlineEntry(comp.id, componentType, commandProp)
           } else if (pathProp) {
-            yield* this.registerFileEntry(
-              fs,
-              comp.id,
-              componentType,
-              pathProp,
-              runbookDir,
-            )
+            yield* this.registerFileEntry(fs, comp.id, componentType, pathProp, runbookDir)
           }
         }
       }
@@ -309,15 +284,12 @@ export class ExecutableRegistry {
       const fullPath = path.join(runbookDir, scriptPath)
 
       // Try to read the script file; on failure add a warning and skip
-      const scriptContent = yield* Effect.catchAll(
-        fs.readFile(fullPath),
-        () => {
-          this.warnings.push(
-            `<${componentType} id="${componentId}">: Script file not found: ${scriptPath}`,
-          )
-          return Effect.succeed(null)
-        },
-      )
+      const scriptContent = yield* Effect.catchAll(fs.readFile(fullPath), () => {
+        this.warnings.push(
+          `<${componentType} id="${componentId}">: Script file not found: ${scriptPath}`,
+        )
+        return Effect.succeed(null)
+      })
 
       if (scriptContent === null) return
 
@@ -382,17 +354,13 @@ export class ExecutableRegistry {
   getWarnings(): string[] {
     return [...this.warnings]
   }
-
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getDuplicateWarning(
-  componentType: string,
-  componentId: string,
-): string {
+function getDuplicateWarning(componentType: string, componentId: string): string {
   return (
     `Duplicate <${componentType}> component with id '${componentId}' detected` +
     ` - Any scripts or commands associated with the second instance will be ignored.` +

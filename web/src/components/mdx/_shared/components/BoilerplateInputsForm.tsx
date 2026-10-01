@@ -1,24 +1,24 @@
-import React, { useMemo, useState, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
-import type { BoilerplateVariable } from '@/types/boilerplateVariable'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import { formatVariableLabel } from '../lib/formatVariableLabel'
-import { FormControl } from './FormControls'
-import { useFormState } from '../hooks/useFormState'
-import { useFormValidation } from '../hooks/useFormValidation'
-import { markKeystroke } from '@/lib/renderPerf'
-import { FormStatus } from './FormStatus'
-import { UnmetDependenciesWarning } from './UnmetDependenciesWarning'
-import { BlockIdLabel } from './BlockIdLabel'
-import type { BlockOutput } from '@/lib/templateUtils'
+import React, { useMemo, useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import type { BoilerplateVariable } from "@/types/boilerplateVariable"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import { formatVariableLabel } from "../lib/formatVariableLabel"
+import { FormControl } from "./FormControls"
+import { useFormState } from "../hooks/useFormState"
+import { useFormValidation } from "../hooks/useFormValidation"
+import { markKeystroke } from "@/lib/renderPerf"
+import { FormStatus } from "./FormStatus"
+import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
+import { BlockIdLabel } from "./BlockIdLabel"
+import type { BlockOutput } from "@/lib/templateUtils"
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
- * 
+ *
  * This component renders a form with appropriate input controls based on the
  * boilerplate variable types. It handles form state, validation, and submission.
  * Variables can be grouped into sections using the x-section YAML property.
- * 
+ *
  * @param props - Form configuration object containing:
  *   - `id`: Unique identifier for the form
  *   - `boilerplateConfig`: Variable definitions and types to render
@@ -48,10 +48,10 @@ interface BoilerplateInputsFormProps {
   hasGeneratedSuccessfully?: boolean
   /** Whether the parent's latest render failed. Blocks the success styling while set. */
   hasRenderError?: boolean
-  variant?: 'standard' | 'embedded'
+  variant?: "standard" | "embedded"
   /** When true, uses inline YAML mode which updates variables instead of generating files */
   isInlineMode?: boolean
-  /** 
+  /**
    * Set of "shared" variable names - variables that exist in BOTH imported sources AND this form.
    * These are displayed as read-only and stay live-synced to imported values.
    */
@@ -75,21 +75,37 @@ interface VariableFieldProps {
   disabled?: boolean
 }
 
-const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, error, onChange, onBlur, disabled }) => {
-  const isBooleanType = variable.type === 'bool'
-  
+const VariableField: React.FC<VariableFieldProps> = ({
+  id,
+  variable,
+  value,
+  error,
+  onChange,
+  onBlur,
+  disabled,
+}) => {
+  const isBooleanType = variable.type === "bool"
+
   return (
     <div className="space-y-1" data-testid={`field-${variable.name}`}>
-      <div className={isBooleanType ? 'flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1' : 'contents space-y-1'}>
-        <label 
+      <div
+        className={
+          isBooleanType
+            ? "flex flex-row-reverse flex-wrap items-center justify-end gap-x-2 gap-y-1"
+            : "contents space-y-1"
+        }
+      >
+        <label
           htmlFor={`${id}-${variable.name}`}
-          className={`${isBooleanType ? 'cursor-pointer' : 'block'} text-md font-medium ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}
+          className={`${isBooleanType ? "cursor-pointer" : "block"} text-md font-medium ${disabled ? "text-muted-foreground" : "text-foreground"}`}
         >
           {formatVariableLabel(variable.name)}
           {variable.required && !disabled && <span className="text-muted-foreground ml-1">*</span>}
-          {disabled && <span className="text-muted-foreground ml-2 text-sm font-normal">(inherited)</span>}
+          {disabled && (
+            <span className="text-muted-foreground ml-2 text-sm font-normal">(inherited)</span>
+          )}
         </label>
-        
+
         <FormControl
           variable={variable}
           value={value}
@@ -101,11 +117,13 @@ const VariableField: React.FC<VariableFieldProps> = ({ id, variable, value, erro
         />
 
         {variable.description && (
-          <p className={`text-sm text-muted-foreground ${isBooleanType ? 'w-full' : ''}`}>{variable.description}</p>
+          <p className={`text-sm text-muted-foreground ${isBooleanType ? "w-full" : ""}`}>
+            {variable.description}
+          </p>
         )}
 
         {error && !disabled && (
-          <p className={`text-sm text-destructive ${isBooleanType ? 'w-full' : ''}`}>{error}</p>
+          <p className={`text-sm text-destructive ${isBooleanType ? "w-full" : ""}`}>{error}</p>
         )}
       </div>
     </div>
@@ -126,43 +144,44 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   enableAutoRender = true,
   hasGeneratedSuccessfully = false,
   hasRenderError = false,
-  variant = 'standard',
+  variant = "standard",
   isInlineMode = false,
   sharedVarNames = new Set(),
   liveVarValues = {},
-  unmetOutputDependencies = []
+  unmetOutputDependencies = [],
 }) => {
   // Default button text depends on mode
-  const effectiveButtonText = submitButtonText ?? (isInlineMode ? 'Submit' : 'Generate')
-  
+  const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
+
   // Whether the form has been generated at least once. Controlled by the parent,
   // which only knows after the render (or submit) has actually succeeded.
   const hasGenerated = hasGeneratedSuccessfully
   // Track whether submit was attempted (to show validation error summary near button)
   const [submitAttempted, setSubmitAttempted] = useState(false)
-  
+
   // Use validation hook first so we can use isFormValid in the wrapped callback
-  const { 
-    visibleErrors, 
-    validateForm, 
-    validateField, 
-    isFormValid,
-    markFieldTouched 
-  } = useFormValidation(boilerplateConfig)
+  const { visibleErrors, validateForm, validateField, isFormValid, markFieldTouched } =
+    useFormValidation(boilerplateConfig)
 
   // Always call onAutoRender so that variables are published to context
   // This allows Command/Check components to react to empty/invalid values
   // Each consumer (Inputs, Template) handles its own logic appropriately
-  
+
   // Use custom hooks for state management
-  const { formData, updateField, updateFields } = useFormState(boilerplateConfig, initialData, onFormChange, onAutoRender, enableAutoRender)
-  
+  const { formData, updateField, updateFields } = useFormState(
+    boilerplateConfig,
+    initialData,
+    onFormChange,
+    onAutoRender,
+    enableAutoRender,
+  )
+
   // Sync live variable values when they change (for shared variables)
   // Shared variables are read-only in the form and stay live-synced to imported values
   useEffect(() => {
     if (!sharedVarNames || sharedVarNames.size === 0) return
     if (Object.keys(formData).length === 0) return // Wait for form to initialize
-    
+
     // Build updates only for variables that have actually changed
     const updates: Record<string, unknown> = {}
     for (const varName of sharedVarNames) {
@@ -171,7 +190,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
         updates[varName] = liveValue
       }
     }
-    
+
     // Apply updates if there are any
     if (Object.keys(updates).length > 0) {
       updateFields(updates)
@@ -181,7 +200,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Create a map of variable name to variable for quick lookup
   const variablesByName = useMemo(() => {
     if (!boilerplateConfig) return new Map<string, BoilerplateVariable>()
-    return new Map(boilerplateConfig.variables.map(v => [v.name, v]))
+    return new Map(boilerplateConfig.variables.map((v) => [v.name, v]))
   }, [boilerplateConfig])
 
   // Determine if we should use section-based rendering
@@ -233,7 +252,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    * Renders variables for a given section
    */
   const renderSectionVariables = (variableNames: string[]) => {
-    return variableNames.map(varName => {
+    return variableNames.map((varName) => {
       const variable = variablesByName.get(varName)
       if (!variable) return null
       const isDisabled = sharedVarNames.has(variable.name)
@@ -257,12 +276,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
    */
   const renderWithSections = () => {
     if (!boilerplateConfig?.sections) return null
-    
+
     return boilerplateConfig.sections.map((section) => {
       if (section.variables.length === 0) return null
 
       // For unnamed section (empty string), don't render a header
-      if (section.name === '') {
+      if (section.name === "") {
         return (
           <div key="__unsectioned__" className="space-y-5">
             {renderSectionVariables(section.variables)}
@@ -276,9 +295,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           <h3 className="text-lg font-semibold text-foreground pt-5 pb-1 border-b border-border">
             {section.name}
           </h3>
-          <div className="space-y-5">
-            {renderSectionVariables(section.variables)}
-          </div>
+          <div className="space-y-5">{renderSectionVariables(section.variables)}</div>
         </div>
       )
     })
@@ -305,7 +322,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     })
   }
 
-  const shouldShowSubmitButton = variant !== 'embedded' && showSubmitButton
+  const shouldShowSubmitButton = variant !== "embedded" && showSubmitButton
 
   // Check if form is currently valid (for FormStatus)
   const formIsValid = isFormValid(formData)
@@ -314,27 +331,28 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // match the success styling of run-based blocks (Command, Check, etc.).
   // Only applies to the standard variant, and reverts to neutral if the form
   // later becomes invalid or the latest render failed.
-  const showSuccess = variant === 'standard' && hasGenerated && formIsValid && !hasRenderError
+  const showSuccess = variant === "standard" && hasGenerated && formIsValid && !hasRenderError
 
   // Determine container classes based on variant and success state
-  const containerClasses = variant === 'embedded'
-    ? 'runbook-block bg-transparent relative'
-    : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${showSuccess ? 'bg-success-muted border-success/30' : 'bg-muted border-border'}`;
+  const containerClasses =
+    variant === "embedded"
+      ? "runbook-block bg-transparent relative"
+      : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${showSuccess ? "bg-success-muted border-success/30" : "bg-muted border-border"}`
 
   return (
     <div className={containerClasses}>
       {/* ID label in top-right corner for standard variant */}
-      {variant === 'standard' && (
+      {variant === "standard" && (
         <div className="absolute top-2 right-3">
           <BlockIdLabel id={id} size="large" />
         </div>
       )}
-      
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-5">
           {hasSections ? renderWithSections() : renderWithoutSections()}
         </div>
-        
+
         {shouldShowSubmitButton && (
           <div className="pt-4 border-t border-border">
             {!hasGenerated ? (
@@ -350,15 +368,28 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 {/* Show validation error summary near the button after a failed submit */}
                 {submitAttempted && Object.keys(visibleErrors).length > 0 && (
                   <p className="mt-3 text-sm text-destructive">
-                    {Object.keys(visibleErrors).length === 1
-                      ? <>There is <strong>1 validation error</strong> above. Please fix it before generating.</>
-                      : <>There are <strong>{Object.keys(visibleErrors).length} validation errors</strong> above. Please fix them before generating.</>}
+                    {Object.keys(visibleErrors).length === 1 ? (
+                      <>
+                        There is <strong>1 validation error</strong> above. Please fix it before
+                        generating.
+                      </>
+                    ) : (
+                      <>
+                        There are{" "}
+                        <strong>{Object.keys(visibleErrors).length} validation errors</strong>{" "}
+                        above. Please fix them before generating.
+                      </>
+                    )}
                   </p>
                 )}
                 {/* Show warning for unmet output dependencies below the button */}
                 {unmetOutputDependencies.length > 0 && (
                   <div className="mt-3 -mb-3">
-                    <UnmetDependenciesWarning blockType="template" unmetInputDeps={[]} unmetOutputDeps={unmetOutputDependencies} />
+                    <UnmetDependenciesWarning
+                      blockType="template"
+                      unmetInputDeps={[]}
+                      unmetOutputDeps={unmetOutputDependencies}
+                    />
                   </div>
                 )}
               </>

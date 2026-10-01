@@ -147,10 +147,7 @@ export function materializeForIdentity(
  * `GOOGLE_APPLICATION_CREDENTIALS` output and confirmed it as an existing file.
  * That file is skipped and dropped from the queue, leaving it to the sweep.
  */
-export function commitCredential(
-  blockId: string | undefined,
-  committedPath?: string,
-): void {
+export function commitCredential(blockId: string | undefined, committedPath?: string): void {
   const key = credentialKeyFor(blockId)
   const pending = pendingReleaseByBlock.get(key)
   if (!pending) return

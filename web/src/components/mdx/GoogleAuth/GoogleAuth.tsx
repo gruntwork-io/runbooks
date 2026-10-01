@@ -38,7 +38,7 @@ function GoogleAuthInteractive({
   defaultRegion,
   defaultZone,
   gcloudConfiguration,
-  detectCredentials = ['env', 'adc'],  // Default: env vars, then the well-known ADC file
+  detectCredentials = ["env", "adc"], // Default: env vars, then the well-known ADC file
   defaultTab,
   inputsId,
 }: GoogleAuthProps) {
@@ -46,7 +46,7 @@ function GoogleAuthInteractive({
     if (!id) {
       return {
         message: "The <GoogleAuth> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
@@ -55,15 +55,28 @@ function GoogleAuthInteractive({
   // Resolve template expressions in display props and in the props that select
   // what we authenticate against (so `project="{{ .inputs.project }}"` works).
   const templateCtx = useTemplateContext(inputsId)
-  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
-  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
-  const resolvedProject = useMemo(() => project ? resolveTemplateReferences(project, templateCtx) : project, [project, templateCtx])
+  const resolvedTitle = useMemo(
+    () => (title ? resolveTemplateReferences(title, templateCtx) : title),
+    [title, templateCtx],
+  )
+  const resolvedDescription = useMemo(
+    () => (description ? resolveTemplateReferences(description, templateCtx) : description),
+    [description, templateCtx],
+  )
+  const resolvedProject = useMemo(
+    () => (project ? resolveTemplateReferences(project, templateCtx) : project),
+    [project, templateCtx],
+  )
   const resolvedConfiguration = useMemo(
-    () => gcloudConfiguration ? resolveTemplateReferences(gcloudConfiguration, templateCtx) : gcloudConfiguration,
+    () =>
+      gcloudConfiguration
+        ? resolveTemplateReferences(gcloudConfiguration, templateCtx)
+        : gcloudConfiguration,
     [gcloudConfiguration, templateCtx],
   )
   const resolvedOauthClientFile = useMemo(
-    () => oauthClientFile ? resolveTemplateReferences(oauthClientFile, templateCtx) : oauthClientFile,
+    () =>
+      oauthClientFile ? resolveTemplateReferences(oauthClientFile, templateCtx) : oauthClientFile,
     [oauthClientFile, templateCtx],
   )
   const hasOauthClientFileConflict = Boolean(
@@ -71,13 +84,16 @@ function GoogleAuthInteractive({
   )
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GoogleAuth')
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    "GoogleAuth",
+  )
 
   // Validate detectCredentials configuration: only one { block: string } source allowed.
   // The confirm path finds its source with a `find`, which is only unambiguous
   // because of this constraint.
   const blockSources = Array.isArray(detectCredentials)
-    ? detectCredentials.filter(s => typeof s === 'object' && 'block' in s)
+    ? detectCredentials.filter((s) => typeof s === "object" && "block" in s)
     : []
   const hasMultipleBlockSources = blockSources.length > 1
 
@@ -104,14 +120,14 @@ function GoogleAuthInteractive({
 
   // Track block render on mount
   useEffect(() => {
-    trackBlockRender('GoogleAuth')
+    trackBlockRender("GoogleAuth")
   }, [trackBlockRender])
 
   // Load the gcloud configurations when that tab is selected (mirrors AwsAuth's
   // lazy profile load — a pure disk read, but not one worth doing on mount).
   const { authMethod, gcloudConfigs, loadGcloudConfigs } = auth
   useEffect(() => {
-    if (authMethod === 'gcloud' && gcloudConfigs.length === 0) {
+    if (authMethod === "gcloud" && gcloudConfigs.length === 0) {
       void loadGcloudConfigs()
     }
   }, [authMethod, gcloudConfigs.length, loadGcloudConfigs])
@@ -121,29 +137,35 @@ function GoogleAuthInteractive({
     if (isDuplicate) {
       reportError({
         componentId: id,
-        componentType: 'GoogleAuth',
-        severity: 'error',
-        message: `Duplicate component ID: ${id}`
+        componentType: "GoogleAuth",
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
       })
     } else if (hasMultipleBlockSources) {
       reportError({
         componentId: id,
-        componentType: 'GoogleAuth',
-        severity: 'error',
-        message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`
+        componentType: "GoogleAuth",
+        severity: "error",
+        message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`,
       })
     } else if (hasOauthClientFileConflict) {
       reportError({
         componentId: id,
-        componentType: 'GoogleAuth',
-        severity: 'error',
-        message:
-          'Supply either oauthClientId/oauthClientSecret or oauthClientFile, not both.',
+        componentType: "GoogleAuth",
+        severity: "error",
+        message: "Supply either oauthClientId/oauthClientSecret or oauthClientFile, not both.",
       })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, hasMultipleBlockSources, hasOauthClientFileConflict, reportError, clearError])
+  }, [
+    id,
+    isDuplicate,
+    hasMultipleBlockSources,
+    hasOauthClientFileConflict,
+    reportError,
+    clearError,
+  ])
 
   if (validationError) {
     return <ErrorDisplay error={validationError} />
@@ -167,8 +189,11 @@ function GoogleAuthInteractive({
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Invalid Configuration:</strong><br />
-            The <code className="bg-destructive-muted px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-destructive-muted px-1 rounded">{`{ block: "..." }`}</code> entries.
+            <strong>Invalid Configuration:</strong>
+            <br />
+            The <code className="bg-destructive-muted px-1 rounded">detectCredentials</code> prop
+            contains multiple{" "}
+            <code className="bg-destructive-muted px-1 rounded">{`{ block: "..." }`}</code> entries.
             Only one block source is allowed.
           </div>
         </div>
@@ -182,8 +207,11 @@ function GoogleAuthInteractive({
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Invalid Configuration:</strong><br />
-            Supply either <code className="bg-destructive-muted px-1 rounded">oauthClientId</code>/<code className="bg-destructive-muted px-1 rounded">oauthClientSecret</code> or <code className="bg-destructive-muted px-1 rounded">oauthClientFile</code>, not both.
+            <strong>Invalid Configuration:</strong>
+            <br />
+            Supply either <code className="bg-destructive-muted px-1 rounded">oauthClientId</code>/
+            <code className="bg-destructive-muted px-1 rounded">oauthClientSecret</code> or{" "}
+            <code className="bg-destructive-muted px-1 rounded">oauthClientFile</code>, not both.
           </div>
         </div>
       </div>
@@ -195,11 +223,14 @@ function GoogleAuthInteractive({
 
   // GCP has no account -> role two-step, so AwsAuth's two selection states
   // collapse into one: the tabs hide only while a project is being picked.
-  const showTabs = auth.authStatus !== 'select_project'
-  const showProjectSelector = auth.authStatus === 'select_project'
+  const showTabs = auth.authStatus !== "select_project"
+  const showProjectSelector = auth.authStatus === "select_project"
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -208,7 +239,10 @@ function GoogleAuthInteractive({
       {/* Header with Google Cloud logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-info/30 pr-3 mr-0 self-stretch">
-          <StatusIcon status={auth.authStatus} className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
+          <StatusIcon
+            status={auth.authStatus}
+            className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
+          />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -228,27 +262,32 @@ function GoogleAuthInteractive({
           )}
 
           {/* Detection pending state - waiting for block or checking credentials */}
-          {auth.detectionStatus === 'pending' && (
+          {auth.detectionStatus === "pending" && (
             <div className="mb-4 text-info text-sm flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
               <span>
                 {auth.waitingForBlockId
                   ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                  : 'Checking for existing credentials...'}
+                  : "Checking for existing credentials..."}
               </span>
             </div>
           )}
 
           {/* Detected credentials: confirm when scopes are sufficient, or show
               recovery when the author required scopes the credential lacks. */}
-          {auth.detectionStatus === 'detected' && auth.detectedCredentials && (
-            (auth.detectedCredentials.missingScopes?.length ?? 0) > 0 && scopes && scopes.length > 0 ? (
+          {auth.detectionStatus === "detected" &&
+            auth.detectedCredentials &&
+            ((auth.detectedCredentials.missingScopes?.length ?? 0) > 0 &&
+            scopes &&
+            scopes.length > 0 ? (
               <InsufficientScopesPrompt
                 credentials={auth.detectedCredentials}
                 requiredScopes={scopes}
                 oauthUnavailable={auth.oauthUnavailable}
-                recovering={auth.authStatus === 'authenticating'}
-                onSignIn={() => { void auth.handleSignInWithRequiredScopes() }}
+                recovering={auth.authStatus === "authenticating"}
+                onSignIn={() => {
+                  void auth.handleSignInWithRequiredScopes()
+                }}
                 onReject={auth.handleRejectDetected}
                 onRetryDetection={auth.handleRetryDetection}
               />
@@ -256,15 +295,14 @@ function GoogleAuthInteractive({
               <DetectedCredentialsPrompt
                 credentials={auth.detectedCredentials}
                 warning={auth.detectionWarning}
-                confirming={auth.authStatus === 'authenticating'}
+                confirming={auth.authStatus === "authenticating"}
                 onConfirm={auth.handleConfirmDetected}
                 onReject={auth.handleRejectDetected}
               />
-            )
-          )}
+            ))}
 
           {/* Success state */}
-          {auth.authStatus === 'authenticated' && auth.accountInfo && (
+          {auth.authStatus === "authenticated" && auth.accountInfo && (
             <AuthSuccess
               accountInfo={auth.accountInfo}
               warningMessage={auth.warningMessage}
@@ -275,19 +313,23 @@ function GoogleAuthInteractive({
           )}
 
           {/* Detection warning (found credentials but they're invalid) */}
-          {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
-            <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
-                <br />
-                <span className="text-warning-foreground">Please authenticate manually below.</span>
+          {auth.detectionWarning &&
+            auth.detectionStatus === "done" &&
+            auth.authStatus !== "authenticated" && (
+              <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
+                <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
+                  <br />
+                  <span className="text-warning-foreground">
+                    Please authenticate manually below.
+                  </span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Error state (for manual auth failures) */}
-          {auth.authStatus === 'failed' && auth.errorMessage && (
+          {auth.authStatus === "failed" && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
@@ -297,7 +339,7 @@ function GoogleAuthInteractive({
           )}
 
           {/* Authentication form (only show when not authenticated and detection is done) */}
-          {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
+          {auth.authStatus !== "authenticated" && auth.detectionStatus === "done" && (
             <>
               {/* Method tabs (hide during project selection) */}
               {showTabs && (
@@ -312,7 +354,7 @@ function GoogleAuthInteractive({
               )}
 
               {/* Service Account Key */}
-              {auth.authMethod === 'service_account' && showTabs && (
+              {auth.authMethod === "service_account" && showTabs && (
                 <ServiceAccountKeyForm
                   authStatus={auth.authStatus}
                   serviceAccountKey={auth.serviceAccountKey}
@@ -331,7 +373,7 @@ function GoogleAuthInteractive({
               )}
 
               {/* Google Sign-In (loopback OAuth) */}
-              {auth.authMethod === 'oauth' && showTabs && (
+              {auth.authMethod === "oauth" && showTabs && (
                 <OAuthFlow
                   authStatus={auth.authStatus}
                   flowId={auth.oauthFlowId}
@@ -339,7 +381,9 @@ function GoogleAuthInteractive({
                   oauthUnavailable={auth.oauthUnavailable}
                   oauthClientFileName={auth.oauthClientFileName}
                   oauthClientFilePath={auth.oauthClientFilePath}
-                  onLoadOAuthClientFile={() => { void auth.loadOAuthClientFromFile() }}
+                  onLoadOAuthClientFile={() => {
+                    void auth.loadOAuthClientFromFile()
+                  }}
                   onClearOAuthClientFile={auth.clearOAuthClientFile}
                   {...(scopes ? { scopes } : {})}
                   selectedRegion={auth.selectedRegion}
@@ -350,7 +394,7 @@ function GoogleAuthInteractive({
               )}
 
               {/* gcloud configuration */}
-              {auth.authMethod === 'gcloud' && showTabs && (
+              {auth.authMethod === "gcloud" && showTabs && (
                 <GcloudConfigSelector
                   authStatus={auth.authStatus}
                   configs={auth.gcloudConfigs}
@@ -422,6 +466,6 @@ function GoogleAuth(props: GoogleAuthProps) {
 }
 
 // Set displayName for React DevTools and component detection
-GoogleAuth.displayName = 'GoogleAuth'
+GoogleAuth.displayName = "GoogleAuth"
 
 export default GoogleAuth

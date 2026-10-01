@@ -1,16 +1,21 @@
-import { Workspace } from '../artifacts/workspace'
-import { useGeneratedFiles } from '../../hooks/useGeneratedFiles'
-
+import { Workspace } from "../artifacts/workspace"
+import { useGeneratedFiles } from "../../hooks/useGeneratedFiles"
 
 interface ArtifactsContainerProps {
-  className?: string;
-  onHide?: () => void;
-  hideContent?: boolean;
-  absoluteOutputPath?: string;
-  relativeOutputPath?: string;
+  className?: string
+  onHide?: () => void
+  hideContent?: boolean
+  absoluteOutputPath?: string
+  relativeOutputPath?: string
 }
 
-export const ArtifactsContainer = ({ className = "", onHide, hideContent = false, absoluteOutputPath, relativeOutputPath }: ArtifactsContainerProps) => {
+export const ArtifactsContainer = ({
+  className = "",
+  onHide,
+  hideContent = false,
+  absoluteOutputPath,
+  relativeOutputPath,
+}: ArtifactsContainerProps) => {
   const { fileTree, truncationInfo } = useGeneratedFiles()
 
   // Use real filetree data if available, otherwise show empty state

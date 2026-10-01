@@ -37,7 +37,10 @@ const { setRunbookConfig, setExecutableRegistry, sessionManager } = runtimeModul
 type RunbookGetResult = { path: string; isWatchMode?: boolean }
 /** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
 const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
-  handlers.get("runbook:get")!(undefined, { path: runbookPath, ...extra }) as Promise<RunbookGetResult>
+  handlers.get("runbook:get")!(undefined, {
+    path: runbookPath,
+    ...extra,
+  }) as Promise<RunbookGetResult>
 
 /** The runbook paths of the watch:file-change events sent since `from`. */
 const reloadsSince = (from: number) =>
@@ -58,7 +61,8 @@ async function waitUntil(condition: () => boolean, timeoutMs: number): Promise<b
   return true
 }
 
-const runbookWith = (command: string) => `# Runbook\n\n<Command id="greet" command="${command}" />\n`
+const runbookWith = (command: string) =>
+  `# Runbook\n\n<Command id="greet" command="${command}" />\n`
 
 /** Real chokidar watchers: allow for a slow file system on top of the debounce. */
 const WATCH_TEST_TIMEOUT_MS = 20_000
@@ -90,7 +94,9 @@ function holdRunPromiseCall(callNumber: number) {
   const released = new Promise<void>((resolve) => (release = resolve))
   let reached!: () => void
   const held = new Promise<void>((resolve) => (reached = resolve))
-  const spy = spyOn(runtime, "runPromise").mockImplementation(((...args: Parameters<typeof runPromise>) => {
+  const spy = spyOn(runtime, "runPromise").mockImplementation(((
+    ...args: Parameters<typeof runPromise>
+  ) => {
     if (++calls !== callNumber) return runPromise.apply(runtime, args)
     spy.mockRestore()
     reached()
@@ -137,7 +143,10 @@ describe("runbook IPC handlers", () => {
       tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-ipc-")))
       dirA = path.join(tmp, "a")
       dirB = path.join(tmp, "b")
-      for (const [dir, command] of [[dirA, "echo a"], [dirB, "echo b"]]) {
+      for (const [dir, command] of [
+        [dirA, "echo a"],
+        [dirB, "echo b"],
+      ]) {
         fs.mkdirSync(dir)
         fs.writeFileSync(path.join(dir, "runbook.mdx"), runbookWith(command))
       }
@@ -164,128 +173,157 @@ describe("runbook IPC handlers", () => {
       })
     })
 
-    it("in watch mode, reloads on edits to the open runbook, and only the new one's after a switch", async () => {
-      setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
-      const a = await getRunbook(dirA)
-      await editUntilReloaded(a.path)
+    it(
+      "in watch mode, reloads on edits to the open runbook, and only the new one's after a switch",
+      async () => {
+        setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+        const a = await getRunbook(dirA)
+        await editUntilReloaded(a.path)
 
-      const b = await getRunbook(dirB)
-      const switched = sent.length
-      fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
-      // B's reload comes at least one debounce after A's edit, so a watcher
-      // still running on A would have reported that edit first.
-      await editUntilReloaded(b.path, switched)
+        const b = await getRunbook(dirB)
+        const switched = sent.length
+        fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
+        // B's reload comes at least one debounce after A's edit, so a watcher
+        // still running on A would have reported that edit first.
+        await editUntilReloaded(b.path, switched)
 
-      expect(new Set(reloadsSince(switched))).toEqual(new Set([b.path]))
-    }, WATCH_TEST_TIMEOUT_MS)
+        expect(new Set(reloadsSince(switched))).toEqual(new Set([b.path]))
+      },
+      WATCH_TEST_TIMEOUT_MS,
+    )
 
-    it("closeRunbook stops reloading the runbook it closed", async () => {
-      setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
-      const a = await getRunbook(dirA)
-      await editUntilReloaded(a.path)
+    it(
+      "closeRunbook stops reloading the runbook it closed",
+      async () => {
+        setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+        const a = await getRunbook(dirA)
+        await editUntilReloaded(a.path)
 
-      const closed = sent.length
-      closeRunbook()
-      expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
+        const closed = sent.length
+        closeRunbook()
+        expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
 
-      fs.writeFileSync(a.path, runbookWith("echo a-after-close"))
-      // There is no event to wait for when nothing should happen: give a
-      // watcher that is still running well over its 300ms debounce.
-      await new Promise((resolve) => setTimeout(resolve, 1_000))
-      expect(reloadsSince(closed)).toEqual([])
-    }, WATCH_TEST_TIMEOUT_MS)
+        fs.writeFileSync(a.path, runbookWith("echo a-after-close"))
+        // There is no event to wait for when nothing should happen: give a
+        // watcher that is still running well over its 300ms debounce.
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
+        expect(reloadsSince(closed)).toEqual([])
+      },
+      WATCH_TEST_TIMEOUT_MS,
+    )
 
     describe("a load still running when the runbook is closed", () => {
       // Opening a runbook in a new session awaits resolving its path (call 1),
       // reading it (2), creating the session (3), resetting the warm renders
       // (4) and building its registry (5). The watcher starts before call 5.
-      for (const [awaiting, heldCall] of [["resolving its path", 1], ["building its registry", 5]] as const) {
-        it(`starts no watcher and sets no registry after the close (held while ${awaiting})`, async () => {
-          setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
-          const runbookA = path.join(dirA, "runbook.mdx")
+      for (const [awaiting, heldCall] of [
+        ["resolving its path", 1],
+        ["building its registry", 5],
+      ] as const) {
+        it(
+          `starts no watcher and sets no registry after the close (held while ${awaiting})`,
+          async () => {
+            setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+            const runbookA = path.join(dirA, "runbook.mdx")
 
-          const hold = holdRunPromiseCall(heldCall)
-          const openA = getRunbook(dirA)
-          await hold.held
-          const closed = sent.length
-          closeRunbook()
-          hold.release()
+            const hold = holdRunPromiseCall(heldCall)
+            const openA = getRunbook(dirA)
+            await hold.held
+            const closed = sent.length
+            closeRunbook()
+            hold.release()
 
-          expect<unknown>(await openA).toEqual({ superseded: true })
-          expect(runtimeModule.executableRegistry).toBeNull()
-          expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
+            expect<unknown>(await openA).toEqual({ superseded: true })
+            expect(runtimeModule.executableRegistry).toBeNull()
+            expect(sent.slice(closed).map((m) => m.channel)).toEqual(["menu:close-runbook"])
 
-          // No watcher on A: keep editing it for longer than a new watcher's
-          // initial scan plus its 300ms debounce, and nothing reloads.
-          for (let edit = 1; edit <= 5; edit++) {
-            fs.writeFileSync(runbookA, runbookWith(`echo a-after-close-${edit}`))
-            await new Promise((resolve) => setTimeout(resolve, 300))
-          }
-          await new Promise((resolve) => setTimeout(resolve, 700))
-          expect(reloadsSince(closed)).toEqual([])
-        }, WATCH_TEST_TIMEOUT_MS)
+            // No watcher on A: keep editing it for longer than a new watcher's
+            // initial scan plus its 300ms debounce, and nothing reloads.
+            for (let edit = 1; edit <= 5; edit++) {
+              fs.writeFileSync(runbookA, runbookWith(`echo a-after-close-${edit}`))
+              await new Promise((resolve) => setTimeout(resolve, 300))
+            }
+            await new Promise((resolve) => setTimeout(resolve, 700))
+            expect(reloadsSince(closed)).toEqual([])
+          },
+          WATCH_TEST_TIMEOUT_MS,
+        )
       }
     })
 
     describe("a load that a newer one overtakes", () => {
       // A same-path reload awaits resolving the path (call 1), reading the
       // file (call 2), and building the registry (call 3).
-      for (const [awaiting, heldCall] of [["resolving its path", 1], ["building its registry", 3]] as const) {
-        it(`leaves the runbook opened after it in place (held while ${awaiting})`, async () => {
-          setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
-          const a = await getRunbook(dirA)
+      for (const [awaiting, heldCall] of [
+        ["resolving its path", 1],
+        ["building its registry", 3],
+      ] as const) {
+        it(
+          `leaves the runbook opened after it in place (held while ${awaiting})`,
+          async () => {
+            setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+            const a = await getRunbook(dirA)
 
-          // A watch-mode reload of A that is still running when B is opened
-          const hold = holdRunPromiseCall(heldCall)
-          const reloadA = getRunbook(dirA, { reload: "watch" })
-          await hold.held
-          const b = await getRunbook(dirB)
-          const registryB = runtimeModule.executableRegistry
-          const opened = sent.length
-          hold.release()
+            // A watch-mode reload of A that is still running when B is opened
+            const hold = holdRunPromiseCall(heldCall)
+            const reloadA = getRunbook(dirA, { reload: "watch" })
+            await hold.held
+            const b = await getRunbook(dirB)
+            const registryB = runtimeModule.executableRegistry
+            const opened = sent.length
+            hold.release()
 
-          // useIpc drops a superseded result; the renderer shows B.
-          expect<unknown>(await reloadA).toEqual({ superseded: true })
-          expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
-          expect(sessionManager.getRunbookPath()).toBe(b.path)
-          expect(runtimeModule.executableRegistry).toBe(registryB)
-          expect(registryUpdatesSince(opened)).toBe(0)
+            // useIpc drops a superseded result; the renderer shows B.
+            expect<unknown>(await reloadA).toEqual({ superseded: true })
+            expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+            expect(sessionManager.getRunbookPath()).toBe(b.path)
+            expect(runtimeModule.executableRegistry).toBe(registryB)
+            expect(registryUpdatesSince(opened)).toBe(0)
 
-          // The watcher stays on B.
-          fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
-          await editUntilReloaded(b.path, opened)
-          expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
-        }, WATCH_TEST_TIMEOUT_MS)
+            // The watcher stays on B.
+            fs.writeFileSync(a.path, runbookWith("echo a-after-switch"))
+            await editUntilReloaded(b.path, opened)
+            expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
+          },
+          WATCH_TEST_TIMEOUT_MS,
+        )
       }
 
       // Opening A in a new session awaits resolving its path (call 1), reading
       // it (2), creating its session (3), resetting the warm renders (4) and
       // building its registry (5). createSession makes the session as soon as
       // it's called, so the resets' await a newer load can start in is 4.
-      for (const [awaiting, heldCall] of [["reading it", 2], ["resetting its warm renders", 4]] as const) {
-        it(`leaves the runbook opened after it in place (open of A held while ${awaiting})`, async () => {
-          setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
-          const runbookA = path.join(dirA, "runbook.mdx")
+      for (const [awaiting, heldCall] of [
+        ["reading it", 2],
+        ["resetting its warm renders", 4],
+      ] as const) {
+        it(
+          `leaves the runbook opened after it in place (open of A held while ${awaiting})`,
+          async () => {
+            setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
+            const runbookA = path.join(dirA, "runbook.mdx")
 
-          const hold = holdRunPromiseCall(heldCall)
-          const openA = getRunbook(dirA)
-          await hold.held
-          const b = await getRunbook(dirB)
-          const registryB = runtimeModule.executableRegistry
-          const opened = sent.length
-          hold.release()
+            const hold = holdRunPromiseCall(heldCall)
+            const openA = getRunbook(dirA)
+            await hold.held
+            const b = await getRunbook(dirB)
+            const registryB = runtimeModule.executableRegistry
+            const opened = sent.length
+            hold.release()
 
-          expect<unknown>(await openA).toEqual({ superseded: true })
-          expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
-          expect(sessionManager.getRunbookPath()).toBe(b.path)
-          expect(runtimeModule.executableRegistry).toBe(registryB)
-          expect(registryUpdatesSince(opened)).toBe(0)
+            expect<unknown>(await openA).toEqual({ superseded: true })
+            expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+            expect(sessionManager.getRunbookPath()).toBe(b.path)
+            expect(runtimeModule.executableRegistry).toBe(registryB)
+            expect(registryUpdatesSince(opened)).toBe(0)
 
-          // The watcher stays on B.
-          fs.writeFileSync(runbookA, runbookWith("echo a-after-switch"))
-          await editUntilReloaded(b.path, opened)
-          expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
-        }, WATCH_TEST_TIMEOUT_MS)
+            // The watcher stays on B.
+            fs.writeFileSync(runbookA, runbookWith("echo a-after-switch"))
+            await editUntilReloaded(b.path, opened)
+            expect(new Set(reloadsSince(opened))).toEqual(new Set([b.path]))
+          },
+          WATCH_TEST_TIMEOUT_MS,
+        )
       }
     })
 

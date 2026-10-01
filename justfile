@@ -293,13 +293,13 @@ test-docs:
 lint:
     mise x bun -- bun run lint
 
-# Format with oxfmt (when available, placeholder for now)
+# Format with oxfmt (config and ignored paths: .oxfmtrc.json)
 fmt:
-    @echo "oxfmt not yet available — skipping"
+    mise x bun -- bun run fmt
 
 # Check formatting without writing
 fmt-check:
-    @echo "oxfmt not yet available — skipping"
+    mise x bun -- bun run fmt:check
 
 # Type check with TypeScript compiler. The root tsconfig.json has no files of
 # its own, only project references, so it needs build mode (-b) to check them;

@@ -16,7 +16,12 @@ const renderForm = () => (
 describe("LocalRepoForm", () => {
   it("points each block's label at its own input", () => {
     // Two GitClone blocks in one runbook each render a LocalRepoForm.
-    render(<>{renderForm()}{renderForm()}</>)
+    render(
+      <>
+        {renderForm()}
+        {renderForm()}
+      </>,
+    )
 
     const labels = screen.getAllByText("Repository directory")
     const inputs = screen.getAllByPlaceholderText("/path/to/your/repo")

@@ -18,10 +18,7 @@ interface ViewOutputsProps {
   autoOpen?: boolean
 }
 
-export function ViewOutputs({
-  outputs,
-  autoOpen = false,
-}: ViewOutputsProps) {
+export function ViewOutputs({ outputs, autoOpen = false }: ViewOutputsProps) {
   const [showOutputs, setShowOutputs] = useState(autoOpen)
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -65,7 +62,6 @@ export function ViewOutputs({
 
   return (
     <div className="border border-border rounded-sm">
-
       {/* Toggle button with Copy action */}
       <div className="flex items-center justify-between px-3 py-2 hover:bg-accent transition-colors">
         <button
@@ -90,11 +86,7 @@ export function ViewOutputs({
               onClick={handleCopy}
               className="h-6 px-2 text-muted-foreground hover:text-foreground gap-1"
             >
-              {copied ? (
-                <Check className="size-3.5 text-success" />
-              ) : (
-                <Copy className="size-3.5" />
-              )}
+              {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
               <span className="text-xs">Copy JSON</span>
             </Button>
           </TooltipTrigger>
@@ -116,7 +108,9 @@ export function ViewOutputs({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                <th className="text-left py-1 px-2 font-medium text-muted-foreground w-1/3">Name</th>
+                <th className="text-left py-1 px-2 font-medium text-muted-foreground w-1/3">
+                  Name
+                </th>
                 <th className="text-left py-1 px-2 font-medium text-muted-foreground">Value</th>
               </tr>
             </thead>
@@ -135,9 +129,7 @@ export function ViewOutputs({
                         ) : value.length > 100 ? (
                           <Tooltip delayDuration={350}>
                             <TooltipTrigger asChild>
-                              <span className="cursor-help">
-                                {value.substring(0, 100)}...
-                              </span>
+                              <span className="cursor-help">{value.substring(0, 100)}...</span>
                             </TooltipTrigger>
                             <TooltipContent side="bottom" className="max-w-md">
                               <pre className="text-xs whitespace-pre-wrap break-all">{value}</pre>

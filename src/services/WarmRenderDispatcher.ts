@@ -125,10 +125,7 @@ export interface WarmRenderDispatcherShape {
    * stored. A render that's superseded or fails before then must not commit,
    * so the next dirty set still includes the files it never wrote.
    */
-  readonly commit: (
-    templateId: string,
-    variables: Record<string, unknown>,
-  ) => Effect.Effect<void>
+  readonly commit: (templateId: string, variables: Record<string, unknown>) => Effect.Effect<void>
 
   /**
    * Drop all warm-render state: release every prepared handle, forget every

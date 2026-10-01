@@ -186,13 +186,10 @@ describe("resolveOAuthClient", () => {
   })
 
   it("loads GOOGLE_OAUTH_CLIENT_ID/SECRET when no file env is set", async () => {
-    const result = await provideResolve(
-      resolveOAuthClient(),
-      {
-        [GOOGLE_OAUTH_CLIENT_ID_ENV]: "env.apps.googleusercontent.com",
-        [GOOGLE_OAUTH_CLIENT_SECRET_ENV]: "env-secret",
-      },
-    )
+    const result = await provideResolve(resolveOAuthClient(), {
+      [GOOGLE_OAUTH_CLIENT_ID_ENV]: "env.apps.googleusercontent.com",
+      [GOOGLE_OAUTH_CLIENT_SECRET_ENV]: "env-secret",
+    })
 
     expect(result).toEqual({
       clientId: "env.apps.googleusercontent.com",
@@ -252,13 +249,10 @@ describe("resolveOAuthClient", () => {
 
 describe("isOAuthClientConfigured", () => {
   it("is true when operator env supplies a client", async () => {
-    const available = await provideResolve(
-      isOAuthClientConfigured(),
-      {
-        [GOOGLE_OAUTH_CLIENT_ID_ENV]: "env.apps.googleusercontent.com",
-        [GOOGLE_OAUTH_CLIENT_SECRET_ENV]: "env-secret",
-      },
-    )
+    const available = await provideResolve(isOAuthClientConfigured(), {
+      [GOOGLE_OAUTH_CLIENT_ID_ENV]: "env.apps.googleusercontent.com",
+      [GOOGLE_OAUTH_CLIENT_SECRET_ENV]: "env-secret",
+    })
     expect(available).toBe(true)
   })
 

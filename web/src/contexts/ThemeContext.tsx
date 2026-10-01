@@ -1,34 +1,34 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
-import { useApi } from './ApiContext'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
+import { useApi } from "./ApiContext"
 import {
   ThemeContext,
   THEME_STORAGE_KEY,
   type Theme,
   type ResolvedTheme,
-} from './ThemeContext.types'
+} from "./ThemeContext.types"
 
-const DARK_QUERY = '(prefers-color-scheme: dark)'
+const DARK_QUERY = "(prefers-color-scheme: dark)"
 
 /** Read the persisted preference, defaulting to 'system'. */
 function readStoredTheme(): Theme {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    if (stored === "light" || stored === "dark" || stored === "system") {
       return stored
     }
   } catch {
     /* localStorage unavailable (e.g. private mode) */
   }
-  return 'system'
+  return "system"
 }
 
 function systemPrefersDark(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia(DARK_QUERY).matches
+  return typeof window !== "undefined" && window.matchMedia(DARK_QUERY).matches
 }
 
 /** Toggle the `.dark` class on <html> — the hook for the `dark:` Tailwind variant. */
 function applyThemeClass(resolved: ResolvedTheme): void {
-  document.documentElement.classList.toggle('dark', resolved === 'dark')
+  document.documentElement.classList.toggle("dark", resolved === "dark")
 }
 
 /**
@@ -41,8 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const api = useApi()
   const [theme, setThemeState] = useState<Theme>(readStoredTheme)
   const [systemDark, setSystemDark] = useState(systemPrefersDark)
-  const resolvedTheme: ResolvedTheme =
-    theme === 'system' ? (systemDark ? 'dark' : 'light') : theme
+  const resolvedTheme: ResolvedTheme = theme === "system" ? (systemDark ? "dark" : "light") : theme
 
   useEffect(() => {
     applyThemeClass(resolvedTheme)
@@ -53,7 +52,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // api is null when ThemeProvider is rendered outside ApiProvider (e.g.
     // tests that don't bridge IPC). Native chrome sync is best-effort.
-    api?.invoke('native:set-theme', { theme }).catch(() => {
+    api?.invoke("native:set-theme", { theme }).catch(() => {
       /* native chrome update is best-effort */
     })
   }, [theme, api])
@@ -62,8 +61,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const mq = window.matchMedia(DARK_QUERY)
     const onChange = () => setSystemDark(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
+    mq.addEventListener("change", onChange)
+    return () => mq.removeEventListener("change", onChange)
   }, [])
 
   const setTheme = useCallback((next: Theme) => {

@@ -4,26 +4,26 @@
  * context sections can be tested without rendering.
  */
 
-import type { WorkspaceFileChange } from '@/hooks/useGitFileChanges'
+import type { WorkspaceFileChange } from "@/hooks/useGitFileChanges"
 
 export interface DiffLine {
-  type: 'context' | 'addition' | 'deletion'
+  type: "context" | "addition" | "deletion"
   content: string
   oldLineNum?: number
   newLineNum?: number
 }
 
 export interface DiffSection {
-  type: 'lines' | 'collapsed'
+  type: "lines" | "collapsed"
   lines?: DiffLine[]
   collapsedCount?: number
   startOldLine?: number
   startNewLine?: number
-  position?: 'top' | 'middle' | 'bottom' // For collapsed sections
+  position?: "top" | "middle" | "bottom" // For collapsed sections
 }
 
 export interface DiffOp {
-  type: 'equal' | 'delete' | 'insert'
+  type: "equal" | "delete" | "insert"
   value: string
 }
 
@@ -42,7 +42,7 @@ export const MAX_EDIT_LENGTH = 1000
  * trailing '\n' is a blank last line. An empty string is zero lines.
  */
 export function headLines(content: string): string[] {
-  return content === '' ? [] : content.split('\n')
+  return content === "" ? [] : content.split("\n")
 }
 
 /**
@@ -52,8 +52,8 @@ export function headLines(content: string): string[] {
  * zero lines.
  */
 export function diskLines(content: string): string[] {
-  const lf = content.replace(/\r\n?/g, '\n')
-  return lf === '' ? [] : lf.replace(/\n$/, '').split('\n')
+  const lf = content.replace(/\r\n?/g, "\n")
+  return lf === "" ? [] : lf.replace(/\n$/, "").split("\n")
 }
 
 /**
@@ -64,23 +64,23 @@ export function diskLines(content: string): string[] {
  * additions.
  */
 export function generateUnifiedDiff(
-  change: Pick<WorkspaceFileChange, 'changeType' | 'originalContent' | 'newContent'>,
+  change: Pick<WorkspaceFileChange, "changeType" | "originalContent" | "newContent">,
 ): DiffLine[] | undefined {
   const { changeType, originalContent, newContent } = change
 
-  if (changeType === 'added') {
+  if (changeType === "added") {
     if (newContent === undefined) return undefined
     return diskLines(newContent).map((content, i) => ({
-      type: 'addition',
+      type: "addition",
       content,
       newLineNum: i + 1,
     }))
   }
 
-  if (changeType === 'deleted') {
+  if (changeType === "deleted") {
     if (originalContent === undefined) return undefined
     return headLines(originalContent).map((content, i) => ({
-      type: 'deletion',
+      type: "deletion",
       content,
       oldLineNum: i + 1,
     }))
@@ -93,22 +93,22 @@ export function generateUnifiedDiff(
   let newLineNum = 1
 
   for (const op of diffLineArrays(headLines(originalContent), diskLines(newContent))) {
-    if (op.type === 'equal') {
+    if (op.type === "equal") {
       lines.push({
-        type: 'context',
+        type: "context",
         content: op.value,
         oldLineNum: oldLineNum++,
         newLineNum: newLineNum++,
       })
-    } else if (op.type === 'delete') {
+    } else if (op.type === "delete") {
       lines.push({
-        type: 'deletion',
+        type: "deletion",
         content: op.value,
         oldLineNum: oldLineNum++,
       })
     } else {
       lines.push({
-        type: 'addition',
+        type: "addition",
         content: op.value,
         newLineNum: newLineNum++,
       })
@@ -131,7 +131,11 @@ export function diffLineArrays(
   // The common prefix and suffix are always equal lines. Trimming them keeps
   // the search small for the usual localized edit to a large file.
   let start = 0
-  while (start < oldLines.length && start < newLines.length && oldLines[start] === newLines[start]) {
+  while (
+    start < oldLines.length &&
+    start < newLines.length &&
+    oldLines[start] === newLines[start]
+  ) {
     start++
   }
   let oldEnd = oldLines.length
@@ -144,14 +148,14 @@ export function diffLineArrays(
   const oldMiddle = oldLines.slice(start, oldEnd)
   const newMiddle = newLines.slice(start, newEnd)
   const middle = myersDiff(oldMiddle, newMiddle, maxEditLength) ?? [
-    ...oldMiddle.map((value): DiffOp => ({ type: 'delete', value })),
-    ...newMiddle.map((value): DiffOp => ({ type: 'insert', value })),
+    ...oldMiddle.map((value): DiffOp => ({ type: "delete", value })),
+    ...newMiddle.map((value): DiffOp => ({ type: "insert", value })),
   ]
 
   return [
-    ...oldLines.slice(0, start).map((value): DiffOp => ({ type: 'equal', value })),
+    ...oldLines.slice(0, start).map((value): DiffOp => ({ type: "equal", value })),
     ...middle,
-    ...oldLines.slice(oldEnd).map((value): DiffOp => ({ type: 'equal', value })),
+    ...oldLines.slice(oldEnd).map((value): DiffOp => ({ type: "equal", value })),
   ]
 }
 
@@ -172,9 +176,10 @@ function myersDiff(a: string[], b: string[], maxEditLength: number): DiffOp[] | 
     for (let k = -d; k <= d; k += 2) {
       // Move down from diagonal k+1 (an insertion) or right from k-1 (a
       // deletion), whichever got further, then follow any run of equal lines.
-      let x = k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
-        ? v[offset + k + 1]
-        : v[offset + k - 1] + 1
+      let x =
+        k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
+          ? v[offset + k + 1]
+          : v[offset + k - 1] + 1
       let y = x - k
       while (x < n && y < m && a[x] === b[y]) {
         x++
@@ -204,15 +209,15 @@ function backtrack(a: string[], b: string[], trace: Int32Array[]): DiffOp[] {
     while (x > prevX && y > prevY) {
       x--
       y--
-      ops.push({ type: 'equal', value: a[x] })
+      ops.push({ type: "equal", value: a[x] })
     }
     if (d > 0) {
       if (x === prevX) {
         y--
-        ops.push({ type: 'insert', value: b[y] })
+        ops.push({ type: "insert", value: b[y] })
       } else {
         x--
-        ops.push({ type: 'delete', value: a[x] })
+        ops.push({ type: "delete", value: a[x] })
       }
     }
   }
@@ -231,7 +236,7 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
   // Find all change indices
   const changeIndices: number[] = []
   diffLines.forEach((line, i) => {
-    if (line.type !== 'context') {
+    if (line.type !== "context") {
       changeIndices.push(i)
     }
   })
@@ -240,11 +245,11 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
     // No changes - collapse entire file (reaches both beginning and end)
     if (diffLines.length > 0) {
       result.push({
-        type: 'collapsed',
+        type: "collapsed",
         collapsedCount: diffLines.length,
         startOldLine: diffLines[0].oldLineNum,
         startNewLine: diffLines[0].newLineNum,
-        position: 'top', // Starts at beginning, use ArrowUpToLine
+        position: "top", // Starts at beginning, use ArrowUpToLine
       })
     }
     return result
@@ -257,7 +262,10 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
 
     // Find the end of this change block (consecutive changes)
     let changeEnd = changeStart
-    while (i + 1 < changeIndices.length && changeIndices[i + 1] <= changeEnd + contextSize * 2 + 1) {
+    while (
+      i + 1 < changeIndices.length &&
+      changeIndices[i + 1] <= changeEnd + contextSize * 2 + 1
+    ) {
       i++
       changeEnd = changeIndices[i]
     }
@@ -273,18 +281,18 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
         const startsAtBeginning = currentPos === 0
 
         result.push({
-          type: 'collapsed',
+          type: "collapsed",
           collapsedCount: collapsedLines.length,
           startOldLine: collapsedLines[0].oldLineNum,
           startNewLine: collapsedLines[0].newLineNum,
-          position: startsAtBeginning ? 'top' : 'middle',
+          position: startsAtBeginning ? "top" : "middle",
         })
       }
     }
 
     // Add the visible lines (context + changes)
     result.push({
-      type: 'lines',
+      type: "lines",
       lines: diffLines.slice(contextStart, contextEnd + 1),
     })
 
@@ -296,11 +304,11 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
     const collapsedLines = diffLines.slice(currentPos)
     // This section reaches the end of the file
     result.push({
-      type: 'collapsed',
+      type: "collapsed",
       collapsedCount: collapsedLines.length,
       startOldLine: collapsedLines[0].oldLineNum,
       startNewLine: collapsedLines[0].newLineNum,
-      position: 'bottom',
+      position: "bottom",
     })
   }
 
@@ -317,7 +325,7 @@ export function getExpandedLines(
   let lineStart = 0
   for (let i = 0; i < sectionIndex; i++) {
     const section = sections[i]
-    if (section.type === 'lines') {
+    if (section.type === "lines") {
       lineStart += section.lines?.length || 0
     } else {
       lineStart += section.collapsedCount || 0

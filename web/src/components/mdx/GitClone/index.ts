@@ -1,4 +1,4 @@
-import GitClone from './GitClone'
+import GitClone from "./GitClone"
 
 export { GitClone }
 export default GitClone
@@ -12,4 +12,4 @@ export type {
   GitHubOrg,
   GitHubRepo,
   GitHubRef,
-} from './types'
+} from "./types"

@@ -85,14 +85,7 @@ tests:
       - { block: f, expect: config_error }
 `)
     const expects = cfg.tests[0].steps!.map((s) => s.expect)
-    expect(expects).toEqual([
-      "success",
-      "fail",
-      "warn",
-      "blocked",
-      "skip",
-      "config_error",
-    ])
+    expect(expects).toEqual(["success", "fail", "warn", "blocked", "skip", "config_error"])
   })
 
   it("parses assertions with the required fields", () => {
@@ -118,9 +111,7 @@ describe("parseConfig — failure paths", () => {
   })
 
   it("rejects an empty tests list", () => {
-    expect(() => parseConfig(`version: 1\ntests: []`)).toThrow(
-      /At least one test case/,
-    )
+    expect(() => parseConfig(`version: 1\ntests: []`)).toThrow(/At least one test case/)
   })
 
   it("rejects a test case without a name", () => {
@@ -137,33 +128,45 @@ describe("parseConfig — failure paths", () => {
 
   it("rejects a step with an unknown expect value", () => {
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps:\n      - block: x\n        expect: maybe`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps:\n      - block: x\n        expect: maybe`,
+      ),
     ).toThrow(/invalid expect value/)
   })
 
   it("rejects assertions missing required fields per type", () => {
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: file_contains\n        path: out.txt`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: file_contains\n        path: out.txt`,
+      ),
     ).toThrow(/contains is required/)
 
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: file_matches\n        path: out.txt`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: file_matches\n        path: out.txt`,
+      ),
     ).toThrow(/pattern is required/)
 
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: output_equals\n        block: x`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: output_equals\n        block: x`,
+      ),
     ).toThrow(/output is required/)
   })
 
   it("rejects an unknown assertion type", () => {
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: misspelled_kind`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps: [{block: x}]\n    assertions:\n      - type: misspelled_kind`,
+      ),
     ).toThrow(/unknown assertion type/)
   })
 
   it("rejects an unparseable timeout", () => {
     expect(() =>
-      parseConfig(`version: 1\nsettings: { timeout: forever }\ntests:\n  - name: t\n    steps: [{block: x}]`),
+      parseConfig(
+        `version: 1\nsettings: { timeout: forever }\ntests:\n  - name: t\n    steps: [{block: x}]`,
+      ),
     ).toThrow(/Invalid timeout format/)
   })
 })

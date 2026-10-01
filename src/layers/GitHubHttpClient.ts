@@ -34,7 +34,10 @@ function resolveHost(host?: string): string {
   if (host === undefined) return DEFAULT_GITHUB_HOST
   const normalized = tryNormalizeGitHubHost(host)
   if (!normalized) {
-    throw new GitHubApiError({ status: 400, message: `invalid GitHub host: ${JSON.stringify(host)}` })
+    throw new GitHubApiError({
+      status: 400,
+      message: `invalid GitHub host: ${JSON.stringify(host)}`,
+    })
   }
   return normalized
 }
@@ -82,11 +85,7 @@ async function githubJson<T>(
   return (await resp.json()) as T
 }
 
-async function paginateAll<T>(
-  baseUrl: string,
-  token: string,
-  perPage = 100,
-): Promise<T[]> {
+async function paginateAll<T>(baseUrl: string, token: string, perPage = 100): Promise<T[]> {
   const results: T[] = []
   let page = 1
   while (true) {
@@ -110,10 +109,7 @@ async function validateInstallationToken(
   token: string,
   apiBase: string,
 ): Promise<GitHubTokenValidation> {
-  const resp = await githubFetch(
-    `${apiBase}/installation/repositories?per_page=1`,
-    { token },
-  )
+  const resp = await githubFetch(`${apiBase}/installation/repositories?per_page=1`, { token })
   await assertOk(resp)
   const data = (await resp.json()) as {
     total_count: number
@@ -128,10 +124,7 @@ async function validateInstallationToken(
   }
 }
 
-async function validateUserToken(
-  token: string,
-  apiBase: string,
-): Promise<GitHubTokenValidation> {
+async function validateUserToken(token: string, apiBase: string): Promise<GitHubTokenValidation> {
   const resp = await githubFetch(`${apiBase}/user`, { token })
   await assertOk(resp)
   const data = (await resp.json()) as {
@@ -397,19 +390,23 @@ const impl: GitHubClientShape = {
       catch: toGitHubApiError,
     }),
 
-  addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[], host?: string) =>
+  addLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    labels: string[],
+    host?: string,
+  ) =>
     Effect.tryPromise({
       try: async (): Promise<void> => {
         const API_BASE = apiBaseFor(host)
-        await githubJson(
-          `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/labels`,
-          {
-            method: "POST",
-            token,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ labels }),
-          },
-        )
+        await githubJson(`${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/labels`, {
+          method: "POST",
+          token,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ labels }),
+        })
       },
       catch: toGitHubApiError,
     }),

@@ -5,18 +5,18 @@
  * Layout mirrors RepositoryMetadataBar for visual consistency.
  */
 
-import { basename, cn } from '@/lib/utils'
-import { LocalPathRow } from './rows/LocalPathRow'
+import { basename, cn } from "@/lib/utils"
+import { LocalPathRow } from "./rows/LocalPathRow"
 
 interface GeneratedFilesMetadataBarProps {
   /** Absolute path to the generated files output directory */
-  absolutePath?: string;
+  absolutePath?: string
   /** Relative path to the generated files output directory */
-  relativePath?: string;
+  relativePath?: string
   /** Number of generated files */
-  fileCount: number;
+  fileCount: number
   /** Additional CSS classes */
-  className?: string;
+  className?: string
 }
 
 export const GeneratedFilesMetadataBar = ({
@@ -36,17 +36,13 @@ export const GeneratedFilesMetadataBar = ({
       {/* Row 1: Title */}
       <div className="flex items-center gap-1.5 text-sm">
         <span className="text-foreground font-medium">
-          {fileCount} {fileCount === 1 ? 'file' : 'files'} generated
+          {fileCount} {fileCount === 1 ? "file" : "files"} generated
         </span>
       </div>
 
       {/* Row 2: Output path (relative display, copies absolute) */}
       {displayText && (
-        <LocalPathRow
-          displayText={displayText}
-          copyPath={absolutePath}
-          className="mt-1.5"
-        />
+        <LocalPathRow displayText={displayText} copyPath={absolutePath} className="mt-1.5" />
       )}
     </div>
   )

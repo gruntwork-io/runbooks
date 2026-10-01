@@ -1,5 +1,5 @@
-import { createContext } from 'react'
-import type { FileTreeNode } from '../components/artifacts/code/FileTree'
+import { createContext } from "react"
+import type { FileTreeNode } from "../components/artifacts/code/FileTree"
 
 /** A top-level subdirectory that contains a disproportionate number of files. */
 export interface HeavyDir {

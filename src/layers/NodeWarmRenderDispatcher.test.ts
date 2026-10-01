@@ -125,11 +125,7 @@ function fakeWasmLayer(spy: WasmSpy) {
   return Layer.succeed(WasmRuntime, impl)
 }
 
-function makeDispatcher(
-  spy: WasmSpy,
-  inputsMap: InputsMapResult,
-  bundleSpy: BundleSpy,
-) {
+function makeDispatcher(spy: WasmSpy, inputsMap: InputsMapResult, bundleSpy: BundleSpy) {
   return NodeWarmRenderDispatcherLive.pipe(
     Layer.provide(fakeBundleLayer(inputsMap, bundleSpy)),
     Layer.provide(fakeWasmLayer(spy)),
@@ -146,9 +142,11 @@ const run = <A>(
     Effect.gen(function* () {
       const d = yield* WarmRenderDispatcher
       return yield* f(d)
-    }).pipe(
-      Effect.provide(makeDispatcher(spy, inputsMap, bundleSpy)),
-    ) as Effect.Effect<A, never, never>,
+    }).pipe(Effect.provide(makeDispatcher(spy, inputsMap, bundleSpy))) as Effect.Effect<
+      A,
+      never,
+      never
+    >,
   )
 
 // Unique templateId per test keeps the module-scoped caches
@@ -248,11 +246,7 @@ describe("NodeWarmRenderDispatcher vars baseline", () => {
           // V2 only changes Region relative to V1, but disk still holds V0,
           // so the Name files must be re-rendered too.
           const result = yield* d.render(templateId, "/tmp/template", V2)
-          expect([...result.attemptedPaths].sort()).toEqual([
-            "both.txt",
-            "name.txt",
-            "region.txt",
-          ])
+          expect([...result.attemptedPaths].sort()).toEqual(["both.txt", "name.txt", "region.txt"])
         }),
       varsDiffInputsMap(),
     )

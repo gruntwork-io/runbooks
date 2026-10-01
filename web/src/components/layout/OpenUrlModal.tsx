@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from 'react'
-import { Loader2 } from 'lucide-react'
+import { useState, useCallback, useRef } from "react"
+import { Loader2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -7,9 +7,9 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog'
-import { useApi } from '@/contexts/ApiContext'
-import { cleanIpcErrorMessage } from '@/lib/ipcError'
+} from "@/components/ui/dialog"
+import { useApi } from "@/contexts/ApiContext"
+import { cleanIpcErrorMessage } from "@/lib/ipcError"
 
 interface OpenUrlModalProps {
   open: boolean
@@ -26,7 +26,7 @@ interface OpenUrlModalProps {
  */
 export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps) {
   const api = useApi()
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   // Identifies the in-flight request. Closing the modal bumps it, so a clone
@@ -35,7 +35,7 @@ export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps
   const requestIdRef = useRef(0)
 
   const reset = useCallback(() => {
-    setUrl('')
+    setUrl("")
     setError(null)
     setIsLoading(false)
   }, [])
@@ -56,21 +56,23 @@ export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps
     const requestId = ++requestIdRef.current
 
     try {
-      const result = await api.invoke('runbook:open-remote', { url: trimmed })
+      const result = await api.invoke("runbook:open-remote", { url: trimmed })
       if (requestId !== requestIdRef.current) return
       onOpened(result.path, result.remoteSource)
       reset()
       onOpenChange(false)
     } catch (err: unknown) {
       if (requestId !== requestIdRef.current) return
-      setError(err instanceof Error ? cleanIpcErrorMessage(err.message) : 'Failed to open remote runbook')
+      setError(
+        err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to open remote runbook",
+      )
       setIsLoading(false)
     }
   }, [url, api, onOpened, onOpenChange, reset])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !isLoading) {
+      if (e.key === "Enter" && !isLoading) {
         e.preventDefault()
         handleSubmit()
       }
@@ -79,13 +81,18 @@ export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps
   )
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleClose()
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Open from URL</DialogTitle>
           <DialogDescription>
-            Paste a GitHub or GitLab link to a runbook directory or runbook.mdx file, or a
-            go-getter source such as <code className="text-xs">github.com/org/repo//path?ref=main</code>.
+            Paste a GitHub or GitLab link to a runbook directory or runbook.mdx file, or a go-getter
+            source such as <code className="text-xs">github.com/org/repo//path?ref=main</code>.
           </DialogDescription>
         </DialogHeader>
 
@@ -104,9 +111,7 @@ export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps
             disabled={isLoading}
           />
 
-          {error && (
-            <p className="text-sm text-destructive">{error}</p>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
         <DialogFooter>
@@ -124,7 +129,7 @@ export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isLoading ? 'Cloning...' : 'Open'}
+            {isLoading ? "Cloning..." : "Open"}
           </button>
         </DialogFooter>
       </DialogContent>

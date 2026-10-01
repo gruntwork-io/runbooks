@@ -573,7 +573,9 @@ async function validateResolvedCredential(resolved: ResolvedCredential): Promise
   }
   const documentJson =
     resolved.documentJson ??
-    (resolved.path ? await runtime.runPromise(readCredentialFileContents(resolved.path)) : undefined)
+    (resolved.path
+      ? await runtime.runPromise(readCredentialFileContents(resolved.path))
+      : undefined)
   if (!documentJson) {
     throw new Error("No Google Cloud credentials found")
   }
@@ -590,7 +592,6 @@ function invalidPrefixError(prefix: string | undefined): string | undefined {
   }
   return undefined
 }
-
 
 /** Refuse user ADC that lacks the author's explicitly required scopes. */
 function scopeCheckFailure(
@@ -692,18 +693,21 @@ export function registerGoogleHandlers(): void {
         // block's credential. registerSession is that confirmation.
         if (!params.registerSession) return base
 
-        const success = await registerAuthenticatedCredential({
-          ...(params.blockId ? { blockId: params.blockId } : {}),
-          identity,
-          // registerAuthenticatedCredential prefers existingPath: a credential
-          // the caller pointed at on disk is used where it lives, never copied.
-          ...(documentJson ? { documentJson } : {}),
-          ...(existingPath ? { existingPath } : {}),
-          ...(params.accessToken ? { accessToken: params.accessToken } : {}),
-          ...(params.projectId ? { projectId: params.projectId } : {}),
-          ...(params.region ? { region: params.region } : {}),
-          ...(params.zone ? { zone: params.zone } : {}),
-        }, generation)
+        const success = await registerAuthenticatedCredential(
+          {
+            ...(params.blockId ? { blockId: params.blockId } : {}),
+            identity,
+            // registerAuthenticatedCredential prefers existingPath: a credential
+            // the caller pointed at on disk is used where it lives, never copied.
+            ...(documentJson ? { documentJson } : {}),
+            ...(existingPath ? { existingPath } : {}),
+            ...(params.accessToken ? { accessToken: params.accessToken } : {}),
+            ...(params.projectId ? { projectId: params.projectId } : {}),
+            ...(params.region ? { region: params.region } : {}),
+            ...(params.zone ? { zone: params.zone } : {}),
+          },
+          generation,
+        )
 
         const projects = await listProjectsSafe(success.ref)
 
@@ -804,7 +808,10 @@ export function registerGoogleHandlers(): void {
           }
         }
         if (!result.adcJson) {
-          return { status: "failed" as const, error: "Sign-in completed without returning credentials" }
+          return {
+            status: "failed" as const,
+            error: "Sign-in completed without returning credentials",
+          }
         }
 
         registerCredentialSecrets(result.adcJson)
@@ -819,13 +826,16 @@ export function registerGoogleHandlers(): void {
 
         // The region/zone are written here, not only by a set-project: with no
         // `project` prop and no listable projects, no set-project follows.
-        const success = await registerAuthenticatedCredential({
-          ...(params.blockId ? { blockId: params.blockId } : {}),
-          identity,
-          documentJson: result.adcJson,
-          ...(params.region ? { region: params.region } : {}),
-          ...(params.zone ? { zone: params.zone } : {}),
-        }, generation)
+        const success = await registerAuthenticatedCredential(
+          {
+            ...(params.blockId ? { blockId: params.blockId } : {}),
+            identity,
+            documentJson: result.adcJson,
+            ...(params.region ? { region: params.region } : {}),
+            ...(params.zone ? { zone: params.zone } : {}),
+          },
+          generation,
+        )
 
         flowCredentials.clear()
         flowCredentials.set(params.flowId, success.ref)
@@ -874,7 +884,9 @@ export function registerGoogleHandlers(): void {
       const listing = await runtime.runPromise(listGcloudConfigurations())
       return {
         configurations: listing.configurations.map(toConfigurationIpc),
-        ...(listing.activeConfiguration ? { activeConfiguration: listing.activeConfiguration } : {}),
+        ...(listing.activeConfiguration
+          ? { activeConfiguration: listing.activeConfiguration }
+          : {}),
         configRoot: listing.configRoot,
         ...(listing.adc ? { adc: toAdcInfoIpc(listing.adc) } : {}),
       }
@@ -930,15 +942,18 @@ export function registerGoogleHandlers(): void {
 
         // Nothing is materialised for this tab: GOOGLE_APPLICATION_CREDENTIALS
         // points at the user's own application_default_credentials.json.
-        const success = await registerAuthenticatedCredential({
-          ...(params.blockId ? { blockId: params.blockId } : {}),
-          identity,
-          existingPath: adc.path,
-          ...(projectId ? { projectId } : {}),
-          ...(region ? { region } : {}),
-          ...(zone ? { zone } : {}),
-          configuration: configuration.name,
-        }, generation)
+        const success = await registerAuthenticatedCredential(
+          {
+            ...(params.blockId ? { blockId: params.blockId } : {}),
+            identity,
+            existingPath: adc.path,
+            ...(projectId ? { projectId } : {}),
+            ...(region ? { region } : {}),
+            ...(zone ? { zone } : {}),
+            configuration: configuration.name,
+          },
+          generation,
+        )
 
         const projects = await listProjectsSafe(success.ref)
 
@@ -1079,7 +1094,10 @@ export function registerGoogleHandlers(): void {
           params.projectId,
         )
         if (!resolved) {
-          return { valid: false, error: "No Google Cloud credentials found in environment variables" }
+          return {
+            valid: false,
+            error: "No Google Cloud credentials found in environment variables",
+          }
         }
 
         const identity = await validateResolvedCredential(resolved)
@@ -1096,19 +1114,24 @@ export function registerGoogleHandlers(): void {
         const region = params.region ?? resolved.region
         const zone = params.zone ?? resolved.zone
 
-        const success = await registerAuthenticatedCredential({
-          ...(params.blockId ? { blockId: params.blockId } : {}),
-          identity,
-          // Only inline JSON is materialised; a credential that is already a
-          // file on disk is pointed at where it lives.
-          ...(resolved.path ? { existingPath: resolved.path } : {}),
-          ...(!resolved.path && resolved.documentJson ? { documentJson: resolved.documentJson } : {}),
-          ...(resolved.accessToken ? { accessToken: resolved.accessToken } : {}),
-          ...(projectId ? { projectId } : {}),
-          ...(region ? { region } : {}),
-          ...(zone ? { zone } : {}),
-          ...(resolved.configuration ? { configuration: resolved.configuration } : {}),
-        }, generation)
+        const success = await registerAuthenticatedCredential(
+          {
+            ...(params.blockId ? { blockId: params.blockId } : {}),
+            identity,
+            // Only inline JSON is materialised; a credential that is already a
+            // file on disk is pointed at where it lives.
+            ...(resolved.path ? { existingPath: resolved.path } : {}),
+            ...(!resolved.path && resolved.documentJson
+              ? { documentJson: resolved.documentJson }
+              : {}),
+            ...(resolved.accessToken ? { accessToken: resolved.accessToken } : {}),
+            ...(projectId ? { projectId } : {}),
+            ...(region ? { region } : {}),
+            ...(zone ? { zone } : {}),
+            ...(resolved.configuration ? { configuration: resolved.configuration } : {}),
+          },
+          generation,
+        )
 
         return {
           valid: true,
@@ -1143,11 +1166,10 @@ export function registerGoogleHandlers(): void {
         return { projects: [], error: "No Google Cloud credentials available in this session" }
       }
       try {
-        const projects = await runtime.runPromise(
-          listProjects(ref, params.query, params.pageSize),
-        )
+        const projects = await runtime.runPromise(listProjects(ref, params.query, params.pageSize))
         const mapped = projects.map(toProjectIpc)
-        for (const project of mapped) projectDisplayNames.set(project.projectId, project.displayName)
+        for (const project of mapped)
+          projectDisplayNames.set(project.projectId, project.displayName)
         return { projects: mapped }
       } catch (err) {
         return { projects: [], error: toErrorMessage(err) }
@@ -1218,7 +1240,10 @@ export function registerGoogleHandlers(): void {
       } catch (err) {
         // A typed failure: the credential itself could not be turned into a
         // client — that is worth saying out loud.
-        if (Runtime.isFiberFailure(err) && Option.isSome(Cause.failureOption(err[Runtime.FiberFailureCauseId]))) {
+        if (
+          Runtime.isFiberFailure(err) &&
+          Option.isSome(Cause.failureOption(err[Runtime.FiberFailureCauseId]))
+        ) {
           return { enabled: false, warning: toErrorMessage(err) }
         }
         // A defect or an interruption says nothing about the project, so it

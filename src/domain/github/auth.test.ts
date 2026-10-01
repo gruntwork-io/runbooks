@@ -51,17 +51,13 @@ describe("detectEnvCredentials", () => {
   // divergence is made visible via shadowedVar instead of flipped.
   it("returns GITHUB_TOKEN when set", async () => {
     const layer = makeTestEnvironment({ GITHUB_TOKEN: "ghp_test123" })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "ghp_test123", envVar: "GITHUB_TOKEN", shadowedVar: undefined })
   })
 
   it("falls back to GH_TOKEN when GITHUB_TOKEN is missing", async () => {
     const layer = makeTestEnvironment({ GH_TOKEN: "gho_fallback" })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "gho_fallback", envVar: "GH_TOKEN" })
   })
 
@@ -70,9 +66,7 @@ describe("detectEnvCredentials", () => {
       GITHUB_TOKEN: "ghp_primary",
       GH_TOKEN: "gho_secondary",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result?.token).toBe("ghp_primary")
     expect(result?.envVar).toBe("GITHUB_TOKEN")
     // both-set-and-differ: otherwise-silent shadowing becomes visible.
@@ -84,17 +78,13 @@ describe("detectEnvCredentials", () => {
       GITHUB_TOKEN: "ghp_same",
       GH_TOKEN: "ghp_same",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result?.shadowedVar).toBeUndefined()
   })
 
   it("returns undefined when neither is set", async () => {
     const layer = makeTestEnvironment({})
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 })
@@ -131,7 +121,7 @@ describe("detectEnvCredentials — {env:{prefix}} variant", () => {
   })
 
   it("treats an allowlist-violating prefix as absent (defense in depth)", async () => {
-    const layer = makeTestEnvironment({ "lower_GITHUB_TOKEN": "ghp_x" })
+    const layer = makeTestEnvironment({ lower_GITHUB_TOKEN: "ghp_x" })
     const result = await Effect.runPromise(
       detectEnvCredentials("github.com", "lower_").pipe(Effect.provide(layer)),
     )
@@ -183,18 +173,18 @@ describe("detectCliCredentials", () => {
 
   it("returns undefined when command fails", async () => {
     const layer = Layer.merge(
-      makeTestSpawner([{
-        command: "gh",
-        args: ["auth", "token", "--hostname", "github.com"],
-        outputLines: [],
-        exitCode: 1,
-      }]),
+      makeTestSpawner([
+        {
+          command: "gh",
+          args: ["auth", "token", "--hostname", "github.com"],
+          outputLines: [],
+          exitCode: 1,
+        },
+      ]),
       makeTestEnvironment(),
     )
 
-    const result = await Effect.runPromise(
-      detectCliCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectCliCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 })
@@ -271,9 +261,13 @@ describe("gh hosts.yml fallback", () => {
     // GH_CONFIG_DIR with no hosts.yml means "no gh config", never a peek at
     // ~/.config/gh (which would leak another profile's credentials).
     expect(
-      resolveGhHostsPath({ env: { GH_CONFIG_DIR: "/custom/gh", XDG_CONFIG_HOME: "/xdg", HOME: "/home/u" } }),
+      resolveGhHostsPath({
+        env: { GH_CONFIG_DIR: "/custom/gh", XDG_CONFIG_HOME: "/xdg", HOME: "/home/u" },
+      }),
     ).toBe("/custom/gh/hosts.yml")
-    expect(resolveGhHostsPath({ env: { XDG_CONFIG_HOME: "/xdg", HOME: "/home/u" } })).toBe("/xdg/gh/hosts.yml")
+    expect(resolveGhHostsPath({ env: { XDG_CONFIG_HOME: "/xdg", HOME: "/home/u" } })).toBe(
+      "/xdg/gh/hosts.yml",
+    )
     expect(resolveGhHostsPath({ env: { HOME: "/home/u" } })).toBe("/home/u/.config/gh/hosts.yml")
     expect(resolveGhHostsPath({ env: {} })).toBeUndefined()
   })
@@ -285,9 +279,7 @@ describe("gh hosts.yml fallback", () => {
         "/home/u/.config/gh/hosts.yml": `github.com:\n    oauth_token: gho_other_profile\n`,
       }),
     )
-    const result = await Effect.runPromise(
-      detectHostsYmlCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectHostsYmlCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ entryExists: false })
   })
 
@@ -315,17 +307,13 @@ describe("gh hosts.yml fallback", () => {
         "/home/u/.config/gh/hosts.yml": `github.com:\n    oauth_token: gho_from_disk\n`,
       }),
     )
-    const result = await Effect.runPromise(
-      detectHostsYmlCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectHostsYmlCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ entryExists: true, token: "gho_from_disk" })
   })
 
   it("returns entryExists false when no hosts.yml exists", async () => {
     const layer = Layer.merge(makeTestEnvironment({ HOME: "/home/u" }), makeTestFileSystem({}))
-    const result = await Effect.runPromise(
-      detectHostsYmlCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectHostsYmlCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ entryExists: false })
   })
 })

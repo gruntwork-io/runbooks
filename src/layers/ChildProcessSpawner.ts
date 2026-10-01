@@ -2,12 +2,24 @@
  * Live implementation of the ProcessSpawner service using child_process.spawn.
  */
 import { spawn as cpSpawn } from "node:child_process"
-import { closeSync, createWriteStream, fstatSync, openSync, readSync, type WriteStream } from "node:fs"
+import {
+  closeSync,
+  createWriteStream,
+  fstatSync,
+  openSync,
+  readSync,
+  type WriteStream,
+} from "node:fs"
 import * as readline from "node:readline"
 import { StringDecoder } from "node:string_decoder"
 import { Effect, Layer, Option, Stream } from "effect"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
-import type { ProcessSpawnerShape, SpawnedProcess, OutputLine, SpawnOptions } from "../services/ProcessSpawner.ts"
+import type {
+  ProcessSpawnerShape,
+  SpawnedProcess,
+  OutputLine,
+  SpawnOptions,
+} from "../services/ProcessSpawner.ts"
 import { SpawnError } from "../errors/index.ts"
 
 /** How often the spawner checks a run's log channel files for new lines. */
@@ -212,19 +224,17 @@ const impl: ProcessSpawnerShape = {
         // line; when none are pending it polls until more arrive, and once the
         // process has closed it drains any remaining lines and then ends.
         let cursor = 0
-        const pullLine: Effect.Effect<OutputLine, Option.Option<never>> = Effect.gen(
-          function* () {
-            while (true) {
-              if (cursor < collectedLines.length) {
-                return collectedLines[cursor++]
-              }
-              if (streamClosed) {
-                return yield* Effect.fail(Option.none<never>())
-              }
-              yield* Effect.sleep("50 millis")
+        const pullLine: Effect.Effect<OutputLine, Option.Option<never>> = Effect.gen(function* () {
+          while (true) {
+            if (cursor < collectedLines.length) {
+              return collectedLines[cursor++]
             }
-          },
-        )
+            if (streamClosed) {
+              return yield* Effect.fail(Option.none<never>())
+            }
+            yield* Effect.sleep("50 millis")
+          }
+        })
         const output: Stream.Stream<OutputLine> = Stream.repeatEffectOption(pullLine)
 
         const exitCode: Effect.Effect<number> = Effect.tryPromise({

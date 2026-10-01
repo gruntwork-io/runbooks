@@ -15,8 +15,15 @@ import { extractProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
-import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
-import { DEFAULT_GITHUB_HOST, isGitHubHost, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
+import {
+  githubEnvCredentialForHost,
+  githubSessionCredential,
+} from "../../src/domain/github/auth.ts"
+import {
+  DEFAULT_GITHUB_HOST,
+  isGitHubHost,
+  tryNormalizeGitHubHost,
+} from "../../src/domain/git/github-host.ts"
 import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
   parseBlockOutputsContent,
@@ -30,7 +37,13 @@ import {
   logChannelFiles,
   orderLogChannelLines,
 } from "../../src/domain/exec/logChannels.ts"
-import { maskOutput, maskOutputs, revealOutputs, type OutputValue, type OutputValues } from "../../src/domain/exec/outputValues.ts"
+import {
+  maskOutput,
+  maskOutputs,
+  revealOutputs,
+  type OutputValue,
+  type OutputValues,
+} from "../../src/domain/exec/outputValues.ts"
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
 import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
@@ -44,20 +57,9 @@ import { redactSecrets } from "../../src/domain/vcs/redact.ts"
 import { untouchedValue } from "../../src/domain/boilerplate/untouchedValue.ts"
 import type { Executable } from "../../src/types.ts"
 
-import type {
-  TestCase,
-  TestStep,
-  ExpectedStatus,
-  TestResult,
-  StepResult,
-} from "./config.ts"
+import type { TestCase, TestStep, ExpectedStatus, TestResult, StepResult } from "./config.ts"
 import { resolveTestInputs } from "./fuzz.ts"
-import {
-  runAssertion,
-  countFiles,
-  envListToRecord,
-  type AssertionContext,
-} from "./assertions.ts"
+import { runAssertion, countFiles, envListToRecord, type AssertionContext } from "./assertions.ts"
 import {
   InputValidator,
   parseAuthDependencies,
@@ -141,15 +143,10 @@ const GOOGLE_ZONE_WRITE_VARS = ["CLOUDSDK_COMPUTE_ZONE", "GOOGLE_ZONE"] as const
  * A git auth block's env lookup: the token and the session vars to write, or
  * why the block skips.
  */
-type GitAuthLookup =
-  | { token: string; vars: Record<string, string> }
-  | { skipReason: string }
+type GitAuthLookup = { token: string; vars: Record<string, string> } | { skipReason: string }
 
 /** Build a StepResult with its mutable fields freshly initialized per call. */
-function makeStepResult(
-  block: string,
-  expectedStatus: ExpectedStatus,
-): StepResult {
+function makeStepResult(block: string, expectedStatus: ExpectedStatus): StepResult {
   return {
     block,
     expectedStatus,
@@ -187,10 +184,7 @@ function hasCommits(repoDir: string, env: NodeJS.ProcessEnv): boolean {
  * Supports: {{ .path.to.value }} and {{ if .x }}...{{ else }}...{{ end }}.
  * This is a simplified renderer covering patterns used in runbook tests.
  */
-function renderGoTemplate(
-  content: string,
-  vars: Record<string, unknown>,
-): string {
+function renderGoTemplate(content: string, vars: Record<string, unknown>): string {
   // Handle {{ if .x }}...{{ else }}...{{ end }}
   let result = content.replace(
     /\{\{\s*if\s+\.([a-zA-Z0-9_.]+)\s*\}\}([\s\S]*?)(?:\{\{\s*else\s*\}\}([\s\S]*?))?\{\{\s*end\s*\}\}/g,
@@ -202,16 +196,13 @@ function renderGoTemplate(
   )
 
   // Handle {{ .path.to.value }} variable substitution
-  result = result.replace(
-    /\{\{\s*\.([a-zA-Z0-9_.]+)\s*\}\}/g,
-    (_match, keyPath: string) => {
-      const value = resolveDotPath(vars, keyPath)
-      if (value === undefined || value === null) {
-        throw new Error(`Template references {{.${keyPath}}} but that variable is not defined`)
-      }
-      return String(value)
-    },
-  )
+  result = result.replace(/\{\{\s*\.([a-zA-Z0-9_.]+)\s*\}\}/g, (_match, keyPath: string) => {
+    const value = resolveDotPath(vars, keyPath)
+    if (value === undefined || value === null) {
+      throw new Error(`Template references {{.${keyPath}}} but that variable is not defined`)
+    }
+    return String(value)
+  })
 
   // Handle {{ fromJson .path.to.value }} (returns parsed JSON)
   result = result.replace(
@@ -299,9 +290,7 @@ export class TestExecutor {
     // Build executable registry using Effect + FileSystem service
     const runtime = ManagedRuntime.make(NodeFileSystemLive)
     try {
-      this.registry = await runtime.runPromise(
-        ExecutableRegistry.create(this.runbookPath),
-      )
+      this.registry = await runtime.runPromise(ExecutableRegistry.create(this.runbookPath))
     } finally {
       await runtime.dispose()
     }
@@ -428,7 +417,8 @@ export class TestExecutor {
     const validationErrors = this.validator.validateInputValues(resolvedInputs)
     if (validationErrors.length > 0) {
       result.status = "failed"
-      result.error = "Input validation failed:\n" +
+      result.error =
+        "Input validation failed:\n" +
         validationErrors.map((e) => `  - ${e.inputKey}: ${e.message}`).join("\n")
       result.duration = Date.now() - start
       return result
@@ -548,10 +538,7 @@ export class TestExecutor {
   ): StepResult {
     const start = Date.now()
 
-    const result = makeStepResult(
-      `${lowercaseFirst(block.type)}:${block.id}`,
-      step.expect,
-    )
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     // 1. Check for config errors
     const configError = this.getConfigErrorForBlock(block, registryWarnings)
@@ -561,7 +548,10 @@ export class TestExecutor {
       result.error = configError
 
       if (step.expect === "config_error") {
-        if (step.error_contains && !configError.toLowerCase().includes(step.error_contains.toLowerCase())) {
+        if (
+          step.error_contains &&
+          !configError.toLowerCase().includes(step.error_contains.toLowerCase())
+        ) {
           result.passed = false
         } else {
           result.passed = true
@@ -633,15 +623,8 @@ export class TestExecutor {
   // Block dispatch
   // -----------------------------------------------------------------------
 
-  private dispatchBlock(
-    block: ParsedComponent,
-    step: TestStep,
-    start: number,
-  ): StepResult {
-    const result = makeStepResult(
-      `${lowercaseFirst(block.type)}:${block.id}`,
-      step.expect,
-    )
+  private dispatchBlock(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     if (this.options.verbose) {
       console.log(`\n=== ${block.type}: ${block.id} ===`)
@@ -671,10 +654,12 @@ export class TestExecutor {
     if (step.expect === "blocked") {
       const missing = this.checkMissingOutputs(step.missing_outputs ?? [])
       if (missing.length > 0) {
-        result.passed = true; result.actualStatus = "blocked"
+        result.passed = true
+        result.actualStatus = "blocked"
         result.error = `Blocked due to missing outputs: ${missing.join(", ")}`
       } else {
-        result.passed = false; result.actualStatus = "not_blocked"
+        result.passed = false
+        result.actualStatus = "not_blocked"
         result.error = "Expected block to be blocked but all dependencies are satisfied"
       }
       result.duration = Date.now() - start
@@ -686,7 +671,10 @@ export class TestExecutor {
     // get the same here.
     if (block.props.includes("{{")) {
       try {
-        block = { ...block, props: renderGoTemplate(block.props, this.buildTemplateVars(maskOutputs)) }
+        block = {
+          ...block,
+          props: renderGoTemplate(block.props, this.buildTemplateVars(maskOutputs)),
+        }
       } catch (e: unknown) {
         result.passed = false
         result.actualStatus = "error"
@@ -700,7 +688,8 @@ export class TestExecutor {
       case "TemplateInline": {
         const tmpl = this.templateInlines.get(block.id)
         if (!tmpl) {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = `TemplateInline block "${block.id}" not found`
           result.duration = Date.now() - start
           return result
@@ -711,7 +700,8 @@ export class TestExecutor {
       case "Template": {
         const tmpl = this.templates.get(block.id)
         if (!tmpl) {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = `Template block "${block.id}" not found`
           result.duration = Date.now() - start
           return result
@@ -732,7 +722,8 @@ export class TestExecutor {
       case "GitAuth": {
         const provider = extractProp(block.props, "provider") || "github"
         if (provider !== "github" && provider !== "gitlab") {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = `Unsupported provider "${provider}" (expected "github" or "gitlab")`
           result.duration = Date.now() - start
           return result
@@ -754,13 +745,16 @@ export class TestExecutor {
       case "GitPullRequest":
       case "GitHubPullRequest":
       case "GitLabMergeRequest":
-        result.passed = false; result.actualStatus = "error"
-        result.error = "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
+        result.passed = false
+        result.actualStatus = "error"
+        result.error =
+          "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
         result.duration = Date.now() - start
         return result
 
       default:
-        result.passed = false; result.actualStatus = "error"
+        result.passed = false
+        result.actualStatus = "error"
         result.error = `Unsupported block type "${block.type}"`
         result.duration = Date.now() - start
         return result
@@ -772,10 +766,7 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runCheckOrCommand(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result = makeStepResult(
-      `${lowercaseFirst(block.type)}:${block.id}`,
-      step.expect,
-    )
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     // Find the executable by component ID
     let foundExec: Executable | undefined
@@ -789,7 +780,8 @@ export class TestExecutor {
     }
 
     if (!foundExec) {
-      result.passed = false; result.actualStatus = "error"
+      result.passed = false
+      result.actualStatus = "error"
       result.error = `Block "${block.id}" not found in runbook`
       result.duration = Date.now() - start
       return result
@@ -800,14 +792,18 @@ export class TestExecutor {
     try {
       scriptContent = renderGoTemplate(scriptContent, this.buildTemplateVars())
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "error"
+      result.passed = false
+      result.actualStatus = "error"
       result.error = `Failed to render template: ${e}`
       result.duration = Date.now() - start
       return result
     }
 
     // Create temp files for outputs and file capture
-    const outputFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")), "output.txt")
+    const outputFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")),
+      "output.txt",
+    )
     fs.writeFileSync(outputFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
     // The log files, as in the app: RUNBOOK_LOG, which the log_* helpers
@@ -823,8 +819,11 @@ export class TestExecutor {
 
     try {
       // Prepare the script
-      const { interpreter, args: interpreterArgs, wrap: isBash } =
-        resolveScriptRunner(scriptContent, foundExec.language)
+      const {
+        interpreter,
+        args: interpreterArgs,
+        wrap: isBash,
+      } = resolveScriptRunner(scriptContent, foundExec.language)
 
       let scriptToWrite = scriptContent
       let envCapturePath = ""
@@ -930,7 +929,9 @@ export class TestExecutor {
       if (status === "success" || status === "warn") {
         try {
           result.outputs = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
-        } catch { /* no outputs */ }
+        } catch {
+          /* no outputs */
+        }
 
         // Carry the script's exports and final cwd into later blocks
         if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath)
@@ -951,12 +952,21 @@ export class TestExecutor {
       result.passed = this.matchesExpectedStatus(step.expect, status)
       result.duration = Date.now() - start
       return result
-
     } finally {
       // Cleanup temp files. The env capture holds every variable the script
       // saw, credentials included, so it must not outlive the block.
-      for (const dir of [path.dirname(outputFile), filesDir, logChannelDir, envDir, pwdDir, scriptDir]) {
-        if (dir) try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+      for (const dir of [
+        path.dirname(outputFile),
+        filesDir,
+        logChannelDir,
+        envDir,
+        pwdDir,
+        scriptDir,
+      ]) {
+        if (dir)
+          try {
+            fs.rmSync(dir, { recursive: true, force: true })
+          } catch {}
       }
     }
   }
@@ -971,7 +981,9 @@ export class TestExecutor {
     let env: Record<string, string> | undefined
     try {
       env = parseEnvCaptureContent(fs.readFileSync(envCapturePath, "utf-8"))
-    } catch { /* nothing captured */ }
+    } catch {
+      /* nothing captured */
+    }
     if (!env) return
 
     this.sessionEnv = Object.entries(filterCapturedEnv(env)).map(([k, v]) => `${k}=${v}`)
@@ -979,7 +991,9 @@ export class TestExecutor {
     let pwd = ""
     try {
       pwd = fs.readFileSync(pwdCapturePath, "utf-8").trim()
-    } catch { /* keep the current cwd */ }
+    } catch {
+      /* keep the current cwd */
+    }
     if (pwd) this.sessionWorkDir = pwd
   }
 
@@ -997,7 +1011,8 @@ export class TestExecutor {
     try {
       rendered = renderGoTemplate(block.content, this.buildTemplateVars())
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "error"
+      result.passed = false
+      result.actualStatus = "error"
       result.error = `${e}`
       result.duration = Date.now() - start
       return result
@@ -1011,7 +1026,8 @@ export class TestExecutor {
       let outputDir: string
       if (block.target === "worktree") {
         if (!this.activeWorkTreePath) {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = 'Target is "worktree" but no git worktree has been cloned'
           result.duration = Date.now() - start
           return result
@@ -1028,7 +1044,8 @@ export class TestExecutor {
         this.creditGeneratedFiles(block.id, 1)
         if (this.options.verbose) console.log(`--- Wrote file: ${outputFile} ---`)
       } catch (e: unknown) {
-        result.passed = false; result.actualStatus = "error"
+        result.passed = false
+        result.actualStatus = "error"
         result.error = `Failed to write file: ${e}`
         result.duration = Date.now() - start
         return result
@@ -1066,7 +1083,8 @@ export class TestExecutor {
     let outputDir: string
     if (block.target === "worktree") {
       if (!this.activeWorkTreePath) {
-        result.passed = false; result.actualStatus = "error"
+        result.passed = false
+        result.actualStatus = "error"
         result.error = 'Target is "worktree" but no git worktree has been cloned'
         result.duration = Date.now() - start
         return result
@@ -1093,7 +1111,8 @@ export class TestExecutor {
       }
       this.creditGeneratedFiles(block.id, this.renderTemplateDir(templatePath, outputDir, vars))
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "error"
+      result.passed = false
+      result.actualStatus = "error"
       result.error = `Template rendering failed: ${e}`
       result.duration = Date.now() - start
       return result
@@ -1162,9 +1181,10 @@ export class TestExecutor {
     const providerName = provider === "gitlab" ? "GitLab" : "GitHub"
 
     const prefix = step.env_prefix ?? ""
-    const lookup = provider === "gitlab"
-      ? this.findGitLabAuthEnv(block, prefix)
-      : this.findGitHubAuthEnv(block, prefix)
+    const lookup =
+      provider === "gitlab"
+        ? this.findGitLabAuthEnv(block, prefix)
+        : this.findGitHubAuthEnv(block, prefix)
 
     if ("skipReason" in lookup) {
       this.blockStates.set(block.id, "skipped")
@@ -1318,9 +1338,10 @@ export class TestExecutor {
     // Inject explicit credentials into session
     if (blockCreds["AWS_ACCESS_KEY_ID"]) {
       this.sessionEnv = this.sessionEnv.filter(
-        (e) => !e.startsWith("AWS_ACCESS_KEY_ID=") &&
-               !e.startsWith("AWS_SECRET_ACCESS_KEY=") &&
-               !e.startsWith("AWS_SESSION_TOKEN="),
+        (e) =>
+          !e.startsWith("AWS_ACCESS_KEY_ID=") &&
+          !e.startsWith("AWS_SECRET_ACCESS_KEY=") &&
+          !e.startsWith("AWS_SESSION_TOKEN="),
       )
       this.sessionEnv.push(`AWS_ACCESS_KEY_ID=${blockCreds["AWS_ACCESS_KEY_ID"]}`)
       this.sessionEnv.push(`AWS_SECRET_ACCESS_KEY=${blockCreds["AWS_SECRET_ACCESS_KEY"]}`)
@@ -1537,7 +1558,8 @@ export class TestExecutor {
     // a ref) behaves identically here.
     const cloneSteps = buildCloneSteps(cloneURL, destPath, { ref, repoPath })
     if (Either.isLeft(cloneSteps)) {
-      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.actualStatus = "fail"
       result.error = cloneSteps.left.stderr
       result.duration = Date.now() - start
       return result
@@ -1564,7 +1586,8 @@ export class TestExecutor {
         })
       }
     } catch (e: unknown) {
-      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.actualStatus = "fail"
       // Sanitize error to not leak tokens
       result.error = redactSecrets(String(e))
       result.duration = Date.now() - start
@@ -1608,7 +1631,11 @@ export class TestExecutor {
    */
   private cloneAuthEnv(block: ParsedComponent, cloneURL: string): NodeJS.ProcessEnv {
     let url: URL
-    try { url = new URL(cloneURL) } catch { return process.env }
+    try {
+      url = new URL(cloneURL)
+    } catch {
+      return process.env
+    }
     if (url.protocol !== "https:") return process.env
     const host = url.host.toLowerCase()
 
@@ -1628,7 +1655,9 @@ export class TestExecutor {
         token = creds["GITHUB_TOKEN"] ?? ""
       }
       if (!token) {
-        token = githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))?.token ?? ""
+        token =
+          githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))
+            ?.token ?? ""
       }
     } else {
       if (creds && creds["GITLAB_HOST"] === host) token = creds["GITLAB_TOKEN"] ?? ""
@@ -1788,13 +1817,20 @@ export class TestExecutor {
 
   private matchesExpectedStatus(expected: ExpectedStatus, actual: string): boolean {
     switch (expected) {
-      case "success": return actual === "success"
-      case "fail": return actual === "fail"
-      case "warn": return actual === "warn"
-      case "blocked": return actual === "blocked"
-      case "skip": return actual === "skipped"
-      case "config_error": return actual === "config_error"
-      default: return false
+      case "success":
+        return actual === "success"
+      case "fail":
+        return actual === "fail"
+      case "warn":
+        return actual === "warn"
+      case "blocked":
+        return actual === "blocked"
+      case "skip":
+        return actual === "skipped"
+      case "config_error":
+        return actual === "config_error"
+      default:
+        return false
     }
   }
 
@@ -1802,7 +1838,10 @@ export class TestExecutor {
     // Look outputs up the way templates reference them: buildTemplateVars keys
     // them by block id with hyphens turned into underscores, so
     // `outputs.create_account.account_id` finds block "create-account".
-    const templateOutputs = this.buildTemplateVars().outputs as Record<string, Record<string, string>>
+    const templateOutputs = this.buildTemplateVars().outputs as Record<
+      string,
+      Record<string, string>
+    >
     const missing: string[] = []
     for (const p of expected) {
       const parts = p.split(".")
@@ -1843,9 +1882,10 @@ export class TestExecutor {
     if (stepResult.logs) {
       const lines = stepResult.logs.trim().split("\n")
       const maxLines = 20
-      const truncated = lines.length > maxLines
-        ? [`... (${lines.length - maxLines} lines truncated) ...`, ...lines.slice(-maxLines)]
-        : lines
+      const truncated =
+        lines.length > maxLines
+          ? [`... (${lines.length - maxLines} lines truncated) ...`, ...lines.slice(-maxLines)]
+          : lines
       msg += `\n\n--- Script Output ---\n${truncated.join("\n")}`
     }
 
@@ -1873,7 +1913,7 @@ export class TestExecutor {
         console.log(`  ${key} = ${display}`)
       }
     }
-    const icon = (status === "success" || status === "warn") ? "✓" : "✗"
+    const icon = status === "success" || status === "warn" ? "✓" : "✗"
     console.log(`--- Result: ${icon} ${status} ---`)
     if (error) console.log(`  Error: ${error}`)
   }
@@ -1917,8 +1957,9 @@ export class TestExecutor {
     if (!label) return
 
     try {
-      const script = action.command
-        || fs.readFileSync(path.join(path.dirname(this.runbookPath), action.path!), "utf-8")
+      const script =
+        action.command ||
+        fs.readFileSync(path.join(path.dirname(this.runbookPath), action.path!), "utf-8")
       const cwd = this.resolveOutputPath()
       fs.mkdirSync(cwd, { recursive: true })
       execFileSync("/bin/bash", ["-c", script], {

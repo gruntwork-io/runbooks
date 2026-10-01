@@ -5,9 +5,9 @@
  * Used when there is only one worktree (no switcher needed).
  */
 
-import type { GitRepoInfo } from '@/types/workspace'
-import { RefIcon, formatRef } from './gitRefDisplay'
-import { RepoIcon, RepoLabel } from './RepoLabel'
+import type { GitRepoInfo } from "@/types/workspace"
+import { RefIcon, formatRef } from "./gitRefDisplay"
+import { RepoIcon, RepoLabel } from "./RepoLabel"
 
 export function WorktreeStaticRow({ gitInfo }: { gitInfo: GitRepoInfo }) {
   return (
@@ -20,10 +20,8 @@ export function WorktreeStaticRow({ gitInfo }: { gitInfo: GitRepoInfo }) {
         <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
           {formatRef(gitInfo.ref, gitInfo.refType)}
         </span>
-        {gitInfo.commitSha && gitInfo.refType !== 'commit' && (
-          <span className="font-mono text-muted-foreground">
-            {gitInfo.commitSha.slice(0, 7)}
-          </span>
+        {gitInfo.commitSha && gitInfo.refType !== "commit" && (
+          <span className="font-mono text-muted-foreground">{gitInfo.commitSha.slice(0, 7)}</span>
         )}
       </div>
     </div>

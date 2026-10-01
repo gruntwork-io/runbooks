@@ -26,7 +26,10 @@ describe("resolveGcloudConfigPaths", () => {
 
   it("uses %APPDATA%\\gcloud on Windows — never %LOCALAPPDATA%", () => {
     const paths = resolveGcloudConfigPaths(
-      { APPDATA: "C:\\Users\\dev\\AppData\\Roaming", LOCALAPPDATA: "C:\\Users\\dev\\AppData\\Local" },
+      {
+        APPDATA: "C:\\Users\\dev\\AppData\\Roaming",
+        LOCALAPPDATA: "C:\\Users\\dev\\AppData\\Local",
+      },
       "C:\\Users\\dev",
       "win32",
     )

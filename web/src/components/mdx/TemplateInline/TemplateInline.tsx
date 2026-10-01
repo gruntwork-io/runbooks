@@ -1,28 +1,42 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
-import type { ReactNode } from 'react'
-import { LoadingDisplay } from '@/components/mdx/_shared/components/LoadingDisplay'
-import { ErrorDisplay } from '@/components/mdx/_shared/components/ErrorDisplay'
-import { UnmetDependenciesWarning } from '@/components/mdx/_shared/components/UnmetDependenciesWarning'
-import { useInputs, useAllOutputs, flattenInputs, useRunbookContext } from '@/contexts/useRunbook'
-import { extractTemplateDependencies, extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
-import { extractTemplateFiles } from './lib/extractTemplateFiles'
-import type { File, FileTreeNode } from '@/components/artifacts/code/FileTree'
-import type { AppError } from '@/types/error'
-import { useIpc } from '@/hooks/useIpc'
-import { useFileTreeUpdater } from '../_shared/hooks/useFileTreeUpdater'
-import { computeChangeKey } from '@/lib/changeDetection'
-import { CodeFile } from '@/components/artifacts/code/CodeFile'
-import { AlertTriangle } from 'lucide-react'
-import { DuplicateIdError } from '../_shared/components/DuplicateIdError'
-import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
-import { useInstructionMode } from '@/contexts/useInstructionMode'
-import { useErrorReporting } from '@/contexts/useErrorReporting'
-import { useTelemetry } from '@/contexts/useTelemetry'
-import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, maskTemplateOutputs, referencesSensitiveOutput, resolveTemplateReferences, revealTemplateOutputs } from '@/lib/templateUtils'
+import { useState, useEffect, useMemo, useRef } from "react"
+import type { ReactNode } from "react"
+import { LoadingDisplay } from "@/components/mdx/_shared/components/LoadingDisplay"
+import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
+import { useInputs, useAllOutputs, flattenInputs, useRunbookContext } from "@/contexts/useRunbook"
+import {
+  extractTemplateDependencies,
+  extractTemplateDependenciesFromString,
+  splitDependencies,
+} from "@/lib/extractTemplateDependencies"
+import { extractTemplateFiles } from "./lib/extractTemplateFiles"
+import type { File, FileTreeNode } from "@/components/artifacts/code/FileTree"
+import type { AppError } from "@/types/error"
+import { useIpc } from "@/hooks/useIpc"
+import { useFileTreeUpdater } from "../_shared/hooks/useFileTreeUpdater"
+import { computeChangeKey } from "@/lib/changeDetection"
+import { CodeFile } from "@/components/artifacts/code/CodeFile"
+import { AlertTriangle } from "lucide-react"
+import { DuplicateIdError } from "../_shared/components/DuplicateIdError"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { useTelemetry } from "@/contexts/useTelemetry"
+import {
+  buildTemplatePayload,
+  computeUnmetInputDependencies,
+  computeUnmetOutputDependencies,
+  flattenBlockOutputs,
+  hasEmptyNumericInputs,
+  maskTemplateOutputs,
+  referencesSensitiveOutput,
+  resolveTemplateReferences,
+  revealTemplateOutputs,
+} from "@/lib/templateUtils"
 
 /** Added to a preview render error when the template uses a sensitive output (see previewMasksSensitiveOutput). */
 const SENSITIVE_PREVIEW_NOTE =
-  'This preview shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here.'
+  "This preview shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here."
 
 interface RenderInlineResult {
   renderedFiles: Record<string, File>
@@ -43,7 +57,7 @@ interface TemplateInlineProps {
   /** Whether to also save the rendered file to the workspace (default: false, preview only) */
   generateFile?: boolean
   /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). Only used when generateFile is true. */
-  target?: 'generated' | 'worktree'
+  target?: "generated" | "worktree"
   /** Inline template content (code blocks with file paths) */
   children?: ReactNode
 }
@@ -65,14 +79,14 @@ function TemplateInline({
   outputPath,
   generateFile = false,
   target,
-  children
+  children,
 }: TemplateInlineProps) {
   // Validate required props before any hooks that depend on id
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
         message: "The <TemplateInline> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
@@ -86,7 +100,10 @@ function TemplateInline({
   const effectiveGenerateFile = instructionMode ? false : generateFile
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'TemplateInline')
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    "TemplateInline",
+  )
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -94,22 +111,22 @@ function TemplateInline({
 
   // Track block render on mount
   useEffect(() => {
-    trackBlockRender('TemplateInline')
+    trackBlockRender("TemplateInline")
   }, [trackBlockRender])
 
   // Render state — tracks whether we've ever rendered (for the "waiting" UI)
-  const [hasRendered, setHasRendered] = useState(false);
+  const [hasRendered, setHasRendered] = useState(false)
 
   // Report configuration errors (duplicate ID / normalized collision) to the shared error context.
   useEffect(() => {
     if (isDuplicate) {
       reportError({
         componentId: id,
-        componentType: 'TemplateInline',
-        severity: 'error',
+        componentType: "TemplateInline",
+        severity: "error",
         message: isNormalizedCollision
           ? `TemplateInline ID "${id}" collides with "${collidingId}" after normalization`
-          : `Duplicate component ID: ${id}`
+          : `Duplicate component ID: ${id}`,
       })
     } else {
       clearError(id)
@@ -117,72 +134,83 @@ function TemplateInline({
   }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
 
   // Track last rendered change key to avoid duplicate renders
-  const lastRenderedKeyRef = useRef<string | null>(null);
+  const lastRenderedKeyRef = useRef<string | null>(null)
 
   // API hook — lazy mode skips auto-fetch on mount; we use debouncedRequest explicitly
   const { data, error, isLoading, debouncedRequest } = useIpc<RenderInlineResult>(
-    'boilerplate:render-inline', undefined, { lazy: true, debounceMs: 300 }
-  );
+    "boilerplate:render-inline",
+    undefined,
+    { lazy: true, debounceMs: 300 },
+  )
 
   // File tree updater — handles Generated tab vs worktree updates
-  const { applyFileTreeUpdate } = useFileTreeUpdater(target);
+  const { applyFileTreeUpdate } = useFileTreeUpdater(target)
 
   // Get inputs for API requests and derive values map for lookups
-  const inputs = useInputs(inputsId);
-  const inputValues = useMemo(() => flattenInputs(inputs), [inputs]);
+  const inputs = useInputs(inputsId)
+  const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
 
   // Track which inputsId blocks haven't registered values yet (for the waiting message)
-  const { blockInputs } = useRunbookContext();
+  const { blockInputs } = useRunbookContext()
   const unmetInputsIds = useMemo(() => {
-    if (!inputsId) return [];
-    const ids = Array.isArray(inputsId) ? inputsId : [inputsId];
-    return ids.filter(id => !blockInputs[id]);
-  }, [inputsId, blockInputs]);
+    if (!inputsId) return []
+    const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
+    return ids.filter((id) => !blockInputs[id])
+  }, [inputsId, blockInputs])
 
   // Get all block outputs to check dependencies and pass to template rendering
-  const allOutputs = useAllOutputs();
+  const allOutputs = useAllOutputs()
 
   // Extract all template dependencies from children and outputPath
-  const allDeps = useMemo(() => [
-    ...extractTemplateDependencies(children),
-    ...extractTemplateDependenciesFromString(outputPath ?? ''),
-  ], [children, outputPath]);
-  const { inputs: inputDeps, outputs: outputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps]);
+  const allDeps = useMemo(
+    () => [
+      ...extractTemplateDependencies(children),
+      ...extractTemplateDependenciesFromString(outputPath ?? ""),
+    ],
+    [children, outputPath],
+  )
+  const { inputs: inputDeps, outputs: outputDeps } = useMemo(
+    () => splitDependencies(allDeps),
+    [allDeps],
+  )
 
   // Compute flattened outputs for template context
-  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs]);
+  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])
 
   // Resolve {{ .outputs.X.Y }} expressions in outputPath using block outputs.
   // This enables dynamic file paths like "{{ .outputs.target_path.PATH }}/terragrunt.hcl".
   const resolvedOutputPath = useMemo(
-    () => outputPath ? resolveTemplateReferences(outputPath, { inputs: inputValues, outputs: flattenedOutputs }) : outputPath,
-    [outputPath, inputValues, flattenedOutputs]
-  );
+    () =>
+      outputPath
+        ? resolveTemplateReferences(outputPath, { inputs: inputValues, outputs: flattenedOutputs })
+        : outputPath,
+    [outputPath, inputValues, flattenedOutputs],
+  )
 
   // Check which input/output dependencies are not yet satisfied
   const unmetInputDeps = useMemo(
     () => computeUnmetInputDependencies(inputDeps, inputValues),
-    [inputDeps, inputValues]
-  );
+    [inputDeps, inputValues],
+  )
   const unmetOutputDeps = useMemo(
     () => computeUnmetOutputDependencies(outputDeps, allOutputs),
-    [outputDeps, allOutputs]
-  );
-  const hasAllInputDeps = unmetInputDeps.length === 0;
-  const hasAllOutputDeps = unmetOutputDeps.length === 0;
+    [outputDeps, allOutputs],
+  )
+  const hasAllInputDeps = unmetInputDeps.length === 0
+  const hasAllOutputDeps = unmetOutputDeps.length === 0
 
   // A preview-only render shows a sensitive output as <redacted> (see the
   // render effect). A template that processes its value (e.g. fromJson) can
   // then fail, so the error says why.
   const previewMasksSensitiveOutput = useMemo(
     () => !effectiveGenerateFile && referencesSensitiveOutput(outputDeps, allOutputs),
-    [effectiveGenerateFile, outputDeps, allOutputs]
-  );
+    [effectiveGenerateFile, outputDeps, allOutputs],
+  )
   // useIpc repeats the message as the details, so the note replaces them
   const shownError = useMemo((): AppError | null => {
-    if (!error || !previewMasksSensitiveOutput) return error;
-    return { ...error, details: SENSITIVE_PREVIEW_NOTE };
-  }, [error, previewMasksSensitiveOutput]);
+    if (!error || !previewMasksSensitiveOutput) return error
+    return { ...error, details: SENSITIVE_PREVIEW_NOTE }
+  }, [error, previewMasksSensitiveOutput])
 
   // Extract template content from children
   // MDX compiles code blocks into a nested React element structure (pre > code > text),
@@ -190,37 +218,39 @@ function TemplateInline({
   // the Boilerplate API expects a files map (filename → content), even for a single file.
   // Uses resolvedOutputPath so dynamic expressions are resolved before file naming.
   const templateFiles = useMemo(() => {
-    return extractTemplateFiles(children, resolvedOutputPath);
-  }, [children, resolvedOutputPath]);
+    return extractTemplateFiles(children, resolvedOutputPath)
+  }, [children, resolvedOutputPath])
 
   // Auto-render when inputs or outputs change
   useEffect(() => {
-    if (isDuplicate) return;
-    if (!hasAllInputDeps || !hasAllOutputDeps) return;
+    if (isDuplicate) return
+    if (!hasAllInputDeps || !hasAllOutputDeps) return
     // Don't render when inputsId blocks haven't submitted values yet.
     // Templates may reference root-level keys injected by
     // upstream blocks that aren't tracked as .inputs.X deps.
-    if (unmetInputsIds.length > 0) return;
+    if (unmetInputsIds.length > 0) return
 
     // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
     // a number field before typing a new value). Sending "" to the backend would
     // cause type-conversion errors like strconv.Atoi("").
-    if (hasEmptyNumericInputs(inputs)) return;
+    if (hasEmptyNumericInputs(inputs)) return
 
     // Deduplicate renders: hash everything the request depends on and skip if nothing changed.
     // This prevents redundant API calls when React re-runs the effect with the same values.
     // generateFile/target are part of the key so leaving instruction mode re-renders and writes.
-    const key = computeChangeKey(inputs, allOutputs, templateFiles, effectiveGenerateFile, target);
-    if (key === lastRenderedKeyRef.current) return;
-    lastRenderedKeyRef.current = key;
+    const key = computeChangeKey(inputs, allOutputs, templateFiles, effectiveGenerateFile, target)
+    if (key === lastRenderedKeyRef.current) return
+    lastRenderedKeyRef.current = key
 
     // A sensitive output renders with its real value only when the render
     // writes a file, which needs it. The preview shows that same render, so it
     // shows the value too. A preview-only render shows <redacted>.
     const payload = buildTemplatePayload({
       inputs: inputValues,
-      outputs: effectiveGenerateFile ? revealTemplateOutputs(flattenedOutputs) : maskTemplateOutputs(flattenedOutputs),
-    });
+      outputs: effectiveGenerateFile
+        ? revealTemplateOutputs(flattenedOutputs)
+        : maskTemplateOutputs(flattenedOutputs),
+    })
 
     // blockId lets main clean up the file this block wrote at its previous
     // outputPath when the path changes (e.g. it follows a DirPicker output):
@@ -231,23 +261,37 @@ function TemplateInline({
       generateFile: effectiveGenerateFile,
       ...(target ? { target } : {}),
       blockId: id,
-    });
-  }, [id, inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, effectiveGenerateFile, target, debouncedRequest, isDuplicate]);
+    })
+  }, [
+    id,
+    inputs,
+    inputValues,
+    allOutputs,
+    hasAllInputDeps,
+    hasAllOutputDeps,
+    unmetInputsIds,
+    templateFiles,
+    flattenedOutputs,
+    effectiveGenerateFile,
+    target,
+    debouncedRequest,
+    isDuplicate,
+  ])
 
   if (data && !hasRendered) {
-    setHasRendered(true);
+    setHasRendered(true)
   }
 
   // Apply file tree updates when render data arrives. Only a response that
   // wrote files carries a fileTree; a preview response (e.g. one left over from
   // instruction mode) must never replace the Generated tree.
   useEffect(() => {
-    if (!data) return;
-    const { fileTree } = data;
+    if (!data) return
+    const { fileTree } = data
     if (effectiveGenerateFile && Array.isArray(fileTree)) {
-      applyFileTreeUpdate({ ...data, fileTree });
+      applyFileTreeUpdate({ ...data, fileTree })
     }
-  }, [data, effectiveGenerateFile, applyFileTreeUpdate]);
+  }, [data, effectiveGenerateFile, applyFileTreeUpdate])
 
   // Early return for validation errors
   if (validationError) {
@@ -256,7 +300,13 @@ function TemplateInline({
 
   // Early return for duplicate ID error
   if (isDuplicate) {
-    return <DuplicateIdError id={id} isNormalizedCollision={isNormalizedCollision} collidingId={collidingId} />
+    return (
+      <DuplicateIdError
+        id={id}
+        isNormalizedCollision={isNormalizedCollision}
+        collidingId={collidingId}
+      />
+    )
   }
 
   // Render UI
@@ -267,10 +317,10 @@ function TemplateInline({
         <div className="mb-3 text-sm text-warning flex items-start gap-2">
           <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
           <div>
-            <strong>Waiting for inputs from:</strong>{' '}
+            <strong>Waiting for inputs from:</strong>{" "}
             {unmetInputsIds.map((inputId, i) => (
               <span key={inputId}>
-                {i > 0 && ', '}
+                {i > 0 && ", "}
                 <code className="bg-warning-muted px-1 rounded text-xs">{inputId}</code>
               </span>
             ))}
@@ -284,7 +334,9 @@ function TemplateInline({
       {(unmetInputDeps.length > 0 && unmetInputsIds.length === 0) || unmetOutputDeps.length > 0 ? (
         <UnmetDependenciesWarning
           blockType="template"
-          unmetInputDeps={unmetInputDeps.length > 0 && unmetInputsIds.length === 0 ? unmetInputDeps : []}
+          unmetInputDeps={
+            unmetInputDeps.length > 0 && unmetInputsIds.length === 0 ? unmetInputDeps : []
+          }
           unmetOutputDeps={unmetOutputDeps}
         />
       ) : null}
@@ -318,6 +370,6 @@ function TemplateInline({
 }
 
 // Set displayName for React DevTools and component detection
-TemplateInline.displayName = 'TemplateInline';
+TemplateInline.displayName = "TemplateInline"
 
-export default TemplateInline;
+export default TemplateInline

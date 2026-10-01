@@ -1,5 +1,5 @@
-import React from 'react'
-import type { GitRepoInfo } from '../types/workspace'
+import React from "react"
+import type { GitRepoInfo } from "../types/workspace"
 
 /**
  * Represents a single git worktree registered by a GitClone block.

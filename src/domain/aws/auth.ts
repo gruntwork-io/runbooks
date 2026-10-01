@@ -287,7 +287,9 @@ export const pollSsoFlow = (
     if (!accountId || !roleName) {
       const accounts = yield* listSsoAccounts(accessToken, region)
       if (accounts.length === 0) {
-        return yield* new AwsSsoError({ message: "No AWS accounts are available to you in IAM Identity Center" })
+        return yield* new AwsSsoError({
+          message: "No AWS accounts are available to you in IAM Identity Center",
+        })
       }
       const selectAccount = { status: "select_account", accessToken, accounts } as const
       if (accounts.length > 1) {
@@ -297,7 +299,9 @@ export const pollSsoFlow = (
       const [account] = accounts
       const roles = yield* listSsoRoles(accessToken, account.accountId, region)
       if (roles.length === 0) {
-        return yield* new AwsSsoError({ message: `No roles are available to you in account ${account.accountId}` })
+        return yield* new AwsSsoError({
+          message: `No roles are available to you in account ${account.accountId}`,
+        })
       }
       if (roles.length > 1) {
         return selectAccount
@@ -306,7 +310,12 @@ export const pollSsoFlow = (
       roleName = roles[0].roleName
     }
 
-    const { credentials, identity } = yield* signInWithSsoRole({ accessToken, accountId, roleName, region })
+    const { credentials, identity } = yield* signInWithSsoRole({
+      accessToken,
+      accountId,
+      roleName,
+      region,
+    })
     return { status: "success", credentials, identity } as const
   })
 

@@ -98,15 +98,11 @@ function makeFakeWasm(options: FakeWasmOptions = {}): WasmRuntimeShape {
       Effect.suspend(() => {
         options.onCall?.(template, varsJSON)
         if (options.alwaysFail) {
-          return Effect.fail(
-            new WasmError({ message: "fake: alwaysFail", kind: "load" }),
-          )
+          return Effect.fail(new WasmError({ message: "fake: alwaysFail", kind: "load" }))
         }
         const result = fakeRenderTemplate(template, varsJSON)
         if (result.ok) return Effect.succeed(result.value)
-        return Effect.fail(
-          new WasmError({ message: result.message, kind: "internal" }),
-        )
+        return Effect.fail(new WasmError({ message: result.message, kind: "internal" }))
       }),
     renderFiles: () => notImplemented("renderFiles") as never,
     prepareBundle: () => notImplemented("prepareBundle") as never,
@@ -148,9 +144,7 @@ describe("stripTemplateValues", () => {
   })
 
   it("strips template entries from a map", () => {
-    expect(
-      stripTemplateValues({ a: "x", b: "{{ .y }}" }),
-    ).toEqual({ a: "x" })
+    expect(stripTemplateValues({ a: "x", b: "{{ .y }}" })).toEqual({ a: "x" })
   })
 
   it("drops an all-template map entirely", () => {
@@ -183,13 +177,16 @@ describe("stripTemplateValues", () => {
 describe("resolveInputTemplates", () => {
   it("returns inputs unchanged when no template strings are present", async () => {
     // No WASM call needed in this branch. Provide a fake that would die if called.
-    const dieingWasm = Layer.succeed(WasmRuntime, makeFakeWasm({
-      onCall: () => { throw new Error("renderTemplate should not be called") },
-    }))
+    const dieingWasm = Layer.succeed(
+      WasmRuntime,
+      makeFakeWasm({
+        onCall: () => {
+          throw new Error("renderTemplate should not be called")
+        },
+      }),
+    )
     const result = await Effect.runPromise(
-      resolveInputTemplates({ A: "literal", B: 42 }, {}).pipe(
-        Effect.provide(dieingWasm),
-      ),
+      resolveInputTemplates({ A: "literal", B: 42 }, {}).pipe(Effect.provide(dieingWasm)),
     )
     expect(result).toEqual({ A: "literal", B: 42 })
   })
@@ -220,7 +217,8 @@ describe("resolveInputTemplates", () => {
           EmailUsername: "acme",
           EmailDomainName: "example.com",
           LogsAccountEmail: "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}",
-          SecurityAccountEmail: "{{ .inputs.EmailUsername }}+security@{{ .inputs.EmailDomainName }}",
+          SecurityAccountEmail:
+            "{{ .inputs.EmailUsername }}+security@{{ .inputs.EmailDomainName }}",
           SharedAccountEmail: "{{ .inputs.EmailUsername }}+shared@{{ .inputs.EmailDomainName }}",
         },
         { get_management_account: { ManagementAccountId: "145770590841" } },
@@ -234,10 +232,9 @@ describe("resolveInputTemplates", () => {
   it("leaves partially unresolvable templates as-is (one ref missing)", async () => {
     const original = "{{ .inputs.HaveThis }}+{{ .inputs.Missing }}@x"
     const result = await Effect.runPromise(
-      resolveInputTemplates(
-        { HaveThis: "alice", LogsAccountEmail: original },
-        {},
-      ).pipe(Effect.provide(fakeWasmLayer())),
+      resolveInputTemplates({ HaveThis: "alice", LogsAccountEmail: original }, {}).pipe(
+        Effect.provide(fakeWasmLayer()),
+      ),
     )
     // OnMissingKey=ExitWithError means the whole render fails — we leave the
     // original template in place so the downstream strip pass drops it.
@@ -297,10 +294,7 @@ describe("resolveInputTemplates", () => {
   it("exposes an explicitly empty map input in the render context", async () => {
     const contexts: Array<Record<string, unknown>> = []
     await Effect.runPromise(
-      resolveInputTemplates(
-        { Tags: {}, Name: "n", Label: "{{ .inputs.Name }}" },
-        {},
-      ).pipe(
+      resolveInputTemplates({ Tags: {}, Name: "n", Label: "{{ .inputs.Name }}" }, {}).pipe(
         Effect.provide(
           fakeWasmLayer({ onCall: (_t, varsJSON) => contexts.push(JSON.parse(varsJSON)) }),
         ),
@@ -317,9 +311,7 @@ describe("resolveInputTemplates", () => {
       LogsAccountEmail: "{{ .inputs.EmailUsername }}+x@y",
     }
     const result = await Effect.runPromise(
-      resolveInputTemplates(original, {}).pipe(
-        Effect.provide(fakeWasmLayer({ alwaysFail: true })),
-      ),
+      resolveInputTemplates(original, {}).pipe(Effect.provide(fakeWasmLayer({ alwaysFail: true }))),
     )
     // Same shape as the legacy behavior — strip pass downstream still cleans up.
     expect(result.EmailUsername).toBe("alice")
@@ -417,9 +409,7 @@ describe("resolveInputTemplates", () => {
 
 describe("flattenVariables", () => {
   const run = (vars: Record<string, unknown> | undefined, options: FakeWasmOptions = {}) =>
-    Effect.runPromise(
-      flattenVariables(vars).pipe(Effect.provide(fakeWasmLayer(options))),
-    )
+    Effect.runPromise(flattenVariables(vars).pipe(Effect.provide(fakeWasmLayer(options))))
 
   it("handles undefined / missing inputs", async () => {
     expect(await run(undefined)).toEqual({ inputs: {} })

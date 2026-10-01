@@ -17,14 +17,20 @@ const info = (overrides: Partial<GitRepoInfo>): GitRepoInfo => ({
 describe("WorktreeStaticRow", () => {
   it("links an SSH clone to the repo's web page", () => {
     render(<WorktreeStaticRow gitInfo={info({ repoUrl: "git@github.com:acme/infra.git" })} />)
-    expect(screen.getByRole("link", { name: "acme/infra" })).toHaveAttribute("href", "https://github.com/acme/infra")
+    expect(screen.getByRole("link", { name: "acme/infra" })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/infra",
+    )
     expect(screen.getByTestId("repo-icon-github")).toBeInTheDocument()
   })
 
   it("links an ssh:// clone on its hostname, without the SSH port", () => {
     render(
       <WorktreeStaticRow
-        gitInfo={info({ repoUrl: "ssh://git@gl.example.com:2222/grp/sub/infra.git", repoOwner: "grp/sub" })}
+        gitInfo={info({
+          repoUrl: "ssh://git@gl.example.com:2222/grp/sub/infra.git",
+          repoOwner: "grp/sub",
+        })}
       />,
     )
     expect(screen.getByRole("link", { name: "grp/sub/infra" })).toHaveAttribute(
@@ -37,7 +43,10 @@ describe("WorktreeStaticRow", () => {
 
   it("shows the GitLab icon for a gitlab.com clone", () => {
     render(<WorktreeStaticRow gitInfo={info({ repoUrl: "https://gitlab.com/acme/infra.git" })} />)
-    expect(screen.getByRole("link", { name: "acme/infra" })).toHaveAttribute("href", "https://gitlab.com/acme/infra")
+    expect(screen.getByRole("link", { name: "acme/infra" })).toHaveAttribute(
+      "href",
+      "https://gitlab.com/acme/infra",
+    )
     expect(screen.getByTestId("repo-icon-gitlab")).toBeInTheDocument()
   })
 
@@ -67,7 +76,9 @@ describe("WorktreeSwitcherRow", () => {
   ]
 
   it("labels a worktree with no owner by its name alone, without links inside the buttons", async () => {
-    render(<WorktreeSwitcherRow workTrees={workTrees} activeWorkTreeId="local" onSelect={vi.fn()} />)
+    render(
+      <WorktreeSwitcherRow workTrees={workTrees} activeWorkTreeId="local" onSelect={vi.fn()} />,
+    )
     const trigger = screen.getByRole("button", { name: /scratch/ })
     expect(trigger).not.toHaveTextContent("/scratch")
 

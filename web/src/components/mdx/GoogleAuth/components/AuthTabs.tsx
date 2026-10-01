@@ -22,11 +22,11 @@ export function AuthTabs({ authMethod, setAuthMethod, oauthUnavailable = false }
     <div className="flex gap-1 mb-4 border-b border-info/30">
       <button
         type="button"
-        onClick={() => setAuthMethod('service_account')}
+        onClick={() => setAuthMethod("service_account")}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'service_account'
-            ? 'text-info border-b-2 border-info -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "service_account"
+            ? "text-info border-b-2 border-info -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <FileKey className="size-4 inline mr-2" />
@@ -34,31 +34,29 @@ export function AuthTabs({ authMethod, setAuthMethod, oauthUnavailable = false }
       </button>
       <button
         type="button"
-        onClick={() => setAuthMethod('oauth')}
+        onClick={() => setAuthMethod("oauth")}
         title={
           oauthUnavailable
-            ? 'Choose a Desktop OAuth client JSON to enable Google Sign-In'
+            ? "Choose a Desktop OAuth client JSON to enable Google Sign-In"
             : undefined
         }
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'oauth'
-            ? 'text-info border-b-2 border-info -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "oauth"
+            ? "text-info border-b-2 border-info -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <ExternalLink className="size-4 inline mr-2" />
         Google Sign-In
-        {oauthUnavailable && (
-          <span className="ml-2 text-xs font-normal">(needs OAuth client)</span>
-        )}
+        {oauthUnavailable && <span className="ml-2 text-xs font-normal">(needs OAuth client)</span>}
       </button>
       <button
         type="button"
-        onClick={() => setAuthMethod('gcloud')}
+        onClick={() => setAuthMethod("gcloud")}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'gcloud'
-            ? 'text-info border-b-2 border-info -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "gcloud"
+            ? "text-info border-b-2 border-info -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <Terminal className="size-4 inline mr-2" />

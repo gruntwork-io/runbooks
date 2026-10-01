@@ -34,7 +34,11 @@ describe("CloneResultDisplay — repository path", () => {
     const user = userEvent.setup()
     // The domain layer returns the absolute path for both fields when the
     // checkout has no relative form.
-    const outside = { fileCount: 42, relativePath: "/home/me/infra", absolutePath: "/home/me/infra" }
+    const outside = {
+      fileCount: 42,
+      relativePath: "/home/me/infra",
+      absolutePath: "/home/me/infra",
+    }
     render(<CloneResultDisplay result={outside} source="local" onCloneAgain={vi.fn()} />)
 
     expect(screen.getByText("Repository path:")).toBeInTheDocument()

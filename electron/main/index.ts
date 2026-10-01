@@ -258,7 +258,13 @@ ipcMain.handle("native:open-external", async (_event, params: { url: string }) =
 
 ipcMain.handle(
   "native:show-open-dialog",
-  async (_event, params: { properties: Array<"openFile" | "openDirectory" | "multiSelections">; filters?: Electron.FileFilter[] }) => {
+  async (
+    _event,
+    params: {
+      properties: Array<"openFile" | "openDirectory" | "multiSelections">
+      filters?: Electron.FileFilter[]
+    },
+  ) => {
     const result = await dialog.showOpenDialog({
       properties: params.properties,
       defaultPath: getDialogDefaultPath(),

@@ -7,19 +7,20 @@ interface CustomOAuthWarningProps {
   onContinue: () => void
 }
 
-export function CustomOAuthWarning({ clientId, onUseDefault, onContinue }: CustomOAuthWarningProps) {
-  const displayClientId = clientId.length > 20
-    ? `${clientId.slice(0, 12)}...${clientId.slice(-4)}`
-    : clientId
+export function CustomOAuthWarning({
+  clientId,
+  onUseDefault,
+  onContinue,
+}: CustomOAuthWarningProps) {
+  const displayClientId =
+    clientId.length > 20 ? `${clientId.slice(0, 12)}...${clientId.slice(-4)}` : clientId
 
   return (
     <div className="bg-warning-muted border border-warning/30 rounded-md p-4 mb-4">
       <div className="flex items-start gap-3">
         <AlertTriangle className="size-5 text-warning flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <h4 className="text-sm font-semibold text-warning-foreground mb-2">
-            Custom OAuth App
-          </h4>
+          <h4 className="text-sm font-semibold text-warning-foreground mb-2">Custom OAuth App</h4>
           <p className="text-sm text-warning-foreground mb-3">
             This runbook uses a custom GitHub OAuth app, not the default Gruntwork Runbooks app.
           </p>
@@ -27,8 +28,8 @@ export function CustomOAuthWarning({ clientId, onUseDefault, onContinue }: Custo
             Client ID: {displayClientId}
           </div>
           <p className="text-sm text-warning-foreground mb-4">
-            Only proceed if you trust the source of this runbook. The token will stay on your machine, 
-            but you'll be authorizing a third-party app.
+            Only proceed if you trust the source of this runbook. The token will stay on your
+            machine, but you'll be authorizing a third-party app.
           </p>
           <div className="flex gap-2">
             <Button

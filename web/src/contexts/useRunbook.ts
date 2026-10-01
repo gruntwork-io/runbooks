@@ -41,12 +41,25 @@
  * @see RunbookContext - The context provider
  */
 
-import { useContext, useMemo, useState } from 'react'
-import { RunbookContext, type RunbookContextType, type TemplateValue, type OutputValue, type BlockOutputs } from './RunbookContext'
-import type { TemplateContext } from '@/lib/templateUtils'
+import { useContext, useMemo, useState } from "react"
+import {
+  RunbookContext,
+  type RunbookContextType,
+  type TemplateValue,
+  type OutputValue,
+  type BlockOutputs,
+} from "./RunbookContext"
+import type { TemplateContext } from "@/lib/templateUtils"
 
 // Re-export types and helpers for convenience
-export { type TemplateValue, type OutputValue, type BlockInputs, type BlockOutputs, flattenInputs, valuesToOutputs } from './RunbookContext'
+export {
+  type TemplateValue,
+  type OutputValue,
+  type BlockInputs,
+  type BlockOutputs,
+  flattenInputs,
+  valuesToOutputs,
+} from "./RunbookContext"
 
 // Stable empty arrays to avoid creating new references
 const EMPTY_INPUTS: TemplateValue[] = []
@@ -59,7 +72,7 @@ const EMPTY_TEMPLATE_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
 export function useRunbookContext(): RunbookContextType {
   const context = useContext(RunbookContext)
   if (!context) {
-    throw new Error('useRunbookContext must be used within a RunbookContextProvider')
+    throw new Error("useRunbookContext must be used within a RunbookContextProvider")
   }
   return context
 }
@@ -82,7 +95,7 @@ export function useInputs(inputsId: string | string[] | undefined): TemplateValu
   const inputs = useMemo(() => {
     if (!context || !inputsId) return EMPTY_INPUTS
     return context.getInputs(inputsId)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputsId, blockInputs])
 
   // Keep returning the previous array while its content is unchanged, for
@@ -111,7 +124,7 @@ export function useOutputs(blockId: string | undefined): OutputValue[] | undefin
   return useMemo(() => {
     if (!context || !blockId) return undefined
     return context.getOutputs(blockId)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockId, blockOutputs])
 }
 
@@ -145,6 +158,6 @@ export function useTemplateContext(inputsId?: string | string[]): TemplateContex
   return useMemo(() => {
     if (!context) return EMPTY_TEMPLATE_CONTEXT
     return context.getTemplateContext(inputsId)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputsId, blockInputs, blockOutputs])
 }

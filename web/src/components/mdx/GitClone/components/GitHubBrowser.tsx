@@ -10,11 +10,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { GitHubIcon } from "@/components/icons/GitHubIcon"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import type { GitHubOrg, GitHubRepo, GitHubRef } from "../types"
@@ -103,23 +99,33 @@ export function GitHubBrowser({
   const loadingRefs = !!refsKey && !currentRefs
 
   // Split refs into branches and tags for grouped display
-  const branchRefs = useMemo(() => refs.filter(r => r.type === 'branch'), [refs])
-  const tagRefs = useMemo(() => refs.filter(r => r.type === 'tag'), [refs])
-  const defaultBranch = useMemo(() => repos.find(r => r.name === selectedRepo)?.defaultBranch, [repos, selectedRepo])
+  const branchRefs = useMemo(() => refs.filter((r) => r.type === "branch"), [refs])
+  const tagRefs = useMemo(() => refs.filter((r) => r.type === "tag"), [refs])
+  const defaultBranch = useMemo(
+    () => repos.find((r) => r.name === selectedRepo)?.defaultBranch,
+    [repos, selectedRepo],
+  )
 
   // Load orgs when browser opens
   useEffect(() => {
     if (isOpen && !hasLoadedOrgs.current) {
       setLoadingOrgs(true)
       setOrgsError(null)
-      fetchOrgs().then(result => {
-        hasLoadedOrgs.current = true
-        setOrgs(result)
-      }).catch(err => {
-        setOrgsError(err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load organizations")
-      }).finally(() => {
-        setLoadingOrgs(false)
-      })
+      fetchOrgs()
+        .then((result) => {
+          hasLoadedOrgs.current = true
+          setOrgs(result)
+        })
+        .catch((err) => {
+          setOrgsError(
+            err instanceof Error
+              ? cleanIpcErrorMessage(err.message)
+              : "Failed to load organizations",
+          )
+        })
+        .finally(() => {
+          setLoadingOrgs(false)
+        })
     }
   }, [isOpen, fetchOrgs])
 
@@ -129,12 +135,24 @@ export function GitHubBrowser({
   useEffect(() => {
     if (!selectedOrg) return
     let current = true
-    fetchRepos(selectedOrg).then(result => {
-      if (current) setReposResult({ key: selectedOrg, items: result, error: null })
-    }).catch(err => {
-      if (current) setReposResult({ key: selectedOrg, items: [], error: err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load repositories" })
-    })
-    return () => { current = false }
+    fetchRepos(selectedOrg)
+      .then((result) => {
+        if (current) setReposResult({ key: selectedOrg, items: result, error: null })
+      })
+      .catch((err) => {
+        if (current)
+          setReposResult({
+            key: selectedOrg,
+            items: [],
+            error:
+              err instanceof Error
+                ? cleanIpcErrorMessage(err.message)
+                : "Failed to load repositories",
+          })
+      })
+    return () => {
+      current = false
+    }
   }, [selectedOrg, fetchRepos])
 
   // Load refs when repo changes, guarded like the repos load. Depends on the
@@ -144,20 +162,32 @@ export function GitHubBrowser({
     if (!selectedOrg || !selectedRepo) return
     const key = `${selectedOrg}/${selectedRepo}`
     let current = true
-    fetchRefs(selectedOrg, selectedRepo).then(result => {
-      if (!current) return
-      setRefsResult({ key, items: result, error: null })
+    fetchRefs(selectedOrg, selectedRepo)
+      .then((result) => {
+        if (!current) return
+        setRefsResult({ key, items: result, error: null })
 
-      // Auto-select the default branch, if the repo has it (an empty repo
-      // has no branches yet)
-      if (pickedDefaultBranch && result.some(r => r.type === 'branch' && r.name === pickedDefaultBranch)) {
-        setSelectedRef(pickedDefaultBranch)
-        onRefSelected(pickedDefaultBranch)
-      }
-    }).catch(err => {
-      if (current) setRefsResult({ key, items: [], error: err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load refs" })
-    })
-    return () => { current = false }
+        // Auto-select the default branch, if the repo has it (an empty repo
+        // has no branches yet)
+        if (
+          pickedDefaultBranch &&
+          result.some((r) => r.type === "branch" && r.name === pickedDefaultBranch)
+        ) {
+          setSelectedRef(pickedDefaultBranch)
+          onRefSelected(pickedDefaultBranch)
+        }
+      })
+      .catch((err) => {
+        if (current)
+          setRefsResult({
+            key,
+            items: [],
+            error: err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load refs",
+          })
+      })
+    return () => {
+      current = false
+    }
   }, [selectedOrg, selectedRepo, pickedDefaultBranch, fetchRefs, onRefSelected])
 
   // Scroll to top on search change
@@ -211,8 +241,12 @@ export function GitHubBrowser({
   }
 
   // Determine the icon for the currently selected ref
-  const selectedRefObj = useMemo(() => refs.find(r => r.name === selectedRef), [refs, selectedRef])
-  const isDefaultBranch = (ref: GitHubRef | undefined) => ref?.type === 'branch' && ref.name === defaultBranch
+  const selectedRefObj = useMemo(
+    () => refs.find((r) => r.name === selectedRef),
+    [refs, selectedRef],
+  )
+  const isDefaultBranch = (ref: GitHubRef | undefined) =>
+    ref?.type === "branch" && ref.name === defaultBranch
 
   return (
     <div className="mt-1.5">
@@ -222,29 +256,26 @@ export function GitHubBrowser({
         disabled={disabled}
         className={cn(
           "flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer",
-          disabled && "opacity-50 cursor-not-allowed"
+          disabled && "opacity-50 cursor-not-allowed",
         )}
       >
         <GitHubIcon className="size-4" />
         <span>Browse GitHub repositories</span>
-        {isOpen ? (
-          <ChevronUp className="size-3.5" />
-        ) : (
-          <ChevronDown className="size-3.5" />
-        )}
+        {isOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
       </button>
 
       {isOpen && (
         <div className="mt-2 p-3 bg-muted border border-border rounded-md space-y-3">
           {/* Organization selector */}
           <div>
-            <label className="text-sm font-medium text-foreground mb-1 block">
-              Organization
-            </label>
-            <Popover open={orgOpen} onOpenChange={(open) => {
-              setOrgOpen(open)
-              if (!open) setOrgSearch("")
-            }}>
+            <label className="text-sm font-medium text-foreground mb-1 block">Organization</label>
+            <Popover
+              open={orgOpen}
+              onOpenChange={(open) => {
+                setOrgOpen(open)
+                if (!open) setOrgSearch("")
+              }}
+            >
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
@@ -263,7 +294,12 @@ export function GitHubBrowser({
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-[350px] p-0" align="start" side="bottom" avoidCollisions={false}>
+              <PopoverContent
+                className="w-[350px] p-0"
+                align="start"
+                side="bottom"
+                avoidCollisions={false}
+              >
                 <Command>
                   <CommandInput
                     placeholder="Search organizations..."
@@ -283,7 +319,7 @@ export function GitHubBrowser({
                           <Check
                             className={cn(
                               "h-4 w-4 shrink-0",
-                              selectedOrg === org.login ? "opacity-100" : "opacity-0"
+                              selectedOrg === org.login ? "opacity-100" : "opacity-0",
                             )}
                           />
                           <span className="text-foreground">{org.login}</span>
@@ -294,20 +330,19 @@ export function GitHubBrowser({
                 </Command>
               </PopoverContent>
             </Popover>
-            {orgsError && (
-              <p className="mt-1 text-xs text-destructive">{orgsError}</p>
-            )}
+            {orgsError && <p className="mt-1 text-xs text-destructive">{orgsError}</p>}
           </div>
 
           {/* Repository selector */}
           <div>
-            <label className="text-sm font-medium text-foreground mb-1 block">
-              Repository
-            </label>
-            <Popover open={repoOpen} onOpenChange={(open) => {
-              setRepoOpen(open)
-              if (!open) setRepoSearch("")
-            }}>
+            <label className="text-sm font-medium text-foreground mb-1 block">Repository</label>
+            <Popover
+              open={repoOpen}
+              onOpenChange={(open) => {
+                setRepoOpen(open)
+                if (!open) setRepoSearch("")
+              }}
+            >
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
@@ -320,7 +355,7 @@ export function GitHubBrowser({
                     <span className="text-muted-foreground">Loading repositories...</span>
                   ) : selectedRepo ? (
                     <span className="flex items-center gap-2 truncate">
-                      {repos.find(r => r.name === selectedRepo)?.private && (
+                      {repos.find((r) => r.name === selectedRepo)?.private && (
                         <Lock className="size-3 text-muted-foreground" />
                       )}
                       <span className="text-foreground">{selectedRepo}</span>
@@ -333,7 +368,12 @@ export function GitHubBrowser({
                   <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-[350px] p-0" align="start" side="bottom" avoidCollisions={false}>
+              <PopoverContent
+                className="w-[350px] p-0"
+                align="start"
+                side="bottom"
+                avoidCollisions={false}
+              >
                 <Command>
                   <CommandInput
                     placeholder="Search repositories..."
@@ -353,7 +393,7 @@ export function GitHubBrowser({
                           <Check
                             className={cn(
                               "h-4 w-4 shrink-0",
-                              selectedRepo === repo.name ? "opacity-100" : "opacity-0"
+                              selectedRepo === repo.name ? "opacity-100" : "opacity-0",
                             )}
                           />
                           {repo.private && (
@@ -367,41 +407,42 @@ export function GitHubBrowser({
                 </Command>
               </PopoverContent>
             </Popover>
-            {reposError && (
-              <p className="mt-1 text-xs text-destructive">{reposError}</p>
-            )}
+            {reposError && <p className="mt-1 text-xs text-destructive">{reposError}</p>}
           </div>
 
           {/* Ref (branch/tag) selector — only shown after a repo is selected */}
           {selectedRepo && (
             <div>
-              <label className="text-sm font-medium text-foreground mb-1 block">
-                Ref
-              </label>
-              <Popover open={refOpen} onOpenChange={(open) => {
-                setRefOpen(open)
-                if (!open) setRefSearch("")
-              }}>
+              <label className="text-sm font-medium text-foreground mb-1 block">Ref</label>
+              <Popover
+                open={refOpen}
+                onOpenChange={(open) => {
+                  setRefOpen(open)
+                  if (!open) setRefSearch("")
+                }}
+              >
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     role="combobox"
                     aria-expanded={refOpen}
-                      className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
+                    className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
                     disabled={disabled || loadingRefs}
                   >
                     {loadingRefs ? (
                       <span className="text-muted-foreground">Loading refs...</span>
                     ) : selectedRef ? (
                       <span className="flex items-center gap-2 truncate">
-                        {selectedRefObj?.type === 'tag' ? (
+                        {selectedRefObj?.type === "tag" ? (
                           <Tag className="size-3 text-muted-foreground" />
                         ) : (
                           <GitBranch className="size-3 text-muted-foreground" />
                         )}
                         <span className="text-foreground">{selectedRef}</span>
                         {isDefaultBranch(selectedRefObj) && (
-                          <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none">default</span>
+                          <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none">
+                            default
+                          </span>
                         )}
                       </span>
                     ) : (
@@ -410,7 +451,12 @@ export function GitHubBrowser({
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[350px] p-0" align="start" side="bottom" avoidCollisions={false}>
+                <PopoverContent
+                  className="w-[350px] p-0"
+                  align="start"
+                  side="bottom"
+                  avoidCollisions={false}
+                >
                   <Command>
                     <CommandInput
                       placeholder="Search branches and tags..."
@@ -433,13 +479,15 @@ export function GitHubBrowser({
                               <Check
                                 className={cn(
                                   "h-4 w-4 shrink-0",
-                                  selectedRef === ref.name ? "opacity-100" : "opacity-0"
+                                  selectedRef === ref.name ? "opacity-100" : "opacity-0",
                                 )}
                               />
                               <GitBranch className="size-3 text-muted-foreground shrink-0" />
                               <span className="text-foreground truncate">{ref.name}</span>
                               {isDefaultBranch(ref) && (
-                                <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">default</span>
+                                <span className="text-[10px] font-medium bg-info-muted text-info px-1.5 py-0.5 rounded-full leading-none ml-auto shrink-0">
+                                  default
+                                </span>
                               )}
                             </CommandItem>
                           ))}
@@ -459,7 +507,7 @@ export function GitHubBrowser({
                               <Check
                                 className={cn(
                                   "h-4 w-4 shrink-0",
-                                  selectedRef === ref.name ? "opacity-100" : "opacity-0"
+                                  selectedRef === ref.name ? "opacity-100" : "opacity-0",
                                 )}
                               />
                               <Tag className="size-3 text-muted-foreground shrink-0" />
@@ -472,9 +520,7 @@ export function GitHubBrowser({
                   </Command>
                 </PopoverContent>
               </Popover>
-              {refsError && (
-                <p className="mt-1 text-xs text-destructive">{refsError}</p>
-              )}
+              {refsError && <p className="mt-1 text-xs text-destructive">{refsError}</p>}
             </div>
           )}
         </div>

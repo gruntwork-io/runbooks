@@ -32,7 +32,7 @@ function renderWithConsumers() {
     <LogsProvider>
       <Block />
       <Header />
-    </LogsProvider>
+    </LogsProvider>,
   )
   return { ...utils, renders, ctx: () => ctx }
 }
@@ -76,8 +76,8 @@ describe("LogsContext", () => {
     act(() => ctx().registerLogs("block-b", [line("b1")]))
 
     const all = ctx().getAllLogs()
-    expect(all.get("block-a")?.map(l => l.line)).toEqual(["a1", "a2"])
-    expect(all.get("block-b")?.map(l => l.line)).toEqual(["b1"])
+    expect(all.get("block-a")?.map((l) => l.line)).toEqual(["a1", "a2"])
+    expect(all.get("block-b")?.map((l) => l.line)).toEqual(["b1"])
 
     // The returned map is a snapshot, not the provider's own storage.
     all.delete("block-a")

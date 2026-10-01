@@ -109,7 +109,7 @@ describe("Admonition", () => {
       expect(screen.queryByText("Destructive")).not.toBeInTheDocument()
     })
 
-    it("saves the \"Don't show me this again\" preference when confirmed", () => {
+    it('saves the "Don\'t show me this again" preference when confirmed', () => {
       renderAdmonition({
         type: "warning",
         confirmationText: "Got it",

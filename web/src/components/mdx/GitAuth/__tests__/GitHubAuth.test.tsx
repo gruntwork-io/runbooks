@@ -32,7 +32,9 @@ vi.mock("../hooks/useGitAuth", () => ({
 
 // Mock sub-components to avoid deep dependency chains in jsdom
 vi.mock("../components/AuthTabs", () => ({
-  AuthTabs: ({ activeTab }: { activeTab: string }) => <div data-testid="auth-tabs">Tabs: {activeTab}</div>,
+  AuthTabs: ({ activeTab }: { activeTab: string }) => (
+    <div data-testid="auth-tabs">Tabs: {activeTab}</div>
+  ),
 }))
 vi.mock("../components/AuthSuccess", () => ({
   AuthSuccess: () => <div>Auth Success</div>,

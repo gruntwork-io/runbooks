@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { type Executable, type ExecutableRegistry } from '@/types/executable'
-import { ExecutableRegistryContext, type ExecutableRegistryContextValue } from './ExecutableRegistryContext.types'
-import { useApi } from './ApiContext'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { type Executable, type ExecutableRegistry } from "@/types/executable"
+import {
+  ExecutableRegistryContext,
+  type ExecutableRegistryContextValue,
+} from "./ExecutableRegistryContext.types"
+import { useApi } from "./ApiContext"
 
 interface IpcExecutableRegistryProviderProps {
   children: ReactNode
@@ -21,28 +24,31 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
   useEffect(() => {
     const fetchRegistry = async (rebuilt: boolean) => {
       try {
-        const data = await api.invoke('runbook:executables')
+        const data = await api.invoke("runbook:executables")
         setRegistry(data.executables as unknown as ExecutableRegistry)
         // Set with the registry, in the same render, so blocks re-read their
         // script files against the registry that will run them.
-        if (rebuilt) setRegistryVersion(v => v + 1)
+        if (rebuilt) setRegistryVersion((v) => v + 1)
       } catch (err) {
         // runbook:executables only reads in-memory state, so this is an IPC
         // failure. Blocks report the missing executable when they're run.
-        console.error('Failed to load executable registry:', err)
+        console.error("Failed to load executable registry:", err)
       }
     }
 
     fetchRegistry(false)
-    return api.on('registry:updated', () => {
+    return api.on("registry:updated", () => {
       fetchRegistry(true)
     })
   }, [api])
 
-  const getExecutableByComponentId = useCallback((componentId: string): Executable | null => {
-    if (!registry) return null
-    return Object.values(registry).find(e => e?.componentId === componentId) ?? null
-  }, [registry])
+  const getExecutableByComponentId = useCallback(
+    (componentId: string): Executable | null => {
+      if (!registry) return null
+      return Object.values(registry).find((e) => e?.componentId === componentId) ?? null
+    },
+    [registry],
+  )
 
   // Don't block rendering while the registry loads — it is populated
   // asynchronously after runbook:get completes and sends registry:updated.

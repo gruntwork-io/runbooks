@@ -1,5 +1,5 @@
-import React from 'react'
-import { stripAnsi } from '@/lib/logs'
+import React from "react"
+import { stripAnsi } from "@/lib/logs"
 
 /**
  * Regular expression to match URLs in text.
@@ -17,15 +17,15 @@ interface LinkifiedTextProps {
  * Component that renders text with URLs converted to clickable links.
  * URLs are opened in a new window/tab.
  */
-export function LinkifiedText({ 
-  text, 
-  className = '',
-  linkClassName = 'text-primary hover:text-primary/80 underline'
+export function LinkifiedText({
+  text,
+  className = "",
+  linkClassName = "text-primary hover:text-primary/80 underline",
 }: LinkifiedTextProps) {
   const parts = React.useMemo(() => {
     // Strip ANSI escape codes before processing
     const cleanText = stripAnsi(text)
-    
+
     const result: (string | React.ReactElement)[] = []
     let textProcessedUpTo = 0
 
@@ -33,15 +33,15 @@ export function LinkifiedText({
       const urlStartIndex = regexMatch.index
       const urlText = regexMatch[0]
       const urlEndIndex = urlStartIndex + urlText.length
-      
+
       // Add text before the URL
       if (urlStartIndex > textProcessedUpTo) {
         result.push(cleanText.slice(textProcessedUpTo, urlStartIndex))
       }
-      
+
       // Ensure URL has protocol
-      const href = urlText.startsWith('www.') ? `https://${urlText}` : urlText
-      
+      const href = urlText.startsWith("www.") ? `https://${urlText}` : urlText
+
       // Add the URL as a clickable link
       result.push(
         <a
@@ -53,23 +53,23 @@ export function LinkifiedText({
           onClick={(e) => e.stopPropagation()}
         >
           {urlText}
-        </a>
+        </a>,
       )
-      
+
       textProcessedUpTo = urlEndIndex
     }
-    
+
     // Add any remaining text after the last URL
     if (textProcessedUpTo < cleanText.length) {
       result.push(cleanText.slice(textProcessedUpTo))
     }
-    
+
     return result
   }, [text, linkClassName])
 
   if (className) {
     return <span className={className}>{parts}</span>
   }
-  
+
   return <>{parts}</>
 }

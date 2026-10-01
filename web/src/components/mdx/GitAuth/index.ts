@@ -1,4 +1,4 @@
-import { GitAuth } from './GitAuth'
+import { GitAuth } from "./GitAuth"
 
 export { GitAuth }
 export default GitAuth
@@ -15,4 +15,4 @@ export type {
   GitUserInfo,
   // Backward-compatible GitHub* alias
   GitHubAuthProps,
-} from './types'
+} from "./types"

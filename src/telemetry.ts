@@ -29,7 +29,7 @@ const DISABLE_ENV_VAR = "RUNBOOKS_TELEMETRY_DISABLE"
 let enabled = false
 let appVersion = "unknown"
 let anonymousId: string | undefined
-let mixpanelClient: ReturnType<typeof import("mixpanel")["init"]> | undefined
+let mixpanelClient: ReturnType<(typeof import("mixpanel"))["init"]> | undefined
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -147,14 +147,10 @@ export function shutdown(): Promise<void> {
  */
 export function makeTelemetryService(): TelemetryShape {
   return {
-    track: (event, properties) =>
-      Effect.sync(() => track(event, properties)),
-    trackCommand: (command) =>
-      Effect.sync(() => trackCommand(command)),
-    trackError: (errorType) =>
-      Effect.sync(() => trackError(errorType)),
-    isEnabled: () =>
-      Effect.sync(() => isEnabled()),
+    track: (event, properties) => Effect.sync(() => track(event, properties)),
+    trackCommand: (command) => Effect.sync(() => trackCommand(command)),
+    trackError: (errorType) => Effect.sync(() => trackError(errorType)),
+    isEnabled: () => Effect.sync(() => isEnabled()),
   }
 }
 

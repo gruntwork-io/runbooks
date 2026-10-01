@@ -37,11 +37,32 @@ function randomChoice<T>(items: readonly T[]): T {
 const ALPHANUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 const SPECIAL = "!@#$%^&*()-_=+[]{}|;:,.<>?"
 const WORDS = [
-  "alpha", "bravo", "charlie", "delta", "echo",
-  "foxtrot", "golf", "hotel", "india", "juliet",
-  "kilo", "lima", "mike", "november", "oscar",
-  "papa", "quebec", "romeo", "sierra", "tango",
-  "uniform", "victor", "whiskey", "xray", "yankee", "zulu",
+  "alpha",
+  "bravo",
+  "charlie",
+  "delta",
+  "echo",
+  "foxtrot",
+  "golf",
+  "hotel",
+  "india",
+  "juliet",
+  "kilo",
+  "lima",
+  "mike",
+  "november",
+  "oscar",
+  "papa",
+  "quebec",
+  "romeo",
+  "sierra",
+  "tango",
+  "uniform",
+  "victor",
+  "whiskey",
+  "xray",
+  "yankee",
+  "zulu",
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -50,28 +71,46 @@ const WORDS = [
 
 export function generateFuzzValue(config: FuzzConfig): unknown {
   switch (config.type) {
-    case "string": return generateString(config)
-    case "int": return generateInt(config)
-    case "float": return generateFloat(config)
-    case "bool": return randomBool()
-    case "enum": return generateEnum(config)
-    case "email": return generateEmail(config)
-    case "url": return generateURL(config)
-    case "uuid": return generateUUID()
-    case "date": return generateDate(config)
-    case "timestamp": return generateTimestamp(config)
-    case "words": return generateWords(config)
-    case "list": return generateList(config)
-    case "map": return generateMap(config)
-    default: throw new Error(`Unknown fuzz type: ${config.type satisfies never}`)
+    case "string":
+      return generateString(config)
+    case "int":
+      return generateInt(config)
+    case "float":
+      return generateFloat(config)
+    case "bool":
+      return randomBool()
+    case "enum":
+      return generateEnum(config)
+    case "email":
+      return generateEmail(config)
+    case "url":
+      return generateURL(config)
+    case "uuid":
+      return generateUUID()
+    case "date":
+      return generateDate(config)
+    case "timestamp":
+      return generateTimestamp(config)
+    case "words":
+      return generateWords(config)
+    case "list":
+      return generateList(config)
+    case "map":
+      return generateMap(config)
+    default:
+      throw new Error(`Unknown fuzz type: ${config.type satisfies never}`)
   }
 }
 
 type BoundField =
-  | "min" | "max"
-  | "minLength" | "maxLength"
-  | "minWordCount" | "maxWordCount"
-  | "minCount" | "maxCount"
+  | "min"
+  | "max"
+  | "minLength"
+  | "maxLength"
+  | "minWordCount"
+  | "maxWordCount"
+  | "minCount"
+  | "maxCount"
 
 // YAML parses an empty value (`max:` or `max: ~`) to null, so a bound is set
 // only when it is neither null nor undefined.
@@ -92,12 +131,14 @@ function boundedRange(
   const hi = bound(config, maxField)
   const lo = bound(config, minField) ?? (hi === undefined ? defaultLo : Math.min(defaultLo, hi))
   const top = hi ?? lo + span
-  if (top < lo) throw new Error(`fuzz ${config.type}: ${maxField} (${top}) is less than ${minField} (${lo})`)
+  if (top < lo)
+    throw new Error(`fuzz ${config.type}: ${maxField} (${top}) is less than ${minField} (${lo})`)
   return [lo, top]
 }
 
 function generateString(config: FuzzConfig): string {
-  const length = config.length ?? randomInt(...boundedRange(config, "minLength", "maxLength", 8, 10))
+  const length =
+    config.length ?? randomInt(...boundedRange(config, "minLength", "maxLength", 8, 10))
 
   let charset = ALPHANUM
   if (config.includeSpaces) charset += " "
@@ -175,7 +216,9 @@ function parseDateString(s: string): Date {
 
 function randomTimeInRange(minDate?: string, maxDate?: string, dayPrecision = false): Date {
   const now = new Date()
-  const minTime = minDate ? parseDateString(minDate) : new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
+  const minTime = minDate
+    ? parseDateString(minDate)
+    : new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
   const maxTime = maxDate ? parseDateString(maxDate) : now
 
   if (minTime > maxTime) throw new Error(`minDate is after maxDate`)
@@ -209,9 +252,9 @@ function formatDate(d: Date, fmt: string): string {
   const parts: Record<string, string> = {
     "Z07:00": "Z",
     "-07:00": "+00:00",
-    "Z0700": "Z",
+    Z0700: "Z",
     "-0700": "+0000",
-    "MST": "UTC",
+    MST: "UTC",
     "2006": String(d.getUTCFullYear()),
     "01": pad(d.getUTCMonth() + 1),
     "02": pad(d.getUTCDate()),
@@ -223,7 +266,8 @@ function formatDate(d: Date, fmt: string): string {
 }
 
 function generateWords(config: FuzzConfig): string {
-  const count = config.wordCount ?? randomInt(...boundedRange(config, "minWordCount", "maxWordCount", 2, 3))
+  const count =
+    config.wordCount ?? randomInt(...boundedRange(config, "minWordCount", "maxWordCount", 2, 3))
   const result: string[] = []
   for (let i = 0; i < count; i++) {
     result.push(randomChoice(WORDS))

@@ -16,7 +16,7 @@ const change = (overrides: Partial<WorkspaceFileChange>): WorkspaceFileChange =>
 const diffRows = (path: string) =>
   within(screen.getByTestId(`diff-file-${path}`))
     .queryAllByRole("row")
-    .map(row => {
+    .map((row) => {
       const cells = within(row).getAllByRole("cell")
       return cells.length === 4 ? `${cells[2].textContent}${cells[3].textContent}` : row.textContent
     })
@@ -25,7 +25,13 @@ describe("ChangedFilesView diff body", () => {
   it("shows every line as added for a modified file that was empty in HEAD", () => {
     render(
       <ChangedFilesView
-        changes={[change({ additions: 2, originalContent: "", newContent: 'region = "us-east-1"\nname = "app"\n' })]}
+        changes={[
+          change({
+            additions: 2,
+            originalContent: "",
+            newContent: 'region = "us-east-1"\nname = "app"\n',
+          }),
+        ]}
       />,
     )
 
@@ -33,7 +39,11 @@ describe("ChangedFilesView diff body", () => {
   })
 
   it("shows every line as deleted for a modified file truncated to empty", () => {
-    render(<ChangedFilesView changes={[change({ deletions: 2, originalContent: "a\nb", newContent: "" })]} />)
+    render(
+      <ChangedFilesView
+        changes={[change({ deletions: 2, originalContent: "a\nb", newContent: "" })]}
+      />,
+    )
 
     expect(diffRows("terraform.tfvars")).toEqual(["-a", "-b"])
   })
@@ -47,13 +57,21 @@ describe("ChangedFilesView diff body", () => {
   })
 
   it("says an added file is empty instead of rendering an empty table", () => {
-    render(<ChangedFilesView changes={[change({ path: ".keep", changeType: "added", newContent: "" })]} />)
+    render(
+      <ChangedFilesView
+        changes={[change({ path: ".keep", changeType: "added", newContent: "" })]}
+      />,
+    )
 
-    expect(within(screen.getByTestId("diff-file-.keep")).getByText("Empty file")).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId("diff-file-.keep")).getByText("Empty file"),
+    ).toBeInTheDocument()
   })
 
   it("does not add a blank line for the final newline read from disk", () => {
-    render(<ChangedFilesView changes={[change({ originalContent: "a\nb", newContent: "a\nb\n" })]} />)
+    render(
+      <ChangedFilesView changes={[change({ originalContent: "a\nb", newContent: "a\nb\n" })]} />,
+    )
 
     // No changed lines: the whole file sits behind one expand bar.
     expect(diffRows("terraform.tfvars")).toEqual(["Expand 2 hidden lines"])

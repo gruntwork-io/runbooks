@@ -50,7 +50,10 @@ function resolveBaseUrl(baseUrl?: string): string {
   if (baseUrl === undefined) return DEFAULT_GITLAB_BASE_URL
   const normalized = tryNormalizeGitLabBaseUrl(baseUrl)
   if (!normalized) {
-    throw new GitLabApiError({ status: 400, message: `invalid GitLab instance URL: ${JSON.stringify(baseUrl)}` })
+    throw new GitLabApiError({
+      status: 400,
+      message: `invalid GitLab instance URL: ${JSON.stringify(baseUrl)}`,
+    })
   }
   return normalized
 }
@@ -93,7 +96,11 @@ async function fetchScopes(
   scheme: AuthScheme,
   baseUrl: string,
 ): Promise<string[] | undefined> {
-  const patProbe = [`${gitlabApiBase(baseUrl)}/personal_access_tokens/self`, "scopes", authHeaders(token, scheme)] as const
+  const patProbe = [
+    `${gitlabApiBase(baseUrl)}/personal_access_tokens/self`,
+    "scopes",
+    authHeaders(token, scheme),
+  ] as const
   const oauthProbe = [`${baseUrl}/oauth/token/info`, "scope", authHeaders(token, "bearer")] as const
   // A known PAT (PRIVATE-TOKEN-validated, or the stock glpat- prefix) can
   // only introspect via the PAT endpoint — /oauth/token/info would 401. A
@@ -124,11 +131,7 @@ async function fetchScopes(
  * caller-supplied headers (e.g. Content-Type for a POST body) are merged
  * after the auth headers.
  */
-async function gitlabFetch(
-  url: string,
-  token: string,
-  init: RequestInit = {},
-): Promise<Response> {
+async function gitlabFetch(url: string, token: string, init: RequestInit = {}): Promise<Response> {
   const extra = init.headers as Record<string, string> | undefined
   let scheme: AuthScheme = "bearer"
   let resp = await fetch(url, { ...init, headers: { ...extra, ...authHeaders(token, scheme) } })
@@ -145,11 +148,7 @@ async function gitlabFetch(
  * so we drive the loop off `x-next-page` (and a short final page) rather than
  * `x-total-pages`. Mirrors GitHubHttpClient.paginateAll.
  */
-async function paginateAll<T>(
-  url: string,
-  token: string,
-  perPage = 100,
-): Promise<T[]> {
+async function paginateAll<T>(url: string, token: string, perPage = 100): Promise<T[]> {
   const results: T[] = []
   let page = 1
   while (true) {
@@ -167,10 +166,7 @@ async function paginateAll<T>(
   return results
 }
 
-async function validateUserToken(
-  token: string,
-  baseUrl: string,
-): Promise<GitLabTokenValidation> {
+async function validateUserToken(token: string, baseUrl: string): Promise<GitLabTokenValidation> {
   const apiBase = gitlabApiBase(baseUrl)
   // Bearer-first: Bearer accepts both glpat- PATs and glab's
   // unprefixed OAuth tokens (which PRIVATE-TOKEN rejects with 401), so the
@@ -207,8 +203,7 @@ async function validateUserToken(
 const impl: GitLabClientShape = {
   validateToken: (token: string, baseUrl?: string) =>
     Effect.tryPromise({
-      try: (): Promise<GitLabTokenValidation> =>
-        validateUserToken(token, resolveBaseUrl(baseUrl)),
+      try: (): Promise<GitLabTokenValidation> => validateUserToken(token, resolveBaseUrl(baseUrl)),
       catch: toGitLabApiError,
     }),
 
@@ -230,15 +225,11 @@ const impl: GitLabClientShape = {
         if (params.labels && params.labels.length > 0) {
           body.labels = params.labels.join(",")
         }
-        const resp = await gitlabFetch(
-          `${apiBase}/projects/${projectId}/merge_requests`,
-          token,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        )
+        const resp = await gitlabFetch(`${apiBase}/projects/${projectId}/merge_requests`, token, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
         await assertOk(resp)
         // `iid` is the project-scoped, user-facing number (!42); `id` is the
         // global DB id — never surface that one.

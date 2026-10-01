@@ -91,9 +91,7 @@ function mapValidationType(raw: string): BoilerplateValidationType {
   return VALIDATION_TYPE_MAP[lower] ?? "custom"
 }
 
-function extractValidations(
-  rawValidations: (RawValidation | string)[] | undefined,
-): {
+function extractValidations(rawValidations: (RawValidation | string)[] | undefined): {
   validations: ValidationRule[]
   isRequired: boolean
 } {
@@ -108,8 +106,7 @@ function extractValidations(
     // Accept the YAML shorthand form (`- required`) alongside the long form
     // (`- type: required`). The upstream gruntwork-io/boilerplate library
     // supports both; the Go parser on main inherited that via delegation.
-    const normalized: RawValidation =
-      typeof rv === "string" ? { type: rv } : rv
+    const normalized: RawValidation = typeof rv === "string" ? { type: rv } : rv
 
     const typeName = normalized.type ?? ""
     const mapped = mapValidationType(typeName)
@@ -161,9 +158,7 @@ function coerceVarType(raw: string | undefined): BoilerplateVarType {
 // Section grouping
 // ---------------------------------------------------------------------------
 
-function buildSections(
-  rawVars: RawVariable[],
-): Section[] {
+function buildSections(rawVars: RawVariable[]): Section[] {
   const sectionVars = new Map<string, string[]>()
   const sectionOrder: string[] = []
   const seen = new Set<string>()
@@ -210,9 +205,7 @@ function buildSections(
 function parseSkipFiles(raw: unknown): SkipFileRule[] {
   if (raw === undefined || raw === null) return []
   if (!Array.isArray(raw)) {
-    console.warn(
-      `[boilerplate config] skip_files must be a list, got ${typeof raw}; ignoring.`,
-    )
+    console.warn(`[boilerplate config] skip_files must be a list, got ${typeof raw}; ignoring.`)
     return []
   }
 
@@ -220,9 +213,7 @@ function parseSkipFiles(raw: unknown): SkipFileRule[] {
   for (let idx = 0; idx < raw.length; idx++) {
     const entry = raw[idx] as RawSkipFile | null | undefined
     if (!entry || typeof entry !== "object") {
-      console.warn(
-        `[boilerplate config] skip_files[${idx}] is not an object; dropping entry.`,
-      )
+      console.warn(`[boilerplate config] skip_files[${idx}] is not an object; dropping entry.`)
       continue
     }
     const pathVal = entry.path
@@ -258,7 +249,9 @@ function parseSkipFiles(raw: unknown): SkipFileRule[] {
  * This is a pure function wrapped in Effect so callers get typed errors via
  * `BoilerplateConfigError`.
  */
-export function parseBoilerplateConfig(yamlContent: string): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
+export function parseBoilerplateConfig(
+  yamlContent: string,
+): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
   return Effect.gen(function* () {
     let raw: RawConfig
     try {

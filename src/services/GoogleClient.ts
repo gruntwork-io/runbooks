@@ -139,9 +139,7 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GoogleIdentity, GoogleAuthError>
 
   /** Read + classify a credentials JSON path. Metadata only — no secrets returned. */
-  readonly readCredentialFile: (
-    filePath: string,
-  ) => Effect.Effect<AdcInfo, GoogleConfigError>
+  readonly readCredentialFile: (filePath: string) => Effect.Effect<AdcInfo, GoogleConfigError>
 
   /** Read a credentials JSON path in full (secret material) for validation/materialisation. */
   readonly readCredentialFileContents: (
@@ -163,9 +161,7 @@ export interface GoogleClientShape {
   ) => Effect.Effect<OAuthFlowStart, GoogleOAuthError>
 
   /** <- AwsClient.pollSsoToken. Returns {status:"pending"} until the callback lands. */
-  readonly pollOAuthFlow: (
-    flowId: string,
-  ) => Effect.Effect<OAuthFlowResult, GoogleOAuthError>
+  readonly pollOAuthFlow: (flowId: string) => Effect.Effect<OAuthFlowResult, GoogleOAuthError>
 
   /** No AWS analogue: closes the loopback server and drops the flow record. */
   readonly cancelOAuthFlow: (flowId: string) => Effect.Effect<void>

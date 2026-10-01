@@ -9,25 +9,25 @@
  */
 export interface GitRepoInfo {
   /** Repository URL (e.g., "github.com/gruntwork-io/terraform-aws-lambda") */
-  repoUrl: string;
+  repoUrl: string
   /** Repository name (e.g., "terraform-aws-lambda") */
-  repoName: string;
+  repoName: string
   /** Repository owner (e.g., "gruntwork-io") */
-  repoOwner: string;
+  repoOwner: string
   /** Git ref: branch name, tag name, or commit SHA */
-  ref: string;
+  ref: string
   /** Type of ref: "branch", "tag", or "commit" */
-  refType?: 'branch' | 'tag' | 'commit';
+  refType?: "branch" | "tag" | "commit"
   /** Commit SHA */
-  commitSha?: string;
+  commitSha?: string
 }
 
 /**
  * Top-level context for the files workspace
  */
-export type WorkspaceContext = 'repository' | 'generated';
+export type WorkspaceContext = "repository" | "generated"
 
 /**
  * Tab identifiers for the files workspace
  */
-export type WorkspaceTab = 'generated' | 'all' | 'changed';
+export type WorkspaceTab = "generated" | "all" | "changed"

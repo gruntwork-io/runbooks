@@ -52,7 +52,10 @@ export interface ProcessSpawnerShape {
   ) => Effect.Effect<SpawnedProcess, SpawnError>
 }
 
-export class ProcessSpawner extends Context.Tag("ProcessSpawner")<ProcessSpawner, ProcessSpawnerShape>() {}
+export class ProcessSpawner extends Context.Tag("ProcessSpawner")<
+  ProcessSpawner,
+  ProcessSpawnerShape
+>() {}
 
 /** Everything a short-lived process wrote, in arrival order, plus its exit code. */
 export interface CollectedOutput {

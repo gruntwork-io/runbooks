@@ -220,7 +220,9 @@ describe("isContainedInReal", () => {
   })
 
   it("allows a relative dangling symlink that stays inside the container", async () => {
-    expect(await isContainedInReal(path.join(container, "deep", "inside-dangling"), container)).toBe(true)
+    expect(
+      await isContainedInReal(path.join(container, "deep", "inside-dangling"), container),
+    ).toBe(true)
     const viaUp = path.join(container, "deep", "a", "b", "up", "inside-dangling")
     expect(await isContainedInReal(viaUp, container)).toBe(true)
   })
@@ -305,7 +307,9 @@ describe("validateRelativePathIn", () => {
   })
 
   it("fails when resolved path escapes directory", async () => {
-    const exit = await Effect.runPromiseExit(validateRelativePathIn("../../etc/passwd", "/workspace"))
+    const exit = await Effect.runPromiseExit(
+      validateRelativePathIn("../../etc/passwd", "/workspace"),
+    )
     expect(Exit.isFailure(exit)).toBe(true)
   })
 })

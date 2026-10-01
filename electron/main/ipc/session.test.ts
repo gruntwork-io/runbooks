@@ -21,7 +21,8 @@ const { runtime, sessionManager } = await import("./runtime.ts")
 
 registerSessionHandlers()
 
-const sessionEnv = async () => Object.fromEntries((await runtime.runPromise(sessionManager.getSession())).env)
+const sessionEnv = async () =>
+  Object.fromEntries((await runtime.runPromise(sessionManager.getSession())).env)
 
 describe("session IPC handlers", () => {
   let tmpDir = ""
@@ -38,7 +39,9 @@ describe("session IPC handlers", () => {
 
   // Both channels declare { ok: true }; the handlers returned nothing.
   it("session:set-env adds the vars and returns { ok: true }", async () => {
-    const result = await handlers.get("session:set-env")!(undefined, { env: { RUNBOOKS_TEST_VAR: "set" } })
+    const result = await handlers.get("session:set-env")!(undefined, {
+      env: { RUNBOOKS_TEST_VAR: "set" },
+    })
 
     expect(result).toEqual({ ok: true })
     expect((await sessionEnv()).RUNBOOKS_TEST_VAR).toBe("set")

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { CircleCheck, Loader2, CircleX } from 'lucide-react'
+import React, { useState, useEffect, useRef } from "react"
+import { CircleCheck, Loader2, CircleX } from "lucide-react"
 
-type FormStatusState = 'valid' | 'updating' | 'error' | 'failed'
+type FormStatusState = "valid" | "updating" | "error" | "failed"
 
 interface FormStatusProps {
   /** Whether the form is currently valid */
@@ -18,16 +18,16 @@ interface FormStatusProps {
 
 /**
  * FormStatus component that shows the current state of the form after initial generation.
- * 
+ *
  * Displays one of four states:
  * - Valid: Green checkmark with "Fields will update automatically" message
  * - Updating: Spinner with "Updating..." message (shown briefly during auto-render)
  * - Error: Red X with "Fix validation errors above" message
  * - Failed: Red X with "Generation failed" message (the latest render failed)
- * 
+ *
  * The updating state lingers for a minimum duration to provide visual feedback
  * even when updates are nearly instantaneous.
- * 
+ *
  * @param props - Component props
  * @param props.isValid - Whether the form currently passes validation
  * @param props.isUpdating - Whether an auto-render is in progress
@@ -40,7 +40,7 @@ export const FormStatus: React.FC<FormStatusProps> = ({
   isUpdating,
   isInlineMode = false,
   hasRenderError = false,
-  className = ''
+  className = "",
 }) => {
   // True while the updating state is held past the end of an update to reach
   // its minimum display duration.
@@ -64,11 +64,11 @@ export const FormStatus: React.FC<FormStatusProps> = ({
 
   let displayState: FormStatusState
   if (!isValid) {
-    displayState = 'error'
+    displayState = "error"
   } else if (isUpdating || lingering) {
-    displayState = 'updating'
+    displayState = "updating"
   } else {
-    displayState = hasRenderError ? 'failed' : 'valid'
+    displayState = hasRenderError ? "failed" : "valid"
   }
 
   useEffect(() => {
@@ -84,14 +84,14 @@ export const FormStatus: React.FC<FormStatusProps> = ({
     return () => clearTimeout(timeout)
   }, [isUpdating, lingering])
 
-  const autoUpdateMessage = isInlineMode 
-    ? 'Variable values will update automatically as you type.'
-    : 'Generated files will update automatically as you type.'
+  const autoUpdateMessage = isInlineMode
+    ? "Variable values will update automatically as you type."
+    : "Generated files will update automatically as you type."
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       <div className="flex items-center gap-2">
-        {displayState === 'error' && (
+        {displayState === "error" && (
           <>
             <CircleX className="size-5 text-destructive flex-shrink-0" />
             <span className="text-sm text-destructive font-medium">
@@ -100,16 +100,14 @@ export const FormStatus: React.FC<FormStatusProps> = ({
           </>
         )}
 
-        {displayState === 'updating' && (
+        {displayState === "updating" && (
           <>
             <Loader2 className="size-5 text-primary flex-shrink-0 animate-spin" />
-            <span className="text-sm text-primary font-medium">
-              Updating...
-            </span>
+            <span className="text-sm text-primary font-medium">Updating...</span>
           </>
         )}
 
-        {displayState === 'failed' && (
+        {displayState === "failed" && (
           <>
             <CircleX className="size-5 text-destructive flex-shrink-0" />
             <span className="text-sm text-destructive font-medium">
@@ -118,23 +116,18 @@ export const FormStatus: React.FC<FormStatusProps> = ({
           </>
         )}
 
-        {displayState === 'valid' && (
+        {displayState === "valid" && (
           <>
             <CircleCheck className="size-5 text-success flex-shrink-0" />
-            <span className="text-sm text-success font-medium">
-              Up to date
-            </span>
+            <span className="text-sm text-success font-medium">Up to date</span>
           </>
         )}
       </div>
-      
+
       {/* Help text shown when valid or updating */}
-      {displayState !== 'error' && (
-        <p className="text-sm text-muted-foreground italic">
-          {autoUpdateMessage}
-        </p>
+      {displayState !== "error" && (
+        <p className="text-sm text-muted-foreground italic">{autoUpdateMessage}</p>
       )}
     </div>
   )
 }
-

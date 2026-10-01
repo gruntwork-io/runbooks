@@ -35,7 +35,7 @@ export interface GitCloneProps {
 }
 
 /** Where the repository comes from: a fresh clone, or an existing local checkout. */
-export type GitCloneSource = 'clone' | 'local'
+export type GitCloneSource = "clone" | "local"
 
 /** Metadata for a local checkout selected by the user (git:local-repo result). */
 export interface LocalRepoInfo {
@@ -45,14 +45,14 @@ export interface LocalRepoInfo {
   remoteUrl?: string
   /** Checked out branch or tag; empty for a repo with no commits. */
   ref?: string
-  refType?: 'branch' | 'tag' | 'detached'
+  refType?: "branch" | "tag" | "detached"
   commitSha?: string
   /** False for a repo with no commits: no branch exists for a PR to target. */
   hasCommits?: boolean
 }
 
 /** Status of the clone operation */
-export type GitCloneStatus = 'pending' | 'ready' | 'running' | 'success' | 'fail'
+export type GitCloneStatus = "pending" | "ready" | "running" | "success" | "fail"
 
 /** Result of a successful clone, or of selecting a local checkout */
 export interface CloneResult {
@@ -95,5 +95,5 @@ export interface GitHubRepo {
 /** A GitHub ref (branch or tag) */
 export interface GitHubRef {
   name: string
-  type: 'branch' | 'tag'
+  type: "branch" | "tag"
 }

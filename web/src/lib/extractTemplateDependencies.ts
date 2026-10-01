@@ -7,9 +7,9 @@
  * template expressions its props/content contain.
  */
 
-import type { ReactNode } from 'react'
-import { normalizeBlockId } from '@/lib/utils'
-import type { InputName, BlockId, OutputName } from '@/lib/templateUtils'
+import type { ReactNode } from "react"
+import { normalizeBlockId } from "@/lib/utils"
+import type { InputName, BlockId, OutputName } from "@/lib/templateUtils"
 
 /**
  * Represents a dependency extracted from a template expression.
@@ -18,14 +18,14 @@ import type { InputName, BlockId, OutputName } from '@/lib/templateUtils'
  * - 'output': {{ .outputs.create_account.account_id }} → needs output "account_id" from block "create_account"
  */
 export type TemplateDependency =
-  | { type: 'input'; name: InputName }
-  | { type: 'output'; blockId: BlockId; outputName: OutputName; fullPath: string }
+  | { type: "input"; name: InputName }
+  | { type: "output"; blockId: BlockId; outputName: OutputName; fullPath: string }
 
 // OutputDependency is defined canonically alongside the boilerplate config types.
 // Import it for local use below, and re-export so existing importers keep a
 // single source of truth. (BlockId/OutputName are string aliases, so the shapes
 // are identical.)
-import type { OutputDependency } from '@/types/boilerplateConfig'
+import type { OutputDependency } from "@/types/boilerplateConfig"
 export type { OutputDependency }
 
 /**
@@ -67,15 +67,15 @@ export function extractTemplateDependenciesFromString(content: string): Template
 
       if (seen.has(path)) continue
 
-      if (path.startsWith('inputs.')) {
-        const name = path.slice('inputs.'.length)
+      if (path.startsWith("inputs.")) {
+        const name = path.slice("inputs.".length)
         if (name) {
           seen.add(path)
-          deps.push({ type: 'input', name })
+          deps.push({ type: "input", name })
         }
-      } else if (path.startsWith('outputs.')) {
-        const rest = path.slice('outputs.'.length)
-        const dotIdx = rest.indexOf('.')
+      } else if (path.startsWith("outputs.")) {
+        const rest = path.slice("outputs.".length)
+        const dotIdx = rest.indexOf(".")
         if (dotIdx > 0) {
           const originalBlockId = rest.slice(0, dotIdx)
           const normalizedBlockId = normalizeBlockId(originalBlockId)
@@ -86,7 +86,7 @@ export function extractTemplateDependenciesFromString(content: string): Template
           if (!seen.has(normalizedPath)) {
             seen.add(normalizedPath)
             deps.push({
-              type: 'output',
+              type: "output",
               blockId: originalBlockId,
               outputName,
               fullPath: normalizedPath,
@@ -116,7 +116,7 @@ export function splitDependencies(deps: TemplateDependency[]): {
   const seenOutputs = new Set<string>()
 
   for (const dep of deps) {
-    if (dep.type === 'input') {
+    if (dep.type === "input") {
       if (!seenInputs.has(dep.name)) {
         seenInputs.add(dep.name)
         inputs.push(dep.name)
@@ -156,7 +156,7 @@ export function extractTemplateDependencies(children: ReactNode): TemplateDepend
   const collectFromString = (text: string) => {
     const deps = extractTemplateDependenciesFromString(text)
     for (const dep of deps) {
-      const key = dep.type === 'input' ? `input:${dep.name}` : dep.fullPath
+      const key = dep.type === "input" ? `input:${dep.name}` : dep.fullPath
       if (!seen.has(key)) {
         seen.add(key)
         allDeps.push(dep)
@@ -165,11 +165,11 @@ export function extractTemplateDependencies(children: ReactNode): TemplateDepend
   }
 
   const traverse = (node: ReactNode): void => {
-    if (typeof node === 'string') {
+    if (typeof node === "string") {
       collectFromString(node)
     } else if (Array.isArray(node)) {
       node.forEach(traverse)
-    } else if (node && typeof node === 'object' && 'props' in node) {
+    } else if (node && typeof node === "object" && "props" in node) {
       const element = node as { props?: { children?: ReactNode; value?: string } }
       if (element.props?.value) {
         collectFromString(element.props.value)

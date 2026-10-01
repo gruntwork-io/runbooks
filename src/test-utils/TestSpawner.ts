@@ -134,8 +134,7 @@ export const makeTestSpawner = (expectations: SpawnExpectation[] = []) =>
     spawn: (command, args, _options?) => {
       const match = expectations.find((e) => {
         if (e.command !== command) return false
-        if (e.args && JSON.stringify(e.args) !== JSON.stringify(args))
-          return false
+        if (e.args && JSON.stringify(e.args) !== JSON.stringify(args)) return false
         return true
       })
 

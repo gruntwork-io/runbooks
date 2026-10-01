@@ -1,4 +1,4 @@
-import GitHubPullRequest from './GitHubPullRequest'
+import GitHubPullRequest from "./GitHubPullRequest"
 
 export { GitHubPullRequest }
 export default GitHubPullRequest
@@ -9,4 +9,4 @@ export type {
   PRResult,
   GitLabel,
   ChangeSummary,
-} from '@/components/mdx/GitPullRequest/types'
+} from "@/components/mdx/GitPullRequest/types"

@@ -65,17 +65,23 @@ describe("validateVariableValue", () => {
   })
 
   it("applies the rules to the value's string form", () => {
-    const variable = { name: "port", validations: [{ type: "digit" }, { type: "length", args: [2, 4] }] }
+    const variable = {
+      name: "port",
+      validations: [{ type: "digit" }, { type: "length", args: [2, 4] }],
+    }
     expect(validateVariableValue(variable, 8080)).toBeUndefined()
     expect(validateVariableValue(variable, 80800)).toBe("Must be between 2 and 4 characters")
   })
 
   it("ignores custom rules", () => {
-    expect(validateVariableValue({ name: "x", validations: [{ type: "custom" }] }, "anything")).toBeUndefined()
+    expect(
+      validateVariableValue({ name: "x", validations: [{ type: "custom" }] }, "anything"),
+    ).toBeUndefined()
   })
 
   it("enforces the rules parseBoilerplateConfig produces", () => {
-    const config = Effect.runSync(parseBoilerplateConfig(`
+    const config = Effect.runSync(
+      parseBoilerplateConfig(`
 variables:
   - name: code
     validations:
@@ -89,12 +95,15 @@ variables:
   - name: version
     validations:
       - semver
-`))
+`),
+    )
     const [code, version] = config.variables
     expect(validateVariableValue(code, "")).toBe("code is required")
     expect(validateVariableValue(code, "abc")).toBe("Must match pattern: ^[A-Z]{3}$")
     expect(validateVariableValue(code, "ABC")).toBeUndefined()
-    expect(validateVariableValue(version, "1.2")).toBe("Must be a valid semantic version (e.g., 1.2.3)")
+    expect(validateVariableValue(version, "1.2")).toBe(
+      "Must be a valid semantic version (e.g., 1.2.3)",
+    )
     expect(validateVariableValue(version, "v1.2.3")).toBeUndefined()
   })
 })

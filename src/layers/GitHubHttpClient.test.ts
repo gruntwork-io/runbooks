@@ -161,9 +161,14 @@ describe("GitHubHttpClient listRepos owner resolution", () => {
       if (url.endsWith("/orgs/bob")) return new Response("not found", { status: 404 })
       // The token's user collaborates on two of bob's repos, one of them private.
       if (url.includes("/user/repos")) {
-        return json([repo(2, "acme", "infra"), { ...repo(4, "bob", "secret"), private: true }, repo(3, "bob", "site")])
+        return json([
+          repo(2, "acme", "infra"),
+          { ...repo(4, "bob", "secret"), private: true },
+          repo(3, "bob", "site"),
+        ])
       }
-      if (url.includes("/users/bob/repos")) return json([repo(3, "bob", "site"), repo(5, "bob", "blog")])
+      if (url.includes("/users/bob/repos"))
+        return json([repo(3, "bob", "site"), repo(5, "bob", "blog")])
       return new Response("not found", { status: 404 })
     })
 
@@ -207,8 +212,15 @@ describe("GitHubHttpClient pull requests", () => {
   it("createPullRequest makes exactly one request, a POST to /pulls (labeling is the caller's job)", async () => {
     const calls: Array<{ url: string; method?: string; body?: unknown }> = []
     mockFetch((url, init) => {
-      calls.push({ url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
-      return json({ html_url: "https://github.com/o/r/pull/42", number: 42, head: { ref: "feat" } }, 201)
+      calls.push({
+        url,
+        method: init?.method,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      })
+      return json(
+        { html_url: "https://github.com/o/r/pull/42", number: 42, head: { ref: "feat" } },
+        201,
+      )
     })
 
     // A stray `labels` field (as the domain used to pass) must not trigger a
@@ -245,7 +257,11 @@ describe("GitHubHttpClient pull requests", () => {
   it("addLabels POSTs the labels to the PR's issue", async () => {
     const calls: Array<{ url: string; method?: string; body?: unknown }> = []
     mockFetch((url, init) => {
-      calls.push({ url, method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+      calls.push({
+        url,
+        method: init?.method,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      })
       return json([{ name: "enhancement" }])
     })
 
@@ -374,7 +390,11 @@ describe("GitHubHttpClient host routing", () => {
       const result = await run((c) => c.validateToken("ghp_x", "ghes.example.com:8443"))
       expect(result.scopes).toEqual(["repo", "read:org"])
       expect(calls).toEqual([
-        { url: "https://ghes.example.com:8443/api/v3/user", method: "GET", authorization: "Bearer ghp_x" },
+        {
+          url: "https://ghes.example.com:8443/api/v3/user",
+          method: "GET",
+          authorization: "Bearer ghp_x",
+        },
       ])
     })
 
@@ -397,15 +417,25 @@ describe("GitHubHttpClient host routing", () => {
     })
 
     it("GitHub App installation token probes /installation/repositories on the host's API", async () => {
-      const calls = recordFetch(() => json({ total_count: 1, repositories: [{ owner: { login: "acme" } }] }))
+      const calls = recordFetch(() =>
+        json({ total_count: 1, repositories: [{ owner: { login: "acme" } }] }),
+      )
       const result = await run((c) => c.validateToken("ghs_x", "ghes.example.com"))
       expect(result.user.login).toBe("acme[bot]")
-      expect(calls[0].url).toBe("https://ghes.example.com/api/v3/installation/repositories?per_page=1")
+      expect(calls[0].url).toBe(
+        "https://ghes.example.com/api/v3/installation/repositories?per_page=1",
+      )
     })
   })
 
   describe("an unparseable host fails with status 400 and makes NO request", () => {
-    const BAD_HOSTS = ["ftp://ghes.example.com", "https://user:pw@ghes.example.com", "not a host", "", "   "]
+    const BAD_HOSTS = [
+      "ftp://ghes.example.com",
+      "https://user:pw@ghes.example.com",
+      "not a host",
+      "",
+      "   ",
+    ]
 
     for (const bad of BAD_HOSTS) {
       it(`validateToken(${JSON.stringify(bad)})`, async () => {
@@ -432,7 +462,11 @@ describe("GitHubHttpClient host routing", () => {
         runEither((c) => c.listRefs("t", "o", "r", undefined, bad)),
         runEither((c) => c.listLabels("t", "o", "r", bad)),
         runEither((c) =>
-          c.createPullRequest("t", { owner: "o", repo: "r", title: "x", body: "", baseBranch: "main", headBranch: "f" }, bad),
+          c.createPullRequest(
+            "t",
+            { owner: "o", repo: "r", title: "x", body: "", baseBranch: "main", headBranch: "f" },
+            bad,
+          ),
         ),
         runEither((c) => c.addLabels("t", "o", "r", 1, ["bug"], bad)),
       ]
@@ -449,7 +483,9 @@ describe("GitHubHttpClient host routing", () => {
       const calls = recordFetch(() => json([{ id: 1, login: "corp" }]))
       const orgs = await run((c) => c.listOrgs("t", "ghes.example.com"))
       expect(orgs).toEqual([{ id: 1, login: "corp", name: undefined }])
-      expect(calls.map((c) => c.url)).toEqual(["https://ghes.example.com/api/v3/user/orgs?per_page=100&page=1"])
+      expect(calls.map((c) => c.url)).toEqual([
+        "https://ghes.example.com/api/v3/user/orgs?per_page=100&page=1",
+      ])
     })
 
     it("ghe.com → api.<sub>.ghe.com/user/orgs", async () => {
@@ -469,7 +505,14 @@ describe("GitHubHttpClient host routing", () => {
     it("all stay on the GHES API base", async () => {
       const calls = recordFetch((url) =>
         url.endsWith("/repos/o/r")
-          ? json({ id: 1, name: "r", full_name: "o/r", private: false, default_branch: "main", owner: { id: 2 } })
+          ? json({
+              id: 1,
+              name: "r",
+              full_name: "o/r",
+              private: false,
+              default_branch: "main",
+              owner: { id: 2 },
+            })
           : url.includes("/orgs/o") && !url.includes("/repos")
             ? json({ login: "o" })
             : json([]),
@@ -497,13 +540,20 @@ describe("GitHubHttpClient host routing", () => {
     }
     const prResponse = (url: string) =>
       url.endsWith("/pulls")
-        ? json({ html_url: "https://ghes.example.com/o/r/pull/7", number: 7, head: { ref: "feat" } }, 201)
+        ? json(
+            { html_url: "https://ghes.example.com/o/r/pull/7", number: 7, head: { ref: "feat" } },
+            201,
+          )
         : json([])
 
     it("GHES: PR POSTed to https://<host>/api/v3 (labels are the caller's addLabels call)", async () => {
       const calls = recordFetch(prResponse)
       const result = await run((c) => c.createPullRequest("t", params, "ghes.example.com"))
-      expect(result).toEqual({ url: "https://ghes.example.com/o/r/pull/7", number: 7, branch: "feat" })
+      expect(result).toEqual({
+        url: "https://ghes.example.com/o/r/pull/7",
+        number: 7,
+        branch: "feat",
+      })
       expect(calls.map((c) => [c.method, c.url])).toEqual([
         ["POST", "https://ghes.example.com/api/v3/repos/o/r/pulls"],
       ])
@@ -532,13 +582,20 @@ describe("GitHubHttpClient host routing", () => {
 
   describe("OAuth device flow endpoints (web origin)", () => {
     const deviceResponse = () =>
-      json({ device_code: "dc", user_code: "UC", verification_uri: "https://ghes.example.com/login/device", interval: 5 })
+      json({
+        device_code: "dc",
+        user_code: "UC",
+        verification_uri: "https://ghes.example.com/login/device",
+        interval: 5,
+      })
 
     it("GHES: /login/device/code and /login/oauth/access_token on https://<host>", async () => {
       const calls = recordFetch((url) =>
         url.endsWith("/login/device/code") ? deviceResponse() : json({ access_token: "gho_new" }),
       )
-      const start = await run((c) => c.startOAuthDeviceFlow("Iv1.ghes", ["repo"], "ghes.example.com:8443"))
+      const start = await run((c) =>
+        c.startOAuthDeviceFlow("Iv1.ghes", ["repo"], "ghes.example.com:8443"),
+      )
       expect(start.verificationUri).toBe("https://ghes.example.com/login/device")
       const poll = await run((c) => c.pollOAuthToken("Iv1.ghes", "dc", "ghes.example.com:8443"))
       expect(poll).toEqual({ token: "gho_new" })
@@ -550,7 +607,9 @@ describe("GitHubHttpClient host routing", () => {
 
     it("ghe.com: device flow on the tenant web origin (not the api. origin)", async () => {
       const calls = recordFetch((url) =>
-        url.endsWith("/login/device/code") ? deviceResponse() : json({ error: "authorization_pending" }),
+        url.endsWith("/login/device/code")
+          ? deviceResponse()
+          : json({ error: "authorization_pending" }),
       )
       await run((c) => c.startOAuthDeviceFlow("Iv1.ghec", ["repo"], "acme.ghe.com"))
       const poll = await run((c) => c.pollOAuthToken("Iv1.ghec", "dc", "acme.ghe.com"))

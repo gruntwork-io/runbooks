@@ -1,8 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import {
-  findFencedCodeBlockRanges,
-  isInsideFencedCodeBlock,
-} from "./mdx.ts"
+import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "./mdx.ts"
 
 describe("findFencedCodeBlockRanges", () => {
   it("returns empty for content without fences", () => {
@@ -51,13 +48,9 @@ describe("findFencedCodeBlockRanges", () => {
   })
 
   it("does not close a ~~~ fence on a ``` line", () => {
-    const content = [
-      "~~~",
-      "```",
-      '<Command id="example" />',
-      "~~~",
-      '<Command id="real" />',
-    ].join("\n")
+    const content = ["~~~", "```", '<Command id="example" />', "~~~", '<Command id="real" />'].join(
+      "\n",
+    )
     const ranges = findFencedCodeBlockRanges(content)
     expect(ranges).toHaveLength(1)
     expect(isInsideFencedCodeBlock(content.indexOf('id="example"'), ranges)).toBe(true)
@@ -120,9 +113,7 @@ describe("findFencedCodeBlockRanges", () => {
 
   it("runs an unclosed fence to the end of the content", () => {
     const content = 'intro\n\n```\n<Command id="example" />\n'
-    expect(findFencedCodeBlockRanges(content)).toEqual([
-      [content.indexOf("```"), content.length],
-    ])
+    expect(findFencedCodeBlockRanges(content)).toEqual([[content.indexOf("```"), content.length]])
   })
 })
 

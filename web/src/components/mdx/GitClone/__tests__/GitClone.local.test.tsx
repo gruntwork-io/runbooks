@@ -71,8 +71,14 @@ beforeEach(() => {
 describe("GitClone — repository source picker", () => {
   it("offers both sources and starts on clone", () => {
     renderGitClone()
-    expect(screen.getByRole("tab", { name: /Clone from remote/i })).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByRole("tab", { name: /Use local checkout/i })).toHaveAttribute("aria-selected", "false")
+    expect(screen.getByRole("tab", { name: /Clone from remote/i })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
+    expect(screen.getByRole("tab", { name: /Use local checkout/i })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    )
     expect(screen.getByPlaceholderText("https://github.com/org/repo.git")).toBeInTheDocument()
   })
 
@@ -89,7 +95,10 @@ describe("GitClone — repository source picker", () => {
 
   it("starts on the local source when a checkout directory is prefilled", () => {
     renderGitClone({ prefilledRepoDir: "/home/me/infra" })
-    expect(screen.getByRole("tab", { name: /Use local checkout/i })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("tab", { name: /Use local checkout/i })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
     expect(repoDirInput()).toHaveValue("/home/me/infra")
   })
 
@@ -112,10 +121,9 @@ describe("GitClone — repository source picker", () => {
     // ...but confirming does wait, because the GitHub org/repo ids are resolved
     // from the session token at confirm time and can't be filled in later.
     expect(screen.getByText(/Waiting for git authentication/i)).toBeInTheDocument()
-    await waitFor(
-      () => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(),
-      { timeout: 2000 },
-    )
+    await waitFor(() => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(), {
+      timeout: 2000,
+    })
     expect(screen.getByRole("button", { name: /Use This Repo/i })).toBeDisabled()
   })
 })
@@ -124,10 +132,9 @@ describe("GitClone — local checkout", () => {
   it("previews the directory without registering it", async () => {
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
 
-    await waitFor(
-      () => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(),
-      { timeout: 2000 },
-    )
+    await waitFor(() => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(), {
+      timeout: 2000,
+    })
 
     expect(invoke).toHaveBeenCalledWith("git:local-repo", { path: "/home/me/infra" })
     expect(screen.getByText(/https:\/\/github.com\/acme\/infra.git/)).toBeInTheDocument()
@@ -179,10 +186,9 @@ describe("GitClone — local checkout", () => {
   it("tells the user the checked directory is not in use until confirmed", async () => {
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/infra" })
 
-    await waitFor(
-      () => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(),
-      { timeout: 2000 },
-    )
+    await waitFor(() => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(), {
+      timeout: 2000,
+    })
 
     // The preview must not read as a finished block: nothing is registered
     // until "Use This Repo", and a block with no outputs leaves every consumer
@@ -248,10 +254,9 @@ describe("GitClone — local checkout", () => {
     mockIpc({ status: "fail", error: "Not a git repository: /home/me/notes" })
     renderGitClone({ source: "local", prefilledRepoDir: "/home/me/notes" })
 
-    await waitFor(
-      () => expect(screen.getByText(/Can't use this directory/i)).toBeInTheDocument(),
-      { timeout: 2000 },
-    )
+    await waitFor(() => expect(screen.getByText(/Can't use this directory/i)).toBeInTheDocument(), {
+      timeout: 2000,
+    })
     expect(screen.getByText("Not a git repository: /home/me/notes")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /Use This Repo/i })).toBeDisabled()
     expect(registerWorkTree).not.toHaveBeenCalled()
@@ -263,9 +268,7 @@ describe("GitClone — local checkout", () => {
 
     await waitFor(
       () =>
-        expect(
-          screen.getByText(/blocks that open a pull request need one/i),
-        ).toBeInTheDocument(),
+        expect(screen.getByText(/blocks that open a pull request need one/i)).toBeInTheDocument(),
       { timeout: 2000 },
     )
   })
@@ -285,7 +288,10 @@ describe("GitClone — a clone that main rejects", () => {
       return {}
     })
     const user = userEvent.setup()
-    renderGitClone({ prefilledUrl: "https://github.com/acme/infra.git", prefilledRepoPath: "../outside" })
+    renderGitClone({
+      prefilledUrl: "https://github.com/acme/infra.git",
+      prefilledRepoPath: "../outside",
+    })
 
     const clone = screen.getByRole("button", { name: /^Clone$/i })
     await waitFor(() => expect(clone).toBeEnabled(), { timeout: 2000 })

@@ -111,9 +111,7 @@ function discoverRunbooks(paths: string[]): string[] {
     let runbookPath: string
     try {
       const stat = fs.statSync(pattern)
-      runbookPath = stat.isDirectory()
-        ? path.join(pattern, "runbook.mdx")
-        : pattern
+      runbookPath = stat.isDirectory() ? path.join(pattern, "runbook.mdx") : pattern
     } catch {
       console.error(`Path not found: ${pattern}`)
       process.exit(1)
@@ -161,10 +159,7 @@ function walkDir(dir: string, callback: (path: string) => void): void {
 // Test suite orchestration
 // ---------------------------------------------------------------------------
 
-async function runTestSuites(
-  runbooks: string[],
-  opts: TestOptions,
-): Promise<RunbookTestSuite[]> {
+async function runTestSuites(runbooks: string[], opts: TestOptions): Promise<RunbookTestSuite[]> {
   // Group by parallelizable status
   const parallel: string[] = []
   const sequential: string[] = []
@@ -199,10 +194,7 @@ async function runTestSuites(
   return suites
 }
 
-async function runTestSuite(
-  runbookPath: string,
-  opts: TestOptions,
-): Promise<RunbookTestSuite> {
+async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<RunbookTestSuite> {
   const start = Date.now()
   const suite: RunbookTestSuite = {
     runbookPath,
@@ -313,15 +305,23 @@ async function runTestSuite(
       }
     } finally {
       if (tempWorkDir) {
-        try { fs.rmSync(tempWorkDir, { recursive: true, force: true }) } catch {}
+        try {
+          fs.rmSync(tempWorkDir, { recursive: true, force: true })
+        } catch {}
       }
     }
     suite.results.push(result)
 
     switch (result.status) {
-      case "passed": suite.passed++; break
-      case "failed": suite.failed++; break
-      case "skipped": suite.skipped++; break
+      case "passed":
+        suite.passed++
+        break
+      case "failed":
+        suite.failed++
+        break
+      case "skipped":
+        suite.skipped++
+        break
     }
   }
 

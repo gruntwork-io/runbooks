@@ -1,4 +1,16 @@
-import { ChevronDown, ChevronRight, SquareTerminal, Copy, Check, Download, WrapText, FileText, Maximize2, Minimize2, Sparkles } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronRight,
+  SquareTerminal,
+  Copy,
+  Check,
+  Download,
+  WrapText,
+  FileText,
+  Maximize2,
+  Minimize2,
+  Sparkles,
+} from "lucide-react"
 import { useState, useEffect, useRef, useContext } from "react"
 import type { ExecutionStatus } from "../types"
 import { buildLlmPrompt } from "../lib/llmPrompt"
@@ -15,12 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
-import {
-  stripAnsi,
-  parseLogsToStructured,
-  downloadFile,
-  generateLogFilename,
-} from "@/lib/logs"
+import { stripAnsi, parseLogsToStructured, downloadFile, generateLogFilename } from "@/lib/logs"
 
 interface ViewLogsProps {
   logs: LogEntry[]
@@ -31,13 +38,7 @@ interface ViewLogsProps {
   logFilePath?: string | null
 }
 
-export function ViewLogs({
-  logs,
-  status,
-  autoOpen = false,
-  blockId,
-  logFilePath,
-}: ViewLogsProps) {
+export function ViewLogs({ logs, status, autoOpen = false, blockId, logFilePath }: ViewLogsProps) {
   const [showLogs, setShowLogs] = useState(autoOpen)
   // Whether the logs are blown up into a full-screen overlay.
   const [maximized, setMaximized] = useState(false)
@@ -61,7 +62,7 @@ export function ViewLogs({
 
   // Get plain text logs with ANSI codes stripped
   const getPlainTextLogs = () => {
-    return logs.map(log => stripAnsi(log.line)).join('\n')
+    return logs.map((log) => stripAnsi(log.line)).join("\n")
   }
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -77,29 +78,31 @@ export function ViewLogs({
 
   const handleCopyPrompt = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    await copyPrompt(buildLlmPrompt({
-      blockId,
-      status,
-      runbookFilePath: runbook?.runbookFilePath,
-      remoteSource: runbook?.remoteSource,
-      logFilePath,
-      logText: getPlainTextLogs(),
-    }))
+    await copyPrompt(
+      buildLlmPrompt({
+        blockId,
+        status,
+        runbookFilePath: runbook?.runbookFilePath,
+        remoteSource: runbook?.remoteSource,
+        logFilePath,
+        logText: getPlainTextLogs(),
+      }),
+    )
   }
 
   // Handle download raw logs
   const handleDownloadRaw = () => {
     const plainText = getPlainTextLogs()
-    const filename = generateLogFilename(blockId, 'log')
-    downloadFile(plainText, filename, 'text/plain')
+    const filename = generateLogFilename(blockId, "log")
+    downloadFile(plainText, filename, "text/plain")
   }
 
   // Handle download structured JSON logs
   const handleDownloadJson = () => {
     const structured = parseLogsToStructured(logs, blockId)
     const json = JSON.stringify(structured, null, 2)
-    const filename = generateLogFilename(blockId, 'json')
-    downloadFile(json, filename, 'application/json')
+    const filename = generateLogFilename(blockId, "json")
+    downloadFile(json, filename, "application/json")
   }
 
   const hasLogs = logs.length > 0
@@ -115,7 +118,7 @@ export function ViewLogs({
       promptCopied={promptCopied}
       onCopyPrompt={handleCopyPrompt}
       wrap={wrap}
-      onToggleWrap={() => setWrap(w => !w)}
+      onToggleWrap={() => setWrap((w) => !w)}
       copied={copied}
       onCopy={handleCopy}
       onDownloadRaw={handleDownloadRaw}
@@ -130,7 +133,9 @@ export function ViewLogs({
         <button
           type="button"
           aria-expanded={showLogs}
-          onClick={() => { setShowLogs(!showLogs) }}
+          onClick={() => {
+            setShowLogs(!showLogs)
+          }}
           className="flex items-center gap-2 text-left cursor-pointer flex-1"
         >
           {showLogs ? (
@@ -145,20 +150,23 @@ export function ViewLogs({
         {/* Action buttons. The copy-path button appears whenever an on-disk
             log file exists (even before any output), so the file can be opened
             directly; the rest require logs to act on. */}
-        {(hasLogs || logFilePath || status === 'running') && (
+        {(hasLogs || logFilePath || status === "running") && (
           <div className="flex items-center gap-1">
             {actions}
 
             {/* Maximize — blow the logs up into a full-screen overlay. Also
                 available while a run is streaming but hasn't emitted output yet. */}
-            {(hasLogs || status === 'running') && (
+            {(hasLogs || status === "running") && (
               <Tooltip delayDuration={350}>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
                     aria-label="Maximize logs"
-                    onClick={(e) => { e.stopPropagation(); setMaximized(true) }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setMaximized(true)
+                    }}
                     className="h-6 w-6 text-muted-foreground hover:text-foreground"
                   >
                     <Maximize2 className="size-3.5" />
@@ -180,7 +188,7 @@ export function ViewLogs({
           logs={logs}
           status={status}
           wrap={wrap}
-          className={`border-t border-border p-3 bg-gray-900 max-h-64 overflow-y-auto ${wrap ? '' : 'overflow-x-auto'}`}
+          className={`border-t border-border p-3 bg-gray-900 max-h-64 overflow-y-auto ${wrap ? "" : "overflow-x-auto"}`}
         />
       )}
 
@@ -225,7 +233,7 @@ export function ViewLogs({
             logs={logs}
             status={status}
             wrap={wrap}
-            className={`flex-1 min-h-0 p-3 bg-gray-900 overflow-y-auto ${wrap ? '' : 'overflow-x-auto'}`}
+            className={`flex-1 min-h-0 p-3 bg-gray-900 overflow-y-auto ${wrap ? "" : "overflow-x-auto"}`}
           />
         </DialogContent>
       </Dialog>
@@ -277,7 +285,7 @@ function LogScroll({
           {logs.map((log, index) => (
             <div
               key={`${log.timestamp}-${index}`}
-              className={`text-xs font-mono text-gray-100 ${wrap ? '' : 'whitespace-nowrap'}`}
+              className={`text-xs font-mono text-gray-100 ${wrap ? "" : "whitespace-nowrap"}`}
             >
               <span className="text-gray-400 mr-2">
                 {new Date(log.timestamp).toLocaleTimeString()}
@@ -287,15 +295,11 @@ function LogScroll({
           ))}
         </div>
       )}
-      {status === 'running' && (
-        <div className="text-xs font-mono text-gray-400 animate-pulse">
-          Running...
-        </div>
+      {status === "running" && (
+        <div className="text-xs font-mono text-gray-400 animate-pulse">Running...</div>
       )}
-      {logs.length === 0 && status !== 'running' && (
-        <div className="text-sm text-gray-400 italic">
-          No logs yet.
-        </div>
+      {logs.length === 0 && status !== "running" && (
+        <div className="text-sm text-gray-400 italic">No logs yet.</div>
       )}
     </div>
   )
@@ -394,8 +398,11 @@ function LogActions({
                 size="icon"
                 aria-pressed={wrap}
                 aria-label={wrap ? "Disable line wrap" : "Enable line wrap"}
-                onClick={(e) => { e.stopPropagation(); onToggleWrap() }}
-                className={`h-6 w-6 hover:text-foreground ${wrap ? 'text-foreground bg-accent' : 'text-muted-foreground'}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onToggleWrap()
+                }}
+                className={`h-6 w-6 hover:text-foreground ${wrap ? "text-foreground bg-accent" : "text-muted-foreground"}`}
               >
                 <WrapText className="size-3.5" />
               </Button>
@@ -442,12 +449,8 @@ function LogActions({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={onDownloadRaw}>
-                Raw Logs (.log)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onDownloadJson}>
-                Structured Logs (.json)
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onDownloadRaw}>Raw Logs (.log)</DropdownMenuItem>
+              <DropdownMenuItem onClick={onDownloadJson}>Structured Logs (.json)</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </>

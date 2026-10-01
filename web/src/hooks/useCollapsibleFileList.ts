@@ -1,5 +1,9 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
-import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
+import { useState, useRef, useMemo, useCallback } from "react"
+import {
+  MAX_DISPLAYED_FILES,
+  AUTO_COLLAPSE_THRESHOLD,
+  SHOW_MORE_INCREMENT,
+} from "@/lib/fileListDisplay"
 
 /**
  * State machine for collapsible, paginated file lists.
@@ -32,14 +36,11 @@ export function useCollapsibleFileList<T>({
     setDisplayLimit(MAX_DISPLAYED_FILES)
   }
 
-  const displayedItems = useMemo(
-    () => items.slice(0, displayLimit),
-    [items, displayLimit]
-  )
+  const displayedItems = useMemo(() => items.slice(0, displayLimit), [items, displayLimit])
   const hasMoreItems = items.length > displayLimit
 
   const toggleCollapse = useCallback((key: string) => {
-    setCollapsedFiles(prev => {
+    setCollapsedFiles((prev) => {
       const next = new Set(prev)
       if (next.has(key)) {
         next.delete(key)
@@ -51,25 +52,28 @@ export function useCollapsibleFileList<T>({
   }, [])
 
   const showMore = useCallback(() => {
-    setDisplayLimit(prev => prev + SHOW_MORE_INCREMENT)
+    setDisplayLimit((prev) => prev + SHOW_MORE_INCREMENT)
   }, [])
 
-  const expandAndJump = useCallback((key: string, index: number) => {
-    setCollapsedFiles(prev => {
-      const next = new Set(prev)
-      next.delete(key)
-      return next
-    })
-    if (index >= displayLimit) {
-      setDisplayLimit(index + 1)
-    }
-    requestAnimationFrame(() => {
-      const el = itemRefs.current.get(key)
-      if (el) {
-        el.scrollIntoView({ behavior: 'auto', block: 'start' })
+  const expandAndJump = useCallback(
+    (key: string, index: number) => {
+      setCollapsedFiles((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+      if (index >= displayLimit) {
+        setDisplayLimit(index + 1)
       }
-    })
-  }, [displayLimit])
+      requestAnimationFrame(() => {
+        const el = itemRefs.current.get(key)
+        if (el) {
+          el.scrollIntoView({ behavior: "auto", block: "start" })
+        }
+      })
+    },
+    [displayLimit],
+  )
 
   const setItemRef = useCallback((key: string, el: HTMLDivElement | null) => {
     if (el) {

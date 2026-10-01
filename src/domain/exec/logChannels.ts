@@ -68,8 +68,7 @@ export const logChannelFiles = <C extends LogChannel>(dir: string, channels: rea
 const HELPER_PREFIX = /^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\] \[(?:INFO|WARN|ERROR|DEBUG)\] /
 
 /** A time in the helpers' format: ISO-8601 UTC, to the second. */
-export const logTimestamp = (date: Date): string =>
-  date.toISOString().replace(/\.\d{3}Z$/, "Z")
+export const logTimestamp = (date: Date): string => date.toISOString().replace(/\.\d{3}Z$/, "Z")
 
 /**
  * The line to show for `line`, read from `level`'s file.

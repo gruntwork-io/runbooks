@@ -35,21 +35,20 @@ export function AuthSuccess({
       </div>
       <div className="bg-success-muted/50 rounded p-3 text-sm">
         <div className="text-foreground">
-          <span className="font-medium">Project:</span> {accountInfo.projectId ?? 'Not set'}
+          <span className="font-medium">Project:</span> {accountInfo.projectId ?? "Not set"}
           {accountInfo.projectName && (
             <span className="text-muted-foreground ml-1">({accountInfo.projectName})</span>
           )}
         </div>
         {accountInfo.principal && (
-          <div className="text-muted-foreground text-xs mt-1 font-mono truncate" title={accountInfo.principal}>
+          <div
+            className="text-muted-foreground text-xs mt-1 font-mono truncate"
+            title={accountInfo.principal}
+          >
             {accountInfo.principal}
           </div>
         )}
-        {typeLabel && (
-          <div className="text-muted-foreground text-xs mt-1">
-            {typeLabel}
-          </div>
-        )}
+        {typeLabel && <div className="text-muted-foreground text-xs mt-1">{typeLabel}</div>}
         {/* The credentials file path is not a secret (0600, per-user temp dir) and
             is what downstream blocks receive as GOOGLE_APPLICATION_CREDENTIALS. */}
         {accountInfo.credentialsPath && (
@@ -72,20 +71,12 @@ export function AuthSuccess({
       {(onChangeProject || onReAuthenticate) && (
         <div className="mt-3 flex gap-2">
           {onChangeProject && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onChangeProject}
-            >
+            <Button variant="outline" size="sm" onClick={onChangeProject}>
               Change Project
             </Button>
           )}
           {onReAuthenticate && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onReAuthenticate}
-            >
+            <Button variant="outline" size="sm" onClick={onReAuthenticate}>
               Re-authenticate
             </Button>
           )}

@@ -1,13 +1,13 @@
-import { useState, useCallback, useMemo, type ReactNode } from 'react'
+import { useState, useCallback, useMemo, type ReactNode } from "react"
 import {
   InstructionModeContext,
   INSTRUCTION_MODE_STORAGE_KEY,
-} from './InstructionModeContext.types'
+} from "./InstructionModeContext.types"
 
 /** Read the persisted preference, defaulting to false (interactive mode). */
 function readStoredEnabled(): boolean {
   try {
-    return localStorage.getItem(INSTRUCTION_MODE_STORAGE_KEY) === 'true'
+    return localStorage.getItem(INSTRUCTION_MODE_STORAGE_KEY) === "true"
   } catch {
     /* localStorage unavailable (e.g. private mode) */
     return false
@@ -35,9 +35,5 @@ export function InstructionModeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ enabled, setEnabled }), [enabled, setEnabled])
 
-  return (
-    <InstructionModeContext.Provider value={value}>
-      {children}
-    </InstructionModeContext.Provider>
-  )
+  return <InstructionModeContext.Provider value={value}>{children}</InstructionModeContext.Provider>
 }

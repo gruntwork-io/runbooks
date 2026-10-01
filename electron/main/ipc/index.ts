@@ -50,7 +50,12 @@ function registerVcsStatusHandler(): void {
       const result = await runtime.runPromise(
         Effect.gen(function* () {
           const spawner = yield* ProcessSpawner
-          const proc = yield* spawner.spawn("git", ["config", "--global", "http.sslBackend", "schannel"])
+          const proc = yield* spawner.spawn("git", [
+            "config",
+            "--global",
+            "http.sslBackend",
+            "schannel",
+          ])
           return yield* proc.exitCode
         }),
       )

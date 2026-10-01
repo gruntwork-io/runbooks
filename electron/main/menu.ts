@@ -175,8 +175,18 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       { role: "selectAll" },
       { type: "separator" },
       { id: "find", label: "Find…", accelerator: "CmdOrCtrl+F", click: () => sendFind("open") },
-      { id: "find-next", label: "Find Next", accelerator: "CmdOrCtrl+G", click: () => sendFind("next") },
-      { id: "find-previous", label: "Find Previous", accelerator: "Shift+CmdOrCtrl+G", click: () => sendFind("previous") },
+      {
+        id: "find-next",
+        label: "Find Next",
+        accelerator: "CmdOrCtrl+G",
+        click: () => sendFind("next"),
+      },
+      {
+        id: "find-previous",
+        label: "Find Previous",
+        accelerator: "Shift+CmdOrCtrl+G",
+        click: () => sendFind("previous"),
+      },
     ],
   })
 
@@ -224,10 +234,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
         click: () => shell.openExternal(ISSUES_URL),
       },
       // On non-macOS, CLI items go in the Help menu
-      ...(!isMac ? [
-        { type: "separator" as const },
-        ...buildCliMenuItems(),
-      ] : []),
+      ...(!isMac ? [{ type: "separator" as const }, ...buildCliMenuItems()] : []),
     ],
   })
 

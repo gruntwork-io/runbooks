@@ -123,11 +123,9 @@ export const coldReadSystemPems = (
 ): Effect.Effect<string[], Error, ProcessSpawner> =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
-    const proc = yield* spawner.spawn(
-      execPath,
-      ["-e", COLD_READ_SCRIPT],
-      { env: coldReadChildEnv() },
-    )
+    const proc = yield* spawner.spawn(execPath, ["-e", COLD_READ_SCRIPT], {
+      env: coldReadChildEnv(),
+    })
     const { exitCode, lines } = yield* collectOutput(proc, timeoutMs)
     if (exitCode !== 0) {
       return yield* Effect.fail(new Error(`cold system-CA read exited with code ${exitCode}`))
@@ -137,12 +135,17 @@ export const coldReadSystemPems = (
       try: (): unknown => JSON.parse(stdout.join("\n")),
       catch: (err) => new Error(`cold system-CA read produced unparseable stdout: ${err}`),
     })
-    if (!Array.isArray(parsed) || !parsed.every((item): item is string => typeof item === "string")) {
+    if (
+      !Array.isArray(parsed) ||
+      !parsed.every((item): item is string => typeof item === "string")
+    ) {
       return yield* Effect.fail(new Error("cold system-CA read did not return a JSON string array"))
     }
     return parsed
   }).pipe(
-    Effect.mapError((err) => (err instanceof Error ? err : new Error(`cold system-CA read failed: ${err}`))),
+    Effect.mapError((err) =>
+      err instanceof Error ? err : new Error(`cold system-CA read failed: ${err}`),
+    ),
   )
 
 /**
