@@ -18,14 +18,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: ["./src/test/setup.ts"],
+    // Resolved from this file so the root vitest.config.ts, which re-exports
+    // this config, finds it too.
+    setupFiles: [path.resolve(__dirname, "./src/test/setup.ts")],
     exclude: ["e2e/**", "node_modules/**"],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "lcov", "html"],
-      reportsDirectory: "./coverage",
-      include: ["src/**/*.ts", "src/**/*.tsx"],
-      exclude: ["**/*.test.*", "e2e/**", "**/test/**"],
-    },
   },
 })

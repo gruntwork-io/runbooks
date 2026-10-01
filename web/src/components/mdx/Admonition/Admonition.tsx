@@ -244,5 +244,3 @@ export function Admonition({
 
 // Set displayName for React DevTools and component detection
 Admonition.displayName = "Admonition"
-
-export default Admonition

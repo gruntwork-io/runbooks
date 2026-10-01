@@ -27,5 +27,3 @@ export function GitHubPullRequest(props: GitHubPullRequestProps) {
 }
 
 GitHubPullRequest.displayName = "GitHubPullRequest"
-
-export default GitHubPullRequest

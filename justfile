@@ -301,11 +301,15 @@ fmt:
 fmt-check:
     mise x bun -- bun run fmt:check
 
+# Find unused files, exports and dependencies (config: knip.json)
+knip:
+    mise x bun -- bun run knip
+
 # Type check with TypeScript compiler. The root tsconfig.json has no files of
 # its own, only project references, so it needs build mode (-b) to check them;
 # a plain `tsc --noEmit` checks nothing. Same check as `bun run typecheck` and CI.
 typecheck: _no-nested-node-modules
     mise x bun -- bunx tsc -b
 
-# Run all checks (lint + format check + typecheck)
-check: lint fmt-check typecheck
+# Run all checks (lint + format check + unused code + typecheck)
+check: lint fmt-check knip typecheck

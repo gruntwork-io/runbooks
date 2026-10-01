@@ -22,5 +22,3 @@ export function GitLabMergeRequest(props: GitLabMergeRequestProps) {
 }
 
 GitLabMergeRequest.displayName = "GitLabMergeRequest"
-
-export default GitLabMergeRequest

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // Only the IPC boundary is mocked, so the real useGitClone drives the block and
 // these tests cover its gating of outputs as well as the rendered warning.

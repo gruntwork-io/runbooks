@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // Only the IPC boundary and the worktree context are mocked, so the real
 // useGitClone drives the block: these tests cover what starting over withdraws

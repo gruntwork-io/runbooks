@@ -42,11 +42,7 @@ const BlockOutputsEventSchema = z.object({
 })
 
 // Inferred types from Zod schemas
-export type ExecLogEvent = z.infer<typeof ExecLogEventSchema>
-export type ExecStatusEvent = z.infer<typeof ExecStatusEventSchema>
-export type CapturedFile = z.infer<typeof CapturedFileSchema>
 export type FilesCapturedEvent = z.infer<typeof FilesCapturedEventSchema>
-export type BlockOutputsEvent = z.infer<typeof BlockOutputsEventSchema>
 
 /** A single log entry with its timestamp */
 export interface LogEntry {

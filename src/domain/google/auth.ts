@@ -14,22 +14,7 @@ import { GoogleAuthError, GoogleOAuthError } from "../../errors/index.ts"
 import { OAUTH_MISSING_CLIENT_SECRET, OAUTH_NOT_CONFIGURED } from "./oauth-client.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
-export {
-  DEFAULT_GOOGLE_OAUTH_CLIENT_ID,
-  DEFAULT_GOOGLE_OAUTH_CLIENT_SECRET,
-  GOOGLE_OAUTH_CLIENT_CREDENTIALS_ENV,
-  GOOGLE_OAUTH_CLIENT_ID_ENV,
-  GOOGLE_OAUTH_CLIENT_SECRET_ENV,
-  expandHomePath,
-  isOAuthClientConfigured,
-  parseOAuthClientCredentialsJson,
-  resolveOAuthClient,
-} from "./oauth-client.ts"
-export type {
-  OAuthClientSource,
-  ResolveOAuthClientInput,
-  ResolvedOAuthClient,
-} from "./oauth-client.ts"
+export { isOAuthClientConfigured, resolveOAuthClient } from "./oauth-client.ts"
 
 // ---------------------------------------------------------------------------
 // Constants

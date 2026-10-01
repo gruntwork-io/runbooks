@@ -32,6 +32,7 @@ import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
+import { init as initTelemetry, shutdown as shutdownTelemetry } from "../../src/telemetry.ts"
 
 const log = makeLogger("main")
 
@@ -202,6 +203,11 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 // ---------------------------------------------------------------------------
 
 const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
+
+// Before the IPC handlers register, so the renderer's telemetry:config call
+// sees the final state. --no-telemetry or RUNBOOKS_TELEMETRY_DISABLE keeps it
+// off.
+initTelemetry(app.getVersion(), cliConfig.noTelemetry)
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -481,15 +487,16 @@ app.on("will-quit", (event) => {
       void stopWatcher()
 
       // Dispose the Effect managed runtime to clean up background fibers,
-      // file watchers, etc.
-      runtime
-        .dispose()
-        .catch((err) => {
+      // file watchers, etc., while telemetry gets its brief window to send
+      // in-flight events.
+      void Promise.all([
+        runtime.dispose().catch((err) => {
           log.error("Error disposing runtime:", err)
-        })
-        .finally(() => {
-          clearTimeout(timeout)
-          app.exit(0)
-        })
+        }),
+        shutdownTelemetry(),
+      ]).finally(() => {
+        clearTimeout(timeout)
+        app.exit(0)
+      })
     })
 })
