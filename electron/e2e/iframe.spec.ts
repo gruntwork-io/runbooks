@@ -110,6 +110,17 @@ test.beforeEach(() => {
   writeRunbook("other", "")
 })
 
+// DIAG (temporary)
+let diagLogs: string[] = []
+test.beforeEach(() => {
+  diagLogs = []
+})
+test.afterEach(({}, testInfo) => {
+  if (testInfo.status !== testInfo.expectedStatus) {
+    console.log(`----- DIAG ${testInfo.title} -----\n${diagLogs.join("")}----- END DIAG -----`)
+  }
+})
+
 test.afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -123,7 +134,26 @@ async function launch(name = "runbook"): Promise<{ app: ElectronApplication; pag
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
       RUNBOOKS_NO_TELEMETRY: "1",
+      ELECTRON_ENABLE_LOGGING: "1",
     },
+  })
+  // DIAG (temporary): collect the app's output and lifecycle events.
+  app.process().stdout?.on("data", (d) => diagLogs.push(`[out ${name}] ${d}`))
+  app.process().stderr?.on("data", (d) => diagLogs.push(`[err ${name}] ${d}`))
+  app.process().on("exit", (code, signal) => diagLogs.push(`[exit ${name}] code=${code} signal=${signal}\n`))
+  await app.evaluate(({ app: electronApp, BrowserWindow }) => {
+    const log = (...parts: unknown[]) => process.stderr.write(`[diag] ${parts.join(" ")}\n`)
+    electronApp.on("window-all-closed", () => log("window-all-closed"))
+    electronApp.on("before-quit", () => log("before-quit"))
+    electronApp.on("child-process-gone", (_e, d) => log("child-process-gone", JSON.stringify(d)))
+    electronApp.on("web-contents-created", (_e, c) => {
+      const id = c.id
+      log("wc-created", c.getType(), id)
+      c.on("destroyed", () => log("wc-destroyed", id))
+      c.on("render-process-gone", (_e2, d) => log("render-process-gone", id, JSON.stringify(d)))
+      c.on("did-fail-load", (_e2, code, desc, url) => log("did-fail-load", id, code, desc, url))
+    })
+    for (const w of BrowserWindow.getAllWindows()) w.on("closed", () => log("window-closed", w.id))
   })
   const page = await app.firstWindow()
   await page.waitForLoadState("domcontentloaded")
