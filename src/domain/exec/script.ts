@@ -17,6 +17,14 @@ import type { CapturedFile } from "../../types.ts"
 /**
  * Logging functions injected into every bash script wrapper.
  * Provides log_info, log_warn, log_error, log_debug.
+ *
+ * All four append to the one file named by RUNBOOK_LOG (see logChannels.ts),
+ * so their lines keep the order the script wrote them in, and each line names
+ * its level. They never write to stdout, so a function that logs and then
+ * prints a value returns only that value through `$(...)`. When RUNBOOK_LOG
+ * is unset, or the file can't be written (a background job still logging
+ * after the run ended and the file was deleted), they write to stderr
+ * instead of failing. Keep in sync with scripts/logging.sh.
  */
 const LOGGING_FUNCTIONS = `
 # --- Runbooks Logging Functions ---
@@ -27,21 +35,33 @@ _log_timestamp() {
     date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+# _log_write TAG MESSAGE...: append a line to $RUNBOOK_LOG, or write it to
+# stderr if RUNBOOK_LOG is unset or the append fails
+_log_write() {
+    local tag="$1"
+    shift
+    if [ -n "\${RUNBOOK_LOG:-}" ] &&
+        { printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >> "$RUNBOOK_LOG"; } 2>/dev/null; then
+        return 0
+    fi
+    printf '[%s] %s %s\\n' "$(_log_timestamp)" "$tag" "$*" >&2
+}
+
 log_info() {
-    printf '[%s] [INFO]  %s\\n' "$(_log_timestamp)" "$*"
+    _log_write "[INFO] " "$@"
 }
 
 log_warn() {
-    printf '[%s] [WARN]  %s\\n' "$(_log_timestamp)" "$*"
+    _log_write "[WARN] " "$@"
 }
 
 log_error() {
-    printf '[%s] [ERROR] %s\\n' "$(_log_timestamp)" "$*"
+    _log_write "[ERROR]" "$@"
 }
 
 log_debug() {
     if [ "\${DEBUG:-}" = "true" ]; then
-        printf '[%s] [DEBUG] %s\\n' "$(_log_timestamp)" "$*"
+        _log_write "[DEBUG]" "$@"
     fi
 }
 # --- End Runbooks Logging Functions ---

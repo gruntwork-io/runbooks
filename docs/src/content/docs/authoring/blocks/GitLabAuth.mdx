@@ -36,7 +36,7 @@ By default, Runbooks automatically detects and uses credentials from, in order:
 1. The `GITLAB_TOKEN` environment variable
 2. The GitLab CLI (`glab auth token`). `glab auth login` does not export an environment variable — it writes the token to glab's `config.yml`, which Runbooks also reads directly when `glab auth token` returns nothing (for example when the `glab` binary is not on `PATH`).
 
-If no credentials are detected, the user authenticates manually with a Personal Access Token.
+If no credentials are detected, the user authenticates manually with a Personal Access Token. Set `detectCredentials={false}` to always require one, even when the user is logged in with `glab`. See [Disabling detection](/authoring/blocks/gitauth/#disabling-detection).
 
 Runbooks only sends an environment token (prefixed or not) over HTTPS, and a `glab` token only to the host glab stored it for, over HTTPS unless glab itself uses HTTP for that host (`api_protocol: http`), so for a plain `http://` instance such a token is skipped and the user pastes a Personal Access Token instead. The block can authenticate to a plain `http://` instance, but [GitClone](/authoring/blocks/gitclone/), [GitLabMergeRequest](/authoring/blocks/gitlabmergerequest/) and its label lookup only send the session token over HTTPS, so there the token is only available to [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts as `GITLAB_TOKEN`.
 

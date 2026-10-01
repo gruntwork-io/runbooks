@@ -125,9 +125,12 @@ export function Header({ pathName, localPath }: HeaderProps) {
 
   return (
     <>
+      {/* data-find-ignore: find in page skips the header's always-visible
+          runbook path, which would otherwise be every search's first match. */}
       <header
         className="w-full border-b border-border p-4 text-muted-foreground font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        data-find-ignore=""
       >
         <div className="absolute left-20 top-1/2 transform -translate-y-1/2">
           <img src={isDark ? logoLightAlpha : logoDarkAlpha} alt="Gruntwork Runbooks" className="h-8" draggable={false} />

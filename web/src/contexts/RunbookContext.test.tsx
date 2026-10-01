@@ -6,12 +6,13 @@ import { useRunbookContext } from './useRunbook'
 import { BoilerplateVariableType } from '@/types/boilerplateVariable'
 import { makeConfig } from '@/test/make-config'
 
-function createWrapper(props?: { remoteSource?: string; runbookName?: string }) {
+function createWrapper(props?: { remoteSource?: string; runbookName?: string; runbookFilePath?: string }) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <RunbookContextProvider
         runbookName={props?.runbookName}
         remoteSource={props?.remoteSource}
+        runbookFilePath={props?.runbookFilePath}
       >
         {children}
       </RunbookContextProvider>
@@ -33,6 +34,22 @@ describe('RunbookContext', () => {
         wrapper: createWrapper(),
       })
       expect(result.current.remoteSource).toBeUndefined()
+    })
+  })
+
+  describe('runbookFilePath', () => {
+    it('provides runbookFilePath from provider props', () => {
+      const { result } = renderHook(() => useRunbookContext(), {
+        wrapper: createWrapper({ runbookFilePath: '/work/runbooks/setup/runbook.mdx' }),
+      })
+      expect(result.current.runbookFilePath).toBe('/work/runbooks/setup/runbook.mdx')
+    })
+
+    it('provides undefined runbookFilePath when not set', () => {
+      const { result } = renderHook(() => useRunbookContext(), {
+        wrapper: createWrapper(),
+      })
+      expect(result.current.runbookFilePath).toBeUndefined()
     })
   })
 

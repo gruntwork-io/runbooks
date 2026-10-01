@@ -181,10 +181,16 @@ export type WasmPerFileErrorKind =
   | "skip_files_excluded"
   | "render"
 
-/** Reason the warm path was disabled for a render. Debug-logging only. */
+/**
+ * Reason the warm path was disabled for a render. Debug-logging only.
+ * `partials-outside-bundle` means a bundled template declares a partial the
+ * bundle never captured (typically a `../` path into a shared directory), so
+ * WASM would fail every file that invokes it while the subprocess succeeds.
+ */
 export type WarmDisabledReason =
   | "wasm-not-ready"
   | "no-output-paths-from-analyzer"
+  | "partials-outside-bundle"
   | "warm-error-fallback"
 
 /**

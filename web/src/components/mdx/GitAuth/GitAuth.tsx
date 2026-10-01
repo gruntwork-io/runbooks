@@ -150,6 +150,12 @@ function GitAuthInteractive({
     instanceFieldRef.current?.focus()
   }, [instanceFieldFocusNonce])
 
+  // Whether the block looks for existing credentials. With detection off, the
+  // controls and copy that re-run or explain detection (Check again, Reload,
+  // the host picker's credential annotations, the auto-auth FAQ) are hidden,
+  // as AwsAuth and GoogleAuth hide their "Try auto-detection again".
+  const detectionEnabled = detectCredentials !== false
+
   // Host picker + config reload. GitLab shows it with a single known host too,
   // for the "Other instance…" row; GitHub only when there is a choice, so
   // github.com-only users see no picker. Where it is absent, the manual hint
@@ -258,7 +264,9 @@ function GitAuthInteractive({
               how the user moves from gitlab.com to a self-managed instance
               (or github.com to GitHub Enterprise). GitLab also shows it with a
               single host, for the "Other instance…" row; GitHub only when
-              there is a choice, so github.com-only users see no picker. */}
+              there is a choice, so github.com-only users see no picker.
+              With detection off it stays (the host still decides where the
+              user signs in) but as a plain list, without Reload. */}
           {showHostPicker && (
             <HostSelect
               id={id}
@@ -269,6 +277,7 @@ function GitAuthInteractive({
               onReload={auth.reloadDetection}
               downgradedHosts={auth.downgradedHosts}
               disabled={auth.detectionStatus === 'pending'}
+              detectsCredentials={detectionEnabled}
             />
           )}
 
@@ -344,14 +353,15 @@ function GitAuthInteractive({
                   picker carries Reload instead; without the picker (a
                   github.com-only GitHub block, or a `host`-pinned block) this is
                   the only way to re-run detection after Re-authenticate turns
-                  focus re-detection off. */}
+                  focus re-detection off. With detection disabled the hint is
+                  neutral copy and there is nothing to check again. */}
               {auth.manualHint && (
                 <div
                   data-testid="vcs-cli-hint"
                   className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
                 >
                   <span>{auth.manualHint}</span>
-                  {!showHostPicker && (
+                  {!showHostPicker && detectionEnabled && (
                     <button
                       type="button"
                       onClick={auth.retryUnreachable}
@@ -390,6 +400,7 @@ function GitAuthInteractive({
                   onStartOAuth={auth.startOAuth}
                   onCancelOAuth={auth.cancelOAuth}
                   provider={providerConfig}
+                  showAutoAuthInfo={detectionEnabled}
                 />
               )}
 
@@ -411,7 +422,7 @@ function GitAuthInteractive({
                   />
                   {/* Providers without OAuth (GitLab) surface the auto-detect
                       FAQ here, since there is no OAuth tab to carry it. */}
-                  {!providerConfig.supportsOAuth && (
+                  {!providerConfig.supportsOAuth && detectionEnabled && (
                     <div className="mt-4">
                       <AutoAuthInfo provider={providerConfig} />
                     </div>

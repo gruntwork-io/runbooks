@@ -20,7 +20,7 @@ import { FileSystem } from "../../../src/services/FileSystem.ts"
 import {
   WarmRenderDispatcher,
   type WarmPerFileError,
-  type WarmRenderResult,
+  warmDisabledResult,
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import {
@@ -325,17 +325,7 @@ export function registerBoilerplateHandlers(): void {
                 templateId,
                 error: (err as { message?: string }).message ?? String(err),
               })
-              return {
-                files: [],
-                coldNeeded: [],
-                skipped: [],
-                renderErrors: [],
-                warmDisabled: true,
-                disabledReason: "warm-error-fallback",
-                allKnownPaths: [],
-                attemptedPaths: [],
-                noChanges: false,
-              } satisfies WarmRenderResult
+              return warmDisabledResult("warm-error-fallback")
             })
           ),
         )

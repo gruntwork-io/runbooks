@@ -4,7 +4,7 @@ import { executeScript, type ExecEvent } from "./executor.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
-import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
+import { ProcessSpawner, type SpawnOptions } from "../../services/ProcessSpawner.ts"
 
 /** Collect all events from the executeScript stream. */
 async function collectEvents(
@@ -215,6 +215,89 @@ describe("executeScript — missing Google credential file", () => {
     const events = await collectEvents("echo hi", { outputLines: ["hi"], exitCode: 0 })
     const status = events.find((e) => e._tag === "status")
     expect(status).toEqual({ _tag: "status", event: { status: "success", exitCode: 0 } })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Log files ($RUNBOOK_LOG, $RUNBOOK_INFO_LOG etc.)
+// ---------------------------------------------------------------------------
+
+describe("executeScript — log files", () => {
+  it("names RUNBOOK_LOG and a log file per level in the env and asks the spawner to follow each one", async () => {
+    let received: SpawnOptions | undefined
+    let atSpawn: Record<string, string> = {}
+    const files: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          received = options
+          atSpawn = { ...files }
+          // What a line written straight to each file turns into.
+          const lines = (options?.logChannels ?? []).map((channel) => {
+            const raw = `raw ${channel.path}`
+            return { line: channel.formatLine ? channel.formatLine(raw) : raw, source: "file" as const }
+          })
+          return { output: Stream.fromIterable(lines), exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    const events = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { logStream, completionEffect } = yield* executeScript(
+            "log_info hi",
+            "",
+            // A block can't point a log file somewhere else.
+            { envVarsOverride: { RUNBOOK_ERROR_LOG: "/elsewhere" } },
+            { env: { PATH: "/usr/bin" }, workDir: "/work" },
+            "",
+            "/output",
+          )
+          const logs = Array.from(yield* Stream.runCollect(logStream))
+          return [...logs, ...(yield* completionEffect)]
+        }),
+      ).pipe(Effect.provide(layer)),
+    )
+
+    const env = (received?.env ?? {}) as Record<string, string>
+    const paths = (received?.logChannels ?? []).map((channel) => channel.path)
+    expect(paths).toEqual([
+      env.RUNBOOK_LOG,
+      env.RUNBOOK_INFO_LOG,
+      env.RUNBOOK_WARN_LOG,
+      env.RUNBOOK_ERROR_LOG,
+      env.RUNBOOK_DEBUG_LOG,
+    ])
+    expect(paths.map((p) => p?.split("/").pop())).toEqual([
+      "runbook.log",
+      "info.log",
+      "warn.log",
+      "error.log",
+      "debug.log",
+    ])
+    // Each file exists, empty, at the spawn, and is gone once the run ends.
+    for (const p of paths) {
+      expect(atSpawn[p!]).toBe("")
+      expect(files[p!]).toBeUndefined()
+    }
+
+    // RUNBOOK_LOG's lines name their own level, so they're shown as written.
+    // The per-level files' lines get a timestamp and the file's level.
+    const stamp = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
+    const [first, ...lines] = events.flatMap((e) => (e._tag === "log" ? [e.event.line] : []))
+    expect(first).toBe(`raw ${env.RUNBOOK_LOG}`)
+    expect(lines.every((line) => stamp.test(line))).toBe(true)
+    expect(lines.map((line) => line.replace(stamp, ""))).toEqual([
+      `[INFO]  raw ${env.RUNBOOK_INFO_LOG}`,
+      `[WARN]  raw ${env.RUNBOOK_WARN_LOG}`,
+      `[ERROR] raw ${env.RUNBOOK_ERROR_LOG}`,
+      `[DEBUG] raw ${env.RUNBOOK_DEBUG_LOG}`,
+    ])
   })
 })
 
