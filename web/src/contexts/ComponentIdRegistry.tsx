@@ -108,7 +108,6 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
  * Hook to register a component and check for duplicate IDs.
  * Returns duplicate info including whether it's an exact duplicate or normalized collision.
  */
-// eslint-disable-next-line react-refresh/only-export-components
 export function useComponentIdRegistry(id: string, componentType: ComponentRegistration['componentType']) {
   const context = useContext(ComponentIdRegistryContext)
   const instanceIdRef = useRef<string | null>(null)

@@ -1,5 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": {
+    "reportUnusedDisableDirectives": "error"
+  },
   "plugins": [
     "typescript",
     "unicorn",
@@ -15,6 +18,7 @@
   "rules": {
     "no-unused-vars": "warn",
     "no-console": "off",
+    "typescript/no-require-imports": "error",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
     "react/error-boundaries": "off",

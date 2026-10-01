@@ -1,5 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
-
 /**
  * RunbookContext - Shared State Management for Runbook Blocks
  *
