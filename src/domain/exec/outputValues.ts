@@ -61,7 +61,7 @@ export function revealOutput(value: OutputValue | undefined): string | undefined
  */
 export function maskOutput(value: OutputValue): string {
   if (!isSensitiveOutput(value)) return value
-  return revealOutput(value) === "" ? "" : String(value)
+  return revealOutput(value) === "" ? "" : "<redacted>"
 }
 
 /** `revealOutput` for each of a block's outputs. */

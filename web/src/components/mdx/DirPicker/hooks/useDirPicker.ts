@@ -124,7 +124,7 @@ export function useDirPicker({
       if (listing.error) setError(listing.error)
       setLevels([{ path: rootPath, selected: "", dirs: listing.dirs }])
     }
-    init()
+    void init()
   }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
 
   // Handle selection at a given dropdown level

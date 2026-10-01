@@ -24,6 +24,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { Effect } from "effect"
+import { fetchUrl } from "../test-utils/fetch-url.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ mockElectron({
     },
   },
 })
-mock.module("../window.ts", () => ({
+await mock.module("../window.ts", () => ({
   getMainWindow: () => null,
 }))
 
@@ -80,7 +81,7 @@ const json = (body: unknown) =>
 /** Answers GitLab's /user, PAT introspection and project labels on any host. */
 const mockGitLab = () => {
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input)
+    const url = fetchUrl(input)
     const headers = (init?.headers ?? {}) as Record<string, string>
     fetchCalls.push({ url, authorization: headers.Authorization ?? headers["PRIVATE-TOKEN"] })
     if (url.endsWith("/api/v4/user")) return Promise.resolve(json({ username: "tanuki" }))
@@ -392,7 +393,7 @@ describe("a sign-in that finishes after another runbook opened", () => {
       release = resolve
     })
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url = String(input)
+      const url = fetchUrl(input)
       fetchCalls.push({ url })
       if (url.endsWith("/api/v4/user")) {
         await released

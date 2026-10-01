@@ -12,8 +12,15 @@ afterEach(() => {
 
 function mockFetch(impl: (url: string, init?: RequestInit) => Response) {
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
-    Promise.resolve(impl(String(input), init))) as typeof fetch
+    Promise.resolve(impl(urlOf(input), init))) as typeof fetch
 }
+
+const urlOf = (input: string | URL | Request): string =>
+  typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+
+/** The JSON a mocked request sent, or undefined when it sent no string body. */
+const jsonBody = (init?: RequestInit): unknown =>
+  typeof init?.body === "string" && init.body ? JSON.parse(init.body) : undefined
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -215,7 +222,7 @@ describe("GitHubHttpClient pull requests", () => {
       calls.push({
         url,
         method: init?.method,
-        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        body: jsonBody(init),
       })
       return json(
         { html_url: "https://github.com/o/r/pull/42", number: 42, head: { ref: "feat" } },
@@ -260,7 +267,7 @@ describe("GitHubHttpClient pull requests", () => {
       calls.push({
         url,
         method: init?.method,
-        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        body: jsonBody(init),
       })
       return json([{ name: "enhancement" }])
     })

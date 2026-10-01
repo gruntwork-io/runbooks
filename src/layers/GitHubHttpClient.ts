@@ -15,6 +15,7 @@ import type {
   PullRequestResult,
 } from "../services/GitHubClient.ts"
 import { GitHubApiError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import { classifyTlsError } from "../domain/tls/system-ca.ts"
 import {
   DEFAULT_GITHUB_HOST,
@@ -53,7 +54,7 @@ const apiBaseFor = (host?: string): string => githubApiBase(resolveHost(host))
 const toGitHubApiError = (err: unknown): GitHubApiError =>
   err instanceof GitHubApiError
     ? err
-    : new GitHubApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
+    : new GitHubApiError({ status: 0, message: errorMessage(err), kind: classifyTlsError(err) })
 
 async function githubFetch(
   url: string,

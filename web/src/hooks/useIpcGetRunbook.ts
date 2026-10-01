@@ -78,11 +78,16 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // Remote URLs are handled by the main process (index.ts) which sends
   // file:open-runbook after resolving, so we only handle local paths here.
   useEffect(() => {
-    api.invoke("native:get-cli-config").then((config) => {
-      if (config.runbookPath) {
-        setRunbookPath(config.runbookPath)
-      }
-    })
+    api
+      .invoke("native:get-cli-config")
+      .then((config) => {
+        if (config.runbookPath) {
+          setRunbookPath(config.runbookPath)
+        }
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to read the CLI config:", err)
+      })
   }, [api])
 
   // Listen for runbook open/close events from the main process

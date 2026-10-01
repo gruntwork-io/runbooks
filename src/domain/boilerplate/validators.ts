@@ -230,7 +230,7 @@ export const validateVariableValue = (
     }
   }
 
-  const stringValue = value === undefined || value === null ? "" : String(value)
+  const stringValue = stringForm(value)
 
   // Apply additional validation rules from the variable definition
   for (const rule of variable.validations ?? []) {
@@ -241,4 +241,20 @@ export const validateVariableValue = (
   }
 
   return undefined
+}
+
+/**
+ * The string the validation rules check: empty for a missing value, a list
+ * joined with commas (as `String()` joins it), a map as JSON rather than
+ * "[object Object]".
+ */
+function stringForm(value: unknown): string {
+  if (value === undefined || value === null) return ""
+  if (Array.isArray(value)) return value.join(",")
+  if (typeof value === "object") return JSON.stringify(value)
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value)
+  }
+  return ""
 }

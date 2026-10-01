@@ -50,7 +50,7 @@ const SOURCE_LABELS: Record<GitHostEntry["sources"][number], string> = {
 export function HostSelect({
   id,
   provider,
-  hosts = [],
+  hosts,
   value,
   onChange,
   onReload,

@@ -16,6 +16,7 @@ import {
 } from "../test/config.ts"
 import { TestExecutor } from "../test/executor.ts"
 import { TextReporter, JUnitReporter, reportToFile, type Reporter } from "../test/reporter.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Options
@@ -212,7 +213,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
     suite.results.push({
       testCase: "config",
       status: "failed",
-      error: `Failed to load config: ${e}`,
+      error: `Failed to load config: ${errorMessage(e)}`,
       duration: 0,
       stepResults: [],
       assertions: [],
@@ -243,7 +244,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
     suite.results.push({
       testCase: "setup",
       status: "failed",
-      error: `${e}`,
+      error: `${errorMessage(e)}`,
       duration: 0,
       stepResults: [],
       assertions: [],
@@ -268,7 +269,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
     suite.results.push({
       testCase: "setup",
       status: "failed",
-      error: `Failed to create test runner: ${e}`,
+      error: `Failed to create test runner: ${errorMessage(e)}`,
       duration: 0,
       stepResults: [],
       assertions: [],
@@ -298,7 +299,7 @@ async function runTestSuite(runbookPath: string, opts: TestOptions): Promise<Run
       result = {
         testCase: tc.name,
         status: "failed",
-        error: `${e}`,
+        error: `${errorMessage(e)}`,
         duration: 0,
         stepResults: [],
         assertions: [],
@@ -355,7 +356,7 @@ function reportResults(suites: RunbookTestSuite[], opts: TestOptions): void {
     try {
       reportToFile(reporter, suites, opts.outputFile)
     } catch (e: unknown) {
-      console.error(`Error writing to output file: ${e}`)
+      console.error(`Error writing to output file: ${errorMessage(e)}`)
       process.stdout.write(reporter.render(suites))
     }
     return

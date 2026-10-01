@@ -24,7 +24,7 @@ const fakeWindow = {
     },
   },
 }
-mock.module("./window.ts", () => ({ getMainWindow: () => fakeWindow }))
+await mock.module("./window.ts", () => ({ getMainWindow: () => fakeWindow }))
 
 const { setupApplicationMenu } = await import("./menu.ts")
 

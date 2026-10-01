@@ -442,7 +442,7 @@ function validateAssertion(testName: string, index: number, assertion: TestAsser
 
     default:
       throw new Error(
-        `Test "${testName}" assertion ${i}: unknown assertion type "${assertion.type}"`,
+        `Test "${testName}" assertion ${i}: unknown assertion type "${String(assertion.type)}"`,
       )
   }
 }

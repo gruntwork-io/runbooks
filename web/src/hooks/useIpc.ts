@@ -139,12 +139,12 @@ export function useIpc<T>(
         clearTimeout(timeoutRef.current)
       }
 
-      timeoutRef.current = setTimeout(async () => {
+      timeoutRef.current = setTimeout(() => {
         timeoutRef.current = null
         if (!mountedRef.current) return
         setIsLoading(true)
         setError(null)
-        await performInvoke(newParams)
+        void performInvoke(newParams)
       }, debounceMs || 0)
     },
     [debounceMs, performInvoke],
@@ -154,7 +154,7 @@ export function useIpc<T>(
   const refetch = useCallback(() => {
     setIsLoading(true)
     setError(null)
-    performInvoke(paramsRef.current)
+    void performInvoke(paramsRef.current)
   }, [performInvoke])
 
   // Silent refetch - re-invokes without showing loading state. `extraParams`
@@ -163,7 +163,7 @@ export function useIpc<T>(
     (extraParams?: Record<string, unknown>) => {
       setError(null)
       const current = paramsRef.current
-      performInvoke(
+      void performInvoke(
         extraParams && current && typeof current === "object"
           ? { ...current, ...extraParams }
           : current,
@@ -188,7 +188,7 @@ export function useIpc<T>(
 
     if (lazy) return
 
-    performInvoke(paramsRef.current)
+    void performInvoke(paramsRef.current)
 
     return () => {
       if (timeoutRef.current) {

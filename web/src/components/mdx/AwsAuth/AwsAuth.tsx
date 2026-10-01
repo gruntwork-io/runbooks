@@ -97,7 +97,7 @@ function AwsAuthInteractive({
   const { authMethod, profiles, loadAwsProfiles } = auth
   useEffect(() => {
     if (authMethod === "profile" && profiles.length === 0) {
-      loadAwsProfiles()
+      void loadAwsProfiles()
     }
   }, [authMethod, profiles.length, loadAwsProfiles])
 

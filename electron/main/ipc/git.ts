@@ -53,6 +53,7 @@ import { describeCause } from "./ipc-error.ts"
 import { isLocalBranchConflict, prBlockOutputs } from "./git-pr-result.ts"
 import { makeLogger } from "../logger.ts"
 import type { GitCloneRequest, GitLocalRepoResponse } from "../../shared/channels.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:git")
 
@@ -382,7 +383,7 @@ export function registerGitHandlers(): void {
                 catch: (e) =>
                   new GitError({
                     command: "rm -rf",
-                    stderr: e instanceof Error ? e.message : String(e),
+                    stderr: errorMessage(e),
                     exitCode: 1,
                   }),
               })

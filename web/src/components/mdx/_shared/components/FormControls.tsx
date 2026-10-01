@@ -49,6 +49,17 @@ const getInputClassName = (error?: string, additionalClasses = "", disabled = fa
   return `${baseClasses} ${errorClasses} ${disabledClasses} ${additionalClasses}`.trim()
 }
 
+/**
+ * A form value as the text a field shows: "" for no value, and JSON for a List
+ * or Map value (e.g. imported from an upstream field) rather than "[object Object]".
+ */
+function valueText(value: unknown): string {
+  if (value == null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return JSON.stringify(value)
+}
+
 /** Header row showing the entry count (and an "(inherited)" badge when disabled). */
 const EntryCountHeader: React.FC<{ count: number; disabled?: boolean }> = ({ count, disabled }) => (
   <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
@@ -94,7 +105,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
         <input
           type={showSensitive ? "text" : "password"}
           id={`${id}-${variable.name}`}
-          value={String(value || "")}
+          value={valueText(value || "")}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           disabled={disabled}
@@ -116,7 +127,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
     <input
       type="text"
       id={`${id}-${variable.name}`}
-      value={String(value || "")}
+      value={valueText(value || "")}
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       disabled={disabled}
@@ -152,7 +163,7 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({
   }
 
   // Display empty string for null/undefined, otherwise show the value
-  const displayValue = value === null || value === undefined || value === "" ? "" : String(value)
+  const displayValue = valueText(value)
 
   return (
     <input
@@ -217,7 +228,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
   id,
   disabled,
 }) => {
-  const current = value == null ? "" : String(value)
+  const current = valueText(value)
   const options = (variable.options ?? []).map(String)
   const showPlaceholder = current === "" && (value == null || !options.includes(""))
   const isUnlistedValue = current !== "" && !options.includes(current)

@@ -352,87 +352,92 @@ app.on("open-file", (event, filePath) => {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
-  // Register a protocol handler to serve runbook assets (images, videos, etc.)
-  // from the local filesystem. The renderer rewrites ./assets/foo.png to
-  // runbook-asset://assets/foo.png which this handler resolves relative to the
-  // runbook directory.
-  protocol.handle("runbook-asset", async (request) => {
-    // URL looks like: runbook-asset://assets/foo.png
-    // Security: resolveRunbookAssetPath returns null unless the file is within
-    // the runbook directory after resolving symlinks, so neither `..` nor a
-    // symlink shipped in the runbook dir can serve a file from outside it.
-    const resolved = await resolveRunbookAssetPath(
-      request.url,
-      path.dirname(runbookConfig.localPath),
-    )
-    if (!resolved) {
-      return new Response("Forbidden", { status: 403 })
-    }
+app
+  .whenReady()
+  .then(() => {
+    // Register a protocol handler to serve runbook assets (images, videos, etc.)
+    // from the local filesystem. The renderer rewrites ./assets/foo.png to
+    // runbook-asset://assets/foo.png which this handler resolves relative to the
+    // runbook directory.
+    protocol.handle("runbook-asset", async (request) => {
+      // URL looks like: runbook-asset://assets/foo.png
+      // Security: resolveRunbookAssetPath returns null unless the file is within
+      // the runbook directory after resolving symlinks, so neither `..` nor a
+      // symlink shipped in the runbook dir can serve a file from outside it.
+      const resolved = await resolveRunbookAssetPath(
+        request.url,
+        path.dirname(runbookConfig.localPath),
+      )
+      if (!resolved) {
+        return new Response("Forbidden", { status: 403 })
+      }
 
-    // <video>/<audio> fetch byte ranges and can only seek when the answer is
-    // a 206 with a Content-Range, which net.fetch's file:// response never
-    // has, so ranged GETs are answered from the file here. Without a Range
-    // header, or with one byteRangeResponse ignores, the whole file is served.
-    const rangeHeader = request.headers.get("range")
-    if (rangeHeader && request.method === "GET") {
-      const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
-      if (partial) return partial
-    }
+      // <video>/<audio> fetch byte ranges and can only seek when the answer is
+      // a 206 with a Content-Range, which net.fetch's file:// response never
+      // has, so ranged GETs are answered from the file here. Without a Range
+      // header, or with one byteRangeResponse ignores, the whole file is served.
+      const rangeHeader = request.headers.get("range")
+      if (rangeHeader && request.method === "GET") {
+        const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
+        if (partial) return partial
+      }
 
-    return net.fetch(pathToFileURL(resolved).href)
-  })
+      return net.fetch(pathToFileURL(resolved).href)
+    })
 
-  // Apply the persisted theme before creating the window so its background
-  // color and title bar overlay are correct on the first frame. The renderer
-  // re-confirms over the native:set-theme IPC channel once it mounts.
-  nativeTheme.themeSource = getStoredTheme()
+    // Apply the persisted theme before creating the window so its background
+    // color and title bar overlay are correct on the first frame. The renderer
+    // re-confirms over the native:set-theme IPC channel once it mounts.
+    nativeTheme.themeSource = getStoredTheme()
 
-  setupApplicationMenu()
-  registerAllIpcHandlers()
-  createMainWindow()
-  initAutoUpdater()
+    setupApplicationMenu()
+    registerAllIpcHandlers()
+    createMainWindow()
+    initAutoUpdater()
 
-  // Keep the (Windows/Linux) title bar overlay + window background in sync with
-  // the effective theme. Fires both when the renderer changes themeSource via
-  // the native:set-theme IPC handler and when the OS theme changes while
-  // themeSource is 'system'. The initial call covers the case where assigning
-  // themeSource above doesn't fire an "updated" event (e.g. when the persisted
-  // theme already matches the OS).
-  setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
-  nativeTheme.on("updated", () => {
+    // Keep the (Windows/Linux) title bar overlay + window background in sync with
+    // the effective theme. Fires both when the renderer changes themeSource via
+    // the native:set-theme IPC handler and when the OS theme changes while
+    // themeSource is 'system'. The initial call covers the case where assigning
+    // themeSource above doesn't fire an "updated" event (e.g. when the persisted
+    // theme already matches the OS).
     setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    nativeTheme.on("updated", () => {
+      setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    })
+
+    // Kick off the boilerplate WASM load as a background task. The full build
+    // is ~600-900ms to instantiate; running it now overlaps the cost with the
+    // user reading the runbook before their first edit.
+    log.info("Starting eager background load of vendored boilerplate WASM")
+    eagerLoadBoilerplateWasm()
+
+    // If a runbook was specified via CLI, tell the renderer once it's ready.
+    // openRunbookInWindow waits for the page to load, so a remote clone can
+    // start right away.
+    if (cliConfig.remoteUrl) {
+      const win = getMainWindow()
+      if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
+    } else if (cliConfig.runbookPath) {
+      const runbookPath = cliConfig.runbookPath
+      const win = getMainWindow()
+      if (win) openRunbookInWindow(win, { path: runbookPath })
+    } else if (pendingOpenFilePath) {
+      // A macOS open-file event (Finder double-click) arrived before the window
+      // was ready. Now that the window exists, open the stashed runbook.
+      const filePath = pendingOpenFilePath
+      pendingOpenFilePath = null
+      const win = getMainWindow()
+      if (win) openRunbookInWindow(win, { path: filePath })
+    }
+
+    app.on("activate", () => {
+      focusOrCreateWindow()
+    })
   })
-
-  // Kick off the boilerplate WASM load as a background task. The full build
-  // is ~600-900ms to instantiate; running it now overlaps the cost with the
-  // user reading the runbook before their first edit.
-  log.info("Starting eager background load of vendored boilerplate WASM")
-  eagerLoadBoilerplateWasm()
-
-  // If a runbook was specified via CLI, tell the renderer once it's ready.
-  // openRunbookInWindow waits for the page to load, so a remote clone can
-  // start right away.
-  if (cliConfig.remoteUrl) {
-    const win = getMainWindow()
-    if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
-  } else if (cliConfig.runbookPath) {
-    const runbookPath = cliConfig.runbookPath
-    const win = getMainWindow()
-    if (win) openRunbookInWindow(win, { path: runbookPath })
-  } else if (pendingOpenFilePath) {
-    // A macOS open-file event (Finder double-click) arrived before the window
-    // was ready. Now that the window exists, open the stashed runbook.
-    const filePath = pendingOpenFilePath
-    pendingOpenFilePath = null
-    const win = getMainWindow()
-    if (win) openRunbookInWindow(win, { path: filePath })
-  }
-
-  app.on("activate", () => {
-    focusOrCreateWindow()
+  .catch((err: unknown) => {
+    log.error("App startup failed:", err)
   })
-})
 
 app.on("window-all-closed", () => {
   app.quit()

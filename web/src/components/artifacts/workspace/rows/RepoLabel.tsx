@@ -21,7 +21,7 @@ export function RepoIcon({ repoUrl, className }: { repoUrl?: string; className?:
       return <GitHubIcon data-testid="repo-icon-github" className={className} />
     case "gitlab":
       return <GitLabIcon data-testid="repo-icon-gitlab" className={className} />
-    default:
+    case undefined:
       return <FolderGit2 data-testid="repo-icon-generic" className={className} />
   }
 }

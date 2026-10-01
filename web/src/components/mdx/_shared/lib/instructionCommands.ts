@@ -93,7 +93,7 @@ export function buildBoilerplateInvocation({ path, variables, target }: Boilerpl
   ]
   for (const [name, value] of Object.entries(variables)) {
     if (value === undefined || value === null || value === "") continue
-    const rendered = typeof value === "object" ? JSON.stringify(value) : String(value)
+    const rendered = typeof value === "string" ? value : JSON.stringify(value)
     parts.push(`--var ${shellQuote(`${name}=${rendered}`)}`)
   }
   return parts.join(" \\\n  ")

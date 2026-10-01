@@ -140,7 +140,7 @@ export function useInstructionResolution({
   // and no IPC needed. Also covers the no-command case.
   const hasTemplates = commands.some((c) => c.includes("{{"))
   // No IPC bridge (e.g. component tests without an ApiProvider) → client-side.
-  const canInvoke = Boolean(api?.invoke)
+  const canInvoke = api?.invoke !== undefined
 
   let resolvedCommands = clientResolved
   let usedFallback = false

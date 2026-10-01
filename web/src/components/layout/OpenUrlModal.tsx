@@ -74,7 +74,7 @@ export function OpenUrlModal({ open, onOpenChange, onOpened }: OpenUrlModalProps
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !isLoading) {
         e.preventDefault()
-        handleSubmit()
+        void handleSubmit()
       }
     },
     [handleSubmit, isLoading],

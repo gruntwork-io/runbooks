@@ -8,6 +8,7 @@ import { Effect } from "effect"
 import YAML from "yaml"
 
 import { BoilerplateConfigError } from "../../errors/index.js"
+import { errorMessage } from "../../errors/message.ts"
 import type {
   BoilerplateConfig,
   BoilerplateVariable,
@@ -258,7 +259,7 @@ export function parseBoilerplateConfig(
       raw = YAML.parse(yamlContent) as RawConfig
     } catch (err) {
       return yield* new BoilerplateConfigError({
-        message: `Failed to parse boilerplate YAML: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
         cause: err,
       })
     }

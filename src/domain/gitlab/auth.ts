@@ -20,6 +20,7 @@ import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 import { normalizeGitLabBaseUrl, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -229,7 +230,7 @@ export const isSpawnEnoent = (err: unknown): boolean => {
   const cause = (err as { cause?: unknown })?.cause
   const code = (cause as { code?: unknown })?.code
   if (code === "ENOENT") return true
-  return `${cause ?? err}`.includes("ENOENT")
+  return errorMessage(cause ?? err).includes("ENOENT")
 }
 
 /**

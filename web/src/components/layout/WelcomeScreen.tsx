@@ -3,6 +3,7 @@ import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from "luci
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import { errorMessage } from "../../../../src/errors/message"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightColor from "@/assets/runbooks-logo-light-color.svg"
 
@@ -22,7 +23,7 @@ function isUserCancel(message: string): boolean {
 
 /** The handler's own message, without Electron's "Error invoking remote method" wrapper. */
 function invokeErrorMessage(err: unknown): string {
-  return cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
+  return cleanIpcErrorMessage(errorMessage(err))
 }
 
 export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) {

@@ -29,7 +29,9 @@ import * as os from "node:os"
 import * as nodePath from "node:path"
 import type { AddressInfo } from "node:net"
 import { Effect } from "effect"
+import { fetchUrl } from "../test-utils/fetch-url.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Boundary mocks (must be registered before the handler module is imported)
@@ -420,7 +422,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       // The network boundary: every request the API clients make lands on the
       // local server, which records the URL it was meant for. Nothing leaves.
       globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-        const target = input instanceof Request ? input.url : String(input)
+        const target = fetchUrl(input)
         const headers = new Headers(
           init?.headers ?? (input instanceof Request ? input.headers : undefined),
         )
@@ -709,7 +711,7 @@ describe("session token binding (local http and https remotes)", () => {
     if (!handler) throw new Error(`no handler for ${channel}`)
     // git:clone throws on failure; the others return { error }.
     return Promise.resolve(handler(event, params)).catch((err: unknown) => ({
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     })) as Promise<any>
   }
 
@@ -762,7 +764,7 @@ describe("session token binding (local http and https remotes)", () => {
   /** Answers the GitLab user and merge-request APIs on any host. */
   const mockApis = () => {
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input)
+      const url = fetchUrl(input)
       const headers = (init?.headers ?? {}) as Record<string, string>
       fetchCalls.push({ url, authorization: headers.Authorization ?? headers["PRIVATE-TOKEN"] })
       if (url.endsWith("/api/v4/user")) {

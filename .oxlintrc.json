@@ -1,7 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "options": {
-    "reportUnusedDisableDirectives": "error"
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true
   },
   "plugins": ["typescript", "unicorn", "oxc", "react"],
   "jsPlugins": [
@@ -20,6 +21,8 @@
     "preserve-caught-error": "error",
     "react/jsx-no-constructed-context-values": "error",
     "react/no-unstable-nested-components": "error",
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": { "attributes": false } }],
+    "typescript/switch-exhaustiveness-check": "error",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
     "react/error-boundaries": "off",
@@ -57,7 +60,40 @@
         "no-empty-pattern": "off",
         "react-hooks/rules-of-hooks": "off"
       }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**", "**/e2e/**", "test/**"],
+      "rules": {
+        "typescript/unbound-method": "off"
+      }
+    },
+    {
+      "files": ["src/**/*.test.ts", "electron/**/*.test.ts", "cli/**/*.test.ts", "test/**"],
+      "rules": {
+        "typescript/await-thenable": "off"
+      }
+    },
+    {
+      "files": ["web/src/lib/remarkLiteralOnly.ts"],
+      "rules": {
+        "typescript/switch-exhaustiveness-check": "off"
+      }
+    },
+    {
+      "files": ["src/domain/exec/outputValues.test.ts", "src/domain/exec/script.test.ts"],
+      "rules": {
+        "typescript/no-base-to-string": "off",
+        "typescript/restrict-template-expressions": "off"
+      }
     }
   ],
-  "ignorePatterns": ["dist", "out", "node_modules", "*.config.*", "**/*.astro", "testdata/**"]
+  "ignorePatterns": [
+    "dist",
+    "out",
+    "node_modules",
+    "*.config.*",
+    "**/*.astro",
+    "testdata/**",
+    "docs/**"
+  ]
 }

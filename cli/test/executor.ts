@@ -72,6 +72,7 @@ import {
 } from "./validation.ts"
 import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Block types & states
@@ -201,7 +202,7 @@ function renderGoTemplate(content: string, vars: Record<string, unknown>): strin
     if (value === undefined || value === null) {
       throw new Error(`Template references {{.${keyPath}}} but that variable is not defined`)
     }
-    return String(value)
+    return templateText(value)
   })
 
   // Handle {{ fromJson .path.to.value }} (returns parsed JSON)
@@ -210,15 +211,31 @@ function renderGoTemplate(content: string, vars: Record<string, unknown>): strin
     (_match, keyPath: string) => {
       const value = resolveDotPath(vars, keyPath)
       if (value === undefined) return ""
+      const text = templateText(value)
       try {
-        return JSON.stringify(JSON.parse(String(value)))
+        return JSON.stringify(JSON.parse(text))
       } catch {
-        return String(value)
+        return text
       }
     },
   )
 
   return result
+}
+
+/**
+ * The text a template variable renders as: a primitive as itself, a list
+ * comma-joined (as String() joins an array), and a map as JSON rather than
+ * "[object Object]".
+ */
+function templateText(value: unknown): string {
+  if (value === null || value === undefined) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value)
+  }
+  if (Array.isArray(value)) return value.map(templateText).join(",")
+  return JSON.stringify(value) ?? ""
 }
 
 function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
@@ -403,7 +420,7 @@ export class TestExecutor {
       resolvedInputs = resolveTestInputs(tc.inputs)
     } catch (e: unknown) {
       result.status = "failed"
-      result.error = `Failed to resolve test config: ${e}`
+      result.error = `Failed to resolve test config: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
@@ -678,7 +695,7 @@ export class TestExecutor {
       } catch (e: unknown) {
         result.passed = false
         result.actualStatus = "error"
-        result.error = `Failed to render template in block props: ${e}`
+        result.error = `Failed to render template in block props: ${errorMessage(e)}`
         result.duration = Date.now() - start
         return result
       }
@@ -794,7 +811,7 @@ export class TestExecutor {
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
-      result.error = `Failed to render template: ${e}`
+      result.error = `Failed to render template: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
@@ -1013,7 +1030,7 @@ export class TestExecutor {
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
-      result.error = `${e}`
+      result.error = `${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
@@ -1046,7 +1063,7 @@ export class TestExecutor {
       } catch (e: unknown) {
         result.passed = false
         result.actualStatus = "error"
-        result.error = `Failed to write file: ${e}`
+        result.error = `Failed to write file: ${errorMessage(e)}`
         result.duration = Date.now() - start
         return result
       }
@@ -1113,7 +1130,7 @@ export class TestExecutor {
     } catch (e: unknown) {
       result.passed = false
       result.actualStatus = "error"
-      result.error = `Template rendering failed: ${e}`
+      result.error = `Template rendering failed: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
@@ -1982,5 +1999,5 @@ function describeCleanupError(e: unknown): string {
     const detail = stderr?.toString().trim()
     return detail ? `exit code ${status}: ${detail}` : `exit code ${status}`
   }
-  return e instanceof Error ? e.message : String(e)
+  return errorMessage(e)
 }

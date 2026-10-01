@@ -344,7 +344,7 @@ export function useScriptExecution({
 
     // Track if this effect instance is still active (handles unmount and re-runs)
     let isActive = true
-    computeSha256Hash(command).then((hash) => {
+    void computeSha256Hash(command).then((hash) => {
       if (isActive) {
         setCommandHashResult({ command, hash })
       }
@@ -744,7 +744,7 @@ export function useScriptExecution({
     const { payload, key, errorDetails } = pendingRender
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = key
-      renderScript(payload, errorDetails)
+      void renderScript(payload, errorDetails)
     }, 300)
 
     // Cleanup: clear timer when effect re-runs or on unmount

@@ -1141,7 +1141,9 @@ export function useGitAuth({
             if (data.slowDown) {
               currentInterval = Math.max(currentInterval + 5000, (data.interval ?? 0) * 1000)
             }
-            oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
+            oauthPollTimeoutRef.current = setTimeout(() => {
+              void poll()
+            }, currentInterval)
           } else if (data.status === "complete") {
             // Success! The completion is METADATA-ONLY: main already wrote
             // the session env; the token never reaches the renderer.
@@ -1171,7 +1173,7 @@ export function useGitAuth({
         }
       }
 
-      poll()
+      void poll()
     },
     [api, effectiveClientId, oauthHost, registerMetadataOutputs, applyCredentialDetails],
   )
@@ -1207,7 +1209,7 @@ export function useGitAuth({
       // default 5s and 15 minutes)
       // Note: We don't auto-open the browser - let user see the code first
       const pollInterval = data.interval || 5
-      pollOAuthCompletion(
+      void pollOAuthCompletion(
         flow,
         data.deviceCode,
         pollInterval,

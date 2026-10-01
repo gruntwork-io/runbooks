@@ -60,7 +60,7 @@ function GitAuthInteractive({
     }
     if (!isGitProvider(initialProvider)) {
       return {
-        message: `The <${__registryType}> component has an invalid 'provider' prop: "${initialProvider}".`,
+        message: `The <${__registryType}> component has an invalid 'provider' prop: ${JSON.stringify(initialProvider)}.`,
         details: "Valid values are 'github' and 'gitlab' (lowercase).",
       }
     }

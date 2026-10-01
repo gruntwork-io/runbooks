@@ -98,7 +98,7 @@ export function generateFuzzValue(config: FuzzConfig): unknown {
     case "map":
       return generateMap(config)
     default:
-      throw new Error(`Unknown fuzz type: ${config.type satisfies never}`)
+      throw new Error(`Unknown fuzz type: ${String(config.type satisfies never)}`)
   }
 }
 

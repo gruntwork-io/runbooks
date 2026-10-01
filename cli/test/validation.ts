@@ -18,6 +18,7 @@ import {
 import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../src/mdx.ts"
 import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
 import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -206,7 +207,7 @@ export class InputValidator {
           this.configErrors.push({
             componentType: "Inputs",
             componentId: comp.id,
-            message: `Failed to load boilerplate config: ${e}`,
+            message: `Failed to load boilerplate config: ${errorMessage(e)}`,
           })
         }
       } else {
@@ -227,7 +228,7 @@ export class InputValidator {
             this.configErrors.push({
               componentType: "Inputs",
               componentId: comp.id,
-              message: `Failed to parse inline YAML: ${e}`,
+              message: `Failed to parse inline YAML: ${errorMessage(e)}`,
             })
           }
         }
@@ -284,7 +285,7 @@ export class InputValidator {
         this.configErrors.push({
           componentType: "Template",
           componentId: comp.id,
-          message: `Failed to load boilerplate config: ${e}`,
+          message: `Failed to load boilerplate config: ${errorMessage(e)}`,
         })
       }
 
@@ -601,6 +602,13 @@ function validateValue(
       if (typeof value !== "boolean") {
         errors.push({ inputKey: key, message: `Expected boolean, got ${typeof value}` })
       }
+      break
+
+    // No YAML type check of their own; validateVariableValue below covers them.
+    case "string":
+    case "float":
+    case "list":
+    case "map":
       break
   }
 

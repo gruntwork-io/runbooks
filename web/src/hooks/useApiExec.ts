@@ -379,7 +379,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       usePty?: boolean,
       timeoutMs?: number,
     ) => {
-      executeScript({
+      void executeScript({
         executableId,
         templateVarValues,
         envVarsOverride,

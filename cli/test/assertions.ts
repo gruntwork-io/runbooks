@@ -11,6 +11,7 @@ import {
   revealOutput,
   type OutputValue,
 } from "../../src/domain/exec/outputValues.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Assertion executor
@@ -62,7 +63,7 @@ export function runAssertion(assertion: TestAssertion, ctx: AssertionContext): A
       return {
         type: assertion.type,
         passed: false,
-        message: `Unknown assertion type: ${assertion.type}`,
+        message: `Unknown assertion type: ${String(assertion.type)}`,
       }
   }
 }
@@ -96,7 +97,11 @@ function assertFileExists(filePath: string, ctx: AssertionContext): AssertionRes
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       return { type: "file_exists", passed: false, message: `File does not exist: ${filePath}` }
     }
-    return { type: "file_exists", passed: false, message: `Error checking file: ${e}` }
+    return {
+      type: "file_exists",
+      passed: false,
+      message: `Error checking file: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -116,7 +121,7 @@ function assertNotExists(
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       return { type, passed: true }
     }
-    return { type, passed: false, message: `Error checking ${lowerNoun}: ${e}` }
+    return { type, passed: false, message: `Error checking ${lowerNoun}: ${errorMessage(e)}` }
   }
 }
 
@@ -136,7 +141,11 @@ function assertDirExists(dirPath: string, ctx: AssertionContext): AssertionResul
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       return { type: "dir_exists", passed: false, message: `Directory does not exist: ${dirPath}` }
     }
-    return { type: "dir_exists", passed: false, message: `Error checking directory: ${e}` }
+    return {
+      type: "dir_exists",
+      passed: false,
+      message: `Error checking directory: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -157,7 +166,11 @@ function assertFileContains(
       message: `File ${filePath} does not contain "${substring}"`,
     }
   } catch (e: unknown) {
-    return { type: "file_contains", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_contains",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -178,7 +191,11 @@ function assertFileNotContains(
       message: `File ${filePath} contains "${substring}" but should not`,
     }
   } catch (e: unknown) {
-    return { type: "file_not_contains", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_not_contains",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -203,7 +220,11 @@ function assertFileMatches(
     if (e instanceof SyntaxError) {
       return { type: "file_matches", passed: false, message: `Invalid regex pattern: ${e.message}` }
     }
-    return { type: "file_matches", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_matches",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -224,7 +245,11 @@ function assertFileEquals(
       message: `File ${filePath} content does not equal expected value`,
     }
   } catch (e: unknown) {
-    return { type: "file_equals", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_equals",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -384,7 +409,7 @@ function assertScript(command: string, ctx: AssertionContext): AssertionResult {
     })
     return { type: "script", passed: true }
   } catch (e: unknown) {
-    return { type: "script", passed: false, message: `Script assertion failed: ${e}` }
+    return { type: "script", passed: false, message: `Script assertion failed: ${errorMessage(e)}` }
   }
 }
 

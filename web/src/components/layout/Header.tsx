@@ -112,7 +112,9 @@ export function Header({ pathName, localPath }: HeaderProps) {
 
   const hasRunbookOpen = Boolean(pathName)
   const handleCloseRunbook = () => {
-    api.invoke("native:close-runbook")
+    api.invoke("native:close-runbook").catch((err: unknown) => {
+      console.error("Failed to close the runbook:", err)
+    })
   }
 
   // On Windows/Linux, Electron draws min/max/close controls via titleBarOverlay

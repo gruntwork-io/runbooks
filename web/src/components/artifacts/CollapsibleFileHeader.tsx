@@ -53,7 +53,7 @@ export function CollapsibleFileHeader({
       <button
         onClick={(e) => {
           e.stopPropagation()
-          copy(path)
+          void copy(path)
         }}
         className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
         title="Copy file path"

@@ -37,7 +37,8 @@ export function stripAnsi(text: string): string {
  */
 export interface StructuredLogEntry {
   timestamp: string
-  level: "INFO" | "WARN" | "ERROR" | "DEBUG" | string
+  // `string & {}` keeps the known levels as editor suggestions while accepting any string.
+  level: "INFO" | "WARN" | "ERROR" | "DEBUG" | (string & {})
   message: string
   block_id: string
 }

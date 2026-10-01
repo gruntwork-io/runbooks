@@ -601,7 +601,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
         fake.createSucceeds(0, testPR(3, CREATE_PARAMS.headBranch))
         await created
       })
-      push()
+      void push()
       expect(fake.listenerCount()).toBe(5)
 
       await act(async () => {

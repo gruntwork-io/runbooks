@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
 import type { IpcChannelMap, IpcEventMap, InvokeChannel, EventChannel } from "../shared/channels.ts"
 import { cleanIpcErrorMessage } from "../shared/ipc-error-message.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // Channels the renderer may use. `satisfies Record<InvokeChannel, true>` (and
 // `Record<EventChannel, true>` below) makes tsc fail if a channel declared in
@@ -132,7 +133,7 @@ contextBridge.exposeInMainWorld("api", {
     // wrapper once here, so every caller (useIpc and direct api.invoke catch
     // blocks alike) gets just the handler's message.
     return ipcRenderer.invoke(channel, ...args).catch((err: unknown) => {
-      throw new Error(cleanIpcErrorMessage(err instanceof Error ? err.message : String(err)))
+      throw new Error(cleanIpcErrorMessage(errorMessage(err)))
     })
   },
 

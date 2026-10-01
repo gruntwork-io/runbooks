@@ -34,14 +34,14 @@ export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatus
 })
 
 // Get a human-readable label for an AWS credential detection source.
-// Returns null for unknown/null sources so callers can conditionally hide the label.
+// Returns null when nothing was detected so callers can conditionally hide the label.
 export function getSourceLabel(source: AwsDetectionSource): string | null {
   switch (source) {
     case "env":
       return "Environment Variables"
     case "block":
       return "Command Output"
-    default:
+    case null:
       return null
   }
 }

@@ -177,7 +177,7 @@ function useChangesPoller(
     void fetchChanges(localPath, gen)
 
     const interval = setInterval(() => {
-      fetchChanges(localPath, gen)
+      void fetchChanges(localPath, gen)
     }, POLL_INTERVAL_MS)
 
     return () => clearInterval(interval)
@@ -309,7 +309,7 @@ function useFileTree(
     const silent = prevTreeVersionRef.current !== treeVersion && tree !== null
     prevTreeVersionRef.current = treeVersion
 
-    fetchTree(localPath, silent)
+    void fetchTree(localPath, silent)
 
     return () => {
       nextTreeSeq()
@@ -319,7 +319,7 @@ function useFileTree(
 
   const refetch = useCallback(() => {
     if (localPath) {
-      fetchTree(localPath)
+      void fetchTree(localPath)
     }
   }, [localPath, fetchTree])
 

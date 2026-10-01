@@ -36,9 +36,9 @@ export function IpcExecutableRegistryProvider({ children }: IpcExecutableRegistr
       }
     }
 
-    fetchRegistry(false)
+    void fetchRegistry(false)
     return api.on("registry:updated", () => {
-      fetchRegistry(true)
+      void fetchRegistry(true)
     })
   }, [api])
 
