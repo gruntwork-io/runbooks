@@ -6,6 +6,7 @@ import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAuthDependencyWarning, BlockIdLabel, Instruction } from "@/components/mdx/_shared"
 import { DuplicateIdError } from "./DuplicateIdError"
+import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -156,6 +157,10 @@ export function ScriptBlock({
     cancel,
     outputs,
     hasScriptDrift,
+    scriptFileChange,
+    reloadScript,
+    isReloadingScript,
+    scriptReloadError,
   } = useScriptExecution({
     componentId: id,
     path,
@@ -367,8 +372,19 @@ export function ScriptBlock({
         <BlockIdLabel id={id} size="large" />
       </div>
 
+      {/* A changed script file can be reviewed and reloaded in place */}
+      {path && scriptFileChange && (
+        <ScriptChangeNotice
+          path={path}
+          change={scriptFileChange}
+          onReload={reloadScript}
+          isReloading={isReloadingScript}
+          reloadError={scriptReloadError}
+        />
+      )}
+
       {/* Script drift warning - mr-12 leaves room for the ID label */}
-      {hasScriptDrift && (
+      {hasScriptDrift && !scriptFileChange && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
           <p>This script has changed since the runbook was loaded. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was last opened or reloaded, or, if Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, when it was opened in this app session (opening another runbook and coming back rebuilds it).</p>
           <p>To execute the latest version, close and reopen the runbook (in watch mode, saving <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also reloads it). If Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, quit and restart the app instead. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>

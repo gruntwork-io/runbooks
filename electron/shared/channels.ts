@@ -8,8 +8,8 @@
 // Import from the canonical src/types.ts so channels.ts and the backend
 // handlers share the same contract. Re-exported so consumers can import
 // these types from channels.ts directly.
-import type { ExecRequest, Section, SessionMetadata } from '../../src/types.ts'
-export type { ExecRequest, Section, SessionMetadata }
+import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from '../../src/types.ts'
+export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from '../../src/domain/exec/outputValues.ts'
 
 // ---------------------------------------------------------------------------
@@ -33,6 +33,18 @@ export interface IpcChannelMap {
     result: { path: string; remoteSource: string }
   }
   "runbook:executables": { params: void; result: { executables: Record<string, Executable>; warnings?: string[] } }
+  /**
+   * How the script file of block `componentId` differs on disk from the
+   * registry's copy. `change` is null when it doesn't, or can't be read.
+   */
+  "runbook:script-change": { params: { componentId: string }; result: { change: ScriptFileChange | null } }
+  /**
+   * Register the script file of block `componentId` as it is on disk, so Run
+   * executes it. `contentHash` is the `diskContentHash` of the change the user
+   * reviewed; rejects if the file has changed again since. Sends
+   * registry:updated.
+   */
+  "runbook:reload-script": { params: { componentId: string; contentHash: string }; result: { ok: true } }
 
   // Session
   "session:get": { params: void; result: SessionMetadata }
@@ -698,6 +710,13 @@ export interface IpcEventMap {
    * after a failed open the renderer reloads that runbook, not the failed one.
    */
   "watch:file-change": { type: "reload"; path: string }
+  /**
+   * Script files the registry was built from were written on disk.
+   * `componentIds` are the blocks that run them: each asks
+   * runbook:script-change whether its script now differs, and no other block
+   * does anything.
+   */
+  "watch:script-change": { componentIds: string[] }
   /** `cloneId` echoes the request's, so a listener can drop another clone's lines. */
   "git:clone-progress": { line: string; timestamp: string; cloneId?: string }
   "git:log": { line: string; timestamp: string; replace?: boolean }

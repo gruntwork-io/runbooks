@@ -8,6 +8,7 @@ import { cleanIpcErrorMessage } from "../shared/ipc-error-message.ts"
 // added there needs a matching entry.
 const INVOKE_CHANNELS = {
   "runbook:get": true, "runbook:open-remote": true, "runbook:executables": true,
+  "runbook:script-change": true, "runbook:reload-script": true,
   "session:get": true, "session:reset": true, "session:set-env": true,
   "exec:run": true, "exec:cancel": true,
   "boilerplate:variables": true, "boilerplate:render": true, "boilerplate:render-inline": true,
@@ -38,7 +39,7 @@ const INVOKE_CHANNELS = {
 
 const EVENT_CHANNELS = {
   "exec:log": true, "exec:log-file": true, "exec:status": true, "exec:outputs": true, "exec:files-captured": true,
-  "watch:file-change": true,
+  "watch:file-change": true, "watch:script-change": true,
   "git:clone-progress": true,
   "git:log": true, "git:status": true, "git:pr-result": true, "git:outputs": true, "git:error": true,
   "file:open-runbook": true,

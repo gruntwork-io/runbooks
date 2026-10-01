@@ -32,6 +32,10 @@ const baseExecution = {
   cancel: vi.fn(),
   outputs: null,
   hasScriptDrift: false,
+  scriptFileChange: null,
+  reloadScript: vi.fn(),
+  isReloadingScript: false,
+  scriptReloadError: null,
 }
 
 let mockExecution = { ...baseExecution }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildDiffSections,
+  diffDiskContents,
   diffLineArrays,
   diskLines,
   generateUnifiedDiff,
@@ -183,6 +184,22 @@ describe('generateUnifiedDiff', () => {
       ' ' + '  source = "./b"',
       ' }',
     ])
+  })
+})
+
+describe('diffDiskContents', () => {
+  it('diffs two versions read from disk, numbering both sides', () => {
+    expect(diffDiskContents('#!/bin/bash\necho before\n', '#!/bin/bash\necho after\necho done\n')).toEqual([
+      { type: 'context', content: '#!/bin/bash', oldLineNum: 1, newLineNum: 1 },
+      { type: 'deletion', content: 'echo before', oldLineNum: 2 },
+      { type: 'addition', content: 'echo after', newLineNum: 2 },
+      { type: 'addition', content: 'echo done', newLineNum: 3 },
+    ])
+  })
+
+  it('has no changed rows when only the line endings or the final newline differ', () => {
+    expect(rows(diffDiskContents('a\nb\n', 'a\r\nb\r\n'))).toEqual([' a', ' b'])
+    expect(rows(diffDiskContents('a\nb\n', 'a\nb'))).toEqual([' a', ' b'])
   })
 })
 

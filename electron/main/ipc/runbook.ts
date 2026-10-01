@@ -1,7 +1,8 @@
 /**
  * IPC handlers for runbook operations.
  *
- * Provides runbook file reading and executable registry access.
+ * Provides runbook file reading, executable registry access, and reloading a
+ * registered script file that changed on disk.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
@@ -18,7 +19,7 @@ import {
   setRunbookConfig,
 } from "./runtime.ts"
 import { resetGoogleCredentialRegistry } from "./google-credential-registry.ts"
-import { startWatcher } from "./watch.ts"
+import { startWatcher, watchScripts } from "./watch.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
 import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
@@ -137,6 +138,7 @@ export function registerRunbookHandlers(): void {
         // runbook's registry fails. Cleared before the awaits, so a load of
         // this runbook that overtakes this one can't keep them either.
         setExecutableRegistry(null)
+        watchScripts([])
         // A runbook with <AwsAuth> starts without the inherited AWS keys, so
         // no script sees them until the user confirms an account. Set on every
         // new session (even to []) so one runbook's list can't carry over.
@@ -187,6 +189,11 @@ export function registerRunbookHandlers(): void {
         }
       }
 
+      // Watched with or without --watch, so a block can offer to reload a
+      // script that changed on disk. A no-op when a reload of the runbook
+      // leaves the same script files registered.
+      watchScripts(registry.getScriptPaths())
+
       const ext = path.extname(runbookPath).replace(/^\./, "")
 
       return {
@@ -223,4 +230,34 @@ export function registerRunbookHandlers(): void {
       warnings: executableRegistry.getWarnings(),
     }
   })
+
+  ipcMain.handle("runbook:script-change", async (_event, params: { componentId: string }) => {
+    if (!executableRegistry) {
+      return { change: null }
+    }
+
+    return {
+      change: await runtime.runPromise(executableRegistry.getScriptFileChange(params.componentId)),
+    }
+  })
+
+  // The renderer names the block and the hash of the content the user
+  // reviewed, never a path or script content: main re-reads the file the
+  // registry entry was built from and registers it only if it has that hash.
+  ipcMain.handle(
+    "runbook:reload-script",
+    async (_event, params: { componentId: string; contentHash: string }) => {
+      if (!executableRegistry) {
+        throw new Error("No runbook loaded")
+      }
+
+      await runtime.runPromise(
+        executableRegistry.reloadFileEntry(params.componentId, params.contentHash),
+      )
+
+      // The entry has a new ID: the renderer re-reads the registry to run it.
+      getMainWindow()?.webContents.send("registry:updated")
+      return { ok: true as const }
+    },
+  )
 }

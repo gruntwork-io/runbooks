@@ -271,6 +271,18 @@ export interface Executable {
   templateVars: string[]
 }
 
+/** A script file whose content on disk differs from the registry's copy of it. */
+export interface ScriptFileChange {
+  /** The registry's copy, which Run executes. */
+  registeredContent: string
+  diskContent: string
+  /**
+   * Hash of `diskContent`. Reloading the script takes it, so the reload
+   * registers the content the user reviewed and fails on any later one.
+   */
+  diskContentHash: string
+}
+
 // ---------------------------------------------------------------------------
 // Session types
 // ---------------------------------------------------------------------------
