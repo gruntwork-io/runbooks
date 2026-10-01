@@ -107,6 +107,8 @@ export class InputValidator {
     for (const prType of PR_BLOCK_TYPES) {
       components.push(...this.parseAuthBlocks(content, prType))
     }
+    // Only an Iframe with an id can set outputs, so only those are steps.
+    components.push(...parseComponents(content, "Iframe").filter((comp) => comp.hasExplicitId))
 
     // Sort by document position (each component's own offset in the source)
     components.sort((a, b) => a.index - b.index)

@@ -1,0 +1,25 @@
+body {
+  font-family: system-ui, sans-serif;
+  margin: 1.25rem;
+  color: #1f2937;
+}
+
+.regions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+button.picked {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}

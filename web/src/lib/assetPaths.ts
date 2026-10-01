@@ -31,6 +31,11 @@ const ASSET_ATTRS = new Map<string, readonly string[]>([
   ['a', ['href']], // <a href="./assets/document.pdf">
 ])
 
+/** The origin of every URL under `host`, which a page from the runbook's assets folder has. */
+export function runbookAssetOrigin(host: string): string {
+  return `runbook-asset://${host}`
+}
+
 /**
  * `./assets/a.png` -> `runbook-asset://<host>/a.png`; any other URL unchanged.
  * Only the prefix changes, so anything after the URL (a srcset descriptor) is kept.
@@ -39,7 +44,7 @@ export function toRunbookAssetUrl(url: string, host: string | undefined): string
   if (!host || !url.startsWith('./assets/')) {
     return url
   }
-  return `runbook-asset://${host}/${url.substring('./assets/'.length)}`
+  return `${runbookAssetOrigin(host)}/${url.substring('./assets/'.length)}`
 }
 
 // A srcset is comma-separated candidates, each a URL with an optional

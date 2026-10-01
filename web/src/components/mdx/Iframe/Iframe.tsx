@@ -1,9 +1,14 @@
-import { useContext, useEffect, useId, useState } from "react"
+import { useContext, useEffect, useId, useRef, useState } from "react"
 import { AlertCircle, ExternalLink, FileCode, Globe, RotateCw } from "lucide-react"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { RunbookContext } from "@/contexts/RunbookContext"
-import { toRunbookAssetUrl } from "@/lib/assetPaths"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { runbookAssetOrigin, toRunbookAssetUrl } from "@/lib/assetPaths"
 import { runbookStorageKey } from "@/components/mdx/_shared/lib/runbookStorageKey"
+import { BlockIdLabel } from "@/components/mdx/_shared/components/BlockIdLabel"
+import { ViewOutputs } from "@/components/mdx/_shared/components/ViewOutputs"
+import { useFrameMessaging } from "./hooks/useFrameMessaging"
+import { OUTPUT_NAME } from "./protocol"
 
 interface IframeProps {
   /** An https URL, an http URL on localhost or 127.0.0.1, or a path to a file in the runbook's assets folder (`./assets/site/index.html`). */
@@ -12,12 +17,26 @@ interface IframeProps {
   title?: string
   /** Frame height: a number of pixels, or any CSS length such as `"70vh"`. */
   height?: number | string
+  /** Block id. Required with `outputs`: later blocks read the page's outputs as `{{ .outputs.<id>.<name> }}`. */
+  id?: string
+  /** Inputs blocks whose values a page from `./assets/` receives. */
+  inputsId?: string | string[]
+  /** Names of the outputs a page from `./assets/` may set. */
+  outputs?: string[]
 }
 
-/** Where the frame loads from, and what the title bar shows for it: the host of an external URL, or the `./assets/` path. */
-type FrameSource = { url: string; location: string; isLocal: boolean } | { error: string }
+/**
+ * Where the frame loads from, and what the title bar shows for it: the host of
+ * an external URL, or the `./assets/` path. A local page also has `origin`,
+ * its runbook's runbook-asset:// origin, which messages are exchanged with.
+ */
+type FrameSource =
+  | { url: string; location: string; isLocal: false }
+  | { url: string; location: string; isLocal: true; origin: string }
+  | { error: string }
 
 const DEFAULT_HEIGHT = 500
+const NO_OUTPUTS: string[] = []
 
 // The frame's origin is never the app's (see resolveSource), and a page from
 // the assets folder has its runbook's own origin, so scripts and same-origin
@@ -34,17 +53,36 @@ const SANDBOX = "allow-scripts allow-same-origin allow-forms"
  *
  * The page loads only after the user clicks Load, so opening a runbook runs
  * none of the author's scripts. The choice lasts until the app quits.
+ *
+ * A page from the assets folder can exchange values with the runbook (see
+ * useFrameMessaging): it receives the values of the `inputsId` Inputs blocks,
+ * and the outputs it sets become this block's outputs.
  */
-export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
+export function Iframe({ src, title, height = DEFAULT_HEIGHT, id, inputsId, outputs = NO_OUTPUTS }: IframeProps) {
   const componentId = useId()
   const { reportError, clearError } = useErrorReporting()
+  // A block without an id registers under its unique React id, so it can
+  // never collide with another block.
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id ?? componentId, "Iframe")
   const runbook = useContext(RunbookContext)
   const loadedKey = runbookStorageKey("iframe-loaded", runbook?.storageScope, src)
   const [loaded, setLoaded] = useState(() => readLoaded(loadedKey))
   // Remounting the iframe reloads it from `src`.
   const [loadCount, setLoadCount] = useState(0)
+  const frameRef = useRef<HTMLIFrameElement>(null)
   const source = resolveSource(src, runbook?.assetHost)
-  const error = "error" in source ? source.error : undefined
+  const error =
+    "error" in source
+      ? source.error
+      : (messagingConfigError(source.isLocal, id, inputsId, outputs) ??
+        idError(id, isDuplicate, isNormalizedCollision, collidingId))
+  const { outputs: pageOutputs, messageError, onFrameLoad } = useFrameMessaging({
+    frameRef,
+    pageOrigin: !error && "origin" in source ? source.origin : undefined,
+    id,
+    outputNames: outputs,
+    inputsId,
+  })
 
   useEffect(() => {
     if (error) {
@@ -54,13 +92,13 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
     }
   }, [error, componentId, reportError, clearError])
 
-  if ("error" in source) {
+  if (error || "error" in source) {
     return (
       <div className="runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5 bg-destructive-muted border-destructive/30 text-destructive">
         <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
         <div>
           <div className="text-md font-bold mb-1">Invalid Iframe</div>
-          <p>{source.error}</p>
+          <p>{error}</p>
         </div>
       </div>
     )
@@ -91,6 +129,7 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
             <bdi dir="ltr">{source.location}</bdi>
           </span>
         </div>
+        {id && <BlockIdLabel id={id} size="large" />}
         {loaded && (
           <button
             type="button"
@@ -119,6 +158,8 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
         // Pages that set no background expect a white one, not the app's dark theme.
         <iframe
           key={loadCount}
+          ref={frameRef}
+          onLoad={onFrameLoad}
           src={source.url}
           title={title || source.location}
           sandbox={SANDBOX}
@@ -139,11 +180,56 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT }: IframeProps) {
           </button>
         </div>
       )}
+      {(messageError || pageOutputs) && (
+        <div className="border-t border-border px-3 py-2 text-sm">
+          {messageError && (
+            <p role="alert" className="m-0 text-destructive">
+              {messageError}
+            </p>
+          )}
+          {pageOutputs && <ViewOutputs outputs={pageOutputs} />}
+        </div>
+      )}
     </div>
   )
 }
 
 Iframe.displayName = "Iframe"
+
+/** Why the messaging props don't fit this block, or undefined when they do. */
+function messagingConfigError(
+  isLocal: boolean,
+  id: string | undefined,
+  inputsId: string | string[] | undefined,
+  outputs: unknown,
+): string | undefined {
+  if (!Array.isArray(outputs) || outputs.some((name) => typeof name !== "string")) {
+    return 'The outputs prop must be a list of names, such as outputs={["region"]}.'
+  }
+  if (!isLocal && (inputsId !== undefined || outputs.length > 0)) {
+    return "The inputsId and outputs props only work with a page from ./assets/. An external site can't exchange values with the runbook."
+  }
+  const invalid = outputs.find((name: string) => !OUTPUT_NAME.test(name))
+  if (invalid !== undefined) {
+    return `Output name "${invalid}" is invalid. Use letters, digits and underscores, starting with a letter or underscore.`
+  }
+  if (outputs.length > 0 && !id) {
+    return "An Iframe with outputs needs an id. Later blocks read the outputs as {{ .outputs.<id>.<name> }}."
+  }
+  return undefined
+}
+
+function idError(
+  id: string | undefined,
+  isDuplicate: boolean,
+  isNormalizedCollision: boolean,
+  collidingId: string | undefined,
+): string | undefined {
+  if (!id) return undefined
+  if (isDuplicate) return `Duplicate Iframe block ID: "${id}"`
+  if (isNormalizedCollision) return `Iframe ID "${id}" collides with "${collidingId}" after normalization`
+  return undefined
+}
 
 // Hosts whose plain-http traffic never leaves the machine, so nothing on the
 // network can rewrite the page. Matches the http sources in the CSP's
@@ -168,7 +254,7 @@ function resolveSource(src: unknown, assetHost: string | undefined): FrameSource
     if (!assetHost) {
       return { error: `"${src}" can only be shown in an open runbook.` }
     }
-    return { url: toRunbookAssetUrl(src, assetHost), location: src, isLocal: true }
+    return { url: toRunbookAssetUrl(src, assetHost), location: src, isLocal: true, origin: runbookAssetOrigin(assetHost) }
   }
 
   const unsupported = {

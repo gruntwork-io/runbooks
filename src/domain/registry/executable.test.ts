@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test"
 import { Effect, Exit } from "effect"
 import {
   extractProp,
+  extractStringArrayProp,
   computeExecutableId,
   computeComponentId,
   getComponentRegex,
@@ -56,6 +57,30 @@ describe("extractProp", () => {
   it("skips values in unsupported forms", () => {
     expect(extractProp('timeout={300} id="real"', "id")).toBe("real")
     expect(extractProp('timeout={300} id="real"', "timeout")).toBe("")
+  })
+})
+
+describe("extractStringArrayProp", () => {
+  it.each([
+    ["double quotes", 'id="p" outputs={["region", "zone"]}', ["region", "zone"]],
+    ["mixed quotes and spacing", "outputs={ [ 'region' ,`zone`] }", ["region", "zone"]],
+    ["a trailing comma", 'outputs={["region",]}', ["region"]],
+    ["an empty array", "outputs={[]}", []],
+  ])("reads %s", (_name, props, expected) => {
+    expect(extractStringArrayProp(props, "outputs")).toEqual(expected)
+  })
+
+  it.each([
+    ["an absent prop", 'id="p"'],
+    ["a non-string item", "outputs={[1, 2]}"],
+    ["items without a separator", 'outputs={["a" "b"]}'],
+    ["a string prop", 'outputs="region"'],
+  ])("returns undefined for %s", (_name, props) => {
+    expect(extractStringArrayProp(props, "outputs")).toBeUndefined()
+  })
+
+  it("matches the whole prop name", () => {
+    expect(extractStringArrayProp('myoutputs={["x"]}', "outputs")).toBeUndefined()
   })
 })
 

@@ -140,6 +140,7 @@ steps:
     missing_outputs: ["..."]    # array of strings, optional
     error_contains: "..."       # string, optional
     assertions: [ ... ]         # array of Assertion objects, optional
+    set_outputs: { ... }        # map of strings, optional (Iframe blocks only)
 ```
 
 | Field | Type | Required | Description |
@@ -150,6 +151,7 @@ steps:
 | `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). Write each one as templates reference it, with hyphens in the block ID turned into underscores: `outputs.create_account.account_id` for block `create-account`. |
 | `error_contains` | string | No | Expected error message substring (used with `config_error` status). |
 | `assertions` | array | No | Assertions to run immediately after this step completes. |
+| `set_outputs` | map | No | For an `<Iframe>` block, the outputs its page would set. Each name must be in the block's `outputs` prop, and each value must be a string. See [Testing Iframe Blocks](#testing-iframe-blocks). |
 
 #### Expected Status Values
 
@@ -640,6 +642,24 @@ tests:
       - block: create-pr
         expect: skip
 ```
+
+## Testing Iframe Blocks
+
+Tests can't run the page an [`<Iframe>`](/authoring/blocks/iframe/) block shows, so a step for the block stands in for the page: its `set_outputs` become the block's outputs, as if the page had set them. Only an `<Iframe>` with an `id` can be a step.
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: deploy-to-picked-region
+    steps:
+      - block: region-picker
+        set_outputs:
+          region: eu-west-1
+      - block: deploy
+        expect: success
+```
+
+A step whose `set_outputs` names an output the block's `outputs` prop doesn't list fails, just as the app refuses that output from the page. Without `set_outputs`, the step succeeds and sets nothing, so blocks that read the block's outputs stay blocked. A test with no `steps` runs each `<Iframe>` with an `id` that way.
 
 ## Running Tests
 
