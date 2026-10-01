@@ -196,8 +196,8 @@ function useChangesPoller(
         // The worktree switched or its files changed while the diff loaded; the
         // next poll has already replaced (or will replace) this entry.
         if (gen !== genRef.current) return
-        if (data.changes && data.changes.length > 0) {
-          const fullChange = data.changes[0]
+        const fullChange = data.changes?.[0]
+        if (fullChange) {
           // Merge the full diff into the existing changes array
           setChanges((prev) =>
             prev.map((c) =>

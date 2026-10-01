@@ -223,7 +223,7 @@ describe("RunbookContext", () => {
 
       // Block IDs are normalized (hyphens → underscores)
       expect(ctx.outputs["create_account"]).toBeDefined()
-      expect(ctx.outputs["create_account"].account_id).toBe("123")
+      expect(ctx.outputs["create_account"]!.account_id).toBe("123")
     })
   })
 

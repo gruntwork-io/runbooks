@@ -22,9 +22,9 @@ describe("InlineMarkdown asset paths", () => {
     )
 
     const links = container.querySelectorAll("a")
-    expect(links[0].getAttribute("href")).toBe("https://example.com/a")
+    expect(links[0]!.getAttribute("href")).toBe("https://example.com/a")
     expect(container.querySelector("img")?.getAttribute("src")).toBe("./images/y.png")
     // defaultUrlTransform blanks unsafe schemes
-    expect(links[1].getAttribute("href")).toBe("")
+    expect(links[1]!.getAttribute("href")).toBe("")
   })
 })

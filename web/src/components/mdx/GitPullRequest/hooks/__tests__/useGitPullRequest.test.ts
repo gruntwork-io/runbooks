@@ -55,8 +55,8 @@ function createEmittingApi() {
     invoke,
     emit,
     /** Settle the nth operation invoke (0-based, in call order). */
-    resolve: (n: number, value: unknown) => pending[n].resolve(value),
-    reject: (n: number, error: Error) => pending[n].reject(error),
+    resolve: (n: number, value: unknown) => pending[n]!.resolve(value),
+    reject: (n: number, error: Error) => pending[n]!.reject(error),
     /** Total subscribed listeners across every channel. */
     listenerCount: () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0),
 
@@ -68,25 +68,25 @@ function createEmittingApi() {
       emit("git:pr-result", { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
       emit("git:outputs", { outputs: pr.outputs })
       emit("git:status", { status: "success", exitCode: 0 })
-      pending[n].resolve({ url: pr.url, number: pr.number })
+      pending[n]!.resolve({ url: pr.url, number: pr.number })
     },
     /** respondToGitPrExit on failure: error (with any code), status, then return. */
     createFails(n: number, message: string, code?: { code: string; branchName: string }) {
       emit("git:error", { message, ...code })
       emit("git:status", { status: "fail", exitCode: 1 })
-      pending[n].resolve({ error: message })
+      pending[n]!.resolve({ error: message })
     },
     /** The git:push handler on success: status, then return. */
     pushSucceeds(n: number) {
       emit("git:log", { line: "Push complete.", timestamp: "2026-01-01T00:00:01Z" })
       emit("git:status", { status: "success", exitCode: 0 })
-      pending[n].resolve({ ok: true })
+      pending[n]!.resolve({ ok: true })
     },
     /** The git:push handler on failure: error, status, then return. */
     pushFails(n: number, message: string) {
       emit("git:error", { message })
       emit("git:status", { status: "fail", exitCode: 1 })
-      pending[n].resolve({ error: message })
+      pending[n]!.resolve({ error: message })
     },
   }
 }
@@ -642,10 +642,10 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       expect(labelRequests).toHaveLength(2)
 
       await act(async () => {
-        labelRequests[1]({ labels: ["infra-label"] })
+        labelRequests[1]!({ labels: ["infra-label"] })
       })
       await act(async () => {
-        labelRequests[0]({ labels: ["old-repo-label"] })
+        labelRequests[0]!({ labels: ["old-repo-label"] })
       })
       expect(state().labels.map((label) => label.name)).toEqual(["infra-label"])
       expect(state().labelsLoading).toBe(false)
@@ -663,13 +663,13 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
       })
 
       await act(async () => {
-        labelRequests[0]({ labels: ["old-repo-label"] })
+        labelRequests[0]!({ labels: ["old-repo-label"] })
       })
       expect(state().labelsLoading).toBe(true)
       expect(state().labels).toEqual([])
 
       await act(async () => {
-        labelRequests[1]({ labels: ["infra-label"] })
+        labelRequests[1]!({ labels: ["infra-label"] })
       })
       expect(state().labelsLoading).toBe(false)
       expect(state().labels.map((label) => label.name)).toEqual(["infra-label"])

@@ -915,7 +915,7 @@ const impl: GoogleClientShape = {
         for (const entry of entries.sort()) {
           const match = /^config_(.+)$/.exec(entry)
           if (!match) continue
-          const name = match[1]
+          const name = match[1]!
 
           let text: string
           try {

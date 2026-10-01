@@ -23,9 +23,9 @@ describe("parseConfig — happy paths", () => {
     const cfg = parseConfig(baseYaml())
     expect(cfg.version).toBe(1)
     expect(cfg.tests).toHaveLength(1)
-    expect(cfg.tests[0].name).toBe("smoke")
-    expect(cfg.tests[0].steps?.[0].block).toBe("hello-world")
-    expect(cfg.tests[0].steps?.[0].expect).toBe("success")
+    expect(cfg.tests[0]?.name).toBe("smoke")
+    expect(cfg.tests[0]?.steps?.[0]?.block).toBe("hello-world")
+    expect(cfg.tests[0]?.steps?.[0]?.expect).toBe("success")
   })
 
   it("defaults the timeout to 5m when missing", () => {
@@ -47,12 +47,12 @@ tests:
       - block: x
         expect: success
 `)
-    const inputs = cfg.tests[0].inputs!
-    expect(isLiteralInput(inputs.foo)).toBe(true)
-    expect(isFuzzInput(inputs.bar)).toBe(true)
-    if (isFuzzInput(inputs.bar)) {
-      expect(inputs.bar.fuzz.type).toBe("string")
-      expect(inputs.bar.fuzz.minLength).toBe(3)
+    const { foo, bar } = cfg.tests[0]!.inputs!
+    expect(isLiteralInput(foo!)).toBe(true)
+    expect(isFuzzInput(bar!)).toBe(true)
+    if (isFuzzInput(bar!)) {
+      expect(bar.fuzz.type).toBe("string")
+      expect(bar.fuzz.minLength).toBe(3)
     }
   })
 
@@ -66,10 +66,10 @@ tests:
     steps:
       - block: x
 `)
-    expect(cfg.tests[0].description).toBe("tag-along desc")
-    expect(cfg.tests[0].env).toEqual({ AWS_REGION: "us-east-1" })
+    expect(cfg.tests[0]?.description).toBe("tag-along desc")
+    expect(cfg.tests[0]?.env).toEqual({ AWS_REGION: "us-east-1" })
     // Missing expect defaults to "success".
-    expect(cfg.tests[0].steps?.[0].expect).toBe("success")
+    expect(cfg.tests[0]?.steps?.[0]?.expect).toBe("success")
   })
 
   it("parses each allowed expect value", () => {
@@ -84,7 +84,7 @@ tests:
       - { block: e, expect: skip }
       - { block: f, expect: config_error }
 `)
-    const expects = cfg.tests[0].steps!.map((s) => s.expect)
+    const expects = cfg.tests[0]!.steps!.map((s) => s.expect)
     expect(expects).toEqual(["success", "fail", "warn", "blocked", "skip", "config_error"])
   })
 
@@ -99,7 +99,7 @@ tests:
       - { type: file_contains, path: out.txt, contains: hello }
       - { type: output_equals, block: x, output: name, value: alice }
 `)
-    expect(cfg.tests[0].assertions).toHaveLength(3)
+    expect(cfg.tests[0]?.assertions).toHaveLength(3)
   })
 })
 

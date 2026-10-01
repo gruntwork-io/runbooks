@@ -16,8 +16,8 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
     setErrors((prev) => {
       // Check if this component already reported an error
       const existingIndex = prev.findIndex((e) => e.componentId === error.componentId)
-      if (existingIndex >= 0) {
-        const existing = prev[existingIndex]
+      const existing = prev[existingIndex]
+      if (existing) {
         // Only update if the error actually changed - prevents infinite re-renders
         if (
           existing.message === error.message &&

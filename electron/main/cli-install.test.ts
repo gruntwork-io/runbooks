@@ -229,7 +229,7 @@ describe("renderUnixLauncher", () => {
   })
 
   // Arguments a shell would expand or split if the launcher mishandled them.
-  const args = ["./my runbook.mdx", "*", "$HOME", "it's"]
+  const args = ["./my runbook.mdx", "*", "$HOME", "it's"] as const
 
   /** Writes a stand-in for the app at a path no shell would take unquoted. */
   function hostileApp(script: string): string {

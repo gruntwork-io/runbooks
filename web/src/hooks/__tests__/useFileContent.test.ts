@@ -30,7 +30,13 @@ function setup() {
     if (!read) throw new Error(`no read issued for ${filePath}`)
     return read
   }
-  return { result, invoke, pendingRead, readsOf }
+  /** The first two reads of filePath, oldest first. */
+  const twoReadsOf = (filePath: string) => {
+    const [older, newer] = readsOf(filePath)
+    if (!older || !newer) throw new Error(`expected two reads of ${filePath}`)
+    return [older, newer] as const
+  }
+  return { result, invoke, pendingRead, twoReadsOf }
 }
 
 const content = (path: string, text: string) => ({
@@ -104,13 +110,13 @@ describe("useFileContent", () => {
   })
 
   it("lets a newer read of a file land when it is clicked from the cache after another file", async () => {
-    const { result, pendingRead, readsOf } = setup()
+    const { result, pendingRead, twoReadsOf } = setup()
 
     await act(async () => {
       void result.current.fetchFileContent("/repo/x.tf")
       void result.current.refetchFileContent("/repo/x.tf")
     })
-    const [olderRead, newerRead] = readsOf("/repo/x.tf")
+    const [olderRead, newerRead] = twoReadsOf("/repo/x.tf")
     await act(async () => {
       olderRead.resolve(content("/repo/x.tf", "before the write"))
     })
@@ -136,14 +142,14 @@ describe("useFileContent", () => {
   })
 
   it("does not let an older read of a file overwrite the cache after that file's newer read landed", async () => {
-    const { result, invoke, readsOf } = setup()
+    const { result, invoke, twoReadsOf } = setup()
 
     // A click, then a refetch after the file changed on disk: two reads of X in flight
     await act(async () => {
       void result.current.fetchFileContent("/repo/x.tf")
       void result.current.refetchFileContent("/repo/x.tf")
     })
-    const [olderRead, newerRead] = readsOf("/repo/x.tf")
+    const [olderRead, newerRead] = twoReadsOf("/repo/x.tf")
 
     // The newer read lands first, then the older one
     await act(async () => {

@@ -78,8 +78,8 @@ describe("executeScript", () => {
 
     const logEvents = events.filter((e) => e._tag === "log")
     expect(logEvents.length).toBeGreaterThanOrEqual(2)
-    expect(logEvents[0].event.line).toBe("hello")
-    expect(logEvents[1].event.line).toBe("world")
+    expect(logEvents[0]!.event.line).toBe("hello")
+    expect(logEvents[1]!.event.line).toBe("world")
   })
 
   it("emits success status for exit code 0", async () => {
@@ -106,7 +106,7 @@ describe("executeScript", () => {
 
   it("emits done event at the end", async () => {
     const events = await collectEvents("echo hi", { exitCode: 0 })
-    const lastEvent = events[events.length - 1]
+    const lastEvent = events.at(-1)!
     expect(lastEvent._tag).toBe("done")
   })
 
@@ -273,7 +273,9 @@ describe("executeScript — log files", () => {
     )
 
     const env = (received?.env ?? {}) as Record<string, string>
-    const paths = (received?.logChannels ?? []).map((channel) => channel.path)
+    const paths: (string | undefined)[] = (received?.logChannels ?? []).map(
+      (channel) => channel.path,
+    )
     expect(paths).toEqual([
       env.RUNBOOK_LOG,
       env.RUNBOOK_INFO_LOG,
@@ -370,7 +372,7 @@ describe("executeScript — captured files", () => {
     expect(event.files).toEqual([{ path: "main.tf", size: 19 }])
     expect(Array.isArray(event.fileTree)).toBe(true)
     expect(event.fileTree!.map((n) => n.id)).toEqual(["main.tf"])
-    expect(event.fileTree![0].file?.content).toBe('resource "x" "y" {}')
+    expect(event.fileTree![0]!.file?.content).toBe('resource "x" "y" {}')
     expect(event.totalFiles).toBe(1)
     expect(event.truncatedTree).toBe(false)
   })

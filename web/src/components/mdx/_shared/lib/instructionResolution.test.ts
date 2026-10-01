@@ -31,7 +31,7 @@ describe("detectManualFields", () => {
 
   it('labels a field with the default "<key> — output of step <id>" form', () => {
     const [field] = detectManualFields("{{ .outputs.create-account.account_id }}")
-    expect(field.label).toBe("account_id — output of step create-account")
+    expect(field!.label).toBe("account_id — output of step create-account")
   })
 })
 
@@ -39,13 +39,13 @@ describe("buildManualOutputs", () => {
   it("uses a <key> placeholder when a field is empty", () => {
     const fields = detectManualFields("{{ .outputs.step.arn }}")
     const outputs = buildManualOutputs(fields, {})
-    expect(outputs.step.arn).toBe("<arn>")
+    expect(outputs.step!.arn).toBe("<arn>")
   })
 
   it("uses the entered value when present", () => {
     const fields = detectManualFields("{{ .outputs.step.arn }}")
     const outputs = buildManualOutputs(fields, { "outputs.step.arn": "arn:aws:x" })
-    expect(outputs.step.arn).toBe("arn:aws:x")
+    expect(outputs.step!.arn).toBe("arn:aws:x")
   })
 
   it("stores under both normalized and original block ids", () => {
@@ -53,8 +53,8 @@ describe("buildManualOutputs", () => {
     const outputs = buildManualOutputs(fields, {
       "outputs.create_account.id": "123",
     })
-    expect(outputs["create_account"].id).toBe("123")
-    expect(outputs["create-account"].id).toBe("123")
+    expect(outputs["create_account"]!.id).toBe("123")
+    expect(outputs["create-account"]!.id).toBe("123")
   })
 })
 

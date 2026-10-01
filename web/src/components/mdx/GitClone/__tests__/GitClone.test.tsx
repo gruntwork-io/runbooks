@@ -8,7 +8,7 @@ import { useGitClone } from "../hooks/useGitClone"
 // forwards to the hook.
 vi.mock("../hooks/useGitClone", () => ({
   useGitClone: vi.fn(() => ({
-    status: "idle",
+    cloneStatus: "pending",
     progress: null,
     cloneResult: null,
     error: null,

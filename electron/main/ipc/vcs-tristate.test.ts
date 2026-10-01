@@ -52,9 +52,9 @@ const INVALID: DetectionResult = {
 }
 
 /** A detect step that returns `results` in order, repeating the last one. */
-const detectSequence = (...results: DetectionResult[]) => {
+const detectSequence = (...results: [DetectionResult, ...DetectionResult[]]) => {
   let call = 0
-  return mock(async () => results[Math.min(call++, results.length - 1)])
+  return mock(async () => results[Math.min(call++, results.length - 1)]!)
 }
 
 let probeResult: Effect.Effect<CliValidation, VcsCliError>

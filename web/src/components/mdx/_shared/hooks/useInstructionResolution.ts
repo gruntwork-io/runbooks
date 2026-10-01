@@ -193,7 +193,10 @@ export function useInstructionResolution({
           text !== undefined && !text.startsWith("[template error:")
         setEngineResult({
           source: clientResolved,
-          commands: out.map((text, i) => (isRendered(text) ? text : clientResolved[i])),
+          commands: clientResolved.map((fallback, i) => {
+            const text = out[i]
+            return isRendered(text) ? text : fallback
+          }),
           usedFallback: !out.every(isRendered),
         })
       })

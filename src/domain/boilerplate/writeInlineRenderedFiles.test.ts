@@ -91,8 +91,8 @@ describe("writeInlineRenderedFiles", () => {
 
       expect(record.outputDir).toBe(baseDir)
       expect(record.files).toHaveLength(1)
-      expect(record.files[0].path).toBe("acct/terragrunt.hcl")
-      expect(record.files[0].contentHash).toMatch(/^[0-9a-f]{64}$/)
+      expect(record.files[0]!.path).toBe("acct/terragrunt.hcl")
+      expect(record.files[0]!.contentHash).toMatch(/^[0-9a-f]{64}$/)
     })
 
     it("removes the file at the old path and the directories that leaves empty", async () => {
@@ -191,7 +191,7 @@ describe("writeInlineRenderedFiles", () => {
       const second = await write({ "config.yaml": "v: 2" }, first)
 
       expect(nodeFs.readFileSync(at("config.yaml"), "utf-8")).toBe("v: 2")
-      expect(second.files[0].contentHash).not.toBe(first.files[0].contentHash)
+      expect(second.files[0]!.contentHash).not.toBe(first.files[0]!.contentHash)
     })
 
     it("ignores an old file that is already gone", async () => {

@@ -55,7 +55,7 @@ import type { GitPullRequestProps, PRBlockStatus } from "./types"
 type GitPullRequestInternalProps = GitPullRequestProps & { __registryType?: BlockComponentType }
 
 const STATUS_CONFIG: Record<
-  string,
+  PRBlockStatus,
   { bg: string; icon: typeof GitPullRequestIcon; iconColor: string }
 > = {
   success: {
@@ -451,7 +451,7 @@ function GitPullRequestInteractive({
     bg: statusClasses,
     icon: IconComponent,
     iconColor: iconClasses,
-  } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
+  } = STATUS_CONFIG[effectiveStatus]
   const isSpinning = effectiveStatus === "creating" || effectiveStatus === "pushing"
   const isFormDisabled = wrongProvider || !authMet || !activeWorkTree || !hasAllBlockingDependencies
 

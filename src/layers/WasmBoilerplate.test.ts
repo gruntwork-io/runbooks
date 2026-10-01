@@ -100,7 +100,7 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     await until(() => spawner.processes.length === 1)
     await Effect.runPromise(Fiber.interrupt(render))
 
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
   })
 
   it("kills the subprocess when the render is interrupted while the spawn is completing", async () => {
@@ -111,10 +111,10 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
     const render = Effect.runFork(renderer.renderTemplate("/tpl", "/out", { Name: "a" }))
     await until(() => spawner.processes.length === 1)
     const interrupted = Effect.runPromise(Fiber.interrupt(render))
-    spawner.processes[0].completeSpawn()
+    spawner.processes[0]!.completeSpawn()
     await interrupted
 
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
   })
 
   it("fails with the CLI's stderr when boilerplate exits non-zero", async () => {
@@ -122,7 +122,7 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
 
     const render = Effect.runPromise(Effect.either(renderer.renderTemplate("/tpl", "/out", {})))
     await until(() => spawner.processes.length === 1)
-    spawner.processes[0].finish(1, [{ line: "missing required variable Name", source: "stderr" }])
+    spawner.processes[0]!.finish(1, [{ line: "missing required variable Name", source: "stderr" }])
 
     const result = await render
     expect(Either.isLeft(result)).toBe(true)
@@ -144,11 +144,12 @@ describe("WasmBoilerplateLive.renderTemplate", () => {
       await until(() => spawner.processes.length === 1)
 
       // The value really does reach the CLI through the var file...
-      const args = spawner.processes[0].args
+      const args = spawner.processes[0]!.args
       const varFile = args[args.indexOf("--var-file") + 1]
-      expect(files[varFile]).toContain("hunter2-s3cret")
+      expect(varFile).toBeDefined()
+      expect(files[varFile!]).toContain("hunter2-s3cret")
 
-      spawner.processes[0].finish(0)
+      spawner.processes[0]!.finish(0)
       await render
 
       // ...but never main-process stdout, where a sensitive input would leak.

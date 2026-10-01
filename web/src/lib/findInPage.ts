@@ -91,14 +91,17 @@ interface Run {
   nodes: { node: Text; start: number }[]
 }
 
-/** The text node holding `offset` of `run`; `end` picks the node a match ends in. */
+/**
+ * The text node holding `offset` of `run`; `end` picks the node a match ends in.
+ * `run` has text, so it has at least one node.
+ */
 function locate(run: Run, offset: number, end: boolean): { node: Text; offset: number } {
   const { nodes } = run
   for (let i = nodes.length - 1; i >= 0; i--) {
-    const { node, start } = nodes[i]
+    const { node, start } = nodes[i]!
     if (end ? start < offset : start <= offset) return { node, offset: offset - start }
   }
-  return { node: nodes[0].node, offset: 0 }
+  return { node: nodes[0]!.node, offset: 0 }
 }
 
 /**
@@ -199,9 +202,9 @@ export function findTextRanges(root: Node, query: string): Range[] {
  */
 export function indexAtOrAfter(ranges: Range[], anchor: Range): number {
   if (ranges.length === 0) return -1
-  for (let i = 0; i < ranges.length; i++) {
+  for (const [i, range] of ranges.entries()) {
     try {
-      if (ranges[i].compareBoundaryPoints(Range.START_TO_START, anchor) >= 0) return i
+      if (range.compareBoundaryPoints(Range.START_TO_START, anchor) >= 0) return i
     } catch {
       // The anchor's node left the document.
       return 0
@@ -286,10 +289,10 @@ export function firstMatchInView(ranges: Range[], obstruction?: Box): number {
   if (ranges.length === 0) return -1
   const cache = new Map<Element, Box>()
   let hidden = -1
-  for (let i = 0; i < ranges.length; i++) {
-    const rect = rectOf(ranges[i])
+  for (const [i, range] of ranges.entries()) {
+    const rect = rectOf(range)
     if (!rect) return 0
-    const area = visibleArea(ranges[i].startContainer.parentElement, cache)
+    const area = visibleArea(range.startContainer.parentElement, cache)
     if (rect.bottom <= area.top) continue
     if (!covered(rect, obstruction)) return hidden >= 0 && rect.top >= area.bottom ? hidden : i
     if (hidden < 0) hidden = i
@@ -358,7 +361,8 @@ export function paintHighlights(ranges: Range[], current: number): void {
   const all = new Highlight()
   for (const range of ranges) all.add(range)
   const active = new Highlight()
-  if (current >= 0 && current < ranges.length) active.add(ranges[current])
+  const currentRange = ranges[current]
+  if (currentRange) active.add(currentRange)
   active.priority = 1
   registry.set(FIND_MATCH_HIGHLIGHT, all)
   registry.set(FIND_ACTIVE_HIGHLIGHT, active)

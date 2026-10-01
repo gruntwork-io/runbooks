@@ -365,7 +365,7 @@ describe("generateFuzzValue", () => {
     }) as Record<string, Record<string, string>>
     const outerKeys = Object.keys(v)
     expect(outerKeys).toHaveLength(1)
-    expect(Object.keys(v[outerKeys[0]]).sort()).toEqual(["alpha", "beta"])
+    expect(Object.keys(v[outerKeys[0]!]!).sort()).toEqual(["alpha", "beta"])
   })
 
   it("unknown type: throws a descriptive error", () => {
@@ -421,7 +421,7 @@ tests:
           maxLength:
 `)
     for (let i = 0; i < SAMPLES; i++) {
-      const out = resolveTestInputs(tests[0].inputs)
+      const out = resolveTestInputs(tests[0]!.inputs)
       // The defaults, as if the fields were absent: 0..100 and 8..18.
       for (const key of ["a.Int", "a.Float"]) {
         expect(out[key]).toBeGreaterThanOrEqual(0)

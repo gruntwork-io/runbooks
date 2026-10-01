@@ -25,7 +25,7 @@ describe("LocalRepoForm", () => {
 
     const labels = screen.getAllByText("Repository directory")
     const inputs = screen.getAllByPlaceholderText("/path/to/your/repo")
-    expect(inputs[0].id).not.toBe(inputs[1].id)
+    expect(inputs[0]!.id).not.toBe(inputs[1]!.id)
     labels.forEach((label, i) => {
       expect(document.getElementById(label.getAttribute("for") ?? "")).toBe(inputs[i])
     })

@@ -83,7 +83,7 @@ export const formatVariableLabel = (name: string): string => {
   // Post-process to merge certain patterns
   const mergedWords: string[] = []
   for (let i = 0; i < words.length; i++) {
-    const current = words[i]
+    const current = words[i]!
     const next = words[i + 1]
     const nextNext = words[i + 2]
 

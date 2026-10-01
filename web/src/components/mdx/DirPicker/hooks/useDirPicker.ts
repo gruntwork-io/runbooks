@@ -136,7 +136,7 @@ export function useDirPicker({
       setLevels((prev) => {
         // Trim levels after the current one and update selection
         const updated = prev.slice(0, levelIndex + 1)
-        updated[levelIndex] = { ...updated[levelIndex], selected: dirName }
+        updated[levelIndex] = { ...updated[levelIndex]!, selected: dirName }
         return updated
       })
 

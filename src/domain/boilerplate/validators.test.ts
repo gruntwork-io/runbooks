@@ -97,7 +97,9 @@ variables:
       - semver
 `),
     )
-    const [code, version] = config.variables
+    expect(config.variables).toHaveLength(2)
+    const code = config.variables[0]!
+    const version = config.variables[1]!
     expect(validateVariableValue(code, "")).toBe("code is required")
     expect(validateVariableValue(code, "abc")).toBe("Must match pattern: ^[A-Z]{3}$")
     expect(validateVariableValue(code, "ABC")).toBeUndefined()

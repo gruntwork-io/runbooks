@@ -80,8 +80,8 @@ describe("AwsSdkClient.pollSsoToken", () => {
 
     expect(result).toEqual(Either.right({ accessToken: "sso-token" }))
     expect(sent).toHaveLength(1)
-    expect(sent[0].region).toBe(SSO_REGION)
-    expect(sent[0].command).toBeInstanceOf(CreateTokenCommand)
+    expect(sent[0]!.region).toBe(SSO_REGION)
+    expect(sent[0]!.command).toBeInstanceOf(CreateTokenCommand)
   })
 
   it("is pending while authorization is pending", async () => {
@@ -149,8 +149,8 @@ describe("AwsSdkClient.listSsoAccounts", () => {
       ]),
     )
     expect(sent.map((s) => s.region)).toEqual([SSO_REGION, SSO_REGION])
-    expect(sent[0].command).toBeInstanceOf(ListAccountsCommand)
-    expect((sent[1].command as ListAccountsCommand).input).toEqual({
+    expect(sent[0]!.command).toBeInstanceOf(ListAccountsCommand)
+    expect((sent[1]!.command as ListAccountsCommand).input).toEqual({
       accessToken: "sso-token",
       nextToken: "page-2",
     })
@@ -174,8 +174,8 @@ describe("AwsSdkClient.listSsoRoles", () => {
       ]),
     )
     expect(sent.map((s) => s.region)).toEqual([SSO_REGION, SSO_REGION])
-    expect(sent[0].command).toBeInstanceOf(ListAccountRolesCommand)
-    expect((sent[1].command as ListAccountRolesCommand).input).toEqual({
+    expect(sent[0]!.command).toBeInstanceOf(ListAccountRolesCommand)
+    expect((sent[1]!.command as ListAccountRolesCommand).input).toEqual({
       accessToken: "sso-token",
       accountId: "111111111111",
       nextToken: "page-2",
@@ -353,7 +353,7 @@ describe("AwsSdkClient.checkRegion", () => {
     const spy = stubAccount(() => Promise.resolve({ RegionOptStatus: "DISABLED" }))
 
     expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Either.right(false))
-    const command = spy.mock.calls[0][0] as unknown as GetRegionOptStatusCommand
+    const command = spy.mock.calls[0]![0] as unknown as GetRegionOptStatusCommand
     expect(command).toBeInstanceOf(GetRegionOptStatusCommand)
     expect(command.input).toEqual({ RegionName: "ap-east-1" })
   })

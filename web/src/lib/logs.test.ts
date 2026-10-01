@@ -96,8 +96,8 @@ describe("parseLogsToStructured", () => {
       message: "First message",
       block_id: blockId,
     })
-    expect(result[1].level).toBe("WARN")
-    expect(result[2].level).toBe("ERROR")
+    expect(result[1]!.level).toBe("WARN")
+    expect(result[2]!.level).toBe("ERROR")
   })
 
   it("should parse logs with full format", () => {
@@ -108,7 +108,7 @@ describe("parseLogsToStructured", () => {
     const result = parseLogsToStructured(logs, blockId)
 
     expect(result).toHaveLength(1)
-    expect(result[0].timestamp).toBe("2026-01-04T12:00:00Z") // Uses timestamp from log line
+    expect(result[0]!.timestamp).toBe("2026-01-04T12:00:00Z") // Uses timestamp from log line
   })
 
   it("should handle multi-line content in a single LogEntry", () => {
@@ -122,10 +122,10 @@ describe("parseLogsToStructured", () => {
     const result = parseLogsToStructured(logs, blockId)
 
     expect(result).toHaveLength(3)
-    expect(result[0].level).toBe("INFO")
-    expect(result[0].message).toBe("First")
-    expect(result[1].level).toBe("WARN")
-    expect(result[2].level).toBe("ERROR")
+    expect(result[0]!.level).toBe("INFO")
+    expect(result[0]!.message).toBe("First")
+    expect(result[1]!.level).toBe("WARN")
+    expect(result[2]!.level).toBe("ERROR")
   })
 
   it("should append non-matching lines to previous entry", () => {
@@ -139,10 +139,10 @@ describe("parseLogsToStructured", () => {
     const result = parseLogsToStructured(logs, blockId)
 
     expect(result).toHaveLength(2)
-    expect(result[0].message).toBe(
+    expect(result[0]!.message).toBe(
       "Starting process\n  Additional detail line 1\n  Additional detail line 2",
     )
-    expect(result[1].message).toBe("Next entry")
+    expect(result[1]!.message).toBe("Next entry")
   })
 
   it("should create INFO entry for non-matching lines at start", () => {
@@ -155,8 +155,8 @@ describe("parseLogsToStructured", () => {
     const result = parseLogsToStructured(logs, blockId)
 
     expect(result).toHaveLength(1)
-    expect(result[0].level).toBe("INFO")
-    expect(result[0].message).toBe("=========\n  Banner text\n=========")
+    expect(result[0]!.level).toBe("INFO")
+    expect(result[0]!.message).toBe("=========\n  Banner text\n=========")
   })
 
   it("should skip empty lines", () => {
@@ -203,8 +203,8 @@ describe("parseLogsToStructured", () => {
 
     const result = parseLogsToStructured(logs, blockId)
 
-    expect(result[0].message).toBe("✅ Success!")
-    expect(result[1].message).toBe("❌ Failed!")
+    expect(result[0]!.message).toBe("✅ Success!")
+    expect(result[1]!.message).toBe("❌ Failed!")
   })
 
   it("should strip ANSI codes from output", () => {
@@ -214,7 +214,7 @@ describe("parseLogsToStructured", () => {
 
     const result = parseLogsToStructured(logs, blockId)
 
-    expect(result[0].message).toBe("Colored message")
+    expect(result[0]!.message).toBe("Colored message")
   })
 })
 

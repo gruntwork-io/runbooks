@@ -74,7 +74,9 @@ export function FindBar() {
       const bar = barRef.current?.getBoundingClientRect()
       const current = anchor ? indexAtOrAfter(ranges, anchor) : firstMatchInView(ranges, bar)
       show(ranges, current)
-      if (scroll && current >= 0) scrollRangeIntoView(ranges[current], bar)
+      // current is -1 when nothing matched, which reads as no match here.
+      const match = ranges[current]
+      if (scroll && match) scrollRangeIntoView(match, bar)
     },
     [show],
   )
@@ -91,7 +93,8 @@ export function FindBar() {
             : ranges.length - 1
           : (from + delta + ranges.length) % ranges.length
       show(ranges, current)
-      scrollRangeIntoView(ranges[current], barRef.current?.getBoundingClientRect())
+      // ranges is non-empty and current is reduced modulo its length.
+      scrollRangeIntoView(ranges[current]!, barRef.current?.getBoundingClientRect())
     },
     [show],
   )

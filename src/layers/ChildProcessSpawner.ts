@@ -227,7 +227,7 @@ const impl: ProcessSpawnerShape = {
         const pullLine: Effect.Effect<OutputLine, Option.Option<never>> = Effect.gen(function* () {
           while (true) {
             if (cursor < collectedLines.length) {
-              return collectedLines[cursor++]
+              return collectedLines[cursor++]!
             }
             if (streamClosed) {
               return yield* Effect.fail(Option.none<never>())

@@ -135,10 +135,10 @@ function lineChangeCounts(
   const v = new Int32Array(2 * max + 3)
   for (let d = 0; d <= max; d++) {
     for (let k = -d; k <= d; k += 2) {
-      let x =
-        k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
-          ? v[offset + k + 1]
-          : v[offset + k - 1] + 1
+      // offset + k ± 1 stays within [0, 2 * max + 2], inside v.
+      const fromAbove = v[offset + k + 1]!
+      const fromLeft = v[offset + k - 1]!
+      let x = k === -d || (k !== d && fromLeft < fromAbove) ? fromAbove : fromLeft + 1
       let y = x - k
       while (x < n && y < m && a[start + x] === b[start + y]) {
         x++

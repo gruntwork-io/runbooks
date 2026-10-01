@@ -207,7 +207,7 @@ describe("resolveSshCommand timeout", () => {
     )
 
     expect(result).toBeUndefined()
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
   })
 })
 

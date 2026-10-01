@@ -137,7 +137,7 @@ describe("instruction mode — no unresolved template references", () => {
     )
 
     await waitFor(() => expect(invoke).toHaveBeenCalled())
-    const [, params] = invoke.mock.calls[0]
+    const [, params] = invoke.mock.calls[0]!
     expect(params.inputs).toContainEqual(
       expect.objectContaining({ name: "inputs", value: { bucket: "<bucket>" } }),
     )
@@ -223,7 +223,7 @@ describe("instruction mode — no unresolved template references", () => {
     await screen.findByText(/simplified resolver/)
     expect(screen.getByText(command)).toBeInTheDocument()
     expect(screen.queryByText("terraform destroy -auto-approve")).toBeNull()
-    const [, params] = invoke.mock.calls[0]
+    const [, params] = invoke.mock.calls[0]!
     expect(params.inputs).toContainEqual(
       expect.objectContaining({ name: "inputs", value: { auto_approve: undefined } }),
     )
@@ -251,7 +251,7 @@ describe("instruction mode — no unresolved template references", () => {
     )
 
     await waitFor(() => expect(invoke).toHaveBeenCalled())
-    const [, params] = invoke.mock.calls[0]
+    const [, params] = invoke.mock.calls[0]!
     expect(params.inputs).toContainEqual(
       expect.objectContaining({ name: "inputs", value: { var_file: "" } }),
     )

@@ -360,7 +360,7 @@ describe("parseBlockOutputsContent", () => {
     it("stores the value under the plain key, wrapped as sensitive", () => {
       const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
       expect(Object.keys(outputs)).toEqual(["TOKEN", "USER"])
-      expect(isSensitiveOutput(outputs.TOKEN)).toBe(true)
+      expect(isSensitiveOutput(outputs.TOKEN!)).toBe(true)
       expect(revealOutput(outputs.TOKEN)).toBe("s3cr3t")
       expect(outputs.USER).toBe("alice")
     })
@@ -440,12 +440,12 @@ describe("captureFilesFromDir", () => {
     }
     const result = await runFs(captureFilesFromDir("/src", "/dest"), files)
     expect(result).toHaveLength(1)
-    expect(result[0].path).toBe("sub/deep/file.txt")
+    expect(result[0]!.path).toBe("sub/deep/file.txt")
   })
 
   it("reports file sizes", async () => {
     const result = await runFs(captureFilesFromDir("/src", "/dest"), { "/src/file.txt": "12345" })
-    expect(result[0].size).toBe(5)
+    expect(result[0]!.size).toBe(5)
   })
 })
 

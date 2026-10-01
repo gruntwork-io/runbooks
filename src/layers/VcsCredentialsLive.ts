@@ -508,7 +508,7 @@ export const VcsCredentialsLive = Layer.effect(
     const parseGhApiUser = (output: string): CliValidation | undefined => {
       const scopesMatch = /^x-oauth-scopes:\s*(.+)$/im.exec(output)
       const scopes = scopesMatch
-        ? scopesMatch[1]
+        ? scopesMatch[1]!
             .split(",")
             .map((s) => s.trim())
             .filter((s) => s.length > 0)

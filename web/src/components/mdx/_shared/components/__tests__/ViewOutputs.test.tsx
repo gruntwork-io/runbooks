@@ -55,7 +55,7 @@ describe("ViewOutputs sensitive outputs", () => {
     await user.click(copyJson)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    const copied = writeText.mock.calls[0][0]
+    const copied = writeText.mock.calls[0]![0]
     expect(copied).not.toContain("topsecret")
     expect(JSON.parse(copied)).toEqual({ AWS_SECRET_ACCESS_KEY: "<redacted>", region: "us-west-2" })
   })

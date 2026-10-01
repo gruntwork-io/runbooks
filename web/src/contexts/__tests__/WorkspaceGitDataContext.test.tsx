@@ -86,10 +86,17 @@ const lazyFolder = (id: string): WorkspaceTreeNode => ({
   isLazyLoad: true,
 })
 
-/** Settle every pending call in `calls` with `value`, flushing React updates. */
-async function settle(calls: PendingCall[], value: unknown) {
+/**
+ * Settle every pending call in `calls` with `value`, flushing React updates.
+ * Calls usually come from destructuring callsTo(), so a missing one fails the
+ * test here.
+ */
+async function settle(calls: (PendingCall | undefined)[], value: unknown) {
   await act(async () => {
-    for (const call of calls) call.resolve(value)
+    for (const call of calls) {
+      if (!call) throw new Error("expected a pending call to settle")
+      call.resolve(value)
+    }
   })
 }
 

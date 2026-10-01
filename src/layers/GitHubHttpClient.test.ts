@@ -389,7 +389,7 @@ describe("GitHubHttpClient host routing", () => {
     it("github.com → https://api.github.com", async () => {
       const calls = recordFetch(userResponse)
       await run((c) => c.validateToken("ghp_x", "github.com"))
-      expect(calls[0].url).toBe("https://api.github.com/user")
+      expect(calls[0]!.url).toBe("https://api.github.com/user")
     })
 
     it("GHES → https://<host>/api/v3 (incl. port), token sent there", async () => {
@@ -408,19 +408,19 @@ describe("GitHubHttpClient host routing", () => {
     it("ghe.com tenant → https://api.<sub>.ghe.com", async () => {
       const calls = recordFetch(userResponse)
       await run((c) => c.validateToken("ghp_x", "acme.ghe.com"))
-      expect(calls[0].url).toBe("https://api.acme.ghe.com/user")
+      expect(calls[0]!.url).toBe("https://api.acme.ghe.com/user")
     })
 
     it("accepts a URL-form host and normalizes it", async () => {
       const calls = recordFetch(userResponse)
       await run((c) => c.validateToken("ghp_x", "https://GHES.example.com/org/repo"))
-      expect(calls[0].url).toBe("https://ghes.example.com/api/v3/user")
+      expect(calls[0]!.url).toBe("https://ghes.example.com/api/v3/user")
     })
 
     it("http:// input still goes over https", async () => {
       const calls = recordFetch(userResponse)
       await run((c) => c.validateToken("ghp_x", "http://ghes.internal"))
-      expect(calls[0].url).toBe("https://ghes.internal/api/v3/user")
+      expect(calls[0]!.url).toBe("https://ghes.internal/api/v3/user")
     })
 
     it("GitHub App installation token probes /installation/repositories on the host's API", async () => {
@@ -429,7 +429,7 @@ describe("GitHubHttpClient host routing", () => {
       )
       const result = await run((c) => c.validateToken("ghs_x", "ghes.example.com"))
       expect(result.user.login).toBe("acme[bot]")
-      expect(calls[0].url).toBe(
+      expect(calls[0]!.url).toBe(
         "https://ghes.example.com/api/v3/installation/repositories?per_page=1",
       )
     })
@@ -498,13 +498,13 @@ describe("GitHubHttpClient host routing", () => {
     it("ghe.com → api.<sub>.ghe.com/user/orgs", async () => {
       const calls = recordFetch(() => json([]))
       await run((c) => c.listOrgs("t", "acme.ghe.com"))
-      expect(calls[0].url).toBe("https://api.acme.ghe.com/user/orgs?per_page=100&page=1")
+      expect(calls[0]!.url).toBe("https://api.acme.ghe.com/user/orgs?per_page=100&page=1")
     })
 
     it("default → api.github.com/user/orgs", async () => {
       const calls = recordFetch(() => json([]))
       await run((c) => c.listOrgs("t"))
-      expect(calls[0].url).toBe("https://api.github.com/user/orgs?per_page=100&page=1")
+      expect(calls[0]!.url).toBe("https://api.github.com/user/orgs?per_page=100&page=1")
     })
   })
 
@@ -577,13 +577,13 @@ describe("GitHubHttpClient host routing", () => {
     it("ghe.com: api.<sub>.ghe.com", async () => {
       const calls = recordFetch(prResponse)
       await run((c) => c.createPullRequest("t", params, "acme.ghe.com"))
-      expect(calls[0].url).toBe("https://api.acme.ghe.com/repos/o/r/pulls")
+      expect(calls[0]!.url).toBe("https://api.acme.ghe.com/repos/o/r/pulls")
     })
 
     it("default: api.github.com", async () => {
       const calls = recordFetch(prResponse)
       await run((c) => c.createPullRequest("t", params))
-      expect(calls[0].url).toBe("https://api.github.com/repos/o/r/pulls")
+      expect(calls[0]!.url).toBe("https://api.github.com/repos/o/r/pulls")
     })
   })
 

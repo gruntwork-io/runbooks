@@ -310,21 +310,21 @@ describe("detectCliCredentialsForHost — the three exit contracts", () => {
 
     expect(result).toEqual({ kind: "token", token: "glpat-per-host" })
     expect(calls).toHaveLength(1)
-    expect(calls[0].command).toBe("glab")
-    expect(calls[0].args).toEqual(["config", "get", "token", "--host", HOST])
+    expect(calls[0]!.command).toBe("glab")
+    expect(calls[0]!.args).toEqual(["config", "get", "token", "--host", HOST])
     // Hygiene: ambient tokens stripped — they override per-host reads
     // INSIDE glab — incl. OAUTH_TOKEN; kill switches set. NO_PROMPT is
     // stripped too (ambient included): it is deprecated in glab, and setting
     // it makes glab print a warning on STDOUT ahead of every parsed payload.
-    expect(calls[0].env!.GITLAB_TOKEN).toBeUndefined()
-    expect(calls[0].env!.GITLAB_ACCESS_TOKEN).toBeUndefined()
-    expect(calls[0].env!.OAUTH_TOKEN).toBeUndefined()
-    expect(calls[0].env!.GLAB_CHECK_UPDATE).toBe("false")
-    expect(calls[0].env!.GLAB_SEND_TELEMETRY).toBe("false")
-    expect(calls[0].env!.GLAB_NO_PROMPT).toBe("true")
-    expect(calls[0].env!.NO_PROMPT).toBeUndefined()
-    expect(calls[0].env!.NO_COLOR).toBe("1")
-    expect(calls[0].env!.PATH).toBe("/usr/bin")
+    expect(calls[0]!.env!.GITLAB_TOKEN).toBeUndefined()
+    expect(calls[0]!.env!.GITLAB_ACCESS_TOKEN).toBeUndefined()
+    expect(calls[0]!.env!.OAUTH_TOKEN).toBeUndefined()
+    expect(calls[0]!.env!.GLAB_CHECK_UPDATE).toBe("false")
+    expect(calls[0]!.env!.GLAB_SEND_TELEMETRY).toBe("false")
+    expect(calls[0]!.env!.GLAB_NO_PROMPT).toBe("true")
+    expect(calls[0]!.env!.NO_PROMPT).toBeUndefined()
+    expect(calls[0]!.env!.NO_COLOR).toBe("1")
+    expect(calls[0]!.env!.PATH).toBe("/usr/bin")
   })
 
   it("contract (b): exit 0 + empty stdout = host not configured, never an error", async () => {
@@ -777,7 +777,7 @@ describe("readGlabTokenForHost — OAuth staleness (fake clock)", () => {
       ["auth", "status"],
       ["config", "get"],
     ])
-    expect(calls[0].args).toEqual(["auth", "status", "--hostname", HOST])
+    expect(calls[0]!.args).toEqual(["auth", "status", "--hostname", HOST])
   })
 
   it("stale token + failed refresh: degrades to oauth-stale (exact remediation copy is the caller's)", async () => {

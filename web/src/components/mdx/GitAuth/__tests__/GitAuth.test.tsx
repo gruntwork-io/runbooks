@@ -70,12 +70,12 @@ describe("GitAuth", () => {
     const picker = screen.getByRole("tablist", { name: "Git provider" })
     expect(picker).toBeInTheDocument()
     // Default provider passed to the hook is GitHub.
-    expect((hookCalls[0].provider as { id: string }).id).toBe("github")
+    expect((hookCalls[0]!.provider as { id: string }).id).toBe("github")
   })
 
   it("preselects GitLab when provider='gitlab' (PAT only, no OAuth)", () => {
     renderGitAuth({ provider: "gitlab" })
-    expect((hookCalls[0].provider as { id: string }).id).toBe("gitlab")
+    expect((hookCalls[0]!.provider as { id: string }).id).toBe("gitlab")
     // GitLab tab is selected in the picker.
     const gitlabTab = screen.getByRole("tab", { name: /GitLab/ })
     expect(gitlabTab).toHaveAttribute("aria-selected", "true")
@@ -83,7 +83,7 @@ describe("GitAuth", () => {
 
   it("forwards the instanceUrl prop to the auth hook (self-hosted GitLab)", () => {
     renderGitAuth({ provider: "gitlab", instanceUrl: "https://gitlab.acme.com" })
-    expect(hookCalls[0].instanceUrl).toBe("https://gitlab.acme.com")
+    expect(hookCalls[0]!.instanceUrl).toBe("https://gitlab.acme.com")
   })
 
   it("hides the provider picker when hideProviderSelect is set", () => {
