@@ -16,10 +16,28 @@ import type { InputName, BlockId, OutputName } from "@/lib/templateUtils"
  * Discriminated union on `type`:
  * - 'input': {{ .inputs.region }} → needs an input value named "region"
  * - 'output': {{ .outputs.create_account.account_id }} → needs output "account_id" from block "create_account"
+ *
+ * An output dependency is `optional` when the content guards it with
+ * `hasKey .outputs.create_account "account_id"`: the block must have run, but
+ * the output itself may be absent.
  */
 export type TemplateDependency =
   | { type: "input"; name: InputName }
-  | { type: "output"; blockId: BlockId; outputName: OutputName; fullPath: string }
+  | {
+      type: "output"
+      blockId: BlockId
+      outputName: OutputName
+      fullPath: string
+      optional?: boolean
+    }
+
+/**
+ * A `hasKey .outputs.X "Y"` guard (the map may be parenthesized, the key
+ * double-quoted or backquoted). Templates render with missing-key-action=error,
+ * so this is the one way to read an output a block emits only sometimes.
+ */
+const OUTPUT_GUARD_PATTERN =
+  /\bhasKey\s+\(?\s*\.outputs\.([a-zA-Z0-9_-]+)\s*\)?\s+(?:"([a-zA-Z0-9_-]+)"|`([a-zA-Z0-9_-]+)`)/g
 
 // OutputDependency is defined canonically alongside the boilerplate config types.
 // Import it for local use below, and re-export so existing importers keep a
@@ -49,6 +67,7 @@ export function extractTemplateDependenciesFromString(content: string): Template
 
   const deps: TemplateDependency[] = []
   const seen = new Set<string>()
+  const guarded = new Set<string>()
 
   // First pass: find all {{ }} template blocks
   const blockRegex = /\{\{-?([\s\S]*?)-?\}\}/g
@@ -57,6 +76,12 @@ export function extractTemplateDependenciesFromString(content: string): Template
   while ((blockMatch = blockRegex.exec(content)) !== null) {
     // Group 1 isn't optional, so a match always has it.
     const blockContent = blockMatch[1]!
+
+    OUTPUT_GUARD_PATTERN.lastIndex = 0
+    for (const [, blockId, quoted, backquoted] of blockContent.matchAll(OUTPUT_GUARD_PATTERN)) {
+      // Group 1 isn't optional, so a match always has it.
+      guarded.add(`outputs.${normalizeBlockId(blockId!)}.${quoted ?? backquoted}`)
+    }
 
     // Second pass: find .inputs.X and .outputs.X.Y references within the block
     // Allow hyphens in path segments — block IDs in MDX use hyphens (e.g., create-account)
@@ -98,6 +123,13 @@ export function extractTemplateDependenciesFromString(content: string): Template
     }
   }
 
+  // The guard and the reference usually sit in separate actions
+  // (`{{ if hasKey ... }}{{ .outputs.x.y }}{{ end }}`), so guards are applied
+  // after the whole content has been scanned.
+  for (const dep of deps) {
+    if (dep.type === "output" && guarded.has(dep.fullPath)) dep.optional = true
+  }
+
   return deps
 }
 
@@ -114,7 +146,7 @@ export function splitDependencies(deps: TemplateDependency[]): {
   const inputs: InputName[] = []
   const outputs: OutputDependency[] = []
   const seenInputs = new Set<string>()
-  const seenOutputs = new Set<string>()
+  const seenOutputs = new Map<string, OutputDependency>()
 
   for (const dep of deps) {
     if (dep.type === "input") {
@@ -123,14 +155,20 @@ export function splitDependencies(deps: TemplateDependency[]): {
         inputs.push(dep.name)
       }
     } else {
-      if (!seenOutputs.has(dep.fullPath)) {
-        seenOutputs.add(dep.fullPath)
-        outputs.push({
-          blockId: dep.blockId,
-          outputName: dep.outputName,
-          fullPath: dep.fullPath,
-        })
+      const existing = seenOutputs.get(dep.fullPath)
+      if (existing) {
+        // One unguarded reference makes the output required everywhere.
+        if (!dep.optional) delete existing.optional
+        continue
       }
+      const output: OutputDependency = {
+        blockId: dep.blockId,
+        outputName: dep.outputName,
+        fullPath: dep.fullPath,
+        ...(dep.optional ? { optional: true } : {}),
+      }
+      seenOutputs.set(dep.fullPath, output)
+      outputs.push(output)
     }
   }
 

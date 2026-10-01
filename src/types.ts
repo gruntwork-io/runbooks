@@ -86,6 +86,11 @@ export interface OutputDependency {
   blockId: string
   outputName: string
   fullPath: string
+  /**
+   * The template guards this output with `hasKey`, so the block must have
+   * run but the output itself may be absent.
+   */
+  optional?: boolean
 }
 
 export interface SkipFileRule {

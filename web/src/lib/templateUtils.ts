@@ -165,6 +165,9 @@ export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
  * Compute which output dependencies are not yet satisfied.
  * Groups dependencies by block, normalizes IDs for lookup, and returns
  * the list of blocks/outputs that haven't been produced yet.
+ *
+ * An optional dependency (one the template guards with `hasKey`) is unmet
+ * only while its block has produced nothing at all.
  */
 export function computeUnmetOutputDependencies(
   outputDependencies: OutputDependency[],
@@ -175,15 +178,17 @@ export function computeUnmetOutputDependencies(
   const byBlock = groupDependenciesByBlock(outputDependencies)
   const unmet: BlockOutput[] = []
 
-  for (const [blockId, outputNames] of byBlock) {
+  for (const [blockId, outputs] of byBlock) {
     const normalizedId = normalizeBlockId(blockId)
     const blockData = allOutputs[normalizedId]
 
     if (!blockData) {
       // Block hasn't produced any outputs yet - preserve original blockId for display
-      unmet.push({ blockId, outputNames })
+      unmet.push({ blockId, outputNames: [...outputs.keys()] })
     } else {
-      const missingOutputs = outputNames.filter((name) => !(name in blockData.values))
+      const missingOutputs = [...outputs]
+        .filter(([name, optional]) => !optional && !(name in blockData.values))
+        .map(([name]) => name)
       if (missingOutputs.length > 0) {
         unmet.push({ blockId, outputNames: missingOutputs })
       }
@@ -338,16 +343,18 @@ export function resolveTemplateReferences(text: string, ctx: TemplateContext): s
 // --- Internal helpers ---
 
 /**
- * Group output dependencies by block ID.
+ * Group output dependencies by block ID, mapping each output name to whether
+ * it is optional. An output referenced both guarded and unguarded is
+ * required.
  */
-function groupDependenciesByBlock(dependencies: OutputDependency[]): Map<string, string[]> {
-  const grouped = new Map<string, string[]>()
+function groupDependenciesByBlock(
+  dependencies: OutputDependency[],
+): Map<string, Map<string, boolean>> {
+  const grouped = new Map<string, Map<string, boolean>>()
 
   for (const dep of dependencies) {
-    const existing = grouped.get(dep.blockId) || []
-    if (!existing.includes(dep.outputName)) {
-      existing.push(dep.outputName)
-    }
+    const existing = grouped.get(dep.blockId) ?? new Map<string, boolean>()
+    existing.set(dep.outputName, (existing.get(dep.outputName) ?? true) && dep.optional === true)
     grouped.set(dep.blockId, existing)
   }
 

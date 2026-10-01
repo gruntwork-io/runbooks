@@ -421,4 +421,61 @@ describe("extractOutputDependencies", () => {
     const deps = extractOutputDependencies("outputs.block.val")
     expect(deps).toEqual([])
   })
+
+  it("marks an output guarded with hasKey as optional", () => {
+    const deps = extractOutputDependencies(
+      `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}`,
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("matches a guard on a hyphenated block ID, parenthesized map and backquoted key", () => {
+    const deps = extractOutputDependencies(
+      "{{ if hasKey (.outputs.clone-repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "repo_id",
+        fullPath: "outputs.clone_repo.repo_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("leaves outputs the guard does not name required", () => {
+    const deps = extractOutputDependencies(
+      `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }} {{ .outputs.clone_repo.repo_owner }}`,
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+      {
+        blockId: "clone_repo",
+        outputName: "repo_owner",
+        fullPath: "outputs.clone_repo.repo_owner",
+      },
+    ])
+  })
+
+  it("ignores a hasKey guard outside template blocks", () => {
+    const deps = extractOutputDependencies(
+      `# hasKey .outputs.clone_repo "org_id" is explained here
+{{ .outputs.clone_repo.org_id }}`,
+    )
+    expect(deps).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
 })

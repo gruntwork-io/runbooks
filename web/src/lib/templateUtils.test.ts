@@ -4,6 +4,7 @@ import {
   buildTemplatePayload,
   flattenBlockOutputs,
   computeUnmetInputDependencies,
+  computeUnmetOutputDependencies,
   extractInputValueReferences,
   maskTemplateOutputs,
   resolveTemplateReferences,
@@ -353,5 +354,70 @@ describe("extract → resolve contract", () => {
     }
     const resolved = resolveTemplateReferences(template, ctx)
     expect(resolved).toContain("fromJson")
+  })
+})
+
+describe("computeUnmetOutputDependencies", () => {
+  const produced: Record<string, BlockOutputs> = {
+    clone_repo: {
+      values: { clone_path: "/tmp/repo", repo_owner: "acme", repo_name: "infra" },
+      timestamp: "2024-01-01T00:00:00Z",
+    },
+  }
+  const required = {
+    blockId: "clone_repo",
+    outputName: "repo_owner",
+    fullPath: "outputs.clone_repo.repo_owner",
+  }
+  const optional = {
+    blockId: "clone_repo",
+    outputName: "org_id",
+    fullPath: "outputs.clone_repo.org_id",
+    optional: true,
+  }
+
+  it("should report nothing when every required output exists", () => {
+    expect(computeUnmetOutputDependencies([required], produced)).toEqual([])
+  })
+
+  it("should report a required output the block did not produce", () => {
+    const missing = {
+      blockId: "clone_repo",
+      outputName: "org_id",
+      fullPath: "outputs.clone_repo.org_id",
+    }
+    expect(computeUnmetOutputDependencies([required, missing], produced)).toEqual([
+      { blockId: "clone_repo", outputNames: ["org_id"] },
+    ])
+  })
+
+  it("should not wait for an optional output once the block has produced outputs", () => {
+    expect(computeUnmetOutputDependencies([required, optional], produced)).toEqual([])
+  })
+
+  it("should wait for the block of an optional output until it produces anything", () => {
+    expect(computeUnmetOutputDependencies([optional], {})).toEqual([
+      { blockId: "clone_repo", outputNames: ["org_id"] },
+    ])
+  })
+
+  it("should treat an output as required when any reference to it is unguarded", () => {
+    const unguarded = {
+      blockId: "clone_repo",
+      outputName: "org_id",
+      fullPath: "outputs.clone_repo.org_id",
+    }
+    expect(computeUnmetOutputDependencies([optional, unguarded], produced)).toEqual([
+      { blockId: "clone_repo", outputNames: ["org_id"] },
+    ])
+  })
+
+  it("should look the block up by its normalized ID", () => {
+    const hyphenated = {
+      blockId: "clone-repo",
+      outputName: "repo_owner",
+      fullPath: "outputs.clone_repo.repo_owner",
+    }
+    expect(computeUnmetOutputDependencies([hyphenated], produced)).toEqual([])
   })
 })
