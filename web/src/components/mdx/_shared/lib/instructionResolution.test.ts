@@ -6,8 +6,10 @@ import {
   buildMergedContext,
   resolveCommandClientSide,
   normalizeCommandList,
+  fieldsNeedingPrompt,
 } from './instructionResolution'
 import type { TemplateContext } from '@/lib/templateUtils'
+import { sensitiveOutput } from '@/lib/outputValues'
 
 describe('detectManualFields', () => {
   it('returns no fields for a command without output references', () => {
@@ -206,6 +208,26 @@ describe('resolveCommandClientSide + buildMergedContext', () => {
       'echo {{ .outputs.step.arn }}',
     ])
     expect(merged.outputs.step).toEqual({ path: '/tmp/work', arn: 'arn:aws:s3' })
+  })
+})
+
+describe('fieldsNeedingPrompt', () => {
+  const command = 'curl -H "Authorization: Bearer {{ .outputs.fetch_token.api_token }}" {{ .outputs.fetch_token.url }}'
+
+  it('skips an output the context already resolves', () => {
+    const ctx: TemplateContext = { inputs: {}, outputs: { fetch_token: { url: 'https://api', api_token: 'tok' } } }
+    expect(fieldsNeedingPrompt(detectManualFields(command), ctx)).toEqual([])
+  })
+
+  // Instruction mode never shows a sensitive value, so the user pastes it
+  it('prompts for a sensitive output even when the context holds it', () => {
+    const ctx: TemplateContext = {
+      inputs: {},
+      outputs: { fetch_token: { url: 'https://api', api_token: sensitiveOutput('real-secret') } },
+    }
+    expect(fieldsNeedingPrompt(detectManualFields(command), ctx).map((f) => f.id)).toEqual([
+      'outputs.fetch_token.api_token',
+    ])
   })
 })
 

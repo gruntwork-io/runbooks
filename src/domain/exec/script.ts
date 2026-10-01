@@ -9,6 +9,7 @@ import type {
   FileNotFoundError,
 } from "../../errors/index.ts"
 import type { CapturedFile } from "../../types.ts"
+import { sensitiveOutput, type OutputValues } from "./outputValues.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -506,11 +507,24 @@ export const parseEnvCapture = (
 // ---------------------------------------------------------------------------
 
 /**
+ * A key prefix that marks an output as sensitive, e.g.
+ * `sensitive:AWS_SECRET_ACCESS_KEY=...`. The prefix is not part of the key.
+ * `:` can't appear in a valid key, so no existing output reads as marked.
+ */
+const SENSITIVE_OUTPUT_PREFIX = "sensitive:"
+
+/**
  * Parse the contents of a RUNBOOK_OUTPUT file into key=value pairs. Pure, so
  * the test CLI shares this parser with the app.
+ *
+ * A key written as `sensitive:KEY` is stored as `KEY`, so templates and auth
+ * blocks read it by its plain name, and its value is wrapped as a `Redacted`
+ * (see outputValues.ts). Once any line marks a key, it stays sensitive even if
+ * a later line rewrites it; the last value still wins.
  */
-export function parseBlockOutputsContent(content: string): Record<string, string> {
-  const outputs: Record<string, string> = {}
+export function parseBlockOutputsContent(content: string): OutputValues {
+  const values: Record<string, string> = {}
+  const sensitiveKeys = new Set<string>()
 
   const lines = content.split("\n")
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
@@ -523,28 +537,38 @@ export function parseBlockOutputsContent(content: string): Record<string, string
       continue
     }
 
-    const key = line.slice(0, eqIdx).trim()
+    let key = line.slice(0, eqIdx).trim()
     const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
+
+    const sensitive = key.startsWith(SENSITIVE_OUTPUT_PREFIX)
+    if (sensitive) {
+      key = key.slice(SENSITIVE_OUTPUT_PREFIX.length).trim()
+    }
 
     if (!IDENT_RE.test(key)) {
       // Invalid output key, skip
       continue
     }
 
-    outputs[key] = value
+    values[key] = value
+    if (sensitive) sensitiveKeys.add(key)
   }
 
+  const outputs: OutputValues = {}
+  for (const [key, value] of Object.entries(values)) {
+    outputs[key] = sensitiveKeys.has(key) ? sensitiveOutput(value) : value
+  }
   return outputs
 }
 
 /**
  * Read the RUNBOOK_OUTPUT file and parse key=value pairs.
- * Returns a map of outputs, or an empty record if the file is empty/missing.
+ * Returns no outputs if the file is empty or missing.
  */
 export const parseBlockOutputs = (
   filePath: string,
 ): Effect.Effect<
-  Record<string, string>,
+  OutputValues,
   never,
   FileSystem
 > =>

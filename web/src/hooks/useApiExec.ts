@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { z } from 'zod'
 import { createAppError, type AppError } from '@/types/error'
 import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
+import { decodeOutputs, type OutputValues } from '@/lib/outputValues'
 // Zod schemas for IPC events
 const ExecLogEventSchema = z.object({
   line: z.string(),
@@ -31,8 +32,12 @@ const FilesCapturedEventSchema = z.object({
   heavyDirs: z.array(z.object({ path: z.string(), fileCount: z.number() })).optional(),
 })
 
+// Main sends each output flat, since a Redacted can't cross IPC. Parsing turns
+// the sensitive ones back into Redacted values (see outputValues.ts).
 const BlockOutputsEventSchema = z.object({
-  outputs: z.record(z.string(), z.string()),
+  outputs: z
+    .record(z.string(), z.object({ value: z.string(), sensitive: z.boolean() }))
+    .transform(decodeOutputs),
 })
 
 // Inferred types from Zod schemas
@@ -61,7 +66,8 @@ export interface ExecState {
   status: 'pending' | 'running' | 'success' | 'warn' | 'fail'
   exitCode: number | null
   error: AppError | null
-  outputs: Record<string, string> | null
+  /** The script's outputs. Sensitive ones are `Redacted`. */
+  outputs: OutputValues | null
   /** Absolute path to the on-disk log file for this execution, if available. */
   logFilePath: string | null
 }
@@ -74,7 +80,7 @@ export interface UseApiExecOptions {
   /** Callback invoked when files are captured from a command execution */
   onFilesCaptured?: (event: FilesCapturedEvent) => void
   /** Callback invoked when block outputs are captured from script execution */
-  onOutputsCaptured?: (outputs: Record<string, string>) => void
+  onOutputsCaptured?: (outputs: OutputValues) => void
 }
 
 export interface UseApiExecReturn {

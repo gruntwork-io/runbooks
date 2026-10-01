@@ -4,6 +4,7 @@
 import * as fs from "node:fs"
 import YAML from "yaml"
 import { DEFAULT_GENERATED_DIR } from "../../src/domain/files/generated.ts"
+import type { OutputValues } from "../../src/domain/exec/outputValues.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -149,7 +150,8 @@ export interface StepResult {
   passed: boolean
   error?: string
   errorDisplayed?: boolean
-  outputs: Record<string, string>
+  /** The block's outputs. Sensitive ones are `Redacted`, so printing them shows `<redacted>`. */
+  outputs: OutputValues
   logs?: string
   duration: number
   assertionResults: AssertionResult[]

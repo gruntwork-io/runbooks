@@ -5,6 +5,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { TestAssertion, AssertionResult } from "./config.ts"
+import { isSensitiveOutput, maskOutput, revealOutput, type OutputValue } from "../../src/domain/exec/outputValues.ts"
 
 // ---------------------------------------------------------------------------
 // Assertion executor
@@ -13,8 +14,8 @@ import type { TestAssertion, AssertionResult } from "./config.ts"
 export interface AssertionContext {
   /** Absolute path to the output directory (workingDir + outputPath). */
   outputDir: string
-  /** Block outputs collected during test execution. */
-  blockOutputs: Map<string, Map<string, string>>
+  /** Block outputs collected during test execution. Sensitive ones are `Redacted`. */
+  blockOutputs: Map<string, Map<string, OutputValue>>
   /** Number of files each block has generated this test case, by block ID. */
   generatedFiles: Map<string, number>
   /** Env for script assertions: the session env with the test's `env` on top. */
@@ -172,6 +173,16 @@ function assertFileEquals(filePath: string, expected: string, ctx: AssertionCont
 // Output assertions
 // ---------------------------------------------------------------------------
 
+/**
+ * An output's value as a failure message shows it. Failure messages print
+ * without --verbose and go into the JUnit file, so a sensitive value shows as
+ * <redacted>. An empty one shows as `""`, like a plain empty value.
+ */
+function formatOutput(value: OutputValue): string {
+  const shown = maskOutput(value)
+  return isSensitiveOutput(value) && shown !== "" ? shown : `"${shown}"`
+}
+
 function assertOutputEquals(
   blockId: string,
   outputName: string,
@@ -186,10 +197,10 @@ function assertOutputEquals(
   if (actual === undefined) {
     return { type: "output_equals", passed: false, message: `Block "${blockId}" has no output "${outputName}"` }
   }
-  if (actual === expected) {
+  if (revealOutput(actual) === expected) {
     return { type: "output_equals", passed: true }
   }
-  return { type: "output_equals", passed: false, message: `output ${blockId}.${outputName} = "${actual}", expected "${expected}"` }
+  return { type: "output_equals", passed: false, message: `output ${blockId}.${outputName} = ${formatOutput(actual)}, expected "${expected}"` }
 }
 
 function assertOutputMatches(
@@ -208,10 +219,10 @@ function assertOutputMatches(
   }
   try {
     const re = new RegExp(pattern)
-    if (re.test(actual)) {
+    if (re.test(revealOutput(actual))) {
       return { type: "output_matches", passed: true }
     }
-    return { type: "output_matches", passed: false, message: `output ${blockId}.${outputName} = "${actual}" does not match pattern "${pattern}"` }
+    return { type: "output_matches", passed: false, message: `output ${blockId}.${outputName} = ${formatOutput(actual)} does not match pattern "${pattern}"` }
   } catch {
     return { type: "output_matches", passed: false, message: `Invalid regex pattern: ${pattern}` }
   }

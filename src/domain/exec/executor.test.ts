@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test"
 import { Effect, Layer, Stream } from "effect"
 import { executeScript, type ExecEvent } from "./executor.ts"
+import { encodeOutputs } from "./outputValues.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
@@ -378,5 +379,66 @@ describe("executeScript — captured files", () => {
     expect(event.files.map((f) => f.path)).toEqual(["new.txt"])
     expect(event.fileTree!.map((n) => n.id).sort()).toEqual(["earlier.yaml", "new.txt"])
     expect(event.totalFiles).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Outputs written to $RUNBOOK_OUTPUT
+// ---------------------------------------------------------------------------
+
+describe("executeScript — outputs", () => {
+  /** Run a step whose (fake) process writes `content` to $RUNBOOK_OUTPUT. */
+  async function runWritingOutputs(content: string) {
+    const files: Record<string, string> = {}
+    const spawner = Layer.succeed(ProcessSpawner, {
+      spawn: (_command, _args, options) =>
+        Effect.sync(() => {
+          const outputFile = options?.env?.RUNBOOK_OUTPUT
+          if (outputFile) files[outputFile] = content
+          return { output: Stream.empty, exitCode: Effect.succeed(0), kill: Effect.void }
+        }),
+    })
+    const layer = Layer.mergeAll(
+      makeTestFileSystem(files),
+      spawner,
+      makeTestEnvironment({ PATH: "/usr/bin" }),
+    )
+
+    const program = Effect.scoped(
+      Effect.gen(function* () {
+        const { logStream, completionEffect } = yield* executeScript(
+          "write outputs",
+          "",
+          {},
+          { env: { PATH: "/usr/bin" }, workDir: "/work" },
+          "",
+          "/output",
+        )
+        yield* Stream.runDrain(logStream)
+        return yield* completionEffect
+      }),
+    )
+
+    const events = await Effect.runPromise(program.pipe(Effect.provide(layer)))
+    return events.find(
+      (e): e is Extract<ExecEvent, { _tag: "outputs" }> => e._tag === "outputs",
+    )
+  }
+
+  it("carries a sensitive output wrapped, under its plain key", async () => {
+    const outputs = await runWritingOutputs("region=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc\n")
+
+    // toEqual can't see inside a Redacted, so compare the encoded form
+    expect(encodeOutputs(outputs?.event.outputs ?? {})).toEqual({
+      region: { value: "us-west-2", sensitive: false },
+      AWS_SECRET_ACCESS_KEY: { value: "abc", sensitive: true },
+    })
+    expect(JSON.stringify(outputs?.event)).toBe('{"outputs":{"region":"us-west-2","AWS_SECRET_ACCESS_KEY":"<redacted>"}}')
+  })
+
+  it("carries plain outputs as strings", async () => {
+    const outputs = await runWritingOutputs("region=us-west-2\n")
+
+    expect(outputs?.event).toEqual({ outputs: { region: "us-west-2" } })
   })
 })

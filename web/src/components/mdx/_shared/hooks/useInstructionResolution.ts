@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useApi } from '@/contexts/ApiContext'
-import { buildTemplatePayload, type TemplateContext } from '@/lib/templateUtils'
+import { buildTemplatePayload, maskTemplateOutputs, omitSensitiveTemplateOutputs, type TemplateContext } from '@/lib/templateUtils'
 import {
   detectManualFields,
   fieldsNeedingPrompt,
@@ -62,13 +62,21 @@ export function useInstructionResolution({
 }: UseInstructionResolutionOptions): UseInstructionResolutionResult {
   const api = useApi()
 
-  // Stable value-based keys for the two reference-typed inputs.
+  // Stable value-based keys for the two reference-typed inputs. The context
+  // leaves out sensitive outputs, so one reads like an output that hasn't been
+  // produced: the user gets a field to paste it into, and until they do the
+  // command shows a `<name>` placeholder. Serializing it as is would turn it
+  // into the text `<redacted>`, which would count as its value.
   const commandKey = useMemo(
     () => JSON.stringify(normalizeCommandList(command)),
     [command],
   )
   const contextKey = useMemo(
-    () => JSON.stringify(templateContext),
+    () =>
+      JSON.stringify({
+        inputs: templateContext.inputs,
+        outputs: omitSensitiveTemplateOutputs(templateContext.outputs),
+      }),
     [templateContext],
   )
 
@@ -149,7 +157,12 @@ export function useInstructionResolution({
     commands.forEach((c, i) => {
       templateFiles[`cmd-${i}`] = c
     })
-    const inputs = buildTemplatePayload(mergedContext)
+    // The context holds no sensitive output (see contextKey). Masking keeps
+    // any that got in from reaching the command as its real value.
+    const inputs = buildTemplatePayload({
+      inputs: mergedContext.inputs,
+      outputs: maskTemplateOutputs(mergedContext.outputs),
+    })
 
     api
       .invoke('boilerplate:render-inline', { templateFiles, inputs })

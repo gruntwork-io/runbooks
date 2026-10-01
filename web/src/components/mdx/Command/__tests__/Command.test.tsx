@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import Command from "../Command"
+import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
 // ---------------------------------------------------------------------------
 // Mock useScriptExecution — controls all script-related state for Command
@@ -34,7 +35,7 @@ const defaultScriptExecution = {
   execError: null as { message: string; details?: string } | null,
   execute: vi.fn(),
   cancel: vi.fn(),
-  outputs: null,
+  outputs: null as OutputValues | null,
   hasScriptDrift: false,
 }
 
@@ -335,6 +336,22 @@ describe("Command", () => {
     }
     renderCommand({ path: "scripts/test.sh", command: undefined })
     expect(screen.getByText("Script changed")).toBeInTheDocument()
+  })
+
+  // --- Outputs ---
+
+  it("masks outputs the script marked sensitive", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "success",
+      outputs: { TOKEN: sensitiveOutput("topsecret"), user: "demo" },
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByText("TOKEN")).toBeInTheDocument()
+    expect(screen.queryByText("topsecret")).toBeNull()
+    expect(screen.getByText("demo")).toBeInTheDocument()
   })
 
   // --- Template resolution ---

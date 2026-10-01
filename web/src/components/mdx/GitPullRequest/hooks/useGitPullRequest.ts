@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { useApi } from '@/contexts/ApiContext'
 import { useRunbookContext } from '@/contexts/useRunbook'
 import { normalizeBlockId } from '@/lib/utils'
+import { revealOutputs } from '@/lib/outputValues'
 import type { LogEntry } from '@/hooks/useApiExec'
 import type { GitProvider } from '@/components/mdx/GitAuth/types'
 import type { PRProviderConfig } from '../providers'
@@ -132,8 +133,10 @@ export function useGitPullRequest({ id, cfg, authId, authDerivedProvider }: UseG
   const authMet = useMemo((): boolean => {
     if (!authId) return true
 
-    const values = allOutputs[normalizeBlockId(authId)]?.values
-    if (!values) return false
+    const outputs = allOutputs[normalizeBlockId(authId)]?.values
+    if (!outputs) return false
+    // A token counts only if it isn't empty, which needs its real value
+    const values: Partial<Record<string, string>> = revealOutputs(outputs)
     if (values[cfg.env.tokenVar] && values[cfg.env.tokenVar] !== '') return true
     if (cfg.env.altTokenVars.some((v) => values[v] && values[v] !== '')) return true
     if (values.__AUTHENTICATED === 'true') return true

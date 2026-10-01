@@ -24,6 +24,7 @@ import {
   type TemplateOutputs,
 } from '@/lib/templateUtils'
 import { normalizeBlockId } from '@/lib/utils'
+import { isSensitiveOutput } from '@/lib/outputValues'
 
 /**
  * A synthesized prompt for an `{{ .outputs.<id>.<key> }}` reference the app can't
@@ -164,7 +165,9 @@ export function buildInputPlaceholders(
 /**
  * Whether the template context already resolves a given output reference — e.g.
  * a DirPicker that published its chosen path as `{{ .outputs.<id>.PATH }}`.
- * Such references resolve from context and don't need a manual prompt.
+ * Such references resolve from context and don't need a manual prompt. A
+ * sensitive output doesn't: instruction mode never shows it, so the user
+ * pastes it like one that hasn't been produced.
  */
 export function contextHasOutput(
   ctx: TemplateContext,
@@ -174,7 +177,7 @@ export function contextHasOutput(
   const value =
     ctx.outputs[normalizeBlockId(blockId)]?.[outputName] ??
     ctx.outputs[blockId]?.[outputName]
-  return value != null && value !== ''
+  return value != null && !isSensitiveOutput(value) && value !== ''
 }
 
 /**

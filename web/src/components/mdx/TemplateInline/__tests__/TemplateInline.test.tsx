@@ -7,6 +7,7 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { INSTRUCTION_MODE_STORAGE_KEY } from "@/contexts/InstructionModeContext.types"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
 // =============================================================================
 // TemplateInline render/generate tests
@@ -89,6 +90,15 @@ function RegisterInputs({ values }: { values: Record<string, unknown> }) {
   return null
 }
 
+/** Registers a block's outputs, as a Command does after it runs. */
+function RegisterOutputs({ blockId, values }: { blockId: string; values: OutputValues }) {
+  const { registerOutputs } = useRunbookContext()
+  useEffect(() => {
+    registerOutputs(blockId, values)
+  }, [registerOutputs, blockId, values])
+  return null
+}
+
 function InstructionModeToggle() {
   const { enabled, setEnabled } = useInstructionMode()
   return <button onClick={() => setEnabled(!enabled)}>toggle instruction mode</button>
@@ -98,18 +108,23 @@ type BlockProps = {
   generateFile?: boolean
   target?: "generated" | "worktree"
   values?: Record<string, unknown>
+  /** Outputs of a block `mint` that ran earlier. */
+  mintOutputs?: OutputValues
+  /** The template to render, in place of TEMPLATE. */
+  template?: string
 }
 
 function renderBlock(initial: BlockProps = {}) {
   const invoke = makeInvoke()
   const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  const ui = ({ generateFile, target, values }: BlockProps) => (
+  const ui = ({ generateFile, target, values, mintOutputs, template = TEMPLATE }: BlockProps) => (
     <ApiProvider api={api}>
       <TestWrapper>
         <InstructionModeToggle />
         {values && <RegisterInputs values={values} />}
+        {mintOutputs && <RegisterOutputs blockId="mint" values={mintOutputs} />}
         <TemplateInline id="tpl" inputsId="form" outputPath="out.txt" generateFile={generateFile} target={target}>
-          <pre><code className="language-txt">{TEMPLATE}</code></pre>
+          <pre><code className="language-txt">{template}</code></pre>
         </TemplateInline>
       </TestWrapper>
     </ApiProvider>
@@ -217,6 +232,54 @@ describe("TemplateInline", () => {
     expect(applyFileTreeUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ fileTree: GENERATED_TREE, totalFiles: 1, truncatedTree: false }),
     )
+  })
+
+  // A sensitive output renders with its real value only when the render writes
+  // a file, which needs it. A preview is only shown, so it gets <redacted>.
+  it("preview only: renders a sensitive output as <redacted>", async () => {
+    const { invoke } = renderBlock({ values: WORLD, mintOutputs: { token: sensitiveOutput("s3cr3t"), user: "alice" } })
+
+    await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
+    const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
+    expect(outputs).toEqual({ mint: { token: "<redacted>", user: "alice" } })
+  })
+
+  // boilerplate's fromJson can't parse <redacted>, so a preview that parses a
+  // sensitive output fails. The error says why.
+  describe("preview only: a render error", () => {
+    const FROM_JSON = "user={{ (fromJson .outputs.mint.creds).user }}"
+    const failRender = (invoke: ReturnType<typeof makeInvoke>) =>
+      invoke.mockRejectedValue(new Error('nil data; no entry for key "user"'))
+
+    it("explains that the preview masks a sensitive output", async () => {
+      const { invoke } = renderBlock({ values: WORLD, template: FROM_JSON, mintOutputs: { creds: sensitiveOutput('{"user":"bob"}') } })
+      failRender(invoke)
+
+      const error = await screen.findByTestId("component-error")
+      expect(error).toHaveTextContent('nil data; no entry for key "user"')
+      expect(error).toHaveTextContent("This preview shows sensitive outputs as <redacted>")
+    })
+
+    it("says nothing about sensitive outputs when the template uses none", async () => {
+      const { invoke } = renderBlock({ values: WORLD, template: FROM_JSON, mintOutputs: { creds: '{"user":"bob"}' } })
+      failRender(invoke)
+
+      const error = await screen.findByTestId("component-error")
+      expect(error).toHaveTextContent('nil data; no entry for key "user"')
+      expect(error).not.toHaveTextContent("sensitive")
+    })
+  })
+
+  it("generateFile: renders a sensitive output with its real value", async () => {
+    const { invoke } = renderBlock({
+      values: WORLD,
+      generateFile: true,
+      mintOutputs: { token: sensitiveOutput("s3cr3t"), user: "alice" },
+    })
+
+    await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
+    const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
+    expect(outputs).toEqual({ mint: { token: "s3cr3t", user: "alice" } })
   })
 
   it("generateFile with target=worktree sends the target", async () => {

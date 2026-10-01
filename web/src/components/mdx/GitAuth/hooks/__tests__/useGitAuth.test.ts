@@ -4,6 +4,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { useGitAuth } from '../useGitAuth'
 import { PROVIDERS } from '../../providers'
+import { sensitiveOutput, type OutputValues } from '@/lib/outputValues'
 
 // The hook depends on the runbook + session contexts; mock them so the test
 // can focus on the provider-aware IPC behavior. Reassign `blockOutputs` (and
@@ -11,7 +12,7 @@ import { PROVIDERS } from '../../providers'
 // the map by identity, as it does the real context's state. IPC is the one
 // faked boundary, injected through the real ApiProvider.
 const registerOutputs = vi.fn()
-let blockOutputs: Record<string, { values: Record<string, string> }> = {}
+let blockOutputs: Record<string, { values: OutputValues }> = {}
 
 vi.mock('@/contexts/useRunbook', () => ({
   useRunbookContext: () => ({ registerOutputs, blockOutputs }),
@@ -92,7 +93,7 @@ describe('useGitAuth — GitLab provider', () => {
     // GIT_PROVIDER + __AUTHENTICATED are registered as block outputs so
     // downstream blocks can derive the linked instance / chain via session.
     expect(registerOutputs).toHaveBeenCalledWith('git', {
-      GITLAB_TOKEN: 'glpat-abc',
+      GITLAB_TOKEN: sensitiveOutput('glpat-abc'),
       GITLAB_USER: 'tanuki',
       GITLAB_HOST: 'gitlab.com',
       GIT_PROVIDER: 'gitlab',
@@ -409,7 +410,7 @@ describe('useGitAuth — GitHub provider (regression)', () => {
     expect(result.current.authStatus).toBe('authenticated')
     expect(result.current.missingScope).toBe(true)
     expect(registerOutputs).toHaveBeenCalledWith('gh', {
-      GITHUB_TOKEN: 'ghp_abc',
+      GITHUB_TOKEN: sensitiveOutput('ghp_abc'),
       GITHUB_USER: 'octocat',
       GITHUB_HOST: 'github.com',
       GIT_PROVIDER: 'github',
@@ -1123,7 +1124,7 @@ describe('useGitAuth — Re-authenticate', () => {
     await act(async () => {
       await result.current.handlePatSubmit()
     })
-    expect(registerOutputs).toHaveBeenLastCalledWith('gh', expect.objectContaining({ GITHUB_TOKEN: 'ghp_abc' }))
+    expect(registerOutputs).toHaveBeenLastCalledWith('gh', expect.objectContaining({ GITHUB_TOKEN: sensitiveOutput('ghp_abc') }))
 
     act(() => result.current.reAuthenticate())
 
@@ -1277,6 +1278,44 @@ describe('useGitAuth — {block} detection sources', () => {
 
     await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
     expect(result.current.detectionWarning).toBe(WARNING)
+  })
+
+  it('validates a token the block marked sensitive with its real value', async () => {
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: sensitiveOutput('ghp_abc') } } }
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:validate') {
+        return { valid: true, user: { login: 'octocat' }, tokenType: 'classic_pat', scopes: ['repo'], validatedVia: 'direct' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    expect(result.current.detectionSource).toBe('block')
+    expect(invoke).toHaveBeenCalledWith('github:validate', expect.objectContaining({ token: 'ghp_abc' }))
+  })
+
+  // GitAuth reads the real token and must publish it sensitive again, or a
+  // template showing {{ .outputs.gh.GITHUB_TOKEN }} would show the secret.
+  it.each([
+    ['a plain', 'ghp_abc'],
+    ['a sensitive', sensitiveOutput('ghp_abc')],
+  ])('publishes %s block token as a sensitive output', async (_label, token) => {
+    blockOutputs = { mint: { values: { GITHUB_TOKEN: token } } }
+    installApi(async (channel) => {
+      if (channel === 'github:validate') {
+        return { valid: true, user: { login: 'octocat' }, tokenType: 'classic_pat', scopes: ['repo'], validatedVia: 'direct' }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [{ block: 'mint' }] })
+
+    await waitFor(() => expect(result.current.authStatus).toBe('authenticated'))
+    const [, published] = registerOutputs.mock.calls.at(-1) as [string, OutputValues]
+    expect(published).toEqual(expect.objectContaining({ GITHUB_TOKEN: sensitiveOutput('ghp_abc'), __AUTHENTICATED: 'true' }))
+    expect(JSON.stringify(published)).not.toContain('ghp_abc')
   })
 
   it('warns about a block token that lacks the repo scope', async () => {

@@ -3,6 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs } from "@/lib/outputValues"
 import type {
   AdcInfo,
   DetectedGoogleCredentials,
@@ -610,12 +611,14 @@ export function useGoogleAuth({
     error?: string
   } => {
     const normalizedId = normalizeBlockId(blockId)
-    const outputs = blockOutputs[normalizedId]?.values
+    const values = blockOutputs[normalizedId]?.values
 
-    if (!outputs) {
+    if (!values) {
       return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
     }
 
+    // The script may have marked the credential sensitive; GoogleAuth needs its real value
+    const outputs: Partial<Record<string, string>> = revealOutputs(values)
     const projectId =
       outputs.CLOUDSDK_CORE_PROJECT ||
       outputs.GOOGLE_CLOUD_PROJECT ||

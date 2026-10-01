@@ -1,3 +1,5 @@
+import type { OutputValues } from "./domain/exec/outputValues.ts"
+
 // ---------------------------------------------------------------------------
 // File types
 // ---------------------------------------------------------------------------
@@ -244,7 +246,11 @@ export interface FilesCapturedEvent extends Partial<FileTreeMeta> {
 }
 
 export interface BlockOutputsEvent {
-  outputs: Record<string, string>
+  /**
+   * The script's outputs. A sensitive one is a `Redacted`, which can't cross
+   * IPC, so the main process sends these encoded (see encodeOutputs).
+   */
+  outputs: OutputValues
 }
 
 // ---------------------------------------------------------------------------

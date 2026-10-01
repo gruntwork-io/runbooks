@@ -139,3 +139,49 @@ describe("cancelAllExecutions", () => {
     expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
   }, 30000)
 })
+
+// A sensitive output is a Redacted in the main process, which structured clone
+// would turn into `{}`. exec:outputs sends every output flat instead, as
+// { value, sensitive }, and the renderer wraps the sensitive ones again.
+describe("exec:outputs", () => {
+  let tmpDir = ""
+
+  beforeAll(async () => {
+    registerExecHandlers()
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-exec-outputs-"))
+    await runtime.runPromise(sessionManager.createSession(tmpDir))
+  })
+
+  afterAll(() => {
+    setExecutableRegistry(null)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("sends each output's real value and whether it's sensitive, in a form IPC can clone", async () => {
+    const registry = new ExecutableRegistry()
+    await runtime.runPromise(
+      registry.parseAndRegister(
+        path.join(tmpDir, "runbook.mdx"),
+        `<Command id="mint" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; echo "sensitive:token=s3cr3t" >> "$RUNBOOK_OUTPUT"' />\n`,
+      ),
+    )
+    setExecutableRegistry(registry)
+    const [executableId] = Object.keys(registry.getAllExecutables())
+
+    const sent: { channel: string; payload: unknown }[] = []
+    const sender = { send: (channel: string, payload: unknown) => sent.push({ channel, payload }) }
+    const result = await handlers.get("exec:run")!({ sender }, { executableId, executionId: "outputs-test" })
+
+    expect(result).toEqual({ status: { status: "success", exitCode: 0 } })
+    const outputs = sent.filter((s) => s.channel === "exec:outputs").map((s) => s.payload)
+    const expected = {
+      outputs: {
+        user: { value: "alice", sensitive: false },
+        token: { value: "s3cr3t", sensitive: true },
+      },
+    }
+    expect(outputs).toEqual([expected])
+    // What the renderer receives: nothing is lost in the clone
+    expect(structuredClone(outputs[0])).toEqual(expected)
+  }, 20000)
+})

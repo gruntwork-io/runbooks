@@ -3,6 +3,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
 import { runAssertion, type AssertionContext } from "./assertions.ts"
+import { sensitiveOutput, type OutputValue } from "../../src/domain/exec/outputValues.ts"
 
 function makeCtx(outputDir: string, overrides: Partial<AssertionContext> = {}): AssertionContext {
   return {
@@ -152,8 +153,8 @@ describe("file_equals", () => {
 // ---------------------------------------------------------------------------
 
 describe("output_equals / output_matches / output_exists", () => {
-  function withOutputs(map: Record<string, Record<string, string>>) {
-    const outputs = new Map<string, Map<string, string>>()
+  function withOutputs(map: Record<string, Record<string, OutputValue>>) {
+    const outputs = new Map<string, Map<string, OutputValue>>()
     for (const [block, kv] of Object.entries(map)) {
       outputs.set(block, new Map(Object.entries(kv)))
     }
@@ -195,6 +196,30 @@ describe("output_equals / output_matches / output_exists", () => {
       ctx,
     )
     expect(r.passed).toBe(true)
+  })
+
+  it("compares a sensitive output's real value", () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("hunter2-SECRET") } })
+
+    expect(runAssertion({ type: "output_equals", block: "b1", output: "token", value: "hunter2-SECRET" }, ctx).passed).toBe(true)
+    expect(runAssertion({ type: "output_matches", block: "b1", output: "token", pattern: "^hunter2-" }, ctx).passed).toBe(true)
+    expect(runAssertion({ type: "output_exists", block: "b1", output: "token" }, ctx).passed).toBe(true)
+  })
+
+  it("prints <redacted> for a sensitive output in a failure message", () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("hunter2-SECRET") } })
+    const equals = runAssertion({ type: "output_equals", block: "b1", output: "token", value: "x" }, ctx)
+    const matches = runAssertion({ type: "output_matches", block: "b1", output: "token", pattern: "^x$" }, ctx)
+
+    expect(equals.message).toBe('output b1.token = <redacted>, expected "x"')
+    expect(matches.message).toBe('output b1.token = <redacted> does not match pattern "^x$"')
+  })
+
+  it('prints an empty sensitive output as "" in a failure message', () => {
+    const ctx = withOutputs({ b1: { token: sensitiveOutput("") } })
+    const equals = runAssertion({ type: "output_equals", block: "b1", output: "token", value: "x" }, ctx)
+
+    expect(equals.message).toBe('output b1.token = "", expected "x"')
   })
 
   it("output_exists passes when output exists, fails otherwise", () => {

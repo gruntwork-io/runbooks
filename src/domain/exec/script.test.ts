@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
+import { inspect } from "node:util"
 import {
   detectInterpreter,
   isBashInterpreter,
@@ -17,6 +18,7 @@ import {
   parseBlockOutputsContent,
   captureFilesFromDir,
 } from "./script.ts"
+import { encodeOutputs, isSensitiveOutput, revealOutput } from "./outputValues.ts"
 import { LOG_CHANNELS, logChannelFiles } from "./logChannels.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
@@ -356,11 +358,71 @@ describe("parseBlockOutputs", () => {
     )
     expect(result).toEqual({ _PRIVATE: "yes", __DOUBLE: "also" })
   })
+
+  it("wraps a value the sensitive: prefix marks", async () => {
+    const result = await runFs(
+      parseBlockOutputs("/output.txt"),
+      { "/output.txt": "AWS_REGION=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc/123\n" },
+    )
+    expect(encodeOutputs(result)).toEqual({
+      AWS_REGION: { value: "us-west-2", sensitive: false },
+      AWS_SECRET_ACCESS_KEY: { value: "abc/123", sensitive: true },
+    })
+  })
 })
 
 describe("parseBlockOutputsContent", () => {
   it("keeps value whitespace and skips invalid or empty keys", () => {
     expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({ MSG: " hi", OK: "1" })
+  })
+
+  describe("sensitive: prefix", () => {
+    // toEqual can't see inside a Redacted, so compare each output's real
+    // value and whether it's sensitive
+    const parse = (content: string) => encodeOutputs(parseBlockOutputsContent(content))
+
+    it("stores the value under the plain key, wrapped as sensitive", () => {
+      const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
+      expect(Object.keys(outputs)).toEqual(["TOKEN", "USER"])
+      expect(isSensitiveOutput(outputs.TOKEN)).toBe(true)
+      expect(revealOutput(outputs.TOKEN)).toBe("s3cr3t")
+      expect(outputs.USER).toBe("alice")
+    })
+
+    it("never shows the value when the parsed outputs are printed", () => {
+      const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
+      expect(String(outputs.TOKEN)).toBe("<redacted>")
+      expect(JSON.stringify(outputs)).toBe('{"TOKEN":"<redacted>","USER":"alice"}')
+      expect(inspect(outputs)).not.toContain("s3cr3t")
+    })
+
+    it("trims whitespace between the prefix and the key", () => {
+      expect(parse("sensitive: TOKEN =s3cr3t\n")).toEqual({ TOKEN: { value: "s3cr3t", sensitive: true } })
+    })
+
+    it("keeps the value's leading whitespace, as for a plain key", () => {
+      expect(parse("sensitive:TOKEN= s3cr3t\n")).toEqual({ TOKEN: { value: " s3cr3t", sensitive: true } })
+    })
+
+    it("skips an invalid or empty key after the prefix", () => {
+      expect(parseBlockOutputsContent("sensitive:bad-key=x\nsensitive:=y\nsensitive:1ABC=z\n")).toEqual({})
+    })
+
+    it("recognises only the exact lowercase prefix", () => {
+      expect(parseBlockOutputsContent("SENSITIVE:K=v\nSensitive:J=w\n")).toEqual({})
+    })
+
+    it("doesn't treat sensitive: inside a value as a marker", () => {
+      expect(parse("NOTE=sensitive:TOKEN=x\n")).toEqual({ NOTE: { value: "sensitive:TOKEN=x", sensitive: false } })
+    })
+
+    it("keeps a key sensitive when a later plain line rewrites it", () => {
+      expect(parse("sensitive:T=a\nT=b\n")).toEqual({ T: { value: "b", sensitive: true } })
+    })
+
+    it("marks a key sensitive when a later line adds the prefix", () => {
+      expect(parse("T=a\nsensitive:T=b\n")).toEqual({ T: { value: "b", sensitive: true } })
+    })
   })
 })
 

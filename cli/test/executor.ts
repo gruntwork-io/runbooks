@@ -30,6 +30,7 @@ import {
   logChannelFiles,
   orderLogChannelLines,
 } from "../../src/domain/exec/logChannels.ts"
+import { maskOutput, maskOutputs, revealOutputs, type OutputValue, type OutputValues } from "../../src/domain/exec/outputValues.ts"
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
 import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
@@ -267,7 +268,8 @@ export class TestExecutor {
   private workingDir: string
   private sessionEnv: string[] = []
   private sessionWorkDir: string
-  private blockOutputs = new Map<string, Map<string, string>>()
+  // Sensitive outputs are Redacted: templates reveal them, printing masks them
+  private blockOutputs = new Map<string, Map<string, OutputValue>>()
   // Files each block wrote this test case, by block ID, for files_generated
   private generatedFileCounts = new Map<string, number>()
   private testInputs: Record<string, unknown> = {}
@@ -679,10 +681,12 @@ export class TestExecutor {
       return result
     }
 
-    // Render template vars in block props if needed
+    // Render template vars in block props if needed. The app resolves props
+    // for display and shows a sensitive output in them as <redacted>, so they
+    // get the same here.
     if (block.props.includes("{{")) {
       try {
-        block = { ...block, props: renderGoTemplate(block.props, this.buildTemplateVars()) }
+        block = { ...block, props: renderGoTemplate(block.props, this.buildTemplateVars(maskOutputs)) }
       } catch (e: unknown) {
         result.passed = false
         result.actualStatus = "error"
@@ -921,7 +925,8 @@ export class TestExecutor {
       result.exitCode = exitCode
       result.logs = logs
 
-      // Parse outputs
+      // Parse outputs. Sensitive ones come back Redacted: later blocks'
+      // templates and assertions reveal them, and printing them shows <redacted>.
       if (status === "success" || status === "warn") {
         try {
           result.outputs = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
@@ -940,9 +945,7 @@ export class TestExecutor {
 
       // Store outputs
       if (Object.keys(result.outputs).length > 0) {
-        const map = new Map<string, string>()
-        for (const [k, v] of Object.entries(result.outputs)) map.set(k, v)
-        this.blockOutputs.set(block.id, map)
+        this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
       }
 
       result.passed = this.matchesExpectedStatus(step.expect, status)
@@ -987,7 +990,9 @@ export class TestExecutor {
   private runTemplateInline(step: TestStep, block: TemplateInlineBlock, start: number): StepResult {
     const result = makeStepResult(step.block, step.expect)
 
-    // Render the template
+    // Render the template. The real values decide whether it renders and go
+    // into the file generateFile writes; what the CLI logs and prints shows a
+    // sensitive output as <redacted> instead.
     let rendered: string
     try {
       rendered = renderGoTemplate(block.content, this.buildTemplateVars())
@@ -997,6 +1002,9 @@ export class TestExecutor {
       result.duration = Date.now() - start
       return result
     }
+
+    // The masked context has the same keys, so this renders whenever the real one does
+    const shown = renderGoTemplate(block.content, this.buildTemplateVars(maskOutputs))
 
     // Write file if generateFile is set
     if (block.generateFile && block.outputPath) {
@@ -1029,12 +1037,12 @@ export class TestExecutor {
 
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.actualStatus = "success"
-    result.logs = rendered
+    result.logs = shown
     result.duration = Date.now() - start
 
     if (this.options.verbose) {
       console.log("--- Rendered Output ---")
-      const lines = rendered.split("\n")
+      const lines = shown.split("\n")
       for (let i = 0; i < Math.min(lines.length, 20); i++) {
         console.log(`  ${lines[i]}`)
       }
@@ -1753,7 +1761,14 @@ export class TestExecutor {
     return filled
   }
 
-  private buildTemplateVars(): Record<string, unknown> {
+  /**
+   * The template data context. Outputs get their real values by default, for
+   * what a block runs or writes; pass maskOutputs for what is only shown, so a
+   * sensitive output renders as <redacted>.
+   */
+  private buildTemplateVars(
+    outputValues: (values: OutputValues) => Record<string, string> = revealOutputs,
+  ): Record<string, unknown> {
     const inputs: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(this.testInputs)) {
       const parts = key.split(".", 2)
@@ -1765,9 +1780,7 @@ export class TestExecutor {
     const outputs: Record<string, unknown> = {}
     for (const [blockId, blockOutputs] of this.blockOutputs) {
       const templateBlockId = blockId.replace(/-/g, "_")
-      const obj: Record<string, string> = {}
-      for (const [k, v] of blockOutputs) obj[k] = v
-      outputs[templateBlockId] = obj
+      outputs[templateBlockId] = outputValues(Object.fromEntries(blockOutputs))
     }
 
     return { inputs, outputs }
@@ -1842,7 +1855,7 @@ export class TestExecutor {
   private printBlockOutput(
     _blockId: string,
     logs: string,
-    outputs: Record<string, string>,
+    outputs: OutputValues,
     status: string,
     error?: string,
   ): void {
@@ -1855,7 +1868,8 @@ export class TestExecutor {
     if (Object.keys(outputs).length > 0) {
       console.log("--- Outputs ---")
       for (const [key, value] of Object.entries(outputs)) {
-        const display = value.length > 100 ? value.slice(0, 97) + "..." : value
+        const shown = maskOutput(value)
+        const display = shown.length > 100 ? shown.slice(0, 97) + "..." : shown
         console.log(`  ${key} = ${display}`)
       }
     }

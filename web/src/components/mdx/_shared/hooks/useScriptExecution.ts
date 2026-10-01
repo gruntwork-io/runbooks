@@ -13,7 +13,8 @@ import { extractInlineInputsId } from '../lib/extractInlineInputsId'
 import { extractTemplateDependenciesFromString, splitDependencies } from '@/lib/extractTemplateDependencies'
 import { computeSha256Hash } from '@/lib/hash'
 import { normalizeBlockId } from '@/lib/utils'
-import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
+import { buildTemplatePayload, computeUnmetInputDependencies, computeUnmetOutputDependencies, flattenBlockOutputs, hasEmptyNumericInputs, maskTemplateOutputs, referencesSensitiveOutput, revealTemplateOutputs, type BlockOutput, type TemplateContext } from '@/lib/templateUtils'
+import { revealOutput, revealOutputs, type OutputValues } from '@/lib/outputValues'
 import type { ComponentType, ExecutionStatus } from '../types'
 import type { AppError } from '@/types/error'
 import { createAppError } from '@/types/error'
@@ -53,7 +54,7 @@ export interface UnmetAuthDependency {
 export function checkAuthDependency(
   authId: string | undefined,
   envVars: Record<string, string> | undefined,
-  allOutputs: Record<string, { values: Record<string, string> }>,
+  allOutputs: Record<string, { values: OutputValues }>,
   /**
    * Skip the `envVars`-non-empty short-circuit and let ONLY the
    * `__AUTHENTICATED` marker satisfy the dependency.
@@ -106,13 +107,14 @@ export const GOOGLE_AUTH_ENV_KEYS = [
  */
 export function buildAuthEnvVars(
   blockId: string | undefined,
-  allOutputs: Record<string, { values: Record<string, string> }>,
+  allOutputs: Record<string, { values: OutputValues }>,
   keys: readonly string[],
 ): Record<string, string> | undefined {
   if (!blockId) return undefined
   const blockOutputs = allOutputs[normalizeBlockId(blockId)]
   if (!blockOutputs?.values) return undefined
-  const { values } = blockOutputs
+  // The env vars are the credentials themselves, so sensitive outputs pass their real values
+  const values: Partial<Record<string, string>> = revealOutputs(blockOutputs.values)
   const envVars: Record<string, string> = {}
   for (const key of keys) {
     const value = values[key]
@@ -133,16 +135,24 @@ export function buildAuthEnvVars(
  */
 export function buildGoogleAuthEnvVars(
   blockId: string | undefined,
-  allOutputs: Record<string, { values: Record<string, string> }>,
+  allOutputs: Record<string, { values: OutputValues }>,
 ): Record<string, string> | undefined {
   if (!blockId) return undefined
   const blockOutputs = allOutputs[normalizeBlockId(blockId)]
   if (!blockOutputs?.values) return undefined
   const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_KEYS) ?? {}
   envVars.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE =
-    blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE || ''
+    revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ''
   return envVars
 }
+
+/**
+ * The details under a script view render error when the script uses a
+ * sensitive output: that render shows it as <redacted>, which a template that
+ * processes the value can't handle, while the run renders the real value.
+ */
+export const SENSITIVE_DISPLAY_RENDER_NOTE =
+  'The script view shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here. Running the script uses the real value.'
 
 interface UseScriptExecutionReturn {
   // Script content
@@ -198,8 +208,9 @@ interface UseScriptExecutionReturn {
   execute: () => void
   cancel: () => void
 
-  // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT)
-  outputs: Record<string, string> | null
+  // Block outputs (key-value pairs produced by script via $RUNBOOK_OUTPUT).
+  // Sensitive ones are Redacted, so ViewOutputs masks them.
+  outputs: OutputValues | null
   
   // Drift detection (script changed on disk since runbook was opened)
   hasScriptDrift: boolean
@@ -258,7 +269,7 @@ export function useScriptExecution({
   }, [updateGeneratedFileTree, invalidateGitFileTree])
   
   // Callback to handle outputs captured from script execution
-  const handleOutputsCaptured = useCallback((outputValues: Record<string, string>) => {
+  const handleOutputsCaptured = useCallback((outputValues: OutputValues) => {
     // Register outputs in the runbook context so other blocks can access them
     registerOutputs(componentId, outputValues)
   }, [componentId, registerOutputs])
@@ -379,10 +390,14 @@ export function useScriptExecution({
     const blockOutputs = allOutputs[normalizedId]
     
     if (!blockOutputs?.values) return undefined
-    
+
+    // The env vars are the credentials themselves, so sensitive outputs pass their real values
+    const values: Partial<Record<string, string>> = revealOutputs(blockOutputs.values)
+
     // Check if we have the minimum required credentials (access key + secret)
-    const hasCredentials = blockOutputs.values.AWS_ACCESS_KEY_ID && blockOutputs.values.AWS_SECRET_ACCESS_KEY
-    if (!hasCredentials) return undefined
+    const accessKeyId = values.AWS_ACCESS_KEY_ID
+    const secretAccessKey = values.AWS_SECRET_ACCESS_KEY
+    if (!accessKeyId || !secretAccessKey) return undefined
     
     // Return credentials as env vars
     // IMPORTANT: We include AWS_SESSION_TOKEN even if empty to explicitly clear any
@@ -390,10 +405,10 @@ export function useScriptExecution({
     // Without this, using IAM user credentials (no session token) after SSO credentials
     // (which have a session token) would result in InvalidToken errors.
     const envVars: Record<string, string> = {
-      AWS_ACCESS_KEY_ID: blockOutputs.values.AWS_ACCESS_KEY_ID,
-      AWS_SECRET_ACCESS_KEY: blockOutputs.values.AWS_SECRET_ACCESS_KEY,
-      AWS_REGION: blockOutputs.values.AWS_REGION || '',
-      AWS_SESSION_TOKEN: blockOutputs.values.AWS_SESSION_TOKEN || '',
+      AWS_ACCESS_KEY_ID: accessKeyId,
+      AWS_SECRET_ACCESS_KEY: secretAccessKey,
+      AWS_REGION: values.AWS_REGION || '',
+      AWS_SESSION_TOKEN: values.AWS_SESSION_TOKEN || '',
     }
     
     return envVars
@@ -459,6 +474,13 @@ export function useScriptExecution({
   
   // Check if all output dependencies are satisfied
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0
+
+  // Whether the script view's render shows a sensitive output as <redacted>
+  // (see the render effect below)
+  const displayMasksSensitiveOutput = useMemo(
+    () => referencesSensitiveOutput(outputDeps, allOutputs),
+    [outputDeps, allOutputs]
+  )
   
   // State for rendered script content
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
@@ -526,8 +548,9 @@ export function useScriptExecution({
     }
   }, [status, invalidateGitFileTree])
 
-  // Function to render script with inputs
-  const renderScript = useCallback(async (inputs: TemplateValue[]) => {
+  // Function to render script with inputs. `errorDetails` explains a failed
+  // render under its error message.
+  const renderScript = useCallback(async (inputs: TemplateValue[], errorDetails = 'Failed to render script with variables') => {
     // Supersede any pending render request
     const seq = ++renderSeqRef.current
     
@@ -571,7 +594,7 @@ export function useScriptExecution({
       if (!isMountedRef.current || seq !== renderSeqRef.current) return
       
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
-      setRenderError(createAppError(errorMessage, 'Failed to render script with variables'))
+      setRenderError(createAppError(errorMessage, errorDetails))
       setIsRendering(false)
     }
   }, [api, rawScriptContent])
@@ -630,8 +653,16 @@ export function useScriptExecution({
       return
     }
 
-    // Build payload with inputs and outputs namespaces
-    const inputsForRender = buildTemplatePayload(templateContext)
+    // Build payload with inputs and outputs namespaces. This render is only
+    // shown (execute() renders again, with the real values), so a sensitive
+    // output shows as <redacted> in the script view. A template that
+    // processes its value (e.g. fromJson) can then fail here and not when the
+    // script runs, so such an error says why.
+    const errorDetails = displayMasksSensitiveOutput ? SENSITIVE_DISPLAY_RENDER_NOTE : undefined
+    const inputsForRender = buildTemplatePayload({
+      inputs: templateContext.inputs,
+      outputs: maskTemplateOutputs(templateContext.outputs),
+    })
 
     // Check if the script or its inputs actually changed. The script is part of
     // the key so a changed command with unchanged values still re-renders.
@@ -656,7 +687,7 @@ export function useScriptExecution({
     // Debounce: wait 300ms after last change before rendering
     autoUpdateTimerRef.current = setTimeout(() => {
       lastRenderedVariablesRef.current = keyToStore
-      renderScript(inputsToRender)
+      renderScript(inputsToRender, errorDetails)
     }, 300)
     
     // Cleanup: clear timer when effect re-runs or on unmount
@@ -665,7 +696,7 @@ export function useScriptExecution({
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, rawScriptContent, renderScript])
+  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, rawScriptContent, renderScript, displayMasksSensitiveOutput])
 
   // Handle starting execution
   const execute = useCallback(() => {
@@ -676,10 +707,11 @@ export function useScriptExecution({
     const ctx = getTemplateContext(allInputsIds.length > 0 ? allInputsIds : undefined)
 
     // The execution API expects template_var_values as a nested map matching the
-    // Go template dot context: { inputs: { region: "us-west-2" }, outputs: { ... } }
+    // Go template dot context: { inputs: { region: "us-west-2" }, outputs: { ... } }.
+    // The script runs with the real values of sensitive outputs.
     const processedVariables: Record<string, unknown> = {
       inputs: ctx.inputs,
-      outputs: ctx.outputs,
+      outputs: revealTemplateOutputs(ctx.outputs),
     }
     
     // Merge AWS, GitHub, generic Git, and Google Cloud auth env vars

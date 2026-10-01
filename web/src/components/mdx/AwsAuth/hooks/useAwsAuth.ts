@@ -3,6 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
 import type {
   AuthMethod,
   AuthStatus,
@@ -130,12 +131,14 @@ export function useAwsAuth({
   // Helper to check for credentials from block outputs
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: AwsCredentials; error?: string } => {
     const normalizedId = normalizeBlockId(blockId)
-    const outputs = blockOutputs[normalizedId]?.values
+    const values = blockOutputs[normalizedId]?.values
     
-    if (!outputs) {
+    if (!values) {
       return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
     }
-    
+
+    // The script may have marked the credentials sensitive; AwsAuth needs their real values
+    const outputs: Partial<Record<string, string>> = revealOutputs(values)
     const accessKeyId = outputs.AWS_ACCESS_KEY_ID
     const secretAccessKey = outputs.AWS_SECRET_ACCESS_KEY
     
@@ -173,18 +176,26 @@ export function useAwsAuth({
 
   // Register credentials as outputs and set session environment
   const registerCredentials = useCallback(async (creds: AwsCredentials) => {
-    const outputs: Record<string, string> = {
+    const env: Record<string, string> = {
       AWS_ACCESS_KEY_ID: creds.accessKeyId,
       AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
       AWS_REGION: creds.region,
       AWS_SESSION_TOKEN: creds.sessionToken || '',
     }
-    
-    registerOutputs(id, outputs)
-    
+
+    // The secret key and session token are published as sensitive outputs,
+    // whatever the credentials came from (including a block that marked them
+    // `sensitive:`), so a template that shows them shows <redacted>. Their
+    // readers (awsAuthId, a { block } source) reveal the real values.
+    registerOutputs(id, {
+      ...env,
+      AWS_SECRET_ACCESS_KEY: sensitiveOutput(env.AWS_SECRET_ACCESS_KEY),
+      AWS_SESSION_TOKEN: sensitiveOutput(env.AWS_SESSION_TOKEN),
+    })
+
     // Also set in session environment for blocks that don't specify awsAuthId
     try {
-      await api.invoke('session:set-env', { env: outputs })
+      await api.invoke('session:set-env', { env })
     } catch (error) {
       console.error('Failed to set session environment variables:', error)
     }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useApiExec } from './useApiExec'
+import { isSensitiveOutput, revealOutputs } from '@/lib/outputValues'
 
 // =============================================================================
 // useApiExec IPC State Machine Tests
@@ -363,7 +364,12 @@ describe('useApiExec state machine', () => {
     })
 
     act(() => {
-      mock.emit('exec:outputs', { outputs: { account_id: '123', region: 'us-west-2' } })
+      mock.emit('exec:outputs', {
+        outputs: {
+          account_id: { value: '123', sensitive: false },
+          region: { value: 'us-west-2', sensitive: false },
+        },
+      })
       mock.emit('exec:status', { status: 'success', exitCode: 0 })
       mock.resolveInvoke()
     })
@@ -372,6 +378,37 @@ describe('useApiExec state machine', () => {
 
     expect(result.current.state.outputs).toEqual({ account_id: '123', region: 'us-west-2' })
     expect(onOutputsCaptured).toHaveBeenCalledWith({ account_id: '123', region: 'us-west-2' })
+  })
+
+  it('outputs event: wraps a sensitive output again, keeping its real value for downstream blocks', async () => {
+    const onOutputsCaptured = vi.fn()
+    const { result } = renderHook(() => useApiExec({ onOutputsCaptured }))
+
+    act(() => {
+      result.current.execute('test-executable')
+    })
+
+    act(() => {
+      mock.emit('exec:outputs', {
+        outputs: {
+          AWS_SECRET_ACCESS_KEY: { value: 'topsecret', sensitive: true },
+          region: { value: 'us-west-2', sensitive: false },
+        },
+      })
+      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.resolveInvoke()
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe('success'))
+
+    const outputs = result.current.state.outputs ?? {}
+    expect(isSensitiveOutput(outputs.AWS_SECRET_ACCESS_KEY)).toBe(true)
+    expect(outputs.region).toBe('us-west-2')
+    expect(JSON.stringify(outputs)).not.toContain('topsecret')
+    // Downstream blocks get the same wrapped outputs, and read the real value
+    // through revealOutput
+    expect(onOutputsCaptured).toHaveBeenCalledWith(outputs)
+    expect(revealOutputs(outputs)).toEqual({ AWS_SECRET_ACCESS_KEY: 'topsecret', region: 'us-west-2' })
   })
 
   it('files-captured event: passes the backend payload, tree and truncation fields, to the callback', async () => {

@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from 'react'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { ApiProvider } from '@/contexts/ApiContext'
 import { useGoogleAuth } from '../useGoogleAuth'
+import { sensitiveOutput, type OutputValues } from '@/lib/outputValues'
 
 /**
  * `useGoogleAuth` under test with the IPC surface as the ONLY boundary that is
@@ -17,7 +18,7 @@ import { useGoogleAuth } from '../useGoogleAuth'
  */
 
 const registerOutputs = vi.fn()
-const runbookState: { blockOutputs: Record<string, { values: Record<string, string> }> } = {
+const runbookState: { blockOutputs: Record<string, { values: OutputValues }> } = {
   blockOutputs: {},
 }
 const sessionState = { isReady: true }
@@ -465,6 +466,36 @@ describe('useGoogleAuth — detection', () => {
     })
     expect(result.current.detectedCredentials?.source).toBe('block')
     expect(result.current.waitingForBlockId).toBeNull()
+  })
+
+  it('validates an access token the block marked sensitive with its real value', async () => {
+    runbookState.blockOutputs = {
+      bootstrap: {
+        values: {
+          GOOGLE_OAUTH_ACCESS_TOKEN: sensitiveOutput('ya29.secret-token'),
+          CLOUDSDK_CORE_PROJECT: 'proj-b',
+        },
+      },
+    }
+    const invoke = installApi((channel) => {
+      if (channel === 'google:validate-credentials') {
+        return {
+          valid: true,
+          projectId: 'proj-b',
+          account: { principal: 'sa@proj-b.iam.gserviceaccount.com', accountType: 'service_account' },
+          credentialType: 'access_token',
+        }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGoogleAuth({ id: 'gcp', detectCredentials: [{ block: 'bootstrap' }] })
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('detected'))
+    expect(invoke).toHaveBeenCalledWith(
+      'google:validate-credentials',
+      expect.objectContaining({ accessToken: 'ya29.secret-token', projectId: 'proj-b' }),
+    )
   })
 
   it('enforces required scopes on { block } credentials via validate-credentials', async () => {

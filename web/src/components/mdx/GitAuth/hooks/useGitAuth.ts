@@ -3,6 +3,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
 import type {
   GitAuthMethod,
   GitAuthStatus,
@@ -293,12 +294,14 @@ export function useGitAuth({
   // channels' useSessionToken mode.
   const getBlockCredentials = useCallback((blockId: string): { found: boolean; token?: string; isGitAuthBlock?: boolean; error?: string } => {
     const normalizedId = normalizeBlockId(blockId)
-    const outputs = blockOutputs[normalizedId]?.values
+    const values = blockOutputs[normalizedId]?.values
 
-    if (!outputs) {
+    if (!values) {
       return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
     }
 
+    // The script may have marked the token sensitive; GitAuth needs its real value
+    const outputs: Partial<Record<string, string>> = revealOutputs(values)
     const isGitAuthBlock = outputs.__AUTHENTICATED === 'true'
     const token = outputs[provider.env.tokenVar] ||
       provider.env.altTokenVars.map((v) => outputs[v]).find(Boolean)
@@ -323,8 +326,9 @@ export function useGitAuth({
   // GIT_PROVIDER, and a block chained off it must keep waiting for the real
   // auth rather than fall through to later sources.
   const blockPending = useCallback((blockId: string): boolean => {
-    const outputs = blockOutputs[normalizeBlockId(blockId)]?.values
-    if (outputs === undefined) return true
+    const values = blockOutputs[normalizeBlockId(blockId)]?.values
+    if (values === undefined) return true
+    const outputs: Partial<Record<string, string>> = revealOutputs(values)
     const hasToken = [provider.env.tokenVar, ...provider.env.altTokenVars].some((v) => Boolean(outputs[v]))
     return outputs.GIT_PROVIDER !== undefined && outputs.__AUTHENTICATED !== 'true' && !hasToken
   }, [blockOutputs, provider])
@@ -333,10 +337,13 @@ export function useGitAuth({
   // env during validation). Used by the PAT path and the non-GitAuth
   // {block:'id'} path, where the renderer legitimately holds the token.
   // GIT_PROVIDER lets a downstream PR/MR block derive its channel;
-  // __AUTHENTICATED is the session-env chaining marker.
+  // __AUTHENTICATED is the session-env chaining marker. The token is a
+  // sensitive output, whatever it came from (including a block that marked it
+  // `sensitive:`), so a template that shows it shows <redacted>. Its readers
+  // (gitAuthId/githubAuthId, a {block} source) reveal the real value.
   const registerCredentials = useCallback((token: string, user: GitUserInfo): void => {
     registerOutputs(id, {
-      [provider.env.tokenVar]: token,
+      [provider.env.tokenVar]: sensitiveOutput(token),
       [provider.env.userVar]: user.login,
       [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
       GIT_PROVIDER: provider.id,
