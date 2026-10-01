@@ -42,6 +42,7 @@ const PICKER_PAGE = `<!doctype html>
 <button id="send" type="button">Send region</button>
 <script>
   window.addEventListener("message", (event) => {
+    if (event.source !== parent) return
     if (event.data && event.data.type === "runbooks:inputs") {
       document.getElementById("inputs").textContent = JSON.stringify(event.data.inputs)
     }

@@ -1,5 +1,7 @@
-// Show the environment the runbook sends.
+// Show the environment the runbook sends. Other frames can post to this page
+// too, so accept input values only from the runbook itself.
 window.addEventListener("message", (event) => {
+  if (event.source !== parent) return
   if (event.data && event.data.type === "runbooks:inputs") {
     document.getElementById("environment").textContent = event.data.inputs.environment
   }

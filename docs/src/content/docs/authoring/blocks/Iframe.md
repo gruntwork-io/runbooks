@@ -81,6 +81,9 @@ With `inputsId`, the page receives the values of those Inputs blocks as a messag
 
 ```js
 window.addEventListener("message", (event) => {
+  // Only the runbook sends input values. Another frame in the runbook, such
+  // as an external site in a second Iframe block, can post to this page too.
+  if (event.source !== parent) return
   if (event.data?.type === "runbooks:inputs") {
     console.log(event.data.inputs.environment) // "staging"
   }
