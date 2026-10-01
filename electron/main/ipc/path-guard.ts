@@ -112,11 +112,11 @@ export const validateCloneDestination = (
 /**
  * The host of the runbook's runbook-asset:// URLs
  * (runbook-asset://<host>/foo.png for assets/foo.png). Each runbook gets its
- * own host, and so its own origin, so a page the Iframe block frames can't
- * read the storage of another runbook's pages. It is derived from the runbook's identity (the
- * remote URL when opened from one, whose clone lands in a new temp folder on
- * every open, otherwise its path), the same identity the renderer scopes its
- * per-runbook localStorage by, so a page keeps its storage across opens.
+ * own host, and so its own origin, so a page the Iframe block embeds can't
+ * read the storage of another runbook's pages. It is derived from the
+ * runbook's identity: the remote URL when opened from one, whose clone lands
+ * in a new temp folder on every open, otherwise the path of its file. So a
+ * page keeps its storage across opens of the same runbook.
  * Starts with a letter so the URL parser never reads it as an IPv4 address.
  */
 export function runbookAssetHost(config: Pick<RunbookConfig, "localPath" | "remoteSourceURL">): string {
