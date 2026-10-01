@@ -2,4 +2,10 @@ version: 1
 
 tests:
   - name: happy-path
-    description: The runbook has no executable blocks, so this checks that it parses.
+    description: The region picker's step stands in for the page and sets the region the Command reads.
+    steps:
+      - block: region-picker
+        set_outputs:
+          region: eu-west-1
+      - block: show-region
+        expect: success

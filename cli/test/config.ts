@@ -42,6 +42,8 @@ export interface TestStep {
   missing_outputs?: string[]
   error_contains?: string
   assertions?: TestAssertion[]
+  /** For an Iframe block: the outputs its page would set, since the test can't run the page. */
+  set_outputs?: Record<string, string>
 }
 
 export type ExpectedStatus = "success" | "fail" | "warn" | "blocked" | "skip" | "config_error"
@@ -321,6 +323,20 @@ function validateConfig(config: TestConfig): void {
         if (!validStatuses.includes(step.expect)) {
           throw new Error(`Test "${tc.name}" step ${j + 1}: invalid expect value "${step.expect}"`)
         }
+
+        if (step.set_outputs !== undefined) {
+          const values = step.set_outputs as unknown
+          if (typeof values !== "object" || values === null || Array.isArray(values)) {
+            throw new Error(`Test "${tc.name}" step ${j + 1}: set_outputs must be a map of output names to values`)
+          }
+          for (const [name, value] of Object.entries(values)) {
+            if (typeof value !== "string") {
+              throw new Error(
+                `Test "${tc.name}" step ${j + 1}: set_outputs.${name} must be a string. Quote it in the YAML.`,
+              )
+            }
+          }
+        }
       }
     }
 
@@ -473,4 +489,5 @@ interface RawTestStep {
   missing_outputs?: string[]
   error_contains?: string
   assertions?: TestAssertion[]
+  set_outputs?: Record<string, string>
 }
