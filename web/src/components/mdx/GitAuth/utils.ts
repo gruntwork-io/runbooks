@@ -29,7 +29,7 @@ export const normalizeInstanceBaseUrl = (input: string | undefined | null): stri
 // Status-based styling for the container, icon, and icon color. Maps are
 // GitAuth-specific (note info-tinted authenticating/pending); the shared
 // factory only removes the repeated lookup boilerplate.
-export const { getStatusClasses, getStatusIcon, getStatusIconClasses } = makeStatusStyles<GitAuthStatus>({
+export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatusStyles<GitAuthStatus>({
   container: {
     authenticated: 'bg-success-muted border-success/30',
     failed: 'bg-destructive-muted border-destructive/30',

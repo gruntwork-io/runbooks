@@ -117,86 +117,93 @@ function App() {
 
   // Show artifacts panel unless user has manually hidden it
   const showArtifacts = !isArtifactsHidden
-  
-  // Auto-show artifacts panel and switch mobile view when files are generated/regenerated
-  useEffect(() => {
-    if (hasFiles) {
-      setIsArtifactsHidden(false)
-      // Also auto-switch mobile to code view
+
+  // Hides the "show code" button along with showing the panel, so the button
+  // waits out its delay again the next time the panel is hidden.
+  const revealArtifacts = () => {
+    setIsArtifactsHidden(false)
+    setShowCodeButton(false)
+  }
+
+  // Auto-show artifacts panel and switch mobile view when files are
+  // generated/regenerated, or when a git worktree is registered (repo cloned).
+  // Only a change of either triggers it, so the user's own mobile toggle sticks.
+  const [prevFileTree, setPrevFileTree] = useState<typeof fileTree>(null)
+  const [prevHasWorkTrees, setPrevHasWorkTrees] = useState(false)
+  if (fileTree !== prevFileTree || hasWorkTrees !== prevHasWorkTrees) {
+    setPrevFileTree(fileTree)
+    setPrevHasWorkTrees(hasWorkTrees)
+    const filesGenerated = fileTree !== prevFileTree && hasFiles
+    const repoCloned = hasWorkTrees !== prevHasWorkTrees && hasWorkTrees
+    if (filesGenerated || repoCloned) {
+      revealArtifacts()
       if (activeMobileSection === 'markdown') {
         setActiveMobileSection('code')
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileTree, hasFiles]) // Don't include activeMobileSection to avoid blocking user's manual toggle
-  
-  // Auto-show artifacts panel when a git worktree is registered (repo cloned)
-  useEffect(() => {
-    if (hasWorkTrees) {
-      setIsArtifactsHidden(false)
-      if (activeMobileSection === 'markdown') {
-        setActiveMobileSection('code')
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasWorkTrees]) // Don't include activeMobileSection to avoid blocking user's manual toggle
-  
+  }
+
   // Delay showing the "show code" button to avoid awkward appearance during closing animation
   useEffect(() => {
-    if (!showArtifacts) {
-      const timer = setTimeout(() => {
-        setShowCodeButton(true)
-      }, 500)
-      return () => clearTimeout(timer)
-    } else {
-      setShowCodeButton(false)
-    }
+    if (showArtifacts) return
+    const timer = setTimeout(() => {
+      setShowCodeButton(true)
+    }, 500)
+    return () => clearTimeout(timer)
   }, [showArtifacts])
-  
-  // Show generated files alert (when there are existing generated files before the Runbook was opened) when appropriate
-  useEffect(() => {
-    // Only show if:
-    // 1. Runbook has loaded successfully
-    // 2. Generated files check has completed
-    // 3. Files exist in the output directory
-    // 4. User hasn't dismissed it this session
-    // 5. User hasn't checked "don't ask again" in localStorage
-    if (
-      !getRunbookResult.isLoading &&
-      !generatedFilesCheck.isLoading &&
-      generatedFilesCheck.data?.hasFiles &&
-      !alertDismissedThisSession &&
-      shouldShowGeneratedFilesAlert()
-    ) {
-      setShowGeneratedFilesAlert(true);
-    }
-  }, [
-    getRunbookResult.isLoading,
-    generatedFilesCheck.isLoading,
-    generatedFilesCheck.data?.hasFiles,
-    alertDismissedThisSession,
-  ]);
+
+  // The check result on screen when the loaded runbook last changed. It
+  // belongs to the previous runbook: the check for the new one only starts
+  // loading in the commit that switches runbooks.
+  const [staleFilesCheck, setStaleFilesCheck] = useState(generatedFilesCheck.data)
+
+  // Show generated files alert (when there are existing generated files before
+  // the Runbook was opened) once all of these hold:
+  // 1. Runbook has loaded successfully
+  // 2. Generated files check has completed for this runbook
+  // 3. Files exist in the output directory
+  // 4. User hasn't dismissed it this session
+  // 5. User hasn't checked "don't ask again" in localStorage
+  // It then stays open until dismissed or the runbook changes.
+  const alertReady = Boolean(
+    !getRunbookResult.isLoading &&
+    !generatedFilesCheck.isLoading &&
+    generatedFilesCheck.data !== staleFilesCheck &&
+    generatedFilesCheck.data?.hasFiles &&
+    !alertDismissedThisSession &&
+    shouldShowGeneratedFilesAlert()
+  )
+  const [prevAlertReady, setPrevAlertReady] = useState(false)
+  if (alertReady !== prevAlertReady) {
+    setPrevAlertReady(alertReady)
+    if (alertReady) setShowGeneratedFilesAlert(true)
+  }
+
+  // Reset the generated-files alert whenever the loaded runbook actually
+  // changes, including on close (the path becomes undefined), but not on
+  // watch-mode reloads, which keep the same path. Done after the alert update
+  // above, so this reset wins in the render that switches runbooks.
+  const loadedRunbookPath = getRunbookResult.data?.path
+  const [prevLoadedRunbookPath, setPrevLoadedRunbookPath] = useState(loadedRunbookPath)
+  if (loadedRunbookPath !== prevLoadedRunbookPath) {
+    setPrevLoadedRunbookPath(loadedRunbookPath)
+    setStaleFilesCheck(generatedFilesCheck.data)
+    setShowGeneratedFilesAlert(false)
+    setAlertDismissedThisSession(false)
+  }
 
   // The worktree and generated-files providers are mounted once at the app
   // root, so they otherwise keep whatever the previously opened runbook left
-  // there (a stale "active" repo, its file tree). Clear them, and the
-  // generated-files alert state, whenever the loaded runbook actually
-  // changes, including on close (the path becomes undefined), but not on
-  // watch-mode reloads, which keep the same path. The per-runbook block state
-  // is reset by keying MDXContainer on the same path below, and the logs
-  // store by ClearLogsOnRunbookChange.
-  //
-  // Declared after the alert effect so its reset wins in the commit that
-  // switches runbooks, when the alert effect still sees the previous
-  // runbook's check result; the new runbook's check then decides.
+  // there (a stale "active" repo, its file tree). Clear them on the same
+  // runbook changes as the alert above. The per-runbook block state is reset
+  // by keying MDXContainer on the same path below, and the logs store by
+  // ClearLogsOnRunbookChange.
   useEffect(() => {
     resetWorkTrees()
     updateGeneratedFileTree(null)
-    setShowGeneratedFilesAlert(false)
-    setAlertDismissedThisSession(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getRunbookResult.data?.path])
-  
+  }, [loadedRunbookPath])
+
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ''
   const content = getRunbookResult.data?.content || ''
@@ -206,25 +213,18 @@ function App() {
   // Once true, never let loading/error states unmount MDXContainer — doing so
   // would destroy all block outputs (and user-edited inputs) stored in
   // RunbookContextProvider's React state, causing "Waiting for outputs" warnings.
-  const hasEverLoadedRef = useRef(false)
-  if (content) {
-    hasEverLoadedRef.current = true
+  const [hasEverLoaded, setHasEverLoaded] = useState(false)
+  if (content && !hasEverLoaded) {
+    setHasEverLoaded(true)
   }
 
   // Listen for "Close Runbook" menu command. useIpcGetRunbook clears its
   // own state; here we drop the "has ever loaded" latch and any error
   // banners so the WelcomeScreen renders again.
-  //
-  // The two alert setters duplicate the path-change effect's reset on
-  // purpose: that effect only runs after the close has rendered, and in that
-  // render the alert, remounted under its new (undefined) key, would still
-  // get the previous runbook's check data and an open state.
   useEffect(() => {
     const cleanup = api.on('menu:close-runbook', () => {
-      hasEverLoadedRef.current = false
+      setHasEverLoaded(false)
       clearAllErrors()
-      setShowGeneratedFilesAlert(false)
-      setAlertDismissedThisSession(false)
     })
     return cleanup
   }, [api, clearAllErrors])
@@ -234,7 +234,7 @@ function App() {
   // over it rather than the full-screen error used for the first open.
   const openError = getRunbookResult.error
   const showOpenErrorBanner =
-    openError !== null && hasEverLoadedRef.current && openError !== dismissedOpenError
+    openError !== null && hasEverLoaded && openError !== dismissedOpenError
 
   // Handle closing the generated files alert
   const handleCloseAlert = () => {
@@ -286,25 +286,25 @@ function App() {
         )}
         
         {/* Loading and Error States
-             Once content has successfully loaded (hasEverLoadedRef), skip these
+             Once content has successfully loaded (hasEverLoaded), skip these
              branches so MDXContainer is never unmounted. A transient isLoading
              flash (e.g. from useIpc effect re-firing) would otherwise destroy
              all block outputs and user-edited inputs stored in React state. */}
-        {getRunbookResult.isLoading && !hasEverLoadedRef.current ? (
+        {getRunbookResult.isLoading && !hasEverLoaded ? (
           <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
               <p className="text-muted-foreground">Loading runbook...</p>
             </div>
           </div>
-        ) : getRunbookResult.error && !hasEverLoadedRef.current ? (
+        ) : getRunbookResult.error && !hasEverLoaded ? (
           <RunbookOpenError
             variant="fullscreen"
             message={getRunbookResult.error.message}
             onChooseAnother={handleOpenRunbook}
             onRetry={() => getRunbookResult.refetch()}
           />
-        ) : !getRunbookResult.data && !hasEverLoadedRef.current ? (
+        ) : !getRunbookResult.data && !hasEverLoaded ? (
           <WelcomeScreen onOpenUrl={() => setIsUrlModalOpen(true)} onOpenRunbook={handleOpenRunbook} />
         ) : (
           <>
@@ -355,7 +355,7 @@ function App() {
                   {/* Show code icon button - desktop only, when artifacts panel is hidden */}
                   {showCodeButton && (
                     <button
-                      onClick={() => setIsArtifactsHidden(false)}
+                      onClick={revealArtifacts}
                       className="hidden lg:block absolute -right-14 top-0 p-3 border border-border rounded-lg hover:bg-accent transition-all duration-200 z-10 cursor-pointer"
                       title="Show generated files"
                     >

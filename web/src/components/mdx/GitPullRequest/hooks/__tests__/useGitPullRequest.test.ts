@@ -127,10 +127,11 @@ const STILL_RUNNING_LINE =
 function renderPR(cfg: PRProviderConfig) {
   const fake = createEmittingApi()
   const wrapper = ({ children }: { children: ReactNode }) =>
-    createElement(ApiProvider, {
-      api: fake.api,
-      children: createElement(RunbookContextProvider, { runbookName: 'test', children }),
-    })
+    createElement(
+      ApiProvider,
+      { api: fake.api },
+      createElement(RunbookContextProvider, { runbookName: 'test' }, children),
+    )
   const view = renderHook(
     () => ({ pr: useGitPullRequest({ id: BLOCK_ID, cfg }), runbook: useRunbookContext() }),
     { wrapper },

@@ -87,21 +87,15 @@ export function Admonition({
   const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
   const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
   const resolvedConfirmationText = useMemo(() => confirmationText ? resolveTemplateReferences(confirmationText, templateCtx) : confirmationText, [confirmationText, templateCtx])
-  const [isVisible, setIsVisible] = useState(true)
+  // Check localStorage on mount to see if user has permanently hidden this
+  const [isVisible, setIsVisible] = useState(
+    () => !(allowPermanentHide && storageKey) || shouldShowAlert(`admonition_hide_${storageKey}`),
+  )
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isFadingOut, setIsFadingOut] = useState(false)
   const [dontShowAgain, setDontShowAgain] = useState(false)
   const componentId = useId()
   const { reportError, clearError } = useErrorReporting()
-
-  // Check localStorage on mount to see if user has permanently hidden this
-  useEffect(() => {
-    if (allowPermanentHide && storageKey) {
-      if (!shouldShowAlert(`admonition_hide_${storageKey}`)) {
-        setIsVisible(false)
-      }
-    }
-  }, [allowPermanentHide, storageKey])
 
   // Report invalid admonition type to error tracking
   useEffect(() => {

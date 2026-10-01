@@ -42,54 +42,47 @@ export const FormStatus: React.FC<FormStatusProps> = ({
   hasRenderError = false,
   className = ''
 }) => {
-  // Track the visual state with minimum display duration for updating
-  const [displayState, setDisplayState] = useState<FormStatusState>('valid')
-  const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True while the updating state is held past the end of an update to reach
+  // its minimum display duration.
+  const [lingering, setLingering] = useState(false)
   const updateStartTimeRef = useRef<number>(0)
-  
+
   // Minimum time to show the updating state (in ms) for visual feedback
   const MIN_UPDATE_DURATION = 400
 
+  const [prevIsUpdating, setPrevIsUpdating] = useState(isUpdating)
+  if (isUpdating !== prevIsUpdating) {
+    setPrevIsUpdating(isUpdating)
+    if (!isUpdating && isValid) {
+      setLingering(true)
+    }
+  }
+  // Error state takes precedence and ends any linger.
+  if (!isValid && lingering) {
+    setLingering(false)
+  }
+
+  let displayState: FormStatusState
+  if (!isValid) {
+    displayState = 'error'
+  } else if (isUpdating || lingering) {
+    displayState = 'updating'
+  } else {
+    displayState = hasRenderError ? 'failed' : 'valid'
+  }
+
   useEffect(() => {
-    // Clean up any existing timeout
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current)
-      updateTimeoutRef.current = null
-    }
-
-    // Where the display settles once no update is in progress
-    const settledState: FormStatusState = hasRenderError ? 'failed' : 'valid'
-
-    if (!isValid) {
-      // Error state takes precedence
-      setDisplayState('error')
-    } else if (isUpdating) {
-      // Start showing updating state
+    if (isUpdating) {
       updateStartTimeRef.current = Date.now()
-      setDisplayState('updating')
-    } else if (displayState === 'updating') {
-      // Transitioning from updating to settled - ensure minimum duration
-      const elapsed = Date.now() - updateStartTimeRef.current
-      const remaining = Math.max(0, MIN_UPDATE_DURATION - elapsed)
-      
-      if (remaining > 0) {
-        updateTimeoutRef.current = setTimeout(() => {
-          setDisplayState(settledState)
-        }, remaining)
-      } else {
-        setDisplayState(settledState)
-      }
-    } else {
-      // Just valid (or failed)
-      setDisplayState(settledState)
+      return
     }
+    if (!lingering) return
 
-    return () => {
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current)
-      }
-    }
-  }, [isValid, isUpdating, hasRenderError, displayState])
+    const elapsed = Date.now() - updateStartTimeRef.current
+    const remaining = Math.max(0, MIN_UPDATE_DURATION - elapsed)
+    const timeout = setTimeout(() => setLingering(false), remaining)
+    return () => clearTimeout(timeout)
+  }, [isUpdating, lingering])
 
   const autoUpdateMessage = isInlineMode 
     ? 'Variable values will update automatically as you type.'

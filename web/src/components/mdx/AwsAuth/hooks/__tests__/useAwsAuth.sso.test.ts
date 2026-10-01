@@ -84,7 +84,7 @@ function deferred<T>() {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi, children })
+  createElement(ApiProvider, { api: currentApi }, children)
 
 const renderSso = (props: { ssoAccountId?: string; ssoRoleName?: string } = {}) =>
   renderHook(

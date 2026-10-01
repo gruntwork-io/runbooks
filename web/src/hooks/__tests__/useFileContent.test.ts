@@ -20,7 +20,7 @@ function setup() {
     }),
   )
   const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
-  const wrapper = ({ children }: { children: ReactNode }) => createElement(ApiProvider, { api, children })
+  const wrapper = ({ children }: { children: ReactNode }) => createElement(ApiProvider, { api }, children)
   const { result } = renderHook(() => useFileContent(), { wrapper })
   const readsOf = (filePath: string) => reads.filter(r => r.filePath === filePath)
   const pendingRead = (filePath: string) => {

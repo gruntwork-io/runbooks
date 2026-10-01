@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render, renderHook, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
 import { IpcGitWorkTreeProvider } from '@/contexts/IpcGitWorkTreeContext'
 import { WorkspaceGitDataProvider } from '@/contexts/WorkspaceGitDataContext'
@@ -93,7 +93,10 @@ describe('WorkspaceGitDataProvider', () => {
     const { api, callsTo } = createApi()
     let workTrees!: GitWorkTreeContextType
     function CaptureWorkTrees() {
-      workTrees = useGitWorkTree()
+      const value = useGitWorkTree()
+      useEffect(() => {
+        workTrees = value
+      })
       return null
     }
     function PrBlockChanges() {
@@ -231,9 +234,12 @@ describe('WorkspaceGitDataProvider', () => {
     let workTrees!: GitWorkTreeContextType
     const renders: Array<{ path?: string; tree?: string[] }> = []
     function Consumer() {
-      workTrees = useGitWorkTree()
+      const value = useGitWorkTree()
+      useEffect(() => {
+        workTrees = value
+      })
       const { tree } = useGitFileTree()
-      renders.push({ path: workTrees.activeWorkTree?.localPath, tree: tree?.map(n => n.id) })
+      renders.push({ path: value.activeWorkTree?.localPath, tree: tree?.map(n => n.id) })
       return null
     }
     render(
@@ -264,7 +270,10 @@ describe('WorkspaceGitDataProvider', () => {
     let workTrees!: GitWorkTreeContextType
     const renders: Array<{ tree?: string[]; isLoading: boolean }> = []
     function Consumer() {
-      workTrees = useGitWorkTree()
+      const value = useGitWorkTree()
+      useEffect(() => {
+        workTrees = value
+      })
       const { tree, isLoading } = useGitFileTree()
       renders.push({ tree: tree?.map(n => n.id), isLoading })
       return null

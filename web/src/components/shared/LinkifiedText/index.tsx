@@ -28,12 +28,8 @@ export function LinkifiedText({
     
     const result: (string | React.ReactElement)[] = []
     let textProcessedUpTo = 0
-    let regexMatch: RegExpExecArray | null
 
-    // Reset regex state to ensure we start from the beginning
-    URL_REGEX.lastIndex = 0
-    
-    while ((regexMatch = URL_REGEX.exec(cleanText)) !== null) {
+    for (const regexMatch of cleanText.matchAll(URL_REGEX)) {
       const urlStartIndex = regexMatch.index
       const urlText = regexMatch[0]
       const urlEndIndex = urlStartIndex + urlText.length

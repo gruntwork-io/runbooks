@@ -199,7 +199,7 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ .outputs.create_account.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children, runbookName, remoteSource, runbookFilePath, storageScope }: { children: ReactNode, runbookName?: string, remoteSource?: string, runbookFilePath?: string, storageScope?: string }) {
+export function RunbookContextProvider({ children, runbookName, remoteSource, runbookFilePath, storageScope }: { children?: ReactNode, runbookName?: string, remoteSource?: string, runbookFilePath?: string, storageScope?: string }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 

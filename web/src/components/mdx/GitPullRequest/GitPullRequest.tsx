@@ -209,30 +209,39 @@ function GitPullRequestInteractive({
   const [userEditedBranch, setUserEditedBranch] = useState(false)
   const [userEditedCommitMessage, setUserEditedCommitMessage] = useState(false)
 
-  // Update form state when resolved values change (unless user has edited)
-  useEffect(() => {
-    if (!userEditedTitle && resolvedTitle) {
+  // Update form state during render when resolved values change, unless the
+  // user has edited the field
+  const [prevResolved, setPrevResolved] = useState({
+    title: resolvedTitle,
+    description: resolvedDescription,
+    branchName: resolvedBranchName,
+    commitMessage: defaultCommitMessage,
+  })
+  if (
+    prevResolved.title !== resolvedTitle ||
+    prevResolved.description !== resolvedDescription ||
+    prevResolved.branchName !== resolvedBranchName ||
+    prevResolved.commitMessage !== defaultCommitMessage
+  ) {
+    if (prevResolved.title !== resolvedTitle && !userEditedTitle && resolvedTitle) {
       setPRTitle(resolvedTitle)
     }
-  }, [resolvedTitle, userEditedTitle])
-
-  useEffect(() => {
-    if (!userEditedDescription && resolvedDescription) {
+    if (prevResolved.description !== resolvedDescription && !userEditedDescription && resolvedDescription) {
       setPRDescription(resolvedDescription)
     }
-  }, [resolvedDescription, userEditedDescription])
-
-  useEffect(() => {
-    if (!userEditedBranch && resolvedBranchName) {
+    if (prevResolved.branchName !== resolvedBranchName && !userEditedBranch && resolvedBranchName) {
       setBranchName(resolvedBranchName)
     }
-  }, [resolvedBranchName, userEditedBranch])
-
-  useEffect(() => {
-    if (!userEditedCommitMessage) {
+    if (prevResolved.commitMessage !== defaultCommitMessage && !userEditedCommitMessage) {
       setCommitMessage(defaultCommitMessage)
     }
-  }, [defaultCommitMessage, userEditedCommitMessage])
+    setPrevResolved({
+      title: resolvedTitle,
+      description: resolvedDescription,
+      branchName: resolvedBranchName,
+      commitMessage: defaultCommitMessage,
+    })
+  }
 
   // Determine effective status (override pending → ready when deps met)
   const effectiveStatus: PRBlockStatus = useMemo(() => {
@@ -301,14 +310,16 @@ function GitPullRequestInteractive({
     reset()
     setPRTitle(resolvedTitle)
     setPRDescription(resolvedDescription)
-    setBranchName(`runbook/${Math.floor(Date.now() / 1000)}`)
+    setBranchName(userEditedBranch && resolvedBranchName
+      ? resolvedBranchName
+      : `runbook/${Math.floor(Date.now() / 1000)}`)
     setCommitMessage(defaultCommitMessage)
     setSelectedLabels(prefilledPullRequestLabels)
     setUserEditedTitle(false)
     setUserEditedDescription(false)
     setUserEditedBranch(false)
     setUserEditedCommitMessage(false)
-  }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels, defaultCommitMessage])
+  }, [reset, resolvedTitle, resolvedDescription, resolvedBranchName, userEditedBranch, prefilledPullRequestLabels, defaultCommitMessage])
 
   const [deletingBranch, setDeletingBranch] = useState(false)
   const handleDeleteBranch = useCallback(async () => {

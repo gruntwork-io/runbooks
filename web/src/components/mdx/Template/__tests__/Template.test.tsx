@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, act, fireEvent } from "@testing-library/react"
+import { useEffect } from "react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -55,7 +56,10 @@ function renderTemplate(props: Record<string, unknown> = {}) {
 // Captures the live RunbookContext so tests can play the part of an upstream <Inputs> block.
 let ctx: RunbookContextType
 function CaptureContext() {
-  ctx = useRunbookContext()
+  const value = useRunbookContext()
+  useEffect(() => {
+    ctx = value
+  })
   return null
 }
 

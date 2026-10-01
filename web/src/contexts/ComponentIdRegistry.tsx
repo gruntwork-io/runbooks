@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import { normalizeBlockId } from '../lib/utils'
 
@@ -44,7 +44,9 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
   const instanceCounter = useRef(0)
   // Use a ref to access current registrations in callbacks without causing re-renders
   const registrationsRef = useRef<ComponentRegistration[]>([])
-  registrationsRef.current = registrations
+  useLayoutEffect(() => {
+    registrationsRef.current = registrations
+  }, [registrations])
 
   const registerComponent = useCallback((id: string, componentType: ComponentRegistration['componentType']): string => {
     const instanceId = `${componentType}-${id}-${++instanceCounter.current}`

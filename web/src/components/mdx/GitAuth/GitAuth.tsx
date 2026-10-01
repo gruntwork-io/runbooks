@@ -17,7 +17,7 @@ import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
 import { PROVIDERS, isGitProvider } from "./providers"
 import { useGitAuth } from "./hooks/useGitAuth"
-import { getStatusClasses, getStatusIcon, getStatusIconClasses, resolveDefaultAuthMethod } from "./utils"
+import { getStatusClasses, StatusIcon, getStatusIconClasses, resolveDefaultAuthMethod } from "./utils"
 import { ProviderSelect } from "./components/ProviderSelect"
 import { HostSelect } from "./components/HostSelect"
 import { AuthTabs } from "./components/AuthTabs"
@@ -214,7 +214,6 @@ function GitAuthInteractive({
     )
   }
 
-  const IconComponent = getStatusIcon(auth.authStatus)
   const statusClasses = getStatusClasses(auth.authStatus)
   const iconClasses = getStatusIconClasses(auth.authStatus)
 
@@ -235,7 +234,7 @@ function GitAuthInteractive({
       {/* Header with provider logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-border pr-3 mr-0 self-stretch">
-          <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
+          <StatusIcon status={auth.authStatus} className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="flex-1 min-w-0">

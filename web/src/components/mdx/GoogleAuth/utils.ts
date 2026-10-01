@@ -8,7 +8,7 @@ import { makeStatusStyles } from "../_shared/lib/statusStyles"
 // AwsAuth's AWS-orange `warning`. The shared factory only removes the repeated
 // lookup boilerplate; `Record<GoogleAuthStatus, …>` keeps every map exhaustive,
 // so adding a status without styling it is a compile error.
-export const { getStatusClasses, getStatusIcon, getStatusIconClasses } = makeStatusStyles<GoogleAuthStatus>({
+export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatusStyles<GoogleAuthStatus>({
   container: {
     authenticated: 'bg-success-muted border-success/30',
     failed: 'bg-destructive-muted border-destructive/30',

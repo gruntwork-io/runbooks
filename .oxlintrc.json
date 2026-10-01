@@ -17,11 +17,18 @@
     "no-console": "off",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
+    "react/error-boundaries": "off",
     "react/globals": "off",
     "react/immutability": "off",
+    "react/incompatible-library": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/purity": "off",
     "react/refs": "off",
     "react/set-state-in-effect": "off",
+    "react/set-state-in-render": "off",
     "react/static-components": "off",
+    "react/use-memo": "off",
+    "react/void-use-memo": "off",
     "react-compiler/static-components": "error",
     "react-compiler/use-memo": "error",
     "react-compiler/void-use-memo": "error",
@@ -44,6 +51,7 @@
         "**/e2e/**"
       ],
       "rules": {
+        "no-empty-pattern": "off",
         "react-hooks/rules-of-hooks": "off"
       }
     }

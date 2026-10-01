@@ -77,7 +77,7 @@ function renderScriptExecution(props: Props) {
     {
       initialProps: props,
       wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(ApiProvider, { api, children: createElement(RunbookContextProvider, { children }) }),
+        createElement(ApiProvider, { api }, createElement(RunbookContextProvider, null, children)),
     },
   )
 }

@@ -54,10 +54,7 @@ const replyWith = (profiles: ProfileInfo[]) => {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, {
-    api: { invoke, on: () => () => {} } as unknown as Api,
-    children,
-  })
+  createElement(ApiProvider, { api: { invoke, on: () => () => {} } as unknown as Api }, children)
 
 const renderAwsAuth = () =>
   renderHook(

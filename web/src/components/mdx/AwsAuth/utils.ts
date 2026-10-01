@@ -6,7 +6,7 @@ import { makeStatusStyles } from "../_shared/lib/statusStyles"
 // AwsAuth-specific (note warning-tinted authenticating/pending and the
 // select_account/select_role states); the shared factory only removes the
 // repeated lookup boilerplate.
-export const { getStatusClasses, getStatusIcon, getStatusIconClasses } = makeStatusStyles<AuthStatus>({
+export const { getStatusClasses, StatusIcon, getStatusIconClasses } = makeStatusStyles<AuthStatus>({
   container: {
     authenticated: 'bg-success-muted border-success/30',
     failed: 'bg-destructive-muted border-destructive/30',

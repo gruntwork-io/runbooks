@@ -82,7 +82,7 @@ function TemplateInteractive({
   const [generateNonce, setGenerateNonce] = useState(0);
 
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
-  const hasEverGeneratedRef = useRef(false);
+  const [hasEverGenerated, setHasEverGenerated] = useState(false);
   
   // (Worktree/file tree updates are handled by useApiBoilerplateRender via useFileTreeUpdater)
   
@@ -190,12 +190,15 @@ function TemplateInteractive({
     target
   )
 
+  if (renderResult && !hasEverGenerated) {
+    setHasEverGenerated(true);
+  }
+
   // Track successful generation (file tree updates are handled by useApiBoilerplateRender).
   // Marks render-committed and painted stages; the gap between IPC response and this
   // effect firing captures React scheduler + reconciliation + commit + passive-effect flush.
   useEffect(() => {
     if (!renderResult) return;
-    hasEverGeneratedRef.current = true;
     markStage('Template:render-committed', { id });
     const raf = requestAnimationFrame(() => markStage('Template:painted', { id }));
     return () => cancelAnimationFrame(raf);
@@ -301,7 +304,7 @@ function TemplateInteractive({
     setShouldRender(true);
     lastRenderedKeyRef.current = null;
     setGenerateNonce(n => n + 1);
-  }, [id, path, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
+  }, [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
 
   // Early return for duplicate ID error
   if (isDuplicate) {
@@ -361,7 +364,7 @@ function TemplateInteractive({
         isGenerating={isGenerating}
         isAutoRendering={isAutoRendering}
         enableAutoRender={true}
-        hasGeneratedSuccessfully={hasEverGeneratedRef.current || Boolean(renderResult)}
+        hasGeneratedSuccessfully={hasEverGenerated}
         hasRenderError={Boolean(renderError)}
         variant="standard"
         isInlineMode={false}

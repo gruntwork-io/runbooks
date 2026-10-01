@@ -156,10 +156,13 @@ export function useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate }
     }
   }, [rootPath, levels, fetchDirs, maxLevels])
 
-  // Sync manualPath with composed path from dropdowns
-  useEffect(() => {
+  // Sync manualPath with composed path from dropdowns whenever the
+  // selections change
+  const [prevComposedPath, setPrevComposedPath] = useState(composedPath)
+  if (prevComposedPath !== composedPath) {
+    setPrevComposedPath(composedPath)
     setManualPath(composedPath)
-  }, [composedPath])
+  }
 
   const publishedPath = allOutputs[normalizeBlockId(id)]?.values?.PATH
 

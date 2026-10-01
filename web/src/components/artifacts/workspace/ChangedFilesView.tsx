@@ -45,8 +45,10 @@ const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
 
 const defaultChangeConfig = { icon: FileDiff, color: 'text-muted-foreground' }
 
-function getChangeTypeIcon(changeType: ChangeType): LucideIcon {
-  return (changeTypeConfig[changeType] ?? defaultChangeConfig).icon
+/** File icon for a change type (FilePlus/FileDiff/FileMinus), in its color. */
+const ChangeTypeIcon = ({ changeType }: { changeType: ChangeType }) => {
+  const { icon: Icon, color } = changeTypeConfig[changeType] ?? defaultChangeConfig
+  return <Icon className={cn("w-4 h-4 flex-shrink-0", color)} />
 }
 
 
@@ -342,9 +344,6 @@ const ChangedFileTree = ({
     const change = node.change
     if (!change) return null
 
-    const Icon = getChangeTypeIcon(change.changeType)
-    const iconColor = getIconColor(change.changeType)
-
     return (
       <button
         key={node.path}
@@ -358,7 +357,7 @@ const ChangedFileTree = ({
       >
         {/* Spacer (same width as chevron) to align file icons with folder icons */}
         <span className="w-4 flex-shrink-0" />
-        <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
+        <ChangeTypeIcon changeType={change.changeType} />
         <span className="truncate flex-1 ml-1">{node.name}</span>
       </button>
     )
@@ -414,9 +413,6 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
   ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
     const [isLoadingDiff, setIsLoadingDiff] = useState(false)
 
-    const Icon = getChangeTypeIcon(change.changeType)
-    const iconColor = getIconColor(change.changeType)
-
     return (
       <div 
         ref={ref}
@@ -431,7 +427,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
           isCollapsed={isCollapsed}
           onToggle={onToggleCollapse}
           path={change.path}
-          icon={<Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />}
+          icon={<ChangeTypeIcon changeType={change.changeType} />}
           trailing={
             <div className="flex items-center gap-2 text-xs flex-shrink-0">
               {change.additions > 0 && (
@@ -684,13 +680,5 @@ const DiffLineRow = ({ line }: DiffLineRowProps) => {
       </td>
     </tr>
   )
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-function getIconColor(type: ChangeType): string {
-  return (changeTypeConfig[type] ?? defaultChangeConfig).color
 }
 

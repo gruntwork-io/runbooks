@@ -40,7 +40,7 @@ function installApi(replies: { detect?: Reply; confirm?: Reply }) {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi, children })
+  createElement(ApiProvider, { api: currentApi }, children)
 
 const renderAwsAuth = (detectCredentials?: Parameters<typeof useAwsAuth>[0]['detectCredentials']) =>
   renderHook(

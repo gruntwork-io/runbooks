@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
+import { useEffect } from 'react'
 import { TestWrapper } from '@/test/test-utils'
 import { useRunbookContext, flattenInputs } from '@/contexts/useRunbook'
 import type { RunbookContextType } from '@/contexts/RunbookContext'
@@ -37,7 +38,10 @@ vi.mock('@/hooks/useApiBoilerplateRender', () => ({
 // Captures the live RunbookContext so the test can play the part of an upstream <Inputs> block.
 let ctx: RunbookContextType
 function CaptureContext() {
-  ctx = useRunbookContext()
+  const value = useRunbookContext()
+  useEffect(() => {
+    ctx = value
+  })
   return null
 }
 

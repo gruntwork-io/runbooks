@@ -44,7 +44,6 @@ type RunbookAppFixture = {
  * Each test gets its own temp `workDir` so generated files are isolated.
  */
 export const test = base.extend<RunbookAppFixture>({
-  // eslint-disable-next-line no-empty-pattern
   consoleMessages: async ({}, use) => {
     const messages: ConsoleMessage[] = [];
     await use(messages);

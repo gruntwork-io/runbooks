@@ -15,7 +15,7 @@ import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateI
 import type { AppError } from "@/types/error"
 import type { GoogleAuthProps } from "./types"
 import { useGoogleAuth } from "./hooks/useGoogleAuth"
-import { getStatusClasses, getStatusIcon, getStatusIconClasses } from "./utils"
+import { getStatusClasses, StatusIcon, getStatusIconClasses } from "./utils"
 import { GoogleCloudLogo } from "./components/GoogleCloudLogo"
 import { AuthTabs } from "./components/AuthTabs"
 import { AuthSuccess } from "./components/AuthSuccess"
@@ -190,7 +190,6 @@ function GoogleAuthInteractive({
     )
   }
 
-  const IconComponent = getStatusIcon(auth.authStatus)
   const statusClasses = getStatusClasses(auth.authStatus)
   const iconClasses = getStatusIconClasses(auth.authStatus)
 
@@ -209,7 +208,7 @@ function GoogleAuthInteractive({
       {/* Header with Google Cloud logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-info/30 pr-3 mr-0 self-stretch">
-          <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
+          <StatusIcon status={auth.authStatus} className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="flex-1 min-w-0">

@@ -84,6 +84,16 @@ interface DetectionAttemptResult {
   error?: string
 }
 
+/**
+ * Where a walk of the detection sources ended. The walk only computes this;
+ * applyDetectionOutcome writes it to state.
+ */
+type DetectionOutcome =
+  | { kind: 'detected'; credentials: DetectedGoogleCredentials }
+  /** Paused on a block source that has not run; `remaining` follow it. */
+  | { kind: 'waiting'; blockId: string; remaining: GoogleCredentialSource[] }
+  | { kind: 'done'; warnings: string[]; isRetry: boolean }
+
 /** Identity metadata carried from a completed auth into project selection. */
 interface PendingAccount {
   principal?: string
@@ -305,8 +315,8 @@ export function useGoogleAuth({
   const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null)
   // Seeded from a MAIN capability probe on mount (see the effect below), NOT
   // discovered after a failed click: an author who supplies their own client id
-  // is available by definition and needs no round trip.
-  const [oauthUnavailable, setOauthUnavailable] = useState(false)
+  // is available by definition and needs no round trip (see oauthUnavailable).
+  const [oauthReportedUnavailable, setOauthUnavailable] = useState(false)
   // Operator-chosen Desktop OAuth client JSON (path only — same custody rule as
   // the SA key picker). Author `oauthClientFile` wins when both are set.
   const [oauthClientFilePath, setOauthClientFilePath] = useState<string | null>(null)
@@ -323,6 +333,7 @@ export function useGoogleAuth({
   const oauthFlowIdRef = useRef<string | null>(null)
 
   const effectiveOauthClientFile = oauthClientFile || oauthClientFilePath || undefined
+  const oauthUnavailable = oauthReportedUnavailable && !oauthClientId && !effectiveOauthClientFile
 
   // ---- Project selection ----------------------------------------------------
   const [projects, setProjects] = useState<GoogleProjectInfo[]>([])
@@ -778,18 +789,18 @@ export function useGoogleAuth({
   /**
    * Walk the author's credential sources in order, stopping at the first
    * success. A block source that has NOT executed pauses the walk rather than
-   * skipping ahead — the author's ordering is the priority order.
+   * skipping ahead — the author's ordering is the priority order. Returns where
+   * the walk ended without touching state; callers hand it to
+   * applyDetectionOutcome once the walk has settled.
    */
   const trySourcesInOrder = useCallback(async (
     sources: GoogleCredentialSource[],
     isRetry: boolean,
-  ) => {
+  ): Promise<DetectionOutcome> => {
     const warnings: string[] = []
 
-    const succeed = (result: DetectionAttemptResult) => {
-      setDetectedCredentials(result.detected!)
-      setDetectionStatus('detected')
-    }
+    const succeed = (detected: DetectedGoogleCredentials): DetectionOutcome =>
+      ({ kind: 'detected', credentials: detected })
 
     // The block owns the per-source copy; MAIN's reason follows it, so a
     // missing file and a revoked token do not read the same.
@@ -804,8 +815,7 @@ export function useGoogleAuth({
       if (source === 'env') {
         const result = await tryEnvCredentials({ source: 'env' })
         if (result.success && result.detected) {
-          succeed(result)
-          return
+          return succeed(result.detected)
         }
         if (result.foundButInvalid) {
           pushInvalid('Google Cloud credentials in the environment are invalid or expired', result)
@@ -815,8 +825,7 @@ export function useGoogleAuth({
       else if (source === 'adc') {
         const result = await tryEnvCredentials({ source: 'adc' })
         if (result.success && result.detected) {
-          succeed(result)
-          return
+          return succeed(result.detected)
         }
         if (result.foundButInvalid) {
           pushInvalid('Application Default Credentials are invalid or expired', result)
@@ -826,8 +835,7 @@ export function useGoogleAuth({
       else if (source === 'gcloud') {
         const result = await tryEnvCredentials({ source: 'gcloud' })
         if (result.success && result.detected) {
-          succeed(result)
-          return
+          return succeed(result.detected)
         }
         if (result.foundButInvalid) {
           pushInvalid("The active gcloud configuration's credentials are invalid or expired", result)
@@ -838,8 +846,7 @@ export function useGoogleAuth({
         const prefix = source.env?.prefix
         const result = await tryEnvCredentials({ source: 'env', ...(prefix ? { prefix } : {}) })
         if (result.success && result.detected) {
-          succeed(result)
-          return
+          return succeed(result.detected)
         }
         if (result.foundButInvalid) {
           pushInvalid(`${prefix ?? ''}Google Cloud credentials are invalid or expired`, result)
@@ -849,30 +856,42 @@ export function useGoogleAuth({
       else if (typeof source === 'object' && 'block' in source) {
         const result = await tryBlockCredentials(source.block)
         if (result.success && result.detected) {
-          succeed(result)
-          return
+          return succeed(result.detected)
         }
         // "Has it executed?" is `values !== undefined` — `found: false` alone
         // conflates "never ran" with "ran, but produced nothing usable".
         const normalizedBlockId = normalizeBlockId(source.block)
         const blockHasExecuted = blockOutputs[normalizedBlockId]?.values !== undefined
         if (!blockHasExecuted) {
-          remainingSourcesRef.current = sources.slice(i + 1)
-          setWaitingForBlockId(source.block)
-          return
+          return { kind: 'waiting', blockId: source.block, remaining: sources.slice(i + 1) }
         }
         // Executed but unusable — fall through to the next source.
       }
     }
 
-    if (warnings.length > 0) {
-      setDetectionWarning(warnings.join('; '))
-    }
-    if (isRetry) {
-      setRetryFoundNothing(true)
-    }
-    setDetectionStatus('done')
+    return { kind: 'done', warnings, isRetry }
   }, [tryEnvCredentials, tryBlockCredentials, blockOutputs])
+
+  const applyDetectionOutcome = useCallback((outcome: DetectionOutcome) => {
+    switch (outcome.kind) {
+      case 'detected':
+        setDetectedCredentials(outcome.credentials)
+        setDetectionStatus('detected')
+        return
+      case 'waiting':
+        remainingSourcesRef.current = outcome.remaining
+        setWaitingForBlockId(outcome.blockId)
+        return
+      case 'done':
+        if (outcome.warnings.length > 0) {
+          setDetectionWarning(outcome.warnings.join('; '))
+        }
+        if (outcome.isRetry) {
+          setRetryFoundNothing(true)
+        }
+        setDetectionStatus('done')
+    }
+  }, [])
 
   // Effect #1 — run detection once the session is ready.
   useEffect(() => {
@@ -889,7 +908,8 @@ export function useGoogleAuth({
     // would arrive truthy. Anything that is neither `false` nor an array is
     // treated as "no sources" rather than iterated as a string.
     void trySourcesInOrder(Array.isArray(detectCredentials) ? detectCredentials : [], detectionAttempt > 0)
-  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt])
+      .then(applyDetectionOutcome)
+  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
 
   // Effect #2 — resume the walk once the block we paused on has run.
   useEffect(() => {
@@ -903,27 +923,15 @@ export function useGoogleAuth({
       return // still waiting
     }
 
-    const resume = async () => {
-      const result = await tryBlockCredentials(waitingForBlockId)
-      if (result.success && result.detected) {
-        setDetectedCredentials(result.detected)
-        setDetectionStatus('detected')
-        setWaitingForBlockId(null)
-        return
-      }
-
+    // Resume at the block's source, so an unusable block falls through to the
+    // sources stashed at the pause exactly as it would in the walk.
+    const remaining = remainingSourcesRef.current
+    remainingSourcesRef.current = []
+    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining], false).then((outcome) => {
       setWaitingForBlockId(null)
-      const remaining = remainingSourcesRef.current
-      remainingSourcesRef.current = []
-      if (remaining.length > 0) {
-        await trySourcesInOrder(remaining, false)
-      } else {
-        setDetectionStatus('done')
-      }
-    }
-
-    void resume()
-  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, tryBlockCredentials, trySourcesInOrder])
+      applyDetectionOutcome(outcome)
+    })
+  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, trySourcesInOrder, applyDetectionOutcome])
 
   // ---------------------------------------------------------------------------
   // Detection handlers
@@ -1546,7 +1554,6 @@ export function useGoogleAuth({
    */
   useEffect(() => {
     if (oauthClientId || oauthClientFile || oauthClientFilePath) {
-      setOauthUnavailable(false)
       return
     }
 

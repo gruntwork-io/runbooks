@@ -234,12 +234,15 @@ function TemplateInline({
     });
   }, [id, inputs, inputValues, allOutputs, hasAllInputDeps, hasAllOutputDeps, unmetInputsIds, templateFiles, flattenedOutputs, effectiveGenerateFile, target, debouncedRequest, isDuplicate]);
 
+  if (data && !hasRendered) {
+    setHasRendered(true);
+  }
+
   // Apply file tree updates when render data arrives. Only a response that
   // wrote files carries a fileTree; a preview response (e.g. one left over from
   // instruction mode) must never replace the Generated tree.
   useEffect(() => {
     if (!data) return;
-    setHasRendered(true);
     const { fileTree } = data;
     if (effectiveGenerateFile && Array.isArray(fileTree)) {
       applyFileTreeUpdate({ ...data, fileTree });

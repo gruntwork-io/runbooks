@@ -119,9 +119,13 @@ export function useInstructionResolution({
     [commands, mergedContext],
   )
 
-  const [resolvedCommands, setResolvedCommands] = useState<string[]>(clientResolved)
-  const [isResolving, setIsResolving] = useState(false)
-  const [usedFallback, setUsedFallback] = useState(false)
+  // The full-engine render, tagged with the client-side result it was made
+  // for so a stale one can be told apart from the current one.
+  const [engineResult, setEngineResult] = useState<{
+    source: string[]
+    commands: string[]
+    usedFallback: boolean
+  } | null>(null)
 
   const isMountedRef = useRef(true)
   useEffect(() => {
@@ -131,27 +135,35 @@ export function useInstructionResolution({
     }
   }, [])
 
-  useEffect(() => {
-    // No template references → the command is already literal; nothing to render
-    // and no IPC needed. Also covers the no-command case.
-    const hasTemplates = commands.some((c) => c.includes('{{'))
-    if (!hasTemplates) {
-      setResolvedCommands(commands)
-      setUsedFallback(false)
-      setIsResolving(false)
-      return
-    }
+  // No template references → the command is already literal; nothing to render
+  // and no IPC needed. Also covers the no-command case.
+  const hasTemplates = commands.some((c) => c.includes('{{'))
+  // No IPC bridge (e.g. component tests without an ApiProvider) → client-side.
+  const canInvoke = Boolean(api?.invoke)
 
-    // No IPC bridge (e.g. component tests without an ApiProvider) → client-side.
-    if (!api?.invoke) {
-      setResolvedCommands(clientResolved)
-      setUsedFallback(true)
-      setIsResolving(false)
-      return
+  let resolvedCommands = clientResolved
+  let usedFallback = false
+  let isResolving = false
+  if (!hasTemplates) {
+    resolvedCommands = commands
+  } else if (!canInvoke) {
+    usedFallback = true
+  } else if (engineResult?.source === clientResolved) {
+    resolvedCommands = engineResult.commands
+    usedFallback = engineResult.usedFallback
+  } else {
+    // Keep showing the previous engine render until the new one arrives.
+    isResolving = true
+    if (engineResult) {
+      resolvedCommands = engineResult.commands
+      usedFallback = engineResult.usedFallback
     }
+  }
+
+  useEffect(() => {
+    if (!hasTemplates || !canInvoke) return
 
     let cancelled = false
-    setIsResolving(true)
 
     const templateFiles: Record<string, string> = {}
     commands.forEach((c, i) => {
@@ -178,21 +190,21 @@ export function useInstructionResolution({
         // for an entry the engine didn't return or returned as that marker.
         const isRendered = (text: string | undefined): text is string =>
           text !== undefined && !text.startsWith('[template error:')
-        setResolvedCommands(out.map((text, i) => (isRendered(text) ? text : clientResolved[i])))
-        setUsedFallback(!out.every(isRendered))
-        setIsResolving(false)
+        setEngineResult({
+          source: clientResolved,
+          commands: out.map((text, i) => (isRendered(text) ? text : clientResolved[i])),
+          usedFallback: !out.every(isRendered),
+        })
       })
       .catch(() => {
         if (cancelled || !isMountedRef.current) return
-        setResolvedCommands(clientResolved)
-        setUsedFallback(true)
-        setIsResolving(false)
+        setEngineResult({ source: clientResolved, commands: clientResolved, usedFallback: true })
       })
 
     return () => {
       cancelled = true
     }
-  }, [api, commands, mergedContext, clientResolved])
+  }, [api, hasTemplates, canInvoke, commands, mergedContext, clientResolved])
 
   const manualFields = useMemo<ManualField[]>(
     () =>
