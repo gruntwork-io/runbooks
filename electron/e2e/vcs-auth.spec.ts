@@ -28,6 +28,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 import type { AddressInfo } from "node:net"
+import { readFromMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -134,14 +135,18 @@ test("trust canary: the in-Electron system-store read matches the host's", async
 
   const { app } = await launchApp(GITHUB_RUNBOOK, {})
   try {
-    const counts = await app.evaluate(() => {
-      // The built main is ESM — no `require` in the evaluate scope.
-      const tls = process.getBuiltinModule("node:tls")
-      return {
-        system: tls.getCACertificates("system").length,
-        installedDefault: tls.getCACertificates("default").length,
-      }
-    })
+    const counts = await readFromMain(
+      app,
+      () => {
+        // The built main is ESM — no `require` in the evaluate scope.
+        const tls = process.getBuiltinModule("node:tls")
+        return {
+          system: tls.getCACertificates("system").length,
+          installedDefault: tls.getCACertificates("default").length,
+        }
+      },
+      undefined,
+    )
     // Reader parity: an in-Electron read that comes up empty while the host
     // has certs is exactly the regression class this canary exists to catch.
     if (hostSystemCount > 0) {

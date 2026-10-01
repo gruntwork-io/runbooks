@@ -27,6 +27,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
+import { resizeMainWindow } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -142,9 +143,7 @@ test.beforeAll(async () => {
   })
   page = await app.firstWindow()
   await page.waitForLoadState("domcontentloaded")
-  await app.evaluate(({ BrowserWindow }, width) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(width, 900)
-  }, WINDOW_WIDTH)
+  await resizeMainWindow(app, WINDOW_WIDTH, 900)
   await expect.poll(() => page.evaluate(() => window.outerWidth)).toBe(WINDOW_WIDTH)
   await page.waitForSelector("h1", { timeout: 60_000 })
 
