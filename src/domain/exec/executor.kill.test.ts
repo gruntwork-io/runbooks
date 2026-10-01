@@ -68,7 +68,9 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (pred()) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => {
+      setTimeout(r, 50)
+    })
   }
   return pred()
 }
@@ -172,7 +174,11 @@ async function runToCompletion(
   const { events, logFilePath } = await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const { logStream, completionEffect, logFilePath } = yield* executeScript(
+        const {
+          logStream,
+          completionEffect,
+          logFilePath: scriptLogFilePath,
+        } = yield* executeScript(
           script,
           language,
           request,
@@ -193,7 +199,7 @@ async function runToCompletion(
         )
         if (pauseBeforeCompletionMs > 0) yield* Effect.sleep(pauseBeforeCompletionMs)
         const completion = yield* completionEffect
-        return { events: [...logs, ...completion], logFilePath }
+        return { events: [...logs, ...completion], logFilePath: scriptLogFilePath }
       }),
     ).pipe(Effect.provide(liveLayer)),
   )
@@ -465,7 +471,9 @@ describe("executeScript success path (e2e, real process tree)", () => {
     // which ends `sleep` at once (the SIGKILL escalation only matters for a
     // job that ignores SIGTERM). Give that a moment to land, then check the
     // job is still running.
-    await new Promise((r) => setTimeout(r, 1000))
+    await new Promise((r) => {
+      setTimeout(r, 1000)
+    })
     expect(isAlive(backgroundPid)).toBe(true)
   }, 20000)
 

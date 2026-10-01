@@ -375,8 +375,8 @@ function countTreeFiles(nodes: TreeNode[]): number {
 
 function getAllFolderPaths(nodes: TreeNode[]): string[] {
   const paths: string[] = []
-  const traverse = (nodes: TreeNode[]) => {
-    for (const node of nodes) {
+  const traverse = (levelNodes: TreeNode[]) => {
+    for (const node of levelNodes) {
       if (node.type === "folder") {
         paths.push(node.path)
         if (node.children) traverse(node.children)

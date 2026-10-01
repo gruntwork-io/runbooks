@@ -15,6 +15,8 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
     "noUncheckedSideEffectImports": true,
     "types": ["node"]
   },

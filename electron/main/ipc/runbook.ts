@@ -97,7 +97,7 @@ export function registerRunbookHandlers(): void {
         runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
       } catch (err) {
         log.debug("failed to resolve runbook path", params.path, err)
-        throw new Error(describeRunbookOpenError(params.path))
+        throw new Error(describeRunbookOpenError(params.path), { cause: err })
       }
       if (superseded()) return SUPERSEDED
       const config: RunbookConfig = {

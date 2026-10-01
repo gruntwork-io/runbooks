@@ -247,7 +247,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
 
     const listen = async (server: http.Server | https.Server) => {
       servers.push(server)
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve)
+      })
       return `127.0.0.1:${(server.address() as AddressInfo).port}`
     }
 
@@ -270,7 +272,12 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
 
     afterEach(async () => {
       await Promise.all(
-        servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+        servers.map(
+          (server) =>
+            new Promise<void>((resolve) => {
+              server.close(() => resolve())
+            }),
+        ),
       )
     })
 
@@ -405,7 +412,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
           }
         })
       })
-      await new Promise<void>((resolve) => apiServer.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>((resolve) => {
+        apiServer.listen(0, "127.0.0.1", resolve)
+      })
       const apiPort = (apiServer.address() as AddressInfo).port
 
       // The network boundary: every request the API clients make lands on the
@@ -426,7 +435,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
 
     afterEach(async () => {
       globalThis.fetch = originalFetch
-      await new Promise<void>((resolve) => apiServer.close(() => resolve()))
+      await new Promise<void>((resolve) => {
+        apiServer.close(() => resolve())
+      })
     })
 
     interface GitResult {
@@ -718,12 +729,15 @@ describe("session token binding (local http and https remotes)", () => {
       seen,
       /** Resolves to the remote's bare host (`127.0.0.1:<port>`). */
       listen: () =>
-        new Promise<string>((resolve) =>
+        new Promise<string>((resolve) => {
           server.listen(0, "127.0.0.1", () =>
             resolve(`127.0.0.1:${(server.address() as AddressInfo).port}`),
-          ),
-        ),
-      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+          )
+        }),
+      close: () =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve())
+        }),
     }
   }
 

@@ -1266,7 +1266,9 @@ describe("useGitAuth — Re-authenticate", () => {
     })
     // Give a re-detection every chance to start and settle.
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
     })
   }
 

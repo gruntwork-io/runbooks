@@ -15,7 +15,7 @@
  * Learn more: https://runbooks.gruntwork.io/security/telemetry/
  */
 
-import { useEffect, useState, useCallback, useRef, type ReactNode } from "react"
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react"
 import mixpanel from "mixpanel-browser"
 import { TelemetryContext, type TelemetryConfig } from "./TelemetryContext.types"
 import { useApi } from "./ApiContext"
@@ -164,12 +164,11 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
     }, 500)
   }, []) // Empty deps for stable identity - uses trackRef for latest track function
 
-  const contextValue = {
-    isEnabled: config?.enabled ?? false,
-    isInitialized,
-    track,
-    trackBlockRender,
-  }
+  const isEnabled = config?.enabled ?? false
+  const contextValue = useMemo(
+    () => ({ isEnabled, isInitialized, track, trackBlockRender }),
+    [isEnabled, isInitialized, track, trackBlockRender],
+  )
 
   return <TelemetryContext.Provider value={contextValue}>{children}</TelemetryContext.Provider>
 }

@@ -14,8 +14,8 @@ const CLI_TIMEOUT = 60_000
 const PASSING_MDX = `# Passing\n\n<Command id="hello" command="echo hi" />\n`
 const FAILING_MDX = `# Failing\n\n<Command id="boom" command="echo boom; exit 1" />\n`
 
-function testYml(block: string, name = "happy", expect = "success"): string {
-  return `version: 1\ntests:\n  - name: ${name}\n    steps:\n      - block: ${block}\n        expect: ${expect}\n`
+function testYml(block: string, name = "happy", expected = "success"): string {
+  return `version: 1\ntests:\n  - name: ${name}\n    steps:\n      - block: ${block}\n        expect: ${expected}\n`
 }
 
 let tmp: string

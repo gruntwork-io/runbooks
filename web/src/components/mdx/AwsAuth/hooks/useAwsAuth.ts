@@ -157,10 +157,10 @@ export function useAwsAuth({
 
       // The script may have marked the credentials sensitive; AwsAuth needs their real values
       const outputs: Partial<Record<string, string>> = revealOutputs(values)
-      const accessKeyId = outputs.AWS_ACCESS_KEY_ID
-      const secretAccessKey = outputs.AWS_SECRET_ACCESS_KEY
+      const blockAccessKeyId = outputs.AWS_ACCESS_KEY_ID
+      const blockSecretAccessKey = outputs.AWS_SECRET_ACCESS_KEY
 
-      if (!accessKeyId || !secretAccessKey) {
+      if (!blockAccessKeyId || !blockSecretAccessKey) {
         return {
           found: false,
           error: `Block "${blockId}" did not output AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY`,
@@ -170,8 +170,8 @@ export function useAwsAuth({
       return {
         found: true,
         creds: {
-          accessKeyId,
-          secretAccessKey,
+          accessKeyId: blockAccessKeyId,
+          secretAccessKey: blockSecretAccessKey,
           sessionToken: outputs.AWS_SESSION_TOKEN,
           region: outputs.AWS_REGION || defaultRegion,
         },

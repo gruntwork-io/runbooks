@@ -456,7 +456,12 @@ app.on("will-quit", (event) => {
   // cleanup below so a script is signalled before its temp clone or credential
   // file disappears. The wait is capped at 1 s so that cleanup still runs
   // inside the safety timeout.
-  Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
+  Promise.race([
+    cancelAllExecutions(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 1000)
+    }),
+  ])
     .catch((err) => {
       log.error("Error cancelling executions:", err)
     })

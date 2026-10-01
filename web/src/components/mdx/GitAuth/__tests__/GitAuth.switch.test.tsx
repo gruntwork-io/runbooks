@@ -315,7 +315,9 @@ describe("GitAuth — Re-authenticate (real hook)", () => {
       window.dispatchEvent(new Event("focus"))
     })
     await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20))
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
     })
     expect(detections("github:env-credentials")).toBe(1)
     expect(screen.queryByRole("button", { name: "Re-authenticate" })).toBeNull()

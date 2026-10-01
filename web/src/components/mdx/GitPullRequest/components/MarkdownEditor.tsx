@@ -1,9 +1,19 @@
 import { useState, useRef } from "react"
 import "./MarkdownEditor.css"
 import ReactMarkdown from "react-markdown"
+import type { Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeRaw from "rehype-raw"
 import rehypeSanitize from "rehype-sanitize"
+
+// Preview links open outside the app.
+const previewComponents: Components = {
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  ),
+}
 
 interface MarkdownEditorProps {
   value: string
@@ -73,13 +83,7 @@ export function MarkdownEditor({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeRaw, rehypeSanitize]}
-                components={{
-                  a: ({ href, children }) => (
-                    <a href={href} target="_blank" rel="noopener noreferrer">
-                      {children}
-                    </a>
-                  ),
-                }}
+                components={previewComponents}
               >
                 {value}
               </ReactMarkdown>

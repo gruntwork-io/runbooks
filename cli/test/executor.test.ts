@@ -410,7 +410,7 @@ describe("TestExecutor — session env and cwd", () => {
   ]
     .map((line) => `echo "${line}" >> "$RUNBOOK_OUTPUT"`)
     .join("; ")
-  const RUNBOOK = [
+  const SESSION_RUNBOOK = [
     "# Session",
     "",
     `<GitHubAuth id="gh" />`,
@@ -423,7 +423,7 @@ describe("TestExecutor — session env and cwd", () => {
 
   const makeExecutor = async () => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, RUNBOOK)
+    fs.writeFileSync(rb, SESSION_RUNBOOK)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
     return executor
@@ -1082,7 +1082,7 @@ describe("TestExecutor — variables two blocks declare", () => {
 describe("TestExecutor — PR blocks", () => {
   let tmp: string
 
-  const RUNBOOK = [
+  const PR_RUNBOOK = [
     "# PR blocks",
     "",
     `<GitAuth id="git-auth" provider="gitlab" />`,
@@ -1099,7 +1099,7 @@ describe("TestExecutor — PR blocks", () => {
 
   const makeExecutor = async () => {
     const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, RUNBOOK)
+    fs.writeFileSync(rb, PR_RUNBOOK)
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
     return executor

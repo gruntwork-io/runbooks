@@ -155,7 +155,7 @@ function TemplateInline({
   const unmetInputsIds = useMemo(() => {
     if (!inputsId) return []
     const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
-    return ids.filter((id) => !blockInputs[id])
+    return ids.filter((inputsBlockId) => !blockInputs[inputsBlockId])
   }, [inputsId, blockInputs])
 
   // Get all block outputs to check dependencies and pass to template rendering

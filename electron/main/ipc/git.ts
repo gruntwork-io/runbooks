@@ -251,7 +251,12 @@ async function runCancellableClone<A>(
 ): Promise<A | { status: "cancelled" }> {
   const controller = new AbortController()
   let settle = () => {}
-  const clone: ActiveClone = { controller, settled: new Promise((resolve) => (settle = resolve)) }
+  const clone: ActiveClone = {
+    controller,
+    settled: new Promise((resolve) => {
+      settle = resolve
+    }),
+  }
   if (cloneId) activeClones.set(cloneId, clone)
   try {
     return await run(controller.signal)
@@ -661,7 +666,9 @@ export function registerGitHandlers(): void {
     let timer: ReturnType<typeof setTimeout> | undefined
     await Promise.race([
       clone.settled,
-      new Promise<void>((resolve) => (timer = setTimeout(resolve, CLONE_CANCEL_REPLY_WAIT_MS))),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, CLONE_CANCEL_REPLY_WAIT_MS)
+      }),
     ])
     clearTimeout(timer)
     return { ok: true as const }

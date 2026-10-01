@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react"
+import React, { useState, useCallback, useMemo } from "react"
 import type { ReactNode } from "react"
 import { GeneratedFilesContext } from "./GeneratedFilesContext.types"
 import type { FileTreeNode } from "../components/artifacts/code/FileTree"
@@ -35,17 +35,16 @@ export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ 
     )
   }, [])
 
-  return (
-    <GeneratedFilesContext.Provider
-      value={{
-        fileTree,
-        truncationInfo,
-        localPath,
-        setLocalPath: stableSetLocalPath,
-        updateGeneratedFileTree,
-      }}
-    >
-      {children}
-    </GeneratedFilesContext.Provider>
+  const value = useMemo(
+    () => ({
+      fileTree,
+      truncationInfo,
+      localPath,
+      setLocalPath: stableSetLocalPath,
+      updateGeneratedFileTree,
+    }),
+    [fileTree, truncationInfo, localPath, stableSetLocalPath, updateGeneratedFileTree],
   )
+
+  return <GeneratedFilesContext.Provider value={value}>{children}</GeneratedFilesContext.Provider>
 }

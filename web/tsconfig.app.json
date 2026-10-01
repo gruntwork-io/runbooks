@@ -21,6 +21,8 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": false,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
     "noUncheckedSideEffectImports": true,
 
     /* Install shadcn/ui per https://ui.shadcn.com/docs/installation/vite */

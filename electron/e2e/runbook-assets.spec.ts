@@ -91,8 +91,8 @@ interface MediaState {
  */
 function mediaState(page: Page, selector: string, seekTo?: number): Promise<MediaState> {
   return page.evaluate(
-    async ({ selector, seekTo }) => {
-      const el = document.querySelector(selector) as HTMLMediaElement
+    async ({ selector: mediaSelector, seekTo: seekTarget }) => {
+      const el = document.querySelector(mediaSelector) as HTMLMediaElement
       const settle = (event: string) =>
         new Promise<void>((resolve) => {
           el.addEventListener(event, () => resolve(), { once: true })
@@ -101,9 +101,9 @@ function mediaState(page: Page, selector: string, seekTo?: number): Promise<Medi
         })
       if (el.readyState < HTMLMediaElement.HAVE_METADATA && !el.error)
         await settle("loadedmetadata")
-      if (seekTo !== undefined && !el.error) {
+      if (seekTarget !== undefined && !el.error) {
         const seeked = settle("seeked")
-        el.currentTime = seekTo
+        el.currentTime = seekTarget
         await seeked
       }
       const seekable: [number, number][] = []
