@@ -1,6 +1,7 @@
 /**
- * Watches a runbook file for write/create events, debounced at 300ms to
- * coalesce rapid changes (e.g. editor save + format).
+ * Watches a runbook file, and the script files its blocks run, for
+ * write/create events, debounced at 300ms to coalesce rapid changes (e.g.
+ * editor save + format).
  */
 import * as path from "path"
 import { Effect, Stream, pipe } from "effect"
@@ -66,5 +67,48 @@ export const createWatcher = (
           isSameFile(path.resolve(event.path), runbookFile, platform),
       ),
       Stream.debounce(DEBOUNCE_MS),
+    )
+  })
+
+/**
+ * Creates a debounced file watcher stream for the script files a runbook's
+ * blocks run.
+ *
+ * Like createWatcher, it watches the directories that contain `scriptPaths`
+ * without their subdirectories, and reacts to "add" and "change" events on
+ * those files only. After a burst of changes it emits once, with every script
+ * that was written during the burst, each as it is spelled in `scriptPaths`.
+ */
+export const createScriptWatcher = (
+  scriptPaths: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+): Effect.Effect<Stream.Stream<string[], FileWatchError>, never, FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem
+    const scripts = scriptPaths.map((scriptPath) => ({ scriptPath, file: path.resolve(scriptPath) }))
+    const watchDirs = [...new Set(scripts.map((script) => path.dirname(script.file)))]
+
+    // The debounce keeps only the last event of a burst, so the scripts
+    // written during it are collected here and handed over when it emits.
+    const written = new Set<string>()
+
+    return pipe(
+      fs.watch(watchDirs, { depth: 0 }),
+      Stream.filter((event) => event.type === "add" || event.type === "change"),
+      Stream.map((event) =>
+        scripts.filter((script) => isSameFile(path.resolve(event.path), script.file, platform)),
+      ),
+      Stream.filter((matches) => matches.length > 0),
+      Stream.tap((matches) =>
+        Effect.sync(() => {
+          for (const match of matches) written.add(match.scriptPath)
+        }),
+      ),
+      Stream.debounce(DEBOUNCE_MS),
+      Stream.map(() => {
+        const scriptsWritten = [...written]
+        written.clear()
+        return scriptsWritten
+      }),
     )
   })

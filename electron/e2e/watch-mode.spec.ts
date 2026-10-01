@@ -1,10 +1,14 @@
 /**
- * E2E tests for watch mode (`--watch`).
+ * E2E tests for watch mode (`--watch`) and for reloading a script file that
+ * changed on disk.
  *
  * Launches the real app on a throwaway runbook, edits runbook.mdx on disk,
  * and checks that the app reloads it. Running a block after the reload shows
  * which executable registry the main process used: rebuilt from the edited
  * file by default, or frozen at open with --disable-live-file-reload.
+ *
+ * Without --watch, editing a block's script file leaves the registry as it
+ * is until the user reloads the script from the block.
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
@@ -113,11 +117,13 @@ test.describe("Watch mode", () => {
       fs.writeFileSync(scriptPath, "#!/bin/bash\necho script-after\n")
       // Save runbook.mdx with the same bytes; save again if the first save
       // landed before the watcher was ready.
+      // The edit first shows in the block's "Script changed" notice; once the
+      // reload has rebuilt the registry, the notice goes and the source shows it.
       await expect(async () => {
         fs.writeFileSync(runbookPath, content)
-        await expect(block.getByText("script-after")).toBeVisible({ timeout: 2_000 })
+        await expect(block.getByText("script-after").first()).toBeVisible({ timeout: 2_000 })
+        await expect(block.getByText("Script changed")).toHaveCount(0, { timeout: 2_000 })
       }).toPass({ timeout: 15_000 })
-      await expect(block.getByText("Script changed")).toHaveCount(0)
 
       await runGreet(page)
       // The run's log output, not the source view
@@ -126,6 +132,39 @@ test.describe("Watch mode", () => {
       await app.close()
     }
   })
+
+  for (const flags of [[], ["--watch", "--disable-live-file-reload"]]) {
+    test(`a script edited on disk runs as loaded until it is reloaded from its block (flags: ${flags.join(" ") || "none"})`, async () => {
+      const scriptPath = path.join(path.dirname(runbookPath), "greet.sh")
+      fs.writeFileSync(scriptPath, "#!/bin/bash\necho script-before\n")
+      fs.writeFileSync(runbookPath, `# Before edit\n\n<Command id="greet" path="greet.sh" />\n`)
+      const { app, page } = await launch(flags)
+      try {
+        const block = page.locator('[data-testid="greet"]')
+        const output = (line: RegExp) => block.locator(".terminal-text", { hasText: line })
+
+        // Edit again if the first edit landed before the script watcher was ready.
+        await expect(async () => {
+          fs.writeFileSync(scriptPath, "#!/bin/bash\necho script-after\n")
+          await expect(block.getByText("Script changed")).toBeVisible({ timeout: 2_000 })
+        }).toPass({ timeout: 15_000 })
+        const diff = block.getByTestId("script-change-diff")
+        await expect(diff).toContainText("-echo script-before")
+        await expect(diff).toContainText("+echo script-after")
+
+        await runGreet(page)
+        await expect(output(/^script-before$/)).toBeVisible()
+
+        await block.getByRole("button", { name: "Reload script" }).click()
+        await expect(block.getByText("Script changed")).toHaveCount(0)
+
+        await block.getByRole("button", { name: "Run" }).click()
+        await expect(output(/^script-after$/)).toBeVisible({ timeout: 30_000 })
+      } finally {
+        await app.close()
+      }
+    })
+  }
 
   test("--disable-live-file-reload reloads the view but keeps running the command approved at open", async () => {
     const { app, page } = await launch(["--watch", "--disable-live-file-reload"])
