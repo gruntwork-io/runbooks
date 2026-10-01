@@ -2,12 +2,17 @@
  * E2E tests for the Iframe block in the built app, where the production CSP
  * applies (electron/main/csp.ts).
  *
- * Opens a throwaway runbook that frames a page from its assets/ folder, whose
+ * Opens a throwaway runbook that embeds a page from its assets/ folder, whose
  * stylesheet and script load through relative paths, and a page served by a
- * local HTTP server. Also checks what a framed page cannot do: load before
- * the user clicks, read runbook files outside assets/, open windows, or read
- * the storage of another runbook's pages. Also checks the session's
- * permission handlers (electron/main/permissions.ts) with
+ * local HTTP server. Each runs in a <webview> guest (electron/main/embeds.ts),
+ * a web contents of its own that Playwright has no Frame for, so the tests
+ * reach into guests through the main process. Also checks what an embedded
+ * page cannot do: load before the user clicks, take keyboard focus from the
+ * app, read runbook files outside assets/, open windows or dialogs, get
+ * permissions, read the storage of another runbook's pages, or (for a web
+ * page) load the runbook's assets; and that a <webview> the Iframe block
+ * didn't make can't pick its own session or preload. Also checks the app
+ * session's permission handlers (electron/main/permissions.ts) with
  * navigator.permissions.query, which never raises an OS prompt, and that the
  * title bar keeps the end of a long host, the part that names the site, in view.
  *
@@ -16,7 +21,7 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts 'iframe\.spec'
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Frame, type Page } from "@playwright/test"
+import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
 import * as fs from "fs"
 import * as http from "http"
 import type { AddressInfo } from "net"
@@ -43,6 +48,16 @@ const STORAGE_PAGE = '<!doctype html><p id="seen"></p><script src="storage.js"><
 const storageScript = (runbook: string) =>
   `document.getElementById("seen").textContent = localStorage.getItem("token") ?? "nothing"\n` +
   `localStorage.setItem("token", "saved by ${runbook}")\n`
+
+// Takes keyboard focus into its own field every 50ms, without a click, and
+// keeps what it gets.
+const GRAB_PAGE = `<!doctype html><input id="grab"><script>
+  setInterval(() => { window.focus(); document.getElementById("grab").focus() }, 50)
+  window.stealing = true
+</script>`
+
+// Sets a mark on the page if it runs, which it must not: see the <webview> test.
+const PRELOAD = 'document.addEventListener("DOMContentLoaded", () => { document.documentElement.dataset.preloaded = "yes" })\n'
 
 // A host that starts like AWS's and ends with the site it really is.
 const SPOOF_URL = `https://console.aws.amazon.com.signin-verify-session-${"0".repeat(40)}.evil.example/`
@@ -81,8 +96,11 @@ test.beforeEach(() => {
     "runbook",
     `<Iframe src="./assets/site/index.html" title="Local" />\n\n<Iframe src="${serverUrl}" title="External" />\n\n` +
       `<Iframe src="${serverUrl.replace("127.0.0.1", "localhost")}" title="Localhost" />\n\n` +
-      `<Iframe src="${SPOOF_URL}" title="AWS sign-in" />\n\n`,
+      `<Iframe src="${SPOOF_URL}" title="AWS sign-in" />\n\n<Iframe src="./assets/grab/index.html" title="Grabber" />\n\n`,
   )
+  fs.mkdirSync(path.join(runbookDir, "assets/grab"))
+  fs.writeFileSync(path.join(runbookDir, "assets/grab/index.html"), GRAB_PAGE)
+  fs.writeFileSync(path.join(tmpDir, "preload.js"), PRELOAD)
   const siteDir = path.join(runbookDir, "assets/site")
   fs.mkdirSync(siteDir, { recursive: true })
   fs.writeFileSync(path.join(runbookDir, "secret.txt"), "secret")
@@ -122,30 +140,56 @@ async function loadFrame(page: Page, title: string): Promise<void> {
     .click()
 }
 
-/** The frame that has loaded `url`, once it has. */
-async function frameAt(page: Page, url: string | RegExp): Promise<Frame> {
-  const matches = (f: Frame) => (typeof url === "string" ? f.url() === url : url.test(f.url()))
-  await expect.poll(() => page.frames().some(matches)).toBe(true)
-  return page.frames().find(matches)!
+// The runbook's own runbook-asset:// host, whose root is its assets/ folder.
+const LOCAL_SITE = /^runbook-asset:\/\/r[0-9a-f]{32}\/site\/index\.html$/
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/** The URLs of the <webview> guests. */
+function guestUrls(app: ElectronApplication): Promise<string[]> {
+  return app.evaluate(({ webContents }) =>
+    webContents
+      .getAllWebContents()
+      .filter((c) => c.getType() === "webview")
+      .map((c) => c.getURL()),
+  )
 }
 
-/** Whether a script in `frame` can read the app's preload API through `parent`. */
-function canReachAppApi(frame: Frame): Promise<boolean> {
-  return frame.evaluate(() => {
-    try {
-      return (window.parent as unknown as { api?: unknown }).api !== undefined
-    } catch {
-      return false
-    }
-  })
+/** Run `script` in the guest whose URL matches `url`, once there is one, and return its result. */
+async function inGuest<T>(app: ElectronApplication, url: RegExp, script: string): Promise<T> {
+  await expect.poll(async () => (await guestUrls(app)).some((u) => url.test(u))).toBe(true)
+  return (await app.evaluate(
+    ({ webContents }, { source, script }) => {
+      const pattern = new RegExp(source)
+      const guest = webContents
+        .getAllWebContents()
+        .find((c) => c.getType() === "webview" && pattern.test(c.getURL()))!
+      return guest.executeJavaScript(script)
+    },
+    { source: url.source, script },
+  )) as T
+}
+
+/** Whether the stylesheet at `href` loads in the guest whose URL matches `url`. */
+function stylesheetLoads(app: ElectronApplication, url: RegExp, href: string): Promise<boolean> {
+  return inGuest(
+    app,
+    url,
+    `new Promise((resolve) => {
+      const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: ${JSON.stringify(href)} })
+      link.onload = () => resolve(true)
+      link.onerror = () => resolve(false)
+      document.head.append(link)
+    })`,
+  )
 }
 
 test.describe("Iframe block", () => {
   test("loads nothing until the user clicks Load", async () => {
     const { app, page } = await launch()
     try {
-      await expect(page.getByRole("button", { name: "Load page" })).toHaveCount(5)
-      expect(page.frames()).toHaveLength(1)
+      await expect(page.getByRole("button", { name: "Load page" })).toHaveCount(6)
+      expect(await guestUrls(app)).toEqual([])
     } finally {
       await app.close()
     }
@@ -155,40 +199,100 @@ test.describe("Iframe block", () => {
     const { app, page } = await launch()
     try {
       await loadFrame(page, "Local")
-      const local = page.frameLocator('iframe[title="Local"]')
-      await expect(local.getByRole("heading", { name: "Local page" })).toHaveCSS("color", "rgb(37, 99, 235)")
-      await expect(local.locator("#status")).toHaveText("script ran")
+      await expect.poll(() => inGuest(app, LOCAL_SITE, `document.getElementById("status")?.textContent`)).toBe("script ran")
+      expect(await inGuest(app, LOCAL_SITE, `getComputedStyle(document.querySelector("h1")).color`)).toBe("rgb(37, 99, 235)")
 
-      // The runbook's own host, whose root is its assets/ folder.
-      const frame = await frameAt(page, /^runbook-asset:\/\/r[0-9a-f]{32}\/site\/index\.html$/)
-      expect(await canReachAppApi(frame)).toBe(false)
+      // No preload, so no window.api and nothing of Node.
+      expect(await inGuest(app, LOCAL_SITE, `[typeof window.api, typeof require, typeof process]`)).toEqual([
+        "undefined",
+        "undefined",
+        "undefined",
+      ])
       // secret.txt sits in the runbook directory, next to runbook.mdx.
-      const status = await frame.evaluate(async () => (await fetch("/..%2Fsecret.txt")).status)
-      expect(status).toBe(403)
-      // No allow-popups: window.open fails in the frame instead of reaching
-      // the main process's window-open handler, which would open the URL in
-      // the browser without a click.
+      expect(await inGuest(app, LOCAL_SITE, `fetch("/..%2Fsecret.txt").then((r) => r.status)`)).toBe(403)
+      // alert() would open a native dialog over the app. (Calling it here
+      // trips Playwright's own dialog handling, so check the preference.)
+      const prefs = await app.evaluate(({ webContents }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getType() === "webview")!
+        const { disableDialogs, sandbox, contextIsolation, nodeIntegration } = guest.getLastWebPreferences()!
+        return { disableDialogs, sandbox, contextIsolation, nodeIntegration }
+      })
+      expect(prefs).toEqual({ disableDialogs: true, sandbox: true, contextIsolation: true, nodeIntegration: false })
+
+      // window.open is denied instead of reaching the main process's
+      // window-open handler, which would open the URL in the browser without
+      // a click.
       await app.evaluate(({ shell }) => {
         const opened: string[] = []
         Object.assign(globalThis, { opened })
         shell.openExternal = async (url) => void opened.push(url)
       })
-      await frame.evaluate(() => window.open("https://example.com/"))
+      expect(await inGuest(app, LOCAL_SITE, `window.open("https://example.com/") === null`)).toBe(true)
       expect(await app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened)).toEqual([])
     } finally {
       await app.close()
     }
   })
 
-  test("loads plain-http pages on 127.0.0.1 and localhost", async () => {
+  test("keeps keyboard focus in the app while an embedded page tries to take it", async () => {
+    const { app, page } = await launch()
+    try {
+      // Playwright emulates focus for its pages, which also keeps a click
+      // from moving keyboard focus into a guest. The real app doesn't.
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: false })
+
+      await loadFrame(page, "Grabber")
+      const grabber = /\/grab\/index\.html$/
+      await expect.poll(() => inGuest(app, grabber, "window.stealing === true")).toBe(true)
+      // A field in the runbook, like an AwsAuth secret key field.
+      await page.evaluate(() => {
+        const input = Object.assign(document.createElement("input"), { id: "secret" })
+        document.querySelector('[data-testid="runbook-content"]')!.prepend(input)
+      })
+      await page.locator("#secret").click()
+      // The page tries to take focus every 50ms meanwhile.
+      await page.waitForTimeout(500)
+      await page.keyboard.type("hunter2", { delay: 60 })
+      await expect(page.locator("#secret")).toHaveValue("hunter2")
+      expect(await inGuest(app, grabber, `document.getElementById("grab").value`)).toBe("")
+
+      // A click into the page does give it the keyboard.
+      await page.locator("webview[title=Grabber]").click()
+      await page.keyboard.type("ok", { delay: 60 })
+      await expect.poll(() => inGuest(app, grabber, `document.getElementById("grab").value`)).toBe("ok")
+    } finally {
+      await app.close()
+    }
+  })
+
+  test("loads plain-http pages on 127.0.0.1 and localhost, without the runbook's assets or permissions", async () => {
     const { app, page } = await launch()
     try {
       await loadFrame(page, "External")
       await loadFrame(page, "Localhost")
-      await expect(page.frameLocator('iframe[title="External"]').getByRole("heading", { name: "External page" })).toBeVisible()
-      await expect(page.frameLocator('iframe[title="Localhost"]').getByRole("heading", { name: "External page" })).toBeVisible()
+      await loadFrame(page, "Local")
+      const external = new RegExp(`^${escapeRegExp(serverUrl)}$`)
+      const localhost = new RegExp(`^${escapeRegExp(serverUrl.replace("127.0.0.1", "localhost"))}$`)
+      for (const url of [external, localhost]) {
+        await expect.poll(() => inGuest(app, url, `document.querySelector("h1")?.textContent`)).toBe("External page")
+        expect(await inGuest(app, url, "typeof window.api")).toBe("undefined")
+      }
 
-      expect(await canReachAppApi(await frameAt(page, serverUrl))).toBe(false)
+      // Web pages run in a session that doesn't serve runbook-asset://, so a
+      // site the runbook embeds can't load its assets; the local page can.
+      await expect.poll(() => inGuest(app, LOCAL_SITE, `document.getElementById("status")?.textContent`)).toBe("script ran")
+      const localUrl = (await guestUrls(app)).find((u) => LOCAL_SITE.test(u))!
+      const stylesheet = new URL("style.css", localUrl).href
+      expect(await stylesheetLoads(app, LOCAL_SITE, stylesheet)).toBe(true)
+      expect(await stylesheetLoads(app, external, stylesheet)).toBe(false)
+
+      // Electron's default would answer "granted".
+      for (const name of ["camera", "notifications", "clipboard-write"]) {
+        expect(await inGuest(app, external, `navigator.permissions.query({ name: "${name}" }).then((p) => p.state)`)).toBe(
+          "denied",
+        )
+      }
     } finally {
       await app.close()
     }
@@ -200,9 +304,9 @@ test.describe("Iframe block", () => {
       const { app, page } = await launch(name)
       try {
         await loadFrame(page, "Storage")
-        const text = page.frameLocator('iframe[title="Storage"]').locator("#seen")
-        await expect(text).toHaveText(/./)
-        return await text.textContent()
+        const storage = /\/storage\/index\.html$/
+        await expect.poll(() => inGuest(app, storage, `document.getElementById("seen")?.textContent ?? ""`)).not.toBe("")
+        return inGuest(app, storage, `document.getElementById("seen").textContent`)
       } finally {
         await app.close()
       }
@@ -241,11 +345,51 @@ test.describe("Iframe block", () => {
     }
   })
 
-  // Checked from the app's own frame: a framed page's permissions.query reads
-  // "denied" whether or not the handlers are installed, because the frame's
-  // permissions policy answers first, while its getUserMedia still reaches
-  // the request handler. Querying the app frame goes through the check
-  // handler, where Electron's default answers "granted".
+  // Runbook MDX can't write a <webview> (remarkLiteralOnly), so these stand
+  // in for a bug or a compromised renderer.
+  test("vets every <webview> in the main process, whatever the tag asks for", async () => {
+    const { app, page } = await launch()
+    try {
+      await page.evaluate(
+        ({ serverUrl, preload }) => {
+          const add = (attributes: Record<string, string>) => {
+            const webview = document.createElement("webview")
+            for (const [name, value] of Object.entries(attributes)) webview.setAttribute(name, value)
+            document.body.append(webview)
+          }
+          add({ src: "file:///etc/hosts" })
+          add({
+            src: `${serverUrl}?asked`,
+            partition: "persist:asked",
+            preload,
+            nodeintegration: "",
+            webpreferences: "contextIsolation=no, sandbox=no",
+          })
+        },
+        { serverUrl, preload: `file://${path.join(tmpDir, "preload.js")}` },
+      )
+
+      const asked = /\?asked$/
+      await expect.poll(() => inGuest(app, asked, `document.querySelector("h1")?.textContent`)).toBe("External page")
+      expect(await inGuest(app, asked, `[document.documentElement.dataset.preloaded ?? "none", typeof require]`)).toEqual([
+        "none",
+        "undefined",
+      ])
+      const inWebSession = await app.evaluate(({ webContents, session }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getType() === "webview" && c.getURL().endsWith("?asked"))!
+        return guest.session === session.fromPartition("persist:embed-web")
+      })
+      expect(inWebSession).toBe(true)
+      // The file: one never got a guest.
+      expect((await guestUrls(app)).filter((u) => !u.endsWith("?asked"))).toEqual([])
+    } finally {
+      await app.close()
+    }
+  })
+
+  // Querying the app frame goes through the default session's check handler,
+  // where Electron's default answers "granted". Embedded pages' sessions are
+  // checked in the plain-http test.
   test("the app's own frame gets clipboard writes and nothing else", async () => {
     const { app, page } = await launch()
     try {

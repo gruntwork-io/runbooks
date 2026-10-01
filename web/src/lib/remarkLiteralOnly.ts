@@ -90,8 +90,9 @@ export function remarkLiteralOnly() {
 // Elements that load and run scripts or embed other documents. React 19 loads
 // `<script async src>` wherever it is rendered, and a frame's document (e.g.
 // `<iframe srcDoc>`) shares the app's origin and CSP, so it could rebuild the
-// same script load and reach `parent.api`. Compared lowercased.
-const BLOCKED_ELEMENTS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed'])
+// same script load and reach `parent.api`. A `<webview>` would embed a page
+// without the Iframe block's Load button. Compared lowercased.
+const BLOCKED_ELEMENTS = new Set(['script', 'iframe', 'frame', 'frameset', 'object', 'embed', 'webview'])
 
 // Prop names (compared lowercased) that are never literal content:
 // `dangerouslySetInnerHTML` and `srcDoc` inject raw HTML, whose inline event
