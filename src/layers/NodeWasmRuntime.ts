@@ -158,7 +158,6 @@ export function eagerLoadInBackground(): void {
     // Eager-load failures are non-fatal; the lazy path will retry. Logging
     // here so eager failures surface in main-process stdout where dev mode
     // can spot them.
-    // eslint-disable-next-line no-console
     console.log("[WasmRuntime] eager load failed, will retry on first call:", err?.message ?? err)
   })
 }

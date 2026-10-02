@@ -1168,6 +1168,18 @@ describe('useGitAuth — Re-authenticate', () => {
   })
 })
 
+describe('useGitAuth — empty detection sources', () => {
+  it('ends detection without trying anything', async () => {
+    const invoke = installApi(async () => ({ found: false }))
+
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: [] })
+
+    await waitFor(() => expect(result.current.detectionStatus).toBe('done'))
+    expect(result.current.detectionWarning).toBeNull()
+    expect(invoke.mock.calls.map((c) => c[0])).not.toContainEqual(expect.stringMatching(/-credentials$/))
+  })
+})
+
 describe('useGitAuth — {block} detection sources', () => {
   it('falls through to the next source when the block ran without a token', async () => {
     // The block ran and registered outputs, just none this provider reads.
@@ -1318,6 +1330,23 @@ describe('useGitAuth — {block} detection sources', () => {
     expect(JSON.stringify(published)).not.toContain('ghp_abc')
   })
 
+  it('shows the CLI hint and downgrade while it waits on a later block', async () => {
+    const KEYRING_COPY = 'gh stores this token in the OS keyring but could not read it.'
+    installApi(async (channel) => {
+      if (channel === 'github:cli-credentials') {
+        return { found: false, outcome: 'absent', hint: KEYRING_COPY }
+      }
+      return { found: false }
+    })
+
+    const { result } = renderGitAuth({ id: 'gh', provider: PROVIDERS.github, detectCredentials: ['cli', { block: 'mint' }] })
+
+    await waitFor(() => expect(result.current.waitingForBlockId).toBe('mint'))
+    expect(result.current.detectionStatus).toBe('pending')
+    expect(result.current.manualHint).toBe(KEYRING_COPY)
+    expect(result.current.downgradedHosts.has('github.com')).toBe(true)
+  })
+
   it('warns about a block token that lacks the repo scope', async () => {
     blockOutputs = { mint: { values: { GITHUB_TOKEN: 'ghp_abc' } } }
     installApi(async (channel) => {
@@ -1412,6 +1441,26 @@ describe('useGitAuth — provider switch mid-validation', () => {
       pending.resolve(GITHUB_USER)
     })
 
+    expectSignedOutOnGitLab(hook.result)
+  })
+
+  it('drops the warning of a walk whose env check was in flight', async () => {
+    const pending: { resolve: (value: unknown) => void } = { resolve: () => {} }
+    const invoke = installApi(async (channel) => {
+      if (channel === 'github:env-credentials') return new Promise((resolve) => { pending.resolve = resolve })
+      return { found: false }
+    })
+    const options: Options = { id: 'gh', provider: PROVIDERS.github, detectCredentials: ['env'] }
+    const hook = renderSwitchable(options)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('github:env-credentials', expect.anything()))
+
+    switchToGitLab(hook, options)
+    await waitFor(() => expect(hook.result.current.detectionStatus).toBe('done'))
+    await act(async () => {
+      pending.resolve({ found: true, valid: false, outcome: 'invalid', envVar: 'GITHUB_TOKEN', warning: 'GITHUB_TOKEN is not valid for github.com' })
+    })
+
+    expect(hook.result.current.detectionWarning).toBeNull()
     expectSignedOutOnGitLab(hook.result)
   })
 
