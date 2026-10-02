@@ -12,11 +12,7 @@ import { Effect, Option } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { GitClient } from "../../services/GitClient.ts"
 import type { DiffEntry } from "../../services/GitClient.ts"
-import type {
-  FileNotFoundError,
-  GitError,
-  SpawnError,
-} from "../../errors/index.ts"
+import type { FileNotFoundError, GitError, SpawnError } from "../../errors/index.ts"
 import { FileReadError } from "../../errors/index.ts"
 import {
   type WorkspaceTreeNode,
@@ -112,7 +108,10 @@ const MAX_LINE_EDITS = 1000
  * fewest insertions and deletions (Myers). Past MAX_LINE_EDITS the changed
  * region counts as all deleted and all inserted, as the view then renders it.
  */
-function lineChangeCounts(original: string, current: string): { additions: number; deletions: number } {
+function lineChangeCounts(
+  original: string,
+  current: string,
+): { additions: number; deletions: number } {
   const a = original === "" ? [] : original.split("\n")
   const lf = current.replace(/\r\n?/g, "\n")
   const b = lf === "" ? [] : lf.replace(/\n$/, "").split("\n")
@@ -136,9 +135,10 @@ function lineChangeCounts(original: string, current: string): { additions: numbe
   const v = new Int32Array(2 * max + 3)
   for (let d = 0; d <= max; d++) {
     for (let k = -d; k <= d; k += 2) {
-      let x = k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
-        ? v[offset + k + 1]
-        : v[offset + k - 1] + 1
+      // offset + k ± 1 stays within [0, 2 * max + 2], inside v.
+      const fromAbove = v[offset + k + 1]!
+      const fromLeft = v[offset + k - 1]!
+      let x = k === -d || (k !== d && fromLeft < fromAbove) ? fromAbove : fromLeft + 1
       let y = x - k
       while (x < n && y < m && a[start + x] === b[start + y]) {
         x++
@@ -192,11 +192,7 @@ export const getWorkspaceTree = (
   Effect.gen(function* () {
     const fileCount = { value: 0 }
 
-    const tree = yield* buildWorkspaceTreeRecursive(
-      worktreePath,
-      "",
-      fileCount,
-    )
+    const tree = yield* buildWorkspaceTreeRecursive(worktreePath, "", fileCount)
 
     const gitInfo = yield* getGitInfo(worktreePath).pipe(Effect.orElseSucceed(() => undefined))
 
@@ -237,15 +233,13 @@ const buildWorkspaceTreeRecursive = (
 
     // Batch gitignore check for all entries at this level
     const pathsToCheck: string[] = entries.map((entry) => {
-      const relPath = relativePath
-        ? path.join(relativePath, entry.name)
-        : entry.name
+      const relPath = relativePath ? path.join(relativePath, entry.name) : entry.name
       return entry.isDirectory ? relPath + "/" : relPath
     })
 
-    const ignored = yield* git.checkIgnored(rootPath, pathsToCheck).pipe(
-      Effect.orElseSucceed(() => new Set<string>()),
-    )
+    const ignored = yield* git
+      .checkIgnored(rootPath, pathsToCheck)
+      .pipe(Effect.orElseSucceed(() => new Set<string>()))
 
     const result: WorkspaceTreeNode[] = []
 
@@ -257,9 +251,7 @@ const buildWorkspaceTreeRecursive = (
         continue
       }
 
-      const entryRelPath = relativePath
-        ? path.join(relativePath, name)
-        : name
+      const entryRelPath = relativePath ? path.join(relativePath, name) : name
 
       // Normalize the check path to match what we sent to checkIgnored
       const checkPath = entry.isDirectory ? entryRelPath + "/" : entryRelPath
@@ -267,9 +259,7 @@ const buildWorkspaceTreeRecursive = (
 
       if (entry.isDirectory) {
         // Check if directory is too large for upfront loading
-        const isDirLarge = yield* checkDirLarge(
-          path.join(fullPath, name),
-        )
+        const isDirLarge = yield* checkDirLarge(path.join(fullPath, name))
 
         if (isIgnored || isDirLarge) {
           result.push({
@@ -286,11 +276,7 @@ const buildWorkspaceTreeRecursive = (
           continue
         }
 
-        const children = yield* buildWorkspaceTreeRecursive(
-          rootPath,
-          entryRelPath,
-          fileCount,
-        )
+        const children = yield* buildWorkspaceTreeRecursive(rootPath, entryRelPath, fileCount)
 
         result.push({
           id: entryRelPath,
@@ -343,9 +329,7 @@ const buildWorkspaceTreeRecursive = (
  * Returns `true` when the directory has more than `MAX_DIR_ENTRIES` immediate
  * children, indicating it should be lazy-loaded on the frontend.
  */
-const checkDirLarge = (
-  dirPath: string,
-): Effect.Effect<boolean, FileReadError, FileSystem> =>
+const checkDirLarge = (dirPath: string): Effect.Effect<boolean, FileReadError, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
     const entries = yield* Effect.either(fs.readdir(dirPath))
@@ -388,11 +372,7 @@ export const getWorkspaceDirs = (
 export const readWorkspaceFile = (
   worktreePath: string,
   filePath: string,
-): Effect.Effect<
-  WorkspaceFileResponse,
-  FileNotFoundError | FileReadError,
-  FileSystem
-> =>
+): Effect.Effect<WorkspaceFileResponse, FileNotFoundError | FileReadError, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
@@ -558,12 +538,10 @@ export const getWorkspaceChanges = (
       yield* populateDiffContent(worktreePath, change, diffs, entry.origPath)
 
       // Enforce per-file size limit
-      const totalDiffSize =
-        (change.originalContent?.length ?? 0) +
-        (change.newContent?.length ?? 0)
+      const totalDiffSize = (change.originalContent?.length ?? 0) + (change.newContent?.length ?? 0)
       if (totalDiffSize > MAX_DIFF_SIZE_PER_FILE) {
-        change.originalContent = undefined
-        change.newContent = undefined
+        delete change.originalContent
+        delete change.newContent
         change.diffTruncated = true
       }
 
@@ -611,7 +589,12 @@ const getSingleFileDiff = (
     }
 
     if (!change.isBinary) {
-      yield* populateDiffContent(worktreePath, change, pathDiffLookup(worktreePath), match?.origPath)
+      yield* populateDiffContent(
+        worktreePath,
+        change,
+        pathDiffLookup(worktreePath),
+        match?.origPath,
+      )
     }
 
     return change
@@ -628,7 +611,11 @@ const getSingleFileDiff = (
  */
 type DiffLookup = (
   filePath: string,
-) => Effect.Effect<{ readonly entry?: DiffEntry; readonly matchesHead: boolean }, never, GitClient>
+) => Effect.Effect<
+  { readonly entry?: DiffEntry | undefined; readonly matchesHead: boolean },
+  never,
+  GitClient
+>
 
 /** Diff each path on its own. */
 const pathDiffLookup =
@@ -636,9 +623,9 @@ const pathDiffLookup =
   (filePath) =>
     Effect.gen(function* () {
       const git = yield* GitClient
-      const entries = yield* git.diff(worktreePath, filePath).pipe(
-        Effect.orElseSucceed((): DiffEntry[] => []),
-      )
+      const entries = yield* git
+        .diff(worktreePath, filePath)
+        .pipe(Effect.orElseSucceed((): DiffEntry[] => []))
       return { entry: entries.find((e) => e.path === filePath), matchesHead: false }
     })
 
@@ -663,7 +650,10 @@ const batchDiffLookup = (worktreePath: string): Effect.Effect<DiffLookup> =>
     return (filePath) =>
       Effect.flatMap(whole, (diffs) =>
         Option.isSome(diffs)
-          ? Effect.succeed({ entry: diffs.value.get(filePath), matchesHead: !diffs.value.has(filePath) })
+          ? Effect.succeed({
+              entry: diffs.value.get(filePath),
+              matchesHead: !diffs.value.has(filePath),
+            })
           : perPath(filePath),
       )
   })
@@ -705,9 +695,7 @@ const populateDiffContent = (
         const contentResult = yield* Effect.either(fs.readFile(absFilePath))
         if (contentResult._tag === "Right") {
           ;(change as { newContent: string }).newContent = contentResult.right
-          ;(change as { additions: number }).additions = countFileLines(
-            contentResult.right,
-          )
+          ;(change as { additions: number }).additions = countFileLines(contentResult.right)
         }
         break
       }
@@ -718,11 +706,8 @@ const populateDiffContent = (
         // still an original, so test for undefined rather than truthiness.
         const { entry } = yield* diffs(origPath ?? change.path)
         if (entry?.originalContent !== undefined) {
-          ;(change as { originalContent: string }).originalContent =
-            entry.originalContent
-          ;(change as { deletions: number }).deletions = countLines(
-            entry.originalContent,
-          )
+          ;(change as { originalContent: string }).originalContent = entry.originalContent
+          ;(change as { deletions: number }).deletions = countLines(entry.originalContent)
         }
         break
       }
@@ -732,25 +717,22 @@ const populateDiffContent = (
         const { entry, matchesHead } = yield* diffs(change.path)
         if (entry) {
           if (entry.originalContent !== undefined) {
-            ;(change as { originalContent: string }).originalContent =
-              entry.originalContent
+            ;(change as { originalContent: string }).originalContent = entry.originalContent
           }
           ;(change as { additions: number }).additions = entry.additions
           ;(change as { deletions: number }).deletions = entry.deletions
         }
 
         // Read current file content
-        const currentResult = yield* Effect.either(
-          fs.readFile(absFilePath),
-        )
+        const currentResult = yield* Effect.either(fs.readFile(absFilePath))
         if (currentResult._tag === "Right") {
-          ;(change as { newContent: string }).newContent =
-            currentResult.right
+          ;(change as { newContent: string }).newContent = currentResult.right
           // Listed by status yet unchanged against HEAD: a change staged and
           // then put back in the worktree (MM). The file is its own original.
           if (matchesHead) {
-            ;(change as { originalContent: string }).originalContent =
-              asShownContent(currentResult.right)
+            ;(change as { originalContent: string }).originalContent = asShownContent(
+              currentResult.right,
+            )
           }
         } else {
           // If the file doesn't exist on disk but git reports it as modified,
@@ -765,8 +747,7 @@ const populateDiffContent = (
         if (origPath !== undefined && change.newContent !== undefined) {
           const { entry: renamedFrom } = yield* diffs(origPath)
           if (renamedFrom?.originalContent !== undefined) {
-            ;(change as { originalContent: string }).originalContent =
-              renamedFrom.originalContent
+            ;(change as { originalContent: string }).originalContent = renamedFrom.originalContent
             const counts = lineChangeCounts(renamedFrom.originalContent, change.newContent)
             ;(change as { additions: number }).additions = counts.additions
             ;(change as { deletions: number }).deletions = counts.deletions
@@ -786,11 +767,7 @@ const populateDiffContent = (
  */
 const getGitInfo = (
   dirPath: string,
-): Effect.Effect<
-  WorkspaceTreeResponse["gitInfo"],
-  GitError | SpawnError,
-  GitClient
-> =>
+): Effect.Effect<WorkspaceTreeResponse["gitInfo"], GitError | SpawnError, GitClient> =>
   Effect.gen(function* () {
     const git = yield* GitClient
 

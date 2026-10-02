@@ -135,7 +135,10 @@ describe("git:clone over ssh", () => {
       repo_path: "modules/vpc",
     })
 
-    expect(result).toMatchObject({ status: "success", outputs: { repo_owner: "acme", repo_name: "mono" } })
+    expect(result).toMatchObject({
+      status: "success",
+      outputs: { repo_owner: "acme", repo_name: "mono" },
+    })
     const dest = path.join(workDir, "mono")
     expect(fs.readFileSync(path.join(dest, "modules", "vpc", "main.tf"), "utf8")).toBe("# vpc\n")
     expect(fs.existsSync(path.join(dest, "modules", "eks"))).toBe(false)

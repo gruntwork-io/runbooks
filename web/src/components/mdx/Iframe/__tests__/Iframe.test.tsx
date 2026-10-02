@@ -8,7 +8,13 @@ import { Iframe } from "../Iframe"
 
 function ReportedErrors() {
   const { errors } = useErrorReporting()
-  return <ul data-testid="reported-errors">{errors.map((e) => <li key={e.componentId}>{e.message}</li>)}</ul>
+  return (
+    <ul data-testid="reported-errors">
+      {errors.map((e) => (
+        <li key={e.componentId}>{e.message}</li>
+      ))}
+    </ul>
+  )
 }
 
 // The open runbook's runbook-asset:// host, as runbook:get sends it.
@@ -30,8 +36,9 @@ async function renderLoaded(props: React.ComponentProps<typeof Iframe>) {
   return result
 }
 
-function frame(): HTMLIFrameElement | null {
-  return document.querySelector("iframe")
+/** The <webview> the block embeds the page in, once loaded. */
+function frame(): HTMLElement | null {
+  return document.querySelector("webview")
 }
 
 describe("Iframe", () => {
@@ -59,17 +66,26 @@ describe("Iframe", () => {
     expect(frame()).not.toBeNull()
   })
 
-  it("loads an external URL in a sandbox that cannot navigate the app", async () => {
+  it("loads an external URL in a webview, with no say over its own session or preload", async () => {
     await renderLoaded({ src: "https://example.com/docs", title: "Example docs" })
 
     expect(frame()!.getAttribute("title")).toBe("Example docs")
-    const sandbox = frame()!.getAttribute("sandbox")!.split(" ")
-    expect(sandbox).toContain("allow-scripts")
-    expect(sandbox).not.toContain("allow-top-navigation")
-    // The main process's window-open handler can't tell a framed page's
-    // window.open from the app's own links.
-    expect(sandbox).not.toContain("allow-popups")
-    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", "https://example.com/docs")
+    // The main process picks the session and web preferences (embeds.ts);
+    // the tag asks for nothing.
+    for (const attribute of [
+      "partition",
+      "preload",
+      "nodeintegration",
+      "allowpopups",
+      "webpreferences",
+    ]) {
+      expect(frame()!.hasAttribute(attribute)).toBe(false)
+    }
+    expect(document.querySelector("iframe")).toBeNull()
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
+      "href",
+      "https://example.com/docs",
+    )
   })
 
   it("shows the real host next to the author's title", () => {
@@ -108,17 +124,29 @@ describe("Iframe", () => {
 
     expect(frame()).toBeNull()
     await waitFor(() =>
-      expect(screen.getByTestId("reported-errors")).toHaveTextContent("can only be shown in an open runbook"),
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent(
+        "can only be shown in an open runbook",
+      ),
     )
   })
 
-  it("sizes the frame from a pixel count or a CSS length", async () => {
-    const { unmount } = await renderLoaded({ src: "https://example.com", height: 320 })
-    expect(frame()!.style.height).toBe("320px")
-    unmount()
+  it.each([
+    ["a number of pixels", 320, "320px"],
+    ["a string of digits, as on an HTML iframe", "600", "600px"],
+    ["a CSS length", "70vh", "70vh"],
+  ])("sizes the frame from %s", async (_name, height, css) => {
+    await renderLoaded({ src: "https://example.com", height })
+    expect(frame()!.style.height).toBe(css)
+  })
 
-    renderIframe({ src: "https://example.com", height: "70vh" })
-    expect(frame()!.style.height).toBe("70vh")
+  it.each([["tall"], ["0"], [-5]])("rejects the height %p", async (height) => {
+    renderIframe({ src: "https://example.com", height })
+
+    expect(frame()).toBeNull()
+    expect(screen.queryByRole("button", { name: "Load page" })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent(`Invalid height "${height}"`),
+    )
   })
 
   it("reloads by replacing the frame", async () => {
@@ -155,20 +183,27 @@ describe("Iframe", () => {
     renderIframe({ src: "" })
 
     expect(frame()).toBeNull()
-    await waitFor(() => expect(screen.getByTestId("reported-errors")).toHaveTextContent("The `src` prop is required."))
+    await waitFor(() =>
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent(
+        "The `src` prop is required.",
+      ),
+    )
   })
 
   it("renders from runbook MDX", async () => {
     render(
       <TestWrapper>
-        <MDXContainer content={'<Iframe src="./assets/site/index.html" title="Dashboard" height={300} />\n'} assetHost={ASSET_HOST} />
+        <MDXContainer
+          content={'<Iframe src="./assets/site/index.html" title="Dashboard" height={300} />\n'}
+          assetHost={ASSET_HOST}
+        />
       </TestWrapper>,
     )
 
     await userEvent.click(await screen.findByRole("button", { name: "Load page" }))
 
-    const iframe = screen.getByTestId("runbook-content").querySelector("iframe")!
-    expect(iframe.getAttribute("src")).toBe(`runbook-asset://${ASSET_HOST}/site/index.html`)
-    expect(iframe.style.height).toBe("300px")
+    const webview = screen.getByTestId("runbook-content").querySelector("webview") as HTMLElement
+    expect(webview.getAttribute("src")).toBe(`runbook-asset://${ASSET_HOST}/site/index.html`)
+    expect(webview.style.height).toBe("300px")
   })
 })

@@ -1,6 +1,6 @@
 import { useCallback, useContext } from "react"
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown"
-import type { UrlTransform } from "react-markdown"
+import type { Components, UrlTransform } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { SmartLink } from "./SmartLink"
 import { RunbookContext } from "@/contexts/RunbookContext"
@@ -8,6 +8,11 @@ import { rewriteAssetUrl } from "@/lib/assetPaths"
 
 interface InlineMarkdownProps {
   children: string
+}
+
+const inlineComponents: Components = {
+  p: ({ children }) => <>{children}</>, // Unwrap paragraphs for inline rendering
+  a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
 }
 
 /**
@@ -31,10 +36,7 @@ export const InlineMarkdown = ({ children }: InlineMarkdownProps) => {
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       urlTransform={urlTransform}
-      components={{
-        p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
-        a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
-      }}
+      components={inlineComponents}
     >
       {children}
     </ReactMarkdown>

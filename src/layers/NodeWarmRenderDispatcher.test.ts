@@ -73,6 +73,7 @@ function fakeBundleLayer(inputsMap: InputsMapResult, bundleSpy: BundleSpy) {
           templateId,
           templatePath,
           inputsMap,
+          bundle: inputsMap.bundle ?? { rootPath: templatePath, files: {}, dependencies: {} },
           bundleJSON: JSON.stringify({ rootPath: templatePath }),
           producedAt: 0,
         }
@@ -93,13 +94,18 @@ interface WasmSpy {
   releasedHandles: string[]
   /** bundleJSON passed to each prepareBundle call, in order. */
   preparedBundles?: string[]
+  /** Every path handed to a render call, in order. */
+  renderedPaths?: string[]
 }
 
 function fakeWasmLayer(spy: WasmSpy) {
   let nextHandle = 0
-  const renderAll = (paths: ReadonlyArray<string>): WasmRenderFilesResult => ({
-    results: paths.map((path) => ({ path, content: `rendered:${path}` })),
-  })
+  const renderAll = (paths: ReadonlyArray<string>): WasmRenderFilesResult => {
+    spy.renderedPaths?.push(...paths)
+    return {
+      results: paths.map((path) => ({ path, content: `rendered:${path}` })),
+    }
+  }
   const impl: WasmRuntimeShape = {
     isReady: Effect.succeed(true),
     prepareBundle: (bundleJSON) =>
@@ -119,11 +125,7 @@ function fakeWasmLayer(spy: WasmSpy) {
   return Layer.succeed(WasmRuntime, impl)
 }
 
-function makeDispatcher(
-  spy: WasmSpy,
-  inputsMap: InputsMapResult,
-  bundleSpy: BundleSpy,
-) {
+function makeDispatcher(spy: WasmSpy, inputsMap: InputsMapResult, bundleSpy: BundleSpy) {
   return NodeWarmRenderDispatcherLive.pipe(
     Layer.provide(fakeBundleLayer(inputsMap, bundleSpy)),
     Layer.provide(fakeWasmLayer(spy)),
@@ -140,9 +142,11 @@ const run = <A>(
     Effect.gen(function* () {
       const d = yield* WarmRenderDispatcher
       return yield* f(d)
-    }).pipe(
-      Effect.provide(makeDispatcher(spy, inputsMap, bundleSpy)),
-    ) as Effect.Effect<A, never, never>,
+    }).pipe(Effect.provide(makeDispatcher(spy, inputsMap, bundleSpy))) as Effect.Effect<
+      A,
+      never,
+      never
+    >,
   )
 
 // Unique templateId per test keeps the module-scoped caches
@@ -242,11 +246,7 @@ describe("NodeWarmRenderDispatcher vars baseline", () => {
           // V2 only changes Region relative to V1, but disk still holds V0,
           // so the Name files must be re-rendered too.
           const result = yield* d.render(templateId, "/tmp/template", V2)
-          expect([...result.attemptedPaths].sort()).toEqual([
-            "both.txt",
-            "name.txt",
-            "region.txt",
-          ])
+          expect([...result.attemptedPaths].sort()).toEqual(["both.txt", "name.txt", "region.txt"])
         }),
       varsDiffInputsMap(),
     )
@@ -342,6 +342,110 @@ describe("NodeWarmRenderDispatcher template path changes", () => {
         }),
       fakeInputsMap(),
       bundleSpy,
+    )
+  })
+})
+
+/**
+ * Inputs map whose bundle snapshot carries a template declaring a partial
+ * that lives above the template directory, as the architecture catalog's
+ * shared `blueprints/partials` does. The bundle never contains that file.
+ */
+function partialsOutsideBundleInputsMap(): InputsMapResult {
+  return {
+    inputs: {},
+    files: { "role/terragrunt.hcl": [] },
+    bundle: {
+      rootPath: ".",
+      files: {
+        "_deps/role/boilerplate.yml": "partials:\n  - ../../partials/policy.hcl\n",
+        "_deps/role/terragrunt.hcl": '{{ template "policy" . }}',
+      },
+      dependencies: {},
+    },
+  } as unknown as InputsMapResult
+}
+
+/**
+ * Inputs map where the analyzer collapsed a templated filename to `.`, the
+ * way it does for `{{ .RootTerragruntFileName }}`. That entry still records
+ * which input drives it.
+ */
+function collapsedFilenameInputsMap(): InputsMapResult {
+  return {
+    inputs: {
+      "t:RootTerragruntFileName": { name: "RootTerragruntFileName" },
+      "t:Name": { name: "Name" },
+    },
+    files: {
+      ".": ["t:RootTerragruntFileName"],
+      "name.txt": ["t:Name"],
+    },
+  } as unknown as InputsMapResult
+}
+
+describe("NodeWarmRenderDispatcher warm eligibility", () => {
+  let spy: WasmSpy
+  beforeEach(() => {
+    spy = { prepareCalls: 0, releasedHandles: [], renderedPaths: [] }
+  })
+
+  it("disables warm when a bundled template declares a partial the bundle lacks", async () => {
+    const templateId = freshTemplateId()
+    await run(
+      spy,
+      (d) =>
+        Effect.gen(function* () {
+          const result = yield* d.render(templateId, "/tmp/template", { outputs: {} })
+          expect(result.warmDisabled).toBe(true)
+          expect(result.disabledReason).toBe("partials-outside-bundle")
+          expect(spy.prepareCalls).toBe(0)
+          expect(spy.renderedPaths).toEqual([])
+        }),
+      partialsOutsideBundleInputsMap(),
+    )
+  })
+
+  it("routes a collapsed analyzer path to cold and keeps it out of the known set", async () => {
+    const templateId = freshTemplateId()
+    await run(
+      spy,
+      (d) =>
+        Effect.gen(function* () {
+          const result = yield* d.render(templateId, "/tmp/template", {
+            RootTerragruntFileName: "root.hcl",
+            Name: "api",
+            outputs: {},
+          })
+          expect(result.warmDisabled).toBe(false)
+          expect(spy.renderedPaths).toEqual(["name.txt"])
+          expect(result.coldNeeded).toEqual(["."])
+          expect(result.allKnownPaths).toEqual(["name.txt"])
+          expect([...result.attemptedPaths].sort()).toEqual([".", "name.txt"])
+        }),
+      collapsedFilenameInputsMap(),
+    )
+  })
+
+  it("still triggers cold when only the collapsed path's input changes", async () => {
+    const templateId = freshTemplateId()
+    const v0 = { RootTerragruntFileName: "root.hcl", Name: "api", outputs: {} }
+    const v1 = { ...v0, RootTerragruntFileName: "terragrunt.hcl" }
+    await run(
+      spy,
+      (d) =>
+        Effect.gen(function* () {
+          yield* d.render(templateId, "/tmp/template", v0)
+          yield* d.commit(templateId, v0)
+          spy.renderedPaths = []
+
+          const result = yield* d.render(templateId, "/tmp/template", v1)
+          expect(result.noChanges).toBe(false)
+          expect(result.coldNeeded).toEqual(["."])
+          expect(result.files).toEqual([])
+          expect(spy.renderedPaths).toEqual([])
+        }),
+      collapsedFilenameInputsMap(),
     )
   })
 })

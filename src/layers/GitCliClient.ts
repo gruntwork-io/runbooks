@@ -104,7 +104,10 @@ function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string
  * (a limit of the line-based runGit; such paths won't match on disk).
  */
 function nulFields(lines: string[]): string[] {
-  return lines.join("\n").split("\0").filter((f) => f.length > 0)
+  return lines
+    .join("\n")
+    .split("\0")
+    .filter((f) => f.length > 0)
 }
 
 /**
@@ -289,7 +292,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // reads getRemoteUrl), so a push URL on another origin gets no token:
         // that push authenticates the way git would on its own.
         if (options?.token) {
-          const [pushUrl = ""] = yield* runGit(spawner, ["remote", "get-url", "--push", remote], repoPath)
+          const [pushUrl = ""] = yield* runGit(
+            spawner,
+            ["remote", "get-url", "--push", remote],
+            repoPath,
+          )
           const [fetchUrl = ""] = yield* runGit(spawner, ["remote", "get-url", remote], repoPath)
           if (sameHttpOrigin(pushUrl, fetchUrl)) {
             const authEnv = withGitHttpAuth(env, pushUrl, options.token, options.username)
@@ -338,9 +345,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // report the tag name as the ref.
         let refType: GitInfo["refType"] = "branch"
         if (branch === "HEAD") {
-          const tagResult = yield* runGit(spawner, ["describe", "--tags", "--exact-match", "HEAD"], repoPath).pipe(
-            Effect.catchAll(() => Effect.succeed([] as string[])),
-          )
+          const tagResult = yield* runGit(
+            spawner,
+            ["describe", "--tags", "--exact-match", "HEAD"],
+            repoPath,
+          ).pipe(Effect.catchAll(() => Effect.succeed([] as string[])))
           const tag = tagResult[0]?.trim()
           if (tag) {
             branch = tag
@@ -389,10 +398,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         const addedPaths = new Set<string>()
         const stats: { addStr: string; delStr: string; diffPath: string }[] = []
         for (let i = 0; i < fields.length; i++) {
+          const field = fields[i]!
           // Raw records come first, as two fields:
           // `:<omode> <nmode> <osha> <nsha> <X>` then `<path>`. A numstat
           // record never starts with ':', so the two can't be confused.
-          const raw = /^:[0-7]+ [0-7]+ \S+ \S+ ([A-Z])\d*$/.exec(fields[i])
+          const raw = /^:[0-7]+ [0-7]+ \S+ \S+ ([A-Z])\d*$/.exec(field)
           if (raw) {
             const rawPath = fields[++i]
             if (raw[1] === "A" && rawPath !== undefined) addedPaths.add(rawPath)
@@ -400,10 +410,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           }
           // Then numstat records: `<added>\t<deleted>\t<path>`; the path may
           // itself contain tabs.
-          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(fields[i])
+          const match = /^(\d+|-)\t(\d+|-)\t([\s\S]+)$/.exec(field)
           if (!match) continue
+          // All three capture groups are required.
           const [, addStr, delStr, diffPath] = match
-          stats.push({ addStr, delStr, diffPath })
+          stats.push({ addStr: addStr!, delStr: delStr!, diffPath: diffPath! })
         }
 
         return yield* Effect.forEach(
@@ -451,8 +462,9 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         const fields = nulFields(lines)
         const entries: StatusEntry[] = []
         for (let i = 0; i < fields.length; i++) {
-          const xy = fields[i].slice(0, 2)
-          const entry: StatusEntry = { path: fields[i].slice(3), status: xy.trim() }
+          const field = fields[i]!
+          const xy = field.slice(0, 2)
+          const entry: StatusEntry = { path: field.slice(3), status: xy.trim() }
           // A rename/copy record is followed by a second field holding the
           // path it came from: new path first, then the old one.
           if (xy.includes("R") || xy.includes("C")) {
@@ -474,9 +486,11 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       ),
 
     hasCommitsNotOnRemote: (repoPath: string, remote: string) =>
-      runGit(spawner, ["rev-list", "--count", "HEAD", "--not", `--remotes=${remote}`, "--"], repoPath).pipe(
-        Effect.map((lines) => Number(lines[0]) > 0),
-      ),
+      runGit(
+        spawner,
+        ["rev-list", "--count", "HEAD", "--not", `--remotes=${remote}`, "--"],
+        repoPath,
+      ).pipe(Effect.map((lines) => Number(lines[0]) > 0)),
 
     checkIgnored: (repoPath: string, paths: string[]) =>
       Effect.gen(function* () {
@@ -517,9 +531,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // The `:(exclude)` magic pathspec needs a positive pathspec ('.')
         // alongside it. Used to keep embedded git repos out of the commit so
         // they aren't staged as broken submodule gitlinks.
-        const excludes = excludePaths.map(
-          (p) => `:(exclude)${p.replace(/\/+$/, "")}`,
-        )
+        const excludes = excludePaths.map((p) => `:(exclude)${p.replace(/\/+$/, "")}`)
         const args = excludes.length === 0 ? add : [...add, "--", ".", ...excludes]
         yield* runGit(spawner, args, repoPath).pipe(
           // git before 2.34 has no `--sparse`. How a git that old stages a

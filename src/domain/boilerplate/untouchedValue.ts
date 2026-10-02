@@ -45,7 +45,7 @@ export function untouchedValue(variable: UntouchedValueVariable): unknown {
     schema !== undefined &&
     Object.keys(schema).length > 0
   if (isTuple) {
-    return tupleElementKeys(schema).map(k => untouchedTupleElement(schema[k]))
+    return tupleElementKeys(schema).map((k) => untouchedTupleElement(schema[k]))
   }
   return undefined
 }

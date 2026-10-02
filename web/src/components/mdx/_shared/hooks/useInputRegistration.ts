@@ -7,15 +7,15 @@
  * block only needs to supply its specific config.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import type { AppError } from '@/types/error'
-import type { BlockComponentType } from '@/contexts/ComponentIdRegistry'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
-import { useErrorReporting } from '@/contexts/useErrorReporting'
-import { useTelemetry } from '@/contexts/useTelemetry'
-import { untouchedValue } from '../lib/untouchedValue'
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import type { AppError } from "@/types/error"
+import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { useTelemetry } from "@/contexts/useTelemetry"
+import { untouchedValue } from "../lib/untouchedValue"
 
 /**
  * Options accepted by {@link useInputRegistration}.
@@ -65,7 +65,10 @@ export function useInputRegistration({
   extraError,
 }: UseInputRegistrationOptions): UseInputRegistrationReturn {
   // 1. ID registry
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, componentType)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    componentType,
+  )
 
   // 2. Error reporting
   const { reportError, clearError } = useErrorReporting()
@@ -91,12 +94,15 @@ export function useInputRegistration({
 
   const initialData = useMemo(() => {
     if (!formState) return {}
-    return formState.variables.reduce((acc, variable) => {
-      // Same starting value as the form (see useFormState), since these are
-      // registered before the user submits
-      acc[variable.name] = variable.default ?? untouchedValue(variable)
-      return acc
-    }, {} as Record<string, unknown>)
+    return formState.variables.reduce(
+      (acc, variable) => {
+        // Same starting value as the form (see useFormState), since these are
+        // registered before the user submits
+        acc[variable.name] = variable.default ?? untouchedValue(variable)
+        return acc
+      },
+      {} as Record<string, unknown>,
+    )
   }, [formState])
 
   // Register default values immediately so downstream components referencing
@@ -104,7 +110,11 @@ export function useInputRegistration({
   // explicitly submits.
   const hasRegisteredDefaults = useRef(false)
   useEffect(() => {
-    if (boilerplateConfig && Object.keys(initialData).length > 0 && !hasRegisteredDefaults.current) {
+    if (
+      boilerplateConfig &&
+      Object.keys(initialData).length > 0 &&
+      !hasRegisteredDefaults.current
+    ) {
       hasRegisteredDefaults.current = true
       registerInputs(id, initialData, boilerplateConfig)
     }
@@ -114,11 +124,26 @@ export function useInputRegistration({
   // apiError is intentionally omitted here; it is rendered inline by the component (e.g., ErrorDisplay).
   useEffect(() => {
     if (isDuplicate) {
-      reportError({ componentId: id, componentType, severity: 'error', message: `Duplicate component ID: ${id}` })
+      reportError({
+        componentId: id,
+        componentType,
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
+      })
     } else if (validationError) {
-      reportError({ componentId: id, componentType, severity: 'error', message: validationError.message })
+      reportError({
+        componentId: id,
+        componentType,
+        severity: "error",
+        message: validationError.message,
+      })
     } else if (extraError) {
-      reportError({ componentId: id, componentType, severity: 'error', message: extraError.message })
+      reportError({
+        componentId: id,
+        componentType,
+        severity: "error",
+        message: extraError.message,
+      })
     } else {
       clearError(id)
     }
@@ -127,19 +152,22 @@ export function useInputRegistration({
   // 6. Auto-update debouncing
   const autoUpdateTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handleAutoUpdate = useCallback((formData: Record<string, unknown>) => {
-    if (!hasSubmitted) return
+  const handleAutoUpdate = useCallback(
+    (formData: Record<string, unknown>) => {
+      if (!hasSubmitted) return
 
-    if (autoUpdateTimerRef.current) {
-      clearTimeout(autoUpdateTimerRef.current)
-    }
-
-    autoUpdateTimerRef.current = setTimeout(() => {
-      if (boilerplateConfig) {
-        registerInputs(id, formData, boilerplateConfig)
+      if (autoUpdateTimerRef.current) {
+        clearTimeout(autoUpdateTimerRef.current)
       }
-    }, 200)
-  }, [id, hasSubmitted, boilerplateConfig, registerInputs])
+
+      autoUpdateTimerRef.current = setTimeout(() => {
+        if (boilerplateConfig) {
+          registerInputs(id, formData, boilerplateConfig)
+        }
+      }, 200)
+    },
+    [id, hasSubmitted, boilerplateConfig, registerInputs],
+  )
 
   useEffect(() => {
     return () => {
@@ -150,12 +178,15 @@ export function useInputRegistration({
   }, [])
 
   // 7. Submit handler
-  const handleSubmit = useCallback(async (formData: Record<string, unknown>) => {
-    if (boilerplateConfig) {
-      registerInputs(id, formData, boilerplateConfig)
-    }
-    setHasSubmitted(true)
-  }, [id, boilerplateConfig, registerInputs])
+  const handleSubmit = useCallback(
+    async (formData: Record<string, unknown>) => {
+      if (boilerplateConfig) {
+        registerInputs(id, formData, boilerplateConfig)
+      }
+      setHasSubmitted(true)
+    },
+    [id, boilerplateConfig, registerInputs],
+  )
 
   return {
     isDuplicate,

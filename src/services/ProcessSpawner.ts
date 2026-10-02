@@ -3,9 +3,9 @@ import type { Cause } from "effect"
 import type { SpawnError } from "../errors/index.ts"
 
 export interface SpawnOptions {
-  readonly cwd?: string
+  readonly cwd?: string | undefined
   readonly env?: Record<string, string | undefined>
-  readonly stdin?: string
+  readonly stdin?: string | undefined
   /**
    * When set, combined stdout/stderr lines are appended to this file (in arrival
    * order) as the process runs, producing a durable, tailable log on disk. The
@@ -13,11 +13,29 @@ export interface SpawnOptions {
    * data. The caller owns the file's lifecycle (creation and cleanup).
    */
   readonly logFilePath?: string
+  /**
+   * Files the child appends log lines to as it runs (a script's log files).
+   * The spawner follows each one and adds its lines to `output` and
+   * `logFilePath` as they are written, with source "file". Each file's lines
+   * keep their order. Across files, and relative to stdout and stderr, the
+   * order is best effort: lines that reach several files between two reads
+   * come out grouped by file, in the order the files are given. Before
+   * `output` ends, each file is read to the end, including a last line with
+   * no newline. The caller owns the files' lifecycle (creation and cleanup).
+   */
+  readonly logChannels?: ReadonlyArray<SpawnLogChannel>
+}
+
+export interface SpawnLogChannel {
+  readonly path: string
+  /** Maps each line read from the file to the line to emit, e.g. to tag its level. */
+  readonly formatLine?: ((line: string) => string) | undefined
 }
 
 export interface OutputLine {
   readonly line: string
-  readonly source: "stdout" | "stderr"
+  /** "file" lines come from one of SpawnOptions.logChannels. */
+  readonly source: "stdout" | "stderr" | "file"
 }
 
 export interface SpawnedProcess {
@@ -34,7 +52,10 @@ export interface ProcessSpawnerShape {
   ) => Effect.Effect<SpawnedProcess, SpawnError>
 }
 
-export class ProcessSpawner extends Context.Tag("ProcessSpawner")<ProcessSpawner, ProcessSpawnerShape>() {}
+export class ProcessSpawner extends Context.Tag("ProcessSpawner")<
+  ProcessSpawner,
+  ProcessSpawnerShape
+>() {}
 
 /** Everything a short-lived process wrote, in arrival order, plus its exit code. */
 export interface CollectedOutput {

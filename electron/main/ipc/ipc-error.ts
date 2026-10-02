@@ -38,7 +38,9 @@ interface TaggedFailure {
 }
 
 function isTagged(err: unknown): err is TaggedFailure {
-  return typeof err === "object" && err !== null && typeof (err as { _tag?: unknown })._tag === "string"
+  return (
+    typeof err === "object" && err !== null && typeof (err as { _tag?: unknown })._tag === "string"
+  )
 }
 
 /**
@@ -79,7 +81,15 @@ export function describeFailure(err: unknown): string {
 function describeUntagged(err: unknown): string {
   if (err === null || err === undefined) return ""
   if (err instanceof Error) return err.message
-  if (typeof err !== "object" && typeof err !== "function") return String(err)
+  if (typeof err === "string") return err
+  if (
+    typeof err === "number" ||
+    typeof err === "boolean" ||
+    typeof err === "bigint" ||
+    typeof err === "symbol"
+  ) {
+    return String(err)
+  }
   const { message } = err as { message?: unknown }
   if (typeof message === "string") return message
   try {
@@ -116,7 +126,9 @@ export function describeCause(cause: Cause.Cause<unknown>): string {
 export function toIpcError(err: unknown): Error {
   // A FiberFailure's toString() is Cause.pretty, frames and all, so describe
   // its Cause instead.
-  const message = Runtime.isFiberFailure(err) ? describeCause(err[Runtime.FiberFailureCauseId]) : describeFailure(err)
+  const message = Runtime.isFiberFailure(err)
+    ? describeCause(err[Runtime.FiberFailureCauseId])
+    : describeFailure(err)
   return new Error(redactSecrets(message), { cause: err })
 }
 

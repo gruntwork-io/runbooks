@@ -20,11 +20,8 @@ export function registerSessionHandlers(): void {
     return { ok: true as const }
   })
 
-  ipcMain.handle(
-    "session:set-env",
-    async (_event, params: { env: Record<string, string> }) => {
-      await runtime.runPromise(sessionManager.appendToEnv(params.env))
-      return { ok: true as const }
-    },
-  )
+  ipcMain.handle("session:set-env", async (_event, params: { env: Record<string, string> }) => {
+    await runtime.runPromise(sessionManager.appendToEnv(params.env))
+    return { ok: true as const }
+  })
 }

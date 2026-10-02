@@ -3,7 +3,9 @@
  *
  * Pipeline:
  *   1. BundleProducer.get(templateId, templatePath) — fetches (or builds + caches) the bundle JSON
- *   2. Look up the analyzer's full output set: keys of bundle.inputsMap.files
+ *   2. Look up the analyzer's full output set: keys of bundle.inputsMap.files.
+ *      Disable warm when that set is empty, or when a bundled template
+ *      declares a partial the bundle never captured (see warmEligibility).
  *   3. Compute the *dirty* subset by diffing the current vars against the
  *      last committed vars (kept in a per-templateId Map, advanced only by
  *      `commit` once the caller has the output on disk). On the very first
@@ -13,7 +15,9 @@
  *      previous manifest unchanged.
  *   5. Otherwise call WasmRuntime.renderFiles with ONLY the dirty paths so
  *      the WASM call's per-file work scales with the change, not the whole
- *      tree.
+ *      tree. Dirty paths the analyzer could not resolve to a file (a
+ *      templated filename collapsed to `.`) skip WASM and go straight to
+ *      `coldNeeded`.
  *   6. Partition results: success / skip-files / route-to-cold / render-error.
  *
  * This layer does not own the cold-fallback subprocess invocation; the IPC
@@ -27,9 +31,14 @@ import {
   type WarmRenderDispatcherShape,
   type WarmFile,
   type WarmPerFileError,
+  warmDisabledResult,
 } from "../services/WarmRenderDispatcher.ts"
-import { BundleProducer } from "../services/BundleProducer.ts"
+import { BundleProducer, type BundleArtifact } from "../services/BundleProducer.ts"
 import { isReservedNamespace } from "../domain/boilerplate/flattenInputs.ts"
+import {
+  isWarmRenderablePath,
+  partialsOutsideBundle,
+} from "../domain/boilerplate/warmEligibility.ts"
 import { WasmRuntime } from "../services/WasmRuntime.ts"
 import type {
   WasmRenderResult,
@@ -64,6 +73,21 @@ const handlesByTemplate = new Map<string, string>()
  * all describe the old template and are dropped together.
  */
 const templatePathById = new Map<string, string>()
+
+/**
+ * Partials each bundle declares but does not contain. Bundles are cached by
+ * the producer and immutable, so the scan runs once per bundle instead of
+ * on every keystroke-driven render.
+ */
+const unresolvablePartialsByBundle = new WeakMap<BundleArtifact, ReadonlyArray<string>>()
+
+function unresolvablePartials(bundle: BundleArtifact): ReadonlyArray<string> {
+  const cached = unresolvablePartialsByBundle.get(bundle)
+  if (cached) return cached
+  const found = partialsOutsideBundle(bundle.bundle.files)
+  unresolvablePartialsByBundle.set(bundle, found)
+  return found
+}
 
 /**
  * Cheap "did this change?" for var values. For primitives we use strict
@@ -127,7 +151,10 @@ function computeDirtyPaths(
   prevVars: Record<string, unknown> | undefined,
   currentVars: Record<string, unknown>,
   allKnownPaths: ReadonlyArray<string>,
-): { paths: ReadonlyArray<string>; reason: "first-render" | "outputs-changed" | "vars-diff" | "no-change" } {
+): {
+  paths: ReadonlyArray<string>
+  reason: "first-render" | "outputs-changed" | "vars-diff" | "no-change"
+} {
   if (!prevVars) {
     return { paths: allKnownPaths, reason: "first-render" }
   }
@@ -206,35 +233,30 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
 
           const ready = yield* wasm.isReady
           if (!ready) {
-            return {
-              files: [],
-              coldNeeded: [],
-              skipped: [],
-              renderErrors: [],
-              warmDisabled: true,
-              disabledReason: "wasm-not-ready",
-              allKnownPaths: [],
-              attemptedPaths: [],
-              noChanges: false,
-            }
+            return warmDisabledResult("wasm-not-ready")
           }
 
           const bundle = yield* bundles.get(templateId, templatePath)
           const allKnownPaths = Object.keys(bundle.inputsMap.files ?? {})
 
           if (allKnownPaths.length === 0) {
-            return {
-              files: [],
-              coldNeeded: [],
-              skipped: [],
-              renderErrors: [],
-              warmDisabled: true,
-              disabledReason: "no-output-paths-from-analyzer",
-              allKnownPaths: [],
-              attemptedPaths: [],
-              noChanges: false,
-            }
+            return warmDisabledResult("no-output-paths-from-analyzer")
           }
+
+          const missingPartials = unresolvablePartials(bundle)
+          if (missingPartials.length > 0) {
+            console.log("[WarmRenderDispatcher] partials outside bundle, rendering cold", {
+              templateId,
+              partials: missingPartials,
+            })
+            return warmDisabledResult("partials-outside-bundle")
+          }
+
+          // Paths the analyzer could not resolve to a real file still take
+          // part in the dirty diff (their inputs are known) but never reach
+          // WASM: they go straight to the cold subprocess, and they are kept
+          // out of the manifest universe because no file lands at `.`.
+          const warmKnownPaths = allKnownPaths.filter(isWarmRenderablePath)
 
           const prevVars = previousVarsByTemplate.get(templateId)
           const { paths: dirtyPaths, reason } = computeDirtyPaths(
@@ -243,12 +265,14 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             variables,
             allKnownPaths,
           )
+          const wasmPaths = dirtyPaths.filter(isWarmRenderablePath)
+          const coldOnlyPaths = dirtyPaths.filter((p) => !isWarmRenderablePath(p))
 
-          // eslint-disable-next-line no-console
           console.log("[WarmRenderDispatcher] dirty-set", {
             templateId,
             reason,
             dirtyCount: dirtyPaths.length,
+            coldOnlyCount: coldOnlyPaths.length,
             knownCount: allKnownPaths.length,
           })
 
@@ -260,9 +284,23 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
               skipped: [],
               renderErrors: [],
               warmDisabled: false,
-              allKnownPaths,
+              allKnownPaths: warmKnownPaths,
               attemptedPaths: [],
               noChanges: true,
+            }
+          }
+
+          if (wasmPaths.length === 0) {
+            // Only unaddressable paths changed; nothing for WASM to do.
+            return {
+              files: [],
+              coldNeeded: coldOnlyPaths,
+              skipped: [],
+              renderErrors: [],
+              warmDisabled: false,
+              allKnownPaths: warmKnownPaths,
+              attemptedPaths: dirtyPaths,
+              noChanges: false,
             }
           }
 
@@ -282,11 +320,13 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
               // We don't want a prepare failure to block all rendering.
               Effect.catchAll((err) =>
                 Effect.sync(() => {
-                  // eslint-disable-next-line no-console
-                  console.log("[WarmRenderDispatcher] prepareBundle failed, will use non-handle path", {
-                    templateId,
-                    error: (err as { message?: string }).message ?? String(err),
-                  })
+                  console.log(
+                    "[WarmRenderDispatcher] prepareBundle failed, will use non-handle path",
+                    {
+                      templateId,
+                      error: (err as { message?: string }).message ?? String(err),
+                    },
+                  )
                   return ""
                 }),
               ),
@@ -295,7 +335,6 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             if (handle) {
               handlesByTemplate.set(templateId, handle)
               preparedThisCall = true
-              // eslint-disable-next-line no-console
               console.log("[WarmRenderDispatcher] prepared handle", {
                 templateId,
                 handle,
@@ -313,7 +352,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             Effect.gen(function* () {
               if (handle) {
                 const handleResult = yield* wasm
-                  .renderFilesWithHandle(handle, dirtyPaths, varsJSON)
+                  .renderFilesWithHandle(handle, wasmPaths, varsJSON)
                   .pipe(
                     Effect.catchAll((err) => {
                       // Structural error means the handle was rejected
@@ -322,12 +361,14 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
                       // for THIS render, fall through to the non-handle
                       // path so the user gets a result.
                       if (err instanceof WasmError && err.kind === "structural") {
-                        // eslint-disable-next-line no-console
-                        console.log("[WarmRenderDispatcher] handle rejected, falling back to renderFiles", {
-                          templateId,
-                          handle,
-                          message: err.message,
-                        })
+                        console.log(
+                          "[WarmRenderDispatcher] handle rejected, falling back to renderFiles",
+                          {
+                            templateId,
+                            handle,
+                            message: err.message,
+                          },
+                        )
                         handlesByTemplate.delete(templateId)
                         handle = undefined
                         return Effect.succeed(null as WasmRenderFilesResult | null)
@@ -338,14 +379,14 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
                 if (handleResult) return handleResult
               }
               // No handle or handle was rejected — non-handle bulk render.
-              return yield* wasm.renderFiles(bundle.bundleJSON, dirtyPaths, varsJSON)
+              return yield* wasm.renderFiles(bundle.bundleJSON, wasmPaths, varsJSON)
             })
 
           const wasmResult = yield* dispatchRender()
           const wasmMs = Date.now() - t0
 
           const files: WarmFile[] = []
-          const coldNeeded: string[] = []
+          const coldNeeded: string[] = [...coldOnlyPaths]
           const skipped: string[] = []
           const renderErrors: WarmPerFileError[] = []
 
@@ -367,11 +408,10 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             files.push({ path: r.path, content: r.content ?? "" })
           }
 
-          // eslint-disable-next-line no-console
           console.log("[WarmRenderDispatcher] rendered", {
             templateId,
             wasmMs,
-            attempted: dirtyPaths.length,
+            attempted: wasmPaths.length,
             files: files.length,
             coldNeeded: coldNeeded.length,
             skipped: skipped.length,
@@ -390,7 +430,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             skipped,
             renderErrors,
             warmDisabled: false,
-            allKnownPaths,
+            allKnownPaths: warmKnownPaths,
             attemptedPaths: dirtyPaths,
             noChanges: false,
           }

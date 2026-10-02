@@ -15,8 +15,15 @@ import { extractProp, extractStringArrayProp } from "../../src/domain/registry/e
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
-import { githubEnvCredentialForHost, githubSessionCredential } from "../../src/domain/github/auth.ts"
-import { DEFAULT_GITHUB_HOST, isGitHubHost, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
+import {
+  githubEnvCredentialForHost,
+  githubSessionCredential,
+} from "../../src/domain/github/auth.ts"
+import {
+  DEFAULT_GITHUB_HOST,
+  isGitHubHost,
+  tryNormalizeGitHubHost,
+} from "../../src/domain/git/github-host.ts"
 import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
   parseBlockOutputsContent,
@@ -24,6 +31,19 @@ import {
   resolveScriptRunner,
   wrapBashScript,
 } from "../../src/domain/exec/script.ts"
+import {
+  LEVEL_LOG_CHANNELS,
+  RUNBOOK_LOG_CHANNEL,
+  logChannelFiles,
+  orderLogChannelLines,
+} from "../../src/domain/exec/logChannels.ts"
+import {
+  maskOutput,
+  maskOutputs,
+  revealOutputs,
+  type OutputValue,
+  type OutputValues,
+} from "../../src/domain/exec/outputValues.ts"
 import { filterCapturedEnv } from "../../src/domain/session/manager.ts"
 import { parseOwnerRepoFromURL } from "../../src/domain/git/operations.ts"
 import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
@@ -37,20 +57,9 @@ import { redactSecrets } from "../../src/domain/vcs/redact.ts"
 import { untouchedValue } from "../../src/domain/boilerplate/untouchedValue.ts"
 import type { Executable } from "../../src/types.ts"
 
-import type {
-  TestCase,
-  TestStep,
-  ExpectedStatus,
-  TestResult,
-  StepResult,
-} from "./config.ts"
+import type { TestCase, TestStep, ExpectedStatus, TestResult, StepResult } from "./config.ts"
 import { resolveTestInputs } from "./fuzz.ts"
-import {
-  runAssertion,
-  countFiles,
-  envListToRecord,
-  type AssertionContext,
-} from "./assertions.ts"
+import { runAssertion, countFiles, envListToRecord, type AssertionContext } from "./assertions.ts"
 import {
   InputValidator,
   parseAuthDependencies,
@@ -63,6 +72,7 @@ import {
 } from "./validation.ts"
 import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Block types & states
@@ -134,15 +144,10 @@ const GOOGLE_ZONE_WRITE_VARS = ["CLOUDSDK_COMPUTE_ZONE", "GOOGLE_ZONE"] as const
  * A git auth block's env lookup: the token and the session vars to write, or
  * why the block skips.
  */
-type GitAuthLookup =
-  | { token: string; vars: Record<string, string> }
-  | { skipReason: string }
+type GitAuthLookup = { token: string; vars: Record<string, string> } | { skipReason: string }
 
 /** Build a StepResult with its mutable fields freshly initialized per call. */
-function makeStepResult(
-  block: string,
-  expectedStatus: ExpectedStatus,
-): StepResult {
+function makeStepResult(block: string, expectedStatus: ExpectedStatus): StepResult {
   return {
     block,
     expectedStatus,
@@ -180,10 +185,7 @@ function hasCommits(repoDir: string, env: NodeJS.ProcessEnv): boolean {
  * Supports: {{ .path.to.value }} and {{ if .x }}...{{ else }}...{{ end }}.
  * This is a simplified renderer covering patterns used in runbook tests.
  */
-function renderGoTemplate(
-  content: string,
-  vars: Record<string, unknown>,
-): string {
+function renderGoTemplate(content: string, vars: Record<string, unknown>): string {
   // Handle {{ if .x }}...{{ else }}...{{ end }}
   let result = content.replace(
     /\{\{\s*if\s+\.([a-zA-Z0-9_.]+)\s*\}\}([\s\S]*?)(?:\{\{\s*else\s*\}\}([\s\S]*?))?\{\{\s*end\s*\}\}/g,
@@ -195,16 +197,13 @@ function renderGoTemplate(
   )
 
   // Handle {{ .path.to.value }} variable substitution
-  result = result.replace(
-    /\{\{\s*\.([a-zA-Z0-9_.]+)\s*\}\}/g,
-    (_match, keyPath: string) => {
-      const value = resolveDotPath(vars, keyPath)
-      if (value === undefined || value === null) {
-        throw new Error(`Template references {{.${keyPath}}} but that variable is not defined`)
-      }
-      return String(value)
-    },
-  )
+  result = result.replace(/\{\{\s*\.([a-zA-Z0-9_.]+)\s*\}\}/g, (_match, keyPath: string) => {
+    const value = resolveDotPath(vars, keyPath)
+    if (value === undefined || value === null) {
+      throw new Error(`Template references {{.${keyPath}}} but that variable is not defined`)
+    }
+    return templateText(value)
+  })
 
   // Handle {{ fromJson .path.to.value }} (returns parsed JSON)
   result = result.replace(
@@ -212,15 +211,31 @@ function renderGoTemplate(
     (_match, keyPath: string) => {
       const value = resolveDotPath(vars, keyPath)
       if (value === undefined) return ""
+      const text = templateText(value)
       try {
-        return JSON.stringify(JSON.parse(String(value)))
+        return JSON.stringify(JSON.parse(text))
       } catch {
-        return String(value)
+        return text
       }
     },
   )
 
   return result
+}
+
+/**
+ * The text a template variable renders as: a primitive as itself, a list
+ * comma-joined (as String() joins an array), and a map as JSON rather than
+ * "[object Object]".
+ */
+function templateText(value: unknown): string {
+  if (value === null || value === undefined) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value)
+  }
+  if (Array.isArray(value)) return value.map(templateText).join(",")
+  return JSON.stringify(value) ?? ""
 }
 
 function resolveDotPath(obj: Record<string, unknown>, dotPath: string): unknown {
@@ -261,7 +276,8 @@ export class TestExecutor {
   private workingDir: string
   private sessionEnv: string[] = []
   private sessionWorkDir: string
-  private blockOutputs = new Map<string, Map<string, string>>()
+  // Sensitive outputs are Redacted: templates reveal them, printing masks them
+  private blockOutputs = new Map<string, Map<string, OutputValue>>()
   // Files each block wrote this test case, by block ID, for files_generated
   private generatedFileCounts = new Map<string, number>()
   private testInputs: Record<string, unknown> = {}
@@ -291,9 +307,7 @@ export class TestExecutor {
     // Build executable registry using Effect + FileSystem service
     const runtime = ManagedRuntime.make(NodeFileSystemLive)
     try {
-      this.registry = await runtime.runPromise(
-        ExecutableRegistry.create(this.runbookPath),
-      )
+      this.registry = await runtime.runPromise(ExecutableRegistry.create(this.runbookPath))
     } finally {
       await runtime.dispose()
     }
@@ -406,7 +420,7 @@ export class TestExecutor {
       resolvedInputs = resolveTestInputs(tc.inputs)
     } catch (e: unknown) {
       result.status = "failed"
-      result.error = `Failed to resolve test config: ${e}`
+      result.error = `Failed to resolve test config: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
@@ -420,7 +434,8 @@ export class TestExecutor {
     const validationErrors = this.validator.validateInputValues(resolvedInputs)
     if (validationErrors.length > 0) {
       result.status = "failed"
-      result.error = "Input validation failed:\n" +
+      result.error =
+        "Input validation failed:\n" +
         validationErrors.map((e) => `  - ${e.inputKey}: ${e.message}`).join("\n")
       result.duration = Date.now() - start
       return result
@@ -540,10 +555,7 @@ export class TestExecutor {
   ): StepResult {
     const start = Date.now()
 
-    const result = makeStepResult(
-      `${lowercaseFirst(block.type)}:${block.id}`,
-      step.expect,
-    )
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     // 1. Check for config errors
     const configError = this.getConfigErrorForBlock(block, registryWarnings)
@@ -553,7 +565,10 @@ export class TestExecutor {
       result.error = configError
 
       if (step.expect === "config_error") {
-        if (step.error_contains && !configError.toLowerCase().includes(step.error_contains.toLowerCase())) {
+        if (
+          step.error_contains &&
+          !configError.toLowerCase().includes(step.error_contains.toLowerCase())
+        ) {
           result.passed = false
         } else {
           result.passed = true
@@ -625,15 +640,8 @@ export class TestExecutor {
   // Block dispatch
   // -----------------------------------------------------------------------
 
-  private dispatchBlock(
-    block: ParsedComponent,
-    step: TestStep,
-    start: number,
-  ): StepResult {
-    const result = makeStepResult(
-      `${lowercaseFirst(block.type)}:${block.id}`,
-      step.expect,
-    )
+  private dispatchBlock(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     if (this.options.verbose) {
       console.log(`\n=== ${block.type}: ${block.id} ===`)
@@ -671,24 +679,31 @@ export class TestExecutor {
     if (step.expect === "blocked") {
       const missing = this.checkMissingOutputs(step.missing_outputs ?? [])
       if (missing.length > 0) {
-        result.passed = true; result.actualStatus = "blocked"
+        result.passed = true
+        result.actualStatus = "blocked"
         result.error = `Blocked due to missing outputs: ${missing.join(", ")}`
       } else {
-        result.passed = false; result.actualStatus = "not_blocked"
+        result.passed = false
+        result.actualStatus = "not_blocked"
         result.error = "Expected block to be blocked but all dependencies are satisfied"
       }
       result.duration = Date.now() - start
       return result
     }
 
-    // Render template vars in block props if needed
+    // Render template vars in block props if needed. The app resolves props
+    // for display and shows a sensitive output in them as <redacted>, so they
+    // get the same here.
     if (block.props.includes("{{")) {
       try {
-        block = { ...block, props: renderGoTemplate(block.props, this.buildTemplateVars()) }
+        block = {
+          ...block,
+          props: renderGoTemplate(block.props, this.buildTemplateVars(maskOutputs)),
+        }
       } catch (e: unknown) {
         result.passed = false
         result.actualStatus = "error"
-        result.error = `Failed to render template in block props: ${e}`
+        result.error = `Failed to render template in block props: ${errorMessage(e)}`
         result.duration = Date.now() - start
         return result
       }
@@ -698,7 +713,8 @@ export class TestExecutor {
       case "TemplateInline": {
         const tmpl = this.templateInlines.get(block.id)
         if (!tmpl) {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = `TemplateInline block "${block.id}" not found`
           result.duration = Date.now() - start
           return result
@@ -709,7 +725,8 @@ export class TestExecutor {
       case "Template": {
         const tmpl = this.templates.get(block.id)
         if (!tmpl) {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = `Template block "${block.id}" not found`
           result.duration = Date.now() - start
           return result
@@ -730,7 +747,8 @@ export class TestExecutor {
       case "GitAuth": {
         const provider = extractProp(block.props, "provider") || "github"
         if (provider !== "github" && provider !== "gitlab") {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = `Unsupported provider "${provider}" (expected "github" or "gitlab")`
           result.duration = Date.now() - start
           return result
@@ -755,13 +773,16 @@ export class TestExecutor {
       case "GitPullRequest":
       case "GitHubPullRequest":
       case "GitLabMergeRequest":
-        result.passed = false; result.actualStatus = "error"
-        result.error = "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
+        result.passed = false
+        result.actualStatus = "error"
+        result.error =
+          "PR blocks can only be tested with expect: skip (test mode never opens a pull request)"
         result.duration = Date.now() - start
         return result
 
       default:
-        result.passed = false; result.actualStatus = "error"
+        result.passed = false
+        result.actualStatus = "error"
         result.error = `Unsupported block type "${block.type}"`
         result.duration = Date.now() - start
         return result
@@ -773,16 +794,12 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
 
   private runCheckOrCommand(block: ParsedComponent, step: TestStep, start: number): StepResult {
-    const result = makeStepResult(
-      `${lowercaseFirst(block.type)}:${block.id}`,
-      step.expect,
-    )
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
 
     // Find the executable by component ID
     let foundExec: Executable | undefined
     const allExecs = this.registry.getAllExecutables()
-    for (const id of Object.keys(allExecs)) {
-      const entry = allExecs[id]
+    for (const [id, entry] of Object.entries(allExecs)) {
       if (entry.componentId === block.id) {
         foundExec = this.registry.getExecutableSync(id)
         break
@@ -790,7 +807,8 @@ export class TestExecutor {
     }
 
     if (!foundExec) {
-      result.passed = false; result.actualStatus = "error"
+      result.passed = false
+      result.actualStatus = "error"
       result.error = `Block "${block.id}" not found in runbook`
       result.duration = Date.now() - start
       return result
@@ -801,16 +819,26 @@ export class TestExecutor {
     try {
       scriptContent = renderGoTemplate(scriptContent, this.buildTemplateVars())
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "error"
-      result.error = `Failed to render template: ${e}`
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `Failed to render template: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
 
     // Create temp files for outputs and file capture
-    const outputFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")), "output.txt")
+    const outputFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "runbook-output-")),
+      "output.txt",
+    )
     fs.writeFileSync(outputFile, "")
     const filesDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-files-"))
+    // The log files, as in the app: RUNBOOK_LOG, which the log_* helpers
+    // append to, and one per level (RUNBOOK_INFO_LOG etc.)
+    const logChannelDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-log-channels-"))
+    const scriptLog = logChannelFiles(logChannelDir, [RUNBOOK_LOG_CHANNEL])[0]!
+    const levelLogs = logChannelFiles(logChannelDir, LEVEL_LOG_CHANNELS)
+    for (const { path: logFile } of [scriptLog, ...levelLogs]) fs.writeFileSync(logFile, "")
     // Made below; declared here so the finally can remove them
     let envDir = ""
     let pwdDir = ""
@@ -818,8 +846,11 @@ export class TestExecutor {
 
     try {
       // Prepare the script
-      const { interpreter, args: interpreterArgs, wrap: isBash } =
-        resolveScriptRunner(scriptContent, foundExec.language)
+      const {
+        interpreter,
+        args: interpreterArgs,
+        wrap: isBash,
+      } = resolveScriptRunner(scriptContent, foundExec.language)
 
       let scriptToWrite = scriptContent
       let envCapturePath = ""
@@ -844,6 +875,7 @@ export class TestExecutor {
       env["RUNBOOK_OUTPUT"] = outputFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
+      for (const { envVar, path: logFile } of [scriptLog, ...levelLogs]) env[envVar] = logFile
 
       // Inject auth block credentials if this block has an auth dependency
       if (this.authDeps.has(foundExec.componentId)) {
@@ -856,17 +888,51 @@ export class TestExecutor {
         }
       }
 
-      // Run the script
+      // Run the script. spawnSync returns only once the script has exited, so
+      // it can't order stdout, stderr and the log files by arrival the way
+      // the app does. Instead the script's stdout and stderr append to
+      // RUNBOOK_LOG, the file the log_* helpers append to: every write lands
+      // at the end of the one file, so the logs keep the order the script
+      // wrote them in. (Unlike in the app, a script that reads RUNBOOK_LOG
+      // back sees its own output there too.)
       const args = [...interpreterArgs, scriptPath]
-      const proc = spawnSync(interpreter, args, {
-        cwd: this.sessionWorkDir,
-        env,
-        timeout: this.options.timeout,
-        stdio: ["pipe", "pipe", "pipe"],
-        maxBuffer: 10 * 1024 * 1024,
-      })
+      const outputFd = fs.openSync(scriptLog.path, "a")
+      let proc: ReturnType<typeof spawnSync>
+      try {
+        proc = spawnSync(interpreter, args, {
+          cwd: this.sessionWorkDir,
+          env,
+          timeout: this.options.timeout,
+          stdio: ["pipe", outputFd, outputFd],
+        })
+      } finally {
+        fs.closeSync(outputFd)
+      }
 
-      const logs = (proc.stdout?.toString() ?? "") + (proc.stderr?.toString() ?? "")
+      const readLog = (logFile: string) => {
+        try {
+          return fs.readFileSync(logFile, "utf-8")
+        } catch {
+          return "" // the script removed it
+        }
+      }
+      // The per-level files' lines follow, tagged with their level and
+      // ordered by time (see orderLogChannelLines).
+      const levelLogLines = orderLogChannelLines(
+        levelLogs.map(({ level, path: logFile }) => {
+          const text = readLog(logFile)
+          try {
+            return { level, text, lastWritten: fs.statSync(logFile).mtime }
+          } catch {
+            return { level, text }
+          }
+        }),
+      )
+      let logs = readLog(scriptLog.path)
+      if (levelLogLines.length > 0) {
+        if (logs !== "" && !logs.endsWith("\n")) logs += "\n"
+        logs += levelLogLines.join("\n") + "\n"
+      }
       const exitCode = proc.status ?? -1
       let status: string
 
@@ -885,11 +951,14 @@ export class TestExecutor {
       result.exitCode = exitCode
       result.logs = logs
 
-      // Parse outputs
+      // Parse outputs. Sensitive ones come back Redacted: later blocks'
+      // templates and assertions reveal them, and printing them shows <redacted>.
       if (status === "success" || status === "warn") {
         try {
           result.outputs = parseBlockOutputsContent(fs.readFileSync(outputFile, "utf-8"))
-        } catch { /* no outputs */ }
+        } catch {
+          /* no outputs */
+        }
 
         // Carry the script's exports and final cwd into later blocks
         if (isBash) this.applyEnvCapture(envCapturePath, pwdCapturePath)
@@ -904,20 +973,27 @@ export class TestExecutor {
 
       // Store outputs
       if (Object.keys(result.outputs).length > 0) {
-        const map = new Map<string, string>()
-        for (const [k, v] of Object.entries(result.outputs)) map.set(k, v)
-        this.blockOutputs.set(block.id, map)
+        this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
       }
 
       result.passed = this.matchesExpectedStatus(step.expect, status)
       result.duration = Date.now() - start
       return result
-
     } finally {
       // Cleanup temp files. The env capture holds every variable the script
       // saw, credentials included, so it must not outlive the block.
-      for (const dir of [path.dirname(outputFile), filesDir, envDir, pwdDir, scriptDir]) {
-        if (dir) try { fs.rmSync(dir, { recursive: true, force: true }) } catch {}
+      for (const dir of [
+        path.dirname(outputFile),
+        filesDir,
+        logChannelDir,
+        envDir,
+        pwdDir,
+        scriptDir,
+      ]) {
+        if (dir)
+          try {
+            fs.rmSync(dir, { recursive: true, force: true })
+          } catch {}
       }
     }
   }
@@ -932,7 +1008,9 @@ export class TestExecutor {
     let env: Record<string, string> | undefined
     try {
       env = parseEnvCaptureContent(fs.readFileSync(envCapturePath, "utf-8"))
-    } catch { /* nothing captured */ }
+    } catch {
+      /* nothing captured */
+    }
     if (!env) return
 
     this.sessionEnv = Object.entries(filterCapturedEnv(env)).map(([k, v]) => `${k}=${v}`)
@@ -940,7 +1018,9 @@ export class TestExecutor {
     let pwd = ""
     try {
       pwd = fs.readFileSync(pwdCapturePath, "utf-8").trim()
-    } catch { /* keep the current cwd */ }
+    } catch {
+      /* keep the current cwd */
+    }
     if (pwd) this.sessionWorkDir = pwd
   }
 
@@ -951,23 +1031,30 @@ export class TestExecutor {
   private runTemplateInline(step: TestStep, block: TemplateInlineBlock, start: number): StepResult {
     const result = makeStepResult(step.block, step.expect)
 
-    // Render the template
+    // Render the template. The real values decide whether it renders and go
+    // into the file generateFile writes; what the CLI logs and prints shows a
+    // sensitive output as <redacted> instead.
     let rendered: string
     try {
       rendered = renderGoTemplate(block.content, this.buildTemplateVars())
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "error"
-      result.error = `${e}`
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
+
+    // The masked context has the same keys, so this renders whenever the real one does
+    const shown = renderGoTemplate(block.content, this.buildTemplateVars(maskOutputs))
 
     // Write file if generateFile is set
     if (block.generateFile && block.outputPath) {
       let outputDir: string
       if (block.target === "worktree") {
         if (!this.activeWorkTreePath) {
-          result.passed = false; result.actualStatus = "error"
+          result.passed = false
+          result.actualStatus = "error"
           result.error = 'Target is "worktree" but no git worktree has been cloned'
           result.duration = Date.now() - start
           return result
@@ -984,8 +1071,9 @@ export class TestExecutor {
         this.creditGeneratedFiles(block.id, 1)
         if (this.options.verbose) console.log(`--- Wrote file: ${outputFile} ---`)
       } catch (e: unknown) {
-        result.passed = false; result.actualStatus = "error"
-        result.error = `Failed to write file: ${e}`
+        result.passed = false
+        result.actualStatus = "error"
+        result.error = `Failed to write file: ${errorMessage(e)}`
         result.duration = Date.now() - start
         return result
       }
@@ -993,12 +1081,12 @@ export class TestExecutor {
 
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.actualStatus = "success"
-    result.logs = rendered
+    result.logs = shown
     result.duration = Date.now() - start
 
     if (this.options.verbose) {
       console.log("--- Rendered Output ---")
-      const lines = rendered.split("\n")
+      const lines = shown.split("\n")
       for (let i = 0; i < Math.min(lines.length, 20); i++) {
         console.log(`  ${lines[i]}`)
       }
@@ -1022,7 +1110,8 @@ export class TestExecutor {
     let outputDir: string
     if (block.target === "worktree") {
       if (!this.activeWorkTreePath) {
-        result.passed = false; result.actualStatus = "error"
+        result.passed = false
+        result.actualStatus = "error"
         result.error = 'Target is "worktree" but no git worktree has been cloned'
         result.duration = Date.now() - start
         return result
@@ -1042,15 +1131,16 @@ export class TestExecutor {
       // not nested under inputs ({{ .inputs.config_name }}).
       // Merge this block's inputs into the top level of vars.
       for (const [key, value] of Object.entries(this.testInputs)) {
-        const parts = key.split(".", 2)
-        if (parts.length === 2 && parts[0] === block.id) {
-          vars[parts[1]] = value
+        const [blockId, name] = key.split(".", 2)
+        if (name !== undefined && blockId === block.id) {
+          vars[name] = value
         }
       }
       this.creditGeneratedFiles(block.id, this.renderTemplateDir(templatePath, outputDir, vars))
     } catch (e: unknown) {
-      result.passed = false; result.actualStatus = "error"
-      result.error = `Template rendering failed: ${e}`
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `Template rendering failed: ${errorMessage(e)}`
       result.duration = Date.now() - start
       return result
     }
@@ -1118,9 +1208,10 @@ export class TestExecutor {
     const providerName = provider === "gitlab" ? "GitLab" : "GitHub"
 
     const prefix = step.env_prefix ?? ""
-    const lookup = provider === "gitlab"
-      ? this.findGitLabAuthEnv(block, prefix)
-      : this.findGitHubAuthEnv(block, prefix)
+    const lookup =
+      provider === "gitlab"
+        ? this.findGitLabAuthEnv(block, prefix)
+        : this.findGitHubAuthEnv(block, prefix)
 
     if ("skipReason" in lookup) {
       this.blockStates.set(block.id, "skipped")
@@ -1274,9 +1365,10 @@ export class TestExecutor {
     // Inject explicit credentials into session
     if (blockCreds["AWS_ACCESS_KEY_ID"]) {
       this.sessionEnv = this.sessionEnv.filter(
-        (e) => !e.startsWith("AWS_ACCESS_KEY_ID=") &&
-               !e.startsWith("AWS_SECRET_ACCESS_KEY=") &&
-               !e.startsWith("AWS_SESSION_TOKEN="),
+        (e) =>
+          !e.startsWith("AWS_ACCESS_KEY_ID=") &&
+          !e.startsWith("AWS_SECRET_ACCESS_KEY=") &&
+          !e.startsWith("AWS_SESSION_TOKEN="),
       )
       this.sessionEnv.push(`AWS_ACCESS_KEY_ID=${blockCreds["AWS_ACCESS_KEY_ID"]}`)
       this.sessionEnv.push(`AWS_SECRET_ACCESS_KEY=${blockCreds["AWS_SECRET_ACCESS_KEY"]}`)
@@ -1522,7 +1614,8 @@ export class TestExecutor {
     // a ref) behaves identically here.
     const cloneSteps = buildCloneSteps(cloneURL, destPath, { ref, repoPath })
     if (Either.isLeft(cloneSteps)) {
-      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.actualStatus = "fail"
       result.error = cloneSteps.left.stderr
       result.duration = Date.now() - start
       return result
@@ -1537,19 +1630,20 @@ export class TestExecutor {
         throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
 
-      for (const step of cloneSteps.right) {
+      for (const gitStep of cloneSteps.right) {
         // A repository with no commits has nothing to check out, as in the app.
-        if (step.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
+        if (gitStep.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
         // Every step gets the clone's auth: a sparse clone is blobless, so its
         // checkout fetches file contents lazily from origin.
-        execFileSync("git", step.args, {
+        execFileSync("git", gitStep.args, {
           timeout: this.options.timeout,
           stdio: "pipe",
           env: cloneEnv,
         })
       }
     } catch (e: unknown) {
-      result.passed = this.matchesExpectedStatus(step.expect, "fail"); result.actualStatus = "fail"
+      result.passed = this.matchesExpectedStatus(step.expect, "fail")
+      result.actualStatus = "fail"
       // Sanitize error to not leak tokens
       result.error = redactSecrets(String(e))
       result.duration = Date.now() - start
@@ -1593,7 +1687,11 @@ export class TestExecutor {
    */
   private cloneAuthEnv(block: ParsedComponent, cloneURL: string): NodeJS.ProcessEnv {
     let url: URL
-    try { url = new URL(cloneURL) } catch { return process.env }
+    try {
+      url = new URL(cloneURL)
+    } catch {
+      return process.env
+    }
     if (url.protocol !== "https:") return process.env
     const host = url.host.toLowerCase()
 
@@ -1613,7 +1711,9 @@ export class TestExecutor {
         token = creds["GITHUB_TOKEN"] ?? ""
       }
       if (!token) {
-        token = githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))?.token ?? ""
+        token =
+          githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))
+            ?.token ?? ""
       }
     } else {
       if (creds && creds["GITLAB_HOST"] === host) token = creds["GITLAB_TOKEN"] ?? ""
@@ -1746,21 +1846,26 @@ export class TestExecutor {
     return filled
   }
 
-  private buildTemplateVars(): Record<string, unknown> {
+  /**
+   * The template data context. Outputs get their real values by default, for
+   * what a block runs or writes; pass maskOutputs for what is only shown, so a
+   * sensitive output renders as <redacted>.
+   */
+  private buildTemplateVars(
+    outputValues: (values: OutputValues) => Record<string, string> = revealOutputs,
+  ): Record<string, unknown> {
     const inputs: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(this.testInputs)) {
-      const parts = key.split(".", 2)
-      if (parts.length === 2) {
-        inputs[parts[1]] = value
+      const [, name] = key.split(".", 2)
+      if (name !== undefined) {
+        inputs[name] = value
       }
     }
 
     const outputs: Record<string, unknown> = {}
     for (const [blockId, blockOutputs] of this.blockOutputs) {
       const templateBlockId = blockId.replace(/-/g, "_")
-      const obj: Record<string, string> = {}
-      for (const [k, v] of blockOutputs) obj[k] = v
-      outputs[templateBlockId] = obj
+      outputs[templateBlockId] = outputValues(Object.fromEntries(blockOutputs))
     }
 
     return { inputs, outputs }
@@ -1768,13 +1873,20 @@ export class TestExecutor {
 
   private matchesExpectedStatus(expected: ExpectedStatus, actual: string): boolean {
     switch (expected) {
-      case "success": return actual === "success"
-      case "fail": return actual === "fail"
-      case "warn": return actual === "warn"
-      case "blocked": return actual === "blocked"
-      case "skip": return actual === "skipped"
-      case "config_error": return actual === "config_error"
-      default: return false
+      case "success":
+        return actual === "success"
+      case "fail":
+        return actual === "fail"
+      case "warn":
+        return actual === "warn"
+      case "blocked":
+        return actual === "blocked"
+      case "skip":
+        return actual === "skipped"
+      case "config_error":
+        return actual === "config_error"
+      default:
+        return false
     }
   }
 
@@ -1782,13 +1894,15 @@ export class TestExecutor {
     // Look outputs up the way templates reference them: buildTemplateVars keys
     // them by block id with hyphens turned into underscores, so
     // `outputs.create_account.account_id` finds block "create-account".
-    const templateOutputs = this.buildTemplateVars().outputs as Record<string, Record<string, string>>
+    const templateOutputs = this.buildTemplateVars().outputs as Record<
+      string,
+      Record<string, string>
+    >
     const missing: string[] = []
     for (const p of expected) {
-      const parts = p.split(".")
-      if (parts.length >= 3 && parts[0] === "outputs") {
-        const blockId = parts[1].replace(/-/g, "_")
-        const outputName = parts[2]
+      const [root, rawBlockId, outputName] = p.split(".")
+      if (root === "outputs" && rawBlockId !== undefined && outputName !== undefined) {
+        const blockId = rawBlockId.replace(/-/g, "_")
         const outputs = templateOutputs[blockId]
         if (!outputs || !outputs[outputName]) {
           missing.push(p)
@@ -1823,9 +1937,10 @@ export class TestExecutor {
     if (stepResult.logs) {
       const lines = stepResult.logs.trim().split("\n")
       const maxLines = 20
-      const truncated = lines.length > maxLines
-        ? [`... (${lines.length - maxLines} lines truncated) ...`, ...lines.slice(-maxLines)]
-        : lines
+      const truncated =
+        lines.length > maxLines
+          ? [`... (${lines.length - maxLines} lines truncated) ...`, ...lines.slice(-maxLines)]
+          : lines
       msg += `\n\n--- Script Output ---\n${truncated.join("\n")}`
     }
 
@@ -1835,7 +1950,7 @@ export class TestExecutor {
   private printBlockOutput(
     _blockId: string,
     logs: string,
-    outputs: Record<string, string>,
+    outputs: OutputValues,
     status: string,
     error?: string,
   ): void {
@@ -1848,11 +1963,12 @@ export class TestExecutor {
     if (Object.keys(outputs).length > 0) {
       console.log("--- Outputs ---")
       for (const [key, value] of Object.entries(outputs)) {
-        const display = value.length > 100 ? value.slice(0, 97) + "..." : value
+        const shown = maskOutput(value)
+        const display = shown.length > 100 ? shown.slice(0, 97) + "..." : shown
         console.log(`  ${key} = ${display}`)
       }
     }
-    const icon = (status === "success" || status === "warn") ? "✓" : "✗"
+    const icon = status === "success" || status === "warn" ? "✓" : "✗"
     console.log(`--- Result: ${icon} ${status} ---`)
     if (error) console.log(`  Error: ${error}`)
   }
@@ -1896,8 +2012,9 @@ export class TestExecutor {
     if (!label) return
 
     try {
-      const script = action.command
-        || fs.readFileSync(path.join(path.dirname(this.runbookPath), action.path!), "utf-8")
+      const script =
+        action.command ||
+        fs.readFileSync(path.join(path.dirname(this.runbookPath), action.path!), "utf-8")
       const cwd = this.resolveOutputPath()
       fs.mkdirSync(cwd, { recursive: true })
       execFileSync("/bin/bash", ["-c", script], {
@@ -1920,5 +2037,5 @@ function describeCleanupError(e: unknown): string {
     const detail = stderr?.toString().trim()
     return detail ? `exit code ${status}: ${detail}` : `exit code ${status}`
   }
-  return e instanceof Error ? e.message : String(e)
+  return errorMessage(e)
 }

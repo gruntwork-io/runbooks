@@ -1,8 +1,33 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import type { ReactNode } from 'react'
-import { normalizeBlockId } from '../lib/utils'
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+} from "react"
+import type { ReactNode } from "react"
+import { normalizeBlockId } from "../lib/utils"
 
-export type BlockComponentType = 'Command' | 'Check' | 'Inputs' | 'Template' | 'TemplateInline' | 'AwsAuth' | 'GoogleAuth' | 'GitAuth' | 'GitHubAuth' | 'GitLabAuth' | 'GitClone' | 'GitPullRequest' | 'GitHubPullRequest' | 'GitLabMergeRequest' | 'DirPicker' | 'Iframe'
+export type BlockComponentType =
+  | "Command"
+  | "Check"
+  | "Inputs"
+  | "Template"
+  | "TemplateInline"
+  | "AwsAuth"
+  | "GoogleAuth"
+  | "GitAuth"
+  | "GitHubAuth"
+  | "GitLabAuth"
+  | "GitClone"
+  | "GitPullRequest"
+  | "GitHubPullRequest"
+  | "GitLabMergeRequest"
+  | "DirPicker"
+  | "Iframe"
 
 interface ComponentRegistration {
   id: string
@@ -19,21 +44,23 @@ interface DuplicateInfo {
   /** The other component(s) this collides with */
   collidingComponents: ComponentRegistration[]
   /** The colliding ID (for normalized collisions, this is different from the current ID) */
-  collidingId?: string
+  collidingId?: string | undefined
 }
 
 interface ComponentIdRegistryContextValue {
-  registerComponent: (id: string, componentType: ComponentRegistration['componentType']) => string // Returns instanceId
+  registerComponent: (id: string, componentType: ComponentRegistration["componentType"]) => string // Returns instanceId
   unregisterComponent: (instanceId: string) => void
   getDuplicateInfo: (id: string, instanceId: string) => DuplicateInfo
 }
 
-const ComponentIdRegistryContext = createContext<ComponentIdRegistryContextValue | undefined>(undefined)
+const ComponentIdRegistryContext = createContext<ComponentIdRegistryContextValue | undefined>(
+  undefined,
+)
 
 /**
  * Provider that tracks all component IDs to detect duplicates.
  * Components register on mount and unregister on unmount.
- * 
+ *
  * Detects both exact duplicates and normalized collisions:
  * - Exact: two components with id="foo"
  * - Normalized: one with id="create-account", another with id="create_account"
@@ -44,56 +71,64 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
   const instanceCounter = useRef(0)
   // Use a ref to access current registrations in callbacks without causing re-renders
   const registrationsRef = useRef<ComponentRegistration[]>([])
-  registrationsRef.current = registrations
+  useLayoutEffect(() => {
+    registrationsRef.current = registrations
+  }, [registrations])
 
-  const registerComponent = useCallback((id: string, componentType: ComponentRegistration['componentType']): string => {
-    const instanceId = `${componentType}-${id}-${++instanceCounter.current}`
-    const normalizedId = normalizeBlockId(id)
-    
-    setRegistrations(prev => [...prev, { id, normalizedId, componentType, instanceId }])
-    
-    return instanceId
-  }, [])
+  const registerComponent = useCallback(
+    (id: string, componentType: ComponentRegistration["componentType"]): string => {
+      const instanceId = `${componentType}-${id}-${++instanceCounter.current}`
+      const normalizedId = normalizeBlockId(id)
+
+      setRegistrations((prev) => [...prev, { id, normalizedId, componentType, instanceId }])
+
+      return instanceId
+    },
+    [],
+  )
 
   const unregisterComponent = useCallback((instanceId: string) => {
-    setRegistrations(prev => prev.filter(r => r.instanceId !== instanceId))
+    setRegistrations((prev) => prev.filter((r) => r.instanceId !== instanceId))
   }, [])
 
   // Get detailed duplicate/collision info for a component
   const getDuplicateInfo = useCallback((id: string, instanceId: string): DuplicateInfo => {
     const normalizedId = normalizeBlockId(id)
-    
+
     // Find all components with the same normalized ID (excludes self)
     const collisions = registrationsRef.current.filter(
-      r => r.normalizedId === normalizedId && r.instanceId !== instanceId
+      (r) => r.normalizedId === normalizedId && r.instanceId !== instanceId,
     )
-    
+
     if (collisions.length === 0) {
       return {
         isDuplicate: false,
         isNormalizedCollision: false,
-        collidingComponents: []
+        collidingComponents: [],
       }
     }
-    
+
     // Check if it's an exact duplicate or a normalized collision
-    const exactDuplicates = collisions.filter(r => r.id === id)
-    const normalizedCollisions = collisions.filter(r => r.id !== id)
-    
+    const exactDuplicates = collisions.filter((r) => r.id === id)
+    const normalizedCollisions = collisions.filter((r) => r.id !== id)
+
     return {
       isDuplicate: true,
       isNormalizedCollision: normalizedCollisions.length > 0 && exactDuplicates.length === 0,
       collidingComponents: collisions,
-      collidingId: normalizedCollisions.length > 0 ? normalizedCollisions[0].id : undefined
+      collidingId: normalizedCollisions[0]?.id,
     }
   }, [])
 
   // Memoize context value to prevent unnecessary re-renders
-  const value = useMemo(() => ({
-    registerComponent,
-    unregisterComponent,
-    getDuplicateInfo
-  }), [registerComponent, unregisterComponent, getDuplicateInfo])
+  const value = useMemo(
+    () => ({
+      registerComponent,
+      unregisterComponent,
+      getDuplicateInfo,
+    }),
+    [registerComponent, unregisterComponent, getDuplicateInfo],
+  )
 
   return (
     <ComponentIdRegistryContext.Provider value={value}>
@@ -106,16 +141,18 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
  * Hook to register a component and check for duplicate IDs.
  * Returns duplicate info including whether it's an exact duplicate or normalized collision.
  */
-// eslint-disable-next-line react-refresh/only-export-components
-export function useComponentIdRegistry(id: string, componentType: ComponentRegistration['componentType']) {
+export function useComponentIdRegistry(
+  id: string,
+  componentType: ComponentRegistration["componentType"],
+) {
   const context = useContext(ComponentIdRegistryContext)
   const instanceIdRef = useRef<string | null>(null)
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateInfo>({
     isDuplicate: false,
     isNormalizedCollision: false,
-    collidingComponents: []
+    collidingComponents: [],
   })
-  
+
   // Extract functions to avoid depending on context object reference
   const registerComponent = context?.registerComponent
   const unregisterComponent = context?.unregisterComponent
@@ -151,20 +188,18 @@ export function useComponentIdRegistry(id: string, componentType: ComponentRegis
 
   // If no provider, don't enforce uniqueness
   if (!context) {
-    return { 
-      isDuplicate: false, 
+    return {
+      isDuplicate: false,
       isNormalizedCollision: false,
       collidingId: undefined,
-      duplicateInfo: [] 
+      duplicateInfo: [],
     }
   }
 
-  return { 
+  return {
     isDuplicate: duplicateInfo.isDuplicate,
     isNormalizedCollision: duplicateInfo.isNormalizedCollision,
     collidingId: duplicateInfo.collidingId,
-    duplicateInfo: duplicateInfo.collidingComponents 
+    duplicateInfo: duplicateInfo.collidingComponents,
   }
 }
-
-

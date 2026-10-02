@@ -41,7 +41,9 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (pred()) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => {
+      setTimeout(r, 50)
+    })
   }
   return pred()
 }
@@ -71,7 +73,7 @@ describe("cancelAllExecutions", () => {
       ),
     )
     setExecutableRegistry(registry)
-    ;[executableId] = Object.keys(registry.getAllExecutables())
+    executableId = Object.keys(registry.getAllExecutables())[0]!
   })
 
   afterEach(() => {
@@ -99,13 +101,19 @@ describe("cancelAllExecutions", () => {
   /** Start long.sh via exec:run and wait until it has recorded its pids. */
   async function startLongRun(executionId: string) {
     fs.rmSync(pidFile, { force: true })
-    const run = handlers.get("exec:run")!({ sender: { send: () => {} } }, { executableId, executionId })
+    const run = handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId },
+    )
     const started = await waitUntil(
-      () => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
+      () =>
+        fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
       8000,
     )
     expect(started).toBe(true)
-    const [leaderPid, childPid] = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const pids = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const leaderPid = pids[0]!
+    const childPid = pids[1]!
     grandchildPids.push(childPid)
     expect(isAlive(childPid)).toBe(true)
     return { run, leaderPid, childPid }
@@ -138,4 +146,53 @@ describe("cancelAllExecutions", () => {
     expect(await second.run).toEqual({ status: null, cancelled: true })
     expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
   }, 30000)
+})
+
+// A sensitive output is a Redacted in the main process, which structured clone
+// would turn into `{}`. exec:outputs sends every output flat instead, as
+// { value, sensitive }, and the renderer wraps the sensitive ones again.
+describe("exec:outputs", () => {
+  let tmpDir = ""
+
+  beforeAll(async () => {
+    registerExecHandlers()
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-exec-outputs-"))
+    await runtime.runPromise(sessionManager.createSession(tmpDir))
+  })
+
+  afterAll(() => {
+    setExecutableRegistry(null)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("sends each output's real value and whether it's sensitive, in a form IPC can clone", async () => {
+    const registry = new ExecutableRegistry()
+    await runtime.runPromise(
+      registry.parseAndRegister(
+        path.join(tmpDir, "runbook.mdx"),
+        `<Command id="mint" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; echo "sensitive:token=s3cr3t" >> "$RUNBOOK_OUTPUT"' />\n`,
+      ),
+    )
+    setExecutableRegistry(registry)
+    const [executableId] = Object.keys(registry.getAllExecutables())
+
+    const sent: { channel: string; payload: unknown }[] = []
+    const sender = { send: (channel: string, payload: unknown) => sent.push({ channel, payload }) }
+    const result = await handlers.get("exec:run")!(
+      { sender },
+      { executableId, executionId: "outputs-test" },
+    )
+
+    expect(result).toEqual({ status: { status: "success", exitCode: 0 } })
+    const outputs = sent.filter((s) => s.channel === "exec:outputs").map((s) => s.payload)
+    const expected = {
+      outputs: {
+        user: { value: "alice", sensitive: false },
+        token: { value: "s3cr3t", sensitive: true },
+      },
+    }
+    expect(outputs).toEqual([expected])
+    // What the renderer receives: nothing is lost in the clone
+    expect(structuredClone(outputs[0])).toEqual(expected)
+  }, 20000)
 })

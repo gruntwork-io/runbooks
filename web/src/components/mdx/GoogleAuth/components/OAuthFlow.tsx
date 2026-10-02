@@ -76,7 +76,7 @@ export function OAuthFlow({
 }: OAuthFlowProps) {
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [showScopeInfo, setShowScopeInfo] = useState(false)
-  const isAuthenticating = authStatus === 'authenticating'
+  const isAuthenticating = authStatus === "authenticating"
   const isWaitingForAuth = isAuthenticating && Boolean(flowId) && Boolean(authUrl)
   const requestedScopes = scopes && scopes.length > 0 ? scopes : [...DEFAULT_GOOGLE_SCOPES]
   const needsClient = oauthUnavailable && !oauthClientFilePath
@@ -100,8 +100,8 @@ export function OAuthFlow({
                 ) — not a service-account key.
               </p>
               <p className="text-muted-foreground">
-                Choose the JSON below, set the author prop{' '}
-                <code className="bg-card px-1 rounded">oauthClientFile</code>, or export{' '}
+                Choose the JSON below, set the author prop{" "}
+                <code className="bg-card px-1 rounded">oauthClientFile</code>, or export{" "}
                 <code className="bg-card px-1 rounded">GOOGLE_OAUTH_CLIENT_CREDENTIALS</code> to the
                 same path before launching Runbooks.
               </p>
@@ -134,7 +134,10 @@ export function OAuthFlow({
               automatically once you approve.
             </p>
             <div className="flex items-center gap-2 mb-2">
-              <code className="bg-card px-3 py-2 rounded border border-info/40 text-xs font-mono truncate flex-1" title={authUrl ?? undefined}>
+              <code
+                className="bg-card px-3 py-2 rounded border border-info/40 text-xs font-mono truncate flex-1"
+                title={authUrl ?? undefined}
+              >
                 {authUrl}
               </code>
               <Button
@@ -144,11 +147,7 @@ export function OAuthFlow({
                 aria-label="Copy sign-in URL"
                 className="border-border"
               >
-                {copied ? (
-                  <Check className="size-4 text-success" />
-                ) : (
-                  <Copy className="size-4" />
-                )}
+                {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
               </Button>
             </div>
             <span className="text-muted-foreground text-xs block">
@@ -159,9 +158,9 @@ export function OAuthFlow({
         ) : (
           <p>
             Click the button below to sign in with Google. A browser tab opens on Google's consent
-            screen and returns here through a local callback on{' '}
+            screen and returns here through a local callback on{" "}
             <code className="bg-card px-1 rounded">127.0.0.1</code>. Runbooks stores the resulting
-            credentials in a private file and points{' '}
+            credentials in a private file and points{" "}
             <code className="bg-card px-1 rounded">GOOGLE_APPLICATION_CREDENTIALS</code> at it.
           </p>
         )}
@@ -259,14 +258,14 @@ export function OAuthFlow({
               ))}
             </ul>
             <p>
-              <strong>Your credentials stay local.</strong> The sign-in completes on your machine and
-              the resulting credentials are written to a private file that only this app and the
+              <strong>Your credentials stay local.</strong> The sign-in completes on your machine
+              and the resulting credentials are written to a private file that only this app and the
               commands it runs can read.
             </p>
             <p>
-              Scopes are coarse-grained:{' '}
+              Scopes are coarse-grained:{" "}
               <code className="bg-accent px-1 rounded">cloud-platform</code> grants the same access
-              your Google account already has. For narrower access, use a{' '}
+              your Google account already has. For narrower access, use a{" "}
               <strong>Service Account Key</strong> with only the roles you need.
             </p>
           </div>

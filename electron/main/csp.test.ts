@@ -1,25 +1,30 @@
 import { describe, it, expect } from "bun:test"
 import { buildContentSecurityPolicy, githubImageOrigins } from "./csp.ts"
 
-/** The source list of the directive `name`. */
-const sources = (policy: string, name: string): string[] => {
+/** The img-src directive's source list. */
+const imgSrc = (policy: string): string[] => {
   const directive = policy
     .split(";")
     .map((d) => d.trim())
-    .find((d) => d.startsWith(`${name} `))
+    .find((d) => d.startsWith("img-src "))
   return directive ? directive.split(/\s+/).slice(1) : []
 }
-
-const imgSrc = (policy: string): string[] => sources(policy, "img-src")
 
 /** Directive names in order. */
 const directives = (policy: string): string[] =>
   policy
     .split(";")
-    .map((d) => d.trim().split(/\s+/)[0])
+    .map((d) => d.trim().split(/\s+/)[0]!)
     .filter(Boolean)
 
-const BASE_DIRECTIVES = ["default-src", "script-src", "style-src", "img-src", "media-src", "font-src", "frame-src"]
+const BASE_DIRECTIVES = [
+  "default-src",
+  "script-src",
+  "style-src",
+  "img-src",
+  "media-src",
+  "font-src",
+]
 
 describe("buildContentSecurityPolicy", () => {
   it("with no hosts: the static policy (github.com + every ghe.com tenant + gitlab.com + gravatar)", () => {
@@ -37,13 +42,11 @@ describe("buildContentSecurityPolicy", () => {
     expect(policy).toContain("script-src 'self' 'unsafe-eval'")
   })
 
-  it("frames may load https pages, http pages on loopback hosts and runbook assets, never file: URLs", () => {
-    expect(sources(buildContentSecurityPolicy(), "frame-src")).toEqual([
-      "https:",
-      "http://localhost:*",
-      "http://127.0.0.1:*",
-      "runbook-asset:",
-    ])
+  // The Iframe block's pages are <webview> guests, not frames (embeds.ts).
+  it("sets no frame-src, so frames fall back to default-src 'self'", () => {
+    const policy = buildContentSecurityPolicy()
+    expect(policy).toContain("default-src 'self';")
+    expect(policy).not.toContain("frame-src")
   })
 
   it("a GHES host adds https://<host> and https://avatars.<host>", () => {
@@ -68,8 +71,12 @@ describe("buildContentSecurityPolicy", () => {
   })
 
   it("github.com and ghe.com tenants add nothing (covered by the static entries)", () => {
-    expect(githubImageOrigins(["github.com", "api.github.com", "acme.ghe.com", "api.acme.ghe.com"])).toEqual([])
-    expect(buildContentSecurityPolicy(["github.com", "acme.ghe.com"])).toBe(buildContentSecurityPolicy())
+    expect(
+      githubImageOrigins(["github.com", "api.github.com", "acme.ghe.com", "api.acme.ghe.com"]),
+    ).toEqual([])
+    expect(buildContentSecurityPolicy(["github.com", "acme.ghe.com"])).toBe(
+      buildContentSecurityPolicy(),
+    )
   })
 
   it("junk hosts with spaces or other schemes/userinfo never reach the policy", () => {

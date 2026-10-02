@@ -7,7 +7,12 @@ import * as os from "node:os"
 import { Effect, Layer, Stream } from "effect"
 import { watch as chokidarWatch } from "chokidar"
 import { FileSystem } from "../services/FileSystem.ts"
-import type { FileSystemShape, WalkEntry, FileChangeEvent, WatchOptions } from "../services/FileSystem.ts"
+import type {
+  FileSystemShape,
+  WalkEntry,
+  FileChangeEvent,
+  WatchOptions,
+} from "../services/FileSystem.ts"
 import {
   FileNotFoundError,
   FileReadError,
@@ -84,6 +89,12 @@ const impl: FileSystemShape = {
       catch: (err) => new FileWriteError({ path: filePath, cause: err }),
     }),
 
+  appendFile: (filePath: string, content: string) =>
+    Effect.tryPromise({
+      try: () => fs.appendFile(filePath, content),
+      catch: (err) => new FileWriteError({ path: filePath, cause: err }),
+    }),
+
   mkdir: (dirPath: string, options?: { recursive?: boolean }) =>
     Effect.tryPromise({
       try: () => fs.mkdir(dirPath, options).then(() => undefined),
@@ -156,20 +167,23 @@ const impl: FileSystemShape = {
     Stream.async<FileChangeEvent, FileWatchError>((emit) => {
       let watcher: ReturnType<typeof chokidarWatch> | null = null
       try {
-        watcher = chokidarWatch(paths, { ignoreInitial: true, depth: options?.depth })
+        watcher = chokidarWatch(paths, {
+          ignoreInitial: true,
+          ...(options?.depth !== undefined && { depth: options.depth }),
+        })
 
         const handler = (type: FileChangeEvent["type"]) => (filePath: string) => {
-          emit.single({ type, path: filePath })
+          void emit.single({ type, path: filePath })
         }
 
         watcher.on("add", handler("add"))
         watcher.on("change", handler("change"))
         watcher.on("unlink", handler("unlink"))
         watcher.on("error", (err) => {
-          emit.fail(new FileWatchError({ cause: err }))
+          void emit.fail(new FileWatchError({ cause: err }))
         })
       } catch (err) {
-        emit.fail(new FileWatchError({ cause: err }))
+        void emit.fail(new FileWatchError({ cause: err }))
       }
 
       // Return cleanup effect to close the watcher when the stream terminates

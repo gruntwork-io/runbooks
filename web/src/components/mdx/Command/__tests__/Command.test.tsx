@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import Command from "../Command"
+import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
 // ---------------------------------------------------------------------------
 // Mock useScriptExecution — controls all script-related state for Command
@@ -34,7 +35,7 @@ const defaultScriptExecution = {
   execError: null as { message: string; details?: string } | null,
   execute: vi.fn(),
   cancel: vi.fn(),
-  outputs: null,
+  outputs: null as OutputValues | null,
   hasScriptDrift: false,
 }
 
@@ -117,13 +118,23 @@ describe("Command", () => {
   })
 
   it("Run button is disabled while running", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "running", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "running",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand()
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
   })
 
   it("Stop button is enabled while running", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "running", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "running",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand()
     expect(screen.getByRole("button", { name: /Stop/ })).not.toBeDisabled()
   })
@@ -139,19 +150,34 @@ describe("Command", () => {
   // --- Status messages ---
 
   it("shows success message on success", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "success", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "success",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand({ successMessage: "Command completed!" })
     expect(screen.getByText("Command completed!")).toBeInTheDocument()
   })
 
   it("shows fail message on failure", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "fail", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "fail",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand({ failMessage: "Command failed!" })
     expect(screen.getByText("Command failed!")).toBeInTheDocument()
   })
 
   it("shows running message while running", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "running", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "running",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand({ runningMessage: "Please wait..." })
     expect(screen.getByText("Please wait...")).toBeInTheDocument()
   })
@@ -164,19 +190,34 @@ describe("Command", () => {
   })
 
   it("shows running icon when running", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "running", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "running",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand()
     expect(screen.getByTestId("icon-running")).toBeInTheDocument()
   })
 
   it("shows success icon on success", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "success", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "success",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand()
     expect(screen.getByTestId("icon-success")).toBeInTheDocument()
   })
 
   it("shows fail icon on failure", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "fail", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "fail",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCommand()
     expect(screen.getByTestId("icon-fail")).toBeInTheDocument()
   })
@@ -335,6 +376,22 @@ describe("Command", () => {
     }
     renderCommand({ path: "scripts/test.sh", command: undefined })
     expect(screen.getByText("Script changed")).toBeInTheDocument()
+  })
+
+  // --- Outputs ---
+
+  it("masks outputs the script marked sensitive", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "success",
+      outputs: { TOKEN: sensitiveOutput("topsecret"), user: "demo" },
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand()
+    expect(screen.getByText("TOKEN")).toBeInTheDocument()
+    expect(screen.queryByText("topsecret")).toBeNull()
+    expect(screen.getByText("demo")).toBeInTheDocument()
   })
 
   // --- Template resolution ---

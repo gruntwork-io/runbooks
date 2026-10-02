@@ -72,7 +72,9 @@ describe("installSystemTrust", () => {
 
 describe("refreshSystemPems", () => {
   it("consumes the cold reader's output on success (coldReadOk: true)", async () => {
-    const result = await Effect.runPromise(refreshSystemPems(Effect.succeed([PEM_C, PEM_D]), [PEM_B]))
+    const result = await Effect.runPromise(
+      refreshSystemPems(Effect.succeed([PEM_C, PEM_D]), [PEM_B]),
+    )
     expect(result).toEqual({ pems: [PEM_C, PEM_D], coldReadOk: true })
   })
 
@@ -114,12 +116,14 @@ describe("classifyTlsError", () => {
     expect(classifyTlsError(undiciWrapped(code))).toBe("tls")
   })
 
-  it.each(["CERT_HAS_EXPIRED", "CERT_NOT_YET_VALID", "CERT_REVOKED", "ERR_TLS_CERT_ALTNAME_INVALID"])(
-    "classifies undici-wrapped %s as 'server-cert' (not trust-fixable)",
-    (code) => {
-      expect(classifyTlsError(undiciWrapped(code))).toBe("server-cert")
-    },
-  )
+  it.each([
+    "CERT_HAS_EXPIRED",
+    "CERT_NOT_YET_VALID",
+    "CERT_REVOKED",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+  ])("classifies undici-wrapped %s as 'server-cert' (not trust-fixable)", (code) => {
+    expect(classifyTlsError(undiciWrapped(code))).toBe("server-cert")
+  })
 
   it.each(["ENOTFOUND", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN"])(
     "classifies undici-wrapped %s as 'network'",

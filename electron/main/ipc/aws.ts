@@ -21,6 +21,7 @@ import type { ProfileAuthRequest } from "./aws-profiles.ts"
 import { handleSsoPoll, handleSsoRoles } from "./aws-sso.ts"
 import type { SsoPollRequest, SsoRolesRequest } from "./aws-sso.ts"
 import { makeLogger } from "../logger.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:aws")
 
@@ -39,72 +40,53 @@ function unwrapCredentials(params: ValidatePayload): AwsCredentials {
 }
 
 export function registerAwsHandlers(): void {
-  ipcMain.handle(
-    "aws:validate",
-    async (_event, params: ValidatePayload) => {
-      const credentials = unwrapCredentials(params)
-      const region = params.region ?? credentials.region
-      try {
-        const identity = await runtime.runPromise(
-          validateCredentials(credentials, region),
-        )
-        return { valid: true, ...identity }
-      } catch (err) {
-        return {
-          valid: false,
-          error: err instanceof Error ? err.message : String(err),
-        }
+  ipcMain.handle("aws:validate", async (_event, params: ValidatePayload) => {
+    const credentials = unwrapCredentials(params)
+    const region = params.region ?? credentials.region
+    try {
+      const identity = await runtime.runPromise(validateCredentials(credentials, region))
+      return { valid: true, ...identity }
+    } catch (err) {
+      return {
+        valid: false,
+        error: errorMessage(err),
       }
-    },
-  )
+    }
+  })
 
   ipcMain.handle("aws:profiles", async () => handleProfiles())
 
-  ipcMain.handle(
-    "aws:profile-auth",
-    async (_event, params: ProfileAuthRequest) => handleProfileAuth(params),
+  ipcMain.handle("aws:profile-auth", async (_event, params: ProfileAuthRequest) =>
+    handleProfileAuth(params),
   )
 
-  ipcMain.handle(
-    "aws:sso-start",
-    async (_event, params: { startUrl: string; region: string }) => {
-      return runtime.runPromise(startSsoFlow(params.startUrl, params.region))
-    },
-  )
+  ipcMain.handle("aws:sso-start", async (_event, params: { startUrl: string; region: string }) => {
+    return runtime.runPromise(startSsoFlow(params.startUrl, params.region))
+  })
 
-  ipcMain.handle(
-    "aws:sso-poll",
-    async (_event, params: SsoPollRequest) => handleSsoPoll(params),
-  )
+  ipcMain.handle("aws:sso-poll", async (_event, params: SsoPollRequest) => handleSsoPoll(params))
 
-  ipcMain.handle(
-    "aws:sso-roles",
-    async (_event, params: SsoRolesRequest) => handleSsoRoles(params),
-  )
+  ipcMain.handle("aws:sso-roles", async (_event, params: SsoRolesRequest) => handleSsoRoles(params))
 
-  ipcMain.handle(
-    "aws:sso-complete",
-    async (_event, params: SsoCompleteParams) => {
-      try {
-        const { credentials, identity } = await runtime.runPromise(signInWithSsoRole(params))
-        return {
-          ...identity,
-          accessKeyId: credentials.accessKeyId,
-          secretAccessKey: credentials.secretAccessKey,
-          sessionToken: credentials.sessionToken,
-          region: credentials.region,
-        }
-      } catch (err) {
-        return {
-          error: err instanceof Error ? err.message : String(err),
-        }
+  ipcMain.handle("aws:sso-complete", async (_event, params: SsoCompleteParams) => {
+    try {
+      const { credentials, identity } = await runtime.runPromise(signInWithSsoRole(params))
+      return {
+        ...identity,
+        accessKeyId: credentials.accessKeyId,
+        secretAccessKey: credentials.secretAccessKey,
+        sessionToken: credentials.sessionToken,
+        region: credentials.region,
       }
-    },
-  )
+    } catch (err) {
+      return {
+        error: errorMessage(err),
+      }
+    }
+  })
 
-  ipcMain.handle(
-    "aws:env-credentials",
-    async (_event, params: EnvCredentialsParams = {}) => handleEnvCredentials(params),
+  ipcMain.handle("aws:env-credentials", async (_event, params: EnvCredentialsParams = {}) =>
+    handleEnvCredentials(params),
   )
 
   ipcMain.handle(
@@ -112,22 +94,17 @@ export function registerAwsHandlers(): void {
     async (_event, params: EnvCredentialsConfirmParams = {}) => handleEnvCredentialsConfirm(params),
   )
 
-  ipcMain.handle(
-    "aws:check-region",
-    async (_event, params: ValidatePayload) => {
-      const credentials = unwrapCredentials(params)
-      const region = params.region ?? credentials.region
-      try {
-        const enabled = await runtime.runPromise(
-          checkRegion(region, credentials),
-        )
-        return enabled
-          ? { enabled: true }
-          : { enabled: false, warning: `Region ${region} is not enabled for this AWS account` }
-      } catch (err) {
-        log.error("Region opt-in check crashed:", err)
-        return { enabled: true }
-      }
-    },
-  )
+  ipcMain.handle("aws:check-region", async (_event, params: ValidatePayload) => {
+    const credentials = unwrapCredentials(params)
+    const region = params.region ?? credentials.region
+    try {
+      const enabled = await runtime.runPromise(checkRegion(region, credentials))
+      return enabled
+        ? { enabled: true }
+        : { enabled: false, warning: `Region ${region} is not enabled for this AWS account` }
+    } catch (err) {
+      log.error("Region opt-in check crashed:", err)
+      return { enabled: true }
+    }
+  })
 }

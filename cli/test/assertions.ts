@@ -5,6 +5,13 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { execFileSync } from "node:child_process"
 import type { TestAssertion, AssertionResult } from "./config.ts"
+import {
+  isSensitiveOutput,
+  maskOutput,
+  revealOutput,
+  type OutputValue,
+} from "../../src/domain/exec/outputValues.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Assertion executor
@@ -13,8 +20,8 @@ import type { TestAssertion, AssertionResult } from "./config.ts"
 export interface AssertionContext {
   /** Absolute path to the output directory (workingDir + outputPath). */
   outputDir: string
-  /** Block outputs collected during test execution. */
-  blockOutputs: Map<string, Map<string, string>>
+  /** Block outputs collected during test execution. Sensitive ones are `Redacted`. */
+  blockOutputs: Map<string, Map<string, OutputValue>>
   /** Number of files each block has generated this test case, by block ID. */
   generatedFiles: Map<string, number>
   /** Env for script assertions: the session env with the test's `env` on top. */
@@ -24,26 +31,40 @@ export interface AssertionContext {
 }
 
 /** Run a single assertion and return the result. */
-export function runAssertion(
-  assertion: TestAssertion,
-  ctx: AssertionContext,
-): AssertionResult {
+export function runAssertion(assertion: TestAssertion, ctx: AssertionContext): AssertionResult {
   switch (assertion.type) {
-    case "file_exists": return assertFileExists(assertion.path!, ctx)
-    case "file_not_exists": return assertNotExists("file", assertion.path!, ctx)
-    case "dir_exists": return assertDirExists(assertion.path!, ctx)
-    case "dir_not_exists": return assertNotExists("dir", assertion.path!, ctx)
-    case "file_contains": return assertFileContains(assertion.path!, assertion.contains!, ctx)
-    case "file_not_contains": return assertFileNotContains(assertion.path!, assertion.contains!, ctx)
-    case "file_matches": return assertFileMatches(assertion.path!, assertion.pattern!, ctx)
-    case "file_equals": return assertFileEquals(assertion.path!, assertion.value!, ctx)
-    case "output_equals": return assertOutputEquals(assertion.block!, assertion.output!, assertion.value ?? "", ctx)
-    case "output_matches": return assertOutputMatches(assertion.block!, assertion.output!, assertion.pattern!, ctx)
-    case "output_exists": return assertOutputExists(assertion.block!, assertion.output!, ctx)
-    case "files_generated": return assertFilesGenerated(assertion.block!, assertion.min_count ?? 1, ctx)
-    case "script": return assertScript(assertion.command!, ctx)
+    case "file_exists":
+      return assertFileExists(assertion.path!, ctx)
+    case "file_not_exists":
+      return assertNotExists("file", assertion.path!, ctx)
+    case "dir_exists":
+      return assertDirExists(assertion.path!, ctx)
+    case "dir_not_exists":
+      return assertNotExists("dir", assertion.path!, ctx)
+    case "file_contains":
+      return assertFileContains(assertion.path!, assertion.contains!, ctx)
+    case "file_not_contains":
+      return assertFileNotContains(assertion.path!, assertion.contains!, ctx)
+    case "file_matches":
+      return assertFileMatches(assertion.path!, assertion.pattern!, ctx)
+    case "file_equals":
+      return assertFileEquals(assertion.path!, assertion.value!, ctx)
+    case "output_equals":
+      return assertOutputEquals(assertion.block!, assertion.output!, assertion.value ?? "", ctx)
+    case "output_matches":
+      return assertOutputMatches(assertion.block!, assertion.output!, assertion.pattern!, ctx)
+    case "output_exists":
+      return assertOutputExists(assertion.block!, assertion.output!, ctx)
+    case "files_generated":
+      return assertFilesGenerated(assertion.block!, assertion.min_count ?? 1, ctx)
+    case "script":
+      return assertScript(assertion.command!, ctx)
     default:
-      return { type: assertion.type, passed: false, message: `Unknown assertion type: ${assertion.type}` }
+      return {
+        type: assertion.type,
+        passed: false,
+        message: `Unknown assertion type: ${String(assertion.type)}`,
+      }
   }
 }
 
@@ -65,14 +86,22 @@ function assertFileExists(filePath: string, ctx: AssertionContext): AssertionRes
   try {
     const stat = fs.statSync(fullPath)
     if (stat.isDirectory()) {
-      return { type: "file_exists", passed: false, message: `Path exists but is a directory: ${filePath}` }
+      return {
+        type: "file_exists",
+        passed: false,
+        message: `Path exists but is a directory: ${filePath}`,
+      }
     }
     return { type: "file_exists", passed: true }
   } catch (e: unknown) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       return { type: "file_exists", passed: false, message: `File does not exist: ${filePath}` }
     }
-    return { type: "file_exists", passed: false, message: `Error checking file: ${e}` }
+    return {
+      type: "file_exists",
+      passed: false,
+      message: `Error checking file: ${errorMessage(e)}`,
+    }
   }
 }
 
@@ -92,7 +121,7 @@ function assertNotExists(
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       return { type, passed: true }
     }
-    return { type, passed: false, message: `Error checking ${lowerNoun}: ${e}` }
+    return { type, passed: false, message: `Error checking ${lowerNoun}: ${errorMessage(e)}` }
   }
 }
 
@@ -101,44 +130,80 @@ function assertDirExists(dirPath: string, ctx: AssertionContext): AssertionResul
   try {
     const stat = fs.statSync(fullPath)
     if (!stat.isDirectory()) {
-      return { type: "dir_exists", passed: false, message: `Path exists but is not a directory: ${dirPath}` }
+      return {
+        type: "dir_exists",
+        passed: false,
+        message: `Path exists but is not a directory: ${dirPath}`,
+      }
     }
     return { type: "dir_exists", passed: true }
   } catch (e: unknown) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") {
       return { type: "dir_exists", passed: false, message: `Directory does not exist: ${dirPath}` }
     }
-    return { type: "dir_exists", passed: false, message: `Error checking directory: ${e}` }
+    return {
+      type: "dir_exists",
+      passed: false,
+      message: `Error checking directory: ${errorMessage(e)}`,
+    }
   }
 }
 
-function assertFileContains(filePath: string, substring: string, ctx: AssertionContext): AssertionResult {
+function assertFileContains(
+  filePath: string,
+  substring: string,
+  ctx: AssertionContext,
+): AssertionResult {
   const fullPath = resolvePath(filePath, ctx)
   try {
     const content = fs.readFileSync(fullPath, "utf-8")
     if (content.includes(substring)) {
       return { type: "file_contains", passed: true }
     }
-    return { type: "file_contains", passed: false, message: `File ${filePath} does not contain "${substring}"` }
+    return {
+      type: "file_contains",
+      passed: false,
+      message: `File ${filePath} does not contain "${substring}"`,
+    }
   } catch (e: unknown) {
-    return { type: "file_contains", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_contains",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
-function assertFileNotContains(filePath: string, substring: string, ctx: AssertionContext): AssertionResult {
+function assertFileNotContains(
+  filePath: string,
+  substring: string,
+  ctx: AssertionContext,
+): AssertionResult {
   const fullPath = resolvePath(filePath, ctx)
   try {
     const content = fs.readFileSync(fullPath, "utf-8")
     if (!content.includes(substring)) {
       return { type: "file_not_contains", passed: true }
     }
-    return { type: "file_not_contains", passed: false, message: `File ${filePath} contains "${substring}" but should not` }
+    return {
+      type: "file_not_contains",
+      passed: false,
+      message: `File ${filePath} contains "${substring}" but should not`,
+    }
   } catch (e: unknown) {
-    return { type: "file_not_contains", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_not_contains",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
-function assertFileMatches(filePath: string, pattern: string, ctx: AssertionContext): AssertionResult {
+function assertFileMatches(
+  filePath: string,
+  pattern: string,
+  ctx: AssertionContext,
+): AssertionResult {
   const fullPath = resolvePath(filePath, ctx)
   try {
     const content = fs.readFileSync(fullPath, "utf-8")
@@ -146,31 +211,61 @@ function assertFileMatches(filePath: string, pattern: string, ctx: AssertionCont
     if (re.test(content)) {
       return { type: "file_matches", passed: true }
     }
-    return { type: "file_matches", passed: false, message: `File ${filePath} does not match pattern "${pattern}"` }
+    return {
+      type: "file_matches",
+      passed: false,
+      message: `File ${filePath} does not match pattern "${pattern}"`,
+    }
   } catch (e: unknown) {
     if (e instanceof SyntaxError) {
       return { type: "file_matches", passed: false, message: `Invalid regex pattern: ${e.message}` }
     }
-    return { type: "file_matches", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_matches",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
-function assertFileEquals(filePath: string, expected: string, ctx: AssertionContext): AssertionResult {
+function assertFileEquals(
+  filePath: string,
+  expected: string,
+  ctx: AssertionContext,
+): AssertionResult {
   const fullPath = resolvePath(filePath, ctx)
   try {
     const content = fs.readFileSync(fullPath, "utf-8")
     if (content === expected) {
       return { type: "file_equals", passed: true }
     }
-    return { type: "file_equals", passed: false, message: `File ${filePath} content does not equal expected value` }
+    return {
+      type: "file_equals",
+      passed: false,
+      message: `File ${filePath} content does not equal expected value`,
+    }
   } catch (e: unknown) {
-    return { type: "file_equals", passed: false, message: `Failed to read file: ${e}` }
+    return {
+      type: "file_equals",
+      passed: false,
+      message: `Failed to read file: ${errorMessage(e)}`,
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
 // Output assertions
 // ---------------------------------------------------------------------------
+
+/**
+ * An output's value as a failure message shows it. Failure messages print
+ * without --verbose and go into the JUnit file, so a sensitive value shows as
+ * <redacted>. An empty one shows as `""`, like a plain empty value.
+ */
+function formatOutput(value: OutputValue): string {
+  const shown = maskOutput(value)
+  return isSensitiveOutput(value) && shown !== "" ? shown : `"${shown}"`
+}
 
 function assertOutputEquals(
   blockId: string,
@@ -184,12 +279,20 @@ function assertOutputEquals(
   }
   const actual = outputs.get(outputName)
   if (actual === undefined) {
-    return { type: "output_equals", passed: false, message: `Block "${blockId}" has no output "${outputName}"` }
+    return {
+      type: "output_equals",
+      passed: false,
+      message: `Block "${blockId}" has no output "${outputName}"`,
+    }
   }
-  if (actual === expected) {
+  if (revealOutput(actual) === expected) {
     return { type: "output_equals", passed: true }
   }
-  return { type: "output_equals", passed: false, message: `output ${blockId}.${outputName} = "${actual}", expected "${expected}"` }
+  return {
+    type: "output_equals",
+    passed: false,
+    message: `output ${blockId}.${outputName} = ${formatOutput(actual)}, expected "${expected}"`,
+  }
 }
 
 function assertOutputMatches(
@@ -204,14 +307,22 @@ function assertOutputMatches(
   }
   const actual = outputs.get(outputName)
   if (actual === undefined) {
-    return { type: "output_matches", passed: false, message: `Block "${blockId}" has no output "${outputName}"` }
+    return {
+      type: "output_matches",
+      passed: false,
+      message: `Block "${blockId}" has no output "${outputName}"`,
+    }
   }
   try {
     const re = new RegExp(pattern)
-    if (re.test(actual)) {
+    if (re.test(revealOutput(actual))) {
       return { type: "output_matches", passed: true }
     }
-    return { type: "output_matches", passed: false, message: `output ${blockId}.${outputName} = "${actual}" does not match pattern "${pattern}"` }
+    return {
+      type: "output_matches",
+      passed: false,
+      message: `output ${blockId}.${outputName} = ${formatOutput(actual)} does not match pattern "${pattern}"`,
+    }
   } catch {
     return { type: "output_matches", passed: false, message: `Invalid regex pattern: ${pattern}` }
   }
@@ -229,7 +340,11 @@ function assertOutputExists(
   if (outputs.has(outputName)) {
     return { type: "output_exists", passed: true }
   }
-  return { type: "output_exists", passed: false, message: `Block "${blockId}" has no output "${outputName}"` }
+  return {
+    type: "output_exists",
+    passed: false,
+    message: `Block "${blockId}" has no output "${outputName}"`,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -241,12 +356,20 @@ function assertOutputExists(
  * already in the output dir) can't satisfy it, and files a template wrote into
  * a worktree still count.
  */
-function assertFilesGenerated(blockId: string, minCount: number, ctx: AssertionContext): AssertionResult {
+function assertFilesGenerated(
+  blockId: string,
+  minCount: number,
+  ctx: AssertionContext,
+): AssertionResult {
   const count = ctx.generatedFiles.get(blockId) ?? 0
   if (count >= minCount) {
     return { type: "files_generated", passed: true }
   }
-  return { type: "files_generated", passed: false, message: `Block "${blockId}" generated ${count} file(s), expected at least ${minCount}` }
+  return {
+    type: "files_generated",
+    passed: false,
+    message: `Block "${blockId}" generated ${count} file(s), expected at least ${minCount}`,
+  }
 }
 
 export function countFiles(dir: string): number {
@@ -286,7 +409,7 @@ function assertScript(command: string, ctx: AssertionContext): AssertionResult {
     })
     return { type: "script", passed: true }
   } catch (e: unknown) {
-    return { type: "script", passed: false, message: `Script assertion failed: ${e}` }
+    return { type: "script", passed: false, message: `Script assertion failed: ${errorMessage(e)}` }
   }
 }
 

@@ -1,0 +1,99 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": {
+    "reportUnusedDisableDirectives": "error",
+    "typeAware": true
+  },
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "jsPlugins": [
+    {
+      "name": "react-compiler",
+      "specifier": "eslint-plugin-react-hooks"
+    }
+  ],
+  "rules": {
+    "no-unused-vars": "warn",
+    "no-console": "off",
+    "typescript/no-require-imports": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-shadow": "error",
+    "no-promise-executor-return": "error",
+    "preserve-caught-error": "error",
+    "react/jsx-no-constructed-context-values": "error",
+    "react/no-unstable-nested-components": "error",
+    "typescript/no-misused-promises": ["error", { "checksVoidReturn": { "attributes": false } }],
+    "typescript/switch-exhaustiveness-check": "error",
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn",
+    "react/error-boundaries": "off",
+    "react/globals": "off",
+    "react/immutability": "off",
+    "react/incompatible-library": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/purity": "off",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/set-state-in-render": "off",
+    "react/static-components": "off",
+    "react/use-memo": "off",
+    "react/void-use-memo": "off",
+    "react-compiler/static-components": "error",
+    "react-compiler/use-memo": "error",
+    "react-compiler/void-use-memo": "error",
+    "react-compiler/preserve-manual-memoization": "error",
+    "react-compiler/incompatible-library": "warn",
+    "react-compiler/immutability": "error",
+    "react-compiler/globals": "error",
+    "react-compiler/refs": "error",
+    "react-compiler/set-state-in-effect": "error",
+    "react-compiler/error-boundaries": "error",
+    "react-compiler/purity": "error",
+    "react-compiler/set-state-in-render": "error",
+    "react-compiler/unsupported-syntax": "warn",
+    "react-compiler/config": "error",
+    "react-compiler/gating": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/e2e/**"],
+      "rules": {
+        "no-empty-pattern": "off",
+        "react-hooks/rules-of-hooks": "off"
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**", "**/e2e/**", "test/**"],
+      "rules": {
+        "typescript/unbound-method": "off"
+      }
+    },
+    {
+      "files": ["src/**/*.test.ts", "electron/**/*.test.ts", "cli/**/*.test.ts", "test/**"],
+      "rules": {
+        "typescript/await-thenable": "off"
+      }
+    },
+    {
+      "files": ["web/src/lib/remarkLiteralOnly.ts"],
+      "rules": {
+        "typescript/switch-exhaustiveness-check": "off"
+      }
+    },
+    {
+      "files": ["src/domain/exec/outputValues.test.ts", "src/domain/exec/script.test.ts"],
+      "rules": {
+        "typescript/no-base-to-string": "off",
+        "typescript/restrict-template-expressions": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "dist",
+    "out",
+    "node_modules",
+    "*.config.*",
+    "**/*.astro",
+    "testdata/**",
+    "docs/**"
+  ]
+}

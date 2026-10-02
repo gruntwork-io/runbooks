@@ -188,7 +188,11 @@ describe("makeLogger error formatting", () => {
       readonly cause: unknown
     }> {}
     const out = logged(
-      new CredentialError({ privateKey, document, cause: { credentials: { private_key: privateKey } } }),
+      new CredentialError({
+        privateKey,
+        document,
+        cause: { credentials: { private_key: privateKey } },
+      }),
     )
     expect(out).toContain("[cause]")
     expect(out).toContain("[REDACTED]")
@@ -283,7 +287,8 @@ describe("makeLogger error formatting", () => {
   it("says so when the depth limit leaves a FiberFailure unwrapped", async () => {
     let err: unknown = await rejectionOf(Effect.fail(cloneError()))
     // Four Error links use up the depth before the FiberFailure is reached.
-    for (const message of ["fourth", "third", "second", "first"]) err = new Error(message, { cause: err })
+    for (const message of ["fourth", "third", "second", "first"])
+      err = new Error(message, { cause: err })
     const out = logged(err)
     expect(out).not.toContain("exitCode")
     expect(out.endsWith("\n[cause] ... (further causes not shown)")).toBe(true)
@@ -294,7 +299,11 @@ describe("makeLogger error formatting", () => {
     // UnknownException keeps the rejection both as its cause and in an own
     // `error` field.
     const err = await Effect.runPromise(
-      Effect.flip(Effect.tryPromise(() => Promise.reject(new Error("EACCES: permission denied, rm '/tmp/c'")))),
+      Effect.flip(
+        Effect.tryPromise(() =>
+          Promise.reject(new Error("EACCES: permission denied, rm '/tmp/c'")),
+        ),
+      ),
     )
     const out = logged("failed to remove cancelled clone:", err)
     expect(out).toContain("UnknownException")

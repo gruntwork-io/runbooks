@@ -33,11 +33,16 @@ async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void
   const deadline = Date.now() + timeoutMs
   while (!condition()) {
     if (Date.now() > deadline) throw new Error("timed out waiting for condition")
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10)
+    })
   }
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+const settle = () =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 20)
+  })
 
 let reloads: string[] = []
 let watcher: RunbookWatcher
@@ -111,11 +116,13 @@ describe("makeRunbookWatcher", () => {
     watcher.start("/work/a/runbook.mdx")
     await waitFor(() => emitters.length === 1)
 
-    emitters[0]({ type: "change", path: "/work/a/generated/out.txt" })
-    emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
-    emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
+    emitters[0]!({ type: "change", path: "/work/a/generated/out.txt" })
+    emitters[0]!({ type: "change", path: "/work/a/runbook.mdx" })
+    emitters[0]!({ type: "change", path: "/work/a/runbook.mdx" })
     await waitFor(() => reloads.length > 0)
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400)
+    })
 
     expect(reloads).toEqual(["/work/a/runbook.mdx"])
   })
@@ -124,9 +131,11 @@ describe("makeRunbookWatcher", () => {
     watcher.start("/work/a/runbook.mdx")
     await waitFor(() => emitters.length === 1)
 
-    emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
+    emitters[0]!({ type: "change", path: "/work/a/runbook.mdx" })
     await watcher.stop()
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400)
+    })
 
     expect(reloads).toEqual([])
   })
@@ -144,7 +153,7 @@ describe("makeRunbookWatcher", () => {
       await waitFor(() => opened.length === 2)
 
       expect(opened).toEqual([["/work/a"], ["/work/a"]])
-      expect(String(warn.mock.calls[0][1])).toContain("stopped watching /work/a/runbook.mdx")
+      expect(String(warn.mock.calls[0]![1])).toContain("stopped watching /work/a/runbook.mdx")
     } finally {
       await failing.stop()
       warn.mockRestore()

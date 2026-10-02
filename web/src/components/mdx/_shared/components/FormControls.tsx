@@ -1,6 +1,6 @@
-import React from 'react'
-import { X, Eye, EyeOff, Check, ChevronsUpDown } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import React from "react"
+import { X, Eye, EyeOff, Check, ChevronsUpDown } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
   Command,
   CommandEmpty,
@@ -8,16 +8,12 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-} from '@/components/ui/command'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import { cn } from '@/lib/utils'
-import type { BoilerplateVariable } from '@/types/boilerplateVariable'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import { tupleElementKeys, untouchedTupleElement } from '../lib/untouchedValue'
+} from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
+import type { BoilerplateVariable } from "@/types/boilerplateVariable"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import { tupleElementKeys, untouchedTupleElement } from "../lib/untouchedValue"
 
 /**
  * Base props interface for all form control components
@@ -28,15 +24,15 @@ interface BaseFormControlProps {
   /** Current value of the form field */
   value: unknown
   /** Optional validation error message */
-  error?: string
+  error?: string | undefined
   /** Callback function when the field value changes */
   onChange: (value: unknown) => void
   /** Callback function when the field loses focus (for validation) */
-  onBlur?: () => void
+  onBlur?: (() => void) | undefined
   /** Unique identifier for the form field */
   id: string
   /** Whether the field is disabled (read-only) */
-  disabled?: boolean
+  disabled?: boolean | undefined
 }
 
 /**
@@ -46,18 +42,32 @@ interface BaseFormControlProps {
  * @param disabled - Whether the field is disabled
  * @returns Combined CSS class string
  */
-const getInputClassName = (error?: string, additionalClasses = '', disabled = false) => {
-  const baseClasses = 'px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-ring'
-  const errorClasses = error ? 'border-destructive' : 'border-input'
-  const disabledClasses = disabled ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-card'
+const getInputClassName = (error?: string, additionalClasses = "", disabled = false) => {
+  const baseClasses = "px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+  const errorClasses = error ? "border-destructive" : "border-input"
+  const disabledClasses = disabled ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-card"
   return `${baseClasses} ${errorClasses} ${disabledClasses} ${additionalClasses}`.trim()
 }
 
+/**
+ * A form value as the text a field shows: "" for no value, and JSON for a List
+ * or Map value (e.g. imported from an upstream field) rather than "[object Object]".
+ */
+function valueText(value: unknown): string {
+  if (value == null) return ""
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  return JSON.stringify(value)
+}
+
 /** Header row showing the entry count (and an "(inherited)" badge when disabled). */
-const EntryCountHeader: React.FC<{ count: number; disabled?: boolean }> = ({ count, disabled }) => (
+const EntryCountHeader: React.FC<{ count: number; disabled?: boolean | undefined }> = ({
+  count,
+  disabled,
+}) => (
   <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
     <span className="text-sm font-medium text-foreground">
-      {count} entr{count !== 1 ? 'ies' : 'y'}
+      {count} entr{count !== 1 ? "ies" : "y"}
       {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
     </span>
   </div>
@@ -81,25 +91,33 @@ const RemoveEntryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
  * Text input component for string variables
  * Renders a standard text input field with validation error styling
  */
-export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+export const StringInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  error,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
   const [showSensitive, setShowSensitive] = React.useState(false)
 
   if (variable.sensitive) {
     return (
       <div className="relative">
         <input
-          type={showSensitive ? 'text' : 'password'}
+          type={showSensitive ? "text" : "password"}
           id={`${id}-${variable.name}`}
-          value={String(value || '')}
+          value={valueText(value || "")}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           disabled={disabled}
-          className={getInputClassName(error, 'w-full pr-10', disabled)}
+          className={getInputClassName(error, "w-full pr-10", disabled)}
         />
         <button
           type="button"
           onClick={() => setShowSensitive(!showSensitive)}
-          aria-label={showSensitive ? 'Hide sensitive input' : 'Show sensitive input'}
+          aria-label={showSensitive ? "Hide sensitive input" : "Show sensitive input"}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
         >
           {showSensitive ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -112,11 +130,11 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
     <input
       type="text"
       id={`${id}-${variable.name}`}
-      value={String(value || '')}
+      value={valueText(value || "")}
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       disabled={disabled}
-      className={getInputClassName(error, 'w-full', disabled)}
+      className={getInputClassName(error, "w-full", disabled)}
     />
   )
 }
@@ -126,21 +144,29 @@ export const StringInput: React.FC<BaseFormControlProps> = ({ variable, value, e
  * Renders a number input field with proper value parsing.
  * Preserves empty values to allow required field validation to work correctly.
  */
-export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+export const NumberInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  error,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawValue = e.target.value
     // Preserve empty string to allow required field validation
-    if (rawValue === '') {
-      onChange('')
+    if (rawValue === "") {
+      onChange("")
       return
     }
     // Parse as number, keeping the numeric value
     const parsed = parseFloat(rawValue)
-    onChange(isNaN(parsed) ? '' : parsed)
+    onChange(isNaN(parsed) ? "" : parsed)
   }
 
   // Display empty string for null/undefined, otherwise show the value
-  const displayValue = value === null || value === undefined || value === '' ? '' : String(value)
+  const displayValue = valueText(value)
 
   return (
     <input
@@ -150,7 +176,7 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, e
       onChange={handleChange}
       onBlur={onBlur}
       disabled={disabled}
-      className={getInputClassName(error, 'max-w-24', disabled)}
+      className={getInputClassName(error, "max-w-24", disabled)}
       placeholder=""
     />
   )
@@ -162,16 +188,23 @@ export const NumberInput: React.FC<BaseFormControlProps> = ({ variable, value, e
  * or 'true': a bool can arrive as a string (e.g. imported from a map field),
  * and Boolean('false') is true.
  */
-export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => (
+export const BooleanInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => (
   <div className="flex items-center">
     <input
       type="checkbox"
       id={`${id}-${variable.name}`}
-      checked={value === true || value === 'true'}
+      checked={value === true || value === "true"}
       onChange={(e) => onChange(e.target.checked)}
       onBlur={onBlur}
       disabled={disabled}
-      className={`h-4 w-4 text-primary focus:ring-ring border-input rounded ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
+      className={`h-4 w-4 text-primary focus:ring-ring border-input rounded ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     />
   </div>
 )
@@ -189,11 +222,19 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({ variable, value, 
  * Options and value are compared as strings: YAML can make options numbers or
  * booleans, while a picked value is always the option's string.
  */
-export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
-  const current = value == null ? '' : String(value)
+export const EnumSelect: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  error,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
+  const current = valueText(value)
   const options = (variable.options ?? []).map(String)
-  const showPlaceholder = current === '' && (value == null || !options.includes(''))
-  const isUnlistedValue = current !== '' && !options.includes(current)
+  const showPlaceholder = current === "" && (value == null || !options.includes(""))
+  const isUnlistedValue = current !== "" && !options.includes(current)
   return (
     <select
       id={`${id}-${variable.name}`}
@@ -201,7 +242,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
       disabled={disabled}
-      className={getInputClassName(error, 'min-w-56', disabled)}
+      className={getInputClassName(error, "min-w-56", disabled)}
     >
       {showPlaceholder && (
         <option value="" disabled>
@@ -213,7 +254,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
           {current}
         </option>
       )}
-      {options.map(option => (
+      {options.map((option) => (
         <option key={option} value={option}>
           {option}
         </option>
@@ -226,7 +267,12 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({ variable, value, er
  * List input component for array variables
  * Provides functionality to add/remove items from a list with a clean UI
  */
-export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onBlur, disabled }) => {
+export const ListInput: React.FC<BaseFormControlProps> = ({
+  value,
+  onChange,
+  onBlur,
+  disabled,
+}) => {
   const currentList = Array.isArray(value) ? value : []
   const inputRef = React.useRef<HTMLInputElement>(null)
 
@@ -242,18 +288,18 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       e.preventDefault()
       const input = e.target as HTMLInputElement
       addItem(input.value)
-      input.value = ''
+      input.value = ""
     }
   }
 
   const handleAddClick = () => {
     if (inputRef.current) {
       addItem(inputRef.current.value)
-      inputRef.current.value = ''
+      inputRef.current.value = ""
     }
   }
 
@@ -266,7 +312,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
             ref={inputRef}
             type="text"
             placeholder="Type an entry and press Enter..."
-            className={getInputClassName(undefined, 'flex-1 placeholder:text-muted-foreground')}
+            className={getInputClassName(undefined, "flex-1 placeholder:text-muted-foreground")}
             onKeyDown={handleKeyDown}
             onBlur={onBlur}
           />
@@ -283,12 +329,19 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
 
       {/* List items */}
       {currentList.length > 0 && (
-        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+        <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
           <EntryCountHeader count={currentList.length} disabled={disabled} />
           <div className="divide-y divide-border">
             {currentList.map((item, index) => (
-              <div key={index} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
-                <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}>{item}</span>
+              <div
+                key={index}
+                className={`flex items-center justify-between px-3 py-2 ${disabled ? "" : "hover:bg-accent"} transition-colors`}
+              >
+                <span
+                  className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
+                >
+                  {item}
+                </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeItem(index)} />}
               </div>
             ))}
@@ -306,12 +359,21 @@ export const ListInput: React.FC<BaseFormControlProps> = ({ value, onChange, onB
  * freeform list — so Boilerplate renders it unchanged. Membership is enforced only by the UI (the picker never
  * offers a value outside the option set); there is no Go-side constraint.
  */
-export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => {
+export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
   const options = variable.options ?? []
-  const selected = Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+  const selected = Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === "string")
+    : []
   const selectedSet = new Set(selected)
   const [open, setOpen] = React.useState(false)
-  const [search, setSearch] = React.useState('')
+  const [search, setSearch] = React.useState("")
   const listRef = React.useRef<HTMLDivElement>(null)
 
   // Scroll to the top whenever the search changes or the popover opens (matches DefaultRegionPicker).
@@ -340,7 +402,7 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, val
           onOpenChange={(isOpen) => {
             setOpen(isOpen)
             if (!isOpen) {
-              setSearch('')
+              setSearch("")
               onBlur?.()
             }
           }}
@@ -354,13 +416,22 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, val
               id={`${id}-${variable.name}`}
               className="w-full justify-between font-normal bg-card border-input hover:bg-accent"
             >
-              {selected.length > 0 ? `${selected.length} selected` : 'Select options...'}
+              {selected.length > 0 ? `${selected.length} selected` : "Select options..."}
               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
+          <PopoverContent
+            className="w-[400px] p-0"
+            align="start"
+            side="bottom"
+            avoidCollisions={false}
+          >
             <Command>
-              <CommandInput placeholder="Search options..." value={search} onValueChange={setSearch} />
+              <CommandInput
+                placeholder="Search options..."
+                value={search}
+                onValueChange={setSearch}
+              />
               <CommandList ref={listRef} className="max-h-[300px]">
                 <CommandEmpty>No match found.</CommandEmpty>
                 <CommandGroup>
@@ -373,8 +444,8 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, val
                     >
                       <Check
                         className={cn(
-                          'h-4 w-4 shrink-0',
-                          selectedSet.has(option) ? 'opacity-100' : 'opacity-0',
+                          "h-4 w-4 shrink-0",
+                          selectedSet.has(option) ? "opacity-100" : "opacity-0",
                         )}
                       />
                       <span className="font-mono text-xs text-foreground">{option}</span>
@@ -389,13 +460,13 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, val
 
       {/* Selected entries, always visible so the choice is readable without opening the picker. */}
       {selected.length > 0 && (
-        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+        <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
           <EntryCountHeader count={selected.length} disabled={disabled} />
           <div className="flex flex-wrap gap-1.5 p-2">
             {selected.map((option) => (
               <span
                 key={option}
-                className={`inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 font-mono text-xs ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}
+                className={`inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 font-mono text-xs ${disabled ? "text-muted-foreground" : "text-foreground"}`}
               >
                 {option}
                 {!disabled && (
@@ -422,20 +493,30 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({ variable, val
  * Structured map input component for map variables with a schema
  * Provides a form-based UI for entering structured data with multiple fields per entry
  */
-export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => {
-  const currentMap = typeof value === 'object' && value !== null ? value as Record<string, Record<string, unknown>> : {}
+export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
+  const currentMap =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, Record<string, unknown>>)
+      : {}
   const [isAddingEntry, setIsAddingEntry] = React.useState(false)
-  const [entryKey, setEntryKey] = React.useState('')
+  const [entryKey, setEntryKey] = React.useState("")
   const [entryFields, setEntryFields] = React.useState<Record<string, string>>({})
-  
+
   const schema = variable.schema || {}
   const schemaFields = Object.keys(schema)
-  const instanceLabel = variable.schemaInstanceLabel || 'Entry name'
+  const instanceLabel = variable.schemaInstanceLabel || "Entry name"
   const entryKeyId = `${id}-${variable.name}-entry-key`
 
   const resetEntryForm = () => {
     setIsAddingEntry(false)
-    setEntryKey('')
+    setEntryKey("")
     setEntryFields({})
   }
 
@@ -444,7 +525,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
       // Bool fields display 'false' until touched; store that default so an
       // untouched field is saved as 'false' rather than omitted.
       const boolDefaults = Object.fromEntries(
-        schemaFields.filter(f => schema[f] === 'bool').map(f => [f, 'false'])
+        schemaFields.filter((f) => schema[f] === "bool").map((f) => [f, "false"]),
       )
       onChange({ ...currentMap, [entryKey.trim()]: { ...boolDefaults, ...entryFields } })
       resetEntryForm()
@@ -458,11 +539,11 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
   }
 
   const updateField = (fieldName: string, fieldValue: string) => {
-    setEntryFields(prev => ({ ...prev, [fieldName]: fieldValue }))
+    setEntryFields((prev) => ({ ...prev, [fieldName]: fieldValue }))
   }
 
   const entries = Object.entries(currentMap)
-  
+
   return (
     <div className="space-y-3">
       {/* Add entry button/form - hidden when disabled */}
@@ -489,7 +570,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
               Cancel
             </Button>
           </div>
-          
+
           {/* Entry key input */}
           <div>
             <label htmlFor={entryKeyId} className="block text-sm font-medium text-foreground mb-1">
@@ -501,7 +582,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
               value={entryKey}
               onChange={(e) => setEntryKey(e.target.value)}
               onBlur={onBlur}
-              className={getInputClassName(undefined, 'w-full')}
+              className={getInputClassName(undefined, "w-full")}
             />
           </div>
 
@@ -517,31 +598,31 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
                   <label htmlFor={fieldId} className="block text-xs text-muted-foreground mb-1">
                     {fieldName} <span className="text-muted-foreground">({fieldType})</span>
                   </label>
-                  {fieldType === 'bool' ? (
+                  {fieldType === "bool" ? (
                     <select
                       id={fieldId}
-                      value={entryFields[fieldName] || 'false'}
+                      value={entryFields[fieldName] || "false"}
                       onChange={(e) => updateField(fieldName, e.target.value)}
-                      className={getInputClassName(undefined, 'w-full')}
+                      className={getInputClassName(undefined, "w-full")}
                     >
                       <option value="true">true</option>
                       <option value="false">false</option>
                     </select>
-                  ) : fieldType === 'number' || fieldType === 'int' || fieldType === 'float' ? (
+                  ) : fieldType === "number" || fieldType === "int" || fieldType === "float" ? (
                     <input
                       type="number"
                       id={fieldId}
-                      value={entryFields[fieldName] || ''}
+                      value={entryFields[fieldName] || ""}
                       onChange={(e) => updateField(fieldName, e.target.value)}
-                      className={getInputClassName(undefined, 'w-full')}
+                      className={getInputClassName(undefined, "w-full")}
                     />
                   ) : (
                     <input
                       type="text"
                       id={fieldId}
-                      value={entryFields[fieldName] || ''}
+                      value={entryFields[fieldName] || ""}
                       onChange={(e) => updateField(fieldName, e.target.value)}
-                      className={getInputClassName(undefined, 'w-full')}
+                      className={getInputClassName(undefined, "w-full")}
                     />
                   )}
                 </div>
@@ -560,24 +641,33 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
           </Button>
         </div>
       ) : null}
-      
+
       {/* Map entries */}
       {entries.length > 0 ? (
-        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+        <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
           <EntryCountHeader count={entries.length} disabled={disabled} />
           <div className="divide-y divide-border">
             {entries.map(([key, val]) => (
-              <div key={key} className={`px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
+              <div
+                key={key}
+                className={`px-3 py-2 ${disabled ? "" : "hover:bg-accent"} transition-colors`}
+              >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <div className={`font-medium text-sm mb-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}>{key}</div>
+                    <div
+                      className={`font-medium text-sm mb-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
+                    >
+                      {key}
+                    </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
-                      {typeof val === 'object' && val !== null ? (
-                        Object.entries(val as Record<string, unknown>).map(([fieldKey, fieldVal]) => (
-                          <div key={fieldKey}>
-                            <span className="font-medium">{fieldKey}:</span> {String(fieldVal)}
-                          </div>
-                        ))
+                      {typeof val === "object" && val !== null ? (
+                        Object.entries(val as Record<string, unknown>).map(
+                          ([fieldKey, fieldVal]) => (
+                            <div key={fieldKey}>
+                              <span className="font-medium">{fieldKey}:</span> {String(fieldVal)}
+                            </div>
+                          ),
+                        )
                       ) : (
                         <div>{String(val)}</div>
                       )}
@@ -602,9 +692,17 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({ variable, v
  * Map input component for object variables
  * Provides functionality to add/remove key-value pairs with a clean UI
  */
-export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onChange, onBlur, id, disabled }) => {
-  const currentMap = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {}
-  
+export const MapInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
+  const currentMap =
+    typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {}
+
   const addEntry = (key: string, val: string) => {
     if (key.trim() && val.trim()) {
       onChange({ ...currentMap, [key.trim()]: val.trim() })
@@ -622,13 +720,13 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
     const valueInput = document.getElementById(`${id}-${variable.name}-value`) as HTMLInputElement
     if (keyInput && valueInput) {
       addEntry(keyInput.value, valueInput.value)
-      keyInput.value = ''
-      valueInput.value = ''
+      keyInput.value = ""
+      valueInput.value = ""
     }
   }
 
   const entries = Object.entries(currentMap)
-  
+
   return (
     <div className="space-y-3">
       {/* Add entry input - hidden when disabled */}
@@ -637,14 +735,14 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
           <input
             type="text"
             placeholder="Key"
-            className={getInputClassName(undefined, 'flex-1 placeholder:text-muted-foreground')}
+            className={getInputClassName(undefined, "flex-1 placeholder:text-muted-foreground")}
             id={`${id}-${variable.name}-key`}
             onBlur={onBlur}
           />
           <input
             type="text"
             placeholder="Value"
-            className={getInputClassName(undefined, 'flex-1 placeholder:text-muted-foreground')}
+            className={getInputClassName(undefined, "flex-1 placeholder:text-muted-foreground")}
             id={`${id}-${variable.name}-value`}
             onBlur={onBlur}
           />
@@ -661,12 +759,19 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
 
       {/* Map entries */}
       {entries.length > 0 ? (
-        <div className={`border border-border rounded-md ${disabled ? 'bg-muted' : 'bg-card'}`}>
+        <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
           <EntryCountHeader count={entries.length} disabled={disabled} />
           <div className="divide-y divide-border">
             {entries.map(([key, val]) => (
-              <div key={key} className={`flex items-center justify-between px-3 py-2 ${disabled ? '' : 'hover:bg-accent'} transition-colors`}>
-                <span className={`text-sm flex-1 ${disabled ? 'text-muted-foreground' : 'text-foreground'}`}><strong>{key}:</strong> {String(val)}</span>
+              <div
+                key={key}
+                className={`flex items-center justify-between px-3 py-2 ${disabled ? "" : "hover:bg-accent"} transition-colors`}
+              >
+                <span
+                  className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
+                >
+                  <strong>{key}:</strong> {String(val)}
+                </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeEntry(key)} />}
               </div>
             ))}
@@ -686,15 +791,23 @@ export const MapInput: React.FC<BaseFormControlProps> = ({ variable, value, onCh
  * Renders one input per element with the appropriate type based on the schema.
  * Schema keys are numeric indices ("0", "1", ...) mapping to element types.
  */
-export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, error, onChange, onBlur, id, disabled }) => {
+export const TupleInput: React.FC<BaseFormControlProps> = ({
+  variable,
+  value,
+  error,
+  onChange,
+  onBlur,
+  id,
+  disabled,
+}) => {
   const schema = variable.schema || {}
   // Sort keys numerically to preserve element order
   const elementKeys = tupleElementKeys(schema)
   // Missing elements (no value, or a short array) start as '' or, for bool
   // elements, false (what the select displays), matching the boolean updateElement stores.
   // useFormState starts an untouched tuple from the same elements.
-  const currentTuple = elementKeys.map((k, i) =>
-    (Array.isArray(value) ? value[i] : undefined) ?? untouchedTupleElement(schema[k])
+  const currentTuple = elementKeys.map(
+    (k, i) => (Array.isArray(value) ? value[i] : undefined) ?? untouchedTupleElement(schema[k]),
   )
 
   const updateElement = (index: number, newValue: unknown) => {
@@ -708,11 +821,13 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
       {elementKeys.map((key) => {
         const index = Number(key)
         const elemType = schema[key]
-        const elemValue = currentTuple[index] ?? ''
-        const isNumeric = elemType === 'number' || elemType === 'int' || elemType === 'float'
-        const elemLabel = isNumeric ? `Enter ${elemType === 'int' ? 'an integer' : elemType === 'float' ? 'a float' : 'a number'}`
-          : elemType === 'bool' ? 'Enter a boolean'
-          : `Enter a ${elemType}`
+        const elemValue = currentTuple[index] ?? ""
+        const isNumeric = elemType === "number" || elemType === "int" || elemType === "float"
+        const elemLabel = isNumeric
+          ? `Enter ${elemType === "int" ? "an integer" : elemType === "float" ? "a float" : "a number"}`
+          : elemType === "bool"
+            ? "Enter a boolean"
+            : `Enter a ${elemType}`
 
         return (
           <div key={key} className="flex-1 min-w-24">
@@ -721,23 +836,26 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
               <input
                 type="number"
                 id={`${id}-${variable.name}-${key}`}
-                value={elemValue === '' ? '' : String(elemValue)}
+                value={elemValue === "" ? "" : String(elemValue)}
                 onChange={(e) => {
                   const raw = e.target.value
-                  updateElement(index, raw === '' ? '' : elemType === 'int' ? parseInt(raw, 10) : parseFloat(raw))
+                  updateElement(
+                    index,
+                    raw === "" ? "" : elemType === "int" ? parseInt(raw, 10) : parseFloat(raw),
+                  )
                 }}
                 onBlur={onBlur}
                 disabled={disabled}
-                className={getInputClassName(error, 'w-full', disabled)}
+                className={getInputClassName(error, "w-full", disabled)}
               />
-            ) : elemType === 'bool' ? (
+            ) : elemType === "bool" ? (
               <select
                 id={`${id}-${variable.name}-${key}`}
-                value={String(elemValue === '' ? false : elemValue)}
-                onChange={(e) => updateElement(index, e.target.value === 'true')}
+                value={String(elemValue === "" ? false : elemValue)}
+                onChange={(e) => updateElement(index, e.target.value === "true")}
                 onBlur={onBlur}
                 disabled={disabled}
-                className={getInputClassName(error, 'w-full', disabled)}
+                className={getInputClassName(error, "w-full", disabled)}
               >
                 <option value="true">true</option>
                 <option value="false">false</option>
@@ -746,11 +864,11 @@ export const TupleInput: React.FC<BaseFormControlProps> = ({ variable, value, er
               <input
                 type="text"
                 id={`${id}-${variable.name}-${key}`}
-                value={String(elemValue || '')}
+                value={String(elemValue || "")}
                 onChange={(e) => updateElement(index, e.target.value)}
                 onBlur={onBlur}
                 disabled={disabled}
-                className={getInputClassName(error, 'w-full', disabled)}
+                className={getInputClassName(error, "w-full", disabled)}
               />
             )}
           </div>
@@ -783,14 +901,18 @@ export const FormControl: React.FC<BaseFormControlProps> = (props) => {
         return <MultiSelectInput {...props} />
       }
       // Use tuple input if schema is defined (numeric keys = fixed-length typed array)
-      return variable.schema && Object.keys(variable.schema).length > 0
-        ? <TupleInput {...props} />
-        : <ListInput {...props} />
+      return variable.schema && Object.keys(variable.schema).length > 0 ? (
+        <TupleInput {...props} />
+      ) : (
+        <ListInput {...props} />
+      )
     case BoilerplateVariableType.Map:
       // Use structured input if schema is defined, otherwise use simple key-value input
-      return variable.schema && Object.keys(variable.schema).length > 0
-        ? <StructuredMapInput {...props} />
-        : <MapInput {...props} />
+      return variable.schema && Object.keys(variable.schema).length > 0 ? (
+        <StructuredMapInput {...props} />
+      ) : (
+        <MapInput {...props} />
+      )
     default:
       return <StringInput {...props} />
   }

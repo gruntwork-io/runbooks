@@ -16,7 +16,9 @@ describe("normalizeInstanceBaseUrl", () => {
   it("keeps a full https origin and drops path/query/trailing slash", () => {
     expect(normalizeInstanceBaseUrl("https://gitlab.acme.com")).toBe("https://gitlab.acme.com")
     expect(normalizeInstanceBaseUrl("https://gitlab.acme.com/")).toBe("https://gitlab.acme.com")
-    expect(normalizeInstanceBaseUrl("https://gitlab.acme.com/-/foo?x=1")).toBe("https://gitlab.acme.com")
+    expect(normalizeInstanceBaseUrl("https://gitlab.acme.com/-/foo?x=1")).toBe(
+      "https://gitlab.acme.com",
+    )
   })
 
   it("assumes https when the scheme is missing and preserves a port", () => {

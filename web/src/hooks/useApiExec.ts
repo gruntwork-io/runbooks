@@ -1,7 +1,9 @@
-import { useCallback, useRef, useState } from 'react'
-import { z } from 'zod'
-import { createAppError, type AppError } from '@/types/error'
-import { FileTreeNodeArraySchema } from '@/components/artifacts/code/FileTree.types'
+import { useCallback, useRef, useState } from "react"
+import { z } from "zod"
+import { createAppError, type AppError } from "@/types/error"
+import { FileTreeNodeArraySchema } from "@/components/artifacts/code/FileTree.types"
+import { decodeOutputs, type OutputValues } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
 // Zod schemas for IPC events
 const ExecLogEventSchema = z.object({
   line: z.string(),
@@ -10,7 +12,7 @@ const ExecLogEventSchema = z.object({
 })
 
 const ExecStatusEventSchema = z.object({
-  status: z.enum(['success', 'warn', 'fail']),
+  status: z.enum(["success", "warn", "fail"]),
   exitCode: z.number(),
 })
 
@@ -31,16 +33,16 @@ const FilesCapturedEventSchema = z.object({
   heavyDirs: z.array(z.object({ path: z.string(), fileCount: z.number() })).optional(),
 })
 
+// Main sends each output flat, since a Redacted can't cross IPC. Parsing turns
+// the sensitive ones back into Redacted values (see outputValues.ts).
 const BlockOutputsEventSchema = z.object({
-  outputs: z.record(z.string(), z.string()),
+  outputs: z
+    .record(z.string(), z.object({ value: z.string(), sensitive: z.boolean() }))
+    .transform(decodeOutputs),
 })
 
 // Inferred types from Zod schemas
-export type ExecLogEvent = z.infer<typeof ExecLogEventSchema>
-export type ExecStatusEvent = z.infer<typeof ExecStatusEventSchema>
-export type CapturedFile = z.infer<typeof CapturedFileSchema>
 export type FilesCapturedEvent = z.infer<typeof FilesCapturedEventSchema>
-export type BlockOutputsEvent = z.infer<typeof BlockOutputsEventSchema>
 
 /** A single log entry with its timestamp */
 export interface LogEntry {
@@ -58,10 +60,11 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
 
 export interface ExecState {
   logs: LogEntry[]
-  status: 'pending' | 'running' | 'success' | 'warn' | 'fail'
+  status: "pending" | "running" | "success" | "warn" | "fail"
   exitCode: number | null
   error: AppError | null
-  outputs: Record<string, string> | null
+  /** The script's outputs. Sensitive ones are `Redacted`. */
+  outputs: OutputValues | null
   /** Absolute path to the on-disk log file for this execution, if available. */
   logFilePath: string | null
 }
@@ -74,12 +77,18 @@ export interface UseApiExecOptions {
   /** Callback invoked when files are captured from a command execution */
   onFilesCaptured?: (event: FilesCapturedEvent) => void
   /** Callback invoked when block outputs are captured from script execution */
-  onOutputsCaptured?: (outputs: Record<string, string>) => void
+  onOutputsCaptured?: (outputs: OutputValues) => void
 }
 
 export interface UseApiExecReturn {
   state: ExecState
-  execute: (executableId: string, variables?: Record<string, unknown>, envVars?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => void
+  execute: (
+    executableId: string,
+    variables?: Record<string, unknown>,
+    envVars?: Record<string, string>,
+    usePty?: boolean,
+    timeoutMs?: number,
+  ) => void
   cancel: () => void
   reset: () => void
 }
@@ -101,7 +110,7 @@ let activeExecId = 0
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const [state, setState] = useState<ExecState>({
     logs: [],
-    status: 'pending',
+    status: "pending",
     exitCode: null,
     error: null,
     outputs: null,
@@ -135,7 +144,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     // there (the id is dropped when the handler returns), so it's safe to send
     // whenever we have one.
     if (execId !== null) {
-      window.api.invoke('exec:cancel', { executionId: execId }).catch(() => {})
+      window.api.invoke("exec:cancel", { executionId: execId }).catch(() => {})
       runningExecIdRef.current = null
     }
 
@@ -149,11 +158,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     // progress. Keyed on the rendered status rather than the id bookkeeping,
     // so a stuck-looking block reports the stop and an idle one stays quiet.
     setState((prev) =>
-      prev.status === 'running'
+      prev.status === "running"
         ? {
             ...prev,
-            status: 'pending',
-            logs: [...prev.logs, createLogEntry('Execution cancelled by user')],
+            status: "pending",
+            logs: [...prev.logs, createLogEntry("Execution cancelled by user")],
           }
         : prev,
     )
@@ -163,7 +172,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     cancel()
     setState({
       logs: [],
-      status: 'pending',
+      status: "pending",
       exitCode: null,
       error: null,
       outputs: null,
@@ -172,188 +181,212 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   }, [cancel])
 
   // Runs a registry executable over IPC and streams its events into state
-  const executeScript = useCallback(async (
-    payload: {
-      executableId: string;
-      templateVarValues: Record<string, unknown>;
-      envVarsOverride?: Record<string, string>;
-      usePty?: boolean;
-      timeoutMs?: number;
-    }
-  ) => {
-    // Cancel any existing execution and bump generation
-    cancel()
-    const generation = ++executionGenRef.current
+  const executeScript = useCallback(
+    async (payload: {
+      executableId: string
+      templateVarValues: Record<string, unknown>
+      envVarsOverride?: Record<string, string>
+      usePty?: boolean
+      timeoutMs?: number
+    }) => {
+      // Cancel any existing execution and bump generation
+      cancel()
+      const generation = ++executionGenRef.current
 
-    // Claim global ownership so that listeners from previously-run blocks
-    // (which are still subscribed) will silently discard our events.
-    const execId = ++activeExecId
-    // Stable string id for this run, sent to the backend so a later exec:cancel
-    // can target this specific execution. Held in a ref for cancel() to read.
-    const executionId = String(execId)
-    runningExecIdRef.current = executionId
-    lastExecIdRef.current = executionId
-    selfCancelledRef.current = false
+      // Claim global ownership so that listeners from previously-run blocks
+      // (which are still subscribed) will silently discard our events.
+      const execId = ++activeExecId
+      // Stable string id for this run, sent to the backend so a later exec:cancel
+      // can target this specific execution. Held in a ref for cancel() to read.
+      const executionId = String(execId)
+      runningExecIdRef.current = executionId
+      lastExecIdRef.current = executionId
+      selfCancelledRef.current = false
 
-    // Reset state for new execution
-    setState({
-      logs: [],
-      status: 'running',
-      exitCode: null,
-      error: null,
-      outputs: null,
-      logFilePath: null,
-    })
+      // Reset state for new execution
+      setState({
+        logs: [],
+        status: "running",
+        exitCode: null,
+        error: null,
+        outputs: null,
+        logFilePath: null,
+      })
 
-    // Subscribe to IPC streaming events before starting execution.
-    // Each listener guards against stale delivery: if another block has
-    // started a newer execution (activeExecId moved on), we ignore the event.
-    const unsubs: (() => void)[] = []
+      // Subscribe to IPC streaming events before starting execution.
+      // Each listener guards against stale delivery: if another block has
+      // started a newer execution (activeExecId moved on), we ignore the event.
+      const unsubs: (() => void)[] = []
 
-    unsubs.push(window.api.on('exec:log', (data: unknown) => {
-      if (activeExecId !== execId) return
-      const parsed = ExecLogEventSchema.safeParse(data)
-      if (parsed.success) {
-        const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
-        setState((prev) => ({
-          ...prev,
-          logs: parsed.data.replace && prev.logs.length > 0
-            ? [...prev.logs.slice(0, -1), newEntry]
-            : [...prev.logs, newEntry],
-        }))
+      unsubs.push(
+        window.api.on("exec:log", (data: unknown) => {
+          if (activeExecId !== execId) return
+          const parsed = ExecLogEventSchema.safeParse(data)
+          if (parsed.success) {
+            const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+            setState((prev) => ({
+              ...prev,
+              logs:
+                parsed.data.replace && prev.logs.length > 0
+                  ? [...prev.logs.slice(0, -1), newEntry]
+                  : [...prev.logs, newEntry],
+            }))
+          }
+        }),
+      )
+
+      unsubs.push(
+        window.api.on("exec:log-file", (data: unknown) => {
+          if (activeExecId !== execId) return
+          const parsed = ExecLogFileEventSchema.safeParse(data)
+          if (parsed.success) {
+            setState((prev) => ({ ...prev, logFilePath: parsed.data.path }))
+          }
+        }),
+      )
+
+      unsubs.push(
+        window.api.on("exec:outputs", (data: unknown) => {
+          if (activeExecId !== execId) return
+          const parsed = BlockOutputsEventSchema.safeParse(data)
+          if (parsed.success) {
+            setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
+            options?.onOutputsCaptured?.(parsed.data.outputs)
+          }
+        }),
+      )
+
+      unsubs.push(
+        window.api.on("exec:files-captured", (data: unknown) => {
+          if (activeExecId !== execId) return
+          const parsed = FilesCapturedEventSchema.safeParse(data)
+          if (parsed.success) {
+            options?.onFilesCaptured?.(parsed.data)
+          }
+        }),
+      )
+
+      unsubs.push(
+        window.api.on("exec:status", (data: unknown) => {
+          if (activeExecId !== execId) return
+          const parsed = ExecStatusEventSchema.safeParse(data)
+          if (parsed.success) {
+            setState((prev) => ({
+              ...prev,
+              status: parsed.data.status as ExecState["status"],
+              exitCode: parsed.data.exitCode ?? null,
+            }))
+          }
+        }),
+      )
+
+      const cleanup = () => {
+        for (const unsub of unsubs) unsub()
       }
-    }))
+      cleanupRef.current = cleanup
 
-    unsubs.push(window.api.on('exec:log-file', (data: unknown) => {
-      if (activeExecId !== execId) return
-      const parsed = ExecLogFileEventSchema.safeParse(data)
-      if (parsed.success) {
-        setState((prev) => ({ ...prev, logFilePath: parsed.data.path }))
-      }
-    }))
-
-    unsubs.push(window.api.on('exec:outputs', (data: unknown) => {
-      if (activeExecId !== execId) return
-      const parsed = BlockOutputsEventSchema.safeParse(data)
-      if (parsed.success) {
-        setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
-        options?.onOutputsCaptured?.(parsed.data.outputs)
-      }
-    }))
-
-    unsubs.push(window.api.on('exec:files-captured', (data: unknown) => {
-      if (activeExecId !== execId) return
-      const parsed = FilesCapturedEventSchema.safeParse(data)
-      if (parsed.success) {
-        options?.onFilesCaptured?.(parsed.data)
-      }
-    }))
-
-    unsubs.push(window.api.on('exec:status', (data: unknown) => {
-      if (activeExecId !== execId) return
-      const parsed = ExecStatusEventSchema.safeParse(data)
-      if (parsed.success) {
-        setState((prev) => ({
-          ...prev,
-          status: parsed.data.status as ExecState['status'],
-          exitCode: parsed.data.exitCode ?? null,
-        }))
-      }
-    }))
-
-    const cleanup = () => {
-      for (const unsub of unsubs) unsub()
-    }
-    cleanupRef.current = cleanup
-
-    try {
-      const result = await window.api.invoke('exec:run', { ...payload, executionId })
-      // The invoke resolved — this run is finished and no longer cancellable.
-      if (generation === executionGenRef.current) {
-        runningExecIdRef.current = null
-
-        // Reconcile the final status from the invoke's return value. The streamed
-        // `exec:status` event can be silently dropped — listeners get detached, a
-        // newer run claims activeExecId, or the main process suppressed sends after
-        // an abort — which would otherwise leave a *finished* block stuck showing
-        // "running". The invoke result is the source of truth, so apply it whenever
-        // the UI is still in a non-terminal state.
-        if (result?.status) {
-          const finalStatus = result.status
-          setState((prev) =>
-            prev.status === 'running' || prev.status === 'pending'
-              ? { ...prev, status: finalStatus.status as ExecState['status'], exitCode: finalStatus.exitCode }
-              : prev,
-          )
-        } else {
-          // No status means the run was interrupted before it could report one:
-          // the main process aborts every in-flight execution when a new one
-          // starts, and an aborted run resolves as { status: null, cancelled:
-          // true }. Its `exec:status` event never arrives either — main stops
-          // sending after the abort, and these listeners are already ignoring
-          // events now that a newer run owns `activeExecId`. Without this the
-          // block spins on "running" forever, over a child process that was
-          // killed. Self-cancellation is already reported by cancel().
-          const explain = !selfCancelledRef.current
-          setState((prev) =>
-            prev.status === 'running' || prev.status === 'pending'
-              ? {
-                  ...prev,
-                  status: 'pending',
-                  logs: explain
-                    ? [
-                        ...prev.logs,
-                        createLogEntry(
-                          'Execution stopped: another block was run before this one finished.',
-                        ),
-                      ]
-                    : prev.logs,
-                }
-              : prev,
-          )
-        }
-      }
-      // Schedule listener cleanup on the next macrotask so any IPC events
-      // still queued in the renderer's event loop are dispatched first.
-      setTimeout(() => {
+      try {
+        const result = await window.api.invoke("exec:run", { ...payload, executionId })
+        // The invoke resolved — this run is finished and no longer cancellable.
         if (generation === executionGenRef.current) {
+          runningExecIdRef.current = null
+
+          // Reconcile the final status from the invoke's return value. The streamed
+          // `exec:status` event can be silently dropped — listeners get detached, a
+          // newer run claims activeExecId, or the main process suppressed sends after
+          // an abort — which would otherwise leave a *finished* block stuck showing
+          // "running". The invoke result is the source of truth, so apply it whenever
+          // the UI is still in a non-terminal state.
+          if (result?.status) {
+            const finalStatus = result.status
+            setState((prev) =>
+              prev.status === "running" || prev.status === "pending"
+                ? {
+                    ...prev,
+                    status: finalStatus.status as ExecState["status"],
+                    exitCode: finalStatus.exitCode,
+                  }
+                : prev,
+            )
+          } else {
+            // No status means the run was interrupted before it could report one:
+            // the main process aborts every in-flight execution when a new one
+            // starts, and an aborted run resolves as { status: null, cancelled:
+            // true }. Its `exec:status` event never arrives either — main stops
+            // sending after the abort, and these listeners are already ignoring
+            // events now that a newer run owns `activeExecId`. Without this the
+            // block spins on "running" forever, over a child process that was
+            // killed. Self-cancellation is already reported by cancel().
+            const explain = !selfCancelledRef.current
+            setState((prev) =>
+              prev.status === "running" || prev.status === "pending"
+                ? {
+                    ...prev,
+                    status: "pending",
+                    logs: explain
+                      ? [
+                          ...prev.logs,
+                          createLogEntry(
+                            "Execution stopped: another block was run before this one finished.",
+                          ),
+                        ]
+                      : prev.logs,
+                  }
+                : prev,
+            )
+          }
+        }
+        // Schedule listener cleanup on the next macrotask so any IPC events
+        // still queued in the renderer's event loop are dispatched first.
+        setTimeout(() => {
+          if (generation === executionGenRef.current) {
+            cleanup()
+            cleanupRef.current = null
+          }
+        }, 0)
+      } catch (error) {
+        // Only update state if this execution is still current
+        if (generation === executionGenRef.current) {
+          runningExecIdRef.current = null
+          const errorMessage = error instanceof Error ? error.message : "Unknown error"
+          setState((prev) => ({
+            ...prev,
+            status: "fail",
+            error: createAppError(
+              "An unexpected error occurred while executing the script",
+              errorMessage,
+            ),
+            logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
+          }))
+          // Clean up listeners on error (no more events expected)
           cleanup()
           cleanupRef.current = null
         }
-      }, 0)
-    } catch (error) {
-      // Only update state if this execution is still current
-      if (generation === executionGenRef.current) {
-        runningExecIdRef.current = null
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        setState((prev) => ({
-          ...prev,
-          status: 'fail',
-          error: createAppError(
-            'An unexpected error occurred while executing the script',
-            errorMessage
-          ),
-          logs: [...prev.logs, createLogEntry(`Error: ${errorMessage}`)],
-        }))
-        // Clean up listeners on error (no more events expected)
-        cleanup()
-        cleanupRef.current = null
       }
-    }
-  }, [cancel, options])
+    },
+    [cancel, options],
+  )
 
   // Execute script by executable ID
   const execute = useCallback(
-    (executableId: string, templateVarValues: Record<string, unknown> = {}, envVarsOverride?: Record<string, string>, usePty?: boolean, timeoutMs?: number) => {
-      executeScript({
-        executableId,
-        templateVarValues,
-        envVarsOverride,
-        usePty,
-        timeoutMs,
-      })
+    (
+      executableId: string,
+      templateVarValues: Record<string, unknown> = {},
+      envVarsOverride?: Record<string, string>,
+      usePty?: boolean,
+      timeoutMs?: number,
+    ) => {
+      void executeScript(
+        omitUndefined({
+          executableId,
+          templateVarValues,
+          envVarsOverride,
+          usePty,
+          timeoutMs,
+        }),
+      )
     },
-    [executeScript]
+    [executeScript],
   )
 
   return {
@@ -363,4 +396,3 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     reset,
   }
 }
-

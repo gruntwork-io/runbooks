@@ -7,15 +7,17 @@
  *
  * Handlers may let `runtime.runPromise(...)` reject: importing this module
  * installs installIpcErrorNormalization() (ipc-error.ts), which turns every
- * rejection into a clean message for the renderer. Installing it here, at
- * import time, means it runs before any handler is registered: before
- * registerAllIpcHandlers() and before main/index.ts, which imports this
- * module, registers its native handlers.
+ * rejection into a clean message for the renderer, and installIpcSenderCheck()
+ * (ipc-sender.ts), which rejects calls from anywhere but the app's page.
+ * Installing them here, at import time, means they run before any handler is
+ * registered: before registerAllIpcHandlers() and before main/index.ts, which
+ * imports this module, registers its native handlers.
  */
 import { ipcMain } from "electron"
 import { Effect } from "effect"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import { installIpcErrorNormalization } from "./ipc-error.ts"
+import { installIpcSenderCheck } from "./ipc-sender.ts"
 import { runtime } from "./runtime.ts"
 import { registerSessionHandlers } from "./session.ts"
 import { registerRunbookHandlers } from "./runbook.ts"
@@ -32,8 +34,10 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerTelemetryHandlers } from "./telemetry.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { withVcs } from "./vcs-tristate.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 installIpcErrorNormalization(ipcMain)
+installIpcSenderCheck(ipcMain)
 
 // Channel contracts documented in electron/shared/channels.ts.
 function registerVcsStatusHandler(): void {
@@ -50,7 +54,12 @@ function registerVcsStatusHandler(): void {
       const result = await runtime.runPromise(
         Effect.gen(function* () {
           const spawner = yield* ProcessSpawner
-          const proc = yield* spawner.spawn("git", ["config", "--global", "http.sslBackend", "schannel"])
+          const proc = yield* spawner.spawn("git", [
+            "config",
+            "--global",
+            "http.sslBackend",
+            "schannel",
+          ])
           return yield* proc.exitCode
         }),
       )
@@ -60,7 +69,7 @@ function registerVcsStatusHandler(): void {
       }
       return { ok: false, error: `git config exited with code ${result}` }
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { ok: false, error: errorMessage(err) }
     }
   })
 }

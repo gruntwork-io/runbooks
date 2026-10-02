@@ -1,0 +1,31 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "electron/main/index.ts",
+    "electron/preload/index.ts",
+    "web/src/main.tsx",
+    "cli/index.ts",
+    "scripts/*.ts",
+    ".github/scripts/**/*.mjs",
+    "{src,electron,cli,scripts,test}/**/*.test.ts"
+  ],
+  "project": ["{src,electron,web,cli,scripts,test}/**/*.{ts,tsx}", ".github/scripts/**/*.mjs"],
+  "ignore": ["docs/**", "testdata/**", "test/fixtures/**"],
+  "ignoreExportsUsedInFile": true,
+  "ignoreIssues": {
+    "web/src/components/ui/**": ["exports", "types"],
+    "web/src/types/boilerplateVariable.ts": ["enumMembers"]
+  },
+  "ignoreBinaries": ["script", "osascript"],
+  "ignoreDependencies": ["tailwindcss", "tw-animate-css"],
+  "vitest": {
+    "config": ["web/vitest.config.ts", "vitest.integration.config.ts"]
+  },
+  "playwright": {
+    "config": [
+      "playwright.config.ts",
+      "web/playwright.config.ts",
+      "electron/e2e/playwright.config.ts"
+    ]
+  }
+}

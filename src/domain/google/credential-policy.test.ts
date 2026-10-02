@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { assertFederatedCredentialAllowed } from "./credential-policy.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 /**
  * Security regression suite.
@@ -326,7 +327,8 @@ describe("assertFederatedCredentialAllowed", () => {
     reject(
       {
         type: "impersonated_service_account",
-        service_account_impersonation_url: "https://iamcredentials.googleapis.com/v1/x:generateAccessToken",
+        service_account_impersonation_url:
+          "https://iamcredentials.googleapis.com/v1/x:generateAccessToken",
         source_credentials: "not-an-object",
       },
       "not a JSON object",
@@ -344,7 +346,7 @@ describe("assertFederatedCredentialAllowed", () => {
         token_url: "https://attacker.example/sts",
       })
     } catch (err) {
-      message = err instanceof Error ? err.message : String(err)
+      message = errorMessage(err)
     }
     expect(message).toContain("attacker.example")
     expect(message).not.toContain(secret)
@@ -366,7 +368,8 @@ describe("assertFederatedCredentialAllowed - detector/parser agreement", () => {
 
   const external = (tokenUrl: string) => ({
     type: "external_account",
-    audience: "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/x",
+    audience:
+      "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/x",
     subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
     token_url: tokenUrl,
   })
@@ -414,7 +417,8 @@ describe("assertFederatedCredentialAllowed - detector/parser agreement", () => {
   it("rejects a slash-less service_account_impersonation_url", () => {
     reject({
       type: "external_account",
-      audience: "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/x",
+      audience:
+        "//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/x",
       token_url: "https://sts.googleapis.com/v1/token",
       service_account_impersonation_url: "https:attacker.example/impersonate",
     })

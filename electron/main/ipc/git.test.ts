@@ -29,7 +29,9 @@ import * as os from "node:os"
 import * as nodePath from "node:path"
 import type { AddressInfo } from "node:net"
 import { Effect } from "effect"
+import { fetchUrl } from "../test-utils/fetch-url.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Boundary mocks (must be registered before the handler module is imported)
@@ -92,7 +94,15 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     return Promise.resolve(handler(event, { worktreePath, branchName })) as Promise<PushResult>
   }
 
-  const ENV_KEYS = ["PATH", "FAKE_SSH_LOG", "FAKE_SSH_MODE", "FAKE_SSH_ROOT", "GIT_SSL_CAINFO", "no_proxy", "NO_PROXY"]
+  const ENV_KEYS = [
+    "PATH",
+    "FAKE_SSH_LOG",
+    "FAKE_SSH_MODE",
+    "FAKE_SSH_ROOT",
+    "GIT_SSL_CAINFO",
+    "no_proxy",
+    "NO_PROXY",
+  ]
   const savedEnv: Record<string, string | undefined> = {}
   let tmp = ""
   let workDir = ""
@@ -131,7 +141,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
 
     workDir = nodePath.join(tmp, "work")
     fs.mkdirSync(workDir)
-    await Effect.runPromise(sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment({}))))
+    await Effect.runPromise(
+      sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment({}))),
+    )
   })
 
   afterEach(() => {
@@ -162,9 +174,13 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       // A self-managed GitLab whose sshd runs as `gitlab`, reached with a
       // per-account key: the clone must run the user's ssh command, wrapped
       // in the no-prompt options, not a bare `ssh`.
-      const saved = ["GIT_SSH_COMMAND", "GIT_SSH", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"].map(
-        (key) => [key, process.env[key]] as const,
-      )
+      const saved = [
+        "GIT_SSH_COMMAND",
+        "GIT_SSH",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_VALUE_0",
+      ].map((key) => [key, process.env[key]] as const)
       delete process.env.GIT_SSH_COMMAND
       delete process.env.GIT_SSH
       process.env.GIT_CONFIG_COUNT = "1"
@@ -220,7 +236,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     const basicAuth = `Basic ${btoa(`x-access-token:${SECRET}`)}`
 
     /** Requests the local "git servers" received, with their Authorization header. */
-    let requests: Array<{ url: string; authorization?: string }> = []
+    let requests: Array<{ url: string; authorization?: string | undefined }> = []
     const record = (req: http.IncomingMessage, res: http.ServerResponse) => {
       requests.push({ url: req.url ?? "", authorization: req.headers.authorization })
       res.statusCode = 404
@@ -233,7 +249,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
 
     const listen = async (server: http.Server | https.Server) => {
       servers.push(server)
-      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>((resolve) => {
+        server.listen(0, "127.0.0.1", resolve)
+      })
       return `127.0.0.1:${(server.address() as AddressInfo).port}`
     }
 
@@ -255,7 +273,14 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     })
 
     afterEach(async () => {
-      await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
+      await Promise.all(
+        servers.map(
+          (server) =>
+            new Promise<void>((resolve) => {
+              server.close(() => resolve())
+            }),
+        ),
+      )
     })
 
     /** A checkout in the session's working directory with one commit on `feature`. */
@@ -338,7 +363,12 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     const GITHUB_SECRET = "ghp_SECRETTOKEN"
 
     /** Every API request the main process made: the URL it was meant for, and its credentials. */
-    let apiRequests: Array<{ target: string; method: string; authorization?: string; privateToken?: string }> = []
+    let apiRequests: Array<{
+      target: string
+      method: string
+      authorization?: string | undefined
+      privateToken?: string | undefined
+    }> = []
     let apiServer: http.Server
     const originalFetch = globalThis.fetch
 
@@ -360,9 +390,16 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
           const url = new URL(target)
           res.setHeader("Content-Type", "application/json")
           if (url.pathname === "/api/v4/user") {
-            res.end(JSON.stringify({ username: "tanuki", name: "Tanuki", email: "tanuki@gitlab.corp" }))
-          } else if (req.method === "POST" && url.pathname === "/api/v4/projects/acme%2Finfra/merge_requests") {
-            const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { source_branch: string }
+            res.end(
+              JSON.stringify({ username: "tanuki", name: "Tanuki", email: "tanuki@gitlab.corp" }),
+            )
+          } else if (
+            req.method === "POST" &&
+            url.pathname === "/api/v4/projects/acme%2Finfra/merge_requests"
+          ) {
+            const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+              source_branch: string
+            }
             res.statusCode = 201
             res.end(
               JSON.stringify({
@@ -377,23 +414,32 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
           }
         })
       })
-      await new Promise<void>((resolve) => apiServer.listen(0, "127.0.0.1", resolve))
+      await new Promise<void>((resolve) => {
+        apiServer.listen(0, "127.0.0.1", resolve)
+      })
       const apiPort = (apiServer.address() as AddressInfo).port
 
       // The network boundary: every request the API clients make lands on the
       // local server, which records the URL it was meant for. Nothing leaves.
       globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-        const target = input instanceof Request ? input.url : String(input)
-        const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+        const target = fetchUrl(input)
+        const headers = new Headers(
+          init?.headers ?? (input instanceof Request ? input.headers : undefined),
+        )
         headers.set("x-test-target", target)
         const { pathname, search } = new URL(target)
-        return originalFetch(`http://127.0.0.1:${apiPort}${pathname}${search}`, { ...init, headers })
+        return originalFetch(`http://127.0.0.1:${apiPort}${pathname}${search}`, {
+          ...init,
+          headers,
+        })
       }) as typeof fetch
     })
 
     afterEach(async () => {
       globalThis.fetch = originalFetch
-      await new Promise<void>((resolve) => apiServer.close(() => resolve()))
+      await new Promise<void>((resolve) => {
+        apiServer.close(() => resolve())
+      })
     })
 
     interface GitResult {
@@ -412,7 +458,8 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       return Promise.resolve(handler(event, params)) as Promise<GitResult>
     }
 
-    const authenticate = (env: Record<string, string>) => Effect.runPromise(sessionManager.appendToEnv(env))
+    const authenticate = (env: Record<string, string>) =>
+      Effect.runPromise(sessionManager.appendToEnv(env))
 
     /** A clone of acme/infra with `origin` replaced (undefined: removed) and one uncommitted change. */
     const checkout = (origin: string | undefined) => {
@@ -473,26 +520,32 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       ["a local path", (repo) => nodePath.join(serveRoot, "acme", `${repo}.git`)],
     ]
 
-    it.each(NO_HOST)("git:merge-request sends the token nowhere when origin has %s", async (_, origin) => {
-      await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
+    it.each(NO_HOST)(
+      "git:merge-request sends the token nowhere when origin has %s",
+      async (_, origin) => {
+        await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
 
-      const result = await mergeRequest(checkout(origin("infra")))
+        const result = await mergeRequest(checkout(origin("infra")))
 
-      expect(result.error).toMatch(/GitLab instance.*origin.*before creating a merge request/)
-      expect(result.url).toBeUndefined()
-      expect(apiRequests).toEqual([])
-      expect(fs.existsSync(sshLog)).toBe(false)
-    })
+        expect(result.error).toMatch(/GitLab instance.*origin.*before creating a merge request/)
+        expect(result.url).toBeUndefined()
+        expect(apiRequests).toEqual([])
+        expect(fs.existsSync(sshLog)).toBe(false)
+      },
+    )
 
-    it.each(NO_HOST)("git:init-default-branch sends the GitLab token nowhere when origin has %s", async (_, origin) => {
-      await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
+    it.each(NO_HOST)(
+      "git:init-default-branch sends the GitLab token nowhere when origin has %s",
+      async (_, origin) => {
+        await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
 
-      const result = await initDefaultBranch(emptyCheckout(origin("empty")), "gitlab")
+        const result = await initDefaultBranch(emptyCheckout(origin("empty")), "gitlab")
 
-      expect(result.error).toMatch(/GitLab instance.*origin.*before creating the default branch/)
-      expect(apiRequests).toEqual([])
-      expect(fs.existsSync(sshLog)).toBe(false)
-    })
+        expect(result.error).toMatch(/GitLab instance.*origin.*before creating the default branch/)
+        expect(apiRequests).toEqual([])
+        expect(fs.existsSync(sshLog)).toBe(false)
+      },
+    )
 
     // A push carries the token only to an http(s) origin, but the GitLab
     // token is bound to origin's host, and these name none to bind it to.
@@ -502,32 +555,42 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       git(repo, "checkout", "-q", "-b", "feature")
       git(repo, "commit", "-q", "--allow-empty", "-m", "work")
 
-      const result = await invoke("git:push", { worktreePath: repo, branchName: "feature", provider: "gitlab" })
+      const result = await invoke("git:push", {
+        worktreePath: repo,
+        branchName: "feature",
+        provider: "gitlab",
+      })
 
       expect(result.error).toMatch(/GitLab instance.*origin.*before pushing/)
       expect(apiRequests).toEqual([])
       expect(fs.existsSync(sshLog)).toBe(false)
     })
 
-    it.each(NO_HOST)("git:pull-request sends the token nowhere when origin has %s", async (_, origin) => {
-      await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+    it.each(NO_HOST)(
+      "git:pull-request sends the token nowhere when origin has %s",
+      async (_, origin) => {
+        await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
 
-      const result = await pullRequest(checkout(origin("infra")))
+        const result = await pullRequest(checkout(origin("infra")))
 
-      expect(result.error).toMatch(/GitHub host.*origin.*before creating a pull request/)
-      expect(apiRequests).toEqual([])
-      expect(fs.existsSync(sshLog)).toBe(false)
-    })
+        expect(result.error).toMatch(/GitHub host.*origin.*before creating a pull request/)
+        expect(apiRequests).toEqual([])
+        expect(fs.existsSync(sshLog)).toBe(false)
+      },
+    )
 
-    it.each(NO_HOST)("git:init-default-branch sends the GitHub token nowhere when origin has %s", async (_, origin) => {
-      await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+    it.each(NO_HOST)(
+      "git:init-default-branch sends the GitHub token nowhere when origin has %s",
+      async (_, origin) => {
+        await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
 
-      const result = await initDefaultBranch(emptyCheckout(origin("empty")), "github")
+        const result = await initDefaultBranch(emptyCheckout(origin("empty")), "github")
 
-      expect(result.error).toMatch(/GitHub host.*origin.*before creating the default branch/)
-      expect(apiRequests).toEqual([])
-      expect(fs.existsSync(sshLog)).toBe(false)
-    })
+        expect(result.error).toMatch(/GitHub host.*origin.*before creating the default branch/)
+        expect(apiRequests).toEqual([])
+        expect(fs.existsSync(sshLog)).toBe(false)
+      },
+    )
 
     it("git:merge-request opens the MR on gitlab.corp for a [git@gitlab.corp:2222]:… origin", async () => {
       await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
@@ -549,13 +612,22 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       })
       // ...while the branch went over SSH to port 2222, as git reads the origin.
       expect(fs.readFileSync(sshLog, "utf8")).toContain("-p 2222 git@gitlab.corp git-receive-pack")
-      git(nodePath.join(serveRoot, "acme", "infra.git"), "rev-parse", "--verify", "-q", "runbook/change")
+      git(
+        nodePath.join(serveRoot, "acme", "infra.git"),
+        "rev-parse",
+        "--verify",
+        "-q",
+        "runbook/change",
+      )
     })
 
     it("git:init-default-branch validates the GitLab token at gitlab.corp for a [git@gitlab.corp:2222]:… origin", async () => {
       await authenticate({ GITLAB_TOKEN: GITLAB_SECRET, GITLAB_HOST: "gitlab.corp" })
 
-      const result = await initDefaultBranch(emptyCheckout("[git@gitlab.corp:2222]:acme/empty.git"), "gitlab")
+      const result = await initDefaultBranch(
+        emptyCheckout("[git@gitlab.corp:2222]:acme/empty.git"),
+        "gitlab",
+      )
 
       expect(result.error).toBeUndefined()
       expect(result.branch).toBe("main")
@@ -600,7 +672,10 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     it("git:local-repo looks the GitHub IDs up on the origin's own host", async () => {
       await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
 
-      await invoke("git:local-repo", { path: checkout("git@github.com:acme/infra.git"), register: true })
+      await invoke("git:local-repo", {
+        path: checkout("git@github.com:acme/infra.git"),
+        register: true,
+      })
 
       // Proves the lookup is seen when it happens, so the refusals above are
       // not passing vacuously.
@@ -636,7 +711,7 @@ describe("session token binding (local http and https remotes)", () => {
     if (!handler) throw new Error(`no handler for ${channel}`)
     // git:clone throws on failure; the others return { error }.
     return Promise.resolve(handler(event, params)).catch((err: unknown) => ({
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     })) as Promise<any>
   }
 
@@ -656,10 +731,15 @@ describe("session token binding (local http and https remotes)", () => {
       seen,
       /** Resolves to the remote's bare host (`127.0.0.1:<port>`). */
       listen: () =>
-        new Promise<string>((resolve) =>
-          server.listen(0, "127.0.0.1", () => resolve(`127.0.0.1:${(server.address() as AddressInfo).port}`)),
-        ),
-      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+        new Promise<string>((resolve) => {
+          server.listen(0, "127.0.0.1", () =>
+            resolve(`127.0.0.1:${(server.address() as AddressInfo).port}`),
+          )
+        }),
+      close: () =>
+        new Promise<void>((resolve) => {
+          server.close(() => resolve())
+        }),
     }
   }
 
@@ -673,22 +753,29 @@ describe("session token binding (local http and https remotes)", () => {
   let httpsHost = ""
 
   const originalFetch = globalThis.fetch
-  let fetchCalls: Array<{ url: string; authorization?: string }> = []
+  let fetchCalls: Array<{ url: string; authorization?: string | undefined }> = []
 
   const json = (body: unknown) =>
-    new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
 
   /** Answers the GitLab user and merge-request APIs on any host. */
   const mockApis = () => {
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input)
+      const url = fetchUrl(input)
       const headers = (init?.headers ?? {}) as Record<string, string>
       fetchCalls.push({ url, authorization: headers.Authorization ?? headers["PRIVATE-TOKEN"] })
       if (url.endsWith("/api/v4/user")) {
-        return Promise.resolve(json({ username: "tanuki", name: "Tanuki", email: "tanuki@example.com" }))
+        return Promise.resolve(
+          json({ username: "tanuki", name: "Tanuki", email: "tanuki@example.com" }),
+        )
       }
       if (url.endsWith("/merge_requests")) {
-        return Promise.resolve(json({ web_url: "https://example.test/mr/1", iid: 1, source_branch: "feature" }))
+        return Promise.resolve(
+          json({ web_url: "https://example.test/mr/1", iid: 1, source_branch: "feature" }),
+        )
       }
       return Promise.resolve(new Response("not found", { status: 404 }))
     }) as typeof fetch
@@ -709,12 +796,22 @@ describe("session token binding (local http and https remotes)", () => {
     return [
       ...(plainRemote.seen.some(carries) ? [`git http://${httpHost}`] : []),
       ...(tlsRemote.seen.some(carries) ? [`git https://${httpsHost}`] : []),
-      ...new Set(fetchCalls.filter((c) => carries(c.authorization)).map((c) => `api ${new URL(c.url).origin}`)),
+      ...new Set(
+        fetchCalls
+          .filter((c) => carries(c.authorization))
+          .map((c) => `api ${new URL(c.url).origin}`),
+      ),
     ]
   }
 
   /** Git config/env vars the tests set on process.env; saved and restored. */
-  const ENV_KEYS = ["GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_SSL_CAINFO", "no_proxy", "NO_PROXY"]
+  const ENV_KEYS = [
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_SSL_CAINFO",
+    "no_proxy",
+    "NO_PROXY",
+  ]
   const savedEnv: Record<string, string | undefined> = {}
   let root = ""
   let workDir = ""
@@ -760,7 +857,9 @@ describe("session token binding (local http and https remotes)", () => {
     fetchCalls = []
     mockApis()
     vcsSessionMeta.clear()
-    await Effect.runPromise(sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment({}))))
+    await Effect.runPromise(
+      sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment({}))),
+    )
   })
 
   afterEach(() => {
@@ -771,7 +870,9 @@ describe("session token binding (local http and https remotes)", () => {
 
   /** What a GitLab auth block writes to the session for `host`. */
   const authGitLab = async (host: string) => {
-    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN, GITLAB_USER: "tanuki", GITLAB_HOST: host }))
+    await Effect.runPromise(
+      sessionManager.appendToEnv({ GITLAB_TOKEN, GITLAB_USER: "tanuki", GITLAB_HOST: host }),
+    )
     vcsSessionMeta.set("gitlab", { host, source: "manual" })
   }
 
@@ -781,11 +882,15 @@ describe("session token binding (local http and https remotes)", () => {
 
   /** A session whose env is inherited from a shell (no auth block ran). */
   const inheritedSession = (env: Record<string, string>) =>
-    Effect.runPromise(sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment(env))))
+    Effect.runPromise(
+      sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment(env))),
+    )
 
   /** What a GitHub auth block writes to the session for `host`. */
   const authGitHub = async (host: string) => {
-    await Effect.runPromise(sessionManager.appendToEnv(githubSessionEnv(host, GITHUB_TOKEN, "octocat")))
+    await Effect.runPromise(
+      sessionManager.appendToEnv(githubSessionEnv(host, GITHUB_TOKEN, "octocat")),
+    )
     vcsSessionMeta.set("github", { host, source: "manual" })
   }
 
@@ -870,7 +975,11 @@ describe("session token binding (local http and https remotes)", () => {
       await authGitLab("gitlab.com")
       const origin = `https://${httpsHost}/acme/infra.git`
 
-      const push = await invoke("git:push", { worktreePath: checkout(origin), branchName: "main", provider: "gitlab" })
+      const push = await invoke("git:push", {
+        worktreePath: checkout(origin),
+        branchName: "main",
+        provider: "gitlab",
+      })
       const seed = await invoke("git:init-default-branch", {
         worktreePath: checkout(origin, { empty: true }),
         branch: "main",
@@ -890,7 +999,11 @@ describe("session token binding (local http and https remotes)", () => {
       await authGitLab(httpHost)
       const origin = `http://${httpHost}/acme/infra.git`
 
-      const push = await invoke("git:push", { worktreePath: checkout(origin), branchName: "main", provider: "gitlab" })
+      const push = await invoke("git:push", {
+        worktreePath: checkout(origin),
+        branchName: "main",
+        provider: "gitlab",
+      })
       const seed = await invoke("git:init-default-branch", {
         worktreePath: checkout(origin, { empty: true }),
         branch: "main",
@@ -911,7 +1024,11 @@ describe("session token binding (local http and https remotes)", () => {
       const origin = `http://${userinfo}@${httpHost}/acme/infra.git`
 
       for (const provider of ["gitlab", "github"] as const) {
-        const push = await invoke("git:push", { worktreePath: checkout(origin), branchName: "main", provider })
+        const push = await invoke("git:push", {
+          worktreePath: checkout(origin),
+          branchName: "main",
+          provider,
+        })
         expect(push.error).toContain(`origin on ${httpHost} uses plain http`)
         expect(push.error).not.toContain("origin-secret")
         expect(push.error).not.toContain("/acme/infra.git")
@@ -964,7 +1081,11 @@ describe("session token binding (local http and https remotes)", () => {
 
       await clone(`https://${httpsHost}/acme/infra.git`, "gitlab")
       const origin = `https://${httpsHost}/acme/infra.git`
-      const push = await invoke("git:push", { worktreePath: checkout(origin), branchName: "main", provider: "gitlab" })
+      const push = await invoke("git:push", {
+        worktreePath: checkout(origin),
+        branchName: "main",
+        provider: "gitlab",
+      })
       const mr = await mergeRequest(checkout(origin))
 
       expect(tlsRemote.seen.length).toBeGreaterThan(0) // the clone did reach the remote
@@ -982,12 +1103,19 @@ describe("session token binding (local http and https remotes)", () => {
     })
 
     it("an inherited GITLAB_HOST in URL form, or GL_HOST, binds the inherited token to that host", async () => {
-      const hostVarSets: Array<Record<string, string>> = [{ GITLAB_HOST: `https://${httpsHost}` }, { GL_HOST: httpsHost }]
+      const hostVarSets: Array<Record<string, string>> = [
+        { GITLAB_HOST: `https://${httpsHost}` },
+        { GL_HOST: httpsHost },
+      ]
       for (const hostVars of hostVarSets) {
         tlsRemote.seen.length = 0
         await inheritedSession({ GITLAB_TOKEN, ...hostVars })
         const repo = checkout(`https://${httpsHost}/acme/infra.git`)
-        const push = await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "gitlab" })
+        const push = await invoke("git:push", {
+          worktreePath: repo,
+          branchName: "main",
+          provider: "gitlab",
+        })
         expect(push.error ?? "").not.toContain("credential")
         expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
       }
@@ -1009,7 +1137,11 @@ describe("session token binding (local http and https remotes)", () => {
     it("an http origin on the bound host is refused", async () => {
       await authGitHub(httpHost)
       const repo = checkout(`http://${httpHost}/acme/infra.git`)
-      const push = await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "github" })
+      const push = await invoke("git:push", {
+        worktreePath: repo,
+        branchName: "main",
+        provider: "github",
+      })
       expect(sinksOf(GITHUB_TOKEN)).toEqual([])
       expect(push.error).toContain("plain http")
     })
@@ -1019,7 +1151,11 @@ describe("session token binding (local http and https remotes)", () => {
       const pushUrl = nodePath.join(workDir, "ssh-port.git")
       git(workDir, "init", "--bare", pushUrl)
       const repo = checkout("ssh://git@github.corp:2222/acme/infra.git", { pushUrl })
-      const push = await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "github" })
+      const push = await invoke("git:push", {
+        worktreePath: repo,
+        branchName: "main",
+        provider: "github",
+      })
       expect(push.error).toBeUndefined()
     })
   })
@@ -1035,11 +1171,15 @@ describe("git:delete-branch", () => {
     }).toString()
 
   beforeEach(async () => {
-    repo = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-delete-branch-")))
+    repo = fs.realpathSync(
+      fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-delete-branch-")),
+    )
     git("init", "-q", "-b", "main")
     git("commit", "-q", "--allow-empty", "-m", "initial")
     git("branch", "feature")
-    await Effect.runPromise(sessionManager.createSession(repo).pipe(Effect.provide(makeTestEnvironment({}))))
+    await Effect.runPromise(
+      sessionManager.createSession(repo).pipe(Effect.provide(makeTestEnvironment({}))),
+    )
   })
 
   afterEach(() => {
@@ -1048,7 +1188,10 @@ describe("git:delete-branch", () => {
   })
 
   it("deletes the branch and returns { ok: true }, matching the channel contract", async () => {
-    const result = await handlers.get("git:delete-branch")!(event, { worktreePath: repo, branch: "feature" })
+    const result = await handlers.get("git:delete-branch")!(event, {
+      worktreePath: repo,
+      branch: "feature",
+    })
 
     expect(result).toEqual({ ok: true })
     expect(git("branch", "--list", "feature").trim()).toBe("")
@@ -1063,7 +1206,9 @@ describe("git:delete-branch", () => {
 describe("git handler error text", () => {
   const sent: Array<{ channel: string; payload: { message?: string } }> = []
   const recordingEvent = {
-    sender: { send: (channel: string, payload: { message?: string }) => sent.push({ channel, payload }) },
+    sender: {
+      send: (channel: string, payload: { message?: string }) => sent.push({ channel, payload }),
+    },
   }
   const prParams = {
     worktreePath: "/tmp/repo",
@@ -1091,10 +1236,12 @@ describe("git handler error text", () => {
   }
 
   it("git:delete-branch and git:clone reject with a message that names the error", async () => {
-    expect(await rejectionOf("git:delete-branch", { worktreePath: "/tmp/repo", branch: "feature" })).toBe(
+    expect(
+      await rejectionOf("git:delete-branch", { worktreePath: "/tmp/repo", branch: "feature" }),
+    ).toBe("SessionNotFoundError")
+    expect(await rejectionOf("git:clone", { url: "https://github.com/acme/infra.git" })).toBe(
       "SessionNotFoundError",
     )
-    expect(await rejectionOf("git:clone", { url: "https://github.com/acme/infra.git" })).toBe("SessionNotFoundError")
   })
 
   it.each([
@@ -1102,12 +1249,17 @@ describe("git handler error text", () => {
     ["git:init-default-branch", { worktreePath: "/tmp/repo", branch: "main" }],
     ["git:pull-request", prParams],
     ["git:merge-request", prParams],
-  ])("%s never returns { error: '' }, and its git:error event says the same", async (channel, params) => {
-    const result = await handlers.get(channel)!(recordingEvent, params)
+  ])(
+    "%s never returns { error: '' }, and its git:error event says the same",
+    async (channel, params) => {
+      const result = await handlers.get(channel)!(recordingEvent, params)
 
-    expect(result).toEqual({ error: "SessionNotFoundError" })
-    expect(sent.find((s) => s.channel === "git:error")?.payload.message).toBe("SessionNotFoundError")
-  })
+      expect(result).toEqual({ error: "SessionNotFoundError" })
+      expect(sent.find((s) => s.channel === "git:error")?.payload.message).toBe(
+        "SessionNotFoundError",
+      )
+    },
+  )
 
   it("git:local-repo returns a fail status whose error names the error", async () => {
     const result = await handlers.get("git:local-repo")!(recordingEvent, { path: "/tmp/repo" })
@@ -1123,7 +1275,9 @@ describe("git handler error text", () => {
 
     beforeEach(async () => {
       dir = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-git-defect-")))
-      await Effect.runPromise(sessionManager.createSession(dir).pipe(Effect.provide(makeTestEnvironment({}))))
+      await Effect.runPromise(
+        sessionManager.createSession(dir).pipe(Effect.provide(makeTestEnvironment({}))),
+      )
     })
 
     afterEach(() => {
@@ -1153,15 +1307,20 @@ describe("git handler error text", () => {
       ["git:init-default-branch", { worktreePath: 42, branch: "main" }],
       ["git:pull-request", { ...prParams, worktreePath: 42 }],
       ["git:merge-request", { ...prParams, worktreePath: 42 }],
-    ])("%s returns and emits the defect's message with no stack frames", async (channel, params) => {
-      const result = (await handlers.get(channel)!(recordingEvent, params)) as { error?: string }
+    ])(
+      "%s returns and emits the defect's message with no stack frames",
+      async (channel, params) => {
+        const result = (await handlers.get(channel)!(recordingEvent, params)) as { error?: string }
 
-      expectNoFrames(result.error)
-      expect(sent.find((s) => s.channel === "git:error")?.payload.message).toBe(result.error)
-    })
+        expectNoFrames(result.error)
+        expect(sent.find((s) => s.channel === "git:error")?.payload.message).toBe(result.error)
+      },
+    )
 
     it("git:local-repo returns the defect's message with no stack frames", async () => {
-      const result = (await handlers.get("git:local-repo")!(recordingEvent, { path: 42 })) as { error?: string }
+      const result = (await handlers.get("git:local-repo")!(recordingEvent, { path: 42 })) as {
+        error?: string
+      }
 
       expectNoFrames(result.error)
     })

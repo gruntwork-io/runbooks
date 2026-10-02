@@ -29,7 +29,13 @@ export const BLOCK_TYPES = [
 ] as const
 
 /** Blocks that authenticate and inject credentials for the blocks that reference them. */
-export const AUTH_BLOCK_TYPES = ["AwsAuth", "GoogleAuth", "GitAuth", "GitHubAuth", "GitLabAuth"] as const
+export const AUTH_BLOCK_TYPES = [
+  "AwsAuth",
+  "GoogleAuth",
+  "GitAuth",
+  "GitHubAuth",
+  "GitLabAuth",
+] as const
 
 /**
  * Blocks that push a branch and open a pull/merge request. Test mode never

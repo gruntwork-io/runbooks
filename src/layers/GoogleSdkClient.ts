@@ -16,7 +16,13 @@ import * as path from "node:path"
 import * as http from "node:http"
 import { randomUUID, timingSafeEqual } from "node:crypto"
 import { Effect, Layer } from "effect"
-import { CodeChallengeMethod, GoogleAuth, JWT, OAuth2Client, UserRefreshClient } from "google-auth-library"
+import {
+  CodeChallengeMethod,
+  GoogleAuth,
+  JWT,
+  OAuth2Client,
+  UserRefreshClient,
+} from "google-auth-library"
 import type { AuthClient, ExternalAccountClientOptions } from "google-auth-library"
 import { GoogleClient } from "../services/GoogleClient.ts"
 import type {
@@ -34,6 +40,7 @@ import type {
   OAuthStartParams,
 } from "../services/GoogleClient.ts"
 import { GoogleAuthError, GoogleConfigError, GoogleOAuthError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import {
   classifyGcloudConfig,
   credentialTypeFromDocumentType,
@@ -113,7 +120,10 @@ interface DocumentClient {
 }
 
 /** Build an auth client for any credentials document, branching on its `type`. */
-async function clientForDocument(doc: CredentialDocument, rawJson: string): Promise<DocumentClient> {
+async function clientForDocument(
+  doc: CredentialDocument,
+  rawJson: string,
+): Promise<DocumentClient> {
   switch (credentialTypeFromDocumentType(doc.type)) {
     case "service_account":
       return { client: jwtForKey(doc) }
@@ -131,9 +141,9 @@ async function clientForDocument(doc: CredentialDocument, rawJson: string): Prom
         }),
       }
     }
-    default: {
-      // external_account / impersonated_service_account. Unlike the two branches
-      // above, these documents are instructions rather than data: they name the
+    case "external_account":
+    case "impersonated_service_account": {
+      // Unlike the two branches above, these documents are instructions rather than data: they name the
       // URLs the library must call and the file it must read. Gate them BEFORE
       // the library sees them — google-auth-library performs no validation of
       // its own and its docs put that duty squarely on the caller.
@@ -159,7 +169,9 @@ async function clientForDocument(doc: CredentialDocument, rawJson: string): Prom
 async function authClientFor(ref: GoogleCredentialRef): Promise<AuthClient> {
   switch (ref.kind) {
     case "service_account":
-      return jwtForKey(parseJsonObject(ref.keyJson, "The service account key") as CredentialDocument)
+      return jwtForKey(
+        parseJsonObject(ref.keyJson, "The service account key") as CredentialDocument,
+      )
     case "authorized_user": {
       const doc = parseJsonObject(ref.adcJson, "The credentials document") as CredentialDocument
       return (await clientForDocument(doc, ref.adcJson)).client
@@ -271,13 +283,13 @@ interface PendingFlow {
   status: OAuthFlowResult["status"]
   /** The terminal payload, delivered by `pollOAuthFlow` exactly once. */
   result?: OAuthFlowResult
-  server?: http.Server
-  client?: OAuth2Client
-  timer?: ReturnType<typeof setTimeout>
+  server?: http.Server | undefined
+  client?: OAuth2Client | undefined
+  timer?: ReturnType<typeof setTimeout> | undefined
   /** Drops the record (and the refresh token in `result`) if nobody collects it. */
-  reaper?: ReturnType<typeof setTimeout>
+  reaper?: ReturnType<typeof setTimeout> | undefined
   readonly clientId: string
-  readonly clientSecret?: string
+  readonly clientSecret?: string | undefined
   readonly state: string
   readonly codeVerifier: string
   readonly redirectUri: string
@@ -499,7 +511,10 @@ async function handleOAuthCallback(
   const code = url.searchParams.get("code")
   if (!code) {
     await respond(res, 400, DENIED_PAGE)
-    finishFlow(flowId, { status: "failed", error: "The OAuth callback carried no authorization code" })
+    finishFlow(flowId, {
+      status: "failed",
+      error: "The OAuth callback carried no authorization code",
+    })
     return
   }
 
@@ -540,7 +555,10 @@ async function handleOAuthCallback(
     })
   } catch (err) {
     await respond(res, 500, DENIED_PAGE)
-    finishFlow(flowId, { status: "failed", error: `Failed to exchange the authorization code: ${err}` })
+    finishFlow(flowId, {
+      status: "failed",
+      error: `Failed to exchange the authorization code: ${errorMessage(err)}`,
+    })
   }
 }
 
@@ -670,7 +688,7 @@ interface GoogleApiError {
  * Turn a token-endpoint failure into copy a runbook user can act on.
  *
  * google-auth-library stringifies OAuth failures as the raw JSON body, so the
- * default `${err}` surfaces `{"error":"invalid_grant","error_subtype":
+ * default message surfaces `{"error":"invalid_grant","error_subtype":
  * "invalid_rapt"}` in the block. Google's own CLI answers the same condition
  * with the exact command to run, and so should we — a stale ADC file is the
  * single most common way this block fails, and the fix is one command.
@@ -682,7 +700,7 @@ export function describeCredentialFailure(
   err: unknown,
   kind: "adc" | "service_account" | "access_token" = "adc",
 ): string | undefined {
-  const text = err instanceof Error ? err.message : String(err ?? "")
+  const text = err == null ? "" : errorMessage(err)
 
   // Reauth: the refresh token is live but the org's reauth policy wants the
   // human back. Distinct from a dead grant, and distinctly fixable.
@@ -767,7 +785,12 @@ const impl: GoogleClientShape = {
     Effect.tryPromise({
       try: async (): Promise<GoogleIdentity> => {
         const key = parseJsonObject(keyJson, "The service account key") as CredentialDocument
-        if (key.type !== "service_account" || !key.client_email || !key.private_key || !key.project_id) {
+        if (
+          key.type !== "service_account" ||
+          !key.client_email ||
+          !key.private_key ||
+          !key.project_id
+        ) {
           throw new Error("Not a service account key (expected type: service_account)")
         }
 
@@ -791,7 +814,7 @@ const impl: GoogleClientShape = {
         new GoogleAuthError({
           message:
             describeCredentialFailure(err, "service_account") ??
-            `Failed to validate service account key: ${err}`,
+            `Failed to validate service account key: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
@@ -804,7 +827,7 @@ const impl: GoogleClientShape = {
         new GoogleAuthError({
           message:
             describeCredentialFailure(err, "access_token") ??
-            `Failed to validate access token: ${err}`,
+            `Failed to validate access token: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
@@ -834,7 +857,9 @@ const impl: GoogleClientShape = {
       },
       catch: (err) =>
         new GoogleAuthError({
-          message: describeCredentialFailure(err, "adc") ?? `Failed to validate credentials: ${err}`,
+          message:
+            describeCredentialFailure(err, "adc") ??
+            `Failed to validate credentials: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
@@ -850,13 +875,15 @@ const impl: GoogleClientShape = {
           throw new Error(`${filePath} is not a valid Google credentials document`)
         }
       },
-      catch: (err) => new GoogleConfigError({ message: `Failed to read credentials file: ${err}` }),
+      catch: (err) =>
+        new GoogleConfigError({ message: `Failed to read credentials file: ${errorMessage(err)}` }),
     }),
 
   readCredentialFileContents: (filePath: string) =>
     Effect.tryPromise({
       try: (): Promise<string> => fs.readFile(filePath, "utf-8"),
-      catch: (err) => new GoogleConfigError({ message: `Failed to read credentials file: ${err}` }),
+      catch: (err) =>
+        new GoogleConfigError({ message: `Failed to read credentials file: ${errorMessage(err)}` }),
     }),
 
   listGcloudConfigurations: () =>
@@ -888,7 +915,7 @@ const impl: GoogleClientShape = {
         for (const entry of entries.sort()) {
           const match = /^config_(.+)$/.exec(entry)
           if (!match) continue
-          const name = match[1]
+          const name = match[1]!
 
           let text: string
           try {
@@ -914,7 +941,10 @@ const impl: GoogleClientShape = {
           ...(adc ? { adc } : {}),
         }
       },
-      catch: (err) => new GoogleConfigError({ message: `Failed to list gcloud configurations: ${err}` }),
+      catch: (err) =>
+        new GoogleConfigError({
+          message: `Failed to list gcloud configurations: ${errorMessage(err)}`,
+        }),
     }),
 
   readApplicationDefaultCredentials: () =>
@@ -928,7 +958,9 @@ const impl: GoogleClientShape = {
         return readAdcMetadata(paths.adcFile)
       },
       catch: (err) =>
-        new GoogleConfigError({ message: `Failed to read application default credentials: ${err}` }),
+        new GoogleConfigError({
+          message: `Failed to read application default credentials: ${errorMessage(err)}`,
+        }),
     }),
 
   startOAuthFlow: (params: OAuthStartParams) =>
@@ -973,13 +1005,18 @@ const impl: GoogleClientShape = {
           const redirectUri = `http://127.0.0.1:${port}${OAUTH_CALLBACK_PATH}`
           const client = new OAuth2Client({
             clientId: params.clientId,
-            clientSecret: params.clientSecret,
+            ...(params.clientSecret !== undefined && { clientSecret: params.clientSecret }),
             redirectUri,
           })
 
           // PKCE S256. The verifier, the state nonce, and the client secret all
           // stay in this process — only `flowId` ever crosses IPC.
           const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync()
+          // google-auth-library always fills it in, but types it optional.
+          // Without it the S256 request below would be refused by Google.
+          if (codeChallenge === undefined) {
+            throw new Error("google-auth-library returned no PKCE code challenge")
+          }
           const state = randomUUID()
           const scopes = [...params.scopes]
 
@@ -1030,7 +1067,10 @@ const impl: GoogleClientShape = {
         }
       },
       catch: (err) =>
-        new GoogleOAuthError({ message: `Failed to start Google sign-in: ${err}`, cause: err }),
+        new GoogleOAuthError({
+          message: `Failed to start Google sign-in: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   pollOAuthFlow: (flowId: string) =>
@@ -1040,7 +1080,8 @@ const impl: GoogleClientShape = {
         if (!flow) {
           return {
             status: "failed",
-            error: "Unknown sign-in flow — it may have already completed, expired, or been cancelled",
+            error:
+              "Unknown sign-in flow — it may have already completed, expired, or been cancelled",
           }
         }
         if (flow.status === "pending") return { status: "pending" }
@@ -1056,7 +1097,10 @@ const impl: GoogleClientShape = {
         return result
       },
       catch: (err) =>
-        new GoogleOAuthError({ message: `Failed to poll Google sign-in: ${err}`, cause: err }),
+        new GoogleOAuthError({
+          message: `Failed to poll Google sign-in: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   cancelOAuthFlow: (flowId: string) =>
@@ -1075,7 +1119,11 @@ const impl: GoogleClientShape = {
         const limit = Math.max(1, Math.min(pageSize ?? MAX_PROJECTS, MAX_PROJECTS))
         return searchProjects(authClient, query, limit)
       },
-      catch: (err) => new GoogleAuthError({ message: `Failed to list projects: ${err}`, cause: err }),
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Failed to list projects: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   checkProject: (projectId: string, creds: GoogleCredentialRef) =>
@@ -1091,7 +1139,11 @@ const impl: GoogleClientShape = {
           return classifyProjectAccessError(err)
         }
       },
-      catch: (err) => new GoogleAuthError({ message: `Failed to check project: ${err}`, cause: err }),
+      catch: (err) =>
+        new GoogleAuthError({
+          message: `Failed to check project: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 }
 

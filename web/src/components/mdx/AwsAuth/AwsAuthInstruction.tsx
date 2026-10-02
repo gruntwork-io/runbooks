@@ -1,9 +1,9 @@
-import { useMemo } from 'react'
-import { LogIn } from 'lucide-react'
-import { Instruction } from '@/components/mdx/_shared'
-import { useTemplateContext } from '@/contexts/useRunbook'
-import { resolveTemplateReferences } from '@/lib/templateUtils'
-import type { AwsAuthProps } from './types'
+import { useMemo } from "react"
+import { LogIn } from "lucide-react"
+import { Instruction } from "@/components/mdx/_shared"
+import { useTemplateContext } from "@/contexts/useRunbook"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
+import type { AwsAuthProps } from "./types"
 
 /**
  * Instruction-mode rendering of an AwsAuth block (spec §6.4): a plain "Log into
@@ -42,16 +42,14 @@ export function AwsAuthInstruction({
     [ssoRoleName, templateCtx],
   )
 
-  const heading = account
-    ? `Log into AWS in the \`${account}\` account`
-    : 'Log into AWS'
+  const heading = account ? `Log into AWS in the \`${account}\` account` : "Log into AWS"
 
   // Surface the configured SSO details so the user can reproduce the login by
   // hand. These are hints, not commands — nothing here authenticates the app.
   const hints: { label: string; value: string }[] = []
-  if (resolvedStartUrl) hints.push({ label: 'SSO start URL', value: resolvedStartUrl })
-  if (ssoRegion) hints.push({ label: 'SSO region', value: ssoRegion })
-  if (resolvedRole) hints.push({ label: 'Role', value: resolvedRole })
+  if (resolvedStartUrl) hints.push({ label: "SSO start URL", value: resolvedStartUrl })
+  if (ssoRegion) hints.push({ label: "SSO region", value: ssoRegion })
+  if (resolvedRole) hints.push({ label: "Role", value: resolvedRole })
 
   return (
     <Instruction

@@ -12,17 +12,23 @@ describe("applyValidationRule", () => {
   // --- Email ---
 
   it("passes valid email", () => {
-    expect(applyValidationRule("user@example.com", { type: BoilerplateValidationType.Email })).toBeUndefined()
+    expect(
+      applyValidationRule("user@example.com", { type: BoilerplateValidationType.Email }),
+    ).toBeUndefined()
   })
 
   it("fails invalid email", () => {
-    expect(applyValidationRule("not-an-email", { type: BoilerplateValidationType.Email })).toBeDefined()
+    expect(
+      applyValidationRule("not-an-email", { type: BoilerplateValidationType.Email }),
+    ).toBeDefined()
   })
 
   // --- URL ---
 
   it("passes valid URL", () => {
-    expect(applyValidationRule("https://example.com", { type: BoilerplateValidationType.URL })).toBeUndefined()
+    expect(
+      applyValidationRule("https://example.com", { type: BoilerplateValidationType.URL }),
+    ).toBeUndefined()
   })
 
   it("fails invalid URL", () => {
@@ -52,11 +58,15 @@ describe("applyValidationRule", () => {
   // --- Alphanumeric ---
 
   it("passes alphanumeric string", () => {
-    expect(applyValidationRule("abc123", { type: BoilerplateValidationType.Alphanumeric })).toBeUndefined()
+    expect(
+      applyValidationRule("abc123", { type: BoilerplateValidationType.Alphanumeric }),
+    ).toBeUndefined()
   })
 
   it("fails string with special chars", () => {
-    expect(applyValidationRule("abc@123", { type: BoilerplateValidationType.Alphanumeric })).toBeDefined()
+    expect(
+      applyValidationRule("abc@123", { type: BoilerplateValidationType.Alphanumeric }),
+    ).toBeDefined()
   })
 
   // --- Semver ---
@@ -72,45 +82,67 @@ describe("applyValidationRule", () => {
   // --- Length ---
 
   it("passes within length bounds", () => {
-    expect(applyValidationRule("hello", { type: BoilerplateValidationType.Length, args: ["2", "10"] })).toBeUndefined()
+    expect(
+      applyValidationRule("hello", { type: BoilerplateValidationType.Length, args: ["2", "10"] }),
+    ).toBeUndefined()
   })
 
   it("fails below min length", () => {
-    expect(applyValidationRule("a", { type: BoilerplateValidationType.Length, args: ["2", "10"] })).toBeDefined()
+    expect(
+      applyValidationRule("a", { type: BoilerplateValidationType.Length, args: ["2", "10"] }),
+    ).toBeDefined()
   })
 
   it("fails above max length", () => {
-    expect(applyValidationRule("a".repeat(20), { type: BoilerplateValidationType.Length, args: ["2", "10"] })).toBeDefined()
+    expect(
+      applyValidationRule("a".repeat(20), {
+        type: BoilerplateValidationType.Length,
+        args: ["2", "10"],
+      }),
+    ).toBeDefined()
   })
 
   it("skips length validation without args", () => {
-    expect(applyValidationRule("anything", { type: BoilerplateValidationType.Length })).toBeUndefined()
+    expect(
+      applyValidationRule("anything", { type: BoilerplateValidationType.Length }),
+    ).toBeUndefined()
   })
 
   // --- Regex ---
 
   it("passes matching regex", () => {
-    expect(applyValidationRule("ABC", { type: BoilerplateValidationType.Regex, args: ["^[A-Z]{3}$"] })).toBeUndefined()
+    expect(
+      applyValidationRule("ABC", { type: BoilerplateValidationType.Regex, args: ["^[A-Z]{3}$"] }),
+    ).toBeUndefined()
   })
 
   it("fails non-matching regex", () => {
-    expect(applyValidationRule("abc", { type: BoilerplateValidationType.Regex, args: ["^[A-Z]{3}$"] })).toBeDefined()
+    expect(
+      applyValidationRule("abc", { type: BoilerplateValidationType.Regex, args: ["^[A-Z]{3}$"] }),
+    ).toBeDefined()
   })
 
   it("skips invalid regex pattern without crashing", () => {
-    expect(applyValidationRule("test", { type: BoilerplateValidationType.Regex, args: ["[invalid"] })).toBeUndefined()
+    expect(
+      applyValidationRule("test", { type: BoilerplateValidationType.Regex, args: ["[invalid"] }),
+    ).toBeUndefined()
   })
 
   // --- Required ---
 
   it("skips required (handled separately)", () => {
-    expect(applyValidationRule("anything", { type: BoilerplateValidationType.Required })).toBeUndefined()
+    expect(
+      applyValidationRule("anything", { type: BoilerplateValidationType.Required }),
+    ).toBeUndefined()
   })
 
   // --- Custom message ---
 
   it("uses custom error message when provided", () => {
-    const result = applyValidationRule("bad", { type: BoilerplateValidationType.Email, message: "Please enter a valid email" })
+    const result = applyValidationRule("bad", {
+      type: BoilerplateValidationType.Email,
+      message: "Please enter a valid email",
+    })
     expect(result).toBe("Please enter a valid email")
   })
 })

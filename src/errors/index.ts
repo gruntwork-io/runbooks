@@ -83,14 +83,14 @@ export type VcsTransportErrorKind = "tls" | "server-cert" | "network"
 export class GitHubApiError extends Data.TaggedError("GitHubApiError")<{
   readonly status: number
   readonly message: string
-  readonly kind?: VcsTransportErrorKind
+  readonly kind?: VcsTransportErrorKind | undefined
 }> {}
 
 // GitLab
 export class GitLabApiError extends Data.TaggedError("GitLabApiError")<{
   readonly status: number
   readonly message: string
-  readonly kind?: VcsTransportErrorKind
+  readonly kind?: VcsTransportErrorKind | undefined
 }> {}
 
 // Git
@@ -106,7 +106,13 @@ export class GitError extends Data.TaggedError("GitError")<{
  * crosses IPC or hits a log.
  */
 export class VcsCliError extends Data.TaggedError("VcsCliError")<{
-  readonly kind: "not-installed" | "not-authenticated" | "keyring-blocked" | "spawn" | "timeout" | "api"
+  readonly kind:
+    | "not-installed"
+    | "not-authenticated"
+    | "keyring-blocked"
+    | "spawn"
+    | "timeout"
+    | "api"
   readonly stderr: string
 }> {}
 
@@ -181,10 +187,16 @@ export type WasmPerFileErrorKind =
   | "skip_files_excluded"
   | "render"
 
-/** Reason the warm path was disabled for a render. Debug-logging only. */
+/**
+ * Reason the warm path was disabled for a render. Debug-logging only.
+ * `partials-outside-bundle` means a bundled template declares a partial the
+ * bundle never captured (typically a `../` path into a shared directory), so
+ * WASM would fail every file that invokes it while the subprocess succeeds.
+ */
 export type WarmDisabledReason =
   | "wasm-not-ready"
   | "no-output-paths-from-analyzer"
+  | "partials-outside-bundle"
   | "warm-error-fallback"
 
 /**

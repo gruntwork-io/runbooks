@@ -128,7 +128,11 @@ describe("git:clone repo_path", () => {
   })
 
   it("reports a repository with no commits as empty instead of failing the checkout", async () => {
-    const result = await clone({ url: EMPTY_REMOTE_URL, localPath: "empty", repo_path: "modules/vpc" })
+    const result = await clone({
+      url: EMPTY_REMOTE_URL,
+      localPath: "empty",
+      repo_path: "modules/vpc",
+    })
 
     // The same result as without a repo path, so the block offers to seed the
     // default branch rather than showing an error.

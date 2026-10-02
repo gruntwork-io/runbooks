@@ -135,12 +135,12 @@ export function classifyCloneError(opts: {
   repo: string
   stderr: string
   hadToken: boolean
-  provider?: "github" | "gitlab"
+  provider?: "github" | "gitlab" | undefined
   /**
    * How the clone reached the host (default https). Tokens go only over
    * https: ssh authenticates with the user's keys, and http gets no token.
    */
-  transport?: "https" | "http" | "ssh"
+  transport?: "https" | "http" | "ssh" | undefined
 }): ClassifiedCloneError {
   const { host, owner, repo, stderr, hadToken, provider, transport } = opts
   const ssh = transport === "ssh"
@@ -262,7 +262,14 @@ export const openRemoteRunbook = (rawUrl: string) =>
     let parsed = yield* parseRemoteSource(rawUrl, {
       githubHosts: envHost ? [...configHosts, envHost] : configHosts,
     })
-    log.info("Parsed:", { host: parsed.host, owner: parsed.owner, repo: parsed.repo, ref: parsed.ref, path: parsed.path, refAndPath: parsed.refAndPath })
+    log.info("Parsed:", {
+      host: parsed.host,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      ref: parsed.ref,
+      path: parsed.path,
+      refAndPath: parsed.refAndPath,
+    })
 
     // Get auth token early — needed for both resolveRef (git ls-remote)
     // and the clone itself. Session env first (a token established by
@@ -285,9 +292,11 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // and the provider detection alone must never gate a credential.
     const sessionToken =
       overHttps && provider
-        ? yield* getSessionTokenForHost(provider, parsed.host, () => new Error("no session token")).pipe(
-            Effect.orElseSucceed(() => undefined),
-          )
+        ? yield* getSessionTokenForHost(
+            provider,
+            parsed.host,
+            () => new Error("no session token"),
+          ).pipe(Effect.orElseSucceed(() => undefined))
         : undefined
     const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
     log.info("Token:", token ? "found" : "none")
@@ -329,7 +338,8 @@ export const openRemoteRunbook = (rawUrl: string) =>
         parsed.refAndPath,
         withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
       ).pipe(Effect.catchAll(failWithCloneHint))
-      parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
+      const { refAndPath: _split, ...unsplit } = parsed
+      parsed = { ...unsplit, ref: resolved.ref, path: resolved.path }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
     }
 
@@ -345,8 +355,8 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const { ref } = parsed
     yield* git
       .cloneSimple(parsed.cloneURL, dest, {
-        ref,
-        token,
+        ...(ref !== undefined ? { ref } : {}),
+        ...(token !== undefined ? { token } : {}),
         username,
         sparse: parsed.path,
       })
@@ -360,7 +370,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const target = parsed.path ? path.join(dest, parsed.path) : dest
     if (!fs.existsSync(target)) {
       return yield* Effect.fail(
-        new RemoteSourceError({ url: source, message: `"${parsed.path}" was not found in ${repoLabel}${at}` }),
+        new RemoteSourceError({
+          url: source,
+          message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
+        }),
       )
     }
     log.info("Resolving runbook in:", target)
@@ -377,7 +390,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // the clone.
     if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
       return yield* Effect.fail(
-        new RemoteSourceError({ url: source, message: `"${parsed.path}" in ${repoLabel} points outside the repository` }),
+        new RemoteSourceError({
+          url: source,
+          message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
+        }),
       )
     }
     log.info("Resolved runbook path:", localPath)
@@ -397,7 +413,8 @@ export const openRemoteRunbook = (rawUrl: string) =>
  */
 export function valueOrUserError<A, E>(exit: Exit.Exit<A, E>): A {
   if (Exit.isSuccess(exit)) return exit.value
-  if (Cause.isDie(exit.cause)) log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
+  if (Cause.isDie(exit.cause))
+    log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
   throw new Error(describeCause(exit.cause))
 }
 

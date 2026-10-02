@@ -15,7 +15,7 @@ interface IframeProps {
   src: string
   /** Label shown above the frame and read by screen readers. The frame's location is always shown next to it. */
   title?: string
-  /** Frame height: a number of pixels, or any CSS length such as `"70vh"`. */
+  /** Frame height: a number of pixels (`600` or `"600"`), or any CSS length such as `"70vh"`. */
   height?: number | string
   /** Block id. Required with `outputs`: later blocks read the page's outputs as `{{ .outputs.<id>.<name> }}`. */
   id?: string
@@ -38,18 +38,14 @@ type FrameSource =
 const DEFAULT_HEIGHT = 500
 const NO_OUTPUTS: string[] = []
 
-// The frame's origin is never the app's (see resolveSource), and a page from
-// the assets folder has its runbook's own origin, so scripts and same-origin
-// storage are safe to allow. Leaving out allow-top-navigation stops the page
-// from navigating the app away. Leaving out allow-popups stops it from opening
-// windows: the main process's window-open handler can't tell a framed page's
-// window.open from the app's own links, so it would open whatever the page
-// asked for in the browser, without a click.
-const SANDBOX = "allow-scripts allow-same-origin allow-forms"
-
 /**
  * Embeds a web page in the runbook: an external site, or an HTML file from
  * the runbook's assets folder together with the files it references.
+ *
+ * The page runs in a `<webview>`, not an iframe: a web contents of its own,
+ * which can't take keyboard focus from the app's fields the way a cross-site
+ * iframe can. The main process decides its session and locks it down before
+ * it attaches (electron/main/embeds.ts).
  *
  * The page loads only after the user clicks Load, so opening a runbook runs
  * none of the author's scripts. The choice lasts until the app quits.
@@ -58,25 +54,42 @@ const SANDBOX = "allow-scripts allow-same-origin allow-forms"
  * useFrameMessaging): it receives the values of the `inputsId` Inputs blocks,
  * and the outputs it sets become this block's outputs.
  */
-export function Iframe({ src, title, height = DEFAULT_HEIGHT, id, inputsId, outputs = NO_OUTPUTS }: IframeProps) {
+export function Iframe({
+  src,
+  title,
+  height = DEFAULT_HEIGHT,
+  id,
+  inputsId,
+  outputs = NO_OUTPUTS,
+}: IframeProps) {
   const componentId = useId()
   const { reportError, clearError } = useErrorReporting()
   // A block without an id registers under its unique React id, so it can
   // never collide with another block.
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id ?? componentId, "Iframe")
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id ?? componentId,
+    "Iframe",
+  )
   const runbook = useContext(RunbookContext)
   const loadedKey = runbookStorageKey("iframe-loaded", runbook?.storageScope, src)
   const [loaded, setLoaded] = useState(() => readLoaded(loadedKey))
-  // Remounting the iframe reloads it from `src`.
+  // Remounting the webview reloads it from `src`.
   const [loadCount, setLoadCount] = useState(0)
   const frameRef = useRef<HTMLIFrameElement>(null)
   const source = resolveSource(src, runbook?.assetHost)
+  const cssHeight = toCssHeight(height)
   const error =
     "error" in source
       ? source.error
-      : (messagingConfigError(source.isLocal, id, inputsId, outputs) ??
-        idError(id, isDuplicate, isNormalizedCollision, collidingId))
-  const { outputs: pageOutputs, messageError, onFrameLoad } = useFrameMessaging({
+      : cssHeight === null
+        ? `Invalid height "${height}". Use a number of pixels, such as {600} or "600", or a CSS length such as "70vh".`
+        : (messagingConfigError(source.isLocal, id, inputsId, outputs) ??
+          idError(id, isDuplicate, isNormalizedCollision, collidingId))
+  const {
+    outputs: pageOutputs,
+    messageError,
+    onFrameLoad,
+  } = useFrameMessaging({
     frameRef,
     pageOrigin: !error && "origin" in source ? source.origin : undefined,
     id,
@@ -92,7 +105,7 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT, id, inputsId, outp
     }
   }, [error, componentId, reportError, clearError])
 
-  if (error || "error" in source) {
+  if (error || "error" in source || cssHeight === null) {
     return (
       <div className="runbook-block rounded-md border p-3 text-sm flex items-start gap-2 mb-5 bg-destructive-muted border-destructive/30 text-destructive">
         <AlertCircle className="size-4 mt-0.5 flex-shrink-0" />
@@ -155,16 +168,17 @@ export function Iframe({ src, title, height = DEFAULT_HEIGHT, id, inputsId, outp
         )}
       </div>
       {loaded ? (
-        // Pages that set no background expect a white one, not the app's dark theme.
-        <iframe
+        // Pages that set no background expect a white one, not the app's dark
+        // theme. A webview lays out its page with display: flex, so leave
+        // display alone.
+        <webview
           key={loadCount}
           ref={frameRef}
           onLoad={onFrameLoad}
           src={source.url}
           title={title || source.location}
-          sandbox={SANDBOX}
-          className="block w-full bg-white"
-          style={{ height }}
+          className="w-full bg-white"
+          style={{ height: cssHeight }}
         />
       ) : (
         <div className="flex flex-col items-center gap-3 px-6 py-8 text-center text-sm text-muted-foreground">
@@ -227,13 +241,14 @@ function idError(
 ): string | undefined {
   if (!id) return undefined
   if (isDuplicate) return `Duplicate Iframe block ID: "${id}"`
-  if (isNormalizedCollision) return `Iframe ID "${id}" collides with "${collidingId}" after normalization`
+  if (isNormalizedCollision)
+    return `Iframe ID "${id}" collides with "${collidingId}" after normalization`
   return undefined
 }
 
 // Hosts whose plain-http traffic never leaves the machine, so nothing on the
-// network can rewrite the page. Matches the http sources in the CSP's
-// frame-src (electron/main/csp.ts), which can't express an IPv6 literal.
+// network can rewrite the page. The main process allows the same
+// (electron/main/embeds.ts).
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"])
 
 /**
@@ -254,7 +269,12 @@ function resolveSource(src: unknown, assetHost: string | undefined): FrameSource
     if (!assetHost) {
       return { error: `"${src}" can only be shown in an open runbook.` }
     }
-    return { url: toRunbookAssetUrl(src, assetHost), location: src, isLocal: true, origin: runbookAssetOrigin(assetHost) }
+    return {
+      url: toRunbookAssetUrl(src, assetHost),
+      location: src,
+      isLocal: true,
+      origin: runbookAssetOrigin(assetHost),
+    }
   }
 
   const unsupported = {
@@ -271,6 +291,25 @@ function resolveSource(src: unknown, assetHost: string | undefined): FrameSource
     return unsupported
   }
   return { url: url.href, location: url.host, isLocal: false }
+}
+
+/**
+ * `height` as a CSS height, or null if it isn't one. A number, or a string of
+ * digits, is a pixel count, so `height="600"` means 600px as it does on an
+ * HTML iframe instead of an invalid value the browser drops.
+ */
+function toCssHeight(height: number | string): string | null {
+  if (typeof height === "number") {
+    return Number.isFinite(height) && height > 0 ? `${height}px` : null
+  }
+  const value = String(height).trim()
+  if (/^\d+(\.\d+)?$/.test(value)) {
+    return Number(value) > 0 ? `${value}px` : null
+  }
+  // The browser's own parser decides what a CSS length is: it ignores a value it can't parse.
+  const probe = document.createElement("div").style
+  probe.height = value
+  return probe.height === "" ? null : value
 }
 
 // sessionStorage, so the choice survives the remount that every live reload
@@ -290,5 +329,3 @@ function writeLoaded(key: string): void {
     /* sessionStorage unavailable: the page stays loaded until the block remounts */
   }
 }
-
-export default Iframe

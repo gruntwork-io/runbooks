@@ -15,14 +15,14 @@
  * Learn more: https://runbooks.gruntwork.io/security/telemetry/
  */
 
-import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react'
-import mixpanel from 'mixpanel-browser'
-import { TelemetryContext, type TelemetryConfig } from './TelemetryContext.types'
-import { useApi } from './ApiContext'
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react"
+import mixpanel from "mixpanel-browser"
+import { TelemetryContext, type TelemetryConfig } from "./TelemetryContext.types"
+import { useApi } from "./ApiContext"
 
 // Mixpanel project token (public - only allows sending events, not reading)
 // Set via VITE_MIXPANEL_TOKEN environment variable at build time
-const MIXPANEL_TOKEN = import.meta.env.VITE_MIXPANEL_TOKEN || ''
+const MIXPANEL_TOKEN = import.meta.env.VITE_MIXPANEL_TOKEN || ""
 
 interface IpcTelemetryProviderProps {
   children: ReactNode
@@ -50,8 +50,12 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
 
     const fetchConfig = async () => {
       try {
-        const rawData = await api.invoke('telemetry:config')
-        const data: TelemetryConfig = { enabled: rawData.enabled, anonymousId: rawData.anonymousId ?? '', version: rawData.version ?? '' }
+        const rawData = await api.invoke("telemetry:config")
+        const data: TelemetryConfig = {
+          enabled: rawData.enabled,
+          anonymousId: rawData.anonymousId ?? "",
+          version: rawData.version ?? "",
+        }
         setConfig(data)
 
         // Initialize Mixpanel if telemetry is enabled and token is configured
@@ -59,7 +63,7 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
           mixpanel.init(MIXPANEL_TOKEN, {
             // Privacy-focused configuration
             ip: false, // Don't track IP addresses
-            persistence: 'localStorage',
+            persistence: "localStorage",
             track_pageview: false, // We'll track this manually
             debug: false,
           })
@@ -70,26 +74,26 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
           // Set super properties that persist across all events
           mixpanel.register({
             version: data.version,
-            platform: 'electron',
+            platform: "electron",
           })
 
           setIsInitialized(true)
 
           // Track page view on initialization
-          mixpanel.track('app_loaded')
+          mixpanel.track("app_loaded")
         }
       } catch (error) {
         // Silently ignore errors - telemetry should never impact user experience
-        console.debug('[Telemetry] Failed to fetch config via IPC:', error)
+        console.debug("[Telemetry] Failed to fetch config via IPC:", error)
       }
     }
 
-    fetchConfig()
+    void fetchConfig()
   }, [api])
 
   // Reset block tracking when a new runbook is opened so telemetry fires again
   useEffect(() => {
-    const cleanup = api.on('file:open-runbook', () => {
+    const cleanup = api.on("file:open-runbook", () => {
       hasSentRunbookLoadedRef.current = false
       blockCountsRef.current = {}
       if (blockAggregateTimerRef.current) {
@@ -110,23 +114,28 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
   }, [])
 
   // Generic track function
-  const track = useCallback((event: string, properties?: Record<string, unknown>) => {
-    if (!isInitialized || !config?.enabled) {
-      return
-    }
+  const track = useCallback(
+    (event: string, properties?: Record<string, unknown>) => {
+      if (!isInitialized || !config?.enabled) {
+        return
+      }
 
-    try {
-      mixpanel.track(event, properties)
-    } catch (error) {
-      // Silently ignore errors
-      console.debug('[Telemetry] Track error:', error)
-    }
-  }, [isInitialized, config?.enabled])
+      try {
+        mixpanel.track(event, properties)
+      } catch (error) {
+        // Silently ignore errors
+        console.debug("[Telemetry] Track error:", error)
+      }
+    },
+    [isInitialized, config?.enabled],
+  )
 
   // Store track in a ref so trackBlockRender can access the latest version
   // without needing it in its dependency array (keeps stable identity)
   const trackRef = useRef(track)
-  trackRef.current = track
+  useEffect(() => {
+    trackRef.current = track
+  }, [track])
 
   // Track block renders by aggregating them into a single 'runbook_loaded' event
   const trackBlockRender = useCallback((blockType: string) => {
@@ -148,23 +157,18 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
 
       // Send a single event with block counts
       const counts = blockCountsRef.current
-      trackRef.current('runbook_loaded', {
+      trackRef.current("runbook_loaded", {
         block_counts: counts,
         total_blocks: Object.values(counts).reduce((sum, count) => sum + count, 0),
       })
     }, 500)
   }, []) // Empty deps for stable identity - uses trackRef for latest track function
 
-  const contextValue = {
-    isEnabled: config?.enabled ?? false,
-    isInitialized,
-    track,
-    trackBlockRender,
-  }
-
-  return (
-    <TelemetryContext.Provider value={contextValue}>
-      {children}
-    </TelemetryContext.Provider>
+  const isEnabled = config?.enabled ?? false
+  const contextValue = useMemo(
+    () => ({ isEnabled, isInitialized, track, trackBlockRender }),
+    [isEnabled, isInitialized, track, trackBlockRender],
   )
+
+  return <TelemetryContext.Provider value={contextValue}>{children}</TelemetryContext.Provider>
 }

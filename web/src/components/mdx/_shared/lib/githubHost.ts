@@ -15,7 +15,7 @@
  */
 
 /** The default GitHub host when no enterprise host is specified. */
-export const DEFAULT_GITHUB_HOST = 'github.com'
+export const DEFAULT_GITHUB_HOST = "github.com"
 
 /** `<sub>.ghe.com` — GitHub Enterprise Cloud with data residency. */
 const GHE_CLOUD_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.ghe\.com$/
@@ -23,10 +23,11 @@ const GHE_CLOUD_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.ghe\.com$/
 /** `api.<sub>.ghe.com` — the API origin of a ghe.com tenant. */
 const GHE_CLOUD_API_HOST = /^api\.([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.ghe\.com)$/
 
-export type GitHubHostKind = 'dotcom' | 'ghe-cloud' | 'ghes'
+export type GitHubHostKind = "dotcom" | "ghe-cloud" | "ghes"
 
 /** A lowercase DNS hostname with an optional port. */
-const DNS_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/
+const DNS_HOST =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/
 
 /**
  * Normalize a GitHub host or URL to a bare, lowercased host (including any
@@ -36,7 +37,7 @@ const DNS_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z
  * embedded credentials — never github.com.
  */
 export function tryNormalizeGitHubHost(input?: string | null): string | undefined {
-  const raw = (input ?? '').trim()
+  const raw = (input ?? "").trim()
   if (!raw) return undefined
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
   if (hasScheme && !/^https?:\/\//i.test(raw)) return undefined
@@ -48,7 +49,7 @@ export function tryNormalizeGitHubHost(input?: string | null): string | undefine
     // such as `;` `,` `'` `*` in a host, which must never reach an API URL,
     // a gh argument or the CSP.
     if (!DNS_HOST.test(host)) return undefined
-    if (host === 'api.github.com') return DEFAULT_GITHUB_HOST
+    if (host === "api.github.com") return DEFAULT_GITHUB_HOST
     const gheApi = GHE_CLOUD_API_HOST.exec(host)
     return gheApi ? gheApi[1] : host
   } catch {
@@ -64,13 +65,13 @@ export function normalizeGitHubHost(input?: string | null): string {
 /** Classify a normalized host. Anything that isn't github.com or `*.ghe.com` is GHES. */
 export function githubHostKind(host: string): GitHubHostKind {
   const h = host.toLowerCase()
-  if (h === DEFAULT_GITHUB_HOST) return 'dotcom'
-  if (GHE_CLOUD_HOST.test(h)) return 'ghe-cloud'
-  return 'ghes'
+  if (h === DEFAULT_GITHUB_HOST) return "dotcom"
+  if (GHE_CLOUD_HOST.test(h)) return "ghe-cloud"
+  return "ghes"
 }
 
 /** Whether `host` is anything other than github.com (GHES or ghe.com). */
-export const isGitHubEnterpriseHost = (host: string): boolean => githubHostKind(host) !== 'dotcom'
+export const isGitHubEnterpriseHost = (host: string): boolean => githubHostKind(host) !== "dotcom"
 
 /** The web origin of a normalized host: `https://<host>`. */
 export const githubWebBase = (host: string): string => `https://${host}`
@@ -81,14 +82,14 @@ export const githubWebBase = (host: string): string => `https://${host}`
  * supported GHES version has.
  */
 export function githubTokenCreateUrl(host: string): string {
-  return githubHostKind(host) === 'ghes'
+  return githubHostKind(host) === "ghes"
     ? `${githubWebBase(host)}/settings/tokens/new`
     : `${githubWebBase(host)}/settings/personal-access-tokens/new`
 }
 
 /** The page listing the user's tokens (the fine-grained list; classic on GHES). */
 export function githubTokenSettingsUrl(host: string): string {
-  return githubHostKind(host) === 'ghes'
+  return githubHostKind(host) === "ghes"
     ? `${githubWebBase(host)}/settings/tokens`
     : `${githubWebBase(host)}/settings/personal-access-tokens`
 }
@@ -100,7 +101,7 @@ export function githubTokenSettingsUrl(host: string): string {
  */
 export function isGitHubRepoHost(host: string | undefined): boolean {
   if (!host) return false
-  return githubHostKind(host) !== 'ghes'
+  return githubHostKind(host) !== "ghes"
 }
 
 /**
@@ -121,7 +122,7 @@ export function resolveGitHubOAuthClientId(
 ): string | undefined {
   if (!oauthClientId) return undefined
   const active = tryNormalizeGitHubHost(activeHost) ?? activeHost
-  if (typeof oauthClientId === 'string') {
+  if (typeof oauthClientId === "string") {
     const target = authoredHost ? tryNormalizeGitHubHost(authoredHost) : DEFAULT_GITHUB_HOST
     return target === active ? oauthClientId || undefined : undefined
   }
@@ -131,7 +132,17 @@ export function resolveGitHubOAuthClientId(
   return undefined
 }
 
-/** Why the OAuth tab is disabled for an enterprise host without a client ID. */
-export function githubOAuthUnavailableReason(host: string): string {
-  return `Sign-in with GitHub isn't set up for ${host}. Use a personal access token or 'gh auth login --hostname ${host}' instead.`
+/**
+ * Why the OAuth tab is disabled for an enterprise host without a client ID.
+ * `cliLogin: false` (a block with credential detection disabled) leaves out
+ * the `gh auth login` alternative, which that block would never pick up.
+ */
+export function githubOAuthUnavailableReason(
+  host: string,
+  { cliLogin = true }: { cliLogin?: boolean } = {},
+): string {
+  const alternative = cliLogin
+    ? `a personal access token or 'gh auth login --hostname ${host}'`
+    : "a personal access token"
+  return `Sign-in with GitHub isn't set up for ${host}. Use ${alternative} instead.`
 }

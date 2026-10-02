@@ -41,7 +41,11 @@ describe("FileManifestStore", () => {
 
   it("set then get round-trips correctly", () => {
     const store = new FileManifestStore()
-    const manifest: TemplateManifest = { templateId: "tpl1", outputDir: "/out", files: [{ path: "file.txt", contentHash: "abc123" }] }
+    const manifest: TemplateManifest = {
+      templateId: "tpl1",
+      outputDir: "/out",
+      files: [{ path: "file.txt", contentHash: "abc123" }],
+    }
     store.set("tpl1", manifest)
     expect(store.get("tpl1")).toEqual(manifest)
   })
@@ -64,8 +68,16 @@ describe("FileManifestStore", () => {
 
   it("stores multiple templates independently", () => {
     const store = new FileManifestStore()
-    const m1: TemplateManifest = { templateId: "tpl1", outputDir: "/out", files: [{ path: "a.txt", contentHash: "h1" }] }
-    const m2: TemplateManifest = { templateId: "tpl2", outputDir: "/out", files: [{ path: "b.txt", contentHash: "h2" }] }
+    const m1: TemplateManifest = {
+      templateId: "tpl1",
+      outputDir: "/out",
+      files: [{ path: "a.txt", contentHash: "h1" }],
+    }
+    const m2: TemplateManifest = {
+      templateId: "tpl2",
+      outputDir: "/out",
+      files: [{ path: "b.txt", contentHash: "h2" }],
+    }
     store.set("tpl1", m1)
     store.set("tpl2", m2)
     expect(store.get("tpl1")).toEqual(m1)
@@ -80,19 +92,19 @@ describe("computeDiff", () => {
   })
 
   it("detects all created when old is empty", () => {
-    const result = computeDiff([], [
-      { path: "a.txt", contentHash: "h1" },
-      { path: "b.txt", contentHash: "h2" },
-    ])
+    const result = computeDiff(
+      [],
+      [
+        { path: "a.txt", contentHash: "h1" },
+        { path: "b.txt", contentHash: "h2" },
+      ],
+    )
     expect(result.created).toEqual(["a.txt", "b.txt"])
     expect(result.orphaned).toEqual([])
   })
 
   it("detects all orphaned when new is empty", () => {
-    const result = computeDiff(
-      [{ path: "a.txt", contentHash: "h1" }],
-      [],
-    )
+    const result = computeDiff([{ path: "a.txt", contentHash: "h1" }], [])
     expect(result.orphaned).toEqual(["a.txt"])
     expect(result.created).toEqual([])
   })
@@ -224,9 +236,7 @@ describe("applyDiffFromContent", () => {
     contents: ReadonlyMap<string, string> = new Map<string, string>(),
   ) =>
     Effect.runPromise(
-      applyDiffFromContent(diff, contents, outputDir).pipe(
-        Effect.provide(NodeFileSystemLive),
-      ),
+      applyDiffFromContent(diff, contents, outputDir).pipe(Effect.provide(NodeFileSystemLive)),
     )
 
   it("writes created/modified files and removes orphans", async () => {
@@ -248,12 +258,8 @@ describe("applyDiffFromContent", () => {
     )
 
     expect(result).toEqual({ written: 2, deleted: 1 })
-    expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe(
-      "new-a",
-    )
-    expect(
-      nodeFs.readFileSync(nodePath.join(outputDir, "b", "c.txt"), "utf8"),
-    ).toBe("new-c")
+    expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe("new-a")
+    expect(nodeFs.readFileSync(nodePath.join(outputDir, "b", "c.txt"), "utf8")).toBe("new-c")
     expect(nodeFs.existsSync(nodePath.join(outputDir, "orphan.txt"))).toBe(false)
   })
 
@@ -267,12 +273,8 @@ describe("applyDiffFromContent", () => {
     )
 
     expect(result).toEqual({ written: 2, deleted: 0 })
-    expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe(
-      "hello",
-    )
-    expect(
-      nodeFs.readFileSync(nodePath.join(outputDir, "b", "c.txt"), "utf8"),
-    ).toBe("nested")
+    expect(nodeFs.readFileSync(nodePath.join(outputDir, "a.txt"), "utf8")).toBe("hello")
+    expect(nodeFs.readFileSync(nodePath.join(outputDir, "b", "c.txt"), "utf8")).toBe("nested")
   })
 
   it("restores a manually deleted unchanged file when its content is available", async () => {
@@ -282,9 +284,7 @@ describe("applyDiffFromContent", () => {
       new Map([["keep.txt", "keep"]]),
     )
     expect(result.written).toBe(1)
-    expect(nodeFs.readFileSync(nodePath.join(outputDir, "keep.txt"), "utf8")).toBe(
-      "keep",
-    )
+    expect(nodeFs.readFileSync(nodePath.join(outputDir, "keep.txt"), "utf8")).toBe("keep")
   })
 
   it("removes empty parent directories after deleting an orphan", async () => {
@@ -322,9 +322,7 @@ describe("applyDiffFromContent", () => {
     })
 
     expect(nodeFs.existsSync(nodePath.join(outputDir, "nested", "sub"))).toBe(false)
-    expect(nodeFs.existsSync(nodePath.join(outputDir, "nested", "sibling.txt"))).toBe(
-      true,
-    )
+    expect(nodeFs.existsSync(nodePath.join(outputDir, "nested", "sibling.txt"))).toBe(true)
   })
 
   // -------------------------------------------------------------------------
@@ -370,9 +368,7 @@ describe("applyDiffFromContent", () => {
 
       expect(result._tag).toBe("Left")
       if (result._tag === "Left") {
-        expect((result.left as unknown as { _tag: string })._tag).toBe(
-          "PathTraversalError",
-        )
+        expect((result.left as unknown as { _tag: string })._tag).toBe("PathTraversalError")
       }
       // The tripwire file must still exist.
       expect(nodeFs.existsSync(tripwire)).toBe(true)
@@ -436,6 +432,7 @@ describe("applyDiffFromContent idempotency", () => {
         writeCount += 1
         return Effect.void
       },
+      appendFile: () => Effect.void,
       mkdir: () => Effect.void,
       rm: () => {
         rmCount += 1

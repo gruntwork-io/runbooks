@@ -28,11 +28,11 @@ export interface LocalRepoInfo {
   /** Number of tracked files (`git ls-files`). */
   readonly fileCount: number
   /** `origin` remote URL, when the repo has one. */
-  readonly remoteUrl?: string
+  readonly remoteUrl?: string | undefined
   /** Currently checked out branch/tag, or "HEAD" when detached. */
   readonly branch: string
   readonly refType: GitInfo["refType"]
-  readonly commitSha?: string
+  readonly commitSha?: string | undefined
   /**
    * False when the repo has no commits yet (unborn HEAD). Such a repo has no
    * branch to open a pull request against, so blocks that need a base ref have
@@ -40,8 +40,8 @@ export interface LocalRepoInfo {
    */
   readonly hasCommits: boolean
   /** Owner/repo parsed from the remote URL, when parseable. */
-  readonly owner?: string
-  readonly repo?: string
+  readonly owner?: string | undefined
+  readonly repo?: string | undefined
 }
 
 /**
@@ -61,11 +61,7 @@ export const resolveLocalRepoPath = (dir: string, workingDir: string): string =>
 export const inspectLocalRepo = (
   dir: string,
   workingDir: string,
-): Effect.Effect<
-  LocalRepoInfo,
-  GitError,
-  GitClient | FileSystem | ProcessSpawner
-> =>
+): Effect.Effect<LocalRepoInfo, GitError, GitClient | FileSystem | ProcessSpawner> =>
   Effect.gen(function* () {
     const trimmed = dir.trim()
     if (!trimmed) {
@@ -120,11 +116,9 @@ export const inspectLocalRepo = (
 
     // A repo with no commits yet has no HEAD to describe — treat the whole
     // lookup as best-effort so an empty checkout is still selectable.
-    const info = yield* git.getInfo(absolutePath).pipe(
-      Effect.catchAll(() =>
-        Effect.succeed({ branch: "", refType: "branch" } as GitInfo),
-      ),
-    )
+    const info = yield* git
+      .getInfo(absolutePath)
+      .pipe(Effect.catchAll(() => Effect.succeed({ branch: "", refType: "branch" } as GitInfo)))
 
     // getInfo only knows about `origin`. A checkout can legitimately name its
     // remote something else — a fork whose upstream is the interesting one, or
@@ -143,9 +137,7 @@ export const inspectLocalRepo = (
     // orElseSucceed keeps this best-effort, like the getInfo lookup above: a
     // repo we can't query is treated as having history, so an unreadable git
     // never gets mistaken for an empty one and offered a seeded branch.
-    const hasCommits = yield* git
-      .hasCommits(absolutePath)
-      .pipe(Effect.orElseSucceed(() => true))
+    const hasCommits = yield* git.hasCommits(absolutePath).pipe(Effect.orElseSucceed(() => true))
 
     return {
       absolutePath,
@@ -169,9 +161,9 @@ export const inspectLocalRepo = (
  */
 const firstRemoteUrl = (repoPath: string) =>
   Effect.gen(function* () {
-    const names = yield* readGitLines(repoPath, ["remote"])
-    if (names.length === 0) return undefined
-    const urls = yield* readGitLines(repoPath, ["remote", "get-url", names[0]])
+    const [firstName] = yield* readGitLines(repoPath, ["remote"])
+    if (firstName === undefined) return undefined
+    const urls = yield* readGitLines(repoPath, ["remote", "get-url", firstName])
     return urls[0]
   }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
 

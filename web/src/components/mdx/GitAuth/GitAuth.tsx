@@ -17,7 +17,12 @@ import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
 import { PROVIDERS, isGitProvider } from "./providers"
 import { useGitAuth } from "./hooks/useGitAuth"
-import { getStatusClasses, getStatusIcon, getStatusIconClasses, resolveDefaultAuthMethod } from "./utils"
+import {
+  getStatusClasses,
+  StatusIcon,
+  getStatusIconClasses,
+  resolveDefaultAuthMethod,
+} from "./utils"
 import { ProviderSelect } from "./components/ProviderSelect"
 import { HostSelect } from "./components/HostSelect"
 import { AuthTabs } from "./components/AuthTabs"
@@ -35,7 +40,7 @@ function GitAuthInteractive({
   id,
   title = "Git Authentication",
   description,
-  provider: initialProvider = 'github',
+  provider: initialProvider = "github",
   hideProviderSelect = false,
   instanceUrl,
   oauthClientId,
@@ -44,19 +49,19 @@ function GitAuthInteractive({
   host,
   defaultTab,
   inputsId,
-  __registryType = 'GitAuth',
+  __registryType = "GitAuth",
 }: GitAuthInternalProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
         message: `The <${__registryType}> component requires a non-empty 'id' prop.`,
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     if (!isGitProvider(initialProvider)) {
       return {
-        message: `The <${__registryType}> component has an invalid 'provider' prop: "${initialProvider}".`,
-        details: "Valid values are 'github' and 'gitlab' (lowercase)."
+        message: `The <${__registryType}> component has an invalid 'provider' prop: ${JSON.stringify(initialProvider)}.`,
+        details: "Valid values are 'github' and 'gitlab' (lowercase).",
       }
     }
     return null
@@ -65,10 +70,12 @@ function GitAuthInteractive({
   // An authored GitHub `host` that can't be parsed is a configuration error:
   // nothing is sent anywhere (never silently to github.com).
   const hostConfigError = useMemo((): AppError | null => {
-    if (initialProvider !== 'github' || host === undefined || tryNormalizeGitHubHost(host)) return null
+    if (initialProvider !== "github" || host === undefined || tryNormalizeGitHubHost(host))
+      return null
     return {
       message: `The <${__registryType}> component has an invalid 'host' prop: ${JSON.stringify(host)}.`,
-      details: "Set 'host' to a GitHub host such as \"github.example.com\" or \"acme.ghe.com\", or remove it.",
+      details:
+        'Set \'host\' to a GitHub host such as "github.example.com" or "acme.ghe.com", or remove it.',
     }
   }, [initialProvider, host, __registryType])
 
@@ -78,11 +85,20 @@ function GitAuthInteractive({
 
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
-  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
-  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+  const resolvedTitle = useMemo(
+    () => (title ? resolveTemplateReferences(title, templateCtx) : title),
+    [title, templateCtx],
+  )
+  const resolvedDescription = useMemo(
+    () => (description ? resolveTemplateReferences(description, templateCtx) : description),
+    [description, templateCtx],
+  )
 
   // Check for duplicate component IDs
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, __registryType)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    __registryType,
+  )
 
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
@@ -150,6 +166,12 @@ function GitAuthInteractive({
     instanceFieldRef.current?.focus()
   }, [instanceFieldFocusNonce])
 
+  // Whether the block looks for existing credentials. With detection off, the
+  // controls and copy that re-run or explain detection (Check again, Reload,
+  // the host picker's credential annotations, the auto-auth FAQ) are hidden,
+  // as AwsAuth and GoogleAuth hide their "Try auto-detection again".
+  const detectionEnabled = detectCredentials !== false
+
   // Host picker + config reload. GitLab shows it with a single known host too,
   // for the "Other instance…" row; GitHub only when there is a choice, so
   // github.com-only users see no picker. Where it is absent, the manual hint
@@ -157,15 +179,15 @@ function GitAuthInteractive({
   const showHostPicker =
     auth.hostSelectable &&
     ((auth.availableHosts?.length ?? 0) > 1 ||
-      (providerConfig.supportsManualInstance && auth.authStatus !== 'authenticated'))
+      (providerConfig.supportsManualInstance && auth.authStatus !== "authenticated"))
 
   // When the OAuth tab is disabled (unreachable), make sure the PAT form
   // is the one showing rather than a dead OAuth pane.
   const oauthDisabled = auth.oauthUnavailableReason !== null
   const setAuthMethod = auth.setAuthMethod
   useEffect(() => {
-    if (oauthDisabled && auth.authMethod === 'oauth') {
-      setAuthMethod('pat')
+    if (oauthDisabled && auth.authMethod === "oauth") {
+      setAuthMethod("pat")
     }
   }, [oauthDisabled, auth.authMethod, setAuthMethod])
 
@@ -175,15 +197,15 @@ function GitAuthInteractive({
       reportError({
         componentId: id,
         componentType: __registryType,
-        severity: 'error',
-        message: `Duplicate component ID: ${id}`
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
       })
     } else if (configError) {
       reportError({
         componentId: id,
         componentType: __registryType,
-        severity: 'error',
-        message: configError.message
+        severity: "error",
+        message: configError.message,
       })
     } else {
       clearError(id)
@@ -208,19 +230,25 @@ function GitAuthInteractive({
     )
   }
 
-  const IconComponent = getStatusIcon(auth.authStatus)
   const statusClasses = getStatusClasses(auth.authStatus)
   const iconClasses = getStatusIconClasses(auth.authStatus)
 
   // Provider picker is hidden when the author locks it or once authenticated.
-  const showProviderSelect = !hideProviderSelect && auth.authStatus !== 'authenticated'
+  const showProviderSelect = !hideProviderSelect && auth.authStatus !== "authenticated"
 
   // Show custom OAuth warning if using non-default client ID and not dismissed
-  const showCustomOAuthWarning = auth.isCustomClientId && !customOAuthDismissed && !useDefaultOAuth &&
-    auth.authStatus !== 'authenticated' && auth.authMethod === 'oauth'
+  const showCustomOAuthWarning =
+    auth.isCustomClientId &&
+    !customOAuthDismissed &&
+    !useDefaultOAuth &&
+    auth.authStatus !== "authenticated" &&
+    auth.authMethod === "oauth"
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -229,7 +257,10 @@ function GitAuthInteractive({
       {/* Header with provider logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-border pr-3 mr-0 self-stretch">
-          <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
+          <StatusIcon
+            status={auth.authStatus}
+            className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
+          />
         </div>
 
         <div className="flex-1 min-w-0">
@@ -258,7 +289,9 @@ function GitAuthInteractive({
               how the user moves from gitlab.com to a self-managed instance
               (or github.com to GitHub Enterprise). GitLab also shows it with a
               single host, for the "Other instance…" row; GitHub only when
-              there is a choice, so github.com-only users see no picker. */}
+              there is a choice, so github.com-only users see no picker.
+              With detection off it stays (the host still decides where the
+              user signs in) but as a plain list, without Reload. */}
           {showHostPicker && (
             <HostSelect
               id={id}
@@ -268,24 +301,25 @@ function GitAuthInteractive({
               onChange={auth.handleHostSelect}
               onReload={auth.reloadDetection}
               downgradedHosts={auth.downgradedHosts}
-              disabled={auth.detectionStatus === 'pending'}
+              disabled={auth.detectionStatus === "pending"}
+              detectsCredentials={detectionEnabled}
             />
           )}
 
           {/* Detection pending state - waiting for block or checking credentials */}
-          {auth.detectionStatus === 'pending' && (
+          {auth.detectionStatus === "pending" && (
             <div className="mb-4 text-info text-sm flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
               <span>
                 {auth.waitingForBlockId
                   ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                  : 'Checking for existing authentication...'}
+                  : "Checking for existing authentication..."}
               </span>
             </div>
           )}
 
           {/* Success state */}
-          {auth.authStatus === 'authenticated' && auth.userInfo && (
+          {auth.authStatus === "authenticated" && auth.userInfo && (
             <AuthSuccess
               userInfo={auth.userInfo}
               provider={providerConfig}
@@ -305,7 +339,7 @@ function GitAuthInteractive({
           )}
 
           {/* Error state (for manual auth failures) */}
-          {auth.authStatus === 'failed' && auth.errorMessage && (
+          {auth.authStatus === "failed" && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
@@ -315,13 +349,15 @@ function GitAuthInteractive({
           )}
 
           {/* Detection warning (found credentials but they're invalid) */}
-          {auth.detectionWarning && auth.authStatus !== 'authenticated' && (
+          {auth.detectionWarning && auth.authStatus !== "authenticated" && (
             <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
                 <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
                 <br />
-                <span className="text-warning-foreground">Please authenticate manually below, or fix the credentials and reload.</span>
+                <span className="text-warning-foreground">
+                  Please authenticate manually below, or fix the credentials and reload.
+                </span>
               </div>
             </div>
           )}
@@ -329,29 +365,30 @@ function GitAuthInteractive({
           {/* Unreachable host: a TLS/server-cert/network failure is
               NEVER an invalid-credentials warning. The card renders above the
               still-available manual UI. */}
-          {auth.unreachableInfo && auth.authStatus !== 'authenticated' && (
+          {auth.unreachableInfo && auth.authStatus !== "authenticated" && (
             <TlsErrorCard
               info={auth.unreachableInfo}
               onRetry={auth.retryUnreachable}
-              retrying={auth.detectionStatus === 'pending'}
+              retrying={auth.detectionStatus === "pending"}
             />
           )}
 
           {/* Authentication form (only show when not authenticated and detection is done) */}
-          {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
+          {auth.authStatus !== "authenticated" && auth.detectionStatus === "done" && (
             <>
               {/* CLI-status-driven hint + the "Check again" control. The host
                   picker carries Reload instead; without the picker (a
                   github.com-only GitHub block, or a `host`-pinned block) this is
                   the only way to re-run detection after Re-authenticate turns
-                  focus re-detection off. */}
+                  focus re-detection off. With detection disabled the hint is
+                  neutral copy and there is nothing to check again. */}
               {auth.manualHint && (
                 <div
                   data-testid="vcs-cli-hint"
                   className="mb-4 text-sm text-muted-foreground flex items-center gap-2 flex-wrap"
                 >
                   <span>{auth.manualHint}</span>
-                  {!showHostPicker && (
+                  {!showHostPicker && detectionEnabled && (
                     <button
                       type="button"
                       onClick={auth.retryUnreachable}
@@ -382,19 +419,23 @@ function GitAuthInteractive({
               />
 
               {/* OAuth Flow (GitHub only) */}
-              {providerConfig.supportsOAuth && auth.authMethod === 'oauth' && !showCustomOAuthWarning && !oauthDisabled && (
-                <OAuthFlow
-                  authStatus={auth.authStatus}
-                  userCode={auth.oauthUserCode}
-                  verificationUri={auth.oauthVerificationUri}
-                  onStartOAuth={auth.startOAuth}
-                  onCancelOAuth={auth.cancelOAuth}
-                  provider={providerConfig}
-                />
-              )}
+              {providerConfig.supportsOAuth &&
+                auth.authMethod === "oauth" &&
+                !showCustomOAuthWarning &&
+                !oauthDisabled && (
+                  <OAuthFlow
+                    authStatus={auth.authStatus}
+                    userCode={auth.oauthUserCode}
+                    verificationUri={auth.oauthVerificationUri}
+                    onStartOAuth={auth.startOAuth}
+                    onCancelOAuth={auth.cancelOAuth}
+                    provider={providerConfig}
+                    showAutoAuthInfo={detectionEnabled}
+                  />
+                )}
 
               {/* PAT Form */}
-              {auth.authMethod === 'pat' && (
+              {auth.authMethod === "pat" && (
                 <>
                   <PatForm
                     authStatus={auth.authStatus}
@@ -411,7 +452,7 @@ function GitAuthInteractive({
                   />
                   {/* Providers without OAuth (GitLab) surface the auto-detect
                       FAQ here, since there is no OAuth tab to carry it. */}
-                  {!providerConfig.supportsOAuth && (
+                  {!providerConfig.supportsOAuth && detectionEnabled && (
                     <div className="mt-4">
                       <AutoAuthInfo provider={providerConfig} />
                     </div>
@@ -442,4 +483,4 @@ export function GitAuth(props: GitAuthInternalProps) {
 }
 
 // Set displayName for React DevTools and component detection
-GitAuth.displayName = 'GitAuth'
+GitAuth.displayName = "GitAuth"

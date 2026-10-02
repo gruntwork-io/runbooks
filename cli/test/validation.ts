@@ -15,12 +15,10 @@ import {
   getComponentRegex,
   type ParsedComponent,
 } from "../../src/domain/registry/executable.ts"
-import {
-  findFencedCodeBlockRanges,
-  isInsideFencedCodeBlock,
-} from "../../src/mdx.ts"
+import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../src/mdx.ts"
 import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
 import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,9 +79,7 @@ export class InputValidator {
   private configErrors: ConfigError[] = []
   private allComponents: ParsedComponent[] = []
 
-  constructor(
-    private runbookPath: string,
-  ) {}
+  constructor(private runbookPath: string) {}
 
   /** Parse and validate all components. Call before using other methods. */
   init(): void {
@@ -146,10 +142,9 @@ export class InputValidator {
     const errors: ValidationError[] = []
 
     for (const [key, value] of Object.entries(inputs)) {
-      const parts = key.split(".", 2)
-      if (parts.length !== 2) continue
+      const [inputsId, varName] = key.split(".", 2)
+      if (inputsId === undefined || varName === undefined) continue
 
-      const [inputsId, varName] = parts
       const schema = this.schemas.get(inputsId)
       if (!schema) continue
 
@@ -174,7 +169,7 @@ export class InputValidator {
 
     while ((match = blockRe.exec(content)) !== null) {
       if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) continue
-      const blockType = match[1]
+      const blockType = match[1]!
       if (seen.has(blockType) || KNOWN_BLOCK_TYPES.has(blockType)) continue
       seen.add(blockType)
       this.configErrors.push({
@@ -213,7 +208,7 @@ export class InputValidator {
           this.configErrors.push({
             componentType: "Inputs",
             componentId: comp.id,
-            message: `Failed to load boilerplate config: ${e}`,
+            message: `Failed to load boilerplate config: ${errorMessage(e)}`,
           })
         }
       } else {
@@ -234,7 +229,7 @@ export class InputValidator {
             this.configErrors.push({
               componentType: "Inputs",
               componentId: comp.id,
-              message: `Failed to parse inline YAML: ${e}`,
+              message: `Failed to parse inline YAML: ${errorMessage(e)}`,
             })
           }
         }
@@ -291,7 +286,7 @@ export class InputValidator {
         this.configErrors.push({
           componentType: "Template",
           componentId: comp.id,
-          message: `Failed to load boilerplate config: ${e}`,
+          message: `Failed to load boilerplate config: ${errorMessage(e)}`,
         })
       }
 
@@ -442,38 +437,70 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
   switch (comp.type) {
     case "Inputs":
       if (!comp.hasExplicitId) {
-        errors.push({ componentType: "Inputs", componentId: "(missing)", message: "The 'id' prop is required" })
+        errors.push({
+          componentType: "Inputs",
+          componentId: "(missing)",
+          message: "The 'id' prop is required",
+        })
       }
       if (!extractProp(comp.props, "path") && !comp.content.trim()) {
-        errors.push({ componentType: "Inputs", componentId: comp.id, message: "Either 'path' prop or inline YAML content is required" })
+        errors.push({
+          componentType: "Inputs",
+          componentId: comp.id,
+          message: "Either 'path' prop or inline YAML content is required",
+        })
       }
       break
 
     case "Template":
       if (!comp.hasExplicitId) {
-        errors.push({ componentType: "Template", componentId: "(missing)", message: "The 'id' prop is required" })
+        errors.push({
+          componentType: "Template",
+          componentId: "(missing)",
+          message: "The 'id' prop is required",
+        })
       }
       if (!extractProp(comp.props, "path")) {
-        errors.push({ componentType: "Template", componentId: comp.id, message: "The 'path' prop is required" })
+        errors.push({
+          componentType: "Template",
+          componentId: comp.id,
+          message: "The 'path' prop is required",
+        })
       }
       break
 
     case "TemplateInline":
       if (!comp.hasExplicitId) {
-        errors.push({ componentType: "TemplateInline", componentId: "(missing)", message: "The 'id' prop is required" })
+        errors.push({
+          componentType: "TemplateInline",
+          componentId: "(missing)",
+          message: "The 'id' prop is required",
+        })
       }
       if (!extractProp(comp.props, "outputPath")) {
-        errors.push({ componentType: "TemplateInline", componentId: comp.id, message: "The 'outputPath' prop is required" })
+        errors.push({
+          componentType: "TemplateInline",
+          componentId: comp.id,
+          message: "The 'outputPath' prop is required",
+        })
       }
       if (!comp.content.trim()) {
-        errors.push({ componentType: "TemplateInline", componentId: comp.id, message: "Template content is empty" })
+        errors.push({
+          componentType: "TemplateInline",
+          componentId: comp.id,
+          message: "Template content is empty",
+        })
       }
       break
 
     case "Check":
     case "Command":
       if (!comp.hasExplicitId) {
-        errors.push({ componentType: comp.type, componentId: comp.id, message: "The 'id' prop is required" })
+        errors.push({
+          componentType: comp.type,
+          componentId: comp.id,
+          message: "The 'id' prop is required",
+        })
       }
       break
   }
@@ -533,8 +560,7 @@ function parseConfig(yamlContent: string): BoilerplateConfig {
 }
 
 export function lowercaseFirst(s: string): string {
-  if (!s) return s
-  return s[0].toLowerCase() + s.slice(1)
+  return s.charAt(0).toLowerCase() + s.slice(1)
 }
 
 // ---------------------------------------------------------------------------
@@ -558,7 +584,10 @@ function validateValue(
     case "enum": {
       const strVal = String(value)
       if (variable.options && !variable.options.includes(strVal)) {
-        errors.push({ inputKey: key, message: `Value "${strVal}" not in enum options [${variable.options.join(", ")}]` })
+        errors.push({
+          inputKey: key,
+          message: `Value "${strVal}" not in enum options [${variable.options.join(", ")}]`,
+        })
       }
       break
     }
@@ -574,13 +603,23 @@ function validateValue(
         errors.push({ inputKey: key, message: `Expected boolean, got ${typeof value}` })
       }
       break
+
+    // No YAML type check of their own; validateVariableValue below covers them.
+    case "string":
+    case "float":
+    case "list":
+    case "map":
+      break
   }
 
   const message = validateVariableValue(variable, value)
   if (message) {
     // Fuzzed inputs change on every run and are only printed after validation
     // passes, so name the failing value here (unless the variable is sensitive).
-    errors.push({ inputKey: key, message: variable.sensitive ? message : `${message} (got ${describeValue(value)})` })
+    errors.push({
+      inputKey: key,
+      message: variable.sensitive ? message : `${message} (got ${describeValue(value)})`,
+    })
   }
 
   return errors

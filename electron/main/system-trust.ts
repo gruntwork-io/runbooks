@@ -16,7 +16,11 @@
 import * as fs from "fs"
 import * as tls from "node:tls"
 import { Effect } from "effect"
-import { coldReadSystemPems, installSystemTrust, refreshSystemPems } from "../../src/domain/tls/system-ca.ts"
+import {
+  coldReadSystemPems,
+  installSystemTrust,
+  refreshSystemPems,
+} from "../../src/domain/tls/system-ca.ts"
 import type { CaSources } from "../../src/domain/tls/system-ca.ts"
 import { runtime } from "./ipc/runtime.ts"
 import { makeLogger } from "./logger.ts"
@@ -74,7 +78,9 @@ const caSources = (s: TrustState, systemPems: string[]): CaSources => ({
 // The count log line doubles as the e2e trust canary (asserts system > 0
 // on the macOS runner) — keep its format stable.
 function installAndLog(s: TrustState, systemPems: string[], note?: string): void {
-  const counts = Effect.runSync(installSystemTrust(extraPemsForInstall(s), caSources(s, systemPems)))
+  const counts = Effect.runSync(
+    installSystemTrust(extraPemsForInstall(s), caSources(s, systemPems)),
+  )
   log.info(
     `installSystemTrust: defaults=${counts.defaults} system=${counts.system} extra=${counts.extra}${note ? ` (${note})` : ""}`,
   )
