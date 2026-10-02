@@ -16,6 +16,7 @@ export interface OutputDependency {
   blockId: string // The block ID that produces the output (e.g., "create-account")
   outputName: string // The output name (e.g., "account_id")
   fullPath: string // The full template reference (e.g., "outputs.create-account.account_id")
+  optional?: boolean // Guarded with `hasKey`: the block must run, the output may be absent
 }
 
 // API response for a collection of boilerplate variables

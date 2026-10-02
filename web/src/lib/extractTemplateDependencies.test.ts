@@ -151,6 +151,71 @@ line3 {{ .inputs.env }}`,
     const deps = extractTemplateDependenciesFromString("{{ .outputs.block_only }}")
     expect(deps).toEqual([])
   })
+
+  it("should mark an output guarded with hasKey as optional", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("should match a guard on a hyphenated block ID, parenthesized map and backquoted key", () => {
+    const deps = extractTemplateDependenciesFromString(
+      "{{ if hasKey (.outputs.clone-repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "repo_id",
+        fullPath: "outputs.clone_repo.repo_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("should leave outputs the guard does not name required", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }} {{ .outputs.clone_repo.repo_owner }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "repo_owner",
+        fullPath: "outputs.clone_repo.repo_owner",
+      },
+    ])
+  })
+
+  it("should ignore a hasKey guard outside template delimiters", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '# hasKey .outputs.clone_repo "org_id" is explained here\n{{ .outputs.clone_repo.org_id }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
+  })
 })
 
 describe("splitDependencies", () => {
@@ -177,5 +242,27 @@ describe("splitDependencies", () => {
     ]
     const { inputs } = splitDependencies(deps)
     expect(inputs).toEqual(["region"])
+  })
+
+  it("should keep an output optional only when every reference guards it", () => {
+    const guarded =
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}'
+    const optional = splitDependencies(extractTemplateDependenciesFromString(guarded))
+    expect(optional.outputs).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+
+    const required = splitDependencies([
+      ...extractTemplateDependenciesFromString(guarded),
+      ...extractTemplateDependenciesFromString("{{ .outputs.clone_repo.org_id }}"),
+    ])
+    expect(required.outputs).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
   })
 })

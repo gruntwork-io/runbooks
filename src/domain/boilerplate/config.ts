@@ -356,12 +356,26 @@ const OUTPUT_DEP_BLOCK_REGEX = /\{\{-?([\s\S]*?)-?\}\}/g
 const OUTPUT_DEP_REGEX = /\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)/g
 
 /**
+ * A `hasKey .outputs.X "Y"` guard (the map may be parenthesized, the key
+ * double-quoted or backquoted). Boilerplate renders with
+ * missing-key-action=error, so this is the one way a template can read an
+ * output that a block emits only sometimes.
+ */
+const OUTPUT_GUARD_REGEX =
+  /\bhasKey\s+\(?\s*\.outputs\.([a-zA-Z0-9_-]+)\s*\)?\s+(?:"(\w+)"|`(\w+)`)/g
+
+/**
  * Extract `.outputs.blockId.outputName` references from template content.
  * Returns deduplicated dependencies found inside `{{ }}` template blocks.
+ *
+ * An output the content guards with `hasKey` anywhere is marked optional:
+ * the block still has to run, but the Generate gate no longer waits for
+ * that output to exist.
  */
 export function extractOutputDependencies(content: string): OutputDependency[] {
   const dependencies: OutputDependency[] = []
   const seen = new Set<string>()
+  const guarded = new Set<string>()
 
   // Reset regex state
   OUTPUT_DEP_BLOCK_REGEX.lastIndex = 0
@@ -371,8 +385,16 @@ export function extractOutputDependencies(content: string): OutputDependency[] {
     if (!blockMatch[1]) continue
     const blockContent = blockMatch[1]
 
-    // Reset inner regex for each block
+    // Reset inner regexes for each block
+    OUTPUT_GUARD_REGEX.lastIndex = 0
     OUTPUT_DEP_REGEX.lastIndex = 0
+
+    let guardMatch: RegExpExecArray | null
+    while ((guardMatch = OUTPUT_GUARD_REGEX.exec(blockContent)) !== null) {
+      const outputName = guardMatch[2] ?? guardMatch[3]
+      if (!guardMatch[1] || !outputName) continue
+      guarded.add(`outputs.${normalizeBlockID(guardMatch[1])}.${outputName}`)
+    }
 
     let depMatch: RegExpExecArray | null
     while ((depMatch = OUTPUT_DEP_REGEX.exec(blockContent)) !== null) {
@@ -392,6 +414,13 @@ export function extractOutputDependencies(content: string): OutputDependency[] {
         })
       }
     }
+  }
+
+  // The guard and the reference usually sit in separate actions
+  // (`{{ if hasKey ... }}{{ .outputs.x.y }}{{ end }}`), so guards are
+  // applied after the whole content has been scanned.
+  for (const dep of dependencies) {
+    if (guarded.has(dep.fullPath)) dep.optional = true
   }
 
   return dependencies
