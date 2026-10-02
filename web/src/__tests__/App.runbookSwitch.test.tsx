@@ -63,6 +63,8 @@ interface ApiOptions {
 function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
+  // How many times each runbook was given a new session (see newSession).
+  const sessionCounts = new Map<string, number>()
 
   const invoke = vi.fn(
     async (channel: string, params?: { path?: string; remoteSource?: string; reload?: string }) => {
@@ -85,6 +87,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
             isWatchMode: watchMode,
             warnings: [],
             remoteSource: params?.remoteSource,
+            sessionId: `session-${sessionCounts.get(fixture.path) ?? 0}`,
           }
         }
         case "generated-files:check": {
@@ -124,8 +127,18 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
     })
   }
 
+  /**
+   * What File > New Session does in main: the next `runbook:get` for the open
+   * runbook answers with a new session, and main asks the renderer to load it.
+   */
+  const newSession = async () => {
+    if (!current) throw new Error("no runbook is open")
+    sessionCounts.set(current.path, (sessionCounts.get(current.path) ?? 0) + 1)
+    await emit("file:open-runbook", { path: current.path })
+  }
+
   const api = { invoke, on } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  return { api, invoke, emit }
+  return { api, invoke, emit, newSession }
 }
 
 /** Stands in for a block of the open runbook writing to the shared logs store. */
@@ -241,7 +254,30 @@ describe("App runbook switching", () => {
       expect(callsTo(invoke, "generated-files:check").length).toBeGreaterThan(checksBefore),
     )
     expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
-      runbookPath: "/work/b/runbook.mdx",
+      sessionKey: "/work/b/runbook.mdx\nsession-0",
+    })
+  })
+
+  it("resets per-runbook state when the open runbook starts a new session", async () => {
+    const { invoke, emit, newSession } = renderApp()
+    await openRunbook(emit, "/work/a", "Runbook A")
+    await trustRunbook()
+    fireEvent.click(screen.getByRole("button", { name: "Seed logs" }))
+    expect(await isLogDownloadEnabled(emit)).toBe(true)
+    const checksBefore = callsTo(invoke, "generated-files:check").length
+
+    await newSession()
+
+    // The same runbook, but its blocks start over: the trust banner asks again.
+    await waitFor(() => expect(isTrustPending()).toBe(true))
+    expect(screen.getByRole("heading", { name: "Runbook A" })).toBeInTheDocument()
+    expect(await isLogDownloadEnabled(emit)).toBe(false)
+    // The new session has its own generated-files directory to check.
+    await waitFor(() =>
+      expect(callsTo(invoke, "generated-files:check").length).toBeGreaterThan(checksBefore),
+    )
+    expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
+      sessionKey: "/work/a/runbook.mdx\nsession-1",
     })
   })
 

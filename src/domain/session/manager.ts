@@ -1,7 +1,11 @@
 /**
- * A SessionManager holds the single, process-local session for the open
- * runbook ("one runbook = one environment"). Environment and working-directory
- * changes made by scripts persist across block executions.
+ * A SessionManager holds the single live session for the open runbook ("one
+ * runbook = one environment"). Environment and working-directory changes made
+ * by scripts persist across block executions.
+ *
+ * The manager keeps nothing on disk. It reports every change to a listener
+ * (setChangeListener), and resumeSession rebuilds a session from what the
+ * listener saved; persistence.ts does both.
  */
 
 import { Effect } from "effect"
@@ -71,6 +75,24 @@ interface Session {
   runbookPath: string
 }
 
+/** What a script or auth block changed in the env the session started with. */
+export interface EnvChanges {
+  set: Record<string, string>
+  unset: string[]
+}
+
+/** The part of a session that outlives the app: what a change listener is given and resumeSession takes back. */
+export interface SessionState {
+  workingDir: string
+  env: EnvChanges
+  /** The registered git worktrees, oldest first. */
+  worktrees: string[]
+  /** The worktree the user selected, or "" for the last registered one. */
+  activeWorktree: string
+  executionCount: number
+  lastActivity: Date
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -105,10 +127,7 @@ export function filterCapturedEnv(env: Record<string, string>): Record<string, s
  * What a script changed in its environment, relative to the env it started
  * with: keys it added or re-assigned (`set`) and keys it removed (`unset`).
  */
-export function diffEnv(
-  before: Record<string, string>,
-  after: Record<string, string>,
-): { set: Record<string, string>; unset: string[] } {
+export function diffEnv(before: Record<string, string>, after: Record<string, string>): EnvChanges {
   const set = Object.fromEntries(
     Object.entries(after).filter(([k, v]) => !Object.hasOwn(before, k) || before[k] !== v),
   )
@@ -123,8 +142,9 @@ export function diffEnv(
 export class SessionManager {
   private session: Session | null = null
   private protectedEnvVars: string[] = []
-  /** Bumped by every createSession, so a snapshot can tell its session was replaced. */
+  /** Bumped by every createSession and resumeSession, so a snapshot can tell its session was replaced. */
   private generation = 0
+  private changeListener: ((state: SessionState) => void) | undefined
 
   // -------------------------------------------------------------------------
   // Configuration
@@ -147,23 +167,15 @@ export class SessionManager {
   /**
    * Create a new session, replacing any existing one. The environment is
    * captured from the running process via the Environment service, with
-   * protected vars stripped.
+   * protected vars stripped. The change listener is dropped: it belonged to
+   * the session this one replaces.
    */
   createSession(initialWorkingDir: string, runbookPath: string = "") {
     return Effect.gen(this, function* () {
-      const envService = yield* Environment
-
-      const envRecord = yield* envService.getAll()
-      const env = recordToMap(envRecord)
-
-      // Strip protected env vars
-      for (const key of this.protectedEnvVars) {
-        env.delete(key)
-      }
-
+      const env = yield* this.startingEnv()
       const now = new Date()
 
-      const session: Session = {
+      this.replaceSession({
         env,
         initialEnv: copyEnvMap(env),
         initialWorkDir: initialWorkingDir,
@@ -174,10 +186,83 @@ export class SessionManager {
         registeredWorkTreePaths: [],
         activeWorkTreePath: "",
         runbookPath,
+      })
+    })
+  }
+
+  /**
+   * Replace any existing session with one a previous run of the app saved.
+   * Like createSession it starts from the running process's environment, so
+   * a PATH edited since then is picked up, and then re-applies `state.env`,
+   * the changes the saved session had made to its own starting env. Resetting
+   * the session goes back to the process's environment, without them.
+   */
+  resumeSession(saved: {
+    initialWorkingDir: string
+    runbookPath: string
+    createdAt: Date
+    state: SessionState
+  }) {
+    return Effect.gen(this, function* () {
+      const initialEnv = yield* this.startingEnv()
+      const env = copyEnvMap(initialEnv)
+      for (const [key, value] of Object.entries(saved.state.env.set)) {
+        env.set(key, value)
+      }
+      for (const key of saved.state.env.unset) {
+        env.delete(key)
       }
 
-      this.session = session
-      this.generation++
+      this.replaceSession({
+        env,
+        initialEnv,
+        initialWorkDir: saved.initialWorkingDir,
+        workingDir: saved.state.workingDir,
+        executionCount: saved.state.executionCount,
+        createdAt: saved.createdAt,
+        lastActivity: saved.state.lastActivity,
+        registeredWorkTreePaths: [...saved.state.worktrees],
+        activeWorkTreePath: saved.state.activeWorktree,
+        runbookPath: saved.runbookPath,
+      })
+    })
+  }
+
+  /**
+   * Call `listener` with the session's state after every change to it, until
+   * the session is replaced. Changes that were dropped because their
+   * generation is stale are not reported.
+   */
+  setChangeListener(listener: (state: SessionState) => void): void {
+    this.changeListener = listener
+  }
+
+  /** The running process's environment without the protected vars. */
+  private startingEnv() {
+    return Effect.gen(this, function* () {
+      const envService = yield* Environment
+      const env = recordToMap(yield* envService.getAll())
+      for (const key of this.protectedEnvVars) {
+        env.delete(key)
+      }
+      return env
+    })
+  }
+
+  private replaceSession(session: Session): void {
+    this.session = session
+    this.generation++
+    this.changeListener = undefined
+  }
+
+  private notifyChange(session: Session): void {
+    this.changeListener?.({
+      workingDir: session.workingDir,
+      env: diffEnv(mapToRecord(session.initialEnv), mapToRecord(session.env)),
+      worktrees: [...session.registeredWorkTreePaths],
+      activeWorktree: session.activeWorkTreePath,
+      executionCount: session.executionCount,
+      lastActivity: session.lastActivity,
     })
   }
 
@@ -229,14 +314,13 @@ export class SessionManager {
   }
 
   /**
-   * Update the session's working directory.
-   * Called when the runbook loads and we know the actual path.
+   * Move the session back to the directory it started in, undoing any `cd` a
+   * script made. Called when the open runbook is opened again.
    */
-  setWorkingDir(dir: string): void {
-    if (this.session) {
-      this.session.workingDir = dir
-      this.session.initialWorkDir = dir
-    }
+  resetWorkingDir(): void {
+    if (this.session === null) return
+    this.session.workingDir = this.session.initialWorkDir
+    this.notifyChange(this.session)
   }
 
   /**
@@ -251,6 +335,7 @@ export class SessionManager {
       this.session.env = copyEnvMap(this.session.initialEnv)
       this.session.workingDir = this.session.initialWorkDir
       this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
     })
   }
 
@@ -329,6 +414,7 @@ export class SessionManager {
       }
       this.session.executionCount++
       this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
     })
   }
 
@@ -352,6 +438,7 @@ export class SessionManager {
         this.session.env.set(key, value)
       }
       this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
     })
   }
 
@@ -377,6 +464,7 @@ export class SessionManager {
         this.session.env.delete(key)
       }
       this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
     })
   }
 
@@ -417,6 +505,7 @@ export class SessionManager {
 
     if (!this.session.registeredWorkTreePaths.includes(path)) {
       this.session.registeredWorkTreePaths.push(path)
+      this.notifyChange(this.session)
     }
   }
 
@@ -427,6 +516,7 @@ export class SessionManager {
   setActiveWorkTreePath(path: string, generation?: number): void {
     if (this.session === null || this.isStale(generation)) return
     this.session.activeWorkTreePath = path
+    this.notifyChange(this.session)
   }
 
   /**

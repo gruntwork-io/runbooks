@@ -1,0 +1,82 @@
+---
+title: Sessions
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+Runbooks keeps a session for every runbook you open. A session is what the runbook's blocks build up as you run them:
+
+- A directory of its own. Scripts start there, [\<GitClone\>](/authoring/blocks/gitclone/) blocks clone into it, and [generated files](/intro/files_workspace/#generated-files) are written to it.
+- The environment variables that scripts exported and auth blocks set.
+- The directory the last script left off in.
+- The repositories its \<GitClone\> blocks cloned or opened.
+
+Runbooks saves the session after every change, so quitting the app keeps it.
+
+## Resuming a session
+
+Opening a runbook resumes its most recent session. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were.
+
+The blocks themselves start over. The values you typed into forms, block outputs and logs are not saved, so a block that reads another block's output needs that block run again.
+
+Which session opens depends on how you launch Runbooks:
+
+| Launch | What opens |
+|--------|------------|
+| `runbooks open SOURCE` | `SOURCE`, in its most recent session. A runbook you have not opened before gets a new one. |
+| `runbooks` with no arguments, in a terminal | The session last launched from the terminal's current directory. If there is none, the welcome screen. |
+| The dock, the Start menu, or a desktop shortcut | The most recent session. If there is none, the welcome screen. |
+
+Runbooks records the directory you ran `runbooks open SOURCE` from, which is how `runbooks` alone finds the session later. Your home directory counts as no directory: `runbooks` run there opens the most recent session.
+
+A [remote runbook](/commands/open/#remote-sources) is cloned again every time it opens, and resumes the session of the source you opened it with.
+
+If a resumed session's working directory or one of its cloned repositories has been deleted, the session starts in its own directory and drops the missing repository.
+
+## Starting a new session
+
+Choose **File > New Session** (<kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>), or **New Session** in the app's menu, to start the open runbook over. The new session gets an empty directory and the environment Runbooks was launched with, and it is the one the runbook resumes from then on.
+
+The session it replaces stays on disk with its files. Runbooks can't switch back to it yet.
+
+## Where sessions are stored
+
+Sessions live in the `v0/sessions` folder of the app's data directory:
+
+| OS | Path |
+|----|------|
+| macOS | `~/Library/Application Support/Runbooks/v0/sessions` |
+| Linux | `~/.config/Runbooks/v0/sessions` |
+| Windows | `%APPDATA%\Runbooks\v0\sessions` |
+
+<FileTree>
+- sessions/
+  - db/
+    - sessions.db A SQLite database with one row per session
+  - dirs/
+    - 3f9c2a61b0e84d17/ One directory per session
+      - generated/
+      - my-cloned-repo/
+</FileTree>
+
+The database records each session's runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment.
+
+## What is encrypted
+
+The environment can hold credentials: cloud keys an auth block exported, or a token a script set. Runbooks encrypts it with the operating system's credential store before writing it to the database: Keychain on macOS, DPAPI on Windows, and a secret service such as GNOME Keyring or KWallet on Linux.
+
+On Linux without a secret service, Runbooks does not save the environment. A resumed session there starts from the environment Runbooks was launched with, and keeps its directory and files.
+
+The rest of the database and the files in a session's directory are not encrypted.
+
+<Aside type="note">
+[\<GoogleAuth\>](/authoring/blocks/googleauth/) writes credentials to a temporary file that is deleted when Runbooks quits. A resumed session drops the variables that point to that file, so sign in again.
+</Aside>
+
+## Deleting sessions
+
+Runbooks does not delete sessions, and their cloned repositories add up. To remove them, quit Runbooks and delete the `sessions` folder, or a single folder under `dirs/`.
+
+<Aside type="caution">
+Uninstalling Runbooks on Windows deletes its data directory, sessions included. Push or copy out any work in a session's cloned repositories first.
+</Aside>

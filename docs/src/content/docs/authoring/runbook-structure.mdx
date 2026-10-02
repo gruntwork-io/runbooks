@@ -135,6 +135,6 @@ In a `srcSet`, each candidate's path is rewritten and its descriptor (`2x`, `480
 
 Video and audio are read from the file as they play, and you can seek anywhere in them.
 
-`assets/` must be a real folder, not a symlink. If `assets` is a symlink, Runbooks serves nothing from it and every asset fails to load, even when the symlink points inside the runbook's folder: `assets -> .` would otherwise serve `runbook.mdx`, scripts and generated files to any page the runbook embeds. Symlinks inside `assets/` work when they point to files inside `assets/`.
+`assets/` must be a real folder, not a symlink. If `assets` is a symlink, Runbooks serves nothing from it and every asset fails to load, even when the symlink points inside the runbook's folder: `assets -> .` would otherwise serve `runbook.mdx` and its scripts to any page the runbook embeds. Symlinks inside `assets/` work when they point to files inside `assets/`.
 
 The [`<Iframe>`](/authoring/blocks/iframe/) block's `src` also takes a `./assets/` path.

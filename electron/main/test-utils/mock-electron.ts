@@ -24,6 +24,7 @@ const inertElectron = {
   nativeTheme: {},
   net: {},
   protocol: {},
+  safeStorage: {},
   session: {},
   shell: {},
 }

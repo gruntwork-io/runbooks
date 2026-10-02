@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn, type Mock } from "bun:test"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import {
+  launchDirContext,
   recoverLaunchDirectory,
   requestLaunchLock,
   secondInstanceLaunchDirectory,
@@ -227,5 +228,23 @@ describe("secondInstanceLaunchDirectory", () => {
     ["an older sender's argv only", { argv: ["runbooks", "."] }],
   ])("falls back to Electron's workingDirectory for %s", (_label, data) => {
     expect(secondInstanceLaunchDirectory("/work/live", data)).toBe("/work/live")
+  })
+})
+
+describe("launchDirContext", () => {
+  const desktop = { home: "/home/me", appDir: "/opt/Runbooks" }
+
+  it("is the directory `runbooks` was run in", () => {
+    expect(launchDirContext("/home/me/project", desktop)).toBe("/home/me/project")
+    expect(launchDirContext("/home/me/project/", desktop)).toBe("/home/me/project")
+  })
+
+  it.each([
+    ["the filesystem root, where macOS starts an app opened from the dock", "/"],
+    ["the home directory, where Linux desktops start an app", "/home/me"],
+    ["the home directory with a trailing slash", "/home/me/"],
+    ["the app's own folder, where a Windows shortcut starts it", "/opt/Runbooks"],
+  ])("is undefined for %s", (_label, dir) => {
+    expect(launchDirContext(dir, desktop)).toBeUndefined()
   })
 })

@@ -10,6 +10,7 @@ import { AppLive } from "../../../src/layers/AppLayer.ts"
 import { gitlabSessionTokenHost } from "../../../src/domain/gitlab/auth.ts"
 import { githubSessionCredential } from "../../../src/domain/github/auth.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
+import type { SessionPersistence } from "../../../src/domain/session/persistence.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { FileManifestStore, getManifestStore } from "../../../src/domain/files/manifest.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
@@ -26,6 +27,16 @@ export const runtime = ManagedRuntime.make(AppLive)
 
 /** Singleton session manager -- one session per app instance. */
 export const sessionManager = new SessionManager()
+
+/**
+ * Starts and saves the session manager's sessions. Set once at startup, when
+ * the userData directory is known (session-storage.ts).
+ */
+export let sessionPersistence: SessionPersistence | null = null
+
+export function setSessionPersistence(persistence: SessionPersistence): void {
+  sessionPersistence = persistence
+}
 
 /** Which git platform a token belongs to. The auth block establishes this. */
 export type GitProvider = "github" | "gitlab"

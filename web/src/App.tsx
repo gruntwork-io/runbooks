@@ -29,9 +29,9 @@ import { cn } from "./lib/utils"
 import type { AppError } from "./types/error"
 
 /**
- * Clears the root logs store whenever the loaded runbook changes, including
- * on close (the path becomes undefined), so the previous runbook's logs don't
- * end up in the "download logs" zip.
+ * Clears the root logs store whenever the loaded runbook or its session
+ * changes, including on close (the key becomes undefined), so the previous
+ * runbook's logs don't end up in the "download logs" zip.
  *
  * A separate child so App itself doesn't read LogsContext: its value changes
  * whenever hasLogs flips (e.g. on the first log line, or a clear), and App
@@ -39,11 +39,11 @@ import type { AppError } from "./types/error"
  * in the same commit, which is fine, because the next runbook's blocks only
  * register logs once its MDX has compiled.
  */
-function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string | undefined }) {
+function ClearLogsOnRunbookChange({ sessionKey }: { sessionKey?: string | undefined }) {
   const { clearLogs } = useLogs()
   useEffect(() => {
     clearLogs()
-  }, [runbookPath, clearLogs])
+  }, [sessionKey, clearLogs])
   return null
 }
 
@@ -75,13 +75,20 @@ function App() {
 
   const getRunbookResult = useIpcGetRunbook()
 
+  // The loaded runbook together with the session it was opened in. File > New
+  // Session reloads the same path under a new session, and has to reset
+  // everything that opening a different runbook resets.
+  const loadedSessionKey = getRunbookResult.data
+    ? `${getRunbookResult.data.path}\n${getRunbookResult.data.sessionId ?? ""}`
+    : undefined
+
   // Check for existing generated files when runbook loads.
   // Disabled until a runbook is open — the IPC handler requires a session,
   // which only exists after the main process has loaded a runbook. Keyed by
-  // the runbook's path so opening a different runbook checks again.
+  // the session so opening a different runbook or session checks again.
   const generatedFilesCheck = useIpcGeneratedFilesCheck({
     disabled: !getRunbookResult.data,
-    runbookPath: getRunbookResult.data?.path,
+    sessionKey: loadedSessionKey,
   })
 
   // Get error counts from the error reporting context (populated by MDX components)
@@ -185,14 +192,13 @@ function App() {
     if (alertReady) setShowGeneratedFilesAlert(true)
   }
 
-  // Reset the generated-files alert whenever the loaded runbook actually
-  // changes, including on close (the path becomes undefined), but not on
-  // watch-mode reloads, which keep the same path. Done after the alert update
+  // Reset the generated-files alert whenever the loaded runbook or its session
+  // actually changes, including on close (the key becomes undefined), but not
+  // on watch-mode reloads, which keep both. Done after the alert update
   // above, so this reset wins in the render that switches runbooks.
-  const loadedRunbookPath = getRunbookResult.data?.path
-  const [prevLoadedRunbookPath, setPrevLoadedRunbookPath] = useState(loadedRunbookPath)
-  if (loadedRunbookPath !== prevLoadedRunbookPath) {
-    setPrevLoadedRunbookPath(loadedRunbookPath)
+  const [prevLoadedSessionKey, setPrevLoadedSessionKey] = useState(loadedSessionKey)
+  if (loadedSessionKey !== prevLoadedSessionKey) {
+    setPrevLoadedSessionKey(loadedSessionKey)
     setStaleFilesCheck(generatedFilesCheck.data)
     setShowGeneratedFilesAlert(false)
     setAlertDismissedThisSession(false)
@@ -201,14 +207,14 @@ function App() {
   // The worktree and generated-files providers are mounted once at the app
   // root, so they otherwise keep whatever the previously opened runbook left
   // there (a stale "active" repo, its file tree). Clear them on the same
-  // runbook changes as the alert above. The per-runbook block state is reset
-  // by keying MDXContainer on the same path below, and the logs store by
+  // changes as the alert above. The per-runbook block state is reset by
+  // keying MDXContainer on the same key below, and the logs store by
   // ClearLogsOnRunbookChange.
   useEffect(() => {
     resetWorkTrees()
     updateGeneratedFileTree(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedRunbookPath])
+  }, [loadedSessionKey])
 
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""
@@ -259,7 +265,7 @@ function App() {
 
   return (
     <>
-      <ClearLogsOnRunbookChange runbookPath={getRunbookResult.data?.path} />
+      <ClearLogsOnRunbookChange sessionKey={loadedSessionKey} />
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
@@ -349,11 +355,12 @@ function App() {
                     hidden: activeMobileSection !== "markdown",
                   })}
                 >
-                  {/* Keyed by the runbook's file path so opening a different
-                      runbook starts from fresh block inputs/outputs and trust
-                      banner, while same-path reloads keep them. */}
+                  {/* Keyed by the runbook's file path and session so opening
+                      a different runbook, or starting a new session, starts
+                      from fresh block inputs/outputs and trust banner, while
+                      same-path reloads keep them. */}
                   <MDXContainer
-                    key={getRunbookResult.data?.path}
+                    key={loadedSessionKey}
                     ref={runbookScrollRef}
                     content={content}
                     runbookPath={runbookPath}
@@ -412,12 +419,12 @@ function App() {
         )}
       </div>
 
-      {/* Generated Files Alert Dialog. Keyed by the runbook's file path so
-          the delete result (success or failure) from the previous runbook
-          doesn't replace the next runbook's Keep/Delete prompt. */}
+      {/* Generated Files Alert Dialog. Keyed like MDXContainer so the delete
+          result (success or failure) from the previous runbook doesn't
+          replace the next runbook's Keep/Delete prompt. */}
       {generatedFilesCheck.data && (
         <GeneratedFilesAlert
-          key={getRunbookResult.data?.path}
+          key={loadedSessionKey}
           isOpen={showGeneratedFilesAlert}
           fileCount={generatedFilesCheck.data.fileCount}
           absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
