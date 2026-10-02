@@ -40,15 +40,13 @@ export function readVcsAuthStore(): VcsAuthStore {
     if (!parsed || typeof parsed !== "object") return emptyStore()
     return {
       recentGitLabHosts: stringList(parsed.recentGitLabHosts),
-      lastSelectedGitLabHost:
-        typeof parsed.lastSelectedGitLabHost === "string"
-          ? parsed.lastSelectedGitLabHost
-          : undefined,
+      ...(typeof parsed.lastSelectedGitLabHost === "string"
+        ? { lastSelectedGitLabHost: parsed.lastSelectedGitLabHost }
+        : {}),
       recentGitHubHosts: stringList(parsed.recentGitHubHosts),
-      lastSelectedGitHubHost:
-        typeof parsed.lastSelectedGitHubHost === "string"
-          ? parsed.lastSelectedGitHubHost
-          : undefined,
+      ...(typeof parsed.lastSelectedGitHubHost === "string"
+        ? { lastSelectedGitHubHost: parsed.lastSelectedGitHubHost }
+        : {}),
     }
   } catch {
     return emptyStore()

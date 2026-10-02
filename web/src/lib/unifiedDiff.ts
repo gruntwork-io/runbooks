@@ -15,11 +15,11 @@ export interface DiffLine {
 
 export interface DiffSection {
   type: "lines" | "collapsed"
-  lines?: DiffLine[]
-  collapsedCount?: number
-  startOldLine?: number
-  startNewLine?: number
-  position?: "top" | "middle" | "bottom" // For collapsed sections
+  lines?: DiffLine[] | undefined
+  collapsedCount?: number | undefined
+  startOldLine?: number | undefined
+  startNewLine?: number | undefined
+  position?: "top" | "middle" | "bottom" | undefined // For collapsed sections
 }
 
 export interface DiffOp {

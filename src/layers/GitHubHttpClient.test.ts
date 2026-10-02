@@ -217,7 +217,7 @@ describe("GitHubHttpClient listRepos owner resolution", () => {
 
 describe("GitHubHttpClient pull requests", () => {
   it("createPullRequest makes exactly one request, a POST to /pulls (labeling is the caller's job)", async () => {
-    const calls: Array<{ url: string; method?: string; body?: unknown }> = []
+    const calls: Array<{ url: string; method?: string | undefined; body?: unknown }> = []
     mockFetch((url, init) => {
       calls.push({
         url,
@@ -262,7 +262,7 @@ describe("GitHubHttpClient pull requests", () => {
   })
 
   it("addLabels POSTs the labels to the PR's issue", async () => {
-    const calls: Array<{ url: string; method?: string; body?: unknown }> = []
+    const calls: Array<{ url: string; method?: string | undefined; body?: unknown }> = []
     mockFetch((url, init) => {
       calls.push({
         url,
@@ -357,7 +357,7 @@ describe("GitHubHttpClient OAuth device flow", () => {
 describe("GitHubHttpClient host routing", () => {
   /** Record every fetch (URL, method, auth header) and answer with `respond`. */
   const recordFetch = (respond: (url: string) => Response = () => json({})) => {
-    const calls: Array<{ url: string; method: string; authorization?: string }> = []
+    const calls: Array<{ url: string; method: string; authorization?: string | undefined }> = []
     mockFetch((url, init) => {
       const headers = (init?.headers ?? {}) as Record<string, string>
       calls.push({ url, method: init?.method ?? "GET", authorization: headers.Authorization })

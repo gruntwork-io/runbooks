@@ -4,22 +4,22 @@ import { cn } from "@/lib/utils"
 interface DuplicateIdErrorProps {
   id: string
   isNormalizedCollision: boolean
-  collidingId?: string
+  collidingId?: string | undefined
   /**
    * When set, renders the "named" variant that references the component tag,
    * e.g. `Another <Command> component with id "x" already exists.` When omitted,
    * renders the generic variant (`Another component already uses id="x".`) used
    * by Inputs/TemplateInline.
    */
-  componentName?: string
+  componentName?: string | undefined
   /**
    * Append "Each component must have a unique ID." after the named-variant
    * message. Ignored for the generic variant (which carries its own uniqueness
    * sentence). Defaults to false.
    */
-  showUniquenessHint?: boolean
+  showUniquenessHint?: boolean | undefined
   /** Extra classes for the outer container (e.g. "runbook-block"). */
-  className?: string
+  className?: string | undefined
 }
 
 export function DuplicateIdError({

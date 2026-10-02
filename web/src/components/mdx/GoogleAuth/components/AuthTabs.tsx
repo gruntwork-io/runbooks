@@ -8,7 +8,7 @@ interface AuthTabsProps {
    * True when no OAuth client is configured yet (the hook's `oauthUnavailable`).
    * The tab stays selectable — OAuthFlow offers a Desktop client JSON picker.
    */
-  oauthUnavailable?: boolean
+  oauthUnavailable?: boolean | undefined
 }
 
 /**

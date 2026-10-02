@@ -8,14 +8,14 @@ export interface WorkspaceFileChange {
   changeType: "added" | "modified" | "deleted"
   additions: number
   deletions: number
-  originalContent?: string
-  newContent?: string
+  originalContent?: string | undefined
+  newContent?: string | undefined
   language: string
-  isBinary?: boolean
-  diffTruncated?: boolean
-  isDirectory?: boolean
-  sourceBlockId?: string
-  sourceBlockType?: string
+  isBinary?: boolean | undefined
+  diffTruncated?: boolean | undefined
+  isDirectory?: boolean | undefined
+  sourceBlockId?: string | undefined
+  sourceBlockType?: string | undefined
 }
 
 /**

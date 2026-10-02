@@ -11,9 +11,9 @@ function shellQuote(value: string): string {
 
 export interface GitCloneArgs {
   url: string
-  ref?: string
+  ref?: string | undefined
   /** Destination directory (the resolved local path). */
-  localPath?: string
+  localPath?: string | undefined
 }
 
 /**
@@ -78,7 +78,7 @@ export interface BoilerplateArgs {
   /** Collected variable values from the form. */
   variables: Record<string, unknown>
   /** Where the block would have written output. */
-  target?: "generated" | "worktree"
+  target?: "generated" | "worktree" | undefined
 }
 
 /**

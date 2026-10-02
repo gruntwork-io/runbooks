@@ -24,6 +24,7 @@
     "noImplicitReturns": true,
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "noUncheckedSideEffectImports": true,
 
     /* Install shadcn/ui per https://ui.shadcn.com/docs/installation/vite */

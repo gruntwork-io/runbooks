@@ -233,13 +233,9 @@ function buildFileTree(changes: WorkspaceFileChange[]): TreeNode[] {
       let node = current.find((n) => n.name === part)
 
       if (!node) {
-        node = {
-          name: part,
-          path: currentPath,
-          type: isFile ? "file" : "folder",
-          children: isFile ? undefined : [],
-          change: isFile ? change : undefined,
-        }
+        node = isFile
+          ? { name: part, path: currentPath, type: "file", change }
+          : { name: part, path: currentPath, type: "folder", children: [] }
         current.push(node)
       }
 
@@ -256,10 +252,7 @@ function buildFileTree(changes: WorkspaceFileChange[]): TreeNode[] {
         if (a.type !== b.type) return a.type === "folder" ? -1 : 1
         return a.name.localeCompare(b.name)
       })
-      .map((node) => ({
-        ...node,
-        children: node.children ? sortTree(node.children) : undefined,
-      }))
+      .map((node) => (node.children ? { ...node, children: sortTree(node.children) } : node))
   }
 
   return sortTree(root)
@@ -395,7 +388,7 @@ interface CollapsibleFileDiffProps {
   isCollapsed: boolean
   isFocused: boolean
   onToggleCollapse: () => void
-  onLoadDiff?: (filePath: string) => Promise<void>
+  onLoadDiff?: ((filePath: string) => Promise<void>) | undefined
 }
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(

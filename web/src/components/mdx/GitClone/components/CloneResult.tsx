@@ -7,15 +7,15 @@ interface CloneResultDisplayProps {
   result: CloneResult
   /** Where the repo came from — drives the copy, since nothing was downloaded
    *  when the user picked a checkout they already had. Defaults to 'clone'. */
-  source?: GitCloneSource
+  source?: GitCloneSource | undefined
   /** Remote of the selected local checkout, shown so the user can confirm it. */
-  remoteUrl?: string
+  remoteUrl?: string | undefined
   /**
    * Render in the warning tone instead of the success tone. Used when the repo
    * arrived without commits: the clone itself worked, but the block is not done
    * — nothing downstream can use the repo until it has a default branch.
    */
-  warn?: boolean
+  warn?: boolean | undefined
   onCloneAgain: () => void
 }
 

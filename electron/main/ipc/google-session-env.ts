@@ -33,14 +33,14 @@
 import { activeCredentialFor, type ActiveGoogleCredential } from "./google-credential-registry.ts"
 
 interface SessionEnvInput {
-  readonly credentialsPath?: string
+  readonly credentialsPath?: string | undefined
   /** §8.4 only: a bearer the environment ALREADY contained. We never mint one. */
-  readonly accessToken?: string
-  readonly projectId?: string
-  readonly principal?: string
-  readonly region?: string
-  readonly zone?: string
-  readonly configuration?: string
+  readonly accessToken?: string | undefined
+  readonly projectId?: string | undefined
+  readonly principal?: string | undefined
+  readonly region?: string | undefined
+  readonly zone?: string | undefined
+  readonly configuration?: string | undefined
 }
 
 /**

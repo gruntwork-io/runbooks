@@ -4,11 +4,11 @@ import { CodeFile } from "@/components/artifacts/code/CodeFile"
 
 interface ViewSourceCodeProps {
   sourceCode: string
-  path?: string
-  fileName?: string
-  language?: string
-  isOpen?: boolean
-  onToggle?: (open: boolean) => void
+  path?: string | undefined
+  fileName?: string | undefined
+  language?: string | undefined
+  isOpen?: boolean | undefined
+  onToggle?: ((open: boolean) => void) | undefined
 }
 
 export function ViewSourceCode({

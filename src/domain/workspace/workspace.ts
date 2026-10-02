@@ -540,8 +540,8 @@ export const getWorkspaceChanges = (
       // Enforce per-file size limit
       const totalDiffSize = (change.originalContent?.length ?? 0) + (change.newContent?.length ?? 0)
       if (totalDiffSize > MAX_DIFF_SIZE_PER_FILE) {
-        change.originalContent = undefined
-        change.newContent = undefined
+        delete change.originalContent
+        delete change.newContent
         change.diffTruncated = true
       }
 
@@ -611,7 +611,11 @@ const getSingleFileDiff = (
  */
 type DiffLookup = (
   filePath: string,
-) => Effect.Effect<{ readonly entry?: DiffEntry; readonly matchesHead: boolean }, never, GitClient>
+) => Effect.Effect<
+  { readonly entry?: DiffEntry | undefined; readonly matchesHead: boolean },
+  never,
+  GitClient
+>
 
 /** Diff each path on its own. */
 const pathDiffLookup =

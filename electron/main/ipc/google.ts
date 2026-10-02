@@ -463,9 +463,10 @@ async function resolveEnvSource(
   const env = await runtime.runPromise(detectEnvCredentials(prefix))
   if (!env) return undefined
 
+  const projectId = env.projectId ?? defaultProject
   const base = {
     source: "env" as const,
-    projectId: env.projectId ?? defaultProject,
+    ...(projectId !== undefined ? { projectId } : {}),
     ...(env.region ? { region: env.region } : {}),
     ...(env.zone ? { zone: env.zone } : {}),
     ...(env.envVar ? { envVar: env.envVar } : {}),
@@ -608,7 +609,7 @@ function scopeCheckFailure(
   if (!required?.length) return undefined
   const evaluation = evaluateRequiredGoogleScopes({
     required,
-    granted: identity.scopes,
+    ...(identity.scopes !== undefined ? { granted: identity.scopes } : {}),
     accountType: identity.accountType,
     credentialType: identity.credentialType,
   })

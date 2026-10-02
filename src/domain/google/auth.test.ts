@@ -53,7 +53,7 @@ const ADC_JSON = '{"type":"authorized_user","refresh_token":"1//refresh"}'
 
 describe("client wrappers", () => {
   it("validateServiceAccountKey delegates to the client", async () => {
-    let seen: { keyJson: string; projectId?: string } | undefined
+    let seen: { keyJson: string; projectId?: string | undefined } | undefined
     const layer = makeTestGoogleClient({
       validateServiceAccountKey: (keyJson, projectId) => {
         seen = { keyJson, projectId }
@@ -70,7 +70,7 @@ describe("client wrappers", () => {
   })
 
   it("validateAccessToken delegates to the client", async () => {
-    let seen: { accessToken: string; projectId?: string } | undefined
+    let seen: { accessToken: string; projectId?: string | undefined } | undefined
     const layer = makeTestGoogleClient({
       validateAccessToken: (accessToken, projectId) => {
         seen = { accessToken, projectId }
@@ -87,7 +87,7 @@ describe("client wrappers", () => {
   })
 
   it("validateAdcDocument delegates to the client", async () => {
-    let seen: { adcJson: string; projectId?: string } | undefined
+    let seen: { adcJson: string; projectId?: string | undefined } | undefined
     const layer = makeTestGoogleClient({
       validateAdcDocument: (adcJson, projectId) => {
         seen = { adcJson, projectId }
@@ -198,7 +198,7 @@ describe("client wrappers", () => {
 
   it("listProjects delegates to the client", async () => {
     const projects = [{ projectId: "my-project", displayName: "My Project" }]
-    let seen: { query?: string; pageSize?: number } | undefined
+    let seen: { query?: string | undefined; pageSize?: number | undefined } | undefined
     const layer = makeTestGoogleClient({
       listProjects: (_creds, query, pageSize) => {
         seen = { query, pageSize }
@@ -575,7 +575,7 @@ describe("confirmEnvCredentials", () => {
 
   it("reads the credential file and validates it as a document", async () => {
     let readPath: string | undefined
-    let validated: { adcJson: string; projectId?: string } | undefined
+    let validated: { adcJson: string; projectId?: string | undefined } | undefined
     const layer = Layer.merge(
       makeTestEnvironment({
         GOOGLE_APPLICATION_CREDENTIALS: KEY_PATH,
@@ -623,7 +623,7 @@ describe("confirmEnvCredentials", () => {
   })
 
   it("validates a bare access token via tokeninfo", async () => {
-    let seen: { accessToken: string; projectId?: string } | undefined
+    let seen: { accessToken: string; projectId?: string | undefined } | undefined
     const layer = Layer.merge(
       makeTestEnvironment({
         GOOGLE_OAUTH_ACCESS_TOKEN: "ya29.oauth",

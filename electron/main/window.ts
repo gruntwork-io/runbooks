@@ -111,7 +111,9 @@ export function createMainWindow(): BrowserWindow {
         (details.resourceType === "mainFrame" || details.resourceType === "subFrame") &&
         details.url.startsWith("file://")
       if (!isAppFrame) {
-        callback({ responseHeaders: details.responseHeaders })
+        callback(
+          details.responseHeaders !== undefined ? { responseHeaders: details.responseHeaders } : {},
+        )
         return
       }
       callback({

@@ -8,25 +8,25 @@ import { githubTokenSettingsUrl } from "@/components/mdx/_shared/lib/githubHost"
 interface AuthSuccessProps {
   userInfo: GitUserInfo
   provider: ProviderConfig
-  detectionSource?: GitDetectionSource
-  detectedScopes?: string[] | null
-  detectedTokenType?: GitTokenType | null
+  detectionSource?: GitDetectionSource | undefined
+  detectedScopes?: string[] | null | undefined
+  detectedTokenType?: GitTokenType | null | undefined
   /** The token lacks the provider's required scope (copy from provider.success). */
-  missingScope?: boolean
-  sessionEnvWarning?: string | null
+  missingScope?: boolean | undefined
+  sessionEnvWarning?: string | null | undefined
   /** The host authenticated against; shown so multi-host users see which instance. */
-  host?: string
+  host?: string | undefined
   /** Provenance for the source line + transport line. */
-  successMeta?: GitSuccessMeta | null
+  successMeta?: GitSuccessMeta | null | undefined
   /** both-set-and-differ env hint, rendered verbatim. */
-  divergenceHint?: string | null
+  divergenceHint?: string | null | undefined
   /** another block replaced this provider's session credential. */
-  sessionStale?: boolean
+  sessionStale?: boolean | undefined
   /** Windows git TLS backend (vcs:cli-status; win32 only) — drives the schannel suggestion. */
-  gitSslBackend?: string
+  gitSslBackend?: string | undefined
   /** Explicit, consented one-click `git config --global http.sslBackend schannel`. */
-  onApplySchannel?: () => void
-  onReAuthenticate?: () => void
+  onApplySchannel?: (() => void) | undefined
+  onReAuthenticate?: (() => void) | undefined
 }
 
 /** Initials for the avatar fallback: first letters of up to two name words

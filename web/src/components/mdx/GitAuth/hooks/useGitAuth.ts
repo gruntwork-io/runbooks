@@ -4,6 +4,7 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
 import type {
   GitAuthMethod,
   GitAuthStatus,
@@ -33,15 +34,15 @@ interface UseGitAuthOptions {
   id: string
   provider: ProviderConfig
   /** Self-hosted GitLab instance URL (GitLab only); seeds the editable field. */
-  instanceUrl?: string
+  instanceUrl?: string | undefined
   /** GitHub only: a client ID, or a map of host → client ID (see GitAuthProps). */
-  oauthClientId?: string | Record<string, string>
-  oauthScopes?: string[]
-  detectCredentials?: false | GitCredentialSource[]
+  oauthClientId?: string | Record<string, string> | undefined
+  oauthScopes?: string[] | undefined
+  detectCredentials?: false | GitCredentialSource[] | undefined
   /** Tab to open on; validated against the provider by resolveDefaultAuthMethod. */
-  defaultTab?: string
+  defaultTab?: string | undefined
   /** An authored host that pins the instance/GitHub host and hides the picker. */
-  host?: string
+  host?: string | undefined
 }
 
 // Module-level so the default keeps one identity across renders: the
@@ -67,11 +68,11 @@ const DETECTION_DISABLED_HINT = "This runbook doesn't use existing credentials �
  * so the success card shows the same fields whichever way the user got there.
  */
 type CredentialDetails = {
-  scopes?: string[]
-  tokenType?: GitTokenType
-  meta?: GitSuccessMeta | null
-  divergenceHint?: string
-  sessionEnvWarning?: string
+  scopes?: string[] | undefined
+  tokenType?: GitTokenType | undefined
+  meta?: GitSuccessMeta | null | undefined
+  divergenceHint?: string | undefined
+  sessionEnvWarning?: string | undefined
 }
 
 /**
@@ -79,10 +80,10 @@ type CredentialDetails = {
  * PAT, so there is no env var or CLI source to name — only the transport.
  */
 function blockCredentialDetails(result: {
-  scopes?: string[]
-  tokenType?: GitTokenType
-  validatedVia?: "direct" | "cli"
-  sessionEnvWarning?: string
+  scopes?: string[] | undefined
+  tokenType?: GitTokenType | undefined
+  validatedVia?: "direct" | "cli" | undefined
+  sessionEnvWarning?: string | undefined
 }): CredentialDetails {
   return {
     scopes: result.scopes,
@@ -104,14 +105,14 @@ type DetectionOutcome =
       user: GitUserInfo
       details: CredentialDetails
       /** A {block} source's raw token, published like a PAT. */
-      token?: string
+      token?: string | undefined
     }
   /** Stopped at a source that could not reach the host; later sources were not tried. */
   | {
       kind: "unreachable"
       errorKind: GitErrorKind
-      host?: string
-      coldReadOk?: boolean
+      host?: string | undefined
+      coldReadOk?: boolean | undefined
       warnings: string[]
     }
   /** Paused on a block source that has not run; `remaining` follow it. */
@@ -480,7 +481,7 @@ export function useGitAuth({
       src: GitDetectionSource,
       user: GitUserInfo,
       details: CredentialDetails,
-      opts?: { token?: string },
+      opts?: { token?: string | undefined },
     ) => {
       setDetectionSource(src)
       setAuthStatus("authenticated")
@@ -506,14 +507,14 @@ export function useGitAuth({
       opts?: { registerSession?: boolean; useSessionToken?: boolean },
     ): Promise<{
       valid: boolean
-      user?: GitUserInfo
-      scopes?: string[]
-      tokenType?: GitTokenType
-      error?: string
-      errorKind?: GitErrorKind
-      coldReadOk?: boolean
-      validatedVia?: "direct" | "cli"
-      sessionEnvWarning?: string
+      user?: GitUserInfo | undefined
+      scopes?: string[] | undefined
+      tokenType?: GitTokenType | undefined
+      error?: string | undefined
+      errorKind?: GitErrorKind | undefined
+      coldReadOk?: boolean | undefined
+      validatedVia?: "direct" | "cli" | undefined
+      sessionEnvWarning?: string | undefined
     }> => {
       try {
         // A manually-entered instance URL takes precedence over the picked host.
@@ -523,7 +524,7 @@ export function useGitAuth({
           ...(opts?.useSessionToken ? { useSessionToken: true } : {}),
           ...(instanceUrlForIpc
             ? { instanceUrl: instanceUrlForIpc }
-            : { host: effectiveHostRef.current }),
+            : omitUndefined({ host: effectiveHostRef.current })),
         })
         return {
           valid: data.valid,
@@ -549,27 +550,29 @@ export function useGitAuth({
   // Try to detect credentials from environment variables
   const tryEnvCredentials = useCallback(
     async (options?: {
-      prefix?: string
+      prefix?: string | undefined
     }): Promise<{
       success: boolean
-      user?: GitUserInfo
-      scopes?: string[]
-      tokenType?: GitTokenType
-      error?: string
-      foundButInvalid?: boolean
-      warning?: string
-      envVar?: string
-      divergenceHint?: string
-      validatedVia?: "direct" | "cli"
-      sessionEnvWarning?: string
-      unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean }
+      user?: GitUserInfo | undefined
+      scopes?: string[] | undefined
+      tokenType?: GitTokenType | undefined
+      error?: string | undefined
+      foundButInvalid?: boolean | undefined
+      warning?: string | undefined
+      envVar?: string | undefined
+      divergenceHint?: string | undefined
+      validatedVia?: "direct" | "cli" | undefined
+      sessionEnvWarning?: string | undefined
+      unreachable?:
+        | { errorKind: GitErrorKind; host?: string | undefined; coldReadOk?: boolean | undefined }
+        | undefined
     }> => {
       try {
         const data = (await api.invoke(provider.channels.envCredentials, {
           prefix: options?.prefix || "",
           ...(instanceUrlForIpc
             ? { instanceUrl: instanceUrlForIpc }
-            : { host: effectiveHostRef.current }),
+            : omitUndefined({ host: effectiveHostRef.current })),
         })) as unknown as GitCliCredentialsResponse
 
         if (!data.found) {
@@ -623,23 +626,27 @@ export function useGitAuth({
   // Try to detect credentials from the provider's CLI
   const tryCliCredentials = useCallback(async (): Promise<{
     success: boolean
-    user?: GitUserInfo
-    scopes?: string[]
-    tokenType?: GitTokenType
-    error?: string
-    foundButInvalid?: boolean
-    warning?: string
-    hint?: string
-    host?: string
-    source?: "env" | "cli" | "config"
-    validatedVia?: "direct" | "cli"
-    sessionEnvWarning?: string
-    unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean }
+    user?: GitUserInfo | undefined
+    scopes?: string[] | undefined
+    tokenType?: GitTokenType | undefined
+    error?: string | undefined
+    foundButInvalid?: boolean | undefined
+    warning?: string | undefined
+    hint?: string | undefined
+    host?: string | undefined
+    source?: "env" | "cli" | "config" | undefined
+    validatedVia?: "direct" | "cli" | undefined
+    sessionEnvWarning?: string | undefined
+    unreachable?:
+      | { errorKind: GitErrorKind; host?: string | undefined; coldReadOk?: boolean | undefined }
+      | undefined
   }> => {
     try {
       const data = (await api.invoke(
         provider.channels.cliCredentials,
-        instanceUrlForIpc ? { instanceUrl: instanceUrlForIpc } : { host: effectiveHostRef.current },
+        instanceUrlForIpc
+          ? { instanceUrl: instanceUrlForIpc }
+          : omitUndefined({ host: effectiveHostRef.current }),
       )) as unknown as GitCliCredentialsResponse
 
       if (data.outcome === "unreachable" && data.errorKind) {
@@ -698,14 +705,14 @@ export function useGitAuth({
       blockId: string,
     ): Promise<{
       success: boolean
-      user?: GitUserInfo
-      token?: string
-      scopes?: string[]
-      tokenType?: GitTokenType
-      validatedVia?: "direct" | "cli"
-      error?: string
-      sessionEnvWarning?: string
-      unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean }
+      user?: GitUserInfo | undefined
+      token?: string | undefined
+      scopes?: string[] | undefined
+      tokenType?: GitTokenType | undefined
+      validatedVia?: "direct" | "cli" | undefined
+      error?: string | undefined
+      sessionEnvWarning?: string | undefined
+      unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean | undefined } | undefined
     }> => {
       const result = getBlockCredentials(blockId)
 
@@ -807,8 +814,8 @@ export function useGitAuth({
       // (genuinely invalid) sources are preserved.
       const unreachable = (info: {
         errorKind: GitErrorKind
-        host?: string
-        coldReadOk?: boolean
+        host?: string | undefined
+        coldReadOk?: boolean | undefined
       }): DetectionOutcome => ({ kind: "unreachable", ...info, warnings })
 
       for (let i = 0; i < sources.length; i++) {

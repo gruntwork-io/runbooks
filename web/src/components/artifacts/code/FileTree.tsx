@@ -33,15 +33,12 @@ import {
 import { cn } from "../../../lib/utils"
 
 // Icon component type that works with both Lucide icons and custom SVG icons
-type IconComponent = LucideIcon | React.FC<SVGProps<SVGSVGElement> & { className?: string }>
+type IconComponent = LucideIcon | React.FC<SVGProps<SVGSVGElement>>
 
 /**
  * OpenTofu icon - official logo (dark alpha version)
  */
-const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({
-  className,
-  ...props
-}) => (
+const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 32 32"
@@ -78,10 +75,7 @@ const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> =
 /**
  * Terragrunt icon - official logo
  */
-const TerragruntIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({
-  className,
-  ...props
-}) => (
+const TerragruntIcon: React.FC<SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 525 526" className={className} {...props}>
     <path
       fillRule="evenodd"

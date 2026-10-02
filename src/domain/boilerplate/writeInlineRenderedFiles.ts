@@ -39,7 +39,7 @@ export interface InlineWrittenFile extends ManifestEntry {
    * writing the same path, so it is always the content from before the
    * block touched the file.
    */
-  readonly original?: Buffer | null
+  readonly original?: Buffer | null | undefined
 }
 
 /** What one render wrote: its base dir, and each file it wrote. */

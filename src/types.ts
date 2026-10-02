@@ -201,7 +201,7 @@ export interface GeneratedFilesDeleteResponse {
 export interface ExecRequest {
   executableId?: string
   templateVarValues?: Record<string, unknown>
-  envVarsOverride?: Record<string, string>
+  envVarsOverride?: Record<string, string> | undefined
   /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
   usePty?: boolean
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
@@ -313,9 +313,9 @@ export interface ParsedRemoteSource {
   /** What `git clone` fetches: https, or the transport a git source named. */
   cloneURL: string
   /** Branch, tag or commit. Undefined means the remote's default branch. */
-  ref?: string
+  ref?: string | undefined
   /** Repo-relative path to a runbook directory or file. Undefined means the repo root. */
-  path?: string
+  path?: string | undefined
   /**
    * Browser URLs only: `<ref>/<path>` as the URL spells it. A ref can contain
    * slashes, so resolveRef splits it against the remote's refs.
@@ -342,12 +342,14 @@ export interface WorkspaceTreeNode {
 export interface WorkspaceTreeResponse {
   tree: WorkspaceTreeNode[]
   totalFiles: number
-  gitInfo?: {
-    ref: string
-    refType: string
-    remoteUrl?: string
-    commitSha?: string
-  }
+  gitInfo?:
+    | {
+        ref: string
+        refType: string
+        remoteUrl?: string | undefined
+        commitSha?: string | undefined
+      }
+    | undefined
 }
 
 export interface WorkspaceFileResponse {

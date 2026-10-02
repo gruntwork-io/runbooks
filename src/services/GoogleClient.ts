@@ -32,13 +32,13 @@ export type GoogleCredentialRef =
 /** The GetCallerIdentity analogue: who the credential proves you are. */
 export interface GoogleIdentity {
   readonly email: string
-  readonly uniqueId?: string
+  readonly uniqueId?: string | undefined
   readonly accountType: "service_account" | "user"
   readonly credentialType: GoogleCredentialType
   /** Project bound to the credential (key's project_id, quota project, or an override). */
-  readonly projectId?: string
+  readonly projectId?: string | undefined
   /** Display name — best-effort enrichment, undefined when the caller cannot read the project. */
-  readonly projectName?: string
+  readonly projectName?: string | undefined
   readonly scopes?: readonly string[]
 }
 
@@ -59,8 +59,8 @@ export type GoogleProjectAccess = "accessible" | "denied" | "unknown"
 export interface GoogleProject {
   readonly projectId: string
   readonly displayName: string
-  readonly projectNumber?: string
-  readonly state?: string
+  readonly projectNumber?: string | undefined
+  readonly state?: string | undefined
 }
 
 /** Metadata about an on-disk credentials JSON. NEVER carries secret fields. */
@@ -120,7 +120,7 @@ export interface OAuthFlowResult {
    */
   readonly adcJson?: string
   /** On "complete": the freshly minted access token, used only to read identity. */
-  readonly accessToken?: string
+  readonly accessToken?: string | undefined
   readonly scopes?: readonly string[]
   readonly error?: string
 }

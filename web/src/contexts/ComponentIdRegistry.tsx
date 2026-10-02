@@ -43,7 +43,7 @@ interface DuplicateInfo {
   /** The other component(s) this collides with */
   collidingComponents: ComponentRegistration[]
   /** The colliding ID (for normalized collisions, this is different from the current ID) */
-  collidingId?: string
+  collidingId?: string | undefined
 }
 
 interface ComponentIdRegistryContextValue {

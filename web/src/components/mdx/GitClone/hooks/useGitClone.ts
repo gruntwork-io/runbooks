@@ -37,9 +37,9 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
 
 interface UseGitCloneOptions {
   id: string
-  githubAuthId?: string
+  githubAuthId?: string | undefined
   /** Reference to a GitAuth block (GitHub or GitLab) by ID. */
-  gitAuthId?: string
+  gitAuthId?: string | undefined
 }
 
 export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions) {

@@ -40,13 +40,13 @@ import { materializeCredentialFile, releaseCredentialFile } from "./google-crede
 export interface ActiveGoogleCredential {
   readonly ref: GoogleCredentialRef
   /** Absolute path backing the session credential. A path, never contents (D12). */
-  readonly credentialsPath?: string
+  readonly credentialsPath?: string | undefined
   readonly principal: string
   readonly credentialType: GoogleCredentialTypeIpc
-  projectId?: string
-  region?: string
-  zone?: string
-  readonly configuration?: string
+  projectId?: string | undefined
+  region?: string | undefined
+  zone?: string | undefined
+  readonly configuration?: string | undefined
 }
 
 /** blockId -> the credential that block authenticated with. */

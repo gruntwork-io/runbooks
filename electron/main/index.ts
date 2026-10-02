@@ -267,21 +267,21 @@ ipcMain.handle(
   ) => {
     const result = await dialog.showOpenDialog({
       properties: params.properties,
-      defaultPath: getDialogDefaultPath(),
-      filters: params.filters,
+      ...dialogDefaultPath(),
+      ...(params.filters !== undefined ? { filters: params.filters } : {}),
     })
     return { filePaths: result.filePaths }
   },
 )
 
 // Open dialogs at the current runbook's directory when one is loaded, so the
-// file browser lands where the user expects. Falls back to undefined (OS
-// default) on cold launch before any runbook has been opened.
-function getDialogDefaultPath(): string | undefined {
+// file browser lands where the user expects. On cold launch, before any
+// runbook has been opened, it sets nothing and the OS default applies.
+function dialogDefaultPath(): Pick<Electron.OpenDialogOptions, "defaultPath"> {
   if (runbookConfig.localPath) {
-    return path.dirname(runbookConfig.localPath)
+    return { defaultPath: path.dirname(runbookConfig.localPath) }
   }
-  return undefined
+  return {}
 }
 
 ipcMain.handle("native:open-runbook-dialog", async () => {
@@ -289,7 +289,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
   if (!win) return { ok: false }
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile", "openDirectory"],
-    defaultPath: getDialogDefaultPath(),
+    ...dialogDefaultPath(),
     filters: [
       { name: "Runbook files", extensions: ["mdx", "md"] },
       { name: "All Files", extensions: ["*"] },

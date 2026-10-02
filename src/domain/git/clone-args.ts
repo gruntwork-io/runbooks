@@ -11,7 +11,7 @@
  */
 export interface GitCloneArgsOptions {
   /** Branch or tag to check out (`--branch`). */
-  readonly ref?: string
+  readonly ref?: string | undefined
   /** Clone blobless and without a checkout, ready for `git sparse-checkout`. */
   readonly sparse?: boolean
 }

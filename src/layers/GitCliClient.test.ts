@@ -1124,7 +1124,7 @@ function startGitHttpServer(projectRoot: string, expectedAuthorization: string) 
 /** Every `git` spawn the layer makes, captured before it runs. */
 interface GitSpawn {
   readonly args: string[]
-  readonly env?: Record<string, string | undefined>
+  readonly env?: Record<string, string | undefined> | undefined
 }
 
 /** GitCliClientLive over the real spawner, recording each git invocation. */

@@ -17,11 +17,11 @@ export interface LlmPromptArgs {
   blockId: string
   status: ExecutionStatus
   /** Local path to the runbook's .mdx file. */
-  runbookFilePath?: string
+  runbookFilePath?: string | undefined
   /** The URL the runbook was opened from, when it is a remote runbook. */
-  remoteSource?: string
+  remoteSource?: string | undefined
   /** On-disk log file (Command/Check runs). When set, the prompt references it instead of inlining logs. */
-  logFilePath?: string | null
+  logFilePath?: string | null | undefined
   /** The logs as plain text (ANSI already stripped), one entry per line. */
   logText: string
 }

@@ -559,13 +559,13 @@ export interface GlabHostMeta {
   /** True when this host's stored credential is a glab OAuth2 login (2h expiry). */
   readonly isOAuth2: boolean
   /** Parsed oauth2_expiry_date, when present and parseable. */
-  readonly oauth2ExpiryDate?: Date
+  readonly oauth2ExpiryDate?: Date | undefined
   /** Per-host ca_cert PEM path (harvested into installSystemTrust). */
-  readonly caCert?: string
+  readonly caCert?: string | undefined
   /** True when the host stores its token in the OS keyring (use_keyring). */
   readonly useKeyring: boolean
   /** The host's `api_protocol`, lowercased, when set (glab defaults to https). */
-  readonly apiProtocol?: string
+  readonly apiProtocol?: string | undefined
 }
 
 const asBool = (value: unknown): boolean =>

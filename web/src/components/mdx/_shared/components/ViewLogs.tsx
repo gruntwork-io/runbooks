@@ -325,7 +325,7 @@ function LogActions({
   onDownloadJson,
 }: {
   hasLogs: boolean
-  logFilePath?: string | null
+  logFilePath?: string | null | undefined
   pathCopied: boolean
   onCopyPath: (e: React.MouseEvent) => void
   promptCopied: boolean

@@ -42,13 +42,13 @@ export interface FileTreeNode {
   /** Type of the item - either 'file' or 'folder' */
   type: "file" | "folder"
   /** Child items (only present for folders) */
-  children?: FileTreeNode[]
+  children?: FileTreeNode[] | undefined
   /** File data (only present for files) */
-  file?: File
+  file?: File | undefined
   /** Whether this file/folder is gitignored */
-  isIgnored?: boolean
+  isIgnored?: boolean | undefined
   /** Whether this folder's children should be loaded on demand */
-  isLazyLoad?: boolean
+  isLazyLoad?: boolean | undefined
 }
 
 /**

@@ -7,10 +7,10 @@ interface AuthSuccessProps {
   accountInfo: GoogleAccountInfo
   /** Project-access warning from google:check-project, or a session-env warning. */
   warningMessage: string | null
-  onReAuthenticate?: () => void
+  onReAuthenticate?: (() => void) | undefined
   /** Re-enter the project picker without discarding the credential. */
-  onChangeProject?: () => void
-  detectionSource?: GoogleDetectionSource
+  onChangeProject?: (() => void) | undefined
+  detectionSource?: GoogleDetectionSource | undefined
 }
 
 export function AuthSuccess({

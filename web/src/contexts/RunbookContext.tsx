@@ -205,10 +205,10 @@ export function RunbookContextProvider({
   storageScope,
 }: {
   children?: ReactNode
-  runbookName?: string
-  remoteSource?: string
-  runbookFilePath?: string
-  storageScope?: string
+  runbookName?: string | undefined
+  remoteSource?: string | undefined
+  runbookFilePath?: string | undefined
+  storageScope?: string | undefined
 }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})

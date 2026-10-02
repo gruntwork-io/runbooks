@@ -10,13 +10,13 @@ import { LocalPathRow } from "./rows/LocalPathRow"
 
 interface GeneratedFilesMetadataBarProps {
   /** Absolute path to the generated files output directory */
-  absolutePath?: string
+  absolutePath?: string | undefined
   /** Relative path to the generated files output directory */
-  relativePath?: string
+  relativePath?: string | undefined
   /** Number of generated files */
   fileCount: number
   /** Additional CSS classes */
-  className?: string
+  className?: string | undefined
 }
 
 export const GeneratedFilesMetadataBar = ({

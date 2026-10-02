@@ -14,22 +14,22 @@ import type { TemplateContext } from "@/lib/templateUtils"
 export interface InstructionSource {
   /** Raw source content (may contain `{{ … }}`; it is resolved before display). */
   content: string
-  path?: string
-  language?: string
-  fileName?: string
+  path?: string | undefined
+  language?: string | undefined
+  fileName?: string | undefined
 }
 
 export interface InstructionProps {
   /** Short imperative heading, e.g. "Run this:" or "Log into AWS". */
   title: string
   /** Optional prose under the title (markdown). */
-  description?: string
+  description?: string | undefined
   /** Raw command(s) to display as copyable code (with `{{ … }}` intact). */
-  command?: string | string[]
+  command?: string | string[] | undefined
   /** A file-backed script to show via the source viewer instead of a command. */
-  source?: InstructionSource
+  source?: InstructionSource | undefined
   /** Template context (Inputs-form values) used to resolve the command/source. */
-  templateContext?: TemplateContext
+  templateContext?: TemplateContext | undefined
   /**
    * An embedded form shown before the command — e.g. a Command's nested
    * `<Inputs>`. Its values reach `templateContext`, so the command updates as
@@ -39,9 +39,9 @@ export interface InstructionProps {
   /** Extra prose/notes shown after the command (e.g. sparse-checkout note). */
   note?: ReactNode
   /** Icon shown in the heading. Defaults to a checklist glyph. */
-  icon?: LucideIcon
+  icon?: LucideIcon | undefined
   /** Block id — surfaces the ID label and a stable test id. */
-  id?: string
+  id?: string | undefined
 }
 
 const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }

@@ -1,9 +1,6 @@
 import React from "react"
 
-interface SmartLinkProps extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
-  href?: string
-  children?: React.ReactNode
-}
+type SmartLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement>
 
 /**
  * A smart link component that:

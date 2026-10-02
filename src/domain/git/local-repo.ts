@@ -28,11 +28,11 @@ export interface LocalRepoInfo {
   /** Number of tracked files (`git ls-files`). */
   readonly fileCount: number
   /** `origin` remote URL, when the repo has one. */
-  readonly remoteUrl?: string
+  readonly remoteUrl?: string | undefined
   /** Currently checked out branch/tag, or "HEAD" when detached. */
   readonly branch: string
   readonly refType: GitInfo["refType"]
-  readonly commitSha?: string
+  readonly commitSha?: string | undefined
   /**
    * False when the repo has no commits yet (unborn HEAD). Such a repo has no
    * branch to open a pull request against, so blocks that need a base ref have
@@ -40,8 +40,8 @@ export interface LocalRepoInfo {
    */
   readonly hasCommits: boolean
   /** Owner/repo parsed from the remote URL, when parseable. */
-  readonly owner?: string
-  readonly repo?: string
+  readonly owner?: string | undefined
+  readonly repo?: string | undefined
 }
 
 /**

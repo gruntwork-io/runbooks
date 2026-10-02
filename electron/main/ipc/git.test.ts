@@ -236,7 +236,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     const basicAuth = `Basic ${btoa(`x-access-token:${SECRET}`)}`
 
     /** Requests the local "git servers" received, with their Authorization header. */
-    let requests: Array<{ url: string; authorization?: string }> = []
+    let requests: Array<{ url: string; authorization?: string | undefined }> = []
     const record = (req: http.IncomingMessage, res: http.ServerResponse) => {
       requests.push({ url: req.url ?? "", authorization: req.headers.authorization })
       res.statusCode = 404
@@ -366,8 +366,8 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     let apiRequests: Array<{
       target: string
       method: string
-      authorization?: string
-      privateToken?: string
+      authorization?: string | undefined
+      privateToken?: string | undefined
     }> = []
     let apiServer: http.Server
     const originalFetch = globalThis.fetch
@@ -753,7 +753,7 @@ describe("session token binding (local http and https remotes)", () => {
   let httpsHost = ""
 
   const originalFetch = globalThis.fetch
-  let fetchCalls: Array<{ url: string; authorization?: string }> = []
+  let fetchCalls: Array<{ url: string; authorization?: string | undefined }> = []
 
   const json = (body: unknown) =>
     new Response(JSON.stringify(body), {

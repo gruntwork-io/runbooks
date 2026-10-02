@@ -5,7 +5,13 @@
 import { GitBranch, Tag, GitCommit } from "lucide-react"
 
 /** Renders the appropriate icon for a git ref type. */
-export function RefIcon({ refType, className }: { refType?: string; className?: string }) {
+export function RefIcon({
+  refType,
+  className,
+}: {
+  refType?: string | undefined
+  className?: string | undefined
+}) {
   switch (refType) {
     case "tag":
       return <Tag className={className} />

@@ -89,7 +89,12 @@ const GHES = "ghes.example.com"
 const GHEC = "acme.ghe.com"
 
 const originalFetch = globalThis.fetch
-let fetchCalls: Array<{ url: string; method: string; body?: string; authorization?: string }> = []
+let fetchCalls: Array<{
+  url: string
+  method: string
+  body?: string | undefined
+  authorization?: string | undefined
+}> = []
 
 const json = (body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), {

@@ -2,11 +2,11 @@ import { Workspace } from "../artifacts/workspace"
 import { useGeneratedFiles } from "../../hooks/useGeneratedFiles"
 
 interface ArtifactsContainerProps {
-  className?: string
-  onHide?: () => void
-  hideContent?: boolean
-  absoluteOutputPath?: string
-  relativeOutputPath?: string
+  className?: string | undefined
+  onHide?: (() => void) | undefined
+  hideContent?: boolean | undefined
+  absoluteOutputPath?: string | undefined
+  relativeOutputPath?: string | undefined
 }
 
 export const ArtifactsContainer = ({

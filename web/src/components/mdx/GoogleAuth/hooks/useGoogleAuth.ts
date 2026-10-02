@@ -118,17 +118,17 @@ interface AuthCompletion extends PendingAccount {
 
 export interface UseGoogleAuthOptions {
   id: string
-  project?: string
-  scopes?: string[]
-  oauthClientId?: string
-  oauthClientSecret?: string
-  oauthClientFile?: string
-  defaultRegion?: string
-  defaultZone?: string
-  gcloudConfiguration?: string
-  detectCredentials?: false | GoogleCredentialSource[]
+  project?: string | undefined
+  scopes?: string[] | undefined
+  oauthClientId?: string | undefined
+  oauthClientSecret?: string | undefined
+  oauthClientFile?: string | undefined
+  defaultRegion?: string | undefined
+  defaultZone?: string | undefined
+  gcloudConfiguration?: string | undefined
+  detectCredentials?: false | GoogleCredentialSource[] | undefined
   /** Tab to open on; validated by resolveDefaultAuthMethod. */
-  defaultTab?: string
+  defaultTab?: string | undefined
 }
 
 export interface UseGoogleAuthReturn {
@@ -508,7 +508,7 @@ export function useGoogleAuth({
         ...(credentialsPath ? { credentialsPath } : {}),
       })
 
-      registerBlockOutputs({ ...result, credentialsPath })
+      registerBlockOutputs(credentialsPath === undefined ? result : { ...result, credentialsPath })
 
       setAuthStatus("authenticated")
       setDetectionStatus("done")
@@ -1384,13 +1384,12 @@ export function useGoogleAuth({
       setOauthFlowId(null)
       setOauthAuthUrl(null)
 
+      const grantedScopes = data.scopes ?? data.account?.scopes
       const identity: PendingAccount = {
         ...(data.account?.principal ? { principal: data.account.principal } : {}),
         ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
         credentialType: "authorized_user",
-        ...((data.scopes ?? data.account?.scopes)
-          ? { scopes: data.scopes ?? data.account?.scopes }
-          : {}),
+        ...(grantedScopes ? { scopes: grantedScopes } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
 

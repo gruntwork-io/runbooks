@@ -67,7 +67,7 @@ function makeCredentialsProvider(creds: AwsCredentials) {
   return {
     accessKeyId: creds.accessKeyId,
     secretAccessKey: creds.secretAccessKey,
-    sessionToken: creds.sessionToken,
+    ...(creds.sessionToken !== undefined && { sessionToken: creds.sessionToken }),
   }
 }
 

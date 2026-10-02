@@ -283,13 +283,13 @@ interface PendingFlow {
   status: OAuthFlowResult["status"]
   /** The terminal payload, delivered by `pollOAuthFlow` exactly once. */
   result?: OAuthFlowResult
-  server?: http.Server
-  client?: OAuth2Client
-  timer?: ReturnType<typeof setTimeout>
+  server?: http.Server | undefined
+  client?: OAuth2Client | undefined
+  timer?: ReturnType<typeof setTimeout> | undefined
   /** Drops the record (and the refresh token in `result`) if nobody collects it. */
-  reaper?: ReturnType<typeof setTimeout>
+  reaper?: ReturnType<typeof setTimeout> | undefined
   readonly clientId: string
-  readonly clientSecret?: string
+  readonly clientSecret?: string | undefined
   readonly state: string
   readonly codeVerifier: string
   readonly redirectUri: string
@@ -1005,13 +1005,18 @@ const impl: GoogleClientShape = {
           const redirectUri = `http://127.0.0.1:${port}${OAUTH_CALLBACK_PATH}`
           const client = new OAuth2Client({
             clientId: params.clientId,
-            clientSecret: params.clientSecret,
+            ...(params.clientSecret !== undefined && { clientSecret: params.clientSecret }),
             redirectUri,
           })
 
           // PKCE S256. The verifier, the state nonce, and the client secret all
           // stay in this process — only `flowId` ever crosses IPC.
           const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync()
+          // google-auth-library always fills it in, but types it optional.
+          // Without it the S256 request below would be refused by Google.
+          if (codeChallenge === undefined) {
+            throw new Error("google-auth-library returned no PKCE code challenge")
+          }
           const state = randomUUID()
           const scopes = [...params.scopes]
 

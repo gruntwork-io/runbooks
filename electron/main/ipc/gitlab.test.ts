@@ -70,7 +70,7 @@ const invoke = (channel: string, params?: unknown) => {
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch
-let fetchCalls: Array<{ url: string; authorization?: string }> = []
+let fetchCalls: Array<{ url: string; authorization?: string | undefined }> = []
 
 const json = (body: unknown) =>
   new Response(JSON.stringify(body), {

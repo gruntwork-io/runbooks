@@ -48,11 +48,11 @@ import { TaskListCheckbox } from "@/components/mdx/_shared/components/TaskListCh
  */
 interface MDXContainerProps {
   content: string
-  className?: string
-  runbookPath?: string
-  runbookFilePath?: string
-  remoteSource?: string
-  ref?: Ref<HTMLDivElement>
+  className?: string | undefined
+  runbookPath?: string | undefined
+  runbookFilePath?: string | undefined
+  remoteSource?: string | undefined
+  ref?: Ref<HTMLDivElement> | undefined
 }
 
 function MDXContainer({

@@ -3,10 +3,7 @@ import type { SVGProps } from "react"
 /**
  * GitHub Invertocat icon (98×96). Scales for both compact and larger display.
  */
-export const GitHubIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({
-  className,
-  ...props
-}) => (
+export const GitHubIcon: React.FC<SVGProps<SVGSVGElement>> = ({ className, ...props }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 98 96"

@@ -135,12 +135,12 @@ export function classifyCloneError(opts: {
   repo: string
   stderr: string
   hadToken: boolean
-  provider?: "github" | "gitlab"
+  provider?: "github" | "gitlab" | undefined
   /**
    * How the clone reached the host (default https). Tokens go only over
    * https: ssh authenticates with the user's keys, and http gets no token.
    */
-  transport?: "https" | "http" | "ssh"
+  transport?: "https" | "http" | "ssh" | undefined
 }): ClassifiedCloneError {
   const { host, owner, repo, stderr, hadToken, provider, transport } = opts
   const ssh = transport === "ssh"
@@ -338,7 +338,8 @@ export const openRemoteRunbook = (rawUrl: string) =>
         parsed.refAndPath,
         withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
       ).pipe(Effect.catchAll(failWithCloneHint))
-      parsed = { ...parsed, ref: resolved.ref, path: resolved.path, refAndPath: undefined }
+      const { refAndPath: _split, ...unsplit } = parsed
+      parsed = { ...unsplit, ref: resolved.ref, path: resolved.path }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
     }
 
@@ -354,8 +355,8 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const { ref } = parsed
     yield* git
       .cloneSimple(parsed.cloneURL, dest, {
-        ref,
-        token,
+        ...(ref !== undefined ? { ref } : {}),
+        ...(token !== undefined ? { token } : {}),
         username,
         sparse: parsed.path,
       })

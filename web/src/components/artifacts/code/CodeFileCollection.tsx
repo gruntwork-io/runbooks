@@ -15,10 +15,10 @@ import { CollapsibleFileHeader } from "@/components/artifacts/CollapsibleFileHea
 
 interface CodeFileCollectionProps {
   data: FileTreeNode[]
-  className?: string
-  hideContent?: boolean
+  className?: string | undefined
+  hideContent?: boolean | undefined
   /** Backend truncation metadata (heavy dir recommendation) */
-  truncationInfo?: TruncationInfo | null
+  truncationInfo?: TruncationInfo | null | undefined
 }
 
 export const CodeFileCollection = ({
