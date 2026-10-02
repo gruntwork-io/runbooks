@@ -98,3 +98,51 @@ describe("BoilerplateInputsForm required tuples", () => {
     expect(onGenerate).not.toHaveBeenCalled()
   })
 })
+
+// Defaults that reference other variables are shown as linked tokens, but the
+// raw expressions are what the form sends: main resolves them when rendering,
+// so an untouched form renders exactly as it did when they were shown as text.
+describe("BoilerplateInputsForm template-valued defaults", () => {
+  const linkedConfig: BoilerplateConfig = {
+    variables: [
+      { name: "Base", type: "string", description: "", default: "app" },
+      { name: "BucketName", type: "string", description: "", default: "{{ .Base }}-state" },
+      {
+        name: "Repos",
+        type: "list",
+        description: "",
+        default: ["github.com/acme/catalog", "{{ .Base }}/modules"],
+      },
+      { name: "Tags", type: "map", description: "", default: { "{{ .Base }}:Team": "DevOps" } },
+    ],
+  }
+
+  it("sends the untouched expressions unchanged without ever showing {{ }} syntax", () => {
+    const { container, onGenerate } = renderForm({ boilerplateConfig: linkedConfig })
+
+    expect(container.textContent).not.toContain("{{")
+    for (const input of Array.from(container.querySelectorAll("input, select"))) {
+      expect((input as HTMLInputElement).value).not.toContain("{{")
+    }
+    // The field's label still points at it
+    expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("Base-state")
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({
+      Base: "app",
+      BucketName: "{{ .Base }}-state",
+      Repos: ["github.com/acme/catalog", "{{ .Base }}/modules"],
+      Tags: { "{{ .Base }}:Team": "DevOps" },
+    })
+  })
+
+  it("sends an empty value once the link is cleared", () => {
+    const { onGenerate } = renderForm({ boilerplateConfig: linkedConfig })
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear linked value" }))
+    expect((screen.getByLabelText("Bucket Name") as HTMLInputElement).value).toBe("")
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith(expect.objectContaining({ BucketName: "" }))
+  })
+})

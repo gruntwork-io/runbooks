@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import { tupleElementKeys, untouchedTupleElement } from "../lib/untouchedValue"
+import { isTemplateValue, summarizeTemplateValue } from "../lib/templateValue"
+import { LinkedValueChip, TemplateValueText } from "./TemplateValue"
 
 /**
  * Base props interface for all form control components
@@ -89,7 +91,11 @@ const RemoveEntryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
 
 /**
  * Text input component for string variables
- * Renders a standard text input field with validation error styling
+ * Renders a standard text input field with validation error styling.
+ * A template value (e.g. a boilerplate default of `{{ .OtherVar }}`) is shown
+ * as a linked chip instead, until the user clicks it, clears it or types into
+ * the field; after that the raw expression is edited as text. A sensitive
+ * field's chip names only the variables it is linked to.
  */
 export const StringInput: React.FC<BaseFormControlProps> = ({
   variable,
@@ -101,15 +107,55 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
   disabled,
 }) => {
   const [showSensitive, setShowSensitive] = React.useState(false)
+  const [showExpression, setShowExpression] = React.useState(false)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  const focusInputRef = React.useRef(false)
+  const inputId = `${id}-${variable.name}`
+
+  // Leaving the chip moves focus into the text input that replaces it.
+  React.useEffect(() => {
+    if (showExpression && focusInputRef.current) {
+      focusInputRef.current = false
+      inputRef.current?.focus()
+    }
+  }, [showExpression])
+
+  if (isTemplateValue(value) && !showExpression) {
+    const showInput = () => {
+      focusInputRef.current = true
+      setShowExpression(true)
+    }
+    return (
+      <LinkedValueChip
+        id={inputId}
+        expression={value}
+        error={error}
+        disabled={disabled}
+        sensitive={variable.sensitive}
+        onEdit={showInput}
+        onClear={() => {
+          showInput()
+          onChange("")
+        }}
+      />
+    )
+  }
+
+  // Typing keeps the text input, even if the user writes their own expression.
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setShowExpression(true)
+    onChange(e.target.value)
+  }
 
   if (variable.sensitive) {
     return (
       <div className="relative">
         <input
+          ref={inputRef}
           type={showSensitive ? "text" : "password"}
-          id={`${id}-${variable.name}`}
+          id={inputId}
           value={valueText(value || "")}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={handleChange}
           onBlur={onBlur}
           disabled={disabled}
           className={getInputClassName(error, "w-full pr-10", disabled)}
@@ -128,10 +174,11 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
 
   return (
     <input
+      ref={inputRef}
       type="text"
-      id={`${id}-${variable.name}`}
+      id={inputId}
       value={valueText(value || "")}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={handleChange}
       onBlur={onBlur}
       disabled={disabled}
       className={getInputClassName(error, "w-full", disabled)}
@@ -218,7 +265,8 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({
  *     so picking any option, including the first, fires onChange. A '' value
  *     also shows it, unless '' is one of the options: then that option is shown.
  *   - A value that is not one of the options (e.g. imported from an upstream
- *     string field) is shown as its own disabled option.
+ *     string field) is shown as its own disabled option. A template value
+ *     (`{{ .OtherVar }}`) is labelled by what it is linked to, not its syntax.
  * Options and value are compared as strings: YAML can make options numbers or
  * booleans, while a picked value is always the option's string.
  */
@@ -251,7 +299,7 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
       )}
       {isUnlistedValue && (
         <option value={current} disabled>
-          {current}
+          {isTemplateValue(current) ? summarizeTemplateValue(current) : current}
         </option>
       )}
       {options.map((option) => (
@@ -340,7 +388,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
                 <span
                   className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                 >
-                  {item}
+                  <TemplateValueText value={item} />
                 </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeItem(index)} />}
               </div>
@@ -657,19 +705,22 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
                     <div
                       className={`font-medium text-sm mb-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                     >
-                      {key}
+                      <TemplateValueText value={key} />
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       {typeof val === "object" && val !== null ? (
                         Object.entries(val as Record<string, unknown>).map(
                           ([fieldKey, fieldVal]) => (
                             <div key={fieldKey}>
-                              <span className="font-medium">{fieldKey}:</span> {String(fieldVal)}
+                              <span className="font-medium">{fieldKey}:</span>{" "}
+                              <TemplateValueText value={fieldVal} />
                             </div>
                           ),
                         )
                       ) : (
-                        <div>{String(val)}</div>
+                        <div>
+                          <TemplateValueText value={val} />
+                        </div>
                       )}
                     </div>
                   </div>
@@ -770,7 +821,10 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
                 <span
                   className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                 >
-                  <strong>{key}:</strong> {String(val)}
+                  <strong>
+                    <TemplateValueText value={key} />:
+                  </strong>{" "}
+                  <TemplateValueText value={val} />
                 </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeEntry(key)} />}
               </div>

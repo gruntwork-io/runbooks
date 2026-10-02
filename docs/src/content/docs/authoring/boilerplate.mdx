@@ -129,6 +129,53 @@ Each variable supports these properties:
 | `options` | For `enum` | List of allowed values for dropdowns |
 | `validations` | No | Validation rules (see below) |
 
+### Defaults that use other variables
+
+A `default` can use other variables, with the same [template syntax](#template-syntax) as your template files:
+
+```yaml
+variables:
+  - name: ProjectName
+    type: string
+    default: acme
+
+  - name: Environment
+    type: enum
+    options: [dev, prod]
+    default: dev
+
+  - name: BucketName
+    type: string
+    default: "{{ .ProjectName }}-state"
+
+  - name: InstanceSize
+    type: string
+    default: '{{ if eq .Environment "prod" }}large{{ else }}small{{ end }}'
+
+  - name: CatalogRepositories
+    type: list
+    default:
+      - github.com/gruntwork-io/terraform-aws-service-catalog
+      - "github.com/{{ .ProjectName }}/modules"
+
+  - name: DefaultTags
+    type: map
+    default:
+      "{{ .ProjectName }}:Team": DevOps
+```
+
+Runbooks fills these in, using whatever the other fields hold at that moment, in two places: when it renders the body of a `<Template>` or `<TemplateInline>` block, and when a `<Command>` or `<Check>` script reads the variable through `inputsId`.
+
+Other block props that use the variable through `{{ .inputs.X }}`, like `<GitClone>`'s `prefilledUrl` or `<TemplateInline>`'s `outputPath`, get the expression as written, not the value it resolves to. Give those props a variable with a plain default.
+
+The form doesn't show the `{{ }}` syntax. A linked default shows a token for each variable it uses, named the way that variable's field is labelled. Here `BucketName` shows a **Project Name** token followed by `-state`. A default that does more than insert a variable, like `InstanceSize`, shows one token that says what it's based on: **Based on Environment**. In a text field:
+
+- Hover over the value to see its expression.
+- Click it to edit the expression.
+- Click the **X** to clear it and type your own value.
+
+The [template-defaults demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/template-defaults) uses each kind.
+
 ## Variable Types
 
 ### `string`
