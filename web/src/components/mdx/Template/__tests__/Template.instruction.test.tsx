@@ -34,8 +34,7 @@ const renderSpy = vi.fn(() => ({
   data: null,
   isLoading: false,
   error: null,
-  isAutoRendering: false,
-  autoRender: vi.fn(),
+  render: vi.fn(),
 }))
 vi.mock("@/hooks/useApiBoilerplateRender", () => ({
   useApiBoilerplateRender: () => renderSpy(),

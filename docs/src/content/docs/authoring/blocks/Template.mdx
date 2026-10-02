@@ -14,7 +14,9 @@ The `<Template>` block generates files from a [Gruntwork Boilerplate](/authoring
 
 This loads the `boilerplate.yml` file from `templates/vpc/boilerplate.yml` (relative to your runbook file), renders a form for the variables, and generates files when the user clicks "Generate".
 
-Once the files have been generated, the block turns green and regenerates them automatically as the form changes. If generation fails, the error is shown above the form and the block is not green while that error is shown. A template error in one of the template's files fails generation before any file is written, so the generated files stay as they were. If the first generation fails, the Generate button stays available so the user can retry.
+Once the files have been generated, the block turns green. The files then stay as they are until the user asks for new ones. A template reads the fields of its form, any values imported with `inputsId`, and any block outputs it references. When one of them changes, the block turns yellow and shows a "Regenerate" button. Clicking it writes the files again with the current values. Setting the value back to what was generated returns the block to green without a click.
+
+If generation fails, the error is shown above the form and the block is not green while that error is shown. A template error in one of the template's files fails generation before any file is written, so the generated files stay as they were. After a failed generation the button stays available so the user can retry.
 
 ## vs. TemplateInline
 
