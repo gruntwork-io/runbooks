@@ -26,7 +26,7 @@ dev: _no-nested-node-modules fetch-boilerplate
     mise x node -- npx electron-vite dev
 
 # Start Electron app pointing at a specific runbook
-dev-runbook path="testdata/my-first-runbook": _no-nested-node-modules fetch-boilerplate
+dev-runbook path="testdata/sample-runbooks/my-first-runbook": _no-nested-node-modules fetch-boilerplate
     mise x node -- npx electron-vite dev -- --runbook {{path}}
 
 # --- Build ---

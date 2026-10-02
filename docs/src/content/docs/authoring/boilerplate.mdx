@@ -4,28 +4,24 @@ title: Boilerplate Templates
 
 import { FileTree } from '@astrojs/starlight/components';
 
-# Gruntwork Boilerplate
+[Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) generates files and folders from templates. Runbooks takes two things from it: the `boilerplate.yml` schema that `<Inputs>` and `<Template>` build their forms from, and the Go template syntax that `<Template>`, `<TemplateInline>`, `<Command>`, and `<Check>` render.
 
-[Gruntwork Boilerplate](https://github.com/gruntwork-io/boilerplate) is a tool for generating files and folders from templates. Runbooks uses Boilerplate under the hood for all template rendering—this includes the `<Template>`, `<TemplateInline>`, `<Inputs>`, `<Command>`, and `<Check>` blocks.
-
-This page covers the aspects of Boilerplate most relevant to Runbook authors. For the complete Boilerplate documentation, see the [official Boilerplate repo](https://github.com/gruntwork-io/boilerplate).
+This page covers the parts of Boilerplate that runbook authors use. The [Boilerplate repo](https://github.com/gruntwork-io/boilerplate) has the complete documentation.
 
 ## Boilerplate in a nutshell
 
 Boilerplate is a template engine, similar to [Jinja](https://jinja.palletsprojects.com/en/stable/), [Nunjucks](https://mozilla.github.io/nunjucks/), or [Cookiecutter](https://cookiecutter.readthedocs.io/en/stable/).
 
-### Why boilerplate
+### Why Boilerplate
 
-Boilerplate is differentiated by being purpose-built for DevOps and infrastructure use cases, which gives it a few key features:
+Boilerplate is built for DevOps and infrastructure work:
 
-1. **Interactive mode:** When used as a CLI tool, boilerplate interactively prompts the user for a set of variables defined in a `boilerplate.yml` file and makes those variables available to your project templates during copying.
-2. **Non-interactive mode:** Variables can also be set non-interactively, via command-line options, so that Boilerplate can be used in automated settings (e.g. during automated tests).
-3. **Flexible templating:** Boilerplate uses Go Template for templating, which gives you the ability to do formatting, conditionals, loops, and call out to Go functions. It also includes helpers for common tasks such as loading the contents of another file, executing a shell command and rendering the output in a template, and including partial templates.
-4. **Dependencies.** You can "chain" templates together, conditionally including other templates depending on variable values.
-5. **Variable types:** Boilerplate variables support types, so you have first-class support for strings, ints, bools, lists, maps, and enums.
-6. **Validations:** Boilerplate provides a set of validations for a given variable that user input must satisfy.
-7. **Scripting:** Need more power than static templates and variables? Boilerplate includes several hooks that allow you to run arbitrary scripts.
-8. **Cross-platform:** Boilerplate is easy to install (it's a standalone binary) and works on all major platforms (Mac, Linux, Windows).
+- As a CLI, it prompts for the variables defined in `boilerplate.yml`, or takes them from command-line options so it can run in automated tests.
+- Templates are Go templates, with conditionals, loops, and helpers for loading another file, running a shell command, and including partial templates.
+- A template can depend on other templates and include them conditionally on variable values.
+- Variables are typed and can have validations.
+- Hooks run arbitrary scripts.
+- It is a standalone binary for macOS, Linux, and Windows.
 
 ### Quick example
 
@@ -39,7 +35,7 @@ Say you want to generate a README for new projects. Create a template folder:
 
 </FileTree>
 
-**`boilerplate.yml`** — defines the variables:
+`boilerplate.yml` defines the variables:
 
 ```yaml
 variables:
@@ -53,7 +49,7 @@ variables:
     default: Anonymous
 ```
 
-**`README.md`** — the template file:
+`README.md` is the template file:
 
 ```markdown
 # {{ .ProjectName }}
@@ -61,7 +57,7 @@ variables:
 Created by {{ .Author }}.
 ```
 
-**Run boilerplate on the command line:**
+Run Boilerplate on the command line:
 
 ```bash
 boilerplate \
@@ -71,7 +67,7 @@ boilerplate \
   --var Author="Jane Doe"
 ```
 
-**Result** — `output/README.md`:
+The result is `output/README.md`:
 
 ```markdown
 # My Cool App
@@ -79,21 +75,11 @@ boilerplate \
 Created by Jane Doe.
 ```
 
-That's it! Boilerplate takes your template, substitutes the variables, and writes the output.
+## The `boilerplate.yml` file
 
-## What Boilerplate Does for Runbooks
+Every template directory needs a `boilerplate.yml` file that defines its variables. Runbooks renders a form from it.
 
-In Runbooks, Boilerplate provides:
-
-1. **Variable definitions** — A YAML schema (`boilerplate.yml`) that defines what inputs users need to provide, including types, defaults, and validation rules.
-2. **Template syntax** — Go template syntax for rendering dynamic content in generated files, scripts, and commands.
-3. **File generation** — The ability to generate multiple files from templates with user-provided values.
-
-## The `boilerplate.yml` File
-
-Every template directory needs a `boilerplate.yml` file that defines the variables users will fill in. Runbooks reads this file to render interactive forms in the UI.
-
-### Basic Structure
+### Basic structure
 
 ```yaml
 variables:
@@ -116,20 +102,21 @@ variables:
 
 This generates a form with a text input for `ProjectName` and a dropdown for `Environment`.
 
-### Variable Properties
+### Variable properties
 
 Each variable supports these properties:
 
 | Property | Required | Description |
 |----------|----------|-------------|
 | `name` | Yes | Variable name (used in templates as `.Name`) |
-| `type` | No | Data type: `string`, `int`, `bool`, `enum`, `list`, `map` (defaults to `string`) |
+| `type` | No | Data type: `string`, `int`, `float`, `bool`, `enum`, `list`, `map` (defaults to `string`) |
 | `description` | No | Help text shown in the form |
 | `default` | No | Default value |
 | `options` | For `enum` | List of allowed values for dropdowns |
-| `validations` | No | Validation rules (see below) |
+| `validations` | No | [Validation rules](#validations) |
+| `sensitive` | No | For a `string`, masks the field like a password input, with a button to show the value |
 
-## Variable Types
+## Variable types
 
 ### `string`
 
@@ -153,6 +140,17 @@ Numeric input field.
   default: 3
 ```
 
+### `float`
+
+Numeric input field that accepts decimals.
+
+```yaml
+- name: ScalingThreshold
+  type: float
+  description: CPU utilization that triggers scaling
+  default: 0.75
+```
+
 ### `bool`
 
 Checkbox toggle. Without a `default`, the checkbox starts unchecked, which is the value `false`.
@@ -166,7 +164,7 @@ Checkbox toggle. Without a `default`, the checkbox starts unchecked, which is th
 
 ### `enum`
 
-Dropdown select from predefined options. Without a `default`, the dropdown starts empty ("Select…") and the variable has no value until the user picks one. With the `required` validation, the form asks for a pick before it can be submitted. Boilerplate itself needs a value for every variable without a default, so give an optional enum a `default` (`""` works if `""` is one of the options).
+Dropdown select from predefined options. Without a `default`, the dropdown starts empty and the variable has no value until the user picks one. With the `required` validation, the form asks for a pick before it can be submitted. Boilerplate itself needs a value for every variable without a default, so give an optional enum a `default` (`""` works if `""` is one of the options).
 
 ```yaml
 - name: Region
@@ -181,7 +179,7 @@ Dropdown select from predefined options. Without a `default`, the dropdown start
 
 ### `list`
 
-Dynamic list of values. Users can add/remove items.
+List of values. Users can add and remove items.
 
 ```yaml
 - name: AllowedIPs
@@ -192,7 +190,7 @@ Dynamic list of values. Users can add/remove items.
 
 ### `map`
 
-Key-value pairs. Users can add/remove entries.
+Key-value pairs. Users can add and remove entries.
 
 ```yaml
 - name: Tags
@@ -201,11 +199,11 @@ Key-value pairs. Users can add/remove entries.
   default: {}
 ```
 
-For more complex structured data, see [x-schema](#x-schema) below.
+For structured values, see [`x-schema`](#x-schema).
 
 ## Validations
 
-Add validation rules to ensure user input meets requirements:
+Add validation rules to a variable:
 
 ```yaml
 - name: ProjectName
@@ -245,9 +243,9 @@ Add validation rules to ensure user input meets requirements:
   - "email"
 ```
 
-### Custom Error Messages
+### Custom error messages
 
-For custom error messages, use the object format with `type` and `message`:
+Use the object form with `type` and `message`:
 
 ```yaml
 variables:
@@ -260,7 +258,7 @@ variables:
         message: Must be a valid email address
 ```
 
-### Available Validation Types
+### Validation types
 
 | Validation | Description |
 |------------|-------------|
@@ -275,7 +273,7 @@ variables:
 | `length(min, max)` | Value must be between `min` and `max` characters long |
 | `regex("pattern")` | Value must match the given regular expression pattern |
 
-#### Parameterized Validation Examples
+#### Parameterized validations
 
 ```yaml
   - name: ProjectSlug
@@ -289,11 +287,11 @@ variables:
       - length(0, 256)
 ```
 
-## Template Syntax
+## Template syntax
 
-Template files use Go template syntax. Variables from `boilerplate.yml` are accessed using dot notation:
+Template files use Go template syntax. Reference a variable from `boilerplate.yml` with dot notation. In a runbook, the same variable is also available as `{{ .inputs.BucketName }}`, as [Inputs and outputs](/authoring/inputs-and-outputs/#template-syntax) describes.
 
-### Basic Variable Substitution
+### Variable substitution
 
 ```hcl
 resource "aws_s3_bucket" "main" {
@@ -325,7 +323,7 @@ instance_type = "{{ if eq .Environment "prod" }}t3.large{{ else }}t3.micro{{ end
 {{- end }}
 ```
 
-### Working with Maps
+### Maps
 
 ```hcl
 tags = {
@@ -335,7 +333,7 @@ tags = {
 }
 ```
 
-### Whitespace Control
+### Whitespace control
 
 Use `-` to trim whitespace around template directives:
 
@@ -348,7 +346,7 @@ description = "{{ .Description }}"
 {{- end }}
 ```
 
-## Built-in Helper Functions
+## Helper functions
 
 Boilerplate includes helper functions for common transformations:
 
@@ -366,9 +364,9 @@ Boilerplate includes helper functions for common transformations:
 {{ hasSuffix "-dev" .Name }}         # true if ends with "-dev"
 ```
 
-## Dynamic File Names
+## Dynamic file names
 
-Boilerplate supports template syntax in file names. This lets you generate files with dynamic names based on variables:
+File and folder names can use template syntax:
 
 <FileTree>
 
@@ -390,15 +388,13 @@ With `ProjectName: "vpc"` and `Environment: "prod"`, this generates:
 
 </FileTree>
 
-## Runbooks Extensions
+## Runbooks extensions
 
-Runbooks extends Boilerplate with additional YAML properties (prefixed with `x-`) for enhanced UI rendering. These are ignored by the standard Boilerplate CLI but enable richer form experiences in Runbooks.
+Runbooks reads extra YAML properties, prefixed with `x-`, that change how the form renders. The Boilerplate CLI ignores them.
 
 ### `x-section`
 
-A large number of fields on a form can be overwhelming for users. Sections allow you to _group_ fields under a named heading so that you can organize a large number of fields into a discrete number of sections.
-
-In this example, the form will render with two sections: "Basic Settings", "Advanced Settings"
+`x-section` groups fields under a named heading. This form renders two sections, Basic Settings and Advanced Settings:
 
 ```yaml
 variables:
@@ -424,11 +420,23 @@ variables:
 
 Variables without `x-section` appear in an unnamed section at the top.
 
+### `x-options`
+
+Lists the allowed values for a `list` variable. The form then renders a multi-select picker. The Boilerplate CLI doesn't check the values against the list.
+
+```yaml
+- name: Regions
+  type: list
+  description: Regions to deploy to
+  x-options:
+    - us-east-1
+    - us-west-2
+    - eu-west-1
+```
+
 ### `x-schema`
 
-Sometimes you want to collect a "map" of key-value pairs from users, where the value is a simple string. But in other cases, you want a _collection_ of values for each key. For example, if you want to prompt a user to declare their current AWS accounts, each AWS account has an email address, account ID, and descriptive name. 
-
-In these scenarios, you can define a _schema_ for `map` type variables so that Runbooks will render a structured form instead of free-form key-value inputs:
+A `map` variable collects key-value pairs where each value is a string. When each key needs several values, such as an email address, account ID, and name for each AWS account, give the map an `x-schema`. Runbooks then renders a structured form for each entry:
 
 ```yaml
 - name: AWSAccounts
@@ -440,11 +448,11 @@ In these scenarios, you can define a _schema_ for `map` type variables so that R
     id: string
 ```
 
-This renders a form where each map entry has three typed fields instead of arbitrary key-value pairs.
+Each map entry renders with those three fields.
 
 ### `x-schema-instance-label`
 
-Customize the label for each instance of a key-value pair in a schema-based map:
+Sets the label for each entry of a schema-based map:
 
 ```yaml
 - name: AWSAccounts
@@ -457,9 +465,9 @@ Customize the label for each instance of a key-value pair in a schema-based map:
     id: string
 ```
 
-## Authoring Templates with the CLI
+## Authoring templates with the CLI
 
-While Runbooks provides a live preview experience, you can also use the Boilerplate CLI directly to test templates during development.
+You can run the Boilerplate CLI directly to test templates during development.
 
 ### Install Boilerplate
 
@@ -471,7 +479,7 @@ brew install gruntwork-io/tap/boilerplate
 # https://github.com/gruntwork-io/boilerplate/releases
 ```
 
-### Generate Files
+### Generate files
 
 ```bash
 boilerplate \
@@ -481,7 +489,7 @@ boilerplate \
   --var Environment="dev"
 ```
 
-### Interactive Mode
+### Interactive mode
 
 Without `--var` flags, Boilerplate prompts for values interactively:
 
@@ -491,7 +499,7 @@ boilerplate \
   --output-folder ./output
 ```
 
-### Non-Interactive Mode
+### Non-interactive mode
 
 Use `--non-interactive` with a vars file for CI/CD:
 
@@ -503,9 +511,9 @@ boilerplate \
   --non-interactive
 ```
 
-## Example: Complete Template
+## Example template
 
-Here's a complete example showing a template directory structure:
+A template directory for a Lambda function:
 
 <FileTree>
 
@@ -518,7 +526,7 @@ Here's a complete example showing a template directory structure:
 
 </FileTree>
 
-**`boilerplate.yml`:**
+`boilerplate.yml`:
 
 ```yaml
 variables:
@@ -557,7 +565,7 @@ variables:
     x-section: Advanced Settings
 ```
 
-**`main.tf`:**
+`main.tf`:
 
 ```hcl
 resource "aws_lambda_function" "main" {
@@ -583,9 +591,9 @@ resource "aws_cloudwatch_log_group" "lambda" {
 {{- end }}
 ```
 
-## Using Templates in Runbooks
+## Using templates in runbooks
 
-Once you've created a template, reference it in your runbook:
+Reference a template directory from a runbook with `<Template>`:
 
 ```mdx
 # Deploy a Lambda Function
@@ -597,7 +605,7 @@ Configure your Lambda function below:
 After generating, review the files in the file tree on the right.
 ```
 
-For inline templates that don't need a separate directory:
+For a template that doesn't need its own directory, pair `<Inputs>` with `<TemplateInline>`:
 
 `````mdx
 <Inputs id="config">

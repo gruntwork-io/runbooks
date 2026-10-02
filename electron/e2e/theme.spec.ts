@@ -32,7 +32,7 @@ function launch(userDataDir: string): Promise<ElectronApplication> {
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
-      RUNBOOKS_NO_TELEMETRY: "1",
+      RUNBOOKS_TELEMETRY_DISABLE: "1",
     },
   })
 }

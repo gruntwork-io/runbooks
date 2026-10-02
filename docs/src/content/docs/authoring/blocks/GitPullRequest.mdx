@@ -4,13 +4,11 @@ title: <GitPullRequest>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitPullRequest>` block provides a streamlined way to open a pull request (GitHub) or merge request (GitLab) directly from a runbook, from a single provider-agnostic block. It integrates with the [`<GitClone>`](/authoring/blocks/gitclone/) block to push changes made during the runbook workflow and open the PR/MR.
+The `<GitPullRequest>` block commits the changes made in a repository cloned by [`<GitClone>`](/authoring/blocks/gitclone/), pushes them to a new branch, and opens a GitHub pull request or a GitLab merge request. One block covers both providers.
 
-This block completes the git workflow loop: authenticate, clone a repository, make changes (via Command, Template, or other blocks), and open a pull/merge request.
+### Basic usage
 
-### Basic Usage
-
-Pair with `<GitAuth>` and `<GitClone>` to create a complete workflow. The provider is derived automatically from the linked `<GitAuth>` block — no `provider` prop needed:
+Pair it with `<GitAuth>` and `<GitClone>`. The provider comes from the linked `<GitAuth>` block, so no `provider` prop is needed:
 
 ```mdx
 <GitAuth
@@ -33,32 +31,30 @@ Pair with `<GitAuth>` and `<GitClone>` to create a complete workflow. The provid
 />
 ```
 
-### Provider Detection
+### Provider detection
 
 `<GitPullRequest>` determines which provider (GitHub or GitLab) to talk to in this order:
 
 1. An explicit `provider` prop, if set.
 2. The `GIT_PROVIDER` output of the block referenced by `gitAuthId` (or `githubAuthId`).
-3. The host of the cloned repository's remote URL (`github.com` and `*.ghe.com` tenants are recognized as GitHub; a GitHub Enterprise Server host is only recognized through the linked auth block).
-4. Otherwise, defaults to `github`.
-
-This mirrors how `provider` derivation works for [`<GitAuth>`](/authoring/blocks/gitauth/): the provider comes from the linked auth block, not the remote hostname, so self-hosted instances resolve correctly.
+3. The host of the cloned repository's remote URL. `github.com` and `*.ghe.com` tenants are recognized as GitHub and `gitlab.com` as GitLab. A GitHub Enterprise Server or self-managed GitLab host is recognized only through the linked auth block.
+4. Otherwise, `github`.
 
 <Aside type="note">
-If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error instead of silently using the wrong credentials.
+If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error.
 </Aside>
 
-### GitLab Instance
+### GitLab instance
 
 A merge request is opened on the GitLab instance that the repository's `origin` remote points at, whether that is gitlab.com or a self-managed host:
 
 - An `https://` remote keeps its port.
 - An SSH remote (`git@gitlab.example.com:group/repo.git`, `gitlab@gitlab.example.com:group/repo.git` or `ssh://git@gitlab.example.com:2222/group/repo.git`) maps to `https://gitlab.example.com`. The port in an SSH URL belongs to the SSH server, not the web server.
-- A plain `http://` remote is refused: the GitLab token is only sent over HTTPS (see [GitHub Enterprise Hosts](#github-enterprise-hosts) below).
+- A plain `http://` remote is refused. The GitLab token is sent only over HTTPS (see [GitHub Enterprise hosts](#github-enterprise-hosts) below).
 
 The block never falls back to gitlab.com. If the checkout has no `origin` remote, or its URL has no host, the block fails before your GitLab token is sent anywhere.
 
-### Pre-filled Values
+### Pre-filled values
 
 You can pre-populate the PR/MR title, description, labels, branch name, and commit message. Users can still edit these values before creating it.
 
@@ -75,10 +71,10 @@ You can pre-populate the PR/MR title, description, labels, branch name, and comm
 ```
 
 <Aside type="note">
-The prop names use `PullRequest` for historical reasons, but they apply the same way on GitLab (`prefilledPullRequestTitle` becomes the MR title, and so on) — including `prefilledCommitMessage`.
+The `prefilledPullRequest*` props apply the same way on GitLab. `prefilledPullRequestTitle` becomes the MR title, and so on.
 </Aside>
 
-### Template Expressions
+### Template expressions
 
 The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBranchName`, and `prefilledCommitMessage` props support template expressions that reference inputs and outputs from other blocks. Escape sequences like `\n` are converted to real newlines, which is useful for multi-line descriptions:
 
@@ -100,17 +96,17 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown and template expressions. Defaults per provider (`Create Pull Request` / `Create Merge Request`). |
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
-| `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived — see [Provider Detection](#provider-detection). |
+| `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived as described in [Provider detection](#provider-detection). |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |
-| `githubAuthId` | `string` | No | Reference to a legacy [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub-specific; kept for back-compat. Prefer `gitAuthId`. |
+| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub only. Prefer `gitAuthId`. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
 | `prefilledBranchName` | `string` | No | Pre-fills the branch name. Supports template expressions. Defaults to `runbook/<timestamp>`. |
 | `prefilledCommitMessage` | `string` | No | Pre-fills the commit message field. Supports template expressions. |
 
-### Block Outputs
+### Block outputs
 
 After a successful create, the block produces outputs that can be referenced by downstream blocks:
 
@@ -135,9 +131,9 @@ Reference outputs in downstream blocks using template variables:
 
 ### Git Push
 
-After creating a PR/MR, the block displays a "Git Push" button. This allows you to push additional changes made after it was created (for example, by running more Command or Template blocks). Each push stages all changes, commits them with the message "Additional changes", and pushes to the same branch.
+After creating a PR/MR, the block shows a **Git Push** button. It runs `git push -u origin <branch>` for the PR/MR's branch with the linked auth block's token. It does not stage or commit anything, so use it to push commits made since the PR/MR was created, for example by a Command block that ran `git commit`. To commit uncommitted changes onto the open PR/MR, choose "create another" and enter its branch name. See [Creating another PR/MR](#creating-another-prmr).
 
-### Retrying After a Failure
+### Retrying after a failure
 
 If creation fails after the branch was created (for example, the push is rejected or the API call fails), fix the cause and create again with the same branch name. The block picks up on the existing branch: it commits any new changes and pushes, then opens the PR/MR.
 
@@ -147,27 +143,23 @@ If a local branch with that name already exists but isn't checked out (for examp
 
 The branch name can't be the base branch or a protected name (`main`, `master`, `develop`, `dev`, `staging`, `release`, `prod`, `production`).
 
-### Creating Another PR/MR
+### Creating another PR/MR
 
 After a PR/MR is created, its branch stays checked out, and "create another" fills in a new branch name such as `runbook/<timestamp>`. What the next create does depends on the branch name and on whether anything changed since:
 
-- **A new name, with new changes:** the new branch starts from the open PR/MR's branch, so the new PR/MR also contains the open one's commits.
-- **A new name, with no new changes:** refused with "Nothing to commit". The open PR/MR's commits are already on the remote, and a new PR/MR would only repeat them. Nothing is pushed, and the open PR/MR's branch stays checked out.
-- **The open PR/MR's branch name:** the block picks up on that branch, commits any new changes and pushes them to it, so they become part of the open PR/MR, and then reports that the PR/MR already exists.
+- With a new name and new changes, the new branch starts from the open PR/MR's branch, so the new PR/MR also contains the open one's commits.
+- With a new name and no new changes, the create is refused with "Nothing to commit". The open PR/MR's commits are already on the remote, and a new PR/MR would only repeat them. Nothing is pushed, and the open PR/MR's branch stays checked out.
+- With the open PR/MR's branch name, the block picks up on that branch, commits any new changes and pushes them to it, so they become part of the open PR/MR, and then reports that the PR/MR already exists.
 
-To add changes to an open PR/MR, use "Git Push", which the block shows until you choose "create another".
+The block shows **Git Push** until you choose "create another".
 
 ### Prerequisites
 
-The block requires two prerequisites:
+The block needs a completed `<GitAuth>` or `<GitHubAuth>` block, for the token, and a `<GitClone>` block that has cloned a repository, which the PR/MR is created against. It checks both and shows an amber warning for whichever is missing. The create button stays disabled until both are met.
 
-1. **Git authentication** — a `<GitAuth>` (or `<GitHubAuth>`) block must be completed to provide the token for API access.
-2. **A cloned repository** — a `<GitClone>` block must have successfully cloned a repository. The PR/MR is created against this repository.
+For authentication, the block looks for a token output from the block referenced by `gitAuthId` or `githubAuthId`. When that block picked up existing credentials (environment variables or a CLI) rather than running its interactive flow, it registers an `__AUTHENTICATED` marker instead, which also satisfies the check. Until one is present, the block displays "Waiting for &lt;provider&gt; authentication" and names the block to complete.
 
-Both prerequisites are checked automatically, and the block shows amber warnings when they are not met:
-
-- **Authentication**: the block looks for a token output from the auth block referenced by `gitAuthId`/`githubAuthId`. When that block authenticates via pre-existing credentials (e.g., environment variables or a CLI) rather than its interactive flow, there is no explicit token output — instead it registers an `__AUTHENTICATED` marker to signal success. The prerequisite is satisfied by either. Until one is present, the block displays "Waiting for &lt;provider&gt; authentication" and names the specific block to complete.
-- **Cloned repository**: the block checks whether a `GitClone` block has registered an active worktree. Until a repository has been cloned, the block displays "No repository available". The block remains in a `pending` state and the create button is disabled until both prerequisites are satisfied.
+For the repository, the block checks whether a `GitClone` block has registered an active worktree. Until one has, it displays "No repository available".
 
 ### Labels
 
@@ -175,13 +167,13 @@ The block fetches available labels from the repository and presents them in a se
 
 On GitHub, labels are applied after the pull request opens. If applying them fails, the pull request is still created and the logs show a warning.
 
-### GitHub Enterprise Hosts
+### GitHub Enterprise hosts
 
-This section applies to GitHub; GitLab merge requests use the instance of the repository's remote. On GitHub, the pull request is opened against the host of the cloned repository's `origin` remote — `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com` — using that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`). Labels are fetched from the same host.
+GitLab merge requests use the instance of the repository's remote, as described above. On GitHub, the pull request is opened against the host of the cloned repository's `origin` remote: `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`. The block uses that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`) and fetches labels from it.
 
-That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ — for example, a repository cloned from `github.example.com` while the auth block signed in to `github.com` — the block fails with a clear error instead of sending the token to a host it was not issued for. Links to token settings shown by the block also follow the authenticated host.
+That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ, for example a repository cloned from `github.example.com` while the auth block signed in to `github.com`, the block fails with an error. Links to token settings shown by the block also follow the authenticated host.
 
-For both providers, the token is sent only over HTTPS, and only to the host the linked auth block authenticated to (the `GITHUB_HOST` or `GITLAB_HOST` it set); Runbooks never assumes `github.com` or `gitlab.com`. If `origin` is on another host or is a plain `http://` URL, the repository has no `origin` remote, or `origin` names no host Runbooks can read (a local path, or an address it can't parse), the block fails with an error before the token is sent anywhere. Point `origin` at the repository on your GitHub or GitLab host (an `https://` URL or a `git@<host>:<owner>/<repo>.git` address) and try again.
+For both providers, the token is sent only over HTTPS, and only to the host the linked auth block authenticated to (the `GITHUB_HOST` or `GITLAB_HOST` it set). Runbooks never assumes `github.com` or `gitlab.com`. The block fails before sending the token if `origin` is on another host, is a plain `http://` URL, is missing, or names no host Runbooks can read (a local path, or an address it can't parse). Point `origin` at the repository on your GitHub or GitLab host (an `https://` URL or a `git@<host>:<owner>/<repo>.git` address) and try again.
 
 ```mdx
 <GitAuth
@@ -203,16 +195,16 @@ For both providers, the token is sent only over HTTPS, and only to the host the 
 />
 ```
 
-See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
+See [GitHub Enterprise support](/authoring/blocks/githubauth/#github-enterprise-support) for configuring the host.
 
 ## Provider-locked aliases
 
-Two convenience aliases lock `<GitPullRequest>` to a single provider (no derivation needed):
+Two aliases lock `<GitPullRequest>` to a single provider:
 
-- [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest/) — equivalent to `<GitPullRequest provider="github" />`.
-- [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest/) — equivalent to `<GitPullRequest provider="gitlab" />`.
+- [`<GitHubPullRequest>`](/authoring/blocks/githubpullrequest/) is `<GitPullRequest provider="github" />`.
+- [`<GitLabMergeRequest>`](/authoring/blocks/gitlabmergerequest/) is `<GitPullRequest provider="gitlab" />`.
 
-### Example: Full Workflow
+### Example: full workflow
 
 ```mdx
 <GitAuth
