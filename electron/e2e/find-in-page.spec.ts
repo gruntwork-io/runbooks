@@ -28,6 +28,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { resizeMainWindow, runInMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -110,11 +111,15 @@ test.describe("Find in page", () => {
 
   /** Click an Edit menu item by id, as its keyboard shortcut would. */
   const clickMenuItem = (id: string) =>
-    app!.evaluate(({ Menu }, itemId) => {
-      const item = Menu.getApplicationMenu()?.getMenuItemById(itemId)
-      if (!item) throw new Error(`no menu item ${itemId}`)
-      item.click()
-    }, id)
+    runInMain(
+      app!,
+      ({ Menu }, itemId) => {
+        const item = Menu.getApplicationMenu()?.getMenuItemById(itemId)
+        if (!item) throw new Error(`no menu item ${itemId}`)
+        item.click()
+      },
+      id,
+    )
 
   /**
    * Edit > Find…, then wait for the find bar's input to take focus. The menu
@@ -261,9 +266,7 @@ test.describe("Find in page", () => {
   ] as const) {
     test(`brings a match out from under the find bar (${layout} layout)`, async () => {
       const launched = await launch(ROWS_RUNBOOK, "Long rows", "rows")
-      await (
-        await launched.browserWindow(page)
-      ).evaluate((win, windowWidth) => win.setSize(windowWidth, 800), width)
+      await resizeMainWindow(launched, width, 800)
       // The first row of needles at the top of the runbook's box, where the
       // bar floats over the row's right-hand end.
       await page.getByText(/^needle needle/).evaluate((p) => p.scrollIntoView({ block: "start" }))
@@ -286,7 +289,7 @@ test.describe("Find in page", () => {
   test("stays clear of the narrow layout's Markdown/Code toggle", async () => {
     const launched = await launch(RUNBOOK, "Find in page")
     // Below the lg breakpoint, a Markdown/Code toggle floats under the header.
-    await (await launched.browserWindow(page)).evaluate((win) => win.setSize(900, 800))
+    await resizeMainWindow(launched, 900, 800)
     const codeTab = page.getByRole("button", { name: "Code", exact: true })
     await expect(codeTab).toBeVisible()
 

@@ -17,6 +17,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { readFromMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -100,7 +101,11 @@ test.describe("Theme toggle", () => {
     const app2 = await launch(userDataDir)
     try {
       await app2.firstWindow()
-      const themeSource = await app2.evaluate(({ nativeTheme }) => nativeTheme.themeSource)
+      const themeSource = await readFromMain(
+        app2,
+        ({ nativeTheme }) => nativeTheme.themeSource,
+        undefined,
+      )
       expect(themeSource).toBe("dark")
     } finally {
       await app2.close()

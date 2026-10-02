@@ -331,7 +331,7 @@ test.describe("sample-runbooks/markdown-only-full", () => {
 
     // Verify the table rendered with content.
     await expect(page.getByRole("heading", { name: "Tables" })).toBeVisible()
-    await expect(page.getByRole("cell", { name: "Column 1" })).toBeVisible()
+    await expect(page.getByRole("columnheader", { name: "Column 1" })).toBeVisible()
     await expect(page.getByRole("cell", { name: "Data 6" })).toBeVisible()
 
     // Verify the image loaded successfully.
