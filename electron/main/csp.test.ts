@@ -42,6 +42,13 @@ describe("buildContentSecurityPolicy", () => {
     expect(policy).toContain("script-src 'self' 'unsafe-eval'")
   })
 
+  // The Iframe block's pages are <webview> guests, not frames (embeds.ts).
+  it("sets no frame-src, so frames fall back to default-src 'self'", () => {
+    const policy = buildContentSecurityPolicy()
+    expect(policy).toContain("default-src 'self';")
+    expect(policy).not.toContain("frame-src")
+  })
+
   it("a GHES host adds https://<host> and https://avatars.<host>", () => {
     const sources = imgSrc(buildContentSecurityPolicy(["ghes.example.com"]))
     expect(sources).toContain("https://ghes.example.com")

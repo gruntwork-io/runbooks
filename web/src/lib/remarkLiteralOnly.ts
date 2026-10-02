@@ -96,8 +96,17 @@ export function remarkLiteralOnly() {
 // Elements that load and run scripts or embed other documents. React 19 loads
 // `<script async src>` wherever it is rendered, and a frame's document (e.g.
 // `<iframe srcDoc>`) shares the app's origin and CSP, so it could rebuild the
-// same script load and reach `parent.api`. Compared lowercased.
-const BLOCKED_ELEMENTS = new Set(["script", "iframe", "frame", "frameset", "object", "embed"])
+// same script load and reach `parent.api`. A `<webview>` would embed a page
+// without the Iframe block's Load button. Compared lowercased.
+const BLOCKED_ELEMENTS = new Set([
+  "script",
+  "iframe",
+  "frame",
+  "frameset",
+  "object",
+  "embed",
+  "webview",
+])
 
 // Prop names (compared lowercased) that are never literal content:
 // `dangerouslySetInnerHTML` and `srcDoc` inject raw HTML, whose inline event
@@ -117,7 +126,11 @@ function checkElement(element: MdxNode) {
   const name = element.name ?? ""
   const tag = `<${name}>`
 
-  if (BLOCKED_ELEMENTS.has(name.toLowerCase())) {
+  // MDX renders only a name that starts with a lowercase letter as an HTML
+  // tag, and the DOM matches tag names case-insensitively, so `<iFrame>` is an
+  // iframe. Any other name is a block from MDX_COMPONENTS: `<Iframe>` is the
+  // Iframe block, and `<IFRAME>` fails to render as an unknown block.
+  if (/^[a-z]/.test(name) && BLOCKED_ELEMENTS.has(name.toLowerCase())) {
     throw notAllowed(element, `${tag} elements are not allowed in runbooks.`)
   }
   if (name.includes(".")) {

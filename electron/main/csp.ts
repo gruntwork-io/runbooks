@@ -9,6 +9,10 @@
  * host the user has configured is allowed explicitly. The CSP is fixed when a
  * frame loads, so a host first used mid-session gets its avatars on the next
  * load (the block falls back to no avatar until then).
+ *
+ * There is no `frame-src`, so `default-src 'self'` keeps other sites' frames
+ * out of the app's page. The Iframe block's pages are <webview> guests, which
+ * main/index.ts vets (embeds.ts), not frames.
  */
 import { githubHostKind, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
 

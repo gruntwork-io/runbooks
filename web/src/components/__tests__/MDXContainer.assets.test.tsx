@@ -8,7 +8,7 @@ import MDXContainer, { rehypeTransformAssetPaths } from "../MDXContainer"
 function renderRunbook(content: string) {
   return render(
     <TestWrapper>
-      <MDXContainer content={content} runbookPath="testdata/demo/assets" />
+      <MDXContainer content={content} runbookPath="testdata/demo/assets" assetHost="rtest" />
     </TestWrapper>,
   )
 }
@@ -29,10 +29,10 @@ describe("MDXContainer asset paths", () => {
     renderRunbook("![Diagram](./assets/a.png)\n\n[Guide](./assets/guide.pdf)\n")
 
     expect((await findInRunbook('img[alt="Diagram"]')).getAttribute("src")).toBe(
-      "runbook-asset://assets/a.png",
+      "runbook-asset://rtest/a.png",
     )
     expect((await screen.findByText("Guide")).closest("a")?.getAttribute("href")).toBe(
-      "runbook-asset://assets/guide.pdf",
+      "runbook-asset://rtest/guide.pdf",
     )
   })
 
@@ -40,7 +40,7 @@ describe("MDXContainer asset paths", () => {
     renderRunbook('Status icon <img src="./assets/b.png" width="200" alt="b" /> inline.\n')
 
     const img = await findInRunbook('img[alt="b"]')
-    expect(img.getAttribute("src")).toBe("runbook-asset://assets/b.png")
+    expect(img.getAttribute("src")).toBe("runbook-asset://rtest/b.png")
     expect(img.getAttribute("width")).toBe("200")
   })
 
@@ -52,9 +52,9 @@ describe("MDXContainer asset paths", () => {
     )
 
     const video = await findInRunbook("video")
-    expect(video.getAttribute("src")).toBe("runbook-asset://assets/c.mp4")
-    expect(video.getAttribute("poster")).toBe("runbook-asset://assets/p.png")
-    expect(video.querySelector("source")?.getAttribute("src")).toBe("runbook-asset://assets/d.webm")
+    expect(video.getAttribute("src")).toBe("runbook-asset://rtest/c.mp4")
+    expect(video.getAttribute("poster")).toBe("runbook-asset://rtest/p.png")
+    expect(video.querySelector("source")?.getAttribute("src")).toBe("runbook-asset://rtest/d.webm")
   })
 
   // <embed> and <object> are rejected by remarkLiteralOnly (see
@@ -65,9 +65,9 @@ describe("MDXContainer asset paths", () => {
         'Download the <a href="./assets/f.pdf">guide</a>.\n',
     )
 
-    expect((await findInRunbook("audio")).getAttribute("src")).toBe("runbook-asset://assets/e.mp3")
+    expect((await findInRunbook("audio")).getAttribute("src")).toBe("runbook-asset://rtest/e.mp3")
     expect((await screen.findByText("guide")).closest("a")?.getAttribute("href")).toBe(
-      "runbook-asset://assets/f.pdf",
+      "runbook-asset://rtest/f.pdf",
     )
   })
 
@@ -82,12 +82,12 @@ describe("MDXContainer asset paths", () => {
     )
 
     const img = await findInRunbook('img[alt="g"]')
-    expect(img.getAttribute("src")).toBe("runbook-asset://assets/g.png")
+    expect(img.getAttribute("src")).toBe("runbook-asset://rtest/g.png")
     expect(img.getAttribute("srcset")).toBe(
-      "runbook-asset://assets/g.png 1x,runbook-asset://assets/g@2x.png 2x",
+      "runbook-asset://rtest/g.png 1x,runbook-asset://rtest/g@2x.png 2x",
     )
     expect(img.closest("picture")?.querySelector("source")?.getAttribute("srcset")).toBe(
-      "runbook-asset://assets/g.webp 1x, runbook-asset://assets/g@2x.webp 2x",
+      "runbook-asset://rtest/g.webp 1x, runbook-asset://rtest/g@2x.webp 2x",
     )
   })
 
@@ -98,9 +98,9 @@ describe("MDXContainer asset paths", () => {
 
     const img = await findInRunbook('img[alt="h"]')
     expect(img.getAttribute("srcset")).toBe(
-      "runbook-asset://assets/h.png 1x, runbook-asset://assets/h@2x.png 2x",
+      "runbook-asset://rtest/h.png 1x, runbook-asset://rtest/h@2x.png 2x",
     )
-    expect(img.getAttribute("src")).toBe("runbook-asset://assets/h.png")
+    expect(img.getAttribute("src")).toBe("runbook-asset://rtest/h.png")
   })
 
   it("rewrites a <track> src inside <video>", async () => {
@@ -111,7 +111,7 @@ describe("MDXContainer asset paths", () => {
     )
 
     expect((await findInRunbook("video track")).getAttribute("src")).toBe(
-      "runbook-asset://assets/i.vtt",
+      "runbook-asset://rtest/i.vtt",
     )
   })
 
@@ -143,14 +143,14 @@ describe("rehypeTransformAssetPaths", () => {
       properties: { srcSet: "./assets/b.webp 1x, ./assets/b@2x.webp 2x" },
     }
 
-    rehypeTransformAssetPaths()({ type: "root", children: [img, source] })
+    rehypeTransformAssetPaths({ assetHost: "rtest" })({ type: "root", children: [img, source] })
 
     expect(img.properties.srcSet).toEqual([
-      "runbook-asset://assets/a.png 1x",
-      "runbook-asset://assets/a@2x.png 2x",
+      "runbook-asset://rtest/a.png 1x",
+      "runbook-asset://rtest/a@2x.png 2x",
     ])
     expect(source.properties.srcSet).toBe(
-      "runbook-asset://assets/b.webp 1x, runbook-asset://assets/b@2x.webp 2x",
+      "runbook-asset://rtest/b.webp 1x, runbook-asset://rtest/b@2x.webp 2x",
     )
   })
 
@@ -159,7 +159,7 @@ describe("rehypeTransformAssetPaths", () => {
   it("leaves props on capitalized components alone", async () => {
     const { default: Content } = await evaluate(
       '<Probe src="./assets/x.png" href="./assets/y.pdf" />\n\n<img src="./assets/z.png" alt="z" />\n',
-      { ...runtime, rehypePlugins: [rehypeTransformAssetPaths] },
+      { ...runtime, rehypePlugins: [[rehypeTransformAssetPaths, { assetHost: "rtest" }]] },
     )
     const Probe = ({ src, href }: { src?: string; href?: string }) => (
       <span data-testid="probe" data-src={src} data-href={href} />
@@ -171,6 +171,6 @@ describe("rehypeTransformAssetPaths", () => {
     expect(probe.getAttribute("data-src")).toBe("./assets/x.png")
     expect(probe.getAttribute("data-href")).toBe("./assets/y.pdf")
     // The plugin did run: the sibling HTML tag was rewritten.
-    expect(container.querySelector("img")?.getAttribute("src")).toBe("runbook-asset://assets/z.png")
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("runbook-asset://rtest/z.png")
   })
 })

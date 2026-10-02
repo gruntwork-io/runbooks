@@ -135,6 +135,14 @@ export interface RunbookContextType {
    */
   storageScope: string | undefined
 
+  /**
+   * The host of the runbook's runbook-asset:// URLs, from runbook:get. Each
+   * runbook has its own, so framed asset pages of different runbooks never
+   * share an origin. Undefined outside a runbook, where ./assets/ URLs are
+   * left as written.
+   */
+  assetHost: string | undefined
+
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
 
@@ -203,12 +211,14 @@ export function RunbookContextProvider({
   remoteSource,
   runbookFilePath,
   storageScope,
+  assetHost,
 }: {
   children?: ReactNode
   runbookName?: string | undefined
   remoteSource?: string | undefined
   runbookFilePath?: string | undefined
   storageScope?: string | undefined
+  assetHost?: string | undefined
 }) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
@@ -361,6 +371,7 @@ export function RunbookContextProvider({
       remoteSource,
       runbookFilePath,
       storageScope,
+      assetHost,
       blockInputs,
       registerInputs,
       getInputs,
@@ -374,6 +385,7 @@ export function RunbookContextProvider({
       remoteSource,
       runbookFilePath,
       storageScope,
+      assetHost,
       blockInputs,
       registerInputs,
       getInputs,

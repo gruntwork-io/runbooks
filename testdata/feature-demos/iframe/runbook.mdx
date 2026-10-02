@@ -1,0 +1,21 @@
+# Iframe
+
+The `<Iframe>` block embeds a web page in a runbook. A frame loads only after you click **Load page**, and the title bar always shows where the page comes from.
+
+## Reference docs next to the steps
+
+Keep the docs for a block open while you work through a runbook.
+
+<Iframe src="https://runbooks.gruntwork.io/authoring/blocks/command/" title="Command block docs" height={600} />
+
+## A frame sized to the window
+
+`height` takes a pixel count or any CSS length. This frame is 50% of the window's height.
+
+<Iframe src="https://runbooks.gruntwork.io/authoring/runbook-structure/" title="Runbook structure" height="50vh" />
+
+## A page from the runbook's assets folder
+
+This page lives at `assets/site/index.html`. Its stylesheet and script load from the same folder through relative paths.
+
+<Iframe src="./assets/site/index.html" title="Local site" height={260} />

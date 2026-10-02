@@ -5,7 +5,7 @@ if (process.env.ELECTRON_RENDERER_URL) {
   process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true"
 }
 
-import { app, shell, ipcMain, dialog, protocol, net, nativeTheme } from "electron"
+import { app, shell, ipcMain, dialog, protocol, net, nativeTheme, session } from "electron"
 import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
@@ -24,8 +24,16 @@ import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
-import { resolveRunbookAssetPath } from "./ipc/path-guard.ts"
+import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
+import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
+import {
+  LOCAL_EMBED_PARTITION,
+  WEB_EMBED_PARTITION,
+  hardenEmbedGuest,
+  installEmbedSession,
+  prepareWebviewAttach,
+} from "./embeds.ts"
 import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
@@ -354,6 +362,37 @@ app.on("open-file", (event, filePath) => {
   }
 })
 
+/**
+ * Answer a runbook-asset:// request from the open runbook's assets/ folder.
+ *
+ * Security: resolveRunbookAssetPath returns null unless the URL has the open
+ * runbook's host and the file is within its assets/ folder after resolving
+ * symlinks, so neither `..` nor a symlink shipped in the runbook dir can serve
+ * a file from outside it.
+ */
+async function serveRunbookAsset(request: Request): Promise<Response> {
+  const resolved = await resolveRunbookAssetPath(
+    request.url,
+    path.dirname(runbookConfig.localPath),
+    runbookAssetHost(runbookConfig),
+  )
+  if (!resolved) {
+    return new Response("Forbidden", { status: 403 })
+  }
+
+  // <video>/<audio> fetch byte ranges and can only seek when the answer is
+  // a 206 with a Content-Range, which net.fetch's file:// response never
+  // has, so ranged GETs are answered from the file here. Without a Range
+  // header, or with one byteRangeResponse ignores, the whole file is served.
+  const rangeHeader = request.headers.get("range")
+  if (rangeHeader && request.method === "GET") {
+    const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
+    if (partial) return partial
+  }
+
+  return net.fetch(pathToFileURL(resolved).href)
+}
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -361,34 +400,43 @@ app.on("open-file", (event, filePath) => {
 app
   .whenReady()
   .then(() => {
+    installPermissionHandlers(session.defaultSession)
+    installClientCertificateHandler(app)
+
     // Register a protocol handler to serve runbook assets (images, videos, etc.)
     // from the local filesystem. The renderer rewrites ./assets/foo.png to
-    // runbook-asset://assets/foo.png which this handler resolves relative to the
-    // runbook directory.
-    protocol.handle("runbook-asset", async (request) => {
-      // URL looks like: runbook-asset://assets/foo.png
-      // Security: resolveRunbookAssetPath returns null unless the file is within
-      // the runbook directory after resolving symlinks, so neither `..` nor a
-      // symlink shipped in the runbook dir can serve a file from outside it.
-      const resolved = await resolveRunbookAssetPath(
-        request.url,
-        path.dirname(runbookConfig.localPath),
-      )
-      if (!resolved) {
-        return new Response("Forbidden", { status: 403 })
-      }
+    // runbook-asset://<host>/foo.png, where <host> is the open runbook's
+    // (runbookAssetHost, sent with runbook:get), which this handler resolves
+    // relative to the runbook's assets/ folder.
+    protocol.handle("runbook-asset", serveRunbookAsset)
 
-      // <video>/<audio> fetch byte ranges and can only seek when the answer is
-      // a 206 with a Content-Range, which net.fetch's file:// response never
-      // has, so ranged GETs are answered from the file here. Without a Range
-      // header, or with one byteRangeResponse ignores, the whole file is served.
-      const rangeHeader = request.headers.get("range")
-      if (rangeHeader && request.method === "GET") {
-        const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
-        if (partial) return partial
+    // Pages the Iframe block embeds run in <webview> guests, in sessions of
+    // their own (embeds.ts). Only local pages' session serves runbook-asset://.
+    const localEmbeds = session.fromPartition(LOCAL_EMBED_PARTITION)
+    const webEmbeds = session.fromPartition(WEB_EMBED_PARTITION)
+    installEmbedSession(localEmbeds)
+    installEmbedSession(webEmbeds)
+    localEmbeds.protocol.handle("runbook-asset", serveRunbookAsset)
+    const assetHost = () => runbookAssetHost(runbookConfig)
+    app.on("web-contents-created", (_event, contents) => {
+      if (contents.getType() === "window") {
+        contents.on("will-attach-webview", (event, webPreferences, params) => {
+          if (!prepareWebviewAttach(webPreferences, params, assetHost())) event.preventDefault()
+        })
+      } else if (contents.getType() === "webview") {
+        // prepareWebviewAttach put every guest it let through in one of the two.
+        const partition =
+          contents.session === localEmbeds
+            ? LOCAL_EMBED_PARTITION
+            : contents.session === webEmbeds
+              ? WEB_EMBED_PARTITION
+              : null
+        if (partition) {
+          hardenEmbedGuest(contents, partition, assetHost)
+        } else {
+          contents.close()
+        }
       }
-
-      return net.fetch(pathToFileURL(resolved).href)
     })
 
     // Apply the persisted theme before creating the window so its background

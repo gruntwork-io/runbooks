@@ -37,6 +37,7 @@ describe("remarkLiteralOnly", () => {
         "object keys that only resemble __proto__",
         `<X a={{ proto: 1, '__proto': 2, constructor: 3 }} />`,
       ],
+      ["a block whose name matches a blocked element", '<Iframe src="https://example.com" />'],
       [
         "links and text that only mention javascript:",
         '<a href="https://example.com/javascript:">Docs</a>\n\n<Command command="echo javascript: is off" />',
@@ -77,7 +78,8 @@ describe("remarkLiteralOnly", () => {
       ["a frame element", '<frame src="./page.html" />'],
       ["an object element", '<object data="./page.html" />'],
       ["an embed element", '<embed src="./page.svg" />'],
-      ["an uppercase blocked element", '<IFRAME src="./page.html" />'],
+      ["a webview element", '<webview src="https://example.com" />'],
+      ["a mixed-case blocked element", '<iFrame src="./page.html" />'],
       [
         "dangerouslySetInnerHTML",
         `<div dangerouslySetInnerHTML={{ __html: '<img src=x onerror="alert(1)">' }} />`,

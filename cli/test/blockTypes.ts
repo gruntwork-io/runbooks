@@ -25,6 +25,7 @@ export const BLOCK_TYPES = [
   "GitLabMergeRequest",
   "DirPicker",
   "Admonition",
+  "Iframe",
 ] as const
 
 /** Blocks that authenticate and inject credentials for the blocks that reference them. */

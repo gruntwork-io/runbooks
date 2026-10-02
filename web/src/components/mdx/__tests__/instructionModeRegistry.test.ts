@@ -51,7 +51,8 @@ const ALIAS_SOURCE: Record<string, string> = {
 // Blocks intentionally identical in both modes:
 // - Inputs is the user's way to supply substitution values (spec §6.5.1).
 // - Admonition is already a static callout.
-const PASSTHROUGH_BLOCKS = ["Inputs", "Admonition"] as const
+// - Iframe only displays a page.
+const PASSTHROUGH_BLOCKS = ["Inputs", "Admonition", "Iframe"] as const
 
 // Non-block element overrides (not runbook blocks).
 // - `input` makes GFM task-list checkboxes interactive (no instruction-mode behavior).

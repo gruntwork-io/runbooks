@@ -1,17 +1,20 @@
 import { describe, it, expect } from "vitest"
 import { render } from "@testing-library/react"
+import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import { InlineMarkdown } from "../InlineMarkdown"
 
 // Block titles, descriptions and messages render through InlineMarkdown, not
 // the MDX compiler, so they need the same ./assets/ rewrite as the runbook body.
 describe("InlineMarkdown asset paths", () => {
-  it("rewrites ./assets/ image and link URLs to runbook-asset://", () => {
+  it("rewrites ./assets/ image and link URLs to the runbook's runbook-asset:// host", () => {
     const { container } = render(
-      <InlineMarkdown>{"![Diagram](./assets/d.png) and [guide](./assets/g.pdf)"}</InlineMarkdown>,
+      <RunbookContextProvider assetHost="rtest">
+        <InlineMarkdown>{"![Diagram](./assets/d.png) and [guide](./assets/g.pdf)"}</InlineMarkdown>
+      </RunbookContextProvider>,
     )
 
-    expect(container.querySelector("img")?.getAttribute("src")).toBe("runbook-asset://assets/d.png")
-    expect(container.querySelector("a")?.getAttribute("href")).toBe("runbook-asset://assets/g.pdf")
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("runbook-asset://rtest/d.png")
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("runbook-asset://rtest/g.pdf")
   })
 
   it("keeps react-markdown URL sanitizing for every other URL", () => {

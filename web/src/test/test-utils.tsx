@@ -15,9 +15,11 @@ import { TelemetryContext, defaultContextValue } from "@/contexts/TelemetryConte
 export function TestWrapper({
   children,
   remoteSource,
+  assetHost,
 }: {
   children: ReactNode
   remoteSource?: string
+  assetHost?: string
 }) {
   return (
     <ThemeProvider>
@@ -25,7 +27,11 @@ export function TestWrapper({
         <TelemetryContext.Provider value={defaultContextValue}>
           <ErrorReportingProvider>
             <ComponentIdRegistryProvider>
-              <RunbookContextProvider runbookName="test" remoteSource={remoteSource}>
+              <RunbookContextProvider
+                runbookName="test"
+                remoteSource={remoteSource}
+                assetHost={assetHost}
+              >
                 {children}
               </RunbookContextProvider>
             </ComponentIdRegistryProvider>
