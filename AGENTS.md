@@ -52,9 +52,10 @@ just typecheck        # tsc -b
 ## Conventions
 
 ### Code Organization
-- Domain modules use `yield* ServiceTag` — never import Node.js APIs or SDKs directly
-- Layers are the only place that imports SDKs or Node.js APIs
+- Domain modules use `yield* ServiceTag` — never import SDKs or Node.js I/O modules (`fs`, `child_process`, network, `os`) directly. Pure helpers such as `node:path` and `node:crypto` hashing are fine.
+- Layers are the only place that imports SDKs or Node.js I/O modules
 - Frontend hooks use `useApi()` context — never `window.api` directly
+- oxlint enforces the domain, `electron` and `window.api` rules (`.oxlintrc.json` overrides)
 - Blocks: `web/src/components/mdx/<BlockName>/` (PascalCase directories)
 - Domain: `src/domain/<module>/` (camelCase files)
 
@@ -94,7 +95,7 @@ Auth blocks (`AwsAuth`, `GoogleAuth`, `GitAuth`, `GitHubAuth`, `GitLabAuth`) mus
 ## Don't Do This
 
 - **Don't use npm/yarn** — use bun
-- **Don't import Node.js APIs in `src/domain/`** — use Effect services
+- **Don't import Node.js I/O modules in `src/domain/`** — use Effect services
 - **Don't import `electron` in `src/`** — stays in `electron/`
 - **Don't use `window.api` directly** — use `useApi()` context
 - **Don't call `reportError()` for runtime errors** — only configuration errors

@@ -4,6 +4,7 @@
     { "path": "./tsconfig.main.json" },
     { "path": "./tsconfig.preload.json" },
     { "path": "./tsconfig.src.json" },
+    { "path": "./tsconfig.e2e.json" },
     { "path": "./web/tsconfig.json" }
   ],
   /* The shadcn/ui CLI runs from the repo root (components.json lives here, next
