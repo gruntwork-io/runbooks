@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef, useCallback, startTransition } from "react"
+import { useMemo, useState, useEffect, useCallback, startTransition } from "react"
 import { BoilerplateInputsForm } from "../_shared/components/BoilerplateInputsForm"
 import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
 import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
@@ -17,6 +17,7 @@ import {
 } from "@/lib/templateUtils"
 import { computeChangeKey } from "@/lib/changeDetection"
 import { markStage } from "@/lib/renderPerf"
+import { normalizeBlockId } from "@/lib/utils"
 import { XCircle } from "lucide-react"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { TemplateInstruction } from "./TemplateInstruction"
@@ -27,6 +28,8 @@ import { useSharedTemplateVars } from "./useSharedTemplateVars"
  *
  * This component loads a boilerplate configuration, renders a form for any
  * variables defined in the template, and generates files to the workspace.
+ * Files are written only when the user clicks Generate. A later change to
+ * anything the template reads marks the files stale until the user regenerates.
  *
  * ## Variable Categories
  *
@@ -76,10 +79,9 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     trackBlockRender("Template")
   }, [trackBlockRender])
 
-  const [shouldRender, setShouldRender] = useState(false)
-  const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({})
-  // Bumped on every Generate click so the auto-render effect re-runs (see handleGenerate)
-  const [generateNonce, setGenerateNonce] = useState(0)
+  const [localVarValues, setLocalVarValues] = useState<Record<string, unknown>>({})
+  // Change key of the values the last Generate click rendered. Null until the first click.
+  const [generatedKey, setGeneratedKey] = useState<string | null>(null)
 
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
   const [hasEverGenerated, setHasEverGenerated] = useState(false)
@@ -171,31 +173,24 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     [boilerplateConfig?.outputDependencies, allOutputs],
   )
 
-  // Check if all output dependencies are satisfied
-  const hasAllOutputDependencies = unmetOutputDependencies.length === 0
-
-  // Track the latest local form data for registration (without causing re-renders)
-  const localVarValuesRef = useRef<Record<string, unknown>>({})
-
-  // Register merged values when imported values or config changes
+  // Publish this template's variables to the runbook context as they change,
+  // whether or not the files have been regenerated.
   useEffect(() => {
-    if (boilerplateConfig && id) {
-      // Shared vars are read-only and live-synced, so the imported (live) value
-      // overrides the local copy, which may not be synced yet when this effect runs.
-      const mergedData = { ...inputValues, ...localVarValuesRef.current, ...liveVarValues }
-      registerInputs(id, mergedData, boilerplateConfig)
-    }
-  }, [id, boilerplateConfig, inputValues, liveVarValues, registerInputs])
+    if (!boilerplateConfig || !id) return
+    // Shared vars are read-only and live-synced, so the imported (live) value
+    // overrides the local copy, which may not be synced yet when this effect runs.
+    const mergedData = { ...inputValues, ...localVarValues, ...liveVarValues }
+    // A transition, so re-rendering RunbookContext consumers doesn't hold up typing in the form.
+    startTransition(() => registerInputs(id, mergedData, boilerplateConfig))
+  }, [id, boilerplateConfig, inputValues, localVarValues, liveVarValues, registerInputs])
 
-  // Render API call - only triggered when shouldRender is true
   // Pass the component id as templateId to enable smart file cleanup when outputs change
   const {
     data: renderResult,
     isLoading: isGenerating,
     error: renderError,
-    isAutoRendering,
-    autoRender,
-  } = useApiBoilerplateRender(path, id, renderFormData, shouldRender, target)
+    render,
+  } = useApiBoilerplateRender(path, id, target)
 
   if (renderResult && !hasEverGenerated) {
     setHasEverGenerated(true)
@@ -211,143 +206,49 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     return () => cancelAnimationFrame(raf)
   }, [renderResult, id])
 
-  // Check if form data has all required values filled
-  const hasAllRequiredValues = useCallback(
-    (localVarValues: Record<string, unknown>): boolean => {
-      if (!boilerplateConfig) return false
-      return boilerplateConfig.variables.every((variable) => {
-        const isRequired = variable.validations?.some((v) => v.type === "required")
-        if (!isRequired) return true
-
-        const value = localVarValues[variable.name]
-        return value !== undefined && value !== null && value !== ""
-      })
-    },
-    [boilerplateConfig],
-  )
-
   // Flatten block outputs for template rendering (used in the outputs namespace).
   // A Template writes files, so sensitive outputs render with their real
-  // values. That also keeps them in the dedupe key below, so a new value
-  // re-renders.
+  // values. That also keeps them in the change key below, so a new value
+  // marks the files stale.
   const flattenedOutputs = useMemo(
     () => revealTemplateOutputs(flattenBlockOutputs(allOutputs)),
     [allOutputs],
   )
 
-  const lastRenderedKeyRef = useRef<string | null>(null)
-
-  // Dispatch the IPC inline rather than waiting for an effect — RunbookContext
-  // reconciliation between commit and effect-flush added ~200 ms otherwise.
-  // The effect below handles upstream-driven changes (inputValues, outputs).
-  const handleAutoRender = useCallback(
-    (localVarValues: Record<string, unknown>) => {
-      markStage("Template:handleAutoRender", { id })
-      localVarValuesRef.current = localVarValues
-
-      if (
-        shouldRender &&
-        boilerplateConfig &&
-        hasAllOutputDependencies &&
-        hasAllRequiredValues(localVarValues)
-      ) {
-        const key = computeChangeKey(inputValues, localVarValues, flattenedOutputs)
-        if (key !== lastRenderedKeyRef.current) {
-          lastRenderedKeyRef.current = key
-          const mergedData = buildRenderVariables(
-            { ...inputValues, ...localVarValues },
-            flattenedOutputs,
-          )
-          markStage("Template:inline-autoRender-call", { id })
-          autoRender(path, mergedData)
-        }
-      }
-
-      // Deprioritize RunbookContext churn so the IPC dispatched above isn't
-      // blocked by reconciliation.
-      startTransition(() => {
-        if (boilerplateConfig && id) {
-          const mergedData = { ...inputValues, ...localVarValues }
-          registerInputs(id, mergedData, boilerplateConfig)
-        }
-      })
-    },
-    [
-      id,
-      boilerplateConfig,
-      inputValues,
-      registerInputs,
-      shouldRender,
-      hasAllOutputDependencies,
-      flattenedOutputs,
-      hasAllRequiredValues,
-      autoRender,
-      path,
-    ],
+  // Values of the outputs this template reads. The change key leaves every
+  // other output out, so a block the template doesn't read can't mark its
+  // files stale.
+  const outputDependencyValues = useMemo(
+    () =>
+      (boilerplateConfig?.outputDependencies ?? []).map(
+        (dep) => flattenedOutputs[normalizeBlockId(dep.blockId)]?.[dep.outputName],
+      ),
+    [boilerplateConfig?.outputDependencies, flattenedOutputs],
   )
 
-  // Upstream-only auto-render: fires when imported values or other-block outputs
-  // change, and on every Generate click (generateNonce). Local form-input changes
-  // are handled inline by handleAutoRender above; the lastRenderedKeyRef dedupe
-  // guards against a redundant IPC if both fire for the same key.
-  useEffect(() => {
-    if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return
+  // Key over everything a render of this template reads, given the form's
+  // values. liveVarValues overlays them because the form's copy of a shared var
+  // lags the imported value by a render.
+  const changeKeyFor = useCallback(
+    (formValues: Record<string, unknown>) =>
+      computeChangeKey(inputValues, { ...formValues, ...liveVarValues }, outputDependencyValues),
+    [inputValues, liveVarValues, outputDependencyValues],
+  )
 
-    // When an imported shared var changes, this effect runs before the form's
-    // live-sync has refreshed localVarValuesRef, so overlay the live values.
-    // Key, required-values check and render payload must all use this same
-    // object; a stale ref in any one of them renders the previous value or
-    // stores a key for a render that never happened.
-    const effectiveLocal = { ...localVarValuesRef.current, ...liveVarValues }
-    const key = computeChangeKey(inputValues, effectiveLocal, flattenedOutputs)
-    if (key === lastRenderedKeyRef.current) return
-    lastRenderedKeyRef.current = key
+  const isStale = useMemo(
+    () => generatedKey !== null && changeKeyFor(localVarValues) !== generatedKey,
+    [generatedKey, changeKeyFor, localVarValues],
+  )
 
-    if (!hasAllRequiredValues(effectiveLocal)) return
-
-    const mergedData = buildRenderVariables({ ...inputValues, ...effectiveLocal }, flattenedOutputs)
-    markStage("Template:effect-autoRender-call", { id })
-    autoRender(path, mergedData)
-  }, [
-    shouldRender,
-    generateNonce,
-    boilerplateConfig,
-    hasAllOutputDependencies,
-    inputValues,
-    liveVarValues,
-    flattenedOutputs,
-    hasAllRequiredValues,
-    autoRender,
-    path,
-    id,
-  ])
-
-  // Handle form submission / generation
+  // The only place a render starts, so the files change only on a click.
   const handleGenerate = useCallback(
-    (localVarValues: Record<string, unknown>) => {
-      // Store latest form data
-      localVarValuesRef.current = localVarValues
-
-      const mergedData = buildRenderVariables(
-        { ...inputValues, ...localVarValues },
-        flattenedOutputs,
+    (formValues: Record<string, unknown>) => {
+      setGeneratedKey(changeKeyFor(formValues))
+      render(
+        buildRenderVariables({ ...inputValues, ...formValues, ...liveVarValues }, flattenedOutputs),
       )
-
-      // Register our variables in the block context
-      if (boilerplateConfig) {
-        const registrationData = { ...inputValues, ...localVarValues }
-        registerInputs(id, registrationData, boilerplateConfig)
-      }
-
-      // Trigger the render with merged data. The effect above dispatches it;
-      // clearing the dedupe key and bumping the nonce makes every click dispatch,
-      // so Generate retries a render that failed with unchanged values.
-      setRenderFormData(mergedData)
-      setShouldRender(true)
-      lastRenderedKeyRef.current = null
-      setGenerateNonce((n) => n + 1)
     },
-    [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs],
+    [changeKeyFor, render, inputValues, liveVarValues, flattenedOutputs],
   )
 
   // Early return for duplicate ID error
@@ -404,13 +305,13 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
         id={id}
         boilerplateConfig={boilerplateConfig}
         initialData={initialData}
-        onAutoRender={handleAutoRender}
+        onFormChange={setLocalVarValues}
         onGenerate={handleGenerate}
         isGenerating={isGenerating}
-        isAutoRendering={isAutoRendering}
-        enableAutoRender={true}
+        enableAutoRender={false}
         hasGeneratedSuccessfully={hasEverGenerated}
         hasRenderError={Boolean(renderError)}
+        isStale={isStale}
         variant="standard"
         isInlineMode={false}
         sharedVarNames={sharedVarNames}
