@@ -71,7 +71,7 @@ Runbooks captures the environment in its own `EXIT` handler, so it intercepts `t
 
 ### One session per runbook
 
-The app has one window and one session. Every script in a runbook shares it. The session lasts until you open a different runbook or quit the app.
+The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To start over, reset the environment with the session controls in the UI or choose **File > New Session**.
 
 ### Starting environment
 
@@ -82,6 +82,8 @@ If you start Runbooks from a terminal or an SSH session, it uses that terminal's
 If you start Runbooks from Finder, the Dock or a desktop launcher on macOS or Linux, it first runs your login shell once as `$SHELL -ilc` and copies the environment that shell ends up with. Because the shell is both a login and an interactive shell, it reads your profile and rc files, so your `PATH` and the variables they export are available to scripts.
 
 On Windows, Runbooks uses the environment it was started with.
+
+A [resumed session](/commands/sessions/#resuming-a-session) starts from that same environment, and then gets back the variables its scripts and auth blocks had set or unset when it was last open.
 
 ### How script changes are applied
 

@@ -6,6 +6,7 @@ import {
   Check,
   FolderOpen,
   Copy,
+  RotateCcw,
   X,
   type LucideProps,
 } from "lucide-react"
@@ -114,6 +115,11 @@ export function Header({ pathName, localPath }: HeaderProps) {
   const handleCloseRunbook = () => {
     api.invoke("native:close-runbook").catch((err: unknown) => {
       console.error("Failed to close the runbook:", err)
+    })
+  }
+  const handleNewSession = () => {
+    api.invoke("native:new-session").catch((err: unknown) => {
+      console.error("Failed to start a new session:", err)
     })
   }
 
@@ -235,6 +241,14 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Download logs (JSON)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleNewSession}
+                disabled={!hasRunbookOpen}
+                className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
+              >
+                <RotateCcw className="size-4" />
+                New Session
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleCloseRunbook}
                 disabled={!hasRunbookOpen}

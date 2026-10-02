@@ -87,7 +87,7 @@ Runbooks parses these sources itself and fetches them with git. It doesn't use t
 - A `+` in `?ref=` stays a `+` (`?ref=v1.0.0+build.1`), where go-getter reads it as a space.
 
 <Aside type="note">
-When you open a remote runbook, Runbooks clones the whole repository into a temporary directory, as go-getter does for a `//` subdirectory. The runbook's folder inside that clone becomes the working directory: scripts start there, and generated files are saved inside it. Because the rest of the repository is there too, a runbook can use files outside its own folder, such as templates elsewhere in the repo. The temporary directory is deleted when you quit Runbooks.
+When you open a remote runbook, Runbooks clones the whole repository into a temporary directory, as go-getter does for a `//` subdirectory. Because the rest of the repository is there too, a runbook can use files outside its own folder, such as templates elsewhere in the repo. The temporary directory is deleted when you quit Runbooks. Scripts and generated files don't use that clone: like any runbook, a remote one runs in the directory of its [session](/commands/sessions/), which is kept.
 </Aside>
 
 ### Authentication for private repos

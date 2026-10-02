@@ -45,18 +45,18 @@ Files written to `$GENERATED_FILES` appear in the workspace when the script exit
 
 ### Where generated files are stored
 
-Runbooks writes generated files to a `generated/` folder inside the folder that contains the runbook file. Template blocks and `$GENERATED_FILES` captures both write there, even after a script has `cd`'d somewhere else:
+Runbooks writes generated files to a `generated/` folder inside the runbook's [session directory](/commands/sessions/), which Runbooks keeps in its own data folder. Nothing is written to the folder that contains the runbook file. Template blocks and `$GENERATED_FILES` captures both write there, even after a script has `cd`'d somewhere else:
 
 <FileTree>
-- my-runbook/
-  - runbook.mdx
-  - **generated/** created next to your runbook
-    - main.tf
-    - variables.tf
-    - outputs.tf
+- sessions/dirs/
+  - 3f9c2a61b0e84d17/ The runbook's session directory
+    - **generated/**
+      - main.tf
+      - variables.tf
+      - outputs.tf
 </FileTree>
 
-For a [remote runbook](/commands/open/#remote-sources), the runbook's folder is inside a temporary clone, so its generated files are deleted when you quit Runbooks.
+The files workspace shows the folder as `./generated`, and the copy button next to it copies the full path. Opening the runbook again resumes the same session, so the files are still there. This holds for a [remote runbook](/commands/open/#remote-sources) too: only its clone is temporary.
 
 ### Subdirectories
 
@@ -80,7 +80,7 @@ echo '{}' > "$GENERATED_FILES/config/app.json"
 
 Repository files come from a git repository that a [GitClone](/authoring/blocks/gitclone/) block cloned. When the clone completes, the workspace switches to the **Repository** tab.
 
-The clone is stored at the local path set in the GitClone block, relative to the working directory. The working directory starts as the folder that contains `runbook.mdx`, and it [follows any `cd`](/authoring/blocks/command/#execution-context) that an earlier script made.
+The clone is stored at the local path set in the GitClone block, relative to the working directory. The working directory starts as the runbook's [session directory](/commands/sessions/), and it [follows any `cd`](/authoring/blocks/command/#execution-context) that an earlier script made.
 
 Later changes to the repository come from a [Template](/authoring/blocks/template/) block that sets `target="worktree"`, or from Command and Check scripts that write to the directory named by `$REPO_FILES`.
 

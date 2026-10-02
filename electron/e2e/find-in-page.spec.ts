@@ -28,6 +28,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import { resizeMainWindow, runInMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -84,7 +85,12 @@ test.describe("Find in page", () => {
     const launched = await electron.launch({
       // --user-data-dir isolates the single-instance lock and trust state; a
       // throwaway HOME keeps the app away from the real one.
-      args: [MAIN_ENTRY, `--user-data-dir=${path.join(tmpDir, "user-data")}`, runbookDir],
+      args: [
+        MAIN_ENTRY,
+        MOCK_KEYCHAIN,
+        `--user-data-dir=${path.join(tmpDir, "user-data")}`,
+        runbookDir,
+      ],
       env: {
         ...process.env,
         HOME: home,

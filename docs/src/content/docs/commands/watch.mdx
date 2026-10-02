@@ -52,4 +52,4 @@ For a remote runbook, Runbooks watches the local copy it downloaded. It does not
 
 - When the file changes, the main process sends a `watch:file-change` IPC event to the renderer.
 - The renderer reloads the runbook, which re-reads the file and rebuilds the executable registry unless `--disable-live-file-reload` is set.
-- A reload keeps the session. Environment variables that blocks exported, and the directory a block moved to with `cd`, stay as they were. Re-opening the runbook starts its blocks from the runbook's directory again.
+- A reload keeps the session. Environment variables that blocks exported, and the directory a block moved to with `cd`, stay as they were. Re-opening the runbook starts its blocks from the [session's directory](/commands/sessions/) again.
