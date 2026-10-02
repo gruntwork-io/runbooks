@@ -5,8 +5,6 @@
  * and drives the find bar through the real Edit menu items in real Chromium:
  * the match count, keeping focus in the input while it searches (which
  * webContents.findInPage would not), the CSS highlights, and closing.
- * The runbook's folder is also named "needle", so the runbook path in the
- * header would be a fourth match if the header weren't left out.
  * A long runbook checks what jsdom can't: that a search starts where the
  * reader is and that every match, even one far along a code line, scrolls
  * into view, including out from under the find bar, which floats over the

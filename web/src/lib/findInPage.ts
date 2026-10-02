@@ -69,8 +69,8 @@ const BLOCK_SELECTOR = [
 
 /**
  * Marks a subtree the search leaves out: the find bar itself, and app chrome
- * such as the header, whose runbook path is always on screen and would
- * otherwise be where every search that matches the path starts.
+ * such as the header, whose session name is always on screen and would
+ * otherwise be where every search that matches it starts.
  */
 export const FIND_IGNORE_ATTRIBUTE = "data-find-ignore"
 

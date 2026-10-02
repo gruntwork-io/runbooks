@@ -1,21 +1,9 @@
-import { useState, useEffect, type ComponentType, type ComponentPropsWithRef } from "react"
-import {
-  ChevronDown,
-  Download,
-  Info,
-  Check,
-  FolderOpen,
-  Copy,
-  RotateCcw,
-  X,
-  type LucideProps,
-} from "lucide-react"
+import { useState, useEffect } from "react"
+import { ChevronDown, Download, Info, RotateCcw, X } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
 import logoLightColor from "@/assets/runbooks-logo-light-color.svg"
-import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +24,6 @@ import { InstructionModeToggle } from "./InstructionModeToggle"
 import { useLogs } from "@/contexts/useLogs"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
-import { getDirectoryPath } from "@/lib/utils"
 import {
   createLogsZipRaw,
   createLogsZipJson,
@@ -44,67 +31,26 @@ import {
   generateAllLogsZipFilename,
 } from "@/lib/logs"
 
-function CopyButton({
-  onClick,
-  didCopy,
-  icon: Icon,
-  size,
-  className,
-  ref,
-  ...props
-}: {
-  didCopy: boolean
-  icon: ComponentType<LucideProps>
-  size: string
-} & ComponentPropsWithRef<"button">) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex-shrink-0 rounded transition-colors cursor-pointer ${className ?? ""}`}
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      aria-label="Copy local path"
-      {...props}
-      ref={ref}
-    >
-      {didCopy ? (
-        <Check className={`${size} text-success`} />
-      ) : (
-        <Icon className={`${size} text-muted-foreground`} />
-      )}
-    </button>
-  )
-}
-
 interface HeaderProps {
-  pathName: string
-  /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
-  localPath?: string | undefined
-  /** The open runbook's session name, e.g. `elegant-elephant` */
+  /** The open runbook's session name, e.g. `elegant-elephant`. Undefined while no runbook is open. */
   sessionName?: string | undefined
 }
 
 /**
- * A fixed header component that displays the branding, the open runbook's
- * session name and the current file path. It is the app's title bar: the
- * window has no native one.
+ * A fixed header component that displays the branding and the open runbook's
+ * session name. It is the app's title bar: the window has no native one.
  *
- * The header uses a responsive design where mobile devices show only the file path
- * centered, while desktop devices show the full layout with branding and navigation.
- *
- * When viewing a remote runbook, pathName will be the remote URL while localPath
- * will be the temp directory path. A copy button is shown to copy the local path.
+ * The header uses a responsive design where mobile devices show only the
+ * session name, while desktop devices show the full layout with branding and
+ * navigation.
  *
  * @param props - The component props
- * @param props.pathName - The display string (remote URL or local path) for the header
- * @param props.localPath - The local filesystem path (for copy button when remote)
- * @param props.sessionName - The session name shown before the path
+ * @param props.sessionName - The session name
  */
-export function Header({ pathName, localPath, sessionName }: HeaderProps) {
+export function Header({ sessionName }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const { getAllLogs, hasLogs } = useLogs()
-  const { didCopy, copy } = useCopyToClipboard()
   const api = useApi()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === "dark"
@@ -116,7 +62,7 @@ export function Header({ pathName, localPath, sessionName }: HeaderProps) {
     return cleanup
   }, [api])
 
-  const hasRunbookOpen = Boolean(pathName)
+  const hasRunbookOpen = sessionName !== undefined
   const handleCloseRunbook = () => {
     api.invoke("native:close-runbook").catch((err: unknown) => {
       console.error("Failed to close the runbook:", err)
@@ -135,11 +81,6 @@ export function Header({ pathName, localPath, sessionName }: HeaderProps) {
   const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
   const menuRightClass = isMac ? "md:right-5" : "md:right-40"
 
-  // Show the copy-local-path button when we have a local path that differs from the display name
-  // (i.e., when viewing a remote runbook)
-  const isRemote = localPath && localPath !== pathName
-  const localDir = getDirectoryPath(localPath) || localPath
-
   const handleDownloadRaw = async () => {
     const logsMap = getAllLogs()
     const blob = await createLogsZipRaw(logsMap)
@@ -155,7 +96,8 @@ export function Header({ pathName, localPath, sessionName }: HeaderProps) {
   return (
     <>
       {/* data-find-ignore: find in page skips the header's always-visible
-          runbook path, which would otherwise be every search's first match. */}
+          session name, which would otherwise be the first match of every
+          search for one of its words. */}
       <header
         className="w-full border-b border-border p-4 text-muted-foreground font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -169,7 +111,7 @@ export function Header({ pathName, localPath, sessionName }: HeaderProps) {
             draggable={false}
           />
         </div>
-        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-60">
+        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
           {sessionName && (
             <span
               className="flex-shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-foreground font-mono font-normal"
@@ -178,52 +120,6 @@ export function Header({ pathName, localPath, sessionName }: HeaderProps) {
             >
               {sessionName}
             </span>
-          )}
-          <div
-            className="hidden md:block text-sm text-muted-foreground font-mono font-normal truncate max-w-full"
-            title={pathName}
-            dir="rtl"
-          >
-            {"\u200E"}
-            {pathName}
-            {"\u200E"}
-          </div>
-          <div
-            className="md:hidden text-xs text-muted-foreground font-mono font-normal truncate max-w-full"
-            title={pathName}
-            dir="rtl"
-          >
-            {"\u200E"}
-            {pathName}
-            {"\u200E"}
-          </div>
-          {isRemote && (
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <CopyButton
-                    onClick={() => copy(localDir || "")}
-                    didCopy={didCopy}
-                    icon={FolderOpen}
-                    size="size-3.5"
-                    className="p-1 hover:bg-accent"
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-sm">
-                  <p className="text-xs font-medium mb-1">Local path:</p>
-                  <div className="flex items-start gap-1.5">
-                    <p className="text-xs text-muted-foreground font-mono break-all">{localDir}</p>
-                    <CopyButton
-                      onClick={() => copy(localDir || "")}
-                      didCopy={didCopy}
-                      icon={Copy}
-                      size="size-3"
-                      className="p-0.5 hover:bg-white/10"
-                    />
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
           )}
         </div>
         <div

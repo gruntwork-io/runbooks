@@ -15,7 +15,7 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 ## Session names
 
-Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows it next to the runbook's path, and the window title starts with it.
+Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and nothing else about the runbook, neither its path nor its URL. The window title starts with the name too.
 
 Runbooks picks the name when it creates the session, and the session keeps it for good. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
 
@@ -62,12 +62,12 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
   - db/
     - sessions.db A SQLite database with one row per session
   - dirs/
-    - 3f9c2a61b0e84d17/ One directory per session
+    - 0199a5c2-7e3b-7c4d-9a1f-3b2c4d5e6f70/ One directory per session
       - generated/
       - my-cloned-repo/
 </FileTree>
 
-The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its internal id, not its name. To find the directory of the session on screen, run a block that prints `$PWD`, or look the name up:
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its id, a UUID that never changes, not after its name. To find the directory of the session on screen, run a block that prints `$PWD`, or look the name up:
 
 ```bash
 sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"

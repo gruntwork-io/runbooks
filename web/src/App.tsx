@@ -279,11 +279,7 @@ function App() {
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
-        <Header
-          pathName={pathName}
-          localPath={getRunbookResult.data?.path}
-          sessionName={sessionName}
-        />
+        <Header sessionName={sessionName} />
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
