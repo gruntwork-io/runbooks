@@ -301,6 +301,22 @@ describe("gitlab:cli-credentials — glab's token only to its own host, https un
   const writeGlabConfig = (yaml: string) =>
     fs.writeFileSync(nodePath.join(glabConfigDir, "config.yml"), yaml)
 
+  // These read glab's config.yml, which the handler falls back to only when
+  // the glab binary is missing. An empty PATH makes it missing on every
+  // machine, not just on CI runners that never installed it.
+  let savedPath: string | undefined
+  let emptyBinDir = ""
+  beforeEach(() => {
+    savedPath = process.env.PATH
+    emptyBinDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "no-glab-"))
+    process.env.PATH = emptyBinDir
+  })
+  afterEach(() => {
+    if (savedPath === undefined) delete process.env.PATH
+    else process.env.PATH = savedPath
+    fs.rmSync(emptyBinDir, { recursive: true, force: true })
+  })
+
   it("an http:// instance is absent: no request, no session write", async () => {
     writeGlabConfig("hosts:\n    gitlab.com:\n        token: glpat-glab\n")
     const result = await invoke("gitlab:cli-credentials", { instanceUrl: "http://gitlab.com" })

@@ -2,11 +2,15 @@
  * End-to-end tests for `test`: runs the real CLI entry point in a subprocess,
  * so exit codes, stdout/stderr and --output-file behave exactly as in CI.
  */
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, setDefaultTimeout } from "bun:test"
 import { spawnSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import * as os from "node:os"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 const CLI_ENTRY = path.resolve(import.meta.dirname, "..", "index.ts")
 const CLI_TIMEOUT = 60_000

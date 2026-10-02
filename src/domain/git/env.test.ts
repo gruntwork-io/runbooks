@@ -248,5 +248,7 @@ describe("remote-source resolveRef ssh command (real git)", () => {
     const args = fs.readFileSync(fakeSsh.log, "utf8")
     expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
     expect(args).toContain("git-upload-pack")
-  })
+    // Real git and ssh processes: like the other real-git tests, more than
+    // bun's 5 s default, which a loaded full-suite run can exceed.
+  }, 30_000)
 })
