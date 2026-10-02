@@ -4,9 +4,9 @@ title: <Command>
 
 import { Aside, FileTree } from '@astrojs/starlight/components';
 
-The `<Command>` block executes shell commands or scripts with variable substitution. It's used for performing operations like deployments, resource creation, and system configuration.
+The `<Command>` block runs a shell command or script, with user input substituted in. Use it for deployments, resource creation, and anything else that changes state.
 
-## Basic Usage
+## Basic usage
 
 ```mdx
 <Command 
@@ -20,36 +20,35 @@ The `<Command>` block executes shell commands or scripts with variable substitut
 
 ## vs. Check
 
-Command blocks and [Check](/authoring/blocks/check/) blocks share many features in common, however they each have a distinct purpose. Check blocks are focused on _reading_ the state of the world and validating it, while Command blocks are focused on _mutating_ the state of the world to update it to what is needed.
+Command and [Check](/authoring/blocks/check/) blocks share most of their features. A Check reads the state of the world and validates it. A Command changes it.
 
 ## Props
 
-### Required Props
+### Required props
 
-- `id` (string) - Unique identifier for this command block
+- `id` (string): unique identifier for this command block
 
-### Optional Props
+### Optional props
 
-- `title` (string) - Display title shown in the UI. Supports inline markdown (bold, italic, links, code).
-- `description` (string) - Longer description of what the command does. Supports inline markdown.
-- `command` (string) - Inline command to execute (alternative to `path`)
-- `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
-- `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
-- `gitAuthId` (string) - ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Run button is disabled until authentication completes.
-- `githubAuthId` (string) - ID of a [GitHubAuth](/authoring/blocks/githubauth/) block for GitHub credentials. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes. GitHub only, and kept for existing runbooks; prefer `gitAuthId`.
-- `googleAuthId` (string) - ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Run button is disabled until authentication completes.
-- `successMessage` (string) - Message shown when command succeeds (default: "Success"). Supports inline markdown.
-- `failMessage` (string) - Message shown when command fails (default: "Failed"). Supports inline markdown.
-- `runningMessage` (string) - Message shown while running (default: "Running..."). Supports inline markdown.
-- `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
-- `timeoutMs` (number) - Maximum time, in milliseconds, the script is allowed to run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that legitimately run longer — for example, `timeoutMs={7200000}` for a 2-hour deployment — or lower it so a hung script fails sooner.
+- `title` (string): display title shown in the UI. Supports inline markdown (bold, italic, links, code).
+- `description` (string): longer description of what the command does. Supports inline markdown.
+- `command` (string): inline command to execute. Use either this or `path`.
+- `path` (string): path to a shell script file relative to the runbook. Use either this or `command`.
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones.
+- `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
+- `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Run button is disabled until authentication completes.
+- `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes. Prefer `gitAuthId`.
+- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Run button is disabled until authentication completes.
+- `successMessage` (string): message shown when the command succeeds. Default "Success". Supports inline markdown.
+- `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
+- `runningMessage` (string): message shown while running. Default "Running...". Supports inline markdown.
+- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner.
 
 ### Inline content
 
-Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest an `<Inputs>` component directly inside the Command:
+You can nest an `<Inputs>` component directly inside the Command:
 
-```mdx
+````mdx
 <Command 
     id="echo-message" 
     command='echo "Hello, {{ .inputs.Name }}!"'
@@ -63,36 +62,22 @@ Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest
         description: Your name
         validations:
           - required
-    \```
+    ```
     </Inputs>
 </Command>
-```
+````
 
-The embedded `<Inputs>` renders directly within the Command block, allowing users to fill in variables before running the command.
+The embedded `<Inputs>` renders inside the Command block, so users fill in variables before running the command. Other blocks can reference it by `inputsId` like any standalone Inputs block.
 
-Other blocks can reference this Inputs block using the standard `inputsId` pattern.
+## Writing scripts
 
-## Writing Scripts
+Scripts can be defined inline with the `command` prop or stored in external files referenced by the `path` prop.
 
-Command blocks run shell scripts to perform operations like deployments, installations, and configuration changes.
+### Defining scripts
 
-Scripts can be defined inline using the `command` prop or stored in external files using the `path` prop.
+#### Inline scripts
 
-When writing scripts for Command blocks:
-
-- **Exit codes matter.** Return `0` for success, any other code for failure
-- **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
-- **Templatize with variables.** Use `{{ .inputs.VariableName }}` syntax to inject user input
-
-Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
-
-### Defining Scripts
-
-You can write scripts either inline or by referencing script files.
-
-#### Inline Scripts
-
-For simple commands, you can define the script directly in the `command` prop:
+For simple commands, define the script directly in the `command` prop:
 
 ```mdx
 <Command 
@@ -104,11 +89,9 @@ For simple commands, you can define the script directly in the `command` prop:
 />
 ```
 
-Inline scripts work best for one-liners or short commands. For anything more complex, use an external script file.
+Inline scripts suit one-liners. For anything longer, use an external script file.
 
-#### External Scripts
-
-Instead of inline commands, you can reference external shell scripts:
+#### External scripts
 
 ```mdx
 <Command 
@@ -121,7 +104,7 @@ Instead of inline commands, you can reference external shell scripts:
 />
 ```
 
-External scripts are plain old bash scripts. The referenced script `scripts/deploy.sh` might look like:
+External scripts are plain bash scripts. The referenced `scripts/deploy.sh` might look like:
 
 ```bash
 #!/bin/bash
@@ -140,20 +123,17 @@ fi
 
 If you edit the script file while the runbook is open, the block shows a "Script changed" notice with the diff and keeps running the version it loaded. Click **Reload script** in the notice to run the new version. See [Reloading a changed script file](/security/execution-model/#reloading-a-changed-script-file).
 
-### Exit Codes
+### Exit codes
 
-The Command block interprets your script's exit codes as follows:
+Exit code 0 renders as success (green). Any other exit code renders as failure (red).
 
-- **Exit code 0**: Success ✓ (green)
-- **Any other exit code**: Failure ✗ (red)
-
-These exit codes will determine how the Runbooks UI renders the result of running a script.
+Exit code 2 is a warning for [Check](/authoring/blocks/check/#exit-codes) blocks. A Command that exits 2 is shown as failed, but Runbooks still treats the run as a warning internally. Files written to `$GENERATED_FILES` are [captured](#capturing-output-files), and the script's environment changes [carry forward](#execution-context).
 
 ### Logging
 
-Runbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Runbooks UI to parse log levels for filtering and export.
+Runbooks sources a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) into every bash script, which defines a set of logging functions. Using them lets the Runbooks UI parse log levels for filtering and export.
 
-#### Log Levels
+#### Log levels
 
 | Function | Output | Description |
 |----------|--------|-------------|
@@ -162,7 +142,7 @@ Runbooks provides standardized logging functions for your scripts by automatical
 | `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
 | `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
 
-The logging functions append to a [log file](#log-files) that Runbooks creates for each run, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)`: the captured value holds only what the function prints.
+The logging functions append to a [log file](#log-files) that Runbooks creates for each run, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)`. The captured value holds only what the function prints.
 
 ```bash
 get_account_id() {
@@ -173,7 +153,7 @@ get_account_id() {
 ACCOUNT_ID=$(get_account_id)
 ```
 
-#### Usage Example
+#### Usage example
 
 ```bash
 #!/bin/bash
@@ -192,7 +172,7 @@ fi
 log_info "Deployment complete"
 ```
 
-#### Log Files
+#### Log files
 
 Each run gets a set of log files. Runbooks puts their paths in environment variables, the way `$RUNBOOK_OUTPUT` holds the path of the [outputs](#block-outputs) file:
 
@@ -228,15 +208,15 @@ Runbooks reads the log files while your script runs, so their lines appear next 
 
 The files are deleted when the run ends, so lines that a [background job](#background-processes) writes after the script exits don't appear. From then on, the logging functions write to stderr instead, so the job's later log lines go wherever you redirected its output. Don't redirect a background job's output to the log files: once they are deleted, a command whose output is redirected to one of them fails without running.
 
-#### Local Development
+#### Local development
 
-When running scripts locally (outside the Runbooks UI), the logging functions aren't automatically injected. To simulate the Runbooks environment, run this one-liner in your terminal session (bash or zsh):
+Outside the Runbooks UI, the logging functions aren't injected. To simulate the Runbooks environment, run this one-liner in your terminal session (bash or zsh):
 
 ```bash
 mkdir -p ~/.config/runbooks && curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh && export BASH_ENV=~/.config/runbooks/logging.sh
 ```
 
-This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. No changes to your scripts are needed — the same script works in both environments.
+This sets [`BASH_ENV`](https://www.gnu.org/software/bash/manual/html_node/Bash-Startup-Files.html), which tells bash to source the logging functions before running any script. It works from bash and zsh parent shells and lasts until the terminal is closed. The same script then works in both environments.
 
 Outside Runbooks `RUNBOOK_LOG` isn't set, so the logging functions write to stderr instead. The one-liner overwrites `~/.config/runbooks/logging.sh`, so re-run it to pick up changes to the logging functions. Copies downloaded before the log files existed write to stdout, where the log lines end up in `$(...)` captures.
 
@@ -247,7 +227,7 @@ The one-liner above uses `export` and `&&`, which are not fish syntax. Fish also
 mkdir -p ~/.config/runbooks; and curl -fsSL https://raw.githubusercontent.com/gruntwork-io/runbooks/main/scripts/logging.sh -o ~/.config/runbooks/logging.sh; and set -gx BASH_ENV ~/.config/runbooks/logging.sh
 ```
 
-To make this persistent across sessions, add the following to a fish startup file (e.g., `~/.config/fish/conf.d/runbooks.fish`):
+To make this persistent across sessions, add the following to a fish startup file such as `~/.config/fish/conf.d/runbooks.fish`:
 
 ```fish
 if test -f ~/.config/runbooks/logging.sh
@@ -256,15 +236,13 @@ end
 ```
 :::
 
-### With Variables
-
-There are several ways to collect variables to customize a command or script.
+### With variables
 
 #### Using inputsId
 
-The Command's command or script pulls its values from a separate Inputs block.
+The command or script pulls its values from a separate Inputs block.
 
-```mdx
+````mdx
 <Inputs id="repo-config">
 ```yaml
 variables:
@@ -274,7 +252,7 @@ variables:
   - name: RepoName
     type: string
     description: Repository name
-\```
+```
 </Inputs>
 
 <Command 
@@ -285,13 +263,13 @@ variables:
     successMessage="Repository {{ .inputs.RepoName }} created!"
     failMessage="Failed to create repository"
 />
-```
+````
 
-#### Using Inline Inputs
+#### Using inline inputs
 
-The Command collects input values directly. These values can be shared with other blocks, just like a standalone Inputs block.
+The Command collects input values directly. Other blocks can read them like any standalone Inputs block.
 
-```mdx
+````mdx
 <Command 
     id="echo-message" 
     command='echo "Hello, {{ .inputs.Name }}!"'
@@ -305,16 +283,16 @@ The Command collects input values directly. These values can be shared with othe
         description: Your name
         validations:
           - required
-    \```
+    ```
     </Inputs>
 </Command>
-```
+````
 
-#### Using Multiple inputsIds
+#### Using multiple inputsIds
 
-You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+Pass an array of IDs to reference several Inputs blocks. Variables are merged in order, and later IDs override earlier ones:
 
-```mdx
+````mdx
 <Inputs id="lambda-config" templatePath="templates/lambda" />
 
 <Inputs id="repo-config">
@@ -326,7 +304,7 @@ variables:
   - name: GithubRepoName
     type: string
     description: Repository name
-\```
+```
 </Inputs>
 
 <Command 
@@ -336,16 +314,16 @@ variables:
     title="Deploy Lambda Function"
     description="Deploy the Lambda function using variables from both inputs"
 />
-```
+````
 
-In this example, the command has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
+If both blocks define a variable with the same name, the value from `repo-config` wins.
 
-#### How Values Are Inserted
+#### How values are inserted
 
 Variable values are inserted into the script verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
 
 :::caution
-Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run: double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, have the upstream block `export` an environment variable and read that instead.
+Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run. Double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, have the upstream block `export` an environment variable and read that instead.
 :::
 
 If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
@@ -354,15 +332,15 @@ If the script can't be rendered, for example because it calls an unknown functio
 [Runbook tests](/authoring/testing/) use a simpler template renderer that doesn't handle `eq` comparisons or the raw-string form yet. It leaves `{{ if eq ... }}` unrendered and reports `{{.Names}}` as an undefined variable, so a script that uses either works in the app but not under test.
 :::
 
-### Execution Context
+### Execution context
 
-Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your runbook like a workflow where earlier steps set up the environment for later steps.
+Scripts run in a persistent environment. Environment variable changes (`export`, `unset`) and working directory changes (`cd`) made by a script that exits 0 or 2 carry forward to later blocks, so earlier steps can set up the environment for later ones.
 
-Scripts also run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**.
+Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
 
-For full details, see [Shell Execution Context](/security/shell-execution-context/).
+See [Shell execution context](/security/shell-execution-context/) for the details.
 
-#### Background Processes
+#### Background processes
 
 A block finishes once its script has exited and no process it started still has the script's output open. To leave a process running for later blocks, such as a port-forward or a local dev server, start it in the background with its output redirected:
 
@@ -374,9 +352,7 @@ Without the redirect, the block keeps waiting on the background process until `t
 
 ### Examples
 
-Let's take a look at some example scripts:
-
-#### Simple Deployment Script
+#### Simple deployment script
 
 ```bash
 #!/bin/bash
@@ -391,7 +367,7 @@ kubectl rollout status deployment/myapp
 log_info "Deployment complete!"
 ```
 
-#### Parameterized Script
+#### Parameterized script
 
 ```bash
 #!/bin/bash
@@ -412,7 +388,7 @@ aws ec2 create-vpc \
 log_info "VPC created successfully!"
 ```
 
-#### Script with Error Handling
+#### Script with error handling
 
 ```bash
 #!/bin/bash
@@ -439,20 +415,20 @@ log_info "Running post-deployment validation..."
 log_info "Deployment successful!"
 ```
 
-## Capturing Output Files
+## Capturing output files
 
-Scripts can write files to two different destinations, depending on the workflow.
+Scripts can write files to two destinations:
 
 - [Generated files](/intro/files_workspace/#generated-files)
 - [Repository files](/intro/files_workspace/#repository-files)
 
-See the [Files workspace](/intro/files_workspace/) page for more details.
+See the [Files workspace](/intro/files_workspace/) page for more.
 
-### Writing to Generated Files
+### Writing to generated files
 
-Use `$GENERATED_FILES` to capture new files. Any files written to this directory automatically appear in the file panel after the command completes successfully.
+Files written to `$GENERATED_FILES` appear in the file panel after the script exits 0 or 2.
 
-#### Basic Example
+#### Basic example
 
 ```bash
 #!/bin/bash
@@ -474,13 +450,11 @@ Or as an inline command:
 />
 ```
 
-#### Organizing Files with Subdirectories
-
-You can create subdirectories within `$GENERATED_FILES` to organize your captured files:
+#### Organizing files with subdirectories
 
 ```bash
 #!/bin/bash
-mkdir -p "$GENERATED_FILES/terraform"
+mkdir -p "$GENERATED_FILES/opentofu"
 mkdir -p "$GENERATED_FILES/config"
 
 tofu output -json > "$GENERATED_FILES/opentofu/outputs.json"
@@ -499,25 +473,25 @@ This creates:
 
 </FileTree>
 
-#### How It Works
+#### How it works
 
 1. Before your script runs, Runbooks creates a temporary capture directory
 2. The `$GENERATED_FILES` environment variable points to this directory
 3. Your script writes files to `$GENERATED_FILES`
-4. After successful execution, files are copied to the generated files directory
-5. The temporary directory is cleaned up
+4. If the script exits 0 or 2, the files are copied to the generated files directory
+5. The temporary directory is removed
 
 <Aside type="tip">
-Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$GENERATED_FILES` are discarded.
+Files are only captured when the script exits 0 or 2. On any other exit code, files written to `$GENERATED_FILES` are discarded.
 </Aside>
 
 <Aside type="note">
-If multiple commands run concurrently and write files with the same name, the last command to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
+If multiple commands run concurrently and write files with the same name, the last command to finish overwrites the file. Use unique filenames or subdirectories to avoid conflicts.
 </Aside>
 
-### Writing to Repository Files
+### Writing to repository files
 
-If a `<GitClone>` block has cloned a repository, the `$REPO_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to modify files inside the cloned repo directly:
+Once a `<GitClone>` block has registered a repository, the `$REPO_FILES` environment variable points to its local path. With several repositories registered, it points to the one selected in the workspace's repository dropdown, or to the most recently registered one if the user hasn't selected any. Scripts can modify files inside the repository directly:
 
 ```bash
 #!/bin/bash
@@ -525,10 +499,10 @@ If a `<GitClone>` block has cloned a repository, the `$REPO_FILES` environment v
 echo "new setting = true" >> "$REPO_FILES/config.hcl"
 ```
 
-Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` are not captured to a temporary directory; they happen directly on the filesystem. Changes are visible in the **Changed** tab via `git diff`.
+Writes to `$REPO_FILES` are not captured to a temporary directory. They happen directly on the filesystem, and the **Changed files** tab shows them via `git diff`.
 
 <Aside type="note">
-`$REPO_FILES` is only set when a `<GitClone>` block has successfully cloned a repository. If no repo has been cloned, this variable is **unset**. Always check for it in your scripts:
+`$REPO_FILES` is only set when a `<GitClone>` block has registered a repository. Otherwise it is unset, so check for it in your scripts:
 
 ```bash
 if [ -z "${REPO_FILES:-}" ]; then
@@ -538,20 +512,20 @@ fi
 ```
 </Aside>
 
-## Viewing Logs
+## Viewing logs
 
-While a command runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar lets you:
+While a command runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar offers:
 
-- **Copy log file path**: every run also writes its output to a log file on disk, which you can open or tail with other tools.
-- **Copy prompt for LLM**: copy a ready-to-paste prompt for an AI assistant. It names the block's ID, the runbook file and the log file, and ends with an instruction that matches the block's status. For example, when the block has failed, it asks the assistant to analyze the failure and suggest how to fix it. Because the prompt points at the log file rather than including the logs, it works best with assistants that can read local files, such as Claude Code or Cursor.
+- **Copy log file path.** Every run also writes its output to a log file on disk, which you can open or tail with other tools.
+- **Copy prompt for LLM.** Copies a ready-to-paste prompt for an AI assistant. It names the block's ID, the runbook file and the log file, and ends with an instruction that matches the block's status. When the block has failed, for example, it asks the assistant to analyze the failure and suggest a fix. The prompt points at the log file rather than including the logs, so it works best with assistants that can read local files, such as Claude Code or Cursor.
 - **Wrap** long lines, **copy** the logs as plain text, or **download** them as raw (`.log`) or structured (`.json`) logs.
 - **Maximize** the logs to fill the screen.
 
 Blocks that don't write a log file, such as [`<GitClone>`](/authoring/blocks/gitclone/) and [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), put the last 200 lines of their logs in the prompt instead.
 
-## Block Outputs
+## Block outputs
 
-Commands can produce **outputs** that downstream blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and downstream blocks reference them via `{{ .outputs.<block-id>.<key> }}`.
+Commands can produce outputs that later blocks consume. Scripts write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them via `{{ .outputs.<block-id>.<key> }}`.
 
 ```bash
 #!/bin/bash
@@ -559,19 +533,6 @@ ACCOUNT_ID=$(aws organizations create-account ...)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```
 
-After a block runs, click **"View Outputs"** below the log viewer to inspect its outputs. To keep a credential off screen there, write `sensitive:` before its key, as in `echo "sensitive:API_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. See [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
+After a block runs, click **View Outputs** below the log viewer to inspect its outputs. To keep a credential off screen there, write `sensitive:` before its key, as in `echo "sensitive:API_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 
-For the full guide on producing outputs, consuming them in templates, dependency behavior, and working with complex data types, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
-
-## Common Use Cases
-
-The `<Command>` block works especially well for mutating the world to a desired state. This could be either the user's local environment, the company's world, or the external world.
-
-This might manifest as:
-
-- **Installing tools**: Install tools needed to execute the runbook
-- **Configure environment**: Configure the user's environment
-- **Provisioning resources**: Hit an API to provision resource.
-- **Deployments**: Deploy applications or infrastructure to cloud environments
-- **Database Operations**: Run migrations or seed data
-- **Build Steps**: Compile code or build Docker images
+For producing outputs, consuming them in templates, dependency behavior, and complex data types, see [Block outputs](/authoring/inputs-and-outputs/#block-outputs) in Inputs and outputs.

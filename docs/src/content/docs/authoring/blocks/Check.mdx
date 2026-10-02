@@ -2,11 +2,9 @@
 title: <Check>
 ---
 
-import { FileTree } from '@astrojs/starlight/components';
+The `<Check>` block runs a shell command or script and reports whether the user's system is in the expected state. Use it for pre-flight checks before a Command, to validate what a Command did, or as a smoke test at the end of a runbook.
 
-The `<Check>` block validates a user's system state by running shell commands or scripts. It's used to ensure that users have the right tools installed and their environment is properly configured before proceeding.
-
-## Basic Usage
+## Basic usage
 
 ```mdx
 <Check 
@@ -21,36 +19,38 @@ The `<Check>` block validates a user's system state by running shell commands or
 
 ## vs. Command
 
-Check blocks and [Command](/authoring/blocks/command/) blocks share many features in common, however they each have a distinct purpose. Check blocks are focused on _reading_ the state of the world and validating it, while Command blocks are focused on _mutating_ the state of the world to update it to what is needed.
+Check and [Command](/authoring/blocks/command/) blocks share most of their features. A Check reads the state of the world and validates it. A Command changes it.
+
+A Check has a **Check** button where a Command has **Run**. It also accepts a `warnMessage` and shows exit code 2 as a warning, where a Command shows it as a failure.
 
 ## Props
 
-### Required Props
+### Required props
 
-- `id` (string) - Unique identifier for this check block
-- `title` (string) - Display title shown in the UI. Supports inline markdown (bold, italic, links, code).
+- `id` (string): unique identifier for this check block
 
-### Optional Props
-- `description` (string) - Longer description of what's being checked. Supports inline markdown.
-- `command` (string) - Inline command to execute (alternative to `path`)
-- `path` (string) - Path to a shell script file relative to the runbook (alternative to `command`)
-- `inputsId` (string | string[]) - ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones).
-- `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
-- `gitAuthId` (string) - ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Check button is disabled until authentication completes.
-- `githubAuthId` (string) - ID of a [GitHubAuth](/authoring/blocks/githubauth/) block for GitHub credentials. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes. GitHub only, and kept for existing runbooks; prefer `gitAuthId`.
-- `googleAuthId` (string) - ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Check button is disabled until authentication completes.
-- `successMessage` (string) - Message shown when check succeeds (default: "Success"). Supports inline markdown.
-- `warnMessage` (string) - Message shown on warning (default: "Warning"). Supports inline markdown.
-- `failMessage` (string) - Message shown when check fails (default: "Failed"). Supports inline markdown.
-- `runningMessage` (string) - Message shown while running (default: "Checking..."). Supports inline markdown.
-- `usePty` (boolean) - Whether to use a pseudo-terminal (PTY) for script execution. Defaults to `true`. Set to `false` to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support) for details.
-- `timeoutMs` (number) - Maximum time, in milliseconds, the check script is allowed to run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Lower it so a hung check fails sooner — for example, `timeoutMs={120000}` for a 2-minute probe — or raise it for checks that legitimately run longer.
+### Optional props
+
+- `title` (string): display title shown in the UI. Supports inline markdown (bold, italic, links, code).
+- `description` (string): longer description of what's being checked. Supports inline markdown.
+- `command` (string): inline command to execute. Use either this or `path`.
+- `path` (string): path to a shell script file relative to the runbook. Use either this or `command`.
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones.
+- `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
+- `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Check button is disabled until authentication completes.
+- `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes. Prefer `gitAuthId`.
+- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Check button is disabled until authentication completes.
+- `successMessage` (string): message shown when the check succeeds. Default "Success". Supports inline markdown.
+- `warnMessage` (string): message shown on warning. Default "Warning". Supports inline markdown.
+- `failMessage` (string): message shown when the check fails. Default "Failed". Supports inline markdown.
+- `runningMessage` (string): message shown while running. Default "Checking...". Supports inline markdown.
+- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Lower it so a hung check fails sooner, for example `timeoutMs={120000}` for a 2-minute probe, or raise it for checks that run longer.
 
 ### Inline content
 
-Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest an `<Inputs>` component directly inside the Check:
+You can nest an `<Inputs>` component directly inside the Check:
 
-```mdx
+````mdx
 <Check 
     id="check-s3-bucket" 
     path="checks/s3-bucket-exists.sh"
@@ -64,36 +64,22 @@ Instead of referencing an external `<Inputs>` block via `inputsId`, you can nest
         description: Name of the S3 bucket to check
         validations:
           - required
-    \```
+    ```
     </Inputs>
 </Check>
-```
+````
 
-The embedded `<Inputs>` renders directly within the Check block, allowing users to fill in variables before running the check.
+The embedded `<Inputs>` renders inside the Check block, so users fill in variables before running the check. Other blocks can reference it by `inputsId` like any standalone Inputs block.
 
-Other blocks can reference this Inputs block using the standard `inputsId` pattern.
+## Writing scripts
 
-## Writing Scripts
+Scripts can be defined inline with the `command` prop or stored in external files referenced by the `path` prop.
 
-Check blocks run shell scripts to enable users to run some kind of validation.
+### Defining scripts
 
-Scripts can be defined inline using the `command` prop or stored in external files using the `path` prop.
+#### Inline scripts
 
-When writing scripts for Check blocks:
-
-- **Exit codes matter.** Return `0` for success, `1` for failure, or `2` for warning
-- **Use logging helpers.** Standardized functions like `log_info` and `log_error` are available
-- **Templatize with variables.** Use `{{ .inputs.VariableName }}` syntax to inject user input
-
-Scripts run in a non-interactive shell environment. See [Execution Context](#execution-context) for details.
-
-### Defining Scripts
-
-You can write scripts either inline or by referencing script files.
-
-#### Inline Scripts
-
-For simple checks, you can define the script directly in the `command` prop:
+For simple checks, define the script directly in the `command` prop:
 
 ```mdx
 <Check 
@@ -105,11 +91,9 @@ For simple checks, you can define the script directly in the `command` prop:
 />
 ```
 
-Inline scripts work best for one-liners or short commands. For anything more complex, use an external script file.
+Inline scripts suit one-liners. For anything longer, use an external script file.
 
-#### External Scripts
-
-Instead of inline commands, you can reference external shell scripts:
+#### External scripts
 
 ```mdx
 <Check 
@@ -122,7 +106,7 @@ Instead of inline commands, you can reference external shell scripts:
 />
 ```
 
-External scripts are plain old bash scripts. The referenced script `checks/aws-authenticated.sh` might look like:
+External scripts are plain bash scripts. The referenced `checks/aws-authenticated.sh` might look like:
 
 ```bash
 #!/bin/bash
@@ -140,63 +124,25 @@ fi
 
 If you edit the script file while the runbook is open, the block shows a "Script changed" notice with the diff and keeps running the version it loaded. Click **Reload script** in the notice to run the new version. See [Reloading a changed script file](/security/execution-model/#reloading-a-changed-script-file).
 
-### Exit Codes
+### Exit codes
 
-The Check block interprets your script's exit codes as follows:
+| Exit code | Result |
+|-----------|--------|
+| `0` | Success (green), with `successMessage` |
+| `2` | Warning (yellow), with `warnMessage` |
+| Anything else | Failure (red), with `failMessage` |
 
-- **Exit code 0**: Success ✓ (green)
-- **Exit code 1**: Failure ✗ (red)
-- **Exit code 2**: Warning ⚠ (yellow)
-
-These exit codes will determine how the Runbooks UI renders the result of running a script.
+A script killed by `timeoutMs` is a failure.
 
 ### Logging
 
-Runbooks provides standardized logging functions for your scripts by automatically importing a [logging.sh file](https://github.com/gruntwork-io/runbooks/blob/main/scripts/logging.sh) that defines a standardized set of Bash logging functions. Using these functions enables consistent output formatting and allows the Runbooks UI to parse log levels for filtering and export.
+Check scripts get the same `log_info`, `log_warn`, `log_error` and `log_debug` functions and log files as Command scripts. See [Logging](/authoring/blocks/command/#logging) in the Command block docs, including [Log files](/authoring/blocks/command/#log-files) and [Local development](/authoring/blocks/command/#local-development).
 
-#### Log Levels
+### With variables
 
-| Function | Output | Description |
-|----------|--------|-------------|
-| `log_info "msg"` | `[timestamp] [INFO]  msg` | General informational messages |
-| `log_warn "msg"` | `[timestamp] [WARN]  msg` | Warning conditions |
-| `log_error "msg"` | `[timestamp] [ERROR] msg` | Error messages |
-| `log_debug "msg"` | `[timestamp] [DEBUG] msg` | Debug output (only when `DEBUG=true`) |
+A Check takes variables the same way a Command does: from `inputsId`, from several `inputsId` values, or from a nested `<Inputs>`. Reference a value as `{{ .inputs.VariableName }}` in the command, the script, or the message props.
 
-The logging functions append to a log file that Runbooks creates for each run, `$RUNBOOK_LOG`, and Runbooks shows those lines in the block's logs as your script writes them, in the order it wrote them. They never write to stdout, so you can call them inside a function whose output you capture with `$(...)` without the log lines ending up in the captured value. For output that doesn't name a level, such as a tool's stderr, any command or a script in another language can append to `$RUNBOOK_INFO_LOG`, `$RUNBOOK_WARN_LOG`, `$RUNBOOK_ERROR_LOG` or `$RUNBOOK_DEBUG_LOG`, and its lines show up at that level. See [Log Files](/authoring/blocks/command/#log-files) in the Command block docs.
-
-#### Usage Example
-
-```bash
-#!/bin/bash
-log_info "Starting validation..."
-log_debug "Checking environment variable: $MY_VAR"
-
-if [ -z "$MY_VAR" ]; then
-  log_warn "MY_VAR is not set, using default"
-fi
-
-if ! command -v aws &>/dev/null; then
-  log_error "AWS CLI is not installed"
-  exit 1
-fi
-
-log_info "Validation complete"
-```
-
-#### Local Development
-
-Runbooks automatically injects these logging functions into every bash script at runtime — no `source` or `import` is needed. To run these scripts locally outside the Runbooks environment, see the [Command block Local Development guide](/authoring/blocks/command/#local-development).
-
-### With Variables
-
-There are several ways to collect variables to customize a check's command or script.
-
-#### Using inputsId
-
-The Check command or script pulls its values from a separate Inputs block.
-
-```mdx
+````mdx
 <Inputs id="region-config">
 ```yaml
 variables:
@@ -204,7 +150,7 @@ variables:
     type: string
     description: AWS region to check
     default: us-east-1
-\```
+```
 </Inputs>
 
 <Check 
@@ -215,89 +161,21 @@ variables:
     successMessage="Region {{ .inputs.AwsRegion }} is accessible!"
     failMessage="Cannot access region {{ .inputs.AwsRegion }}"
 />
-```
+````
 
-#### Using Inline Inputs
+See [With variables](/authoring/blocks/command/#with-variables) in the Command block docs for merging several Inputs blocks, and [How values are inserted](/authoring/blocks/command/#how-values-are-inserted) for quoting and for passing `{{ }}` through to another tool.
 
-The Check command collects input values directly. These values can be shared with other blocks, just like a standalone Inputs block.
+### Execution context
 
-```mdx
-<Check 
-    id="check-kms-key" 
-    path="checks/kms-validation.sh"
-    title="Validate KMS Key"
->
-    <Inputs id="inline-kms">
-    ```yaml
-    variables:
-      - name: KmsKeyId
-        type: string
-        description: KMS Key ID to validate
-        validations:
-          - required
-    \```
-    </Inputs>
-</Check>
-```
-
-#### Using Multiple inputsIds
-
-You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
-
-```mdx
-<Inputs id="lambda-config" templatePath="templates/lambda" />
-
-<Inputs id="repo-config">
-```yaml
-variables:
-  - name: GithubOrgName
-    type: string
-  - name: GithubRepoName
-    type: string
-\```
-</Inputs>
-
-<Check 
-    id="check-lambda" 
-    path="checks/test-lambda.sh"
-    inputsId={["lambda-config", "repo-config"]}
-    title="Test Lambda Function"
-/>
-```
-
-In this example, the check has access to all variables from both `lambda-config` and `repo-config`. If both define a variable with the same name, the value from `repo-config` (the later ID) takes precedence.
-
-#### How Values Are Inserted
-
-Variable values are inserted into the script verbatim, with no quoting or escaping. Quote a reference where the shell needs it, for example `REGION="{{ .inputs.AwsRegion }}"`, and compare strings directly, for example `{{ if eq .inputs.Language "JavaScript" }}`.
-
-:::caution
-Quoting keeps a value with spaces in one piece, but it does not make an untrusted value safe to run: double quotes still expand `$(...)`. For values you don't control, such as another block's outputs, have the upstream block `export` an environment variable and read that instead.
-:::
-
-If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
-
-:::note
-[Runbook tests](/authoring/testing/) use a simpler template renderer that doesn't handle `eq` comparisons or the raw-string form yet. It leaves `{{ if eq ... }}` unrendered and reports `{{.Names}}` as an undefined variable, so a script that uses either works in the app but not under test.
-:::
-
-### Execution Context
-
-Scripts run in a **persistent environment** — environment variable changes (`export`, `unset`) and working directory changes (`cd`) carry forward to subsequent blocks. This lets you structure your runbook like a workflow where earlier steps set up the environment for later steps.
-
-Scripts also run in a **non-interactive shell**, which means shell aliases (like `ll`) and shell functions (like `nvm`, `rvm`) are **not available**.
-
-For full details, see [Shell Execution Context](/security/shell-execution-context/).
+Check scripts run in the same persistent, non-interactive shell environment as Command scripts. A check that exits 0 or 2 carries its `export`, `unset` and `cd` changes forward to later blocks. See [Execution context](/authoring/blocks/command/#execution-context).
 
 ### Examples
 
-Let's take a look at some example scripts:
-
-#### Basic Validation Script
+#### Basic validation script
 
 ```bash
 #!/bin/bash
-# checks/terraform-installed.sh
+# checks/tofu-installed.sh
 
 log_info "Checking for OpenTofu installation..."
 
@@ -310,7 +188,7 @@ else
 fi
 ```
 
-#### Script with Warning
+#### Script with warning
 
 ```bash
 #!/bin/bash
@@ -332,7 +210,7 @@ else
 fi
 ```
 
-#### Parameterized Script
+#### Parameterized script
 
 ```bash
 #!/bin/bash
@@ -352,137 +230,39 @@ else
 fi
 ```
 
-## Viewing Logs
+## Viewing logs
 
-While a check runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar lets you:
+A check's output streams into the same **View Logs** panel as a command's. See [Viewing logs](/authoring/blocks/command/#viewing-logs).
 
-- **Copy log file path**: every run also writes its output to a log file on disk, which you can open or tail with other tools.
-- **Copy prompt for LLM**: copy a ready-to-paste prompt for an AI assistant. It names the block's ID, the runbook file and the log file, and ends with an instruction that matches the block's status. For example, when the block has failed, it asks the assistant to analyze the failure and suggest how to fix it. Because the prompt points at the log file rather than including the logs, it works best with assistants that can read local files, such as Claude Code or Cursor.
-- **Wrap** long lines, **copy** the logs as plain text, or **download** them as raw (`.log`) or structured (`.json`) logs.
-- **Maximize** the logs to fill the screen.
+## Block outputs
 
-Blocks that don't write a log file, such as [`<GitClone>`](/authoring/blocks/gitclone/) and [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), put the last 200 lines of their logs in the prompt instead.
-
-## Block Outputs
-
-Check blocks can produce **outputs** that downstream blocks can consume. This enables multi-step workflows where each step builds on the previous one.
-
-### Producing Outputs
-
-Scripts write outputs to a file specified by the `$RUNBOOK_OUTPUT` environment variable. Each output is a `key=value` pair on its own line:
+A check script can write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and later blocks reference them as `{{ .outputs.<block-id>.<key> }}`:
 
 ```bash
 #!/bin/bash
 # Verify an account and output its ID
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-# Write outputs for downstream blocks
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
-exit 0
 ```
 
-### Consuming Outputs
+A Check that references another block's outputs keeps its Check button disabled, and names the blocks that need to run first, until those outputs exist.
 
-Reference outputs from other blocks using the `outputs` namespace in templates:
+See [Block outputs](/authoring/inputs-and-outputs/#block-outputs) in Inputs and outputs. The [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) includes a Check that consumes outputs from upstream Command blocks.
 
-```bash
-# Use the account ID from the verify-account block
-echo "Using account {{ .outputs.verify_account.account_id }}"
-```
+## Capturing output files
 
-The full syntax is: `{{ .outputs.<block-id>.<output-name> }}`
+A check script can write to `$GENERATED_FILES` and read or modify `$REPO_FILES` the same way a command script does. Files in `$GENERATED_FILES` are captured when the check exits 0 or 2, so a check that ends in a warning still keeps its files. See [Capturing output files](/authoring/blocks/command/#capturing-output-files).
 
-### Dependency Behavior
-
-If a block references outputs from another block that hasn't run yet:
-
-- The **Check button is disabled** until the upstream block executes
-- A **warning message** shows which blocks need to run first
-- The template shows the raw syntax until outputs are available
-
-### Viewing Outputs
-
-After a block runs, you can view its outputs by clicking **"View Outputs"** below the log viewer. Outputs are displayed in a table and can be copied as JSON. An output the script marked `sensitive:` shows as `••••••••` in the table and `<redacted>` in the JSON. See [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
-
-For more details on block outputs, see the [Command block documentation](/authoring/blocks/command/#block-outputs).
-
-:::tip[See It in Action]
-Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of block outputs, including a Check block that consumes outputs from upstream Command blocks.
-:::
-
-## Capturing Output Files
-
-Scripts can write files to two different destinations, depending on the workflow.
-
-- [Generated files](/intro/files_workspace/#generated-files)
-- [Repository files](/intro/files_workspace/#repository-files)
-
-See the [Files workspace](/intro/files_workspace/) page for more details.
-
-### Writing to Generated Files
-
-Use `$GENERATED_FILES` to capture new files. Any files written to this directory automatically appear in the file panel after the check completes successfully.
-
-#### Basic Example
-
-```bash
-#!/bin/bash
-# Export current state for review
-aws sts get-caller-identity > "$GENERATED_FILES/caller-identity.json"
-
-# Save a diagnostic report
-echo "Check ran at $(date)" > "$GENERATED_FILES/diagnostic-report.txt"
-```
-
-#### Organizing Files with Subdirectories
-
-You can create subdirectories within `$GENERATED_FILES` to organize your captured files:
-
-```bash
-#!/bin/bash
-mkdir -p "$GENERATED_FILES/diagnostics"
-mkdir -p "$GENERATED_FILES/config"
-
-aws sts get-caller-identity > "$GENERATED_FILES/diagnostics/caller-identity.json"
-aws configure list > "$GENERATED_FILES/diagnostics/aws-config.txt"
-```
-
-This creates:
-
-<FileTree>
-
-- generated/
-  - diagnostics/
-    - caller-identity.json
-    - aws-config.txt
-  - config/
-    - ...
-
-</FileTree>
-
-#### How It Works
-
-1. Before your script runs, Runbooks creates a temporary capture directory
-2. The `$GENERATED_FILES` environment variable points to this directory
-3. Your script writes files to `$GENERATED_FILES`
-4. After successful execution, files are copied to the generated files directory
-5. The temporary directory is cleaned up
-
-:::tip
-Files are only captured after **successful** execution (exit code 0 or 2). If your script fails, any files written to `$GENERATED_FILES` are discarded.
-:::
-
-:::note
-If multiple checks run concurrently and write files with the same name, the last check to finish will overwrite the file. Use unique filenames or subdirectories to avoid conflicts.
-:::
-
-### Writing to Repository Files
-
-If a `<GitClone>` block has cloned a repository, the `$REPO_FILES` environment variable points to the local path of the most recently cloned repository. Scripts can use this to read or validate files inside the cloned repo:
+A check more often reads `$REPO_FILES` than writes to it:
 
 ```bash
 #!/bin/bash
 # Validate a config file in the cloned repo
+if [ -z "${REPO_FILES:-}" ]; then
+    log_error "No git worktree available. Clone a repo first."
+    exit 1
+fi
+
 if [ -f "$REPO_FILES/terragrunt.hcl" ]; then
     log_info "Found terragrunt.hcl"
     exit 0
@@ -491,33 +271,3 @@ else
     exit 1
 fi
 ```
-
-Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` are not captured to a temporary directory; they happen directly on the filesystem. Changes are visible in the **Changed** tab via `git diff`.
-
-:::note
-`$REPO_FILES` is only set when a `<GitClone>` block has successfully cloned a repository. If no repo has been cloned, this variable is **unset**. Always check for it in your scripts:
-
-```bash
-if [ -z "${REPO_FILES:-}" ]; then
-    echo "No git worktree available. Clone a repo first."
-    exit 1
-fi
-```
-:::
-
-## Common Use Cases
-
-The `<Check>` block works especially well for:
-
-- Pre-flight checks
-- Validating `<Command>` blocks
-- Smoke tests that validate a completed Runbook
-
-This might manifest as:
-
-- **Tool Installation Verification**: Check if required CLI tools are installed
-- **Authentication Validation**: Verify users are logged into required services
-- **Infrastructure State**: Validate that required resources exist
-- **Configuration Validation**: Ensure config files are properly formatted
-- **Network Connectivity**: Test connectivity to required services
-- **Permissions**: Verify users have necessary permissions

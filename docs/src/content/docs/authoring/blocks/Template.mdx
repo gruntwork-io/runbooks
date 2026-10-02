@@ -6,7 +6,7 @@ import { Aside, FileTree } from '@astrojs/starlight/components';
 
 The `<Template>` block generates files from a [Gruntwork Boilerplate](/authoring/boilerplate/) template directory. It renders a form for any variables defined in the template, and saves generated files to the workspace.
 
-## Basic Usage
+## Basic usage
 
 ```mdx
 <Template id="vpc-setup" path="templates/vpc" />
@@ -18,34 +18,32 @@ Once the files have been generated, the block turns green and regenerates them a
 
 ## vs. TemplateInline
 
-Template and [TemplateInline](/authoring/blocks/templateinline/) both render Boilerplate templates, but they serve different purposes:
+Template and [TemplateInline](/authoring/blocks/templateinline/) both render Boilerplate templates:
 
 | Feature | `<Template>` | `<TemplateInline>` |
 |---------|-------------|-------------------|
 | Template source | Directory with `boilerplate.yml` | Inline in runbook |
 | Form rendered | Yes, from `boilerplate.yml` | No form (uses [Inputs](/authoring/blocks/inputs/)) |
 | File generation | Always saves to workspace | Optional (`generateFile={true}`) |
-| Use case | Generate files from template directories | Show preview of single files inline |
-
-Use `<Template>` when you have a full Boilerplate template directory with multiple files and a `boilerplate.yml` configuration. Use `<TemplateInline>` when you want to show a quick inline preview or generate a single file without a separate template directory.
+| Use case | Generate files from a template directory with a `boilerplate.yml` | Preview or generate a single file without a template directory |
 
 ## Props
 
-### Required Props
+### Required props
 
-- `id` (string) - Unique identifier for this component. Used to reference this Template's variables from other blocks.
-- `path` (string) - Path to the boilerplate template directory, relative to the runbook file. The directory must contain a `boilerplate.yml` file.
+- `id` (string). Unique identifier for this component. Other blocks use it to reference this Template's variables.
+- `path` (string). Path to the boilerplate template directory, relative to the runbook file. The directory must contain a `boilerplate.yml` file.
 
-### Optional Props
+### Optional props
 
-- `inputsId` (string | string[]) - ID of Inputs or Template block(s) to import variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones).
-- `target` (`"generated"` | `"worktree"`) - Where template output is written. Defaults to `"generated"`, which writes to the standard generated files directory (`$GENERATED_FILES`). Set to `"worktree"` to write directly into the active git worktree (the most recently cloned repo via `<GitClone>`). Requires a `<GitClone>` block to have run first.
+- `inputsId` (string | string[]). ID of Inputs or Template block(s) to import variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones).
+- `target` (`"generated"` | `"worktree"`). Where template output is written. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree and requires a `<GitClone>` block to have run first. The active worktree is the one selected in the workspace, or else the most recently cloned repository.
 
 <Aside type="tip">
-Use `target="worktree"` when you want to generate files directly into a cloned repository. For example, to scaffold new modules or configuration files in an existing repo.
+Use `target="worktree"` to generate files into a cloned repository, for example to add new modules or configuration files to an existing repo.
 </Aside>
 
-## Directory Structure
+## Directory structure
 
 The `path` prop should point to a directory containing a `boilerplate.yml` file and any template files:
 
@@ -66,9 +64,7 @@ Expected directory structure:
 
 The `boilerplate.yml` file defines the variables that will be collected from the user. Template files use [Boilerplate's Go template syntax](/authoring/boilerplate/#template-syntax) for variable substitution.
 
-## With Variables
-
-There are several ways to provide variables to a Template.
+## With variables
 
 ### Standalone Template
 
@@ -78,7 +74,7 @@ The Template displays a form with all variables defined in its `boilerplate.yml`
 <Template id="vpc-setup" path="templates/vpc" />
 ```
 
-### Using inputsId
+### Using `inputsId`
 
 Import variables from a separate Inputs block:
 
@@ -101,7 +97,7 @@ variables:
 
 Variables from `config` are merged with the template's own variables. Shared variables become read-only in the Template form.
 
-### Using Multiple inputsIds
+### Using multiple `inputsId` values
 
 You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
@@ -130,11 +126,11 @@ variables:
 />
 `````
 
-## Variable Categories
+## Variable categories
 
-Because a Template has its own `boilerplate.yml` *and* can import variables via `inputsId`, Runbooks needs to decide what happens when both sides define a variable. The result depends on where each variable is defined — Template-only variables are editable, provider-only variables pass through invisibly, and variables defined in both places become read-only. See [Inputs & Outputs — Variable Categories](/authoring/inputs-and-outputs/#variable-categories) for the full explanation.
+A Template has its own `boilerplate.yml` and can also import variables via `inputsId`, so a variable can be defined on either side or both. Variables only the Template defines are editable. Variables only the imported block defines are passed to the template without appearing in the form. Variables defined in both places are read-only in the Template form. See [When variables overlap](/authoring/inputs-and-outputs/#when-variables-overlap).
 
-## Template File Syntax
+## Template file syntax
 
 Template files use [Boilerplate's Go template syntax](/authoring/boilerplate/#template-syntax):
 
@@ -157,7 +153,7 @@ resource "aws_flow_log" "main" {
 {{- end }}
 ```
 
-## Using Block Outputs
+## Using block outputs
 
 Template files can reference outputs from other blocks (e.g., [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), [DirPicker](/authoring/blocks/dirpicker/)) using the `outputs` namespace:
 
@@ -167,20 +163,9 @@ account_id = "{{ .outputs.create_account.account_id }}"
 
 Runbooks scans template files for output references and disables the Generate button until all upstream blocks have run.
 
-For the full guide on producing outputs, consuming them, dependency behavior, and ID naming rules, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
+For producing outputs, consuming them, dependency behavior, and ID naming rules, see [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 
-## Common Use Cases
-
-The `<Template>` block works especially well for generating files from structured templates:
-
-- **Generate infrastructure code**: Create Terraform, Terragrunt, or other IaC files based on user inputs.
-- **Scaffold projects**: Generate project structures with configuration files customized to user preferences.
-- **Create configuration files**: Generate CI/CD pipelines, Docker Compose files, Kubernetes manifests, or other config files.
-- **Multi-file generation**: Generate multiple related files that need consistent variable values.
-
-## Complete Example
-
-Here's a complete runbook showing Template with imported variables and validation:
+## Complete example
 
 `````mdx
 # Deploy a VPC

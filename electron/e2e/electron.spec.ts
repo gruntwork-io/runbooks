@@ -31,7 +31,7 @@ test.describe("Electron App", () => {
         // Disable auto-updater in tests
         ELECTRON_NO_UPDATER: "1",
         // Disable telemetry
-        RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TELEMETRY_DISABLE: "1",
       },
     })
 
@@ -58,7 +58,7 @@ test.describe("Electron App", () => {
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
-        RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TELEMETRY_DISABLE: "1",
       },
     })
 
@@ -81,7 +81,7 @@ test.describe("Electron App", () => {
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
-        RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TELEMETRY_DISABLE: "1",
       },
     })
 
@@ -106,7 +106,7 @@ test.describe("Electron App", () => {
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
-        RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TELEMETRY_DISABLE: "1",
       },
     })
 

@@ -145,7 +145,7 @@ async function launch(name = "runbook"): Promise<{ app: ElectronApplication; pag
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
-      RUNBOOKS_NO_TELEMETRY: "1",
+      RUNBOOKS_TELEMETRY_DISABLE: "1",
     },
   })
   const page = await app.firstWindow()

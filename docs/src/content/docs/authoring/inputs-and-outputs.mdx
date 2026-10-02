@@ -4,16 +4,13 @@ title: Inputs & Outputs
 
 import { Aside } from '@astrojs/starlight/components';
 
-Every runbook has a **global context,** which is the shared collection of key-value pairs that blocks use to communicate. The keys are variables. Blocks can write values to the global context, or read values from the global context.
+Every runbook has a global context, a shared set of key-value pairs that blocks read and write. The keys are variables.
 
-There are two ways values are written to the global context:
-
-- **Inputs:** [Input providers](#input-providers) (like `<Inputs>` and `<Template>`) collect values from end users via web forms and publish them to the global context. Consumer blocks pull in those values via the [`inputsId` prop](#wiring-blocks-with-inputsid).
-- **Outputs:** Several block types (e.g., `<Command>`, `<Check>`, `<DirPicker>`) publish results to the global context. Downstream blocks reference them via the [`outputs` namespace](#block-outputs).
+Values enter the global context in two ways. [Input providers](#input-providers) such as `<Inputs>` and `<Template>` collect values from the user through a form, and consumer blocks pull them in with the [`inputsId` prop](#wiring-blocks-with-inputsid). Blocks that run something, such as `<Command>`, `<Check>` and `<DirPicker>`, publish results that later blocks read through the [`outputs` namespace](#block-outputs).
 
 ## Variables
 
-Variables are the keys in the global context. You reference them in templates, scripts, and block props using `{{ .inputs.VarName }}` syntax for inline rendering blocks (`<Command>`, `<Check>`, and `<TemplateInline>`) or `{{ .VarName }}` for template files used by `<Template>`. For example:
+Reference a variable in templates, scripts, and block props as `{{ .inputs.VarName }}`. For example:
 
 ```mdx
 <Command
@@ -30,40 +27,31 @@ aws organizations create-account --email "alice@example.com" --account-name "my-
 
 ### Boilerplate variables
 
-Under the hood, Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine. This means that variables work exactly like Boilerplate variables:
+Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template engine, so variables are Boilerplate variables:
 
-- The same `{{ .VarName }}` / `{{ .inputs.VarName }}` syntax
-- The same types (`string`, `int`, `bool`, `enum`, `list`, `map`)
+- The same `{{ .inputs.VarName }}` syntax
+- The same types (`string`, `int`, `float`, `bool`, `enum`, `list`, `map`)
 - The same validation rules (`required`, `email`, `url`, `alpha`, `digit`, `alphanumeric`, `countrycode2`, `semver`, `regex`)
 - The same `boilerplate.yml` format for defining them
-- The full library of Boilerplate helper functions and pipe modifiers (`upper`, `lower`, `snakeCase`, `camelCase`, `fromJson`, conditionals, loops, and more)
+- The Boilerplate helper functions and pipe modifiers (`upper`, `lower`, `snakeCase`, `camelCase`, `fromJson`, conditionals, loops)
 
-If you've used Boilerplate before, everything you know carries over directly. If you haven't, the [Boilerplate Templates](/authoring/boilerplate/) page covers the full syntax, including variable definitions, template rendering, helper functions, and how to test templates locally with the Boilerplate CLI.
+The [Boilerplate templates](/authoring/boilerplate/) page covers the syntax, variable definitions, helper functions, and testing templates locally with the Boilerplate CLI.
 
-#### Template Syntax: New vs. Legacy
+#### Template syntax
 
-Runbooks supports two template syntaxes for referencing variables:
-
-- **New syntax (recommended):** `{{ .inputs.VarName }}` for inputs and `{{ .outputs.blockId.outputName }}` for outputs. This explicit namespace syntax makes it clear where values come from.
-- **Legacy syntax (backward compatible):** `{{ .VarName }}` for inputs. This syntax is supported for backward compatibility with existing Boilerplate templates.
-
-Both syntaxes work simultaneously. When variables are passed under the `inputs` namespace, they are automatically duplicated at the root level so existing templates using `{{ .VarName }}` continue to work without modification. This means you can:
-
-- Use existing Boilerplate templates without changes
-- Mix both syntaxes in the same template if needed
-- Gradually migrate to the new syntax at your own pace
+Reference inputs as `{{ .inputs.VarName }}` and outputs as `{{ .outputs.blockId.outputName }}`. Runbooks also exposes every input at the root of the context, so `{{ .VarName }}` works in every block and in templates written for the Boilerplate CLI.
 
 <Aside type="caution">
-**Reserved variable names:** `inputs` and `outputs` are reserved keywords and cannot be used as variable names in your `boilerplate.yml` files.
+`inputs` and `outputs` are reserved and cannot be variable names in `boilerplate.yml`.
 </Aside>
 
-## Input Providers
+## Input providers
 
-An **input provider** is a block that collects variable values and makes them available to other blocks. Let's look at the input providers that are available in Runbooks.
+An input provider is a block that collects variable values and makes them available to other blocks.
 
 ### \<Inputs\>
 
-The [`<Inputs>`](/authoring/blocks/inputs/) block collects variable values from end users via a web form that is dynamically generated based on the contents of a `boilerplate.yml` file. For example, this `boilerplate.yml` file is defined inline and declares a single variable called `ProjectName`:
+The [`<Inputs>`](/authoring/blocks/inputs/) block renders a form from a `boilerplate.yml` definition. This inline definition declares one variable, `ProjectName`:
 
 `````mdx
 <Inputs id="config">
@@ -78,19 +66,17 @@ variables:
 
 ### \<Template\>
 
-The [`<Template>`](/authoring/blocks/template/) block generates files from a Boilerplate template directory. When it references a template that contains a `boilerplate.yml` file, it also acts as an input provider by rendering a web form based on the variables defined in the `boilerplate.yml` file.
+The [`<Template>`](/authoring/blocks/template/) block generates files from a Boilerplate template directory. It renders a form for the variables in that directory's `boilerplate.yml`, so it is an input provider too.
 
 ```mdx
 <Template id="infra" path="templates/rds" />
 ```
 
-In the above example, there is a local `boilerplate.yml` file at `templates/rds/boilerplate.yml`.
+Here the variables come from `templates/rds/boilerplate.yml`.
 
-## Wiring Blocks with `inputsId`
+## Wiring blocks with `inputsId`
 
-You can take the values collected from an input provider and use them in other blocks that consume variables. Any block that consumes variables (e.g. `<Command>`, `<Check>`, `<Template>`, `<TemplateInline>`) accepts an `inputsId` prop that references an input provider by its `id`:
-
-For example, you can use the values collected from the `<Inputs>` block in a `<Command>` block:
+Any block that consumes variables (`<Command>`, `<Check>`, `<Template>`, `<TemplateInline>`) accepts an `inputsId` prop naming an input provider by its `id`. This Command uses the value collected by the Inputs block:
 
 `````mdx
 <Inputs id="config">
@@ -104,11 +90,9 @@ variables:
 <Command inputsId="config" command='mkdir "{{ .inputs.ProjectName }}"' />
 `````
 
-### Multiple Sources
+### Multiple sources
 
-Pass an array of IDs to `inputsId` to merge variables from more than one input provider. Variables are merged in order, so in the event of a name conflict, later IDs override earlier ones.
-
-In this example, the Command will use the variables collected from the `<Inputs>` blocks with the IDs `global-config` and `local-config`.
+Pass an array of IDs to `inputsId` to merge variables from more than one input provider. Variables merge in order, so on a name conflict the later ID wins.
 
 ```mdx
 <Command
@@ -117,9 +101,9 @@ In this example, the Command will use the variables collected from the `<Inputs>
 />
 ```
 
-### Embedded Inputs
+### Embedded inputs
 
-You can nest an `<Inputs>` block directly inside a `<Command>` or `<Check>`. The variables are automatically available to the parent without needing `inputsId`:
+An `<Inputs>` block nested inside a `<Command>` or `<Check>` feeds the parent without `inputsId`:
 
 `````mdx
 <Command command='echo "Hello, {{ .inputs.Name }}!"'>
@@ -133,23 +117,23 @@ You can nest an `<Inputs>` block directly inside a `<Command>` or `<Check>`. The
 </Command>
 `````
 
-The embedded Inputs can still be referenced by other blocks via `inputsId="greeting"`.
+Other blocks can still reference the embedded Inputs with `inputsId="greeting"`.
 
-## When Variables Overlap
+## When variables overlap
 
-When you wire blocks together with `inputsId`, the consuming block receives all the variables from the input provider. For `<Command>`, `<Check>`, and `<TemplateInline>`, this is straightforward: every imported variable is available in the template.
+A consuming block receives every variable from its input provider.
 
-It gets more interesting with `<Template>`, because a Template has its own `boilerplate.yml` that can *also* define variables. When a Template imports from an input provider, Runbooks compares the two sets of variables and handles each one based on where it's defined:
+`<Template>` also has its own `boilerplate.yml`, which can define variables too. When a Template imports from an input provider, Runbooks compares the two sets:
 
-- **If only the Template defines it:**  the variable appears as an editable field in the Template's form. This is how you collect extra inputs (like an environment name or team owner) that the input provider doesn't know about.
-- **If only the input provider defines it:** the variable is passed through to the template engine but doesn't appear in the Template's form.
-- **If both define it:** the variable appears in the Template's form but is read-only, staying live-synced to the input provider's value. This prevents the two forms from getting out of sync.
+- A variable only the Template defines appears as an editable field in the Template's form. Use this to collect extra inputs, such as an environment name, that the provider doesn't know about.
+- A variable only the input provider defines is passed to the template engine and doesn't appear in the Template's form.
+- A variable both define appears in the Template's form read-only, synced to the input provider's value, so the two forms can't disagree.
 
-## Block Outputs
+## Block outputs
 
-Inputs flow from user forms into blocks. **Outputs** flow in the other direction, from blocks that have already run into downstream blocks. This enables multi-step workflows where each step builds on results from previous steps.
+A block that has run can publish outputs for later blocks to read.
 
-### Producing Outputs
+### Producing outputs
 
 [`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks produce outputs by writing `key=value` pairs to the file specified by the `$RUNBOOK_OUTPUT` environment variable:
 
@@ -167,9 +151,9 @@ For complex data (lists, maps), serialize as JSON:
 echo 'users=["alice","bob","charlie"]' >> "$RUNBOOK_OUTPUT"
 ```
 
-You don't need to define the `$RUNBOOK_OUTPUT` environment variable in your script. Runbooks will automatically create it for you.
+Runbooks sets `$RUNBOOK_OUTPUT` before the script runs.
 
-### Sensitive Outputs
+### Sensitive outputs
 
 When an output holds a credential, such as a secret key, token or password, write `sensitive:` before its key:
 
@@ -179,7 +163,7 @@ echo "sensitive:AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY" >> "$RUNBOOK_OUTPUT"
 echo "sensitive:AWS_SESSION_TOKEN=$SESSION_TOKEN" >> "$RUNBOOK_OUTPUT"
 ```
 
-The prefix isn't part of the key. The second output above is named `AWS_SECRET_ACCESS_KEY`, so downstream blocks read it as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`. Auth blocks that take credentials from a block, such as `<AwsAuth detectCredentials={[{ block: '<block-id>' }]} />`, find it by its usual name too.
+The prefix isn't part of the key. The second output above is named `AWS_SECRET_ACCESS_KEY`, so later blocks read it as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`. Auth blocks that take credentials from a block, such as `<AwsAuth detectCredentials={[{ block: '<block-id>' }]} />`, find it by its usual name too.
 
 Runbooks hands a sensitive output's real value only to what uses it:
 
@@ -216,9 +200,9 @@ Runbooks can't mask what your scripts and templates produce from the real value:
 To use a credential in later blocks without writing it anywhere, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/). For a credential no auth block handles, `export` it in the producing script, and later Command and Check scripts read it from the environment (see [Shell Execution Context](/security/shell-execution-context/)).
 </Aside>
 
-### Consuming Outputs
+### Consuming outputs
 
-Downstream blocks reference outputs using the `outputs` namespace:
+Later blocks reference outputs through the `outputs` namespace:
 
 ```
 {{ .outputs.<block-id>.<output-name> }}
@@ -233,10 +217,10 @@ For example, a Command whose `id` is `create-account` that outputs `account_id` 
 This syntax works in `<Command>` and `<Check>` scripts, `<Template>` files, and `<TemplateInline>` content.
 
 <Aside type="note">
-**ID naming:** Block IDs can use hyphens or underscores (e.g., `id="create-account"` or `id="create_account"`). In template syntax, always use underscores. Go templates interpret hyphens as subtraction. IDs that normalize to the same value (e.g., `create-account` and `create_account`) cannot coexist in the same runbook.
+Block IDs can use hyphens or underscores (`id="create-account"` or `id="create_account"`). In template syntax, use underscores, because Go templates read a hyphen as subtraction. IDs that normalize to the same value, such as `create-account` and `create_account`, cannot coexist in one runbook.
 </Aside>
 
-### Iterating Over Complex Outputs
+### Iterating over complex outputs
 
 Use `fromJson` to parse JSON output values, then `range` to iterate:
 
@@ -246,21 +230,17 @@ Use `fromJson` to parse JSON output values, then `range` to iterate:
 {{- end }}
 ```
 
-### Output Dependencies
+### Output dependencies
 
-If a block references outputs from another block that hasn't run yet:
+When a block references outputs from a block that hasn't run yet, a warning names the blocks that need to run first, the Run or Generate button is disabled, and the template shows the raw `{{ }}` syntax.
 
-1. A **warning message** shows which blocks need to run first
-2. The **Run / Generate button is disabled** until the upstream block executes
-3. The template shows the raw syntax until outputs are available
-
-After a block runs, you can click **"View Outputs"** below the log viewer to inspect its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
+After a block runs, **View Outputs** below the log viewer lists its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 
 <Aside type="note">
-Block outputs are stored in browser memory and cleared on page refresh.
+Block outputs live in memory and are cleared when the runbook reloads.
 </Aside>
 
-### Outputs a Block Emits Only Sometimes
+### Outputs a block emits only sometimes
 
 Some outputs exist only some of the time. `<GitClone>` publishes `org_id` and `repo_id` only when it can look the repository up on GitHub, and a script can write an output only when it has something to report. Templates treat a missing key as an error, so a block that reads such an output waits until the output exists, which may be never.
 
@@ -287,23 +267,21 @@ Other forms aren't recognized, such as a guard on a variable (`{{ if hasKey $rep
 - **Guards work only where the template engine renders.** That covers `<Command>` and `<Check>` scripts, `<Template>` files and `<TemplateInline>` content. Props the app fills in itself can't evaluate `if`, so every output they reference is required: the `prefilled*` props of `<GitClone>` and `<GitPullRequest>`, and the `outputPath` of `<TemplateInline>`.
 </Aside>
 
-### Combining Inputs and Outputs
+### Combining inputs and outputs
 
-You can use both standard inputs and block outputs in the same template:
+Inputs and block outputs can appear in the same template:
 
 ```hcl
-# From an Inputs block (via inputsId) - new syntax
+# From an Inputs block (via inputsId)
 environment = "{{ .inputs.Environment }}"
 
 # From a Command block's outputs
 account_id  = "{{ .outputs.create_account.account_id }}"
 ```
 
-Both the new namespaced syntax (`{{ .inputs.Environment }}`) and legacy syntax (`{{ .Environment }}`) work for inputs.
-
 ## Example
 
-Check out the [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) for a complete working demonstration of inputs and outputs flowing between Command, Check, Template, and TemplateInline blocks.
+The [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) passes inputs and outputs between Command, Check, Template, and TemplateInline blocks.
 
 To run it directly:
 

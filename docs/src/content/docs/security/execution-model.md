@@ -1,97 +1,65 @@
 ---
-title: Execution Security Model
-description: Understanding how Runbooks validates and executes scripts
+title: Execution security model
+description: How Runbooks decides which scripts may run, and how it runs them
 ---
 
-## Overview
+Runbooks runs the commands and shell scripts in a runbook directly on your computer, with the environment variables the app was started with. This page describes the checks Runbooks applies before a script runs.
 
-Runbooks executes commands and shell scripts defined your Runbook directly on your local computer with the full set of environment variables present when you launched the Runbooks app. This is a mandate to take security seriously, and in this section we'll discuss the security measures Runbooks takes to protect users.
+## Trust warning
 
-## Security measures
+Every runbook opens with a banner asking you to confirm that you trust it. The banner has an "I trust this Runbook" checkbox and an option to hide it for that runbook path.
 
-Runbooks implements specific techniques to make sure that you only execute "approved" code:
+## Opening a runbook never runs its code
 
-### Warning to only run Runbooks you trust
-
-When Runbooks loads, it immediately shows a warning to users to confirm that they trust the Runbook they just opened. This warning will show on every Runbook you open until permanently hide it.
-
-### Opening a Runbook never runs its code
-
-A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runbooks only accepts MDX that is purely declarative. If a Runbook contains any of the following, Runbooks shows an error instead of rendering it:
+A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runbooks only accepts MDX that is purely declarative. If a runbook contains any of the following, Runbooks shows an error instead of rendering it:
 
 - `import` or `export` statements
 - JavaScript expressions, such as `{new Date().toString()}` or `command={buildCommand()}`
 - Spread props, such as `<Command {...props} />`
-- `<script>` elements, and elements that embed another document: `<iframe>`, `<frame>`, `<frameset>`, `<object>` and `<embed>`
+- `<script>` elements, and elements that embed another document: `<iframe>`, `<frame>`, `<frameset>`, `<object>`, `<embed>` and `<webview>`
 - Props that inject raw HTML: `dangerouslySetInnerHTML` and `srcDoc`
 - Custom elements (element names with a `-`, such as `<my-widget>`), dotted element names (such as `<Admonition.Title>`) and namespaced element names (such as `<svg:script>`)
 - `__proto__` as a prop name or object key
 - `javascript:` URLs in any prop, such as `<a href="javascript:...">`
 
-You can still use `{...}` for literal values: strings, numbers, booleans, `null`, template strings without `${...}` substitutions, and arrays or objects made only of those. For example, `usePty={false}`, `detectCredentials={['env']}` and `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}` are all allowed, and so are `{/* comments */}`.
+You can still use `{...}` for literal values: strings, numbers (including a leading `-` or `+`), booleans, `null`, regex literals, template strings without `${...}` substitutions, and arrays or objects made only of those. For example, `detectCredentials={['env']}` and `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}` are allowed, and so are `{/* comments */}`.
 
-This means that opening a Runbook, whether from your machine or from a remote URL, cannot run code of its own. The scripts in `<Command>` and `<Check>` blocks only run when you click to run them.
+So opening a runbook, from your machine or from a remote URL, runs no code of its own. The scripts in `<Command>` and `<Check>` blocks run when you click Run.
 
-### Executable Registry
+## Executable registry
 
-Runbooks uses an **executable registry,** which is a _registry_ of all _executable_ artifacts, to make sure that the main process will only allow execution of scripts and commands defined directly in the Runbook you opened (versus running arbitrary scripts).
+When a runbook opens, the main process reads `runbook.mdx`, finds every `<Check>` and `<Command>`, and stores each script (the `command` prop, or the file named by `path`) in an in-memory registry under a unique executable ID, along with the block ID and its template variables.
 
-Here's how it works. When you open a runbook, Runbooks starts the main process and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
+When you click Run, the renderer sends an execution request with the executable ID, the template variable values, environment variable overrides from the auth blocks the block references, and a timeout. It never sends script content. The main process looks the ID up in the registry, renders the stored script with the given variables, and runs it. A request for an ID that is not in the registry is refused, so a manipulated IPC message cannot pick a script the runbook did not contain. The registry holds the scripts the runbook had when it was loaded, and any script file you [reloaded yourself](#reloading-a-changed-script-file) after reviewing a change. Template values are inserted into the script verbatim and environment overrides are applied as sent, so a manipulated request can change what the stored script does, though not which script runs.
 
-When you click "Run" in the UI, the renderer sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The main process validates that this executable ID exists in the registry (which was built from your Runbook when it was loaded), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate IPC messages, they cannot inject arbitrary code because the main process will only execute scripts that were present in your Runbook when it was loaded, or that you [reloaded yourself](#reloading-a-changed-script-file) after reviewing a change. Effectively, the registry acts as a whitelist of approved executables.
+## Electron settings
 
-### Electron Security
+The renderer runs with `sandbox: true`, `contextIsolation: true` and `nodeIntegration: false`. It has no access to Node.js APIs or the file system and talks to the main process only through the API that the preload script exposes with `contextBridge`. Script execution, file access and environment management all happen in the main process, which is a separate OS process from the renderer.
 
-Runbooks follows Electron security best practices to maintain strong process isolation:
+`webviewTag` is enabled so the [Iframe block](/authoring/blocks/iframe/) can embed pages in `<webview>` guests. Before a guest attaches, the main process removes its preload script and denies dialogs, downloads, `window.open` and permission requests from the embedded page.
 
-- **Sandboxed renderer**: The renderer process runs in a sandboxed environment with no direct access to Node.js APIs or the file system.
-- **Context isolation**: The renderer and main process communicate exclusively through a `contextBridge`-exposed API, preventing the renderer from accessing internal Node.js or Electron APIs.
-- **No `nodeIntegration` in the renderer**: Node.js integration is disabled in the renderer process. All privileged operations (script execution, file system access, environment management) are handled by the main process.
-- **Process isolation**: The main process and renderer process run in separate OS-level processes. The renderer cannot directly invoke system calls or spawn child processes.
+## When the registry is built
 
-## When the Registry Is Built
-
-Every script Runbooks runs comes from the executable registry. What changes between the ways you can open a runbook is when the registry is rebuilt from the files on disk.
+Every script Runbooks runs comes from the registry. The ways of opening a runbook differ in when the registry is rebuilt from the files on disk.
 
 ### Opening a runbook
+
 ```bash
 runbooks open path/to/runbook.mdx
 ```
 
-**When to use:**
-- For Runbook consumers who want to guarantee that they are executing exactly what the Runbook author wrote.
-
-**How it works:**
-1. Main process loads the runbook file
-2. Builds an **Executable Registry** containing all `<Check>` and `<Command>` components
-3. Assigns each script a unique ID
-4. At execution time, validates the ID exists in the registry
-5. Executes only pre-approved scripts
-
-**Security:**
-- All scripts pre-validated when the runbook is opened
-- Cannot execute arbitrary code via IPC manipulation
-- Changes you make to the runbook or its scripts afterwards are not executed until you close and reopen the runbook, which builds a new registry, or until you [reload a changed script file](#reloading-a-changed-script-file) from its block
+The registry is built once, when the runbook opens. Changes you make to the runbook or its scripts afterwards do not run until you close and reopen the runbook, or until you [reload a changed script file](#reloading-a-changed-script-file) from its block. This is the mode for consumers who want to run exactly what the author wrote.
 
 ### Watch mode
+
 ```bash
 runbooks open --watch path/to/runbook.mdx
 ```
 
-**When to use:**
-- For Runbook authors who want the app to reload their runbook as they edit it. Since they are actively editing files on their file system, they are presumably ok with having these changes picked up.
-
-**How it works:**
-1. Main process loads the runbook and builds the registry, as above
-2. Watches the runbook file for changes and automatically reloads the UI
-3. Each reload rebuilds the registry from the runbook file and the scripts it references _as they are on disk at that moment_
-4. Execution still goes through the registry: the renderer sends an executable ID, never script content
-
-**Security:**
-- Scripts are still only executed from the registry, so IPC manipulation cannot inject arbitrary code
-- Whatever is on disk when the runbook reloads becomes approved, so anything that can write to the runbook's files while you work can change what runs
+Runbooks watches the runbook file and reloads the UI when it changes. Each reload rebuilds the registry from the runbook and the scripts it references as they are on disk at that moment. Execution still goes through the registry, but whatever is on disk at reload becomes approved, so anything that can write to the runbook's files while you work can change what runs. This is the mode for authors editing their own files.
 
 ### Freezing the registry
+
 ```bash
 runbooks open --watch --disable-live-file-reload path/to/runbook.mdx
 ```
@@ -115,19 +83,16 @@ Runbooks watches the script files that `<Check>` and `<Command>` blocks referenc
 - The reload approves the content you saw. A write that lands between the diff and the click is rejected
 - Only script files are covered. A changed inline `command` is part of `runbook.mdx`, so it needs the runbook to be reloaded
 
-## How Scripts Are Executed
+## How scripts run
 
-The actual execution process is:
+1. The main process checks that the executable ID is in the registry.
+2. It renders template variables such as `{{ .VarName }}` into the script.
+3. It writes the script to a temporary file.
+4. It reads the shebang line to pick the interpreter, defaulting to `bash`.
+5. It runs the interpreter on the file in a non-interactive shell.
+6. It streams stdout and stderr to the renderer over IPC.
+7. It deletes the temporary file.
 
-1. **Validate request**: Check that the requested executable ID exists in the registry
-2. **Render templates**: If script contains template variables like `{{ .VarName }}`, substitute them
-3. **Create temp file**: Write script content to a temporary file
-4. **Make executable**: Set file permissions (`chmod 0700`)
-5. **Detect interpreter**: Read shebang line (e.g., `#!/bin/bash`) or default to `bash`
-6. **Execute**: Run script with detected interpreter in a non-interactive shell
-7. **Stream output**: Send stdout/stderr back to the renderer via IPC events
-8. **Clean up**: Delete temporary file
+Scripts run with your user's permissions and full environment. Only run runbooks you trust.
 
-**Security note:** Scripts run with your user's full environment variables and permissions. Runbooks is designed for **trusted runbooks only** - it's meant to streamline tasks you would otherwise run manually in your terminal.
-
-For details on interpreter detection, shell limitations, and how environment changes persist across script executions, see [Shell Execution Context](/security/shell-execution-context/).
+For interpreter detection, shell limitations and how environment changes persist between scripts, see [Shell execution context](/security/shell-execution-context/).
