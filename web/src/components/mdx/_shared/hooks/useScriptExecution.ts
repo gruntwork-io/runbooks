@@ -154,6 +154,13 @@ export function buildGoogleAuthEnvVars(
 export const SENSITIVE_DISPLAY_RENDER_NOTE =
   'The script view shows sensitive outputs as <redacted>, so a template that processes one (for example with fromJson) can fail here. Running the script uses the real value.'
 
+/**
+ * How the auto-render treats the script: 'raw' has no template dependencies,
+ * the two awaiting modes wait on referenced inputs or block outputs, and
+ * 'render' renders it.
+ */
+type RenderMode = 'raw' | 'awaiting-inputs' | 'awaiting-outputs' | 'render'
+
 interface UseScriptExecutionReturn {
   // Script content
   sourceCode: string
@@ -300,11 +307,8 @@ export function useScriptExecution({
   
   // Compute hash of inline command content when it changes
   useEffect(() => {
-    if (!command) {
-      setCommandHashResult(null)
-      return
-    }
-    
+    if (!command) return
+
     // Track if this effect instance is still active (handles unmount and re-runs)
     let isActive = true
     computeSha256Hash(command).then(hash => {
@@ -486,7 +490,18 @@ export function useScriptExecution({
   const [renderedScript, setRenderedScript] = useState<string | null>(null)
   const [renderError, setRenderError] = useState<AppError | null>(null)
   const [isRendering, setIsRendering] = useState(false)
-  
+
+  // A referenced block that hasn't produced its outputs yet puts the script in
+  // 'awaiting-outputs'. Rendering then would fail on the missing
+  // `{{ .outputs.X.Y }}` keys and surface a confusing template error, so the
+  // raw template shows instead (clearing any stale render/error) until the
+  // outputs land. The outputs can come back with the values rendered last time
+  // (a failed re-run registers {} for the block, then a later run restores
+  // them), so the dedupe key must go too or that render would be skipped as a
+  // duplicate.
+  const renderMode = getRenderMode(allDeps.length > 0, hasAllInputDependencies, hasAllOutputDependencies)
+  const [prevRenderMode, setPrevRenderMode] = useState(renderMode)
+
   // State for registry errors (when executable not found)
   const [registryError, setRegistryError] = useState<AppError | null>(null)
   
@@ -502,7 +517,7 @@ export function useScriptExecution({
   const renderSeqRef = useRef(0)
   
   // Determine the actual script content to use
-  const sourceCode = renderedScript !== null ? renderedScript : rawScriptContent
+  const sourceCode = !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
   
   // Files written to $GENERATED_FILES are auto-captured after successful execution:
   // onFilesCaptured updates the file tree, onOutputsCaptured registers outputs.
@@ -608,95 +623,81 @@ export function useScriptExecution({
     [inputValues, flattenedOutputs]
   )
 
+  // The payload and dedupe key for the next auto-render, or null when the
+  // script shouldn't render now.
+  const pendingRender = useMemo(() => {
+    // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
+    // a number field before typing a new value). Sending "" to the backend would
+    // cause type-conversion errors like strconv.Atoi("").
+    if (renderMode !== 'render' || hasEmptyNumericInputs(inputs)) return null
+    // This render is only shown (execute() renders again, with the real
+    // values), so a sensitive output shows as <redacted> in the script view. A
+    // template that processes its value (e.g. fromJson) can then fail here and
+    // not when the script runs, so such an error says why.
+    const errorDetails = displayMasksSensitiveOutput ? SENSITIVE_DISPLAY_RENDER_NOTE : undefined
+    const payload = buildTemplatePayload({
+      inputs: templateContext.inputs,
+      outputs: maskTemplateOutputs(templateContext.outputs),
+    })
+    // The script is part of the key so a changed command with unchanged values
+    // still re-renders.
+    return { payload, key: JSON.stringify([rawScriptContent, payload]), errorDetails }
+  }, [renderMode, inputs, templateContext, rawScriptContent, displayMasksSensitiveOutput])
+
+  const [prevRenderKey, setPrevRenderKey] = useState(pendingRender?.key ?? null)
+  if (renderMode !== prevRenderMode) {
+    setPrevRenderMode(renderMode)
+    if (discardsRender(renderMode)) {
+      setIsRendering(false)
+      setRenderedScript(null)
+      setPrevRenderKey(null)
+      if (renderMode === 'awaiting-outputs') {
+        setRenderError(null)
+      }
+    }
+  }
+  if (pendingRender && pendingRender.key !== prevRenderKey) {
+    setPrevRenderKey(pendingRender.key)
+    // Clear any stale render error immediately so it doesn't flash while
+    // we wait for the debounced re-render with the updated variables.
+    setRenderError(null)
+  }
+
   // Auto-update when variables change (debounced).
   // Whenever this effect discards the rendered script it also forgets the last
   // render key, so the next pass with every dependency met renders again even
   // if the values match the ones rendered before, and it drops any render
   // still in flight, which would otherwise land over the raw script.
   useEffect(() => {
-    // Only render if we have template dependencies and all input dependencies are available
-    if (allDeps.length === 0) {
-      // No template dependencies, use raw script
+    if (discardsRender(renderMode)) {
       renderSeqRef.current++
-      setIsRendering(false)
-      setRenderedScript(null)
       lastRenderedVariablesRef.current = null
       return
     }
 
-    if (!hasAllInputDependencies) {
-      // Input dependencies not available yet
+    if (!pendingRender || pendingRender.key === lastRenderedVariablesRef.current) {
       return
     }
-
-    if (!hasAllOutputDependencies) {
-      // A referenced block hasn't produced its outputs yet. Rendering now would
-      // fail on the missing `{{ .outputs.X.Y }}` keys and surface a confusing
-      // template error. Instead, fall back to the raw template (clearing any
-      // stale render/error) and let this effect re-run once the outputs land —
-      // it already depends on `allOutputs`, so it renders automatically then.
-      // The outputs can come back with the values rendered last time (a failed
-      // re-run registers {} for the block, then a later run restores them), so
-      // the key must go too or that render would be skipped as a duplicate.
-      renderSeqRef.current++
-      setIsRendering(false)
-      setRenderError(null)
-      setRenderedScript(null)
-      lastRenderedVariablesRef.current = null
-      return
-    }
-
-    // Skip render when a numeric input is empty (user is mid-edit, e.g., clearing
-    // a number field before typing a new value). Sending "" to the backend would
-    // cause type-conversion errors like strconv.Atoi("").
-    if (hasEmptyNumericInputs(inputs)) {
-      return
-    }
-
-    // Build payload with inputs and outputs namespaces. This render is only
-    // shown (execute() renders again, with the real values), so a sensitive
-    // output shows as <redacted> in the script view. A template that
-    // processes its value (e.g. fromJson) can then fail here and not when the
-    // script runs, so such an error says why.
-    const errorDetails = displayMasksSensitiveOutput ? SENSITIVE_DISPLAY_RENDER_NOTE : undefined
-    const inputsForRender = buildTemplatePayload({
-      inputs: templateContext.inputs,
-      outputs: maskTemplateOutputs(templateContext.outputs),
-    })
-
-    // Check if the script or its inputs actually changed. The script is part of
-    // the key so a changed command with unchanged values still re-renders.
-    const inputsKey = JSON.stringify([rawScriptContent, inputsForRender])
-    if (inputsKey === lastRenderedVariablesRef.current) {
-      return
-    }
-
-    // Clear any stale render error immediately so it doesn't flash while
-    // we wait for the debounced re-render with the updated variables.
-    setRenderError(null)
 
     // Clear existing timer (handles cleanup when dependencies change)
     if (autoUpdateTimerRef.current) {
       clearTimeout(autoUpdateTimerRef.current)
     }
-    
-    // Capture current inputs in closure to avoid race condition
-    const inputsToRender = inputsForRender
-    const keyToStore = inputsKey
-    
+
     // Debounce: wait 300ms after last change before rendering
+    const { payload, key, errorDetails } = pendingRender
     autoUpdateTimerRef.current = setTimeout(() => {
-      lastRenderedVariablesRef.current = keyToStore
-      renderScript(inputsToRender, errorDetails)
+      lastRenderedVariablesRef.current = key
+      renderScript(payload, errorDetails)
     }, 300)
-    
+
     // Cleanup: clear timer when effect re-runs or on unmount
     return () => {
       if (autoUpdateTimerRef.current) {
         clearTimeout(autoUpdateTimerRef.current)
       }
     }
-  }, [inputValues, allOutputs, inputs, allDeps.length, hasAllInputDependencies, hasAllOutputDependencies, templateContext, rawScriptContent, renderScript, displayMasksSensitiveOutput])
+  }, [renderMode, pendingRender, renderScript])
 
   // Handle starting execution
   const execute = useCallback(() => {
@@ -810,3 +811,18 @@ export function useScriptExecution({
   }
 }
 
+function getRenderMode(
+  hasTemplateDeps: boolean,
+  hasAllInputDependencies: boolean,
+  hasAllOutputDependencies: boolean,
+): RenderMode {
+  if (!hasTemplateDeps) return 'raw'
+  if (!hasAllInputDependencies) return 'awaiting-inputs'
+  if (!hasAllOutputDependencies) return 'awaiting-outputs'
+  return 'render'
+}
+
+/** Reports whether the mode shows the raw script and drops any rendered one. */
+function discardsRender(mode: RenderMode): boolean {
+  return mode === 'raw' || mode === 'awaiting-outputs'
+}

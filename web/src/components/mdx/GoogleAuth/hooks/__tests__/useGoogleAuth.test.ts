@@ -65,7 +65,7 @@ const callsTo = (invoke: ReturnType<typeof installApi>, channel: string) =>
   invoke.mock.calls.filter((call) => call[0] === channel)
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi, children })
+  createElement(ApiProvider, { api: currentApi }, children)
 
 const renderGoogleAuth = (options: Parameters<typeof useGoogleAuth>[0]) =>
   renderHook(() => useGoogleAuth(options), { wrapper })

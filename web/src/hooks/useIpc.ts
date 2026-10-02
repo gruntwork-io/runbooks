@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { createAppError, type AppError } from '@/types/error'
 import { useApi } from '@/contexts/ApiContext'
 import { markStage, getPerfPayload } from '@/lib/renderPerf'
@@ -34,8 +34,9 @@ export function useIpc<T>(
   const api = useApi()
   const { lazy = false, debounceMs, disabled = false } = options || {}
 
+  const active = Boolean(channel) && !disabled
   const [data, setData] = useState<T | null>(null)
-  const [isLoading, setIsLoading] = useState(!lazy && !disabled)
+  const [isLoading, setIsLoading] = useState(active && !lazy)
   const [error, setError] = useState<AppError | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // False once the hook unmounts, so a pending debounced request is dropped
@@ -47,9 +48,35 @@ export function useIpc<T>(
   // Use a ref for params so changing object identity doesn't trigger re-fetches.
   // Content changes are detected via paramsKey below.
   const paramsRef = useRef(params)
-  paramsRef.current = params
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const paramsKey = useMemo(() => JSON.stringify(params), [JSON.stringify(params)])
+  useLayoutEffect(() => {
+    paramsRef.current = params
+  })
+  const paramsKey = JSON.stringify(params)
+
+  // Reset state during render whenever the fetch inputs change, so the
+  // first render with new inputs already shows the matching state.
+  const [prevInputs, setPrevInputs] = useState({ channel, paramsKey, lazy, disabled })
+  if (
+    prevInputs.channel !== channel ||
+    prevInputs.paramsKey !== paramsKey ||
+    prevInputs.lazy !== lazy ||
+    prevInputs.disabled !== disabled
+  ) {
+    setPrevInputs({ channel, paramsKey, lazy, disabled })
+    if (!active) {
+      // Cleared or disabled: the previous file/config shouldn't linger when
+      // nothing is selected.
+      setData(null)
+      setError(null)
+      setIsLoading(false)
+    } else if (lazy) {
+      // Lazy: keep any existing data; the consumer drives fetches via refetch.
+      setIsLoading(false)
+    } else {
+      setIsLoading(true)
+      setError(null)
+    }
+  }
 
   // Monotonic request counter. We only commit a response if it's still the
   // latest request — this prevents a slow earlier call from overwriting a
@@ -136,31 +163,21 @@ export function useIpc<T>(
   }, [performInvoke])
 
   useEffect(() => {
-    if (!channel || disabled) {
-      // Cleared or disabled: drop any in-flight response and stale data so the
-      // previous file/config doesn't linger when nothing is selected. A pending
-      // debounced request must be cancelled outright: its timer would call the
-      // performInvoke captured at scheduling time (still holding the old
-      // channel) and take a fresh seq, so bumping the seq can't stop it.
+    if (!active) {
+      // Drop any in-flight response. A pending debounced request must be
+      // cancelled outright: its timer would call the performInvoke captured at
+      // scheduling time (still holding the old channel) and take a fresh seq,
+      // so bumping the seq can't stop it.
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
         timeoutRef.current = null
       }
       requestSeqRef.current += 1
-      setData(null)
-      setError(null)
-      setIsLoading(false)
       return
     }
 
-    // Lazy: keep any existing data; the consumer drives fetches via refetch.
-    if (lazy) {
-      setIsLoading(false)
-      return
-    }
+    if (lazy) return
 
-    setIsLoading(true)
-    setError(null)
     performInvoke(paramsRef.current)
 
     return () => {
@@ -168,7 +185,7 @@ export function useIpc<T>(
         clearTimeout(timeoutRef.current)
       }
     }
-  }, [channel, performInvoke, paramsKey, lazy, disabled])
+  }, [active, performInvoke, paramsKey, lazy])
 
   // Stop a pending debounced request from being sent after unmount, in every
   // mode. The effect above has no cleanup in lazy mode, which is the mode

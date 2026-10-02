@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { useApi, type RunbooksAPI } from './ApiContext'
 import { useGitWorkTree } from './useGitWorkTree'
@@ -80,10 +80,10 @@ function useChangesPoller(api: RunbooksAPI, localPath: string | null, treeVersio
   const [changes, setChanges] = useState<WorkspaceFileChange[]>([])
   const [totalChanges, setTotalChanges] = useState(0)
   const [tooManyChanges, setTooManyChanges] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  // Bumped on every run of the poll effect (worktree switch or tree
-  // invalidation). IPC calls can't be cancelled, so a response that belongs to
-  // an earlier run is dropped rather than committed over the current state.
+  const [isLoading, setIsLoading] = useState(localPath !== null)
+  // Bumped on every run of the poll (worktree switch or tree invalidation).
+  // IPC calls can't be cancelled, so a response that belongs to an earlier run
+  // is dropped rather than committed over the current state.
   const genRef = useRef(0)
   // The current run's worktree, or null when there is nothing to poll.
   const runPathRef = useRef<string | null>(null)
@@ -95,6 +95,23 @@ function useChangesPoller(api: RunbooksAPI, localPath: string | null, treeVersio
   const inFlightGenRef = useRef<number | null>(null)
   const followUpRef = useRef(false)
   const previousResponseRef = useRef<string>('')
+
+  // A new run starts when the worktree or treeVersion changes: show the spinner
+  // until its first poll settles or, with no worktree left to poll, drop the
+  // previous one's changes. Done during render; the generation bump below
+  // drops the previous run's in-flight response.
+  const [run, setRun] = useState({ path: localPath, treeVersion })
+  if (run.path !== localPath || run.treeVersion !== treeVersion) {
+    setRun({ path: localPath, treeVersion })
+    if (localPath) {
+      setIsLoading(true)
+    } else {
+      setChanges([])
+      setTotalChanges(0)
+      setTooManyChanges(false)
+      setIsLoading(false)
+    }
+  }
 
   const fetchChanges = useCallback(async function poll(path: string, gen: number): Promise<void> {
     if (inFlightGenRef.current !== null) {
@@ -130,22 +147,23 @@ function useChangesPoller(api: RunbooksAPI, localPath: string | null, treeVersio
     }
   }, [api])
 
-  // Poll for changes, and refetch when the worktree or treeVersion changes
-  useEffect(() => {
-    const gen = ++genRef.current
+  // Start the run's generation in the commit that renders it. A layout effect
+  // runs in the same task as that render, so no earlier run's response can
+  // land in between and clear the spinner set above.
+  useLayoutEffect(() => {
+    genRef.current++
     runPathRef.current = localPath
     // Clear cache so the next fetch isn't skipped by smart-dedup
     previousResponseRef.current = ''
-
-    if (!localPath) {
-      setChanges([])
-      setTotalChanges(0)
-      setTooManyChanges(false)
-      setIsLoading(false)
-      return
+    return () => {
+      runPathRef.current = null
     }
+  }, [localPath, fetchChanges, treeVersion])
 
-    setIsLoading(true)
+  // Poll for changes, and refetch when the worktree or treeVersion changes
+  useEffect(() => {
+    if (!localPath) return
+    const gen = genRef.current
 
     // Fetch on mount / worktree change / tree invalidation: now, or once the
     // request still running for an earlier run settles
@@ -155,10 +173,7 @@ function useChangesPoller(api: RunbooksAPI, localPath: string | null, treeVersio
       fetchChanges(localPath, gen)
     }, POLL_INTERVAL_MS)
 
-    return () => {
-      clearInterval(interval)
-      runPathRef.current = null
-    }
+    return () => clearInterval(interval)
   }, [localPath, fetchChanges, treeVersion])
 
   const fetchFileDiff = useCallback(async (filePath: string) => {
@@ -206,9 +221,11 @@ function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: nu
   // calls can't be cancelled, so a slow walk of the previous worktree must not
   // land over the current worktree's tree.
   const seqRef = useRef(0)
-  // The active worktree as of the latest render, read after an await.
+  // The active worktree as of the latest commit, read after an await.
   const localPathRef = useRef(localPath)
-  localPathRef.current = localPath
+  useLayoutEffect(() => {
+    localPathRef.current = localPath
+  }, [localPath])
 
   // The worktree path the tree state belongs to. When the active path changes
   // (a switch, 'Clone again' handing the role to another worktree, or a
@@ -225,8 +242,11 @@ function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: nu
     setIsLoading(localPath !== null)
   }
 
+  // Starts a new request generation, so responses to earlier requests are dropped.
+  const nextTreeSeq = useCallback(() => ++seqRef.current, [])
+
   const fetchTree = useCallback(async (path: string, silent = false) => {
-    const seq = ++seqRef.current
+    const seq = nextTreeSeq()
 
     // Only show loading spinner on initial fetch, not background refreshes
     if (!silent) {
@@ -248,19 +268,14 @@ function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: nu
       // A superseded request must not clear the spinner of the one that replaced it
       if (seq === seqRef.current) setIsLoading(false)
     }
-  }, [api])
+  }, [api, nextTreeSeq])
 
-  // Fetch when active worktree changes (show spinner) or treeVersion bumps (silent refresh)
+  // Fetch when active worktree changes (show spinner) or treeVersion bumps (silent refresh).
+  // With no worktree, the path change already cleared the tree during render,
+  // and the previous run's cleanup dropped its in-flight response.
   const prevTreeVersionRef = useRef(treeVersion)
   useEffect(() => {
-    if (!localPath) {
-      seqRef.current++ // Drop any response still in flight for the previous worktree
-      setTree(null)
-      setTotalFiles(0)
-      setError(null)
-      setIsLoading(false)
-      return
-    }
+    if (!localPath) return
 
     // If treeVersion changed but path didn't, this is a background refresh — skip the spinner.
     // A path change already cleared `tree` during render, so it always shows one.
@@ -270,10 +285,10 @@ function useFileTree(api: RunbooksAPI, localPath: string | null, treeVersion: nu
     fetchTree(localPath, silent)
 
     return () => {
-      seqRef.current++
+      nextTreeSeq()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `tree` is only read for the silent check
-  }, [localPath, fetchTree, treeVersion])
+  }, [localPath, fetchTree, nextTreeSeq, treeVersion])
 
   const refetch = useCallback(() => {
     if (localPath) {

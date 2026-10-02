@@ -39,7 +39,7 @@ interface HookProps {
 
 function renderUseIpc(api: RunbooksAPI, initialProps: HookProps) {
   const wrapper = ({ children }: { children: ReactNode }) =>
-    createElement(ApiProvider, { api, children })
+    createElement(ApiProvider, { api }, children)
   return renderHook(
     ({ channel, params, options }: HookProps) => useIpc<unknown>(channel, params, options),
     { initialProps, wrapper }
@@ -236,7 +236,7 @@ describe('useIpc', () => {
   describe('StrictMode effect re-run', () => {
     function renderStrict(api: RunbooksAPI, useConsumer: () => UseIpcReturn<unknown>) {
       const wrapper = ({ children }: { children: ReactNode }) =>
-        createElement(ApiProvider, { api, children })
+        createElement(ApiProvider, { api }, children)
       return renderHook(useConsumer, { wrapper, reactStrictMode: true })
     }
 

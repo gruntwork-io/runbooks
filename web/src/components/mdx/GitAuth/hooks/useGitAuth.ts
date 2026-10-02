@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
@@ -178,9 +178,13 @@ export function useGitAuth({
   // pinned a `host`, there is nothing to enumerate and we are "ready" immediately.
   // ---------------------------------------------------------------------------
   const hostSelectable = Boolean(provider.supportsHostSelection && !host)
-  const [availableHosts, setAvailableHosts] = useState<GitHostEntry[]>(
-    host ? [{ host, sources: [], hasCredential: false }] : [],
-  )
+  // Without enumeration the host list is just the pinned host, derived below.
+  const hostsEnumerable = hostSelectable && Boolean(provider.channels.enumerateHosts)
+  const [enumeratedHosts, setEnumeratedHosts] = useState<GitHostEntry[]>([])
+  const availableHosts = useMemo<GitHostEntry[]>(() => {
+    if (hostsEnumerable) return enumeratedHosts
+    return host ? [{ host, sources: [], hasCredential: false }] : []
+  }, [hostsEnumerable, enumeratedHosts, host])
   const [selectedHost, setSelectedHost] = useState<string>(host ?? provider.defaultHost)
   // A provider switch must not carry the other provider's host (a GitLab host
   // would read as a GitHub Enterprise host) — reset it during render, before
@@ -193,17 +197,19 @@ export function useGitAuth({
   // Hosts whose key icon was downgraded after a failed validation this
   // session (the dropdown must never contradict the warning chip).
   const [downgradedHosts, setDowngradedHosts] = useState<ReadonlySet<string>>(new Set())
-  // The provider whose host list is settled. Keyed to the provider rather than
-  // a boolean so a GitHub→GitLab switch closes the gate on the very render the
-  // provider changes: the enumerate and detection effects run in the same
-  // flush, and a stale `true` would let detection run against the gitlab.com
-  // default before the glab hosts (and the persisted pick) are known.
-  const [hostsReadyFor, setHostsReadyFor] = useState<string | null>(hostSelectable ? null : provider.id)
-  const hostsReady = hostsReadyFor === provider.id
   // Bumped to force the detection effect to re-run (host change / manual reload).
   const [detectionNonce, setDetectionNonce] = useState(0)
   // Bumped to force re-enumeration of glab hosts (manual "reload config").
   const [hostsReloadNonce, setHostsReloadNonce] = useState(0)
+  // The enumeration whose host list is settled. Keyed to the provider and the
+  // reload rather than a boolean so a GitHub→GitLab switch or a reload closes
+  // the gate on the very render it happens: the enumerate and detection effects
+  // run in the same flush, and a stale `true` would let detection run against
+  // the gitlab.com default before the glab hosts (and the persisted pick) are
+  // known.
+  const hostsKey = `${provider.id}#${hostsReloadNonce}`
+  const [hostsReadyFor, setHostsReadyFor] = useState<string | null>(null)
+  const hostsReady = !hostsEnumerable || hostsReadyFor === hostsKey
   // True once the user explicitly picks a host, so a config reload preserves it
   // instead of snapping back to glab's default.
   const userPickedHostRef = useRef(false)
@@ -248,7 +254,9 @@ export function useGitAuth({
     ? ((instanceUrlForIpc ? hostFromInstanceUrl(instanceUrlForIpc) : undefined) ?? host ?? selectedHost)
     : undefined
   const effectiveHostRef = useRef<string | undefined>(effectiveHost)
-  effectiveHostRef.current = effectiveHost
+  useLayoutEffect(() => {
+    effectiveHostRef.current = effectiveHost
+  }, [effectiveHost])
 
   // OAuth state
   const [oauthUserCode, setOauthUserCode] = useState<string | null>(null)
@@ -590,17 +598,10 @@ export function useGitAuth({
   // host picker. Skipped when the author pinned a `host`. Re-runs on a manual
   // config reload (hostsReloadNonce).
   useEffect(() => {
-    if (!hostSelectable || !provider.channels.enumerateHosts) {
-      setAvailableHosts(host ? [{ host, sources: [], hasCredential: false }] : [])
-      setSelectedHost(host ?? provider.defaultHost)
-      setHostsReadyFor(provider.id)
-      return
-    }
-    if (!sessionReady) return
+    const channel = provider.channels.enumerateHosts
+    if (!hostSelectable || !channel || !sessionReady) return
 
     let cancelled = false
-    setHostsReadyFor(null)
-    const channel = provider.channels.enumerateHosts
     void (async () => {
       try {
         const data = await api.invoke(channel, {})
@@ -609,7 +610,7 @@ export function useGitAuth({
         // membership checks compare against hosts.map(h => h.host).
         const hosts = (data.hosts ?? []) as GitHostEntry[]
         const hostNames = hosts.map((h) => h.host)
-        setAvailableHosts(hosts)
+        setEnumeratedHosts(hosts)
         // Honor the default (persisted pick > env > CLI config > the
         // provider's SaaS host) on first load; preserve a user's explicit
         // pick (if still present) across a config reload.
@@ -620,17 +621,17 @@ export function useGitAuth({
         )
       } catch {
         if (!cancelled) {
-          setAvailableHosts([])
+          setEnumeratedHosts([])
           setSelectedHost(provider.defaultHost)
         }
       } finally {
-        if (!cancelled) setHostsReadyFor(provider.id)
+        if (!cancelled) setHostsReadyFor(hostsKey)
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [api, hostSelectable, provider, host, sessionReady, hostsReloadNonce])
+  }, [api, hostSelectable, provider, sessionReady, hostsKey])
 
   // Walk the detection sources in order, stopping at the first success. A
   // {block} source whose block has not run yet pauses the walk (the author's
@@ -807,17 +808,19 @@ export function useGitAuth({
       return // Still waiting
     }
 
-    // Take the paused walk and clear the wait now: blockOutputs changes
-    // whenever any block registers outputs, and a re-run of this effect while
-    // the block's token is being validated must not resume it a second time.
+    // Take the paused walk exactly once: blockOutputs changes whenever any
+    // block registers outputs, and a re-run of this effect while the block's
+    // token is being validated must not resume it a second time.
     const paused = pausedWalkRef.current
+    if (!paused) {
+      return
+    }
     pausedWalkRef.current = null
-    setWaitingForBlockId(null)
 
     void trySourcesInOrder(
-      [{ block: waitingForBlockId }, ...(paused?.sources ?? [])],
+      [{ block: waitingForBlockId }, ...paused.sources],
       detectionRunRef.current,
-      paused?.warnings,
+      paused.warnings,
     )
   }, [waitingForBlockId, authStatus, blockPending, trySourcesInOrder])
 
@@ -1121,8 +1124,9 @@ export function useGitAuth({
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
   //
-  // Closes the hosts gate in the same batch as beginRedetect, then bumps only
-  // hostsReloadNonce — NOT detectionNonce. Re-enumeration reopens the gate,
+  // Bumps only hostsReloadNonce — NOT detectionNonce — which closes the hosts
+  // gate (keyed to it) in the same batch as beginRedetect. Re-enumeration
+  // reopens the gate,
   // and that transition (with detectionAttemptedRef already cleared by
   // beginRedetect) drives a single detection against the freshly-resolved
   // host. With the gate still open, any re-render before the enumerate
@@ -1136,9 +1140,13 @@ export function useGitAuth({
     invalidateMainCache()
     setDowngradedHosts(new Set())
     beginRedetect()
-    setHostsReadyFor(null)
+    // A pinned host has nothing to re-enumerate and no gate to reopen.
+    if (!hostsEnumerable) {
+      setDetectionNonce((n) => n + 1)
+      return
+    }
     setHostsReloadNonce((n) => n + 1)
-  }, [beginRedetect, invalidateMainCache])
+  }, [beginRedetect, invalidateMainCache, hostsEnumerable])
 
   // The unreachable card's Retry and the "Check again" control:
   // clears the card, flushes main's CLI cache, and re-runs detection. The
@@ -1154,13 +1162,13 @@ export function useGitAuth({
 
   // Track which host this block authenticated against, and watch for another
   // block replacing the provider's single session credential.
+  if (authStatus !== 'authenticated' && sessionStale) {
+    setSessionStale(false)
+  }
   useEffect(() => {
-    if (authStatus === 'authenticated') {
-      authenticatedHostRef.current = effectiveHostRef.current ?? provider.defaultHost
-    } else {
-      authenticatedHostRef.current = undefined
-      setSessionStale(false)
-    }
+    authenticatedHostRef.current = authStatus === 'authenticated'
+      ? (effectiveHostRef.current ?? provider.defaultHost)
+      : undefined
   }, [authStatus, provider])
 
   useEffect(() => {
@@ -1243,7 +1251,8 @@ export function useGitAuth({
     missingScope,
     detectionWarning,
     sessionEnvWarning,
-    waitingForBlockId,
+    // The wait ends when the block runs, before the resumed walk settles.
+    waitingForBlockId: waitingForBlockId && blockPending(waitingForBlockId) ? waitingForBlockId : null,
 
     // Tri-state unreachable outcome
     unreachableInfo,

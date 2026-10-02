@@ -30,6 +30,16 @@ interface UseAwsAuthOptions {
   defaultTab?: string
 }
 
+/**
+ * Where a walk of the detection sources ended. The walk only computes this;
+ * applyDetectionOutcome writes it to state.
+ */
+type DetectionOutcome =
+  | { kind: 'detected'; credentials: DetectedAwsCredentials; warning?: string }
+  /** Paused on a block source that has not run; `remaining` follow it. */
+  | { kind: 'waiting'; blockId: string; remaining: AwsCredentialSource[] }
+  | { kind: 'done'; warnings: string[]; isRetry: boolean }
+
 export function useAwsAuth({
   id,
   ssoStartUrl,
@@ -289,12 +299,13 @@ export function useAwsAuth({
 
   // Try credential sources in priority order. Stops at the first success or
   // at an unexecuted block source (waiting for it before trying lower-priority
-  // sources). Extracted as a callback so both the initial detection effect and
-  // the block-watcher can reuse the same logic.
+  // sources). Returns where the walk ended without touching state, so both the
+  // initial detection effect and the block watcher apply it the same way, and
+  // only after the walk has settled.
   const trySourcesInOrder = useCallback(async (
     sources: AwsCredentialSource[],
     isRetry: boolean
-  ) => {
+  ): Promise<DetectionOutcome> => {
     const warnings: string[] = []
 
     for (let i = 0; i < sources.length; i++) {
@@ -304,19 +315,18 @@ export function useAwsAuth({
       if (source === 'env') {
         const result = await tryEnvCredentials()
         if (result.success) {
-          setDetectedCredentials({
-            accountId: result.accountId!,
-            accountName: result.accountName,
-            arn: result.arn!,
-            region: result.region || defaultRegion,
-            source: 'env',
-            hasSessionToken: result.hasSessionToken || false,
-          })
-          if (result.warning) {
-            setDetectionWarning(result.warning)
+          return {
+            kind: 'detected',
+            credentials: {
+              accountId: result.accountId!,
+              accountName: result.accountName,
+              arn: result.arn!,
+              region: result.region || defaultRegion,
+              source: 'env',
+              hasSessionToken: result.hasSessionToken || false,
+            },
+            warning: result.warning,
           }
-          setDetectionStatus('detected')
-          return
         }
         if (result.foundButInvalid) {
           warnings.push('AWS credentials in environment are invalid or expired')
@@ -327,20 +337,19 @@ export function useAwsAuth({
         const prefix = (source.env as { prefix?: string })?.prefix
         const result = await tryEnvCredentials({ prefix })
         if (result.success) {
-          setDetectedCredentials({
-            accountId: result.accountId!,
-            accountName: result.accountName,
-            arn: result.arn!,
-            region: result.region || defaultRegion,
-            source: 'env',
-            hasSessionToken: result.hasSessionToken || false,
-            envPrefix: prefix,
-          })
-          if (result.warning) {
-            setDetectionWarning(result.warning)
+          return {
+            kind: 'detected',
+            credentials: {
+              accountId: result.accountId!,
+              accountName: result.accountName,
+              arn: result.arn!,
+              region: result.region || defaultRegion,
+              source: 'env',
+              hasSessionToken: result.hasSessionToken || false,
+              envPrefix: prefix,
+            },
+            warning: result.warning,
           }
-          setDetectionStatus('detected')
-          return
         }
         if (result.foundButInvalid) {
           warnings.push(`${prefix}AWS credentials are invalid or expired`)
@@ -350,16 +359,17 @@ export function useAwsAuth({
       else if (typeof source === 'object' && 'block' in source) {
         const result = await tryBlockCredentials(source.block)
         if (result.success) {
-          setDetectedCredentials({
-            accountId: result.accountId!,
-            accountName: result.accountName,
-            arn: result.arn!,
-            region: result.region || defaultRegion,
-            source: 'block',
-            hasSessionToken: result.hasSessionToken || false,
-          })
-          setDetectionStatus('detected')
-          return
+          return {
+            kind: 'detected',
+            credentials: {
+              accountId: result.accountId!,
+              accountName: result.accountName,
+              arn: result.arn!,
+              region: result.region || defaultRegion,
+              source: 'block',
+              hasSessionToken: result.hasSessionToken || false,
+            },
+          }
         }
         // Check if block has actually executed (has any outputs at all, even
         // if they don't contain AWS credentials)
@@ -369,9 +379,7 @@ export function useAwsAuth({
           // Block hasn't executed yet - wait for it before trying lower-priority
           // sources. This respects the author's intended priority ordering:
           // if a block source is listed before env, the block takes precedence.
-          remainingSourcesRef.current = sources.slice(i + 1)
-          setWaitingForBlockId(source.block)
-          return
+          return { kind: 'waiting', blockId: source.block, remaining: sources.slice(i + 1) }
         }
         // Block executed but credentials invalid/missing - continue to next source
       }
@@ -380,17 +388,34 @@ export function useAwsAuth({
       // Auto-detecting the default profile is complex due to AWS config precedence rules.
     }
 
-    // No source succeeded
-    if (warnings.length > 0) {
-      setDetectionWarning(warnings.join('; '))
-    }
-
-    // Nothing found - show feedback if this was a user-initiated retry
-    if (isRetry) {
-      setRetryFoundNothing(true)
-    }
-    setDetectionStatus('done')
+    return { kind: 'done', warnings, isRetry }
   }, [tryEnvCredentials, tryBlockCredentials, blockOutputs, defaultRegion])
+
+  const applyDetectionOutcome = useCallback((outcome: DetectionOutcome) => {
+    switch (outcome.kind) {
+      case 'detected':
+        setDetectedCredentials(outcome.credentials)
+        if (outcome.warning) {
+          setDetectionWarning(outcome.warning)
+        }
+        setDetectionStatus('detected')
+        return
+      case 'waiting':
+        remainingSourcesRef.current = outcome.remaining
+        setWaitingForBlockId(outcome.blockId)
+        return
+      case 'done':
+        // No source succeeded
+        if (outcome.warnings.length > 0) {
+          setDetectionWarning(outcome.warnings.join('; '))
+        }
+        // Nothing found - show feedback if this was a user-initiated retry
+        if (outcome.isRetry) {
+          setRetryFoundNothing(true)
+        }
+        setDetectionStatus('done')
+    }
+  }, [])
 
   // Run credential detection when session is ready
   useEffect(() => {
@@ -406,8 +431,8 @@ export function useAwsAuth({
 
     detectionAttemptedRef.current = true
 
-    trySourcesInOrder(detectCredentials, detectionAttempt > 0)
-  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt])
+    void trySourcesInOrder(detectCredentials, detectionAttempt > 0).then(applyDetectionOutcome)
+  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
 
   // Watch for block outputs when waiting for a block
   useEffect(() => {
@@ -424,36 +449,16 @@ export function useAwsAuth({
       return // Block hasn't executed yet, still waiting
     }
 
-    // Block has outputs now, try to validate credentials
-    const doDetection = async () => {
-      const authResult = await tryBlockCredentials(waitingForBlockId)
-      if (authResult.success) {
-        setDetectedCredentials({
-          accountId: authResult.accountId!,
-          accountName: authResult.accountName,
-          arn: authResult.arn!,
-          region: authResult.region || defaultRegion,
-          source: 'block',
-          hasSessionToken: authResult.hasSessionToken || false,
-        })
-        setDetectionStatus('detected')
-        setWaitingForBlockId(null)
-      } else {
-        // Block executed but credentials invalid/missing.
-        // Try remaining lower-priority sources before falling back to manual auth.
-        setWaitingForBlockId(null)
-        const remaining = remainingSourcesRef.current
-        remainingSourcesRef.current = []
-        if (remaining.length > 0) {
-          await trySourcesInOrder(remaining, false)
-        } else {
-          setDetectionStatus('done')
-        }
-      }
-    }
-
-    doDetection()
-  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, tryBlockCredentials, trySourcesInOrder, defaultRegion])
+    // Resume the walk at the block's source: its credentials win, and if they
+    // are invalid or missing, the lower-priority sources stashed at the pause
+    // are tried before falling back to manual auth.
+    const remaining = remainingSourcesRef.current
+    remainingSourcesRef.current = []
+    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining], false).then((outcome) => {
+      setWaitingForBlockId(null)
+      applyDetectionOutcome(outcome)
+    })
+  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, trySourcesInOrder, applyDetectionOutcome])
 
   // User confirms detected credentials - register them to session and authenticate
   const handleConfirmDetected = useCallback(async () => {

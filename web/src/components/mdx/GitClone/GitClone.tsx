@@ -183,14 +183,36 @@ function GitCloneInteractive({
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
   )
 
-  // Reactive sync: keep form state in sync with resolved template values.
-  // Only needed for fields backed by useState (user-editable inputs).
-  // Title and description are rendered directly from useMemo — no sync needed.
-  useEffect(() => { setGitUrl(resolvedUrl) }, [resolvedUrl])
-  useEffect(() => { setRef(resolvedRef) }, [resolvedRef])
-  useEffect(() => { setRepoPath(resolvedRepoPath) }, [resolvedRepoPath])
-  useEffect(() => { setLocalPath(resolvedLocalPath) }, [resolvedLocalPath])
-  useEffect(() => { setRepoDir(resolvedRepoDir) }, [resolvedRepoDir])
+  // Reactive sync: when a resolved template value changes, overwrite its
+  // user-editable field during render. Title and description are rendered
+  // directly from useMemo, so they need no sync.
+  const [prevResolved, setPrevResolved] = useState({
+    url: resolvedUrl,
+    ref: resolvedRef,
+    repoPath: resolvedRepoPath,
+    localPath: resolvedLocalPath,
+    repoDir: resolvedRepoDir,
+  })
+  if (
+    prevResolved.url !== resolvedUrl ||
+    prevResolved.ref !== resolvedRef ||
+    prevResolved.repoPath !== resolvedRepoPath ||
+    prevResolved.localPath !== resolvedLocalPath ||
+    prevResolved.repoDir !== resolvedRepoDir
+  ) {
+    if (prevResolved.url !== resolvedUrl) setGitUrl(resolvedUrl)
+    if (prevResolved.ref !== resolvedRef) setRef(resolvedRef)
+    if (prevResolved.repoPath !== resolvedRepoPath) setRepoPath(resolvedRepoPath)
+    if (prevResolved.localPath !== resolvedLocalPath) setLocalPath(resolvedLocalPath)
+    if (prevResolved.repoDir !== resolvedRepoDir) setRepoDir(resolvedRepoDir)
+    setPrevResolved({
+      url: resolvedUrl,
+      ref: resolvedRef,
+      repoPath: resolvedRepoPath,
+      localPath: resolvedLocalPath,
+      repoDir: resolvedRepoDir,
+    })
+  }
 
   // Verify the typed/picked directory as the user edits it. Debounced so a
   // half-typed path doesn't spawn a git process per keystroke; the check only

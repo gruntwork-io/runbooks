@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Check, ChevronsUpDown, ChevronDown, ChevronUp, Lock, GitBranch, Tag } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -43,6 +43,16 @@ interface GitHubBrowserProps {
   defaultOpen?: boolean
 }
 
+/** A list response tagged with the selection it was fetched for. */
+interface FetchResult<T> {
+  key: string
+  items: T[]
+  error: string | null
+}
+
+const NO_REPOS: GitHubRepo[] = []
+const NO_REFS: GitHubRef[] = []
+
 export function GitHubBrowser({
   host = DEFAULT_GITHUB_HOST,
   onRepoSelected,
@@ -57,8 +67,6 @@ export function GitHubBrowser({
 }: GitHubBrowserProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   const [orgs, setOrgs] = useState<GitHubOrg[]>([])
-  const [repos, setRepos] = useState<GitHubRepo[]>([])
-  const [refs, setRefs] = useState<GitHubRef[]>([])
   const [selectedOrg, setSelectedOrg] = useState(initialOrg || "")
   const [selectedRepo, setSelectedRepo] = useState(initialRepo || "")
   // Default branch of the repo the user picked in the browser, selected once
@@ -70,11 +78,12 @@ export function GitHubBrowser({
   const [repoOpen, setRepoOpen] = useState(false)
   const [refOpen, setRefOpen] = useState(false)
   const [loadingOrgs, setLoadingOrgs] = useState(false)
-  const [loadingRepos, setLoadingRepos] = useState(false)
-  const [loadingRefs, setLoadingRefs] = useState(false)
   const [orgsError, setOrgsError] = useState<string | null>(null)
-  const [reposError, setReposError] = useState<string | null>(null)
-  const [refsError, setRefsError] = useState<string | null>(null)
+  // Latest repos and refs responses, each tagged with the selection it
+  // answers. Until a response for the current selection arrives, the list
+  // reads as loading, so switching org or repo needs no reset.
+  const [reposResult, setReposResult] = useState<FetchResult<GitHubRepo> | null>(null)
+  const [refsResult, setRefsResult] = useState<FetchResult<GitHubRef> | null>(null)
   const [orgSearch, setOrgSearch] = useState("")
   const [repoSearch, setRepoSearch] = useState("")
   const [refSearch, setRefSearch] = useState("")
@@ -82,6 +91,16 @@ export function GitHubBrowser({
   const repoListRef = useRef<HTMLDivElement>(null)
   const refListRef = useRef<HTMLDivElement>(null)
   const hasLoadedOrgs = useRef(false)
+
+  const refsKey = selectedOrg && selectedRepo ? `${selectedOrg}/${selectedRepo}` : ""
+  const currentRepos = selectedOrg && reposResult?.key === selectedOrg ? reposResult : null
+  const currentRefs = refsKey && refsResult?.key === refsKey ? refsResult : null
+  const repos = currentRepos?.items ?? NO_REPOS
+  const refs = currentRefs?.items ?? NO_REFS
+  const reposError = currentRepos?.error ?? null
+  const refsError = currentRefs?.error ?? null
+  const loadingRepos = !!selectedOrg && !currentRepos
+  const loadingRefs = !!refsKey && !currentRefs
 
   // Split refs into branches and tags for grouped display
   const branchRefs = useMemo(() => refs.filter(r => r.type === 'branch'), [refs])
@@ -104,63 +123,42 @@ export function GitHubBrowser({
     }
   }, [isOpen, fetchOrgs])
 
-  // Load repos when org changes. `isCurrent` turns false once the selection
+  // Load repos when org changes. `current` turns false once the selection
   // moves on, so a slow response for an earlier org is dropped instead of
-  // overwriting the newer one's list, error or loading state.
-  const loadRepos = useCallback(async (org: string, isCurrent: () => boolean) => {
-    if (!org) return
-    setLoadingRepos(true)
-    setRepos([])
-    setReposError(null)
-    try {
-      const result = await fetchRepos(org)
-      if (isCurrent()) setRepos(result)
-    } catch (err) {
-      if (isCurrent()) setReposError(err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load repositories")
-    } finally {
-      if (isCurrent()) setLoadingRepos(false)
-    }
-  }, [fetchRepos])
-
+  // overwriting a newer response.
   useEffect(() => {
     if (!selectedOrg) return
     let current = true
-    loadRepos(selectedOrg, () => current)
+    fetchRepos(selectedOrg).then(result => {
+      if (current) setReposResult({ key: selectedOrg, items: result, error: null })
+    }).catch(err => {
+      if (current) setReposResult({ key: selectedOrg, items: [], error: err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load repositories" })
+    })
     return () => { current = false }
-  }, [selectedOrg, loadRepos])
+  }, [selectedOrg, fetchRepos])
 
-  // Load refs when repo changes, guarded like loadRepos
-  const loadRefs = useCallback(async (org: string, repo: string, autoSelectBranch: string, isCurrent: () => boolean) => {
-    if (!org || !repo) return
-    setLoadingRefs(true)
-    setRefs([])
-    setRefsError(null)
-    try {
-      const result = await fetchRefs(org, repo)
-      if (!isCurrent()) return
-      setRefs(result)
+  // Load refs when repo changes, guarded like the repos load. Depends on the
+  // org too: switching org clears the repo, and this cleanup is what drops
+  // the old repo's in-flight refs.
+  useEffect(() => {
+    if (!selectedOrg || !selectedRepo) return
+    const key = `${selectedOrg}/${selectedRepo}`
+    let current = true
+    fetchRefs(selectedOrg, selectedRepo).then(result => {
+      if (!current) return
+      setRefsResult({ key, items: result, error: null })
 
       // Auto-select the default branch, if the repo has it (an empty repo
       // has no branches yet)
-      if (autoSelectBranch && result.some(r => r.type === 'branch' && r.name === autoSelectBranch)) {
-        setSelectedRef(autoSelectBranch)
-        onRefSelected(autoSelectBranch)
+      if (pickedDefaultBranch && result.some(r => r.type === 'branch' && r.name === pickedDefaultBranch)) {
+        setSelectedRef(pickedDefaultBranch)
+        onRefSelected(pickedDefaultBranch)
       }
-    } catch (err) {
-      if (isCurrent()) setRefsError(err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load refs")
-    } finally {
-      if (isCurrent()) setLoadingRefs(false)
-    }
-  }, [fetchRefs, onRefSelected])
-
-  // Depends on the org too: switching org clears the repo, and this cleanup
-  // is what drops the old repo's in-flight refs.
-  useEffect(() => {
-    if (!selectedOrg || !selectedRepo) return
-    let current = true
-    loadRefs(selectedOrg, selectedRepo, pickedDefaultBranch, () => current)
+    }).catch(err => {
+      if (current) setRefsResult({ key, items: [], error: err instanceof Error ? cleanIpcErrorMessage(err.message) : "Failed to load refs" })
+    })
     return () => { current = false }
-  }, [selectedOrg, selectedRepo, pickedDefaultBranch, loadRefs])
+  }, [selectedOrg, selectedRepo, pickedDefaultBranch, fetchRefs, onRefSelected])
 
   // Scroll to top on search change
   useEffect(() => {
@@ -186,7 +184,6 @@ export function GitHubBrowser({
     setSelectedRepo("")
     setPickedDefaultBranch("")
     setSelectedRef("")
-    setRefs([])
     setOrgOpen(false)
     setOrgSearch("")
   }

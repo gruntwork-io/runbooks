@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
 
 /**
@@ -9,8 +9,8 @@ import { MAX_DISPLAYED_FILES, AUTO_COLLAPSE_THRESHOLD, SHOW_MORE_INCREMENT } fro
  * - Identity-based lists (CodeFileCollection): pass the stable id-set key
  *   (e.g. `fileItems.map(f => f.id).join('\0')`)
  *
- * The dep is intentionally `changeKey`, not `items`, so each call site
- * preserves its original change-detection strategy.
+ * The reset compares `changeKey`, not `items`, so each call site preserves
+ * its original change-detection strategy.
  */
 export function useCollapsibleFileList<T>({
   items,
@@ -21,21 +21,16 @@ export function useCollapsibleFileList<T>({
   getKey: (item: T) => string
   changeKey: string | number
 }) {
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set())
+  const [collapsedFiles, setCollapsedFiles] = useState(() => initialCollapsed(items, getKey))
   const [displayLimit, setDisplayLimit] = useState(MAX_DISPLAYED_FILES)
+  const [prevChangeKey, setPrevChangeKey] = useState(changeKey)
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (items.length > AUTO_COLLAPSE_THRESHOLD) {
-      setCollapsedFiles(new Set(items.map(getKey)))
-    } else {
-      // Smaller list: start fully expanded. Clearing here also drops stale
-      // collapsed keys carried over from a previous (larger) changeKey.
-      setCollapsedFiles(new Set())
-    }
+  if (prevChangeKey !== changeKey) {
+    setPrevChangeKey(changeKey)
+    setCollapsedFiles(initialCollapsed(items, getKey))
     setDisplayLimit(MAX_DISPLAYED_FILES)
-  }, [changeKey])
+  }
 
   const displayedItems = useMemo(
     () => items.slice(0, displayLimit),
@@ -93,4 +88,14 @@ export function useCollapsibleFileList<T>({
     expandAndJump,
     setItemRef,
   }
+}
+
+/**
+ * Collapse every item of a large list; start a smaller one fully expanded.
+ * The empty set also drops stale collapsed keys carried over from a previous
+ * (larger) changeKey.
+ */
+function initialCollapsed<T>(items: readonly T[], getKey: (item: T) => string): Set<string> {
+  if (items.length > AUTO_COLLAPSE_THRESHOLD) return new Set(items.map(getKey))
+  return new Set()
 }

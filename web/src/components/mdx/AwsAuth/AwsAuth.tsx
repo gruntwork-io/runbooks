@@ -18,7 +18,7 @@ import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateI
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
-import { getStatusClasses, getStatusIcon, getStatusIconClasses } from "./utils"
+import { getStatusClasses, StatusIcon, getStatusIconClasses } from "./utils"
 import { AuthTabs } from "./components/AuthTabs"
 import { AuthSuccess } from "./components/AuthSuccess"
 import { CredentialsForm } from "./components/CredentialsForm"
@@ -147,7 +147,6 @@ function AwsAuthInteractive({
     )
   }
 
-  const IconComponent = getStatusIcon(auth.authStatus)
   const statusClasses = getStatusClasses(auth.authStatus)
   const iconClasses = getStatusIconClasses(auth.authStatus)
 
@@ -165,7 +164,7 @@ function AwsAuthInteractive({
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-warning/30 pr-3 mr-0 self-stretch">
-          <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
+          <StatusIcon status={auth.authStatus} className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
         </div>
 
         <div className="flex-1 min-w-0">

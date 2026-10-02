@@ -41,7 +41,7 @@
  * @see RunbookContext - The context provider
  */
 
-import { useContext, useMemo, useRef } from 'react'
+import { useContext, useMemo, useState } from 'react'
 import { RunbookContext, type RunbookContextType, type TemplateValue, type OutputValue, type BlockOutputs } from './RunbookContext'
 import type { TemplateContext } from '@/lib/templateUtils'
 
@@ -79,26 +79,21 @@ export function useInputs(inputsId: string | string[] | undefined): TemplateValu
   // Get the blockInputs from context to track changes
   const blockInputs = context?.blockInputs
 
-  // Track previous result to maintain referential stability
-  const prevResultRef = useRef<TemplateValue[]>(EMPTY_INPUTS)
-
-  return useMemo(() => {
+  const inputs = useMemo(() => {
     if (!context || !inputsId) return EMPTY_INPUTS
-
-    const newInputs = context.getInputs(inputsId)
-
-    // Check if inputs actually changed (compare by JSON since TemplateValue has nested value)
-    const prevJson = JSON.stringify(prevResultRef.current)
-    const newJson = JSON.stringify(newInputs)
-
-    if (prevJson === newJson) {
-      return prevResultRef.current
-    }
-
-    prevResultRef.current = newInputs
-    return newInputs
+    return context.getInputs(inputsId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputsId, blockInputs])
+
+  // Keep returning the previous array while its content is unchanged, for
+  // referential stability (compare by JSON since TemplateValue has nested value)
+  const [stable, setStable] = useState({ source: inputs, value: inputs })
+  if (stable.source !== inputs) {
+    const value = JSON.stringify(stable.value) === JSON.stringify(inputs) ? stable.value : inputs
+    setStable({ source: inputs, value })
+    return value
+  }
+  return stable.value
 }
 
 /**

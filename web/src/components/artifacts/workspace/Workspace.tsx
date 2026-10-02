@@ -95,15 +95,14 @@ export const Workspace = ({
     prevTotalChanges.current = totalChanges
   }, [totalChanges, hasWorkTree])
 
-  // Ensure active context is valid
-  useEffect(() => {
-    if (activeContext === 'repository' && !hasWorkTree && hasGeneratedFiles) {
-      setActiveContext('generated')
-    } else if (activeContext === 'generated' && !hasGeneratedFiles && hasWorkTree) {
-      setActiveContext('repository')
-      setActiveTab('all')
-    }
-  }, [activeContext, hasWorkTree, hasGeneratedFiles])
+  // Ensure active context is valid. Adjusted during render; each branch's
+  // update makes its own condition false, so this settles in one pass.
+  if (activeContext === 'repository' && !hasWorkTree && hasGeneratedFiles) {
+    setActiveContext('generated')
+  } else if (activeContext === 'generated' && !hasGeneratedFiles && hasWorkTree) {
+    setActiveContext('repository')
+    setActiveTab('all')
+  }
 
   // Determine the effective view: what's actually showing
   const isRepositoryView = activeContext === 'repository' || (!hasBothContexts && hasWorkTree)

@@ -268,7 +268,6 @@ export function ScriptBlock({
   }, [id, isDuplicate, getFileError, missingInputsConfig, inputDependencies, reportError, clearError, variant.name])
 
   const statusClasses = variant.statusStyles.getStatusClasses(status)
-  const IconComponent = variant.statusStyles.getStatusIcon(status)
   const iconClasses = variant.statusStyles.getStatusIconClasses(status)
 
   // Early return for validation errors (e.g. missing id prop)
@@ -378,7 +377,7 @@ export function ScriptBlock({
       {/* Main container */}
       <div className="flex @container">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <IconComponent data-testid={`icon-${status}`} className={`size-6 ${iconClasses} ${status === 'running' ? 'animate-spin' : ''}`} />
+          <variant.statusStyles.StatusIcon status={status} data-testid={`icon-${status}`} className={`size-6 ${iconClasses} ${status === 'running' ? 'animate-spin' : ''}`} />
         </div>
 
         {/* Main body */}

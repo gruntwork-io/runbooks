@@ -126,7 +126,9 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
   // Store track in a ref so trackBlockRender can access the latest version
   // without needing it in its dependency array (keeps stable identity)
   const trackRef = useRef(track)
-  trackRef.current = track
+  useEffect(() => {
+    trackRef.current = track
+  }, [track])
 
   // Track block renders by aggregating them into a single 'runbook_loaded' event
   const trackBlockRender = useCallback((blockType: string) => {

@@ -51,11 +51,13 @@ export function ViewLogs({
   // Default to no-wrap: long log lines scroll horizontally rather than wrap.
   const [wrap, setWrap] = useState(false)
 
-  useEffect(() => {
+  const [prevAutoOpen, setPrevAutoOpen] = useState(autoOpen)
+  if (autoOpen !== prevAutoOpen) {
+    setPrevAutoOpen(autoOpen)
     if (autoOpen) {
       setShowLogs(true)
     }
-  }, [autoOpen])
+  }
 
   // Get plain text logs with ANSI codes stripped
   const getPlainTextLogs = () => {

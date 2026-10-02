@@ -34,7 +34,7 @@ function installApi(impl: InvokeImpl, on: OnImpl = () => () => {}) {
 }
 
 const wrapper = ({ children }: { children: ReactNode }) =>
-  createElement(ApiProvider, { api: currentApi, children })
+  createElement(ApiProvider, { api: currentApi }, children)
 
 type Options = Parameters<typeof useGitAuth>[0]
 

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Database, Copy, Check } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { copyTextToClipboard } from "@/lib/utils"
@@ -26,11 +26,13 @@ export function ViewOutputs({
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
-  useEffect(() => {
+  const [prevAutoOpen, setPrevAutoOpen] = useState(autoOpen)
+  if (autoOpen !== prevAutoOpen) {
+    setPrevAutoOpen(autoOpen)
     if (autoOpen) {
       setShowOutputs(true)
     }
-  }, [autoOpen])
+  }
 
   const hasSensitive = Object.values(outputs || {}).some(isSensitiveOutput)
 
