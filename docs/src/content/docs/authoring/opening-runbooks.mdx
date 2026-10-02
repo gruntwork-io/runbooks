@@ -26,4 +26,4 @@ runbooks open https://github.com/org/repo/tree/main/runbooks/deploy-rds
 runbooks open github.com/org/repo//runbooks/deploy-rds?ref=v1.0
 ```
 
-For remote sources, Runbooks downloads just the runbook directory via sparse git clone and opens it in the desktop app. You can also paste any of these sources into **Open from URL** in the desktop app.
+For remote sources, Runbooks clones the repository that holds the runbook and opens the runbook in the desktop app. The whole repository is cloned, so a runbook can use files outside its own directory. You can also paste any of these sources into **Open from URL** in the desktop app.

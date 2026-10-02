@@ -809,10 +809,7 @@ describe("GitCliClientLive.cloneSimple (real git)", () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  it.each([
-    ["full", {}],
-    ["sparse", { sparse: "sub" }],
-  ])("never lets a %s clone's URL act as a git option", async (_kind, extra) => {
+  it("never lets a clone's URL act as a git option", async () => {
     // Were the URL parsed as an option, git would take `dest` as the
     // repository and run this upload-pack command against it.
     const marker = path.join(tmp, "upload-pack-ran")
@@ -822,7 +819,7 @@ describe("GitCliClientLive.cloneSimple (real git)", () => {
         return yield* client.cloneSimple(
           `--upload-pack=touch ${marker};`,
           `file://${path.join(tmp, "src")}`,
-          { repoPath: path.join(tmp, "work"), ...extra },
+          { repoPath: path.join(tmp, "work") },
         )
       }).pipe(Effect.provide(layer), Effect.either),
     )
@@ -888,41 +885,34 @@ describe("GitCliClientLive ssh command (real git)", () => {
     expect(args).toContain("git-receive-pack")
   })
 
-  it.each([
-    ["full", {}],
-    ["sparse", { sparse: "sub" }],
-  ])(
-    "clones a %s checkout with the global core.sshCommand, in batch mode",
-    async (_kind, extra) => {
-      // No repo exists before a clone, so the user's global config applies.
-      fs.writeFileSync(
-        process.env.GIT_CONFIG_GLOBAL!,
-        `[core]\n\tsshCommand = '${fakeSsh}' -i /keys/id_work\n`,
-      )
-      const work = path.join(tmp, "work")
-      fs.mkdirSync(work)
+  it("clones with the global core.sshCommand, in batch mode", async () => {
+    // No repo exists before a clone, so the user's global config applies.
+    fs.writeFileSync(
+      process.env.GIT_CONFIG_GLOBAL!,
+      `[core]\n\tsshCommand = '${fakeSsh}' -i /keys/id_work\n`,
+    )
+    const work = path.join(tmp, "work")
+    fs.mkdirSync(work)
 
-      const result = await Effect.runPromise(
-        Effect.gen(function* () {
-          const client = yield* GitClient
-          return yield* client.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
-            repoPath: work,
-            ...extra,
-          })
-        }).pipe(Effect.provide(layer), Effect.either),
-      )
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const client = yield* GitClient
+        return yield* client.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
+          repoPath: work,
+        })
+      }).pipe(Effect.provide(layer), Effect.either),
+    )
 
-      expect(result._tag).toBe("Left")
-      const args = fs.readFileSync(sshLog, "utf8")
-      expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
-      expect(args).toContain("git-upload-pack")
-    },
-  )
+    expect(result._tag).toBe("Left")
+    const args = fs.readFileSync(sshLog, "utf8")
+    expect(args).toContain(`-i /keys/id_work ${BATCH_OPTIONS}`)
+    expect(args).toContain("git-upload-pack")
+  })
 })
 
 // ---------------------------------------------------------------------------
-// cloneSimple — the remote-runbook clone: sparse paths that may name a file,
-// and refs that may be a commit rather than a branch or tag.
+// cloneSimple — the remote-runbook clone: refs that may be a commit rather
+// than a branch or tag.
 // ---------------------------------------------------------------------------
 
 describe("GitCliClientLive.cloneSimple (real repo)", () => {
@@ -934,10 +924,9 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     fs.mkdirSync(path.dirname(path.join(srcPath, rel)), { recursive: true })
     fs.writeFileSync(path.join(srcPath, rel), content)
   }
-  const exists = (dest: string, rel: string) => fs.existsSync(path.join(dest, rel))
   const read = (dest: string, rel: string) => fs.readFileSync(path.join(dest, rel), "utf8")
 
-  const runClone = (options: { ref?: string; sparse?: string }) => {
+  const runClone = (options: { ref?: string }) => {
     const dest = path.join(workPath, `clone-${Math.random().toString(36).slice(2)}`)
     return Effect.runPromise(
       Effect.gen(function* () {
@@ -956,8 +945,6 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     git(srcPath, "config", "uploadpack.allowAnySHA1InWant", "true")
     write("README.md", "readme\n")
     write("runbooks/vpc/runbook.mdx", "# VPC v1\n")
-    write("runbooks/vpc/templates/main.tf", "# tf\n")
-    write("runbooks/other/runbook.mdx", "# Other\n")
     git(srcPath, "add", ".")
     git(srcPath, "commit", "-m", "v1")
     firstCommit = gitOut(srcPath, "rev-parse", "HEAD").trim()
@@ -971,50 +958,16 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     fs.rmSync(workPath, { recursive: true, force: true })
   })
 
-  it("a directory path checks out that directory and everything under it", async () => {
-    const dest = await runClone({ sparse: "runbooks/vpc" })
-    expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC v2\n")
-    expect(exists(dest, "runbooks/vpc/templates/main.tf")).toBe(true)
-    expect(exists(dest, "runbooks/other/runbook.mdx")).toBe(false)
-  })
-
-  it("a file path checks out the file's whole directory", async () => {
-    const dest = await runClone({ sparse: "runbooks/vpc/runbook.mdx" })
-    expect(exists(dest, "runbooks/vpc/runbook.mdx")).toBe(true)
-    // A sibling subdirectory — what cone mode alone would leave out.
-    expect(exists(dest, "runbooks/vpc/templates/main.tf")).toBe(true)
-    expect(exists(dest, "runbooks/other/runbook.mdx")).toBe(false)
-  })
-
-  it("a file at the repo root checks out the whole repo", async () => {
-    const dest = await runClone({ sparse: "README.md" })
-    expect(exists(dest, "runbooks/other/runbook.mdx")).toBe(true)
-  })
-
-  it("a path that doesn't exist checks out nothing, without failing", async () => {
-    const dest = await runClone({ sparse: "runbooks/missing" })
-    expect(exists(dest, "runbooks/missing")).toBe(false)
-  })
-
   it("a branch whose name contains a slash", async () => {
-    const dest = await runClone({ ref: "release/v1", sparse: "runbooks/vpc" })
+    const dest = await runClone({ ref: "release/v1" })
     expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC v1\n")
   })
 
-  it("a commit SHA, full or abbreviated, with and without a sparse path", async () => {
-    expect(
-      read(
-        await runClone({ ref: firstCommit, sparse: "runbooks/vpc" }),
-        "runbooks/vpc/runbook.mdx",
-      ),
-    ).toBe("# VPC v1\n")
-    expect(
-      read(
-        await runClone({ ref: firstCommit.slice(0, 7), sparse: "runbooks/vpc/runbook.mdx" }),
-        "runbooks/vpc/runbook.mdx",
-      ),
-    ).toBe("# VPC v1\n")
+  it("a commit SHA, full or abbreviated", async () => {
     expect(read(await runClone({ ref: firstCommit }), "runbooks/vpc/runbook.mdx")).toBe(
+      "# VPC v1\n",
+    )
+    expect(read(await runClone({ ref: firstCommit.slice(0, 7) }), "runbooks/vpc/runbook.mdx")).toBe(
       "# VPC v1\n",
     )
   })
@@ -1026,7 +979,7 @@ describe("GitCliClientLive.cloneSimple (real repo)", () => {
     const detached = gitOut(srcPath, "rev-parse", "HEAD").trim()
     git(srcPath, "checkout", "main")
 
-    const dest = await runClone({ ref: detached, sparse: "runbooks/vpc" })
+    const dest = await runClone({ ref: detached })
     expect(read(dest, "runbooks/vpc/runbook.mdx")).toBe("# VPC detached\n")
   })
 
@@ -1161,11 +1114,10 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
   beforeAll(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-githttp-"))
 
-    // The remote: a bare repo that allows partial clones and pushes over HTTP.
+    // The remote: a bare repo that allows pushes over HTTP.
     const bare = path.join(root, "server", "repo.git")
     fs.mkdirSync(bare, { recursive: true })
     git(bare, "init", "--bare")
-    git(bare, "config", "uploadpack.allowFilter", "true")
     git(bare, "config", "http.receivepack", "true")
     const seed = path.join(root, "seed")
     fs.mkdirSync(path.join(seed, "docs"), { recursive: true })
@@ -1227,28 +1179,10 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     expect(tokenInAnyArg()).toBe(false)
   }, 30_000)
 
-  it("authenticates a sparse clone's lazy blob fetch during checkout, too", async () => {
-    // A blobless clone downloads file contents from origin at checkout time,
-    // so the post-clone commands need the token just as much as the clone.
-    const dest = path.join(root, "clone-sparse")
-
-    const result = await run(
-      Effect.flatMap(GitClient, (g) =>
-        g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", sparse: "docs" }),
-      ),
-    )
-
-    expect(result._tag).toBe("Right")
-    expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide\n")
-    expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
-    expect(tokenInAnyArg()).toBe(false)
-  }, 30_000)
-
-  it("authenticates a commit fetched by id and a sparse file path", async () => {
+  it("authenticates a commit fetched by id", async () => {
     // A commit no branch or tag reaches (a pull request head) is fetched by
-    // id after the clone (lazily by a blobless clone, explicitly by a full
-    // one), and a file path is looked up with ls-tree: every step talks to
-    // origin, so every step needs the token.
+    // id after the clone, which talks to origin again, so it needs the token
+    // as much as the clone does.
     const work = path.join(root, "pr-work")
     execFileSync("git", ["clone", "-q", path.join(root, "server", "repo.git"), work])
     fs.writeFileSync(path.join(work, "docs", "guide.md"), "# guide (pr)\n")
@@ -1257,18 +1191,16 @@ describe("GitCliClientLive token auth (real git over HTTP)", () => {
     const prCommit = gitOut(work, "rev-parse", "HEAD").trim()
     git(path.join(root, "server", "repo.git"), "config", "uploadpack.allowAnySHA1InWant", "true")
 
-    for (const sparse of ["docs/guide.md", undefined]) {
-      const dest = path.join(root, `clone-pr-${sparse ? "sparse" : "full"}`)
-      const result = await run(
-        Effect.flatMap(GitClient, (g) =>
-          g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", ref: prCommit, sparse }),
-        ),
-      )
+    const dest = path.join(root, "clone-pr")
+    const result = await run(
+      Effect.flatMap(GitClient, (g) =>
+        g.cloneSimple(repoUrl, dest, { token: TOKEN, username: "oauth2", ref: prCommit }),
+      ),
+    )
 
-      expect(result._tag).toBe("Right")
-      expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide (pr)\n")
-      expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
-    }
+    expect(result._tag).toBe("Right")
+    expect(fs.readFileSync(path.join(dest, "docs", "guide.md"), "utf8")).toBe("# guide (pr)\n")
+    expect(fs.readFileSync(path.join(dest, ".git", "config"), "utf8")).not.toContain(TOKEN)
     expect(spawns.some((s) => s.args[0] === "fetch" && s.args.includes(prCommit))).toBe(true)
     expect(tokenInAnyArg()).toBe(false)
     expect(server.seenAuthorization.every((h) => h === basic("oauth2", TOKEN))).toBe(true)

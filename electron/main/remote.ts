@@ -244,9 +244,11 @@ export interface RemoteRunbookResult {
 }
 
 /**
- * Parse a remote source, clone the repo (sparse when the source names a
- * path), and resolve the runbook file within the clone. Typed failures carry
- * a message fit to show the user.
+ * Parse a remote source, clone the whole repo, and resolve the runbook file
+ * within the clone. The whole repo, not just the runbook's directory: as with
+ * go-getter's `//` subdirectory, a runbook may use files elsewhere in its
+ * repository, such as templates it wraps. Typed failures carry a message fit
+ * to show the user.
  */
 export const openRemoteRunbook = (rawUrl: string) =>
   Effect.gen(function* () {
@@ -348,9 +350,8 @@ export const openRemoteRunbook = (rawUrl: string) =>
     registerTempCloneDir(tempDir)
 
     const dest = path.join(tempDir, "repo")
-    log.info("Cloning to:", dest, "ref:", parsed.ref, "sparse:", parsed.path)
+    log.info("Cloning to:", dest, "ref:", parsed.ref)
 
-    // Clone with sparse checkout if a subpath is specified.
     const git = yield* GitClient
     const { ref } = parsed
     yield* git
@@ -358,7 +359,6 @@ export const openRemoteRunbook = (rawUrl: string) =>
         ...(ref !== undefined ? { ref } : {}),
         ...(token !== undefined ? { token } : {}),
         username,
-        sparse: parsed.path,
       })
       .pipe(Effect.catchAll(failWithCloneHint))
     log.info("Clone complete")
