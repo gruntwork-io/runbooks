@@ -711,7 +711,7 @@ export function useAwsAuth({
             accountName: data.accountName,
             arn: data.arn,
           })
-          registerCredentials(creds)
+          void registerCredentials(creds)
         } else {
           setAuthStatus("failed")
           setErrorMessage(data.error || "Failed to validate credentials")
@@ -731,7 +731,7 @@ export function useAwsAuth({
       setErrorMessage("Access Key ID and Secret Access Key are required")
       return
     }
-    validateCredentials({
+    void validateCredentials({
       accessKeyId,
       secretAccessKey,
       sessionToken: sessionToken || undefined,
@@ -764,7 +764,9 @@ export function useAwsAuth({
 
           if (data.status === "pending" && attempts < maxAttempts) {
             attempts++
-            ssoPollTimeoutRef.current = setTimeout(poll, 2000)
+            ssoPollTimeoutRef.current = setTimeout(() => {
+              void poll()
+            }, 2000)
           } else if (data.status === "select_account") {
             setSsoAccessToken(data.accessToken ?? null)
             setSsoAccounts((data.accounts ?? []) as unknown as SSOAccount[])
@@ -776,7 +778,7 @@ export function useAwsAuth({
               accountName: data.accountName,
               arn: data.arn,
             })
-            registerCredentials({
+            void registerCredentials({
               accessKeyId: data.accessKeyId!,
               secretAccessKey: data.secretAccessKey!,
               sessionToken: data.sessionToken,
@@ -793,7 +795,7 @@ export function useAwsAuth({
         }
       }
 
-      poll()
+      void poll()
     },
     [api, ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials],
   )
@@ -825,7 +827,7 @@ export function useAwsAuth({
 
       if (data.verificationUri) {
         window.open(data.verificationUri, "_blank")
-        pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret, flow)
+        void pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret, flow)
       } else {
         setAuthStatus("failed")
         setErrorMessage(data.error || "Failed to start SSO authentication")
@@ -903,7 +905,7 @@ export function useAwsAuth({
       if (data.accessKeyId) {
         setAuthStatus("authenticated")
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        registerCredentials({
+        void registerCredentials({
           accessKeyId: data.accessKeyId!,
           secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,
@@ -965,7 +967,7 @@ export function useAwsAuth({
       if (data.valid) {
         setAuthStatus("authenticated")
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        registerCredentials({
+        void registerCredentials({
           accessKeyId: data.accessKeyId!,
           secretAccessKey: data.secretAccessKey!,
           sessionToken: data.sessionToken,

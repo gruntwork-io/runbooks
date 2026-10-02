@@ -263,7 +263,7 @@ function GitCloneInteractive({
       return
     }
     const timer = setTimeout(() => {
-      previewLocalRepo(trimmed)
+      void previewLocalRepo(trimmed)
     }, 400)
     return () => clearTimeout(timer)
   }, [repoDir, activeSource, cloneStatus, previewLocalRepo, resetLocalPreview])
@@ -314,7 +314,7 @@ function GitCloneInteractive({
   // Check for GitHub token once the auth dependency is met
   useEffect(() => {
     if (gitHubAuthMet && !tokenChecked) {
-      checkGitHubToken()
+      void checkGitHubToken()
     }
   }, [gitHubAuthMet, tokenChecked, checkGitHubToken])
 

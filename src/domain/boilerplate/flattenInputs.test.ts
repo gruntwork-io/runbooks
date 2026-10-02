@@ -38,7 +38,9 @@ function fakeRenderTemplate(
     inputs?: Record<string, unknown>
     outputs?: Record<string, Record<string, unknown>>
   }
-  let missing: string | null = null
+  // Asserted rather than annotated: the callbacks below assign it, and an
+  // annotated `null` start would narrow it to `never` at the check after them.
+  let missing = null as string | null
   // Namespaced refs first, so `.inputs.X` doesn't get partially matched by the
   // top-level pattern.
   let out = template.replace(NAMESPACED_REF_RE, (_match, ns, path: string) => {
@@ -53,7 +55,7 @@ function fakeRenderTemplate(
           return ""
         }
       }
-      return cur == null ? "" : String(cur)
+      return printed(cur)
     }
     // outputs.<block>.<field>
     const dot = path.indexOf(".")
@@ -68,19 +70,29 @@ function fakeRenderTemplate(
       missing ??= `outputs.${path}`
       return ""
     }
-    const val = blockMap[field]
-    return val == null ? "" : String(val)
+    return printed(blockMap[field])
   })
   out = out.replace(TOPLEVEL_REF_RE, (_match, name: string) => {
     if (!(name in vars)) {
       missing ??= name
       return ""
     }
-    const val = vars[name]
-    return val == null ? "" : String(val)
+    return printed(vars[name])
   })
   if (missing) return { ok: false, message: `missing key: ${missing}` }
   return { ok: true, value: out }
+}
+
+/** How the fake prints a value: empty for none, a list comma-joined, a map as JSON. */
+function printed(value: unknown): string {
+  if (value === undefined || value === null) return ""
+  if (Array.isArray(value)) return value.join(",")
+  if (typeof value === "object") return JSON.stringify(value)
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value)
+  }
+  return ""
 }
 
 interface FakeWasmOptions {

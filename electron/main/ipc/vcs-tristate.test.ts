@@ -16,7 +16,7 @@ import { VcsCliError } from "../../../src/errors/index.ts"
 // Bun module mocks outlive the test file and fix the export names on first
 // import, so a second electron mock with other names (theme-store.test.ts)
 // would collide with this one. There is no window in these tests.
-mock.module("../window.ts", () => ({ getMainWindow: () => null }))
+await mock.module("../window.ts", () => ({ getMainWindow: () => null }))
 
 const { withTlsOrchestration } = await import("./vcs-tristate.ts")
 

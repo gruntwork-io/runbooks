@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm"
 import type { AppError } from "@/types/error"
 import { remarkLiteralOnly } from "@/lib/remarkLiteralOnly"
 import { rewriteAssetUrl } from "@/lib/assetPaths"
+import { errorMessage } from "../../../src/errors/message"
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
@@ -82,15 +83,14 @@ function MDXContainer({
         setCustomMDXComponent(() => compiledComponent)
       } catch (err) {
         console.error("Error processing MDX content:", err)
-        const errorMessage = err instanceof Error ? err.message : String(err)
         setError({
           message: "Error processing MDX content",
-          details: errorMessage,
+          details: errorMessage(err),
         })
       }
     }
 
-    createMDXComponent()
+    void createMDXComponent()
   }, [content])
 
   if (error) {

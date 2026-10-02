@@ -11,6 +11,7 @@ export function RefIcon({ refType, className }: { refType?: string; className?: 
       return <Tag className={className} />
     case "commit":
       return <GitCommit className={className} />
+    case undefined:
     default:
       return <GitBranch className={className} />
   }

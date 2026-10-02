@@ -315,7 +315,11 @@ export function resolveTemplateReferences(text: string, ctx: TemplateContext): s
       // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
       // through nested objects, like computeUnmetInputDependencies.
       const value = resolveInputPath(ctx.inputs, path)
-      return value != null ? String(value) : `\`${match}\``
+      if (value == null) return `\`${match}\``
+      if (typeof value === "string") return value
+      if (typeof value === "number" || typeof value === "boolean") return String(value)
+      // A whole List or Map input, which would otherwise print as "[object Object]"
+      return JSON.stringify(value)
     }
     if (namespace === "outputs") {
       const dotIdx = path.indexOf(".")

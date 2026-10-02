@@ -76,6 +76,7 @@ import {
 } from "./google-session-env.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { makeLogger } from "../logger.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:google")
 
@@ -129,8 +130,7 @@ function registerCredentialSecrets(json: string): void {
 }
 
 /** Every error string leaving this module goes through here. */
-const toErrorMessage = (err: unknown): string =>
-  redactSecrets(err instanceof Error ? err.message : String(err))
+const toErrorMessage = (err: unknown): string => redactSecrets(errorMessage(err))
 
 /** The raw `type` field of a credentials document, when it has a readable one. */
 function readRawCredentialType(json: string): string | undefined {

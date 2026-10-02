@@ -8,8 +8,11 @@ import { BrowserWindow, nativeTheme, session, shell } from "electron"
 import fs from "fs"
 import path from "path"
 import { buildContentSecurityPolicy } from "./csp.ts"
+import { makeLogger } from "./logger.ts"
 import { readVcsAuthStore } from "./recent-hosts.ts"
 import { parseGhHosts, resolveGhHostsPath } from "../../src/domain/github/auth.ts"
+
+const log = makeLogger("window")
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
 
@@ -18,7 +21,9 @@ function openExternalIfAllowed(url: string): void {
   try {
     const parsed = new URL(url)
     if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
-      shell.openExternal(url)
+      shell.openExternal(url).catch((err: unknown) => {
+        log.error("Failed to open external URL:", err)
+      })
     }
   } catch {
     /* ignore invalid URLs */
@@ -153,11 +158,12 @@ export function createMainWindow(): BrowserWindow {
   })
 
   // In dev, load from Vite dev server; in prod, load the built file.
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"))
-  }
+  const loaded = process.env.ELECTRON_RENDERER_URL
+    ? mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    : mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"))
+  loaded.catch((err: unknown) => {
+    log.error("Failed to load the renderer:", err)
+  })
 
   return mainWindow
 }

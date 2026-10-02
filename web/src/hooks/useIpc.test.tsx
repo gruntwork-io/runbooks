@@ -187,14 +187,22 @@ describe("useIpc", () => {
       })
 
       act(() => result.current.debouncedRequest!({ v: 1 }))
-      act(() => vi.advanceTimersByTime(100))
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
       act(() => result.current.debouncedRequest!({ v: 2 }))
-      act(() => vi.advanceTimersByTime(100))
+      act(() => {
+        vi.advanceTimersByTime(100)
+      })
       act(() => result.current.debouncedRequest!({ v: 3 }))
-      act(() => vi.advanceTimersByTime(299))
+      act(() => {
+        vi.advanceTimersByTime(299)
+      })
       expect(invoke).not.toHaveBeenCalled()
 
-      act(() => vi.advanceTimersByTime(1))
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
       expect(invoke).toHaveBeenCalledTimes(1)
       expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { v: 3 })
       expect(result.current.isLoading).toBe(true)
@@ -214,7 +222,9 @@ describe("useIpc", () => {
 
       act(() => result.current.debouncedRequest!({ v: 1 }))
       unmount()
-      act(() => vi.advanceTimersByTime(1000))
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
 
       expect(invoke).not.toHaveBeenCalled()
     })
@@ -228,7 +238,9 @@ describe("useIpc", () => {
         options: lazyOptions,
       })
       act(() => result.current.debouncedRequest!({ v: 1 }))
-      act(() => vi.advanceTimersByTime(300))
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
       await settle(() => pending[0].resolve("rendered"))
 
       rerender({ channel: "boilerplate:render-inline", params: { v: 2 }, options: lazyOptions })
@@ -267,7 +279,9 @@ describe("useIpc", () => {
         return ipc
       })
 
-      act(() => vi.advanceTimersByTime(300))
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
       expect(invoke).toHaveBeenCalledTimes(1)
       expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { v: 1 })
 
@@ -360,7 +374,9 @@ describe("useIpc", () => {
 
       act(() => result.current.debouncedRequest!({ v: 1 }))
       rerender({ channel: "boilerplate:render", options: { ...options, disabled: true } })
-      act(() => vi.advanceTimersByTime(1000))
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
 
       expect(invoke).not.toHaveBeenCalled()
       expect(result.current.data).toBeNull()
@@ -377,7 +393,9 @@ describe("useIpc", () => {
       // The timer holds the performInvoke captured with the old channel, so
       // only clearing the timer (not bumping the request seq) stops it.
       rerender({ channel: "", options })
-      act(() => vi.advanceTimersByTime(1000))
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
 
       expect(invoke).not.toHaveBeenCalled()
       expect(result.current.data).toBeNull()

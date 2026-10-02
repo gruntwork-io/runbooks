@@ -25,6 +25,7 @@ import { Effect } from "effect"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { VCS_TOKEN_ENV_VARS } from "../vcs/redact.ts"
 import type { VcsTransportErrorKind } from "../../errors/index.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Trust installation
@@ -133,7 +134,8 @@ export const coldReadSystemPems = (
     const stdout = lines.filter((line) => line.source === "stdout").map((line) => line.line)
     const parsed = yield* Effect.try({
       try: (): unknown => JSON.parse(stdout.join("\n")),
-      catch: (err) => new Error(`cold system-CA read produced unparseable stdout: ${err}`),
+      catch: (err) =>
+        new Error(`cold system-CA read produced unparseable stdout: ${errorMessage(err)}`),
     })
     if (
       !Array.isArray(parsed) ||
@@ -144,7 +146,7 @@ export const coldReadSystemPems = (
     return parsed
   }).pipe(
     Effect.mapError((err) =>
-      err instanceof Error ? err : new Error(`cold system-CA read failed: ${err}`),
+      err instanceof Error ? err : new Error(`cold system-CA read failed: ${errorMessage(err)}`),
     ),
   )
 

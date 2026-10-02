@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { assertFederatedCredentialAllowed } from "./credential-policy.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 /**
  * Security regression suite.
@@ -345,7 +346,7 @@ describe("assertFederatedCredentialAllowed", () => {
         token_url: "https://attacker.example/sts",
       })
     } catch (err) {
-      message = err instanceof Error ? err.message : String(err)
+      message = errorMessage(err)
     }
     expect(message).toContain("attacker.example")
     expect(message).not.toContain(secret)

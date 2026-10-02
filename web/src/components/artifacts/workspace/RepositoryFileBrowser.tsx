@@ -85,7 +85,7 @@ export const RepositoryFileBrowser = ({
     const isChanged = (c: { path: string }) => c.path === selectedFilePath
     if (!changes.some(isChanged) && !prevChanges.some(isChanged)) return
     const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
-    refetchFileContent(absPath)
+    void refetchFileContent(absPath)
   }, [changes, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
 
   // When the worktree tree is invalidated (e.g. template wrote a file),
@@ -98,7 +98,7 @@ export const RepositoryFileBrowser = ({
     clearCache()
     if (!selectedFilePath || !activeWorkTree?.localPath) return
     const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
-    refetchFileContent(absPath)
+    void refetchFileContent(absPath)
   }, [treeVersion, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
 
   // Convert WorkspaceTreeNode to FileTreeNode for the existing FileTree component
@@ -173,7 +173,7 @@ export const RepositoryFileBrowser = ({
               setSelectedFilePath(item.id)
               if (activeWorkTree?.localPath) {
                 const absPath = `${activeWorkTree.localPath}/${item.id}`
-                fetchFileContent(absPath)
+                void fetchFileContent(absPath)
               }
             }
           }}

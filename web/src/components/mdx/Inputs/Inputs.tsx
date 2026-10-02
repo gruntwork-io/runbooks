@@ -145,7 +145,7 @@ function Inputs({
       !hasSubmitted
     ) {
       hasTriggeredInitialSubmit.current = true
-      handleSubmit(initialData)
+      void handleSubmit(initialData)
     }
   }, [variant, boilerplateConfig, hasSubmitted, initialData, handleSubmit])
 

@@ -170,17 +170,17 @@ const impl: FileSystemShape = {
         watcher = chokidarWatch(paths, { ignoreInitial: true, depth: options?.depth })
 
         const handler = (type: FileChangeEvent["type"]) => (filePath: string) => {
-          emit.single({ type, path: filePath })
+          void emit.single({ type, path: filePath })
         }
 
         watcher.on("add", handler("add"))
         watcher.on("change", handler("change"))
         watcher.on("unlink", handler("unlink"))
         watcher.on("error", (err) => {
-          emit.fail(new FileWatchError({ cause: err }))
+          void emit.fail(new FileWatchError({ cause: err }))
         })
       } catch (err) {
-        emit.fail(new FileWatchError({ cause: err }))
+        void emit.fail(new FileWatchError({ cause: err }))
       }
 
       // Return cleanup effect to close the watcher when the stream terminates

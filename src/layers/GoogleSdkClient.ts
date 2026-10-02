@@ -40,6 +40,7 @@ import type {
   OAuthStartParams,
 } from "../services/GoogleClient.ts"
 import { GoogleAuthError, GoogleConfigError, GoogleOAuthError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import {
   classifyGcloudConfig,
   credentialTypeFromDocumentType,
@@ -140,9 +141,9 @@ async function clientForDocument(
         }),
       }
     }
-    default: {
-      // external_account / impersonated_service_account. Unlike the two branches
-      // above, these documents are instructions rather than data: they name the
+    case "external_account":
+    case "impersonated_service_account": {
+      // Unlike the two branches above, these documents are instructions rather than data: they name the
       // URLs the library must call and the file it must read. Gate them BEFORE
       // the library sees them — google-auth-library performs no validation of
       // its own and its docs put that duty squarely on the caller.
@@ -556,7 +557,7 @@ async function handleOAuthCallback(
     await respond(res, 500, DENIED_PAGE)
     finishFlow(flowId, {
       status: "failed",
-      error: `Failed to exchange the authorization code: ${err}`,
+      error: `Failed to exchange the authorization code: ${errorMessage(err)}`,
     })
   }
 }
@@ -687,7 +688,7 @@ interface GoogleApiError {
  * Turn a token-endpoint failure into copy a runbook user can act on.
  *
  * google-auth-library stringifies OAuth failures as the raw JSON body, so the
- * default `${err}` surfaces `{"error":"invalid_grant","error_subtype":
+ * default message surfaces `{"error":"invalid_grant","error_subtype":
  * "invalid_rapt"}` in the block. Google's own CLI answers the same condition
  * with the exact command to run, and so should we — a stale ADC file is the
  * single most common way this block fails, and the fix is one command.
@@ -699,7 +700,7 @@ export function describeCredentialFailure(
   err: unknown,
   kind: "adc" | "service_account" | "access_token" = "adc",
 ): string | undefined {
-  const text = err instanceof Error ? err.message : String(err ?? "")
+  const text = err == null ? "" : errorMessage(err)
 
   // Reauth: the refresh token is live but the org's reauth policy wants the
   // human back. Distinct from a dead grant, and distinctly fixable.
@@ -813,7 +814,7 @@ const impl: GoogleClientShape = {
         new GoogleAuthError({
           message:
             describeCredentialFailure(err, "service_account") ??
-            `Failed to validate service account key: ${err}`,
+            `Failed to validate service account key: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
@@ -826,7 +827,7 @@ const impl: GoogleClientShape = {
         new GoogleAuthError({
           message:
             describeCredentialFailure(err, "access_token") ??
-            `Failed to validate access token: ${err}`,
+            `Failed to validate access token: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
@@ -857,7 +858,8 @@ const impl: GoogleClientShape = {
       catch: (err) =>
         new GoogleAuthError({
           message:
-            describeCredentialFailure(err, "adc") ?? `Failed to validate credentials: ${err}`,
+            describeCredentialFailure(err, "adc") ??
+            `Failed to validate credentials: ${errorMessage(err)}`,
           cause: err,
         }),
     }),
@@ -873,13 +875,15 @@ const impl: GoogleClientShape = {
           throw new Error(`${filePath} is not a valid Google credentials document`)
         }
       },
-      catch: (err) => new GoogleConfigError({ message: `Failed to read credentials file: ${err}` }),
+      catch: (err) =>
+        new GoogleConfigError({ message: `Failed to read credentials file: ${errorMessage(err)}` }),
     }),
 
   readCredentialFileContents: (filePath: string) =>
     Effect.tryPromise({
       try: (): Promise<string> => fs.readFile(filePath, "utf-8"),
-      catch: (err) => new GoogleConfigError({ message: `Failed to read credentials file: ${err}` }),
+      catch: (err) =>
+        new GoogleConfigError({ message: `Failed to read credentials file: ${errorMessage(err)}` }),
     }),
 
   listGcloudConfigurations: () =>
@@ -938,7 +942,9 @@ const impl: GoogleClientShape = {
         }
       },
       catch: (err) =>
-        new GoogleConfigError({ message: `Failed to list gcloud configurations: ${err}` }),
+        new GoogleConfigError({
+          message: `Failed to list gcloud configurations: ${errorMessage(err)}`,
+        }),
     }),
 
   readApplicationDefaultCredentials: () =>
@@ -953,7 +959,7 @@ const impl: GoogleClientShape = {
       },
       catch: (err) =>
         new GoogleConfigError({
-          message: `Failed to read application default credentials: ${err}`,
+          message: `Failed to read application default credentials: ${errorMessage(err)}`,
         }),
     }),
 
@@ -1056,7 +1062,10 @@ const impl: GoogleClientShape = {
         }
       },
       catch: (err) =>
-        new GoogleOAuthError({ message: `Failed to start Google sign-in: ${err}`, cause: err }),
+        new GoogleOAuthError({
+          message: `Failed to start Google sign-in: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   pollOAuthFlow: (flowId: string) =>
@@ -1083,7 +1092,10 @@ const impl: GoogleClientShape = {
         return result
       },
       catch: (err) =>
-        new GoogleOAuthError({ message: `Failed to poll Google sign-in: ${err}`, cause: err }),
+        new GoogleOAuthError({
+          message: `Failed to poll Google sign-in: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   cancelOAuthFlow: (flowId: string) =>
@@ -1103,7 +1115,10 @@ const impl: GoogleClientShape = {
         return searchProjects(authClient, query, limit)
       },
       catch: (err) =>
-        new GoogleAuthError({ message: `Failed to list projects: ${err}`, cause: err }),
+        new GoogleAuthError({
+          message: `Failed to list projects: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 
   checkProject: (projectId: string, creds: GoogleCredentialRef) =>
@@ -1120,7 +1135,10 @@ const impl: GoogleClientShape = {
         }
       },
       catch: (err) =>
-        new GoogleAuthError({ message: `Failed to check project: ${err}`, cause: err }),
+        new GoogleAuthError({
+          message: `Failed to check project: ${errorMessage(err)}`,
+          cause: err,
+        }),
     }),
 }
 

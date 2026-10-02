@@ -23,6 +23,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
 import { Effect } from "effect"
+import { fetchUrl } from "../test-utils/fetch-url.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 // ---------------------------------------------------------------------------
@@ -62,7 +63,7 @@ mockElectron({
     removeListener: () => {},
   },
 })
-mock.module("../window.ts", () => ({
+await mock.module("../window.ts", () => ({
   getMainWindow: () => null,
 }))
 
@@ -100,12 +101,12 @@ const mockFetch = (respond: (url: string) => Response) => {
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const headers = (init?.headers ?? {}) as Record<string, string>
     fetchCalls.push({
-      url: String(input),
+      url: fetchUrl(input),
       method: init?.method ?? "GET",
       body: typeof init?.body === "string" ? init.body : undefined,
       authorization: headers.Authorization,
     })
-    return Promise.resolve(respond(String(input)))
+    return Promise.resolve(respond(fetchUrl(input)))
   }) as typeof fetch
 }
 
@@ -423,7 +424,7 @@ describe("a sign-in that finishes after another runbook opened", () => {
       release = resolve
     })
     globalThis.fetch = (async (input: string | URL | Request) => {
-      const url = String(input)
+      const url = fetchUrl(input)
       fetchCalls.push({ url, method: "GET" })
       if (url.endsWith("/user")) await released
       return url.endsWith("/login/oauth/access_token")

@@ -49,6 +49,7 @@ import {
   addRecentGitHubHost,
   setLastSelectedGitHubHost,
 } from "../recent-hosts.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 type HostSource = "gh" | "env" | "session" | "recent"
 
@@ -314,7 +315,7 @@ export function registerGitHubHandlers(): void {
           ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = errorMessage(err)
         if (message.includes("expired_token") || message.includes("expired")) {
           return { status: "expired" as const, error: message }
         }

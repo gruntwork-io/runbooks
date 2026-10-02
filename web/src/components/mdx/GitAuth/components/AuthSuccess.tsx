@@ -48,7 +48,8 @@ function getTokenTypeLabel(tokenType: GitTokenType, unknownLabel: string): strin
       return "OAuth Token"
     case "github_app":
       return "GitHub App Token"
-    default:
+    case "pat":
+    case "unknown":
       return unknownLabel
   }
 }

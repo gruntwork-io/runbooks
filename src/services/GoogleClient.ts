@@ -13,6 +13,12 @@ export type GoogleCredentialType =
   | "access_token"
   | "gce_metadata"
 
+/** The credential types a credentials JSON document can declare in its `type` field. */
+export type GoogleDocumentCredentialType = Exclude<
+  GoogleCredentialType,
+  "access_token" | "gce_metadata"
+>
+
 /**
  * A credential the layer can turn into a google-auth-library client. Secret
  * material stays inside main + the layer; this type never crosses IPC.

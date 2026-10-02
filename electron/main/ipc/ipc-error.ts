@@ -81,7 +81,15 @@ export function describeFailure(err: unknown): string {
 function describeUntagged(err: unknown): string {
   if (err === null || err === undefined) return ""
   if (err instanceof Error) return err.message
-  if (typeof err !== "object" && typeof err !== "function") return String(err)
+  if (typeof err === "string") return err
+  if (
+    typeof err === "number" ||
+    typeof err === "boolean" ||
+    typeof err === "bigint" ||
+    typeof err === "symbol"
+  ) {
+    return String(err)
+  }
   const { message } = err as { message?: unknown }
   if (typeof message === "string") return message
   try {

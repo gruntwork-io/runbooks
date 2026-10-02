@@ -88,7 +88,7 @@ export function IpcTelemetryProvider({ children }: IpcTelemetryProviderProps) {
       }
     }
 
-    fetchConfig()
+    void fetchConfig()
   }, [api])
 
   // Reset block tracking when a new runbook is opened so telemetry fires again

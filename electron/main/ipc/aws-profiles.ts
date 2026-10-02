@@ -11,6 +11,7 @@ import {
   listProfiles,
   authenticateProfile,
 } from "../../../src/domain/aws/auth.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 export type ProfileAuthRequest = { profileName?: string; profile?: string; defaultRegion?: string }
 
@@ -43,7 +44,7 @@ export async function handleProfileAuth(params: ProfileAuthRequest) {
   } catch (err) {
     return {
       valid: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     }
   }
 }

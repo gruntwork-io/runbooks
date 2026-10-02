@@ -24,6 +24,7 @@ import { promisify } from "node:util"
 import { WasmRuntime } from "../services/WasmRuntime.ts"
 import type { WasmRuntimeShape, WasmRenderFilesResult } from "../services/WasmRuntime.ts"
 import { WasmError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 
 const decompress = promisify(brotliDecompress)
 
@@ -220,7 +221,7 @@ function callBridge<T>(
       err instanceof WasmError
         ? err
         : new WasmError({
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
             kind: "load",
             cause: err,
           }),

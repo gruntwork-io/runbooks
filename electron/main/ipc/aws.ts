@@ -21,6 +21,7 @@ import type { ProfileAuthRequest } from "./aws-profiles.ts"
 import { handleSsoPoll, handleSsoRoles } from "./aws-sso.ts"
 import type { SsoPollRequest, SsoRolesRequest } from "./aws-sso.ts"
 import { makeLogger } from "../logger.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 const log = makeLogger("ipc:aws")
 
@@ -48,7 +49,7 @@ export function registerAwsHandlers(): void {
     } catch (err) {
       return {
         valid: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       }
     }
   })
@@ -79,7 +80,7 @@ export function registerAwsHandlers(): void {
       }
     } catch (err) {
       return {
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       }
     }
   })

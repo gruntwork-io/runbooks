@@ -213,6 +213,16 @@ describe("resolveTemplateReferences", () => {
     )
   })
 
+  it("should resolve a whole Map or List input as JSON", () => {
+    const complexCtx: TemplateContext = {
+      inputs: { tags: { env: "prod" }, zones: ["a", "b"], replicas: 3 },
+      outputs: {},
+    }
+    expect(resolveTemplateReferences("{{ .inputs.tags }}", complexCtx)).toBe('{"env":"prod"}')
+    expect(resolveTemplateReferences("{{ .inputs.zones }}", complexCtx)).toBe('["a","b"]')
+    expect(resolveTemplateReferences("{{ .inputs.replicas }}", complexCtx)).toBe("3")
+  })
+
   it("should not resolve inherited or built-in members as input values", () => {
     // The engine looks up map keys: an object's prototype members and an
     // array's length are not keys, so these stay unresolved.

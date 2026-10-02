@@ -24,6 +24,7 @@ import type {
   MergeRequestResult,
 } from "../services/GitLabClient.ts"
 import { GitLabApiError } from "../errors/index.ts"
+import { errorMessage } from "../errors/message.ts"
 import {
   DEFAULT_GITLAB_BASE_URL,
   gitlabApiBase,
@@ -37,7 +38,7 @@ type AuthScheme = "private" | "bearer"
 const toGitLabApiError = (err: unknown): GitLabApiError =>
   err instanceof GitLabApiError
     ? err
-    : new GitLabApiError({ status: 0, message: `${err}`, kind: classifyTlsError(err) })
+    : new GitLabApiError({ status: 0, message: errorMessage(err), kind: classifyTlsError(err) })
 
 /**
  * Resolve the caller's `baseUrl` (default gitlab.com) with the STRICT parse,

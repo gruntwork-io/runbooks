@@ -27,7 +27,7 @@ const fakeWindow = {
     },
   },
 }
-mock.module("../window.ts", () => ({ getMainWindow: () => fakeWindow }))
+await mock.module("../window.ts", () => ({ getMainWindow: () => fakeWindow }))
 
 const { registerRunbookHandlers } = await import("./runbook.ts")
 const { closeRunbook, stopWatcher } = await import("./watch.ts")

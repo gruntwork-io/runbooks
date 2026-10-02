@@ -346,7 +346,7 @@ function GitPullRequestInteractive({
       activeWorkTree?.gitInfo?.repoOwner &&
       activeWorkTree?.gitInfo?.repoName
     ) {
-      fetchLabels(
+      void fetchLabels(
         activeWorkTree.gitInfo.repoOwner,
         activeWorkTree.gitInfo.repoName,
         hostFromRepoUrl(activeWorkTree?.gitInfo?.repoUrl),
@@ -383,7 +383,7 @@ function GitPullRequestInteractive({
 
   const handleCreatePR = useCallback(() => {
     if (!activeWorkTree) return
-    createPullRequest({
+    void createPullRequest({
       owner: activeWorkTree.gitInfo.repoOwner,
       repo: activeWorkTree.gitInfo.repoName,
       // The ref the worktree was cloned at is the base/target branch.
@@ -408,7 +408,7 @@ function GitPullRequestInteractive({
 
   const handlePush = useCallback(() => {
     if (!activeWorkTree || !prResult) return
-    pushChanges(activeWorkTree.localPath, prResult.branchName)
+    void pushChanges(activeWorkTree.localPath, prResult.branchName)
   }, [activeWorkTree, prResult, pushChanges])
 
   const handleCreateAnother = useCallback(() => {

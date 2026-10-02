@@ -146,7 +146,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Detect if a GitHub token is available in the session
   const checkGitHubToken = useCallback(async () => {
     // Fetch working dir in parallel
-    fetchWorkingDir()
+    void fetchWorkingDir()
 
     try {
       const orgs = await api.invoke("github:orgs", { host: githubHost })
