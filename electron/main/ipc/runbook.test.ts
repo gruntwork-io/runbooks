@@ -29,15 +29,25 @@ const fakeWindow = {
 }
 await mock.module("../window.ts", () => ({ getMainWindow: () => fakeWindow }))
 
-const { registerRunbookHandlers, expectLaunch, isSessionOpen, markRunbookClosed, startNewSession } =
-  await import("./runbook.ts")
+const {
+  registerRunbookHandlers,
+  expectLaunch,
+  isSessionOpen,
+  markRunbookClosed,
+  resetToNewSession,
+} = await import("./runbook.ts")
 const { closeRunbook, stopWatcher } = await import("./watch.ts")
 const runtimeModule = await import("./runtime.ts")
 const { setRunbookConfig, setExecutableRegistry, sessionManager } = runtimeModule
 const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
 type TestSessionPersistence = ReturnType<typeof installTestSessionPersistence>
 
-type RunbookGetResult = { path: string; isWatchMode?: boolean; sessionId: string }
+type RunbookGetResult = {
+  path: string
+  isWatchMode?: boolean
+  sessionId: string
+  sessionName: string
+}
 /** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
 const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
   handlers.get("runbook:get")!(undefined, {
@@ -361,7 +371,7 @@ describe("runbook IPC handlers", () => {
         expect<unknown>(await openA).toEqual({ superseded: true })
         const b = await openB
         expect(sessionManager.getRunbookPath()).toBe(b.path)
-        expect(sessions.persistence.currentSessionId()).toBe(b.sessionId)
+        expect(sessions.persistence.currentSession()?.id).toBe(b.sessionId)
         expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
       })
     })
@@ -439,6 +449,8 @@ describe("runbook IPC handlers", () => {
         const second = await getRunbook(dirA)
 
         expect(second.sessionId).toBe(first.sessionId)
+        expect(first.sessionName).toMatch(/^[a-z]+-[a-z]+$/)
+        expect(second.sessionName).toBe(first.sessionName)
         expect((await sessionEnv()).FROM_BLOCK).toBe("1")
         expect(
           (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir,
@@ -472,13 +484,13 @@ describe("runbook IPC handlers", () => {
         expect(redactSecrets(`token ${token}`)).not.toContain(token)
       })
 
-      describe("startNewSession", () => {
+      describe("resetToNewSession", () => {
         it("reloads the open runbook under a new, empty session", async () => {
           const first = await getRunbook(dirA, { remoteSource: "https://example.com/acme/a" })
           await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
 
           const from = sent.length
-          startNewSession()
+          resetToNewSession()
           // The renderer answers file:open-runbook by loading that runbook.
           const reopen = sent.slice(from).find((m) => m.channel === "file:open-runbook")!
           expect(reopen.payload).toEqual({
@@ -490,6 +502,7 @@ describe("runbook IPC handlers", () => {
           })
 
           expect(second.sessionId).not.toBe(first.sessionId)
+          expect(second.sessionName).not.toBe(first.sessionName)
           expect((await sessionEnv()).FROM_BLOCK).toBeUndefined()
           expect(
             (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir,
@@ -500,7 +513,7 @@ describe("runbook IPC handlers", () => {
 
         it("is the session the runbook resumes after a restart", async () => {
           const first = await getRunbook(dirA)
-          startNewSession()
+          resetToNewSession()
           const second = await getRunbook(first.path)
           restartApp()
 
@@ -512,7 +525,7 @@ describe("runbook IPC handlers", () => {
           closeRunbook()
 
           const from = sent.length
-          startNewSession()
+          resetToNewSession()
 
           expect(sent.slice(from)).toEqual([])
         })
@@ -551,7 +564,7 @@ describe("runbook IPC handlers", () => {
 
         it("resumes the named session instead of the runbook's latest", async () => {
           const older = await getRunbook(dirA)
-          startNewSession()
+          resetToNewSession()
           const newer = await getRunbook(older.path)
           expect(newer.sessionId).not.toBe(older.sessionId)
 

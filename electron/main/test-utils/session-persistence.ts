@@ -37,6 +37,7 @@ export function installTestSessionPersistence(): TestSessionPersistence {
       decrypt: (ciphertext) => new TextDecoder().decode(ciphertext),
     },
     ephemeralFileEnvVars: [],
+    random: () => Math.random(),
     onSaveError: (err) => {
       throw err
     },

@@ -37,7 +37,7 @@ export interface UseIpcGetRunbookReturn extends UseIpcReturn<GetFileReturn> {
  *    it and sends a "file:open-runbook" event once the clone is ready.
  * 2. Listens for "file:open-runbook" events (sent by main process for a remote
  *    runbook at launch, second-instance, macOS open-file, the Open
- *    menu/dialog, and New Session).
+ *    menu/dialog, and Reset Session).
  * 3. Exposes `openRunbook` for opens the renderer decides on itself: the
  *    Open from URL modal calls it with the path `runbook:open-remote` returns,
  *    so a cancelled clone never replaces the current runbook.
@@ -51,7 +51,7 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // the useIpc params (and so fetches again). runbook:get ignores the field.
   // A same-path open is therefore a reload: main resets the session's working
   // dir to the session's own directory (block state here is kept, unless main
-  // answers with a new sessionId, as it does for New Session).
+  // answers with a new sessionId, as it does for Reset Session).
   const [openNonce, setOpenNonce] = useState(0)
   // 'watch' while the current request is a watch-mode reload (see reloadForWatch)
   const [reload, setReload] = useState<"watch" | undefined>(undefined)

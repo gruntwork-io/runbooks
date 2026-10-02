@@ -11,6 +11,7 @@ import path from "node:path"
 import { Cause, Effect } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import type { SessionManager, EnvChanges, SessionState } from "./manager.ts"
+import { sessionNameCandidates } from "./names.ts"
 import type { RunbookSource, SessionRecord, SessionStore } from "./store.ts"
 
 /**
@@ -38,6 +39,8 @@ export interface SessionPersistenceOptions {
   ephemeralFileEnvVars: readonly string[]
   /** Reports a failed save. The session keeps running without it. */
   onSaveError: (err: unknown) => void
+  /** Picks the words of a new session's name. Returns a number in [0, 1), like Math.random. */
+  random: () => number
 }
 
 export interface OpenSessionRequest {
@@ -52,17 +55,19 @@ export interface OpenSessionRequest {
 
 export interface OpenedSession {
   id: string
+  /** What the app shows the session as, e.g. `elegant-elephant`. */
+  name: string
   dir: string
 }
 
 export class SessionPersistence {
-  private currentId: string | undefined
+  private current: OpenedSession | undefined
 
   constructor(private readonly options: SessionPersistenceOptions) {}
 
-  /** The id of the session `open` last started. */
-  currentSessionId(): string | undefined {
-    return this.currentId
+  /** The session `open` last started. */
+  currentSession(): OpenedSession | undefined {
+    return this.current
   }
 
   /**
@@ -92,13 +97,15 @@ export class SessionPersistence {
         // it takes over the launch directory of the session it replaces, so
         // `runbooks` run there resumes it.
         const replaced =
-          request.launchDir === undefined && this.currentId !== undefined
-            ? yield* store.get(this.currentId)
+          request.launchDir === undefined && this.current !== undefined
+            ? yield* store.get(this.current.id)
             : undefined
         const id = newSessionId()
         const dir = yield* this.ensureDir(path.join(this.options.dirsRoot, id))
+        const name = yield* this.newName(id)
         yield* store.insert({
           id,
+          name,
           path: request.runbook.path,
           remoteSource: request.runbook.remoteSource,
           dir,
@@ -113,7 +120,7 @@ export class SessionPersistence {
           lastActivityAt: now.toISOString(),
         })
         yield* manager.createSession(dir, request.runbook.path)
-        opened = { id, dir }
+        opened = { id, name, dir }
       } else {
         const dir = yield* this.ensureDir(saved.dir)
         yield* manager.resumeSession({
@@ -127,10 +134,10 @@ export class SessionPersistence {
           runbookPath: request.runbook.path,
           launchDir: request.launchDir,
         })
-        opened = { id: saved.id, dir }
+        opened = { id: saved.id, name: saved.name, dir }
       }
 
-      this.currentId = opened.id
+      this.current = opened
       manager.setChangeListener((state) => {
         this.save(opened.id, state)
       })
@@ -143,11 +150,26 @@ export class SessionPersistence {
    * was open. An undefined `launchDir` keeps the one already recorded.
    */
   recordLaunch(runbookPath: string, launchDir: string | undefined) {
-    if (this.currentId === undefined) return Effect.void
-    return this.options.store.markLaunched(this.currentId, {
+    if (this.current === undefined) return Effect.void
+    return this.options.store.markLaunched(this.current.id, {
       at: new Date().toISOString(),
       runbookPath,
       launchDir,
+    })
+  }
+
+  /**
+   * A name no other session has: the first free one of sessionNameCandidates.
+   * Its last candidate ends in `id`, which is this session's alone, so the
+   * list never runs out.
+   */
+  private newName(id: string) {
+    return Effect.gen(this, function* () {
+      const candidates = sessionNameCandidates(this.options.random, id)
+      for (const candidate of candidates) {
+        if (!(yield* this.options.store.isNameTaken(candidate))) return candidate
+      }
+      return candidates.at(-1)!
     })
   }
 

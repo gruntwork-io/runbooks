@@ -80,10 +80,14 @@ interface HeaderProps {
   pathName: string
   /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
   localPath?: string | undefined
+  /** The open runbook's session name, e.g. `elegant-elephant` */
+  sessionName?: string | undefined
 }
 
 /**
- * A fixed header component that displays the branding and current file path.
+ * A fixed header component that displays the branding, the open runbook's
+ * session name and the current file path. It is the app's title bar: the
+ * window has no native one.
  *
  * The header uses a responsive design where mobile devices show only the file path
  * centered, while desktop devices show the full layout with branding and navigation.
@@ -94,8 +98,9 @@ interface HeaderProps {
  * @param props - The component props
  * @param props.pathName - The display string (remote URL or local path) for the header
  * @param props.localPath - The local filesystem path (for copy button when remote)
+ * @param props.sessionName - The session name shown before the path
  */
-export function Header({ pathName, localPath }: HeaderProps) {
+export function Header({ pathName, localPath, sessionName }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const { getAllLogs, hasLogs } = useLogs()
@@ -117,9 +122,9 @@ export function Header({ pathName, localPath }: HeaderProps) {
       console.error("Failed to close the runbook:", err)
     })
   }
-  const handleNewSession = () => {
-    api.invoke("native:new-session").catch((err: unknown) => {
-      console.error("Failed to start a new session:", err)
+  const handleResetSession = () => {
+    api.invoke("native:reset-session").catch((err: unknown) => {
+      console.error("Failed to reset the session:", err)
     })
   }
 
@@ -164,7 +169,16 @@ export function Header({ pathName, localPath }: HeaderProps) {
             draggable={false}
           />
         </div>
-        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
+        <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-60">
+          {sessionName && (
+            <span
+              className="flex-shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-foreground font-mono font-normal"
+              title={`Session: ${sessionName}`}
+              data-testid="session-name"
+            >
+              {sessionName}
+            </span>
+          )}
           <div
             className="hidden md:block text-sm text-muted-foreground font-mono font-normal truncate max-w-full"
             title={pathName}
@@ -242,12 +256,12 @@ export function Header({ pathName, localPath }: HeaderProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleNewSession}
+                onClick={handleResetSession}
                 disabled={!hasRunbookOpen}
                 className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
               >
                 <RotateCcw className="size-4" />
-                New Session
+                Reset Session
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleCloseRunbook}

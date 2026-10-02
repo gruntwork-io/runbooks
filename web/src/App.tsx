@@ -28,6 +28,9 @@ import { useApi } from "./contexts/ApiContext"
 import { cn } from "./lib/utils"
 import type { AppError } from "./types/error"
 
+/** The window title while no runbook is open, as in index.html. */
+const APP_TITLE = "Gruntwork Runbooks"
+
 /**
  * Clears the root logs store whenever the loaded runbook or its session
  * changes, including on close (the key becomes undefined), so the previous
@@ -221,6 +224,13 @@ function App() {
   const content = getRunbookResult.data?.content || ""
   const runbookPath = getDirectoryPath(getRunbookResult.data?.path || "")
 
+  // The session's name goes in the Header, which is the title bar people see,
+  // and in the window title, which the OS shows in its window list and taskbar.
+  const sessionName = getRunbookResult.data?.sessionName
+  useEffect(() => {
+    document.title = sessionName ? `${sessionName} - ${APP_TITLE}` : APP_TITLE
+  }, [sessionName])
+
   // Track whether we've ever successfully loaded runbook content.
   // Once true, never let loading/error states unmount MDXContainer — doing so
   // would destroy all block outputs (and user-edited inputs) stored in
@@ -269,7 +279,11 @@ function App() {
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
-        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
+        <Header
+          pathName={pathName}
+          localPath={getRunbookResult.data?.path}
+          sessionName={sessionName}
+        />
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}

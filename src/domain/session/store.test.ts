@@ -8,9 +8,12 @@ import { openSqliteDatabase } from "../../layers/NodeSqlite.ts"
 
 const run = Effect.runSync
 
+/** A session record. Its name follows its id unless `overrides` names it. */
 function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
+  const id = overrides.id ?? "s1"
   return {
-    id: "s1",
+    id,
+    name: `name-of-${id}`,
     path: "/repo/runbook.mdx",
     remoteSource: undefined,
     dir: "/sessions/dirs/s1",
@@ -60,6 +63,24 @@ describe("SessionStore", () => {
       /failed to save a new session/,
     )
     expect(run(store.get("s1"))?.worktrees).toEqual(["/a"])
+  })
+
+  describe("names", () => {
+    it("reports whether a session has a name", () => {
+      run(store.insert(record({ name: "elegant-elephant" })))
+
+      expect(run(store.isNameTaken("elegant-elephant"))).toBe(true)
+      expect(run(store.isNameTaken("brave-otter"))).toBe(false)
+    })
+
+    it("refuses a second session with a name that is taken", () => {
+      run(store.insert(record({ id: "first", name: "elegant-elephant" })))
+
+      expect(() => run(store.insert(record({ id: "second", name: "elegant-elephant" })))).toThrow(
+        /failed to save a new session/,
+      )
+      expect(run(store.get("second"))).toBeUndefined()
+    })
   })
 
   describe("saveState", () => {

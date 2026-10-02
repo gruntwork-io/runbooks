@@ -110,7 +110,7 @@ Only one script runs at a time. Starting a script (for example, clicking "Run" o
 
 The Runbooks main process maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
 
-The session is saved, and opening the runbook again resumes it, even after you restart the app: see [Sessions](/commands/sessions/). You can manually reset the environment to its initial state using the session controls in the UI, or start over with **File > New Session**.
+The session is saved, and opening the runbook again resumes it, even after you restart the app: see [Sessions](/commands/sessions/). You can manually reset the environment to its initial state using the session controls in the UI, or start the runbook over with **File > Reset Session**.
 
 ---
 

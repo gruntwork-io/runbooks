@@ -107,15 +107,17 @@ export function expectLaunch(launch: Launch): void {
   pendingLaunch = launch
 }
 
-/** The open runbook's path while File > New Session waits for its reload. */
+/** The open runbook's path while File > Reset Session waits for its reload. */
 let newSessionFor: string | null = null
 
 /**
- * Start a new session for the open runbook: its blocks start over in a new,
- * empty session directory with the environment the app was launched with.
- * The session it replaces stays on disk. Does nothing while no runbook is open.
+ * File > Reset Session: replace the open runbook's session with a new one.
+ * Its blocks start over in a new, empty session directory, under a new name,
+ * with the environment the app was launched with. The session it replaces
+ * stays on disk, but nothing opens it again. Does nothing while no runbook is
+ * open.
  */
-export function startNewSession(): void {
+export function resetToNewSession(): void {
   const win = getMainWindow()
   if (!win || openRunbook === null) return
   newSessionFor = openRunbook.path
@@ -124,7 +126,7 @@ export function startNewSession(): void {
 
 /** Whether the renderer is showing the session with this id. */
 export function isSessionOpen(id: string): boolean {
-  return openRunbook !== null && sessionPersistence?.currentSessionId() === id
+  return openRunbook !== null && sessionPersistence?.currentSession()?.id === id
 }
 
 /**
@@ -201,7 +203,7 @@ export function registerRunbookHandlers(): void {
         const sameRunbook = sessionManager.getRunbookPath() === runbookPath
         const startNew = newSessionFor === runbookPath
         const resumesOtherSession =
-          launch?.sessionId !== undefined && launch.sessionId !== persistence.currentSessionId()
+          launch?.sessionId !== undefined && launch.sessionId !== persistence.currentSession()?.id
 
         // A different runbook than the one the live session belongs to
         // (including "no session yet") replaces the session, with the one
@@ -210,8 +212,8 @@ export function registerRunbookHandlers(): void {
         // by a GitClone block in one runbook stays "active"
         // (session/manager.ts's getActiveWorkTreePath) after switching to an
         // unrelated runbook in the same running app, so REPO_FILES / worktree
-        // templates resolve to another runbook's checkout. So does File > New
-        // Session, and a launch that resumes another of this runbook's
+        // templates resolve to another runbook's checkout. So does File >
+        // Reset Session, and a launch that resumes another of this runbook's
         // sessions.
         // Reloading the SAME runbook (watch mode, re-opening the same file)
         // must NOT do this — it would wipe env vars a script exported mid-run.
@@ -274,8 +276,8 @@ export function registerRunbookHandlers(): void {
       // The new session's resets await: a newer load may have started.
       if (superseded()) return SUPERSEDED
 
-      const sessionId = persistence.currentSessionId()
-      if (sessionId === undefined) throw new Error("the open runbook has no saved session")
+      const session = persistence.currentSession()
+      if (session === undefined) throw new Error("the open runbook has no saved session")
 
       // Watch mode: reload the renderer when this runbook changes. A no-op if
       // it's already watched; a watcher on a previous runbook is stopped.
@@ -318,7 +320,8 @@ export function registerRunbookHandlers(): void {
         warnings: registry.getWarnings(),
         remoteSource: params.remoteSource,
         assetHost: runbookAssetHost(config),
-        sessionId,
+        sessionId: session.id,
+        sessionName: session.name,
       }
     },
   )

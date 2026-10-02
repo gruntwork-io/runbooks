@@ -13,6 +13,12 @@ Runbooks keeps a session for every runbook you open. A session is what the runbo
 
 Runbooks saves the session after every change, so quitting the app keeps it.
 
+## Session names
+
+Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows it next to the runbook's path, and the window title starts with it.
+
+Runbooks picks the name when it creates the session, and the session keeps it for good. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
+
 ## Resuming a session
 
 Opening a runbook resumes its most recent session. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were.
@@ -33,11 +39,13 @@ A [remote runbook](/commands/open/#remote-sources) is cloned again every time it
 
 If a resumed session's working directory or one of its cloned repositories has been deleted, the session starts in its own directory and drops the missing repository.
 
-## Starting a new session
+## Resetting a session
 
-Choose **File > New Session** (<kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>), or **New Session** in the app's menu, to start the open runbook over. The new session gets an empty directory and the environment Runbooks was launched with, and it is the one the runbook resumes from then on.
+Choose **File > Reset Session**, or **Reset Session** in the app's menu, to start the open runbook over. Its blocks go back to their initial state, and scripts run in an empty directory with the environment Runbooks was launched with.
 
-The session it replaces stays on disk with its files. Runbooks can't switch back to it yet.
+A reset replaces the session with a new one, so the name in the title bar changes. The runbook resumes the new session from then on.
+
+Nothing is deleted. The session that was replaced keeps its directory and files on disk, but Runbooks can't open it again. See [Deleting sessions](#deleting-sessions) to remove it.
 
 ## Where sessions are stored
 
@@ -59,7 +67,11 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
       - my-cloned-repo/
 </FileTree>
 
-The database records each session's runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment.
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its internal id, not its name. To find the directory of the session on screen, run a block that prints `$PWD`, or look the name up:
+
+```bash
+sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"
+```
 
 ## What is encrypted
 
