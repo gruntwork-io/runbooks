@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo } from 'react'
-import { ErrorReportingContext, type ReportedError } from './ErrorReportingContext.types'
+import React, { useState, useCallback, useMemo } from "react"
+import { ErrorReportingContext, type ReportedError } from "./ErrorReportingContext.types"
 
 interface ErrorReportingProviderProps {
   children: React.ReactNode
@@ -13,15 +13,17 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
   const [errors, setErrors] = useState<ReportedError[]>([])
 
   const reportError = useCallback((error: ReportedError) => {
-    setErrors(prev => {
+    setErrors((prev) => {
       // Check if this component already reported an error
-      const existingIndex = prev.findIndex(e => e.componentId === error.componentId)
-      if (existingIndex >= 0) {
-        const existing = prev[existingIndex]
+      const existingIndex = prev.findIndex((e) => e.componentId === error.componentId)
+      const existing = prev[existingIndex]
+      if (existing) {
         // Only update if the error actually changed - prevents infinite re-renders
-        if (existing.message === error.message && 
-            existing.severity === error.severity &&
-            existing.componentType === error.componentType) {
+        if (
+          existing.message === error.message &&
+          existing.severity === error.severity &&
+          existing.componentType === error.componentType
+        ) {
           return prev // No change, return same reference to avoid re-render
         }
         // Update existing error
@@ -35,7 +37,7 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
   }, [])
 
   const clearError = useCallback((componentId: string) => {
-    setErrors(prev => prev.filter(e => e.componentId !== componentId))
+    setErrors((prev) => prev.filter((e) => e.componentId !== componentId))
   }, [])
 
   const clearAllErrors = useCallback(() => {
@@ -46,7 +48,7 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
     let numErrors = 0
     let numWarnings = 0
     for (const error of errors) {
-      if (error.severity === 'error') {
+      if (error.severity === "error") {
         numErrors++
       } else {
         numWarnings++
@@ -55,18 +57,10 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
     return { errorCount: numErrors, warningCount: numWarnings }
   }, [errors])
 
-  const value = {
-    errors,
-    errorCount,
-    warningCount,
-    reportError,
-    clearError,
-    clearAllErrors,
-  }
-
-  return (
-    <ErrorReportingContext.Provider value={value}>
-      {children}
-    </ErrorReportingContext.Provider>
+  const value = useMemo(
+    () => ({ errors, errorCount, warningCount, reportError, clearError, clearAllErrors }),
+    [errors, errorCount, warningCount, reportError, clearError, clearAllErrors],
   )
+
+  return <ErrorReportingContext.Provider value={value}>{children}</ErrorReportingContext.Provider>
 }

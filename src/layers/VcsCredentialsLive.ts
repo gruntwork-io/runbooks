@@ -95,7 +95,7 @@ const absent = (extra: Partial<DetectionResult> = {}): DetectionResult => ({
 interface DirectValidation {
   readonly ok: boolean
   readonly user?: VcsUserInfo
-  readonly scopes?: string[]
+  readonly scopes?: string[] | undefined
   readonly status?: number
   readonly kind?: DetectionResult["errorKind"]
   readonly message?: string
@@ -183,7 +183,11 @@ export const VcsCredentialsLive = Layer.effect(
     const cliReadCache = new Map<string, CacheEntry<unknown>>()
     let cliStatusCache: CacheEntry<VcsCliStatusInfo> | undefined
 
-    const cachedRead = <T>(key: string, compute: Effect.Effect<T>, cacheable: (value: T) => boolean) =>
+    const cachedRead = <T>(
+      key: string,
+      compute: Effect.Effect<T>,
+      cacheable: (value: T) => boolean,
+    ) =>
       Effect.gen(function* () {
         const hit = cliReadCache.get(key)
         if (hit && hit.expiresAt > Date.now()) return hit.value as T
@@ -237,7 +241,12 @@ export const VcsCredentialsLive = Layer.effect(
       githubClient.validateToken(token, host).pipe(
         Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
         Effect.catchAll((err: GitHubApiError) =>
-          Effect.succeed<DirectValidation>({ ok: false, status: err.status, kind: err.kind, message: err.message }),
+          Effect.succeed<DirectValidation>({
+            ok: false,
+            status: err.status,
+            kind: err.kind,
+            message: err.message,
+          }),
         ),
       )
 
@@ -245,7 +254,12 @@ export const VcsCredentialsLive = Layer.effect(
       gitlabClient.validateToken(token, normalizeGitLabBaseUrl(host)).pipe(
         Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
         Effect.catchAll((err: GitLabApiError) =>
-          Effect.succeed<DirectValidation>({ ok: false, status: err.status, kind: err.kind, message: err.message }),
+          Effect.succeed<DirectValidation>({
+            ok: false,
+            status: err.status,
+            kind: err.kind,
+            message: err.message,
+          }),
         ),
       )
 
@@ -494,7 +508,10 @@ export const VcsCredentialsLive = Layer.effect(
     const parseGhApiUser = (output: string): CliValidation | undefined => {
       const scopesMatch = /^x-oauth-scopes:\s*(.+)$/im.exec(output)
       const scopes = scopesMatch
-        ? scopesMatch[1].split(",").map((s) => s.trim()).filter((s) => s.length > 0)
+        ? scopesMatch[1]!
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
         : undefined
       const jsonStart = output.indexOf("{")
       if (jsonStart === -1) return undefined
@@ -507,7 +524,12 @@ export const VcsCredentialsLive = Layer.effect(
         }
         if (!data.login) return undefined
         return {
-          user: { login: data.login, name: data.name ?? undefined, avatarUrl: data.avatar_url, email: data.email ?? undefined },
+          user: {
+            login: data.login,
+            name: data.name ?? undefined,
+            avatarUrl: data.avatar_url,
+            email: data.email ?? undefined,
+          },
           scopes: scopes && scopes.length > 0 ? scopes : undefined,
         }
       } catch {
@@ -523,12 +545,17 @@ export const VcsCredentialsLive = Layer.effect(
         }
         if (!status.gh.meetsFloor) {
           return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: `gh ${status.gh.version ?? "?"} is below the supported floor` }),
+            new VcsCliError({
+              kind: "api",
+              stderr: `gh ${status.gh.version ?? "?"} is below the supported floor`,
+            }),
           )
         }
         const target = tryNormalizeGitHubHost(host)
         if (!target) {
-          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: `invalid GitHub host: ${host}` }))
+          return yield* Effect.fail(
+            new VcsCliError({ kind: "api", stderr: `invalid GitHub host: ${host}` }),
+          )
         }
         // Pin gh to validate exactly the candidate (env-over-stored-creds is
         // documented gh behavior); token via CHILD ENV only, never argv. gh
@@ -546,11 +573,15 @@ export const VcsCredentialsLive = Layer.effect(
         // the candidate token — at a different host.
         const result = yield* runCli("gh", ["api", "user", "-i", "--hostname", target], childEnv)
         if (result.exitCode !== 0) {
-          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }))
+          return yield* Effect.fail(
+            new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }),
+          )
         }
         const parsed = parseGhApiUser(result.stdout.join("\n"))
         if (!parsed) {
-          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: "unparseable gh api output" }))
+          return yield* Effect.fail(
+            new VcsCliError({ kind: "api", stderr: "unparseable gh api output" }),
+          )
         }
         return parsed
       })
@@ -567,7 +598,10 @@ export const VcsCredentialsLive = Layer.effect(
         }
         if (!status.glab.meetsFloor) {
           return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: `glab ${status.glab.version ?? "?"} is below the supported floor` }),
+            new VcsCliError({
+              kind: "api",
+              stderr: `glab ${status.glab.version ?? "?"} is below the supported floor`,
+            }),
           )
         }
 
@@ -579,7 +613,10 @@ export const VcsCredentialsLive = Layer.effect(
           // (exit code + stderr, no token env) is the probe.
           if (source !== "cli" && source !== "config") {
             return yield* Effect.fail(
-              new VcsCliError({ kind: "api", stderr: "env-sourced OAuth-shaped tokens are direct-fetch-only" }),
+              new VcsCliError({
+                kind: "api",
+                stderr: "env-sourced OAuth-shaped tokens are direct-fetch-only",
+              }),
             )
           }
           const authStatus = yield* run(glabAuthStatusForHost(host))
@@ -588,7 +625,9 @@ export const VcsCredentialsLive = Layer.effect(
             return { user: { login: "glab" } }
           }
           if (authStatus === "not-logged-in") {
-            return yield* Effect.fail(new VcsCliError({ kind: "not-authenticated", stderr: "No token found" }))
+            return yield* Effect.fail(
+              new VcsCliError({ kind: "not-authenticated", stderr: "No token found" }),
+            )
           }
           return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: "API call failed" }))
         }
@@ -609,7 +648,9 @@ export const VcsCredentialsLive = Layer.effect(
           ),
         )
         if (result.exitCode !== 0) {
-          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }))
+          return yield* Effect.fail(
+            new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }),
+          )
         }
         try {
           const data = JSON.parse(result.stdout.join("\n")) as {
@@ -628,7 +669,9 @@ export const VcsCredentialsLive = Layer.effect(
             },
           }
         } catch {
-          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: "unparseable glab api output" }))
+          return yield* Effect.fail(
+            new VcsCliError({ kind: "api", stderr: "unparseable glab api output" }),
+          )
         }
       })
 

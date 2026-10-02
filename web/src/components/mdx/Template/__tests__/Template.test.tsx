@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, act, fireEvent } from "@testing-library/react"
+import { useEffect } from "react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import { sensitiveOutput } from "@/lib/outputValues"
 
 // Mock config loading
 let mockConfigReturn = {
@@ -54,7 +56,10 @@ function renderTemplate(props: Record<string, unknown> = {}) {
 // Captures the live RunbookContext so tests can play the part of an upstream <Inputs> block.
 let ctx: RunbookContextType
 function CaptureContext() {
-  ctx = useRunbookContext()
+  const value = useRunbookContext()
+  useEffect(() => {
+    ctx = value
+  })
   return null
 }
 
@@ -70,7 +75,12 @@ function setUpstreamRegion(region: string) {
 
 // Long enough for useFormState's 50 ms trailing debounce to fire.
 async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 120)))
+  await act(
+    () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 120)
+      }),
+  )
 }
 
 function renderedRegions() {
@@ -87,7 +97,9 @@ describe("Template", () => {
   beforeEach(() => {
     mockConfigReturn = {
       data: {
-        variables: [{ name: "region", type: "string", description: "AWS region", default: "us-east-1" }],
+        variables: [
+          { name: "region", type: "string", description: "AWS region", default: "us-east-1" },
+        ],
         outputDependencies: [],
       },
       isLoading: false,
@@ -147,7 +159,13 @@ describe("Template", () => {
         ...mockConfigReturn,
         data: {
           variables: [
-            { name: "region", type: "string", description: "", default: "tpl-default", validations: [{ type: "required" }] },
+            {
+              name: "region",
+              type: "string",
+              description: "",
+              default: "tpl-default",
+              validations: [{ type: "required" }],
+            },
             { name: "name", type: "string", description: "", default: "app" },
           ],
           outputDependencies: [],
@@ -191,6 +209,38 @@ describe("Template", () => {
       setUpstreamRegion("eu-west-1")
       await settle()
       expect(renderedRegions()).toEqual(["eu-west-1"])
+    })
+  })
+
+  // A Template writes files, so it renders a sensitive output's real value.
+  // The dedupe key has to see that value too, or a new token would never
+  // reach the files.
+  describe("sensitive outputs", () => {
+    function renderedTokens() {
+      return renderMock.autoRender.mock.calls.map(
+        ([, vars]) =>
+          (vars as { outputs: Record<string, Record<string, unknown>> }).outputs.mint?.token,
+      )
+    }
+
+    it("renders a sensitive output's real value, and renders again when it changes", async () => {
+      render(
+        <TestWrapper>
+          <CaptureContext />
+          <Template id="app" path="templates/app" />
+        </TestWrapper>,
+      )
+      act(() => ctx.registerOutputs("mint", { token: sensitiveOutput("first-token") }))
+      await settle()
+      fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+      await settle()
+      expect(renderedTokens()).toEqual(["first-token"])
+      renderMock.autoRender.mockClear()
+
+      act(() => ctx.registerOutputs("mint", { token: sensitiveOutput("second-token") }))
+      await settle()
+
+      expect(renderedTokens()).toEqual(["second-token"])
     })
   })
 

@@ -25,9 +25,7 @@ const DEBOUNCE_MS = 300
  * (e.g. "Runbook.mdx").
  */
 const isSameFile = (a: string, b: string, platform: NodeJS.Platform): boolean =>
-  platform === "darwin" || platform === "win32"
-    ? a.toLowerCase() === b.toLowerCase()
-    : a === b
+  platform === "darwin" || platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b
 
 // ---------------------------------------------------------------------------
 // Public API

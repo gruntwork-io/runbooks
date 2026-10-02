@@ -13,6 +13,12 @@ export type GoogleCredentialType =
   | "access_token"
   | "gce_metadata"
 
+/** The credential types a credentials JSON document can declare in its `type` field. */
+export type GoogleDocumentCredentialType = Exclude<
+  GoogleCredentialType,
+  "access_token" | "gce_metadata"
+>
+
 /**
  * A credential the layer can turn into a google-auth-library client. Secret
  * material stays inside main + the layer; this type never crosses IPC.
@@ -26,13 +32,13 @@ export type GoogleCredentialRef =
 /** The GetCallerIdentity analogue: who the credential proves you are. */
 export interface GoogleIdentity {
   readonly email: string
-  readonly uniqueId?: string
+  readonly uniqueId?: string | undefined
   readonly accountType: "service_account" | "user"
   readonly credentialType: GoogleCredentialType
   /** Project bound to the credential (key's project_id, quota project, or an override). */
-  readonly projectId?: string
+  readonly projectId?: string | undefined
   /** Display name — best-effort enrichment, undefined when the caller cannot read the project. */
-  readonly projectName?: string
+  readonly projectName?: string | undefined
   readonly scopes?: readonly string[]
 }
 
@@ -53,8 +59,8 @@ export type GoogleProjectAccess = "accessible" | "denied" | "unknown"
 export interface GoogleProject {
   readonly projectId: string
   readonly displayName: string
-  readonly projectNumber?: string
-  readonly state?: string
+  readonly projectNumber?: string | undefined
+  readonly state?: string | undefined
 }
 
 /** Metadata about an on-disk credentials JSON. NEVER carries secret fields. */
@@ -114,7 +120,7 @@ export interface OAuthFlowResult {
    */
   readonly adcJson?: string
   /** On "complete": the freshly minted access token, used only to read identity. */
-  readonly accessToken?: string
+  readonly accessToken?: string | undefined
   readonly scopes?: readonly string[]
   readonly error?: string
 }
@@ -139,9 +145,7 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GoogleIdentity, GoogleAuthError>
 
   /** Read + classify a credentials JSON path. Metadata only — no secrets returned. */
-  readonly readCredentialFile: (
-    filePath: string,
-  ) => Effect.Effect<AdcInfo, GoogleConfigError>
+  readonly readCredentialFile: (filePath: string) => Effect.Effect<AdcInfo, GoogleConfigError>
 
   /** Read a credentials JSON path in full (secret material) for validation/materialisation. */
   readonly readCredentialFileContents: (
@@ -163,9 +167,7 @@ export interface GoogleClientShape {
   ) => Effect.Effect<OAuthFlowStart, GoogleOAuthError>
 
   /** <- AwsClient.pollSsoToken. Returns {status:"pending"} until the callback lands. */
-  readonly pollOAuthFlow: (
-    flowId: string,
-  ) => Effect.Effect<OAuthFlowResult, GoogleOAuthError>
+  readonly pollOAuthFlow: (flowId: string) => Effect.Effect<OAuthFlowResult, GoogleOAuthError>
 
   /** No AWS analogue: closes the loopback server and drops the flow record. */
   readonly cancelOAuthFlow: (flowId: string) => Effect.Effect<void>

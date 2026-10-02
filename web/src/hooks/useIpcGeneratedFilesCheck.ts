@@ -1,5 +1,5 @@
-import { useIpc } from './useIpc'
-import type { UseIpcReturn } from './useIpc'
+import { useIpc } from "./useIpc"
+import type { UseIpcReturn } from "./useIpc"
 
 /**
  * Response from the generated files check IPC channel
@@ -22,11 +22,12 @@ export interface GeneratedFilesCheckResult {
  * runbook changes (the handler ignores the field and checks the session's
  * output directory). Don't use `refetch` for this — it ignores `disabled`.
  */
-export function useIpcGeneratedFilesCheck(
-  options?: { disabled?: boolean; runbookPath?: string },
-): UseIpcReturn<GeneratedFilesCheckResult> {
+export function useIpcGeneratedFilesCheck(options?: {
+  disabled?: boolean | undefined
+  runbookPath?: string | undefined
+}): UseIpcReturn<GeneratedFilesCheckResult> {
   return useIpc<GeneratedFilesCheckResult>(
-    'generated-files:check',
+    "generated-files:check",
     options?.runbookPath ? { runbookPath: options.runbookPath } : undefined,
     { disabled: options?.disabled },
   )

@@ -1,7 +1,13 @@
 /**
  * GitHub-style proportion bar showing additions vs deletions
  */
-export function ChangeProportionBar({ additions, deletions }: { additions: number; deletions: number }) {
+export function ChangeProportionBar({
+  additions,
+  deletions,
+}: {
+  additions: number
+  deletions: number
+}) {
   const total = additions + deletions
   const BOXES = 5
 

@@ -1,6 +1,6 @@
-import React from 'react'
-import type { ReactNode } from 'react'
-import type { AppError } from '@/types/error'
+import React from "react"
+import type { ReactNode } from "react"
+import type { AppError } from "@/types/error"
 
 export interface YamlExtractionResult {
   content: string
@@ -23,11 +23,12 @@ export function extractYamlFromChildren(children: ReactNode): YamlExtractionResu
   if (children) {
     if (Array.isArray(children) || containsMarkdownBlocks(children)) {
       return {
-        content: '',
+        content: "",
         error: {
           message: "Invalid inline boilerplate configuration format",
-          details: "Please wrap your YAML content in a code fence (```yaml ... ```). Without code fences, MDX converts YAML into HTML elements, which cannot be parsed correctly."
-        }
+          details:
+            "Please wrap your YAML content in a code fence (```yaml ... ```). Without code fences, MDX converts YAML into HTML elements, which cannot be parsed correctly.",
+        },
       }
     }
   }
@@ -35,12 +36,12 @@ export function extractYamlFromChildren(children: ReactNode): YamlExtractionResu
   const content = extractYamlContent(children)
   return {
     content,
-    error: null
+    error: null,
   }
 }
 
 /** Elements MDX creates from unfenced text (paragraphs and lists). */
-const MARKDOWN_BLOCK_TYPES = new Set(['p', 'ul', 'ol', 'li'])
+const MARKDOWN_BLOCK_TYPES = new Set(["p", "ul", "ol", "li"])
 
 /**
  * True when `children` holds an element MDX made from unfenced text, outside
@@ -53,7 +54,7 @@ function containsMarkdownBlocks(children: ReactNode): boolean {
   if (!React.isValidElement(children) || isPreElement(children)) {
     return false
   }
-  if (typeof children.type === 'string' && MARKDOWN_BLOCK_TYPES.has(children.type)) {
+  if (typeof children.type === "string" && MARKDOWN_BLOCK_TYPES.has(children.type)) {
     return true
   }
   return containsMarkdownBlocks((children.props as { children?: ReactNode }).children)
@@ -64,12 +65,15 @@ function containsMarkdownBlocks(children: ReactNode): boolean {
  * MDXContainer renders pre elements with.
  */
 function isPreElement(element: React.ReactElement): boolean {
-  if (element.type === 'pre') {
+  if (element.type === "pre") {
     return true
   }
-  if (typeof element.type === 'function' || (typeof element.type === 'object' && element.type !== null)) {
+  if (
+    typeof element.type === "function" ||
+    (typeof element.type === "object" && element.type !== null)
+  ) {
     const componentType = element.type as { name?: string; displayName?: string }
-    return componentType.name === 'CodeBlock' || componentType.displayName === 'CodeBlock'
+    return componentType.name === "CodeBlock" || componentType.displayName === "CodeBlock"
   }
   return false
 }
@@ -78,12 +82,12 @@ function isPreElement(element: React.ReactElement): boolean {
  * Internal helper to recursively extract YAML content from React children
  */
 function extractYamlContent(children: ReactNode): string {
-  if (typeof children === 'string') {
+  if (typeof children === "string") {
     return children
   }
 
   if (Array.isArray(children)) {
-    return children.map(extractYamlContent).join('')
+    return children.map(extractYamlContent).join("")
   }
 
   if (React.isValidElement(children)) {
@@ -101,5 +105,5 @@ function extractYamlContent(children: ReactNode): string {
     return extractYamlContent(element.props.children)
   }
 
-  return ''
+  return ""
 }

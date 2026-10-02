@@ -1,8 +1,8 @@
-import { useState, useCallback, useMemo } from 'react'
-import { formatVariableLabel } from '../lib/formatVariableLabel'
-import { validateVariableValue } from '../lib/validators'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import type { BoilerplateVariable } from '@/types/boilerplateVariable'
+import { useState, useCallback, useMemo } from "react"
+import { formatVariableLabel } from "../lib/formatVariableLabel"
+import { validateVariableValue } from "../lib/validators"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 
 /**
  * Interface for validation error messages
@@ -20,11 +20,11 @@ interface TouchedFields {
 
 /**
  * Custom hook for managing form validation state and logic
- * 
+ *
  * Supports two validation modes:
  * 1. On-blur validation: Shows errors only for fields the user has interacted with
  * 2. On-submit validation: Shows all errors when the form is submitted
- * 
+ *
  * @param boilerplateConfig - The boilerplate configuration containing variable definitions
  * @returns Object containing validation state and methods
  */
@@ -37,7 +37,7 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
    */
   const variablesByName = useMemo(() => {
     if (!boilerplateConfig) return new Map<string, BoilerplateVariable>()
-    return new Map(boilerplateConfig.variables.map(v => [v.name, v]))
+    return new Map(boilerplateConfig.variables.map((v) => [v.name, v]))
   }, [boilerplateConfig])
 
   /**
@@ -46,38 +46,44 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
    * @param value - Current value of the field
    * @returns Error message if invalid, undefined if valid
    */
-  const getFieldError = useCallback((fieldName: string, value: unknown): string | undefined => {
-    const variable = variablesByName.get(fieldName)
-    if (!variable) return undefined
+  const getFieldError = useCallback(
+    (fieldName: string, value: unknown): string | undefined => {
+      const variable = variablesByName.get(fieldName)
+      if (!variable) return undefined
 
-    return validateVariableValue(variable, value, formatVariableLabel(variable.name))
-  }, [variablesByName])
+      return validateVariableValue(variable, value, formatVariableLabel(variable.name))
+    },
+    [variablesByName],
+  )
 
   /**
    * Validates a single field and updates the error state
    * @param fieldName - Name of the field to validate
    * @param value - Current value of the field
    */
-  const validateField = useCallback((fieldName: string, value: unknown): void => {
-    const error = getFieldError(fieldName, value)
-    
-    setValidationErrors(prev => {
-      if (error) {
-        return { ...prev, [fieldName]: error }
-      } else {
-        const newErrors = { ...prev }
-        delete newErrors[fieldName]
-        return newErrors
-      }
-    })
-  }, [getFieldError])
+  const validateField = useCallback(
+    (fieldName: string, value: unknown): void => {
+      const error = getFieldError(fieldName, value)
+
+      setValidationErrors((prev) => {
+        if (error) {
+          return { ...prev, [fieldName]: error }
+        } else {
+          const newErrors = { ...prev }
+          delete newErrors[fieldName]
+          return newErrors
+        }
+      })
+    },
+    [getFieldError],
+  )
 
   /**
    * Marks a field as touched (user has interacted with it)
    * @param fieldName - Name of the field to mark as touched
    */
   const markFieldTouched = useCallback((fieldName: string) => {
-    setTouchedFields(prev => {
+    setTouchedFields((prev) => {
       if (prev[fieldName]) return prev
       return { ...prev, [fieldName]: true }
     })
@@ -88,7 +94,7 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
    */
   const markAllFieldsTouched = useCallback(() => {
     if (!boilerplateConfig) return
-    
+
     const allTouched: TouchedFields = {}
     boilerplateConfig.variables.forEach((variable) => {
       allTouched[variable.name] = true
@@ -102,16 +108,19 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
    * @param formData - Current form data to validate
    * @returns True if form is valid, false otherwise
    */
-  const isFormValid = useCallback((formData: Record<string, unknown>): boolean => {
-    if (!boilerplateConfig) return false
-    
-    for (const variable of boilerplateConfig.variables) {
-      const error = getFieldError(variable.name, formData[variable.name])
-      if (error) return false
-    }
-    
-    return true
-  }, [boilerplateConfig, getFieldError])
+  const isFormValid = useCallback(
+    (formData: Record<string, unknown>): boolean => {
+      if (!boilerplateConfig) return false
+
+      for (const variable of boilerplateConfig.variables) {
+        const error = getFieldError(variable.name, formData[variable.name])
+        if (error) return false
+      }
+
+      return true
+    },
+    [boilerplateConfig, getFieldError],
+  )
 
   /**
    * Validates the entire form against the boilerplate configuration
@@ -119,26 +128,29 @@ export const useFormValidation = (boilerplateConfig: BoilerplateConfig | null) =
    * @param formData - Current form data to validate
    * @returns True if form is valid, false otherwise
    */
-  const validateForm = useCallback((formData: Record<string, unknown>): boolean => {
-    if (!boilerplateConfig) return false
-    
-    // Mark all fields as touched on form submission
-    markAllFieldsTouched()
-    
-    const errors: ValidationErrors = {}
-    let isValid = true
-    
-    boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
-      const error = getFieldError(variable.name, formData[variable.name])
-      if (error) {
-        errors[variable.name] = error
-        isValid = false
-      }
-    })
-    
-    setValidationErrors(errors)
-    return isValid
-  }, [boilerplateConfig, getFieldError, markAllFieldsTouched])
+  const validateForm = useCallback(
+    (formData: Record<string, unknown>): boolean => {
+      if (!boilerplateConfig) return false
+
+      // Mark all fields as touched on form submission
+      markAllFieldsTouched()
+
+      const errors: ValidationErrors = {}
+      let isValid = true
+
+      boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
+        const error = getFieldError(variable.name, formData[variable.name])
+        if (error) {
+          errors[variable.name] = error
+          isValid = false
+        }
+      })
+
+      setValidationErrors(errors)
+      return isValid
+    },
+    [boilerplateConfig, getFieldError, markAllFieldsTouched],
+  )
 
   /**
    * Gets visible validation errors (only for touched fields)

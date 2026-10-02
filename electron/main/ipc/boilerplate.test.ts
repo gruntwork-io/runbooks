@@ -98,7 +98,9 @@ describe("boilerplate:render", () => {
     await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
 
     spy = { warm: warmResult({}), commits: [], coldRenders: 0 }
-    spyOn(runtime, "runFork").mockImplementation(((effect: Effect.Effect<unknown, unknown, never>) =>
+    spyOn(runtime, "runFork").mockImplementation(((
+      effect: Effect.Effect<unknown, unknown, never>,
+    ) =>
       Effect.runFork(Effect.provide(effect, testLayer(spy)))) as unknown as typeof runtime.runFork)
   })
 
@@ -138,9 +140,14 @@ describe("boilerplate:render", () => {
         {
           path: "main.tf",
           kind: "render",
-          message: 'render: template: main.tf:3:5: executing "main.tf" at <.Foo>: map has no entry for key "Foo"',
+          message:
+            'render: template: main.tf:3:5: executing "main.tf" at <.Foo>: map has no entry for key "Foo"',
         },
-        { path: "modules/vars.tf", kind: "render", message: 'render: template: vars.tf:1: function "nope" not defined' },
+        {
+          path: "modules/vars.tf",
+          kind: "render",
+          message: 'render: template: vars.tf:1: function "nope" not defined',
+        },
         { path: "other.tf", kind: "render", message: "render: something else went wrong" },
       ],
       allKnownPaths: ["ok.tf", "dynamic.tf", "main.tf", "modules/vars.tf", "other.tf"],
@@ -148,7 +155,9 @@ describe("boilerplate:render", () => {
     })
 
     const error = await render().then(
-      () => { throw new Error("expected boilerplate:render to fail") },
+      () => {
+        throw new Error("expected boilerplate:render to fail")
+      },
       (err: unknown) => err as { _tag?: string; message: string },
     )
 
@@ -172,13 +181,19 @@ describe("boilerplate:render", () => {
   it("lists the first five failing files and counts the others", async () => {
     const paths = Array.from({ length: 8 }, (_, i) => `f${i + 1}.tf`)
     spy.warm = warmResult({
-      renderErrors: paths.map((p) => ({ path: p, kind: "render" as const, message: "render: boom" })),
+      renderErrors: paths.map((p) => ({
+        path: p,
+        kind: "render" as const,
+        message: "render: boom",
+      })),
       allKnownPaths: paths,
       attemptedPaths: paths,
     })
 
     const error = await render().then(
-      () => { throw new Error("expected boilerplate:render to fail") },
+      () => {
+        throw new Error("expected boilerplate:render to fail")
+      },
       (err: unknown) => err as { message: string },
     )
 

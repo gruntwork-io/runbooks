@@ -4,9 +4,12 @@
  * Ensures renderer-supplied paths stay within the session working directory
  * or a registered worktree path.
  */
+import { createHash } from "crypto"
+import fs from "fs"
 import path from "path"
 import { Effect } from "effect"
 import { sessionManager, runbookConfig } from "./runtime.ts"
+import type { RunbookConfig } from "../../../src/types.ts"
 import { isContainedInReal } from "../../../src/path-validation.ts"
 import { PathTraversalError } from "../../../src/errors/index.ts"
 import {
@@ -33,7 +36,9 @@ function resolveAgainstRunbook(p: string): string {
 export const validateSessionPath = (p: string) =>
   Effect.gen(function* () {
     if (!p) {
-      return yield* Effect.fail(new PathTraversalError({ path: p, message: "path must not be empty" }))
+      return yield* Effect.fail(
+        new PathTraversalError({ path: p, message: "path must not be empty" }),
+      )
     }
 
     const resolved = resolveAgainstRunbook(p)
@@ -99,35 +104,72 @@ export const validateCloneDestination = (
     }
     // Contained both ways means it is the working directory itself.
     if (yield* Effect.promise(() => isContainedInReal(workingDir, absolutePath))) {
-      return yield* reject("clone destination must be a subdirectory of the session working directory")
+      return yield* reject(
+        "clone destination must be a subdirectory of the session working directory",
+      )
     }
-    if (runbookPath && (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))) {
+    if (
+      runbookPath &&
+      (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))
+    ) {
       return yield* reject("clone destination must not contain the open runbook")
     }
   })
 
 /**
- * Map a runbook-asset:// request URL to the file it names in the runbook
- * directory, or null if it must not be served. The URL's host + path
- * (runbook-asset://assets/foo.png -> assets/foo.png) is percent-decoded
+ * The host of the runbook's runbook-asset:// URLs
+ * (runbook-asset://<host>/foo.png for assets/foo.png). Each runbook gets its
+ * own host, and so its own origin, so a page the Iframe block embeds can't
+ * read the storage of another runbook's pages. It is derived from the
+ * runbook's identity: the remote URL when opened from one, whose clone lands
+ * in a new temp folder on every open, otherwise the path of its file. So a
+ * page keeps its storage across opens of the same runbook.
+ * Starts with a letter so the URL parser never reads it as an IPv4 address.
+ */
+export function runbookAssetHost(
+  config: Pick<RunbookConfig, "localPath" | "remoteSourceURL">,
+): string {
+  const identity = config.remoteSourceURL ?? config.localPath
+  return "r" + createHash("sha256").update(identity).digest("hex").slice(0, 32)
+}
+
+/**
+ * Map a runbook-asset:// request URL to the file it names in the runbook's
+ * assets/ folder, or null if it must not be served. Only the open runbook's
+ * host (see runbookAssetHost) is served, and its root is the assets/ folder,
+ * so a page's `/app.js` loads assets/app.js. The URL's path
+ * (runbook-asset://<host>/foo.png -> assets/foo.png) is percent-decoded
  * before the check, so the path that is checked is the path that is served.
- * Containment is checked on the symlink-resolved path, so a symlink in the
- * runbook directory (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file
- * from outside it.
+ *
+ * Only files under assets/ are served, because a page the Iframe block frames
+ * runs scripts that can fetch any runbook-asset:// URL. Containment is checked
+ * on the symlink-resolved path, so a symlinked file
+ * (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file from outside
+ * assets/. Nothing is served when assets/ is itself a symlink, because
+ * `assets -> .` would make the whole runbook directory, generated files
+ * included, count as assets/.
  */
 export async function resolveRunbookAssetPath(
   requestUrl: string,
   runbookDir: string,
+  assetHost: string,
 ): Promise<string | null> {
   let assetRelative: string
   try {
     const url = new URL(requestUrl)
-    assetRelative = decodeURIComponent(url.hostname + url.pathname)
+    if (url.hostname !== assetHost) return null
+    assetRelative = decodeURIComponent(url.pathname)
   } catch {
     return null
   }
-  const resolved = path.resolve(path.join(runbookDir, assetRelative))
-  return (await isContainedInReal(resolved, runbookDir)) ? resolved : null
+  const assetsDir = path.join(runbookDir, "assets")
+  try {
+    if ((await fs.promises.lstat(assetsDir)).isSymbolicLink()) return null
+  } catch {
+    return null
+  }
+  const resolved = path.resolve(path.join(assetsDir, assetRelative))
+  return (await isContainedInReal(resolved, assetsDir)) ? resolved : null
 }
 
 /**

@@ -1,24 +1,25 @@
 import { Effect, Layer, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
 import type { WalkEntry } from "../services/FileSystem.ts"
-import {
-  FileNotFoundError,
-  FileWriteError,
-} from "../errors/index.ts"
+import { FileNotFoundError, FileWriteError } from "../errors/index.ts"
 
 export const makeTestFileSystem = (files: Record<string, string> = {}) => {
   const dirs = new Set<string>()
 
   return Layer.succeed(FileSystem, {
-    readFile: (path) =>
-      path in files
-        ? Effect.succeed(files[path])
-        : Effect.fail(new FileNotFoundError({ path })),
+    readFile: (path) => {
+      const content = files[path]
+      return content !== undefined
+        ? Effect.succeed(content)
+        : Effect.fail(new FileNotFoundError({ path }))
+    },
 
-    readFileBuffer: (path) =>
-      path in files
-        ? Effect.succeed(Buffer.from(files[path]))
-        : Effect.fail(new FileNotFoundError({ path })),
+    readFileBuffer: (path) => {
+      const content = files[path]
+      return content !== undefined
+        ? Effect.succeed(Buffer.from(content))
+        : Effect.fail(new FileNotFoundError({ path }))
+    },
 
     exists: (path) => Effect.succeed(path in files || dirs.has(path)),
 
@@ -27,31 +28,27 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
         files[path] = String(content)
       }),
 
-    readdir: (path) =>
-      Effect.succeed(
-        Object.keys(files)
-          .filter((f) => f.startsWith(path + "/"))
-          .map((f) => f.slice(path.length + 1).split("/")[0])
-          .filter((v, i, a) => a.indexOf(v) === i),
-      ),
+    appendFile: (path, content) =>
+      Effect.sync(() => {
+        files[path] = (files[path] ?? "") + content
+      }),
+
+    readdir: (path) => Effect.succeed(childNames(files, path)),
 
     readdirWithTypes: (path) =>
       Effect.succeed(
-        Object.keys(files)
-          .filter((f) => f.startsWith(path + "/"))
-          .map((f) => f.slice(path.length + 1).split("/")[0])
-          .filter((v, i, a) => a.indexOf(v) === i)
-          .map((name) => {
-            const fullPath = path + "/" + name
-            const isFile = fullPath in files
-            return { name, isFile, isDirectory: !isFile }
-          }),
+        childNames(files, path).map((name) => {
+          const fullPath = path + "/" + name
+          const isFile = fullPath in files
+          return { name, isFile, isDirectory: !isFile }
+        }),
       ),
 
-    stat: (path) =>
-      path in files
+    stat: (path) => {
+      const content = files[path]
+      return content !== undefined
         ? Effect.succeed({
-            size: files[path].length,
+            size: content.length,
             isFile: true,
             isDirectory: false,
             mtime: new Date(),
@@ -63,7 +60,8 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
               isDirectory: true,
               mtime: new Date(),
             })
-          : Effect.fail(new FileNotFoundError({ path })),
+          : Effect.fail(new FileNotFoundError({ path }))
+    },
 
     mkdir: (path, _options?) =>
       Effect.sync(() => {
@@ -82,14 +80,14 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
         }
       }),
 
-    copyFile: (src, dest) =>
-      src in files
+    copyFile: (src, dest) => {
+      const content = files[src]
+      return content !== undefined
         ? Effect.sync(() => {
-            files[dest] = files[src]
+            files[dest] = content
           })
-        : Effect.fail(
-            new FileWriteError({ path: dest, cause: `source ${src} not found` }),
-          ),
+        : Effect.fail(new FileWriteError({ path: dest, cause: `source ${src} not found` }))
+    },
 
     mkdtemp: (prefix) =>
       Effect.sync(() => {
@@ -104,18 +102,27 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
         : Effect.fail(new FileNotFoundError({ path })),
 
     walk: (dir) => {
-      const entries: WalkEntry[] = Object.keys(files)
-        .filter((f) => f.startsWith(dir + "/") || f === dir)
-        .map((f) => ({
+      const entries: WalkEntry[] = Object.entries(files)
+        .filter(([f]) => f.startsWith(dir + "/") || f === dir)
+        .map(([f, content]) => ({
           path: f,
           relativePath: f.startsWith(dir + "/") ? f.slice(dir.length + 1) : f,
           isFile: true,
           isDirectory: false,
-          size: files[f].length,
+          size: content.length,
         }))
       return Stream.fromIterable(entries)
     },
 
     watch: (_paths) => Stream.empty,
   })
+}
+
+/** The distinct first path segments under `path`, in insertion order. */
+function childNames(files: Record<string, string>, path: string): string[] {
+  const names = Object.keys(files)
+    .filter((f) => f.startsWith(path + "/"))
+    // split always yields at least one segment.
+    .map((f) => f.slice(path.length + 1).split("/")[0]!)
+  return [...new Set(names)]
 }

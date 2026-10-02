@@ -3,10 +3,19 @@
  * Used by Template, TemplateInline, useScriptExecution, GitClone, and other blocks.
  */
 
-import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import type { OutputDependency } from '@/lib/extractTemplateDependencies'
-import { normalizeBlockId } from '@/lib/utils'
+import type { BlockOutputs, TemplateValue } from "@/contexts/RunbookContext"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import type { OutputDependency } from "@/lib/extractTemplateDependencies"
+import { normalizeBlockId } from "@/lib/utils"
+import {
+  isSensitiveOutput,
+  maskOutputs,
+  maskOutput,
+  revealOutputs,
+  type OutputValue,
+} from "@/lib/outputValues"
+
+export type { OutputValue }
 
 // --- Shared types for the new inputs/outputs architecture ---
 
@@ -22,19 +31,82 @@ export type BlockId = string
 /** An output key produced by a Command/Check block (e.g., "account_id") */
 export type OutputName = string
 
-/** The string value of a block output (always string — parsed from stdout key=value) */
-export type OutputValue = string
-
 /** Flattened input values. Matches {{ .inputs.<InputName> }} */
 export type TemplateInputs = Record<InputName, TemplateInputValue>
 
-/** Flattened output values. Matches {{ .outputs.<BlockId>.<OutputName> }} */
+/**
+ * Flattened output values. Matches {{ .outputs.<BlockId>.<OutputName> }}.
+ * An output the script marked `sensitive:` is a `Redacted`.
+ */
 export type TemplateOutputs = Record<BlockId, Record<OutputName, OutputValue>>
 
 /** The template data context — mirrors the Go template engine's dot context */
 export interface TemplateContext {
   inputs: TemplateInputs
   outputs: TemplateOutputs
+}
+
+/**
+ * Outputs as a render sends them over IPC: plain strings. A `Redacted` can't
+ * cross IPC (structured clone turns it into `{}`), so each render decides what
+ * a sensitive output renders as: its real value (revealTemplateOutputs) when
+ * the result is run or written to a file, or `<redacted>`
+ * (maskTemplateOutputs) when the result is only shown.
+ */
+export type PlainTemplateOutputs = Record<BlockId, Record<OutputName, string>>
+
+/** A TemplateContext whose outputs are plain strings, ready to send to the template engine. */
+export interface PlainTemplateContext {
+  inputs: TemplateInputs
+  outputs: PlainTemplateOutputs
+}
+
+/** Every output with its real value, for a render whose result is run or written to a file. */
+export function revealTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [blockId, revealOutputs(values)]),
+  )
+}
+
+/** Every output as it may be shown: sensitive ones as `<redacted>`. For a render that is only displayed. */
+export function maskTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]),
+  )
+}
+
+/**
+ * Every output except the sensitive ones. For instruction mode: it can't show
+ * a sensitive value, so it asks the user to paste it, as it does for an
+ * output that hasn't been produced yet.
+ */
+export function omitSensitiveTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [
+      blockId,
+      Object.fromEntries(
+        Object.entries(values).filter(
+          (entry): entry is [OutputName, string] => !isSensitiveOutput(entry[1]),
+        ),
+      ),
+    ]),
+  )
+}
+
+/**
+ * Whether any of these output references names an output that is sensitive.
+ * A display render shows such an output as `<redacted>`, so a template that
+ * processes its value (e.g. with `fromJson`) can fail there while the real
+ * render succeeds.
+ */
+export function referencesSensitiveOutput(
+  outputDependencies: OutputDependency[],
+  allOutputs: Record<string, BlockOutputs>,
+): boolean {
+  return outputDependencies.some((dep) => {
+    const value = allOutputs[normalizeBlockId(dep.blockId)]?.values[dep.outputName]
+    return value !== undefined && isSensitiveOutput(value)
+  })
 }
 
 /** A block and the specific outputs referenced from it */
@@ -52,7 +124,7 @@ export interface BlockOutput {
  */
 export function buildRenderVariables(
   inputValues: Record<string, unknown>,
-  outputs: TemplateOutputs,
+  outputs: PlainTemplateOutputs,
 ): Record<string, unknown> {
   return {
     inputs: { ...inputValues },
@@ -65,10 +137,10 @@ export function buildRenderVariables(
  * Wraps both namespaces as Map-typed entries — the Go template engine navigates them
  * via {{ .inputs.X }} and {{ .outputs.X.Y }}.
  */
-export function buildTemplatePayload(ctx: TemplateContext): TemplateValue[] {
+export function buildTemplatePayload(ctx: PlainTemplateContext): TemplateValue[] {
   return [
-    { name: 'inputs', type: BoilerplateVariableType.Map, value: ctx.inputs },
-    { name: 'outputs', type: BoilerplateVariableType.Map, value: ctx.outputs },
+    { name: "inputs", type: BoilerplateVariableType.Map, value: ctx.inputs },
+    { name: "outputs", type: BoilerplateVariableType.Map, value: ctx.outputs },
   ]
 }
 
@@ -83,7 +155,9 @@ export function buildTemplatePayload(ctx: TemplateContext): TemplateValue[] {
  */
 export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
   return inputs.some(
-    i => (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) && i.value === ''
+    (i) =>
+      (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) &&
+      i.value === "",
   )
 }
 
@@ -94,7 +168,7 @@ export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
  */
 export function computeUnmetOutputDependencies(
   outputDependencies: OutputDependency[],
-  allOutputs: Record<string, BlockOutputs>
+  allOutputs: Record<string, BlockOutputs>,
 ): BlockOutput[] {
   if (outputDependencies.length === 0) return []
 
@@ -109,7 +183,7 @@ export function computeUnmetOutputDependencies(
       // Block hasn't produced any outputs yet - preserve original blockId for display
       unmet.push({ blockId, outputNames })
     } else {
-      const missingOutputs = outputNames.filter(name => !(name in blockData.values))
+      const missingOutputs = outputNames.filter((name) => !(name in blockData.values))
       if (missingOutputs.length > 0) {
         unmet.push({ blockId, outputNames: missingOutputs })
       }
@@ -125,9 +199,7 @@ export function computeUnmetOutputDependencies(
  * Used inside useTemplateDependencies to provide callers with the flat format
  * matching {{ .outputs.*.* }} template expressions.
  */
-export function flattenBlockOutputs(
-  allOutputs: Record<string, BlockOutputs>
-): TemplateOutputs {
+export function flattenBlockOutputs(allOutputs: Record<string, BlockOutputs>): TemplateOutputs {
   const result: TemplateOutputs = {}
   for (const [blockId, data] of Object.entries(allOutputs)) {
     result[blockId] = data.values
@@ -143,12 +215,12 @@ export function flattenBlockOutputs(
  * member.
  */
 function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const segments = path.split('.')
+  const segments = path.split(".")
   let current: unknown = obj
   for (const segment of segments) {
     if (
       current === null ||
-      typeof current !== 'object' ||
+      typeof current !== "object" ||
       Array.isArray(current) ||
       !Object.hasOwn(current, segment)
     ) {
@@ -176,11 +248,13 @@ export function resolveInputPath(inputs: TemplateInputs, path: InputName): unkno
  */
 export function computeUnmetInputDependencies(
   deps: InputName[],
-  inputs: TemplateInputs
+  inputs: TemplateInputs,
 ): InputName[] {
-  return deps.filter(name => {
-    const value = name.includes('.') ? resolveNestedValue(inputs as Record<string, unknown>, name) : inputs[name]
-    return value === undefined || value === null || value === ''
+  return deps.filter((name) => {
+    const value = name.includes(".")
+      ? resolveNestedValue(inputs as Record<string, unknown>, name)
+      : inputs[name]
+    return value === undefined || value === null || value === ""
   })
 }
 
@@ -191,14 +265,14 @@ export function computeUnmetInputDependencies(
  */
 export function filterUnmetOutputDeps(
   allUnmetOutputDeps: BlockOutput[],
-  targetOutputDeps: OutputDependency[]
+  targetOutputDeps: OutputDependency[],
 ): BlockOutput[] {
   return allUnmetOutputDeps
-    .map(dep => {
+    .map((dep) => {
       const blockingNames = targetOutputDeps
-        .filter(bd => bd.blockId === dep.blockId)
-        .map(bd => bd.outputName)
-      const matchedNames = dep.outputNames.filter(n => blockingNames.includes(n))
+        .filter((bd) => bd.blockId === dep.blockId)
+        .map((bd) => bd.outputName)
+      const matchedNames = dep.outputNames.filter((n) => blockingNames.includes(n))
       return matchedNames.length > 0 ? { ...dep, outputNames: matchedNames } : null
     })
     .filter((dep): dep is NonNullable<typeof dep> => dep !== null)
@@ -220,7 +294,8 @@ const VALUE_REFERENCE_PATTERN =
 export function extractInputValueReferences(text: string): InputName[] {
   const names = new Set<InputName>()
   for (const [, namespace, path] of text.matchAll(VALUE_REFERENCE_PATTERN)) {
-    if (namespace === 'inputs') names.add(path)
+    // Both groups are required by the pattern.
+    if (namespace === "inputs") names.add(path!)
   }
   return [...names]
 }
@@ -229,32 +304,35 @@ export function extractInputValueReferences(text: string): InputName[] {
  * Resolve {{ .inputs.X }} and {{ .outputs.X.Y }} expressions in a string.
  * Client-side string resolver for blocks that don't go through the Go template engine
  * (e.g., GitClone prefilled props, GitHubPullRequest title/body).
+ *
+ * Its results are shown on screen (titles, descriptions, form fields) or sent
+ * where a secret doesn't belong (a PR title or body), so a sensitive output
+ * resolves to `<redacted>`, never its real value.
  */
-export function resolveTemplateReferences(
-  text: string,
-  ctx: TemplateContext
-): string {
+export function resolveTemplateReferences(text: string, ctx: TemplateContext): string {
   if (!text) return text
-  return text.replace(
-    VALUE_REFERENCE_PATTERN,
-    (match, namespace, path) => {
-      if (namespace === 'inputs') {
-        // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
-        // through nested objects, like computeUnmetInputDependencies.
-        const value = resolveInputPath(ctx.inputs, path)
-        return value != null ? String(value) : `\`${match}\``
-      }
-      if (namespace === 'outputs') {
-        const dotIdx = path.indexOf('.')
-        if (dotIdx > 0) {
-          const blockId = normalizeBlockId(path.slice(0, dotIdx))
-          const outputName = path.slice(dotIdx + 1)
-          return ctx.outputs[blockId]?.[outputName] ?? `\`${match}\``
-        }
-      }
-      return `\`${match}\``
+  return text.replace(VALUE_REFERENCE_PATTERN, (match, namespace, path) => {
+    if (namespace === "inputs") {
+      // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
+      // through nested objects, like computeUnmetInputDependencies.
+      const value = resolveInputPath(ctx.inputs, path)
+      if (value == null) return `\`${match}\``
+      if (typeof value === "string") return value
+      if (typeof value === "number" || typeof value === "boolean") return String(value)
+      // A whole List or Map input, which would otherwise print as "[object Object]"
+      return JSON.stringify(value)
     }
-  )
+    if (namespace === "outputs") {
+      const dotIdx = path.indexOf(".")
+      if (dotIdx > 0) {
+        const blockId = normalizeBlockId(path.slice(0, dotIdx))
+        const outputName = path.slice(dotIdx + 1)
+        const value = ctx.outputs[blockId]?.[outputName]
+        return value !== undefined ? maskOutput(value) : `\`${match}\``
+      }
+    }
+    return `\`${match}\``
+  })
 }
 
 // --- Internal helpers ---

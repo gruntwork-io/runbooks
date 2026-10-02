@@ -20,6 +20,13 @@ interface HostSelectProps {
   downgradedHosts?: ReadonlySet<string>
   /** Disable controls while a check is in flight. */
   disabled?: boolean
+  /**
+   * Whether the block auto-detects credentials (default true). When false
+   * (`detectCredentials={false}`) the picker is a plain host list: no
+   * provenance badges, key icons or "no credentials" hint, which all describe
+   * what detection would find, and no Reload, which re-runs detection.
+   */
+  detectsCredentials?: boolean
 }
 
 const SOURCE_LABELS: Record<GitHostEntry["sources"][number], string> = {
@@ -38,25 +45,33 @@ const SOURCE_LABELS: Record<GitHostEntry["sources"][number], string> = {
  * for the offline has-credential check; a failed validation downgrades the
  * icon for the rest of the session so the dropdown never contradicts the
  * warning chip. The parent hides this entirely when the author pinned a `host`.
+ * With detection disabled only the host list itself remains.
  */
 export function HostSelect({
   id,
   provider,
-  hosts = [],
+  hosts,
   value,
   onChange,
   onReload,
   downgradedHosts,
   disabled,
+  detectsCredentials = true,
 }: HostSelectProps) {
   const hasChoice = hosts.length >= 1
+  // Nothing to show: no hosts to pick, and Reload is a detection control.
+  if (!hasChoice && !detectsCredentials) return null
+
   // Unique per block so two GitAuth blocks on one page don't emit
   // duplicate DOM ids (which break label association and are invalid HTML).
   const selectId = `${provider.id}-host-${id}`
 
   const selected = hosts.find((h) => h.host === value)
+  // The badges, key icons and no-credential hint all describe what detection
+  // would find, so without detection the selected host goes unannotated.
+  const annotated = detectsCredentials ? selected : undefined
   const selectedDowngraded = downgradedHosts?.has(value) ?? false
-  const showCredentialIcon = selected?.hasCredential && !selectedDowngraded
+  const showCredentialIcon = annotated?.hasCredential && !selectedDowngraded
 
   return (
     <div className="mb-4 flex items-center gap-2 text-sm flex-wrap">
@@ -91,9 +106,9 @@ export function HostSelect({
           </select>
 
           {/* Provenance badges for the selected host. */}
-          {selected && selected.sources.length > 0 && (
+          {annotated && annotated.sources.length > 0 && (
             <span className="flex items-center gap-1" data-testid={`host-sources-${id}`}>
-              {selected.sources.map((source) => (
+              {annotated.sources.map((source) => (
                 <span
                   key={source}
                   className="text-[10px] uppercase tracking-wide bg-muted text-muted-foreground px-1.5 py-0.5 rounded"
@@ -115,7 +130,7 @@ export function HostSelect({
               <KeyRound className="size-3.5" />
             </span>
           )}
-          {selected && selectedDowngraded && (
+          {annotated && selectedDowngraded && (
             <span
               title="credential failed validation this session"
               data-testid={`host-credential-downgraded-${id}`}
@@ -127,23 +142,28 @@ export function HostSelect({
 
           {/* Hosts without a credential get a subtle paste-a-token hint —
               also rendered in the single-host layout, next to Reload. */}
-          {selected && !selected.hasCredential && (
-            <span className="text-xs text-muted-foreground" data-testid={`host-no-credential-${id}`}>
+          {annotated && !annotated.hasCredential && (
+            <span
+              className="text-xs text-muted-foreground"
+              data-testid={`host-no-credential-${id}`}
+            >
               no credentials — paste a token
             </span>
           )}
         </>
       )}
-      <button
-        type="button"
-        onClick={onReload}
-        disabled={disabled}
-        title={`Re-read ${provider.cli.binary} config, refresh trust, and re-check credentials`}
-        className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
-      >
-        <RefreshCw className={`size-3.5 ${disabled ? 'animate-spin' : ''}`} />
-        Reload
-      </button>
+      {detectsCredentials && (
+        <button
+          type="button"
+          onClick={onReload}
+          disabled={disabled}
+          title={`Re-read ${provider.cli.binary} config, refresh trust, and re-check credentials`}
+          className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+        >
+          <RefreshCw className={`size-3.5 ${disabled ? "animate-spin" : ""}`} />
+          Reload
+        </button>
+      )}
     </div>
   )
 }

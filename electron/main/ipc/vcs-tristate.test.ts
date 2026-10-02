@@ -16,7 +16,7 @@ import { VcsCliError } from "../../../src/errors/index.ts"
 // Bun module mocks outlive the test file and fix the export names on first
 // import, so a second electron mock with other names (theme-store.test.ts)
 // would collide with this one. There is no window in these tests.
-mock.module("../window.ts", () => ({ getMainWindow: () => null }))
+await mock.module("../window.ts", () => ({ getMainWindow: () => null }))
 
 const { withTlsOrchestration } = await import("./vcs-tristate.ts")
 
@@ -38,13 +38,23 @@ const VALID: DetectionResult = {
   warnings: [],
 }
 const NETWORK: DetectionResult = { ...TLS_WALL, errorKind: "network", error: "ECONNREFUSED" }
-const SERVER_CERT: DetectionResult = { ...TLS_WALL, errorKind: "server-cert", error: "CERT_HAS_EXPIRED" }
-const INVALID: DetectionResult = { outcome: "invalid", token: "glpat-token", source: "env", warnings: [], status: 401 }
+const SERVER_CERT: DetectionResult = {
+  ...TLS_WALL,
+  errorKind: "server-cert",
+  error: "CERT_HAS_EXPIRED",
+}
+const INVALID: DetectionResult = {
+  outcome: "invalid",
+  token: "glpat-token",
+  source: "env",
+  warnings: [],
+  status: 401,
+}
 
 /** A detect step that returns `results` in order, repeating the last one. */
-const detectSequence = (...results: DetectionResult[]) => {
+const detectSequence = (...results: [DetectionResult, ...DetectionResult[]]) => {
   let call = 0
-  return mock(async () => results[Math.min(call++, results.length - 1)])
+  return mock(async () => results[Math.min(call++, results.length - 1)]!)
 }
 
 let probeResult: Effect.Effect<CliValidation, VcsCliError>
@@ -67,10 +77,12 @@ beforeEach(() => {
   probeCalls = []
   degraded = []
   refresh = spyOn(systemTrust, "refreshSystemTrust").mockResolvedValue({ coldReadOk: true })
-  spyOn(runtime, "runPromise").mockImplementation(((effect: Effect.Effect<unknown, unknown, VcsCredentials>) =>
-    Effect.runPromise(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromise)
-  spyOn(runtime, "runPromiseExit").mockImplementation(((effect: Effect.Effect<unknown, unknown, VcsCredentials>) =>
-    Effect.runPromiseExit(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromiseExit)
+  spyOn(runtime, "runPromise").mockImplementation(((
+    effect: Effect.Effect<unknown, unknown, VcsCredentials>,
+  ) => Effect.runPromise(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromise)
+  spyOn(runtime, "runPromiseExit").mockImplementation(((
+    effect: Effect.Effect<unknown, unknown, VcsCredentials>,
+  ) => Effect.runPromiseExit(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromiseExit)
 })
 
 afterEach(() => {
@@ -97,16 +109,19 @@ describe("withTlsOrchestration", () => {
   it.each([
     ["valid", VALID],
     ["network", NETWORK],
-  ])("on a tls failure, refreshes trust once and returns the retry's %s result", async (_name, retry) => {
-    const detect = detectSequence(TLS_WALL, retry)
+  ])(
+    "on a tls failure, refreshes trust once and returns the retry's %s result",
+    async (_name, retry) => {
+      const detect = detectSequence(TLS_WALL, retry)
 
-    const result = await withTlsOrchestration({ provider: "gitlab", host: HOST, detect })
+      const result = await withTlsOrchestration({ provider: "gitlab", host: HOST, detect })
 
-    expect(result).toBe(retry)
-    expect(refresh).toHaveBeenCalledTimes(1)
-    expect(detect).toHaveBeenCalledTimes(2)
-    expect(probeCalls).toEqual([])
-  })
+      expect(result).toBe(retry)
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(detect).toHaveBeenCalledTimes(2)
+      expect(probeCalls).toEqual([])
+    },
+  )
 
   it("accepts a persisting tls wall via the CLI probe and marks the host degraded", async () => {
     probeResult = Effect.succeed({ user: { login: "cli-user" }, scopes: ["api"] })
@@ -134,9 +149,11 @@ describe("withTlsOrchestration", () => {
     expect(probeCalls).toEqual([{ host: HOST, token: "glpat-token", source: "manual" }])
   })
 
+  const { token: _token, ...noToken } = TLS_WALL
+  const { source: _source, ...noSource } = TLS_WALL
   it.each([
-    ["token", { ...TLS_WALL, token: undefined }],
-    ["source", { ...TLS_WALL, source: undefined }],
+    ["token", noToken],
+    ["source", noSource],
   ])("skips the probe without a %s and returns the tls result", async (_name, wall) => {
     const detect = detectSequence(wall)
 

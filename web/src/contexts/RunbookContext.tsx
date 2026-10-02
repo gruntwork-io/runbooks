@@ -1,5 +1,3 @@
-/* eslint-disable react-refresh/only-export-components */
-
 /**
  * RunbookContext - Shared State Management for Runbook Blocks
  *
@@ -15,7 +13,8 @@
  *
  * **Outputs**: Key-value pairs produced by `<Check>` and `<Command>` blocks after
  * execution. Scripts can write to $RUNBOOK_OUTPUT to expose values (e.g., account IDs,
- * resource ARNs) that downstream blocks can consume.
+ * resource ARNs) that downstream blocks can consume. A value the script marked
+ * `sensitive:` is stored as a `Redacted` (see lib/outputValues.ts).
  *
  * ## Data Flow
  *
@@ -39,14 +38,15 @@
  * ```
  */
 
-import { createContext, useState, useCallback, useMemo } from 'react'
-import type { ReactNode } from 'react'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import type { BoilerplateVariable } from '@/types/boilerplateVariable'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import { normalizeBlockId } from '@/lib/utils'
-import { flattenBlockOutputs } from '@/lib/templateUtils'
-import type { TemplateContext } from '@/lib/templateUtils'
+import { createContext, useState, useCallback, useMemo } from "react"
+import type { ReactNode } from "react"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import type { BoilerplateVariable } from "@/types/boilerplateVariable"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import { normalizeBlockId } from "@/lib/utils"
+import { flattenBlockOutputs } from "@/lib/templateUtils"
+import type { TemplateContext } from "@/lib/templateUtils"
+import type { OutputValue as BlockOutputValue, OutputValues } from "@/lib/outputValues"
 
 /**
  * Data stored for each registered Inputs block.
@@ -74,19 +74,20 @@ export interface TemplateValue {
 
 /**
  * An output value with its name and value - produced by Check/Command blocks.
- * Outputs are always strings (written via $RUNBOOK_OUTPUT as key=value pairs).
+ * Outputs are strings (written via $RUNBOOK_OUTPUT as key=value pairs), or a
+ * `Redacted` string for one the script marked `sensitive:`.
  */
 export interface OutputValue {
   name: string
-  value: string
+  value: BlockOutputValue
 }
 
 /**
  * Data stored for each Command/Check block's outputs, including metadata.
  */
 export interface BlockOutputs {
-  /** The output values from the script (key-value pairs) */
-  values: Record<string, string>
+  /** The output values from the script (key-value pairs). Sensitive ones are `Redacted`. */
+  values: OutputValues
   /** When outputs were captured */
   timestamp: string
 }
@@ -96,14 +97,14 @@ export interface BlockOutputs {
  * Strips the { name, type, value } wrapper — parallel to flattenBlockOutputs.
  */
 export function flattenInputs(inputs: TemplateValue[]): Record<string, unknown> {
-  return Object.fromEntries(inputs.map(i => [i.name, i.value]))
+  return Object.fromEntries(inputs.map((i) => [i.name, i.value]))
 }
 
 /**
  * Helper function to convert a values map to OutputValue[].
  * Useful when you need the array form.
  */
-export function valuesToOutputs(values: Record<string, string>): OutputValue[] {
+export function valuesToOutputs(values: OutputValues): OutputValue[] {
   return Object.entries(values).map(([name, value]) => ({ name, value }))
 }
 
@@ -122,11 +123,25 @@ export interface RunbookContextType {
   remoteSource: string | undefined
 
   /**
+   * Local path to the runbook's .mdx file (the temp clone for a remote
+   * runbook). Used to tell an LLM which runbook a block's logs came from.
+   */
+  runbookFilePath: string | undefined
+
+  /**
    * Identifies the runbook for per-runbook localStorage (done marks, task-list
    * checkboxes): the remote URL when opened from one (remote clones land in a
    * new temp folder on every open), otherwise the runbook's local directory.
    */
   storageScope: string | undefined
+
+  /**
+   * The host of the runbook's runbook-asset:// URLs, from runbook:get. Each
+   * runbook has its own, so framed asset pages of different runbooks never
+   * share an origin. Undefined outside a runbook, where ./assets/ URLs are
+   * left as written.
+   */
+  assetHost: string | undefined
 
   /** All registered inputs data, keyed by Inputs block ID */
   blockInputs: Record<string, BlockInputs>
@@ -145,7 +160,7 @@ export interface RunbookContextType {
   blockOutputs: Record<string, BlockOutputs>
 
   /** Register or replace a block's outputs (completely replaces previous outputs) */
-  registerOutputs: (blockId: string, values: Record<string, string>) => void
+  registerOutputs: (blockId: string, values: OutputValues) => void
 
   /** Get outputs for a specific block */
   getOutputs: (blockId: string) => OutputValue[] | undefined
@@ -161,6 +176,9 @@ export interface RunbookContextType {
    * The `inputsId` parameter controls **input scoping only** — it determines which
    * Inputs blocks contribute to the `inputs` namespace. Outputs are always global
    * because output producers (Command/Check) and consumers are independent.
+   *
+   * Sensitive outputs stay `Redacted` here. A render sends plain strings, so it
+   * picks revealTemplateOutputs or maskTemplateOutputs (see templateUtils).
    *
    * @param inputsId - One or more Inputs block IDs to read input values from
    * @returns TemplateContext with { inputs, outputs } namespaces
@@ -187,144 +205,198 @@ export const RunbookContext = createContext<RunbookContextType | undefined>(unde
  *   <Command inputsId="config-a" command="echo {{ .outputs.create_account.account_id }}" />
  * </RunbookContextProvider>
  */
-export function RunbookContextProvider({ children, runbookName, remoteSource, storageScope }: { children: ReactNode, runbookName?: string, remoteSource?: string, storageScope?: string }) {
+export function RunbookContextProvider({
+  children,
+  runbookName,
+  remoteSource,
+  runbookFilePath,
+  storageScope,
+  assetHost,
+}: {
+  children?: ReactNode
+  runbookName?: string | undefined
+  remoteSource?: string | undefined
+  runbookFilePath?: string | undefined
+  storageScope?: string | undefined
+  assetHost?: string | undefined
+}) {
   const [blockInputs, setBlockInputs] = useState<Record<string, BlockInputs>>({})
   const [blockOutputs, setBlockOutputs] = useState<Record<string, BlockOutputs>>({})
 
-  const registerInputs = useCallback((id: string, values: Record<string, unknown>, config: BoilerplateConfig) => {
-    setBlockInputs(prev => {
-      const existing = prev[id]
+  const registerInputs = useCallback(
+    (id: string, values: Record<string, unknown>, config: BoilerplateConfig) => {
+      setBlockInputs((prev) => {
+        const existing = prev[id]
 
-      // Check if values actually changed (shallow comparison of values object)
-      if (existing) {
-        const existingKeys = Object.keys(existing.values)
-        const newKeys = Object.keys(values)
+        // Check if values actually changed (shallow comparison of values object)
+        if (existing) {
+          const existingKeys = Object.keys(existing.values)
+          const newKeys = Object.keys(values)
 
-        // Same number of keys and all values equal
-        const valuesUnchanged = existingKeys.length === newKeys.length &&
-          existingKeys.every(key => existing.values[key] === values[key])
+          // Same number of keys and all values equal
+          const valuesUnchanged =
+            existingKeys.length === newKeys.length &&
+            existingKeys.every((key) => existing.values[key] === values[key])
 
-        if (valuesUnchanged) {
-          // No change, return previous state to avoid re-render
-          return prev
+          if (valuesUnchanged) {
+            // No change, return previous state to avoid re-render
+            return prev
+          }
+        }
+
+        console.log(
+          `[RunbookContext] registerInputs updating [${id}]: keys=${Object.keys(values).length}, configVars=${config?.variables?.length ?? 0}`,
+        )
+        return {
+          ...prev,
+          [id]: { values, config },
+        }
+      })
+    },
+    [],
+  )
+
+  // Internal helper to get merged config (used by getInputs)
+  const getConfig = useCallback(
+    (inputsId: string | string[]): BoilerplateConfig => {
+      const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
+
+      // Collect all variables from all configs
+      const allVariables: BoilerplateVariable[] = []
+      for (const id of ids) {
+        const data = blockInputs[id]
+        if (data?.config?.variables) {
+          allVariables.push(...data.config.variables)
         }
       }
 
-      console.log(`[RunbookContext] registerInputs updating [${id}]: keys=${Object.keys(values).length}, configVars=${config?.variables?.length ?? 0}`)
+      // Dedupe by variable name, keeping the last occurrence (later IDs win)
+      const variableMap = new Map<string, BoilerplateVariable>()
+      for (const variable of allVariables) {
+        variableMap.set(variable.name, variable)
+      }
+
       return {
-        ...prev,
-        [id]: { values, config }
+        variables: Array.from(variableMap.values()),
       }
-    })
-  }, [])
-
-  // Internal helper to get merged config (used by getInputs)
-  const getConfig = useCallback((inputsId: string | string[]): BoilerplateConfig => {
-    const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
-
-    // Collect all variables from all configs
-    const allVariables: BoilerplateVariable[] = []
-    for (const id of ids) {
-      const data = blockInputs[id]
-      if (data?.config?.variables) {
-        allVariables.push(...data.config.variables)
-      }
-    }
-
-    // Dedupe by variable name, keeping the last occurrence (later IDs win)
-    const variableMap = new Map<string, BoilerplateVariable>()
-    for (const variable of allVariables) {
-      variableMap.set(variable.name, variable)
-    }
-
-    return {
-      variables: Array.from(variableMap.values())
-    }
-  }, [blockInputs])
+    },
+    [blockInputs],
+  )
 
   // Internal helper to get merged values (used by getInputs and getTemplateContext)
-  const getValues = useCallback((inputsId: string | string[]): Record<string, unknown> => {
-    const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
-    // Merge values from all inputsIds, later IDs override earlier ones
-    return ids.reduce((acc, id) => {
-      const data = blockInputs[id]
-      return data ? { ...acc, ...data.values } : acc
-    }, {} as Record<string, unknown>)
-  }, [blockInputs])
+  const getValues = useCallback(
+    (inputsId: string | string[]): Record<string, unknown> => {
+      const ids = Array.isArray(inputsId) ? inputsId : [inputsId]
+      // Merge values from all inputsIds, later IDs override earlier ones
+      return ids.reduce(
+        (acc, id) => {
+          const data = blockInputs[id]
+          return data ? { ...acc, ...data.values } : acc
+        },
+        {} as Record<string, unknown>,
+      )
+    },
+    [blockInputs],
+  )
 
-  const getInputs = useCallback((inputsId: string | string[]): TemplateValue[] => {
-    const config = getConfig(inputsId)
-    const values = getValues(inputsId)
+  const getInputs = useCallback(
+    (inputsId: string | string[]): TemplateValue[] => {
+      const config = getConfig(inputsId)
+      const values = getValues(inputsId)
 
-    // Build inputs array from config variables with name, type, and current value
-    const configVarNames = new Set<string>()
-    const result: TemplateValue[] = (config.variables || []).map(variable => {
-      configVarNames.add(variable.name)
-      return {
-        name: variable.name,
-        type: variable.type || BoilerplateVariableType.String,
-        value: values[variable.name]
+      // Build inputs array from config variables with name, type, and current value
+      const configVarNames = new Set<string>()
+      const result: TemplateValue[] = (config.variables || []).map((variable) => {
+        configVarNames.add(variable.name)
+        return {
+          name: variable.name,
+          type: variable.type || BoilerplateVariableType.String,
+          value: values[variable.name],
+        }
+      })
+
+      // Also include extra values that aren't in the config. These are passed through
+      // as Map type so the backend can process them as template variables alongside
+      // the declared config variables.
+      for (const [name, value] of Object.entries(values)) {
+        if (!configVarNames.has(name)) {
+          result.push({
+            name,
+            type: BoilerplateVariableType.Map,
+            value,
+          })
+        }
       }
-    })
 
-    // Also include extra values that aren't in the config. These are passed through
-    // as Map type so the backend can process them as template variables alongside
-    // the declared config variables.
-    for (const [name, value] of Object.entries(values)) {
-      if (!configVarNames.has(name)) {
-        result.push({
-          name,
-          type: BoilerplateVariableType.Map,
-          value
-        })
-      }
-    }
+      return result
+    },
+    [getConfig, getValues],
+  )
 
-    return result
-  }, [getConfig, getValues])
-
-  const registerOutputs = useCallback((blockId: string, values: Record<string, string>) => {
+  const registerOutputs = useCallback((blockId: string, values: OutputValues) => {
     const normalizedId = normalizeBlockId(blockId)
-    console.log(`[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]: keys=${Object.keys(values).length}`)
-    setBlockOutputs(prev => ({
+    console.log(
+      `[RunbookContext] registerOutputs [${blockId} → ${normalizedId}]: keys=${Object.keys(values).length}`,
+    )
+    setBlockOutputs((prev) => ({
       ...prev,
       [normalizedId]: {
         values,
-        timestamp: new Date().toISOString()
-      }
+        timestamp: new Date().toISOString(),
+      },
     }))
   }, [])
 
-  const getOutputs = useCallback((blockId: string): OutputValue[] | undefined => {
-    const normalizedId = normalizeBlockId(blockId)
-    const data = blockOutputs[normalizedId]
-    return data ? valuesToOutputs(data.values) : undefined
-  }, [blockOutputs])
-
-  const getTemplateContext = useCallback((inputsId?: string | string[]): TemplateContext => {
-    const inputs = inputsId ? getValues(inputsId) : {}
-    const outputs = flattenBlockOutputs(blockOutputs)
-    return { inputs, outputs }
-  }, [getValues, blockOutputs])
-
-  const contextValue = useMemo(() => ({
-    runbookName,
-    remoteSource,
-    storageScope,
-    blockInputs,
-    registerInputs,
-    getInputs,
-    blockOutputs,
-    registerOutputs,
-    getOutputs,
-    getTemplateContext,
-  }), [runbookName, remoteSource, storageScope, blockInputs, registerInputs, getInputs, blockOutputs, registerOutputs, getOutputs, getTemplateContext])
-
-  return (
-    <RunbookContext.Provider value={contextValue}>
-      {children}
-    </RunbookContext.Provider>
+  const getOutputs = useCallback(
+    (blockId: string): OutputValue[] | undefined => {
+      const normalizedId = normalizeBlockId(blockId)
+      const data = blockOutputs[normalizedId]
+      return data ? valuesToOutputs(data.values) : undefined
+    },
+    [blockOutputs],
   )
+
+  const getTemplateContext = useCallback(
+    (inputsId?: string | string[]): TemplateContext => {
+      const inputs = inputsId ? getValues(inputsId) : {}
+      const outputs = flattenBlockOutputs(blockOutputs)
+      return { inputs, outputs }
+    },
+    [getValues, blockOutputs],
+  )
+
+  const contextValue = useMemo(
+    () => ({
+      runbookName,
+      remoteSource,
+      runbookFilePath,
+      storageScope,
+      assetHost,
+      blockInputs,
+      registerInputs,
+      getInputs,
+      blockOutputs,
+      registerOutputs,
+      getOutputs,
+      getTemplateContext,
+    }),
+    [
+      runbookName,
+      remoteSource,
+      runbookFilePath,
+      storageScope,
+      assetHost,
+      blockInputs,
+      registerInputs,
+      getInputs,
+      blockOutputs,
+      registerOutputs,
+      getOutputs,
+      getTemplateContext,
+    ],
+  )
+
+  return <RunbookContext.Provider value={contextValue}>{children}</RunbookContext.Provider>
 }
 
 // Hooks are in a separate file to satisfy react-refresh requirements

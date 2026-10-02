@@ -168,7 +168,8 @@ describe("classifyCloneError (golang parity)", () => {
       host: "github.com",
       owner: "o",
       repo: "r",
-      stderr: "remote: Repository not found.\nfatal: repository 'https://github.com/o/r.git/' not found",
+      stderr:
+        "remote: Repository not found.\nfatal: repository 'https://github.com/o/r.git/' not found",
       hadToken: false,
     })
     expect(result.kind).toBe("auth")
@@ -180,7 +181,8 @@ describe("classifyCloneError (golang parity)", () => {
       host: "github.com",
       owner: "o",
       repo: "r",
-      stderr: "fatal: unable to access 'https://github.com/o/r': Could not resolve host: github.com",
+      stderr:
+        "fatal: unable to access 'https://github.com/o/r': Could not resolve host: github.com",
       hadToken: false,
     })
     expect(result.kind).toBe("network")
@@ -191,7 +193,8 @@ describe("classifyCloneError (golang parity)", () => {
       host: "github.com",
       owner: "acme",
       repo: "svc-4013",
-      stderr: "fatal: unable to access 'https://github.com/acme/svc-4013.git/': Could not resolve host: github.com",
+      stderr:
+        "fatal: unable to access 'https://github.com/acme/svc-4013.git/': Could not resolve host: github.com",
       hadToken: false,
     })
     expect(result.kind).toBe("network")
@@ -202,7 +205,8 @@ describe("classifyCloneError (golang parity)", () => {
       host: "github.com",
       owner: "o",
       repo: "r",
-      stderr: "fatal: unable to access 'https://github.com/o/r': Failed to connect to host: Connection refused",
+      stderr:
+        "fatal: unable to access 'https://github.com/o/r': Failed to connect to host: Connection refused",
       hadToken: false,
     })
     expect(result.kind).toBe("network")
@@ -294,7 +298,10 @@ describe("authHintForHost — GitHub enterprise hosts", () => {
   })
 
   it("github.com keeps its plain hint regardless of provider", () => {
-    expect(authHintForHost("github.com", "github")).toEqual({ envRemedy: "GITHUB_TOKEN", cliCmd: "gh auth login" })
+    expect(authHintForHost("github.com", "github")).toEqual({
+      envRemedy: "GITHUB_TOKEN",
+      cliCmd: "gh auth login",
+    })
   })
 
   it("provider gitlab places an arbitrary host as GitLab", () => {
@@ -345,7 +352,9 @@ describe("classifyCloneError — threads provider", () => {
       stderr: authFail,
       hadToken: false,
     })
-    expect(result.hint).toBe("authentication required for ghes.example.com/o/r: provide an access token for ghes.example.com")
+    expect(result.hint).toBe(
+      "authentication required for ghes.example.com/o/r: provide an access token for ghes.example.com",
+    )
   })
 
   it("ghe.com tenant", () => {
@@ -369,7 +378,8 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
       host: "github.com",
       owner: "o",
       repo: "r",
-      stderr: "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
+      stderr:
+        "git@github.com: Permission denied (publickey).\nfatal: Could not read from remote repository.",
       hadToken: false,
       provider: "github",
       transport: "ssh",
@@ -409,7 +419,10 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
       hadToken: false,
       transport: "ssh",
     })
-    expect(result).toEqual({ kind: "network", hint: "Could not reach git.corp.net. Check your internet connection." })
+    expect(result).toEqual({
+      kind: "network",
+      hint: "Could not reach git.corp.net. Check your internet connection.",
+    })
   })
 
   it("scrubs tokens from git's stderr before showing it", () => {
@@ -451,7 +464,9 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
       stderr: "fatal: Authentication failed",
       hadToken: false,
     })
-    expect(result.hint).toBe("authentication required for git.corp.net/infra: provide an access token for git.corp.net")
+    expect(result.hint).toBe(
+      "authentication required for git.corp.net/infra: provide an access token for git.corp.net",
+    )
   })
 })
 
@@ -465,12 +480,20 @@ describe("classifyCloneError — SSH and owner-less sources", () => {
 describe("openRemoteRunbook (real git)", () => {
   const TOKEN = "ghp_REMOTE_OPEN_TEST_TOKEN"
   const AUTH_HEADER = `Authorization: Basic ${btoa(`x-access-token:${TOKEN}`)}`
-  const GIT = ["-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false"]
-  const git = (cwd: string, ...args: string[]) => execFileSync("git", [...GIT, ...args], { cwd, stdio: "pipe" })
+  const GIT = [
+    "-c",
+    "user.email=test@example.com",
+    "-c",
+    "user.name=Test",
+    "-c",
+    "commit.gpgsign=false",
+  ]
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", [...GIT, ...args], { cwd, stdio: "pipe" })
 
   let root = ""
   const savedEnv: Record<string, string | undefined> = {}
-  const spawns: Array<{ args: string[]; env?: Record<string, string | undefined> }> = []
+  const spawns: Array<{ args: string[]; env?: Record<string, string | undefined> | undefined }> = []
   const tokenLookups: string[] = []
 
   const spawnerLayer = Layer.effect(
@@ -501,7 +524,9 @@ describe("openRemoteRunbook (real git)", () => {
   )
 
   const open = async (source: string) =>
-    valueOrUserError(await Effect.runPromiseExit(openRemoteRunbook(source).pipe(Effect.provide(testLayer))))
+    valueOrUserError(
+      await Effect.runPromiseExit(openRemoteRunbook(source).pipe(Effect.provide(testLayer))),
+    )
   const openError = async (source: string): Promise<Error> => {
     try {
       await open(source)
@@ -513,7 +538,9 @@ describe("openRemoteRunbook (real git)", () => {
   /** Whether a `git <subcommand>` ran with TOKEN's auth header in its environment. */
   const sentToken = (subcommand: string) =>
     spawns.some(
-      (s) => s.args[0] === subcommand && Object.values(s.env ?? {}).some((value) => value === AUTH_HEADER),
+      (s) =>
+        s.args[0] === subcommand &&
+        Object.values(s.env ?? {}).some((value) => value === AUTH_HEADER),
     )
   const tokenInAnyArg = () => spawns.some((s) => s.args.some((arg) => arg.includes(TOKEN)))
 
@@ -523,7 +550,9 @@ describe("openRemoteRunbook (real git)", () => {
   }
 
   beforeAll(() => {
-    root = nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-remote-open-")))
+    root = nodeFs.realpathSync(
+      nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-remote-open-")),
+    )
 
     // Outside the clone: what a symlink in the repo points at.
     nodeFs.mkdirSync(nodePath.join(root, "outside"))
@@ -545,7 +574,11 @@ describe("openRemoteRunbook (real git)", () => {
     // ssh stub: fails the way a real ssh would, with whatever FAKE_SSH_STDERR says.
     const bin = nodePath.join(root, "bin")
     nodeFs.mkdirSync(bin)
-    nodeFs.writeFileSync(nodePath.join(bin, "ssh"), '#!/bin/sh\necho "$FAKE_SSH_STDERR" >&2\nexit 255\n', { mode: 0o755 })
+    nodeFs.writeFileSync(
+      nodePath.join(bin, "ssh"),
+      '#!/bin/sh\necho "$FAKE_SSH_STDERR" >&2\nexit 255\n',
+      { mode: 0o755 },
+    )
     setEnv("PATH", `${bin}${nodePath.delimiter}${process.env.PATH ?? ""}`)
 
     // Point https:// and http:// git.example.com at the fixture, appended to
@@ -590,7 +623,9 @@ describe("openRemoteRunbook (real git)", () => {
   it("reports the source without a password typed into it, even one holding an @", async () => {
     // Built at runtime so secret scanners don't flag the fixture.
     const password = ["p@hunter", "22"].join("")
-    const result = await open(`https://user:${password}@git.example.com/org/repo/tree/main/runbooks/vpc`)
+    const result = await open(
+      `https://user:${password}@git.example.com/org/repo/tree/main/runbooks/vpc`,
+    )
 
     expect(result.remoteSource).toBe("https://git.example.com/org/repo/tree/main/runbooks/vpc")
     expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
@@ -598,9 +633,13 @@ describe("openRemoteRunbook (real git)", () => {
 
   it("reports the source without go-getter's sshkey (a private key)", async () => {
     const sshKey = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
-    const result = await open(`git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=${sshKey}`)
+    const result = await open(
+      `git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=${sshKey}`,
+    )
 
-    expect(result.remoteSource).toBe("git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=[REDACTED]")
+    expect(result.remoteSource).toBe(
+      "git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main&sshkey=[REDACTED]",
+    )
     expect(nodeFs.readFileSync(result.localPath, "utf8")).toBe("# VPC\n")
   }, 30_000)
 
@@ -622,8 +661,12 @@ describe("openRemoteRunbook (real git)", () => {
 
     const sshCommandOf = (subcommand: string) =>
       spawns.find((s) => s.args[0] === subcommand)?.env?.GIT_SSH_COMMAND
-    expect(sshCommandOf("ls-remote")).toBe("ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes")
-    expect(sshCommandOf("clone")).toBe("ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes")
+    expect(sshCommandOf("ls-remote")).toBe(
+      "ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes",
+    )
+    expect(sshCommandOf("clone")).toBe(
+      "ssh -i /keys/id_work -o BatchMode=yes -o StrictHostKeyChecking=yes",
+    )
   }, 30_000)
 
   it("http:// never looks up or sends a token", async () => {
@@ -654,27 +697,38 @@ describe("openRemoteRunbook (real git)", () => {
       "git@git.example.com: Permission denied (publickey).",
       "SSH authentication failed for git.example.com/org/repo: check that your SSH key is loaded",
     ],
-  ])("%s goes over ssh with no token, and its failure gets the SSH hint", async (source, sshStderr, hint) => {
-    setEnv("FAKE_SSH_STDERR", sshStderr)
-    const err = await openError(source)
+  ])(
+    "%s goes over ssh with no token, and its failure gets the SSH hint",
+    async (source, sshStderr, hint) => {
+      setEnv("FAKE_SSH_STDERR", sshStderr)
+      const err = await openError(source)
 
-    expect(err.message).toContain(hint)
-    expect(tokenLookups).toEqual([])
-    expect(sentToken("clone")).toBe(false)
-  }, 30_000)
+      expect(err.message).toContain(hint)
+      expect(tokenLookups).toEqual([])
+      expect(sentToken("clone")).toBe(false)
+    },
+    30_000,
+  )
 
   it.each([
     [
       "git@git.example.com:org/repo.git//runbooks/vpc",
       "ssh: Could not resolve hostname git.example.com: nodename nor servname provided, or not known",
     ],
-    ["ssh://git@git.example.com/org/repo.git//runbooks/vpc", "ssh: connect to host git.example.com port 22: Connection refused"],
-  ])("%s: an ssh network failure says the host is unreachable, not to check the SSH key", async (source, sshStderr) => {
-    setEnv("FAKE_SSH_STDERR", sshStderr)
-    const err = await openError(source)
+    [
+      "ssh://git@git.example.com/org/repo.git//runbooks/vpc",
+      "ssh: connect to host git.example.com port 22: Connection refused",
+    ],
+  ])(
+    "%s: an ssh network failure says the host is unreachable, not to check the SSH key",
+    async (source, sshStderr) => {
+      setEnv("FAKE_SSH_STDERR", sshStderr)
+      const err = await openError(source)
 
-    expect(err.message).toBe("Could not reach git.example.com. Check your internet connection.")
-  }, 30_000)
+      expect(err.message).toBe("Could not reach git.example.com. Check your internet connection.")
+    },
+    30_000,
+  )
 
   it("a failed ref lookup gets the classified hint and never clones on a guessed ref", async () => {
     // The fixture has no such repo, so the ls-remote that splits the browser
@@ -690,7 +744,9 @@ describe("openRemoteRunbook (real git)", () => {
   }, 30_000)
 
   it("a path that isn't in the repo is reported as not found at its ref", async () => {
-    const err = await openError("git::https://git.example.com/org/repo.git//runbooks/missing?ref=main")
+    const err = await openError(
+      "git::https://git.example.com/org/repo.git//runbooks/missing?ref=main",
+    )
     expect(err.message).toBe('"runbooks/missing" was not found in git.example.com/org/repo at main')
   }, 30_000)
 
@@ -705,7 +761,9 @@ describe("openRemoteRunbook (real git)", () => {
 
   it("a symlink in the repo can't open a runbook outside the clone", async () => {
     const err = await openError("git::https://git.example.com/org/repo.git//runbooks/escape")
-    expect(err.message).toBe('"runbooks/escape" in git.example.com/org/repo points outside the repository')
+    expect(err.message).toBe(
+      '"runbooks/escape" in git.example.com/org/repo points outside the repository',
+    )
   }, 30_000)
 })
 
@@ -715,7 +773,9 @@ describe("valueOrUserError / resolveRemoteRunbook", () => {
   })
 
   it("rejects a typed failure with its bare message, not a FiberFailure", () => {
-    const exit = Exit.fail(new RemoteSourceError({ url: "x", message: '"a" was not found in h/o/r' }))
+    const exit = Exit.fail(
+      new RemoteSourceError({ url: "x", message: '"a" was not found in h/o/r' }),
+    )
     expect(() => valueOrUserError(exit)).toThrow(new Error('"a" was not found in h/o/r'))
   })
 

@@ -12,7 +12,7 @@ const RUNBOOK = "/work/my-runbook/runbook.mdx"
  * flush its pending event without waiting on the clock.
  */
 function replayingFs(events: FileChangeEvent[]) {
-  const watched: Array<{ paths: string[]; options?: WatchOptions }> = []
+  const watched: Array<{ paths: string[]; options?: WatchOptions | undefined }> = []
   const layer = Layer.effect(
     FileSystem,
     Effect.map(FileSystem, (fs) => ({

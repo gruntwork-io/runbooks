@@ -117,16 +117,16 @@ describe("parseComponents", () => {
     const mdx = '<Command id="cmd1" command="echo hi" />'
     const result = parseComponents(mdx, "Command")
     expect(result).toHaveLength(1)
-    expect(result[0].id).toBe("cmd1")
-    expect(result[0].hasExplicitId).toBe(true)
+    expect(result[0]!.id).toBe("cmd1")
+    expect(result[0]!.hasExplicitId).toBe(true)
   })
 
   it("generates ID when none is provided", () => {
     const mdx = '<Command command="echo hi" />'
     const result = parseComponents(mdx, "Command")
     expect(result).toHaveLength(1)
-    expect(result[0].id).toMatch(/^Command_/)
-    expect(result[0].hasExplicitId).toBe(false)
+    expect(result[0]!.id).toMatch(/^Command_/)
+    expect(result[0]!.hasExplicitId).toBe(false)
   })
 
   it("skips components inside fenced code blocks", () => {
@@ -139,7 +139,7 @@ Some text
 `
     const result = parseComponents(mdx, "Command")
     expect(result).toHaveLength(1)
-    expect(result[0].id).toBe("real")
+    expect(result[0]!.id).toBe("real")
   })
 
   it("deduplicates by ID", () => {
@@ -155,7 +155,7 @@ Some text
     const mdx = '<Check id="chk1">echo ok</Check>'
     const result = parseComponents(mdx, "Check")
     expect(result).toHaveLength(1)
-    expect(result[0].content).toContain("echo ok")
+    expect(result[0]!.content).toContain("echo ok")
   })
 
   it("uses the id prop, not an id-like flag inside the command", () => {
@@ -163,8 +163,8 @@ Some text
       '<Command title="Assume role" command={`aws sts assume-role --role-session-name="runbooks" --external-id="{{ .inputs.ExternalId }}"`} id="assume-role" />'
     const result = parseComponents(mdx, "Command")
     expect(result).toHaveLength(1)
-    expect(result[0].id).toBe("assume-role")
-    expect(result[0].hasExplicitId).toBe(true)
+    expect(result[0]!.id).toBe("assume-role")
+    expect(result[0]!.hasExplicitId).toBe(true)
   })
 
   it("returns the real block when a nested example reuses its id", () => {
@@ -179,8 +179,8 @@ Some text
     ].join("\n")
     const result = parseComponents(mdx, "Command")
     expect(result).toHaveLength(1)
-    expect(result[0].id).toBe("deploy")
-    expect(result[0].props).toContain("tofu apply")
+    expect(result[0]!.id).toBe("deploy")
+    expect(result[0]!.props).toContain("tofu apply")
   })
 
   it("records each component's offset in the source", () => {
@@ -205,9 +205,9 @@ describe("ExecutableRegistry", () => {
     const all = registry.getAllExecutables()
     const entries = Object.values(all)
     expect(entries).toHaveLength(1)
-    expect(entries[0].componentId).toBe("cmd1")
-    expect(entries[0].componentType).toBe("command")
-    expect(entries[0].type).toBe("inline")
+    expect(entries[0]!.componentId).toBe("cmd1")
+    expect(entries[0]!.componentType).toBe("command")
+    expect(entries[0]!.type).toBe("inline")
   })
 
   it("registers file-based command with path prop", async () => {
@@ -223,8 +223,8 @@ describe("ExecutableRegistry", () => {
 
     const entries = Object.values(registry.getAllExecutables())
     expect(entries).toHaveLength(1)
-    expect(entries[0].type).toBe("file")
-    expect(entries[0].path).toBe("scripts/test.sh")
+    expect(entries[0]!.type).toBe("file")
+    expect(entries[0]!.path).toBe("scripts/test.sh")
   })
 
   it("produces warning for missing script file", async () => {
@@ -248,7 +248,7 @@ describe("ExecutableRegistry", () => {
     )
 
     const entries = Object.values(registry.getAllExecutables())
-    const entry = await Effect.runPromise(registry.getExecutable(entries[0].id))
+    const entry = await Effect.runPromise(registry.getExecutable(entries[0]!.id))
     expect(entry.componentId).toBe("cmd1")
   })
 
@@ -287,7 +287,7 @@ describe("ExecutableRegistry", () => {
     )
 
     const entries = Object.keys(registry.getAllExecutables())
-    const entry = await Effect.runPromise(registry.getExecutable(entries[0]))
+    const entry = await Effect.runPromise(registry.getExecutable(entries[0]!))
     expect(entry.content).toContain("& hello")
   })
 
@@ -316,7 +316,7 @@ describe("ExecutableRegistry", () => {
     )
 
     const entries = Object.keys(registry.getAllExecutables())
-    const entry = await Effect.runPromise(registry.getExecutable(entries[0]))
+    const entry = await Effect.runPromise(registry.getExecutable(entries[0]!))
     expect(entry.templateVars).toContain("Name")
     expect(entry.templateVars).toContain("Region")
   })

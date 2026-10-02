@@ -9,6 +9,7 @@ import { Effect } from "effect"
 import { Environment } from "../../services/Environment.js"
 import { SessionError, SessionNotFoundError } from "../../errors/index.js"
 import type { SessionMetadata, SessionExecSnapshot } from "../../types.js"
+import { LOG_CHANNELS } from "../exec/logChannels.js"
 
 // ---------------------------------------------------------------------------
 // Excluded env vars — shell internals that should never be captured
@@ -20,6 +21,8 @@ const EXCLUDED_ENV_VARS = new Set<string>([
   "RUNBOOK_OUTPUT",
   "GENERATED_FILES",
   "REPO_FILES",
+  // RUNBOOK_LOG, RUNBOOK_INFO_LOG etc.: per-run files, removed when the run ends
+  ...LOG_CHANNELS.map((channel) => channel.envVar),
   "OLDPWD",
   "FUNCNAME",
   "LINENO",
@@ -88,9 +91,7 @@ function mapToRecord(m: Map<string, string>): Record<string, string> {
  * Filter out shell-internal variables from a captured environment.
  * Mirrors `FilterCapturedEnv` in Go.
  */
-export function filterCapturedEnv(
-  env: Record<string, string>,
-): Record<string, string> {
+export function filterCapturedEnv(env: Record<string, string>): Record<string, string> {
   const filtered: Record<string, string> = {}
   for (const [k, v] of Object.entries(env)) {
     if (EXCLUDED_ENV_VARS.has(k)) continue
@@ -109,9 +110,7 @@ export function diffEnv(
   after: Record<string, string>,
 ): { set: Record<string, string>; unset: string[] } {
   const set = Object.fromEntries(
-    Object.entries(after).filter(
-      ([k, v]) => !Object.hasOwn(before, k) || before[k] !== v,
-    ),
+    Object.entries(after).filter(([k, v]) => !Object.hasOwn(before, k) || before[k] !== v),
   )
   const unset = Object.keys(before).filter((k) => !Object.hasOwn(after, k))
   return { set, unset }
@@ -437,10 +436,7 @@ export class SessionManager {
    * Returns empty string if no worktrees are registered.
    */
   getActiveWorkTreePath(): string {
-    if (
-      this.session === null ||
-      this.session.registeredWorkTreePaths.length === 0
-    ) {
+    if (this.session === null || this.session.registeredWorkTreePaths.length === 0) {
       return ""
     }
 

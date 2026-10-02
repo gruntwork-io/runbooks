@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
+import { useMemo } from "react"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 
 /**
  * Shared-variable bookkeeping for a Template that imports values via `inputsId`.
@@ -25,20 +25,20 @@ export function useSharedTemplateVars(
   // Compute "shared" variables - those that exist in BOTH imported sources AND this template's boilerplate.yml
   // These variables are read-only in the form and stay live-synced to imported values
   const sharedVarNames = useMemo(() => {
-    if (!boilerplateConfig) return new Set<string>();
+    if (!boilerplateConfig) return new Set<string>()
 
-    const localVarNames = new Set(boilerplateConfig.variables.map(v => v.name));
-    const importedVarNames = new Set(Object.keys(inputValues));
+    const localVarNames = new Set(boilerplateConfig.variables.map((v) => v.name))
+    const importedVarNames = new Set(Object.keys(inputValues))
 
     // Intersection: variables that exist in both
-    const shared = new Set<string>();
+    const shared = new Set<string>()
     for (const name of localVarNames) {
       if (importedVarNames.has(name)) {
-        shared.add(name);
+        shared.add(name)
       }
     }
-    return shared;
-  }, [boilerplateConfig, inputValues]);
+    return shared
+  }, [boilerplateConfig, inputValues])
 
   // Compute initial data for the form
   // - Local-only vars: use template defaults (stable, set once)
@@ -47,20 +47,20 @@ export function useSharedTemplateVars(
   // IMPORTANT: This must NOT depend on any state that changes when the user types,
   // otherwise useFormState will reset the form and cause an infinite loop.
   const initialData = useMemo(() => {
-    if (!boilerplateConfig) return {};
+    if (!boilerplateConfig) return {}
 
-    const data: Record<string, unknown> = {};
+    const data: Record<string, unknown> = {}
     for (const variable of boilerplateConfig.variables) {
       if (sharedVarNames.has(variable.name)) {
         // Shared: use imported value (live-synced)
-        data[variable.name] = inputValues[variable.name];
+        data[variable.name] = inputValues[variable.name]
       } else {
         // Local-only: use template default (stable)
-        data[variable.name] = variable.default;
+        data[variable.name] = variable.default
       }
     }
-    return data;
-  }, [boilerplateConfig, sharedVarNames, inputValues]);
+    return data
+  }, [boilerplateConfig, sharedVarNames, inputValues])
 
   // Compute live values for shared variables (for real-time sync to form)
   const liveVarValues = useMemo(() => {
@@ -71,7 +71,7 @@ export function useSharedTemplateVars(
       }
     }
     return values
-  }, [sharedVarNames, inputValues]);
+  }, [sharedVarNames, inputValues])
 
   return { sharedVarNames, liveVarValues, initialData }
 }

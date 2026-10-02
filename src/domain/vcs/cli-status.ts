@@ -12,7 +12,7 @@ import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 
 export interface CliStatus {
   readonly installed: boolean
-  readonly version?: string
+  readonly version?: string | undefined
   /** Whether the installed version meets the probe floor. */
   readonly meetsFloor: boolean
 }

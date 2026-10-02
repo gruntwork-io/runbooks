@@ -21,7 +21,5 @@ export const AWS_PROTECTED_ENV_VARS = [
  * example doesn't count), and none otherwise.
  */
 export function protectedEnvVarsForRunbook(content: string): string[] {
-  return parseComponents(content, "AwsAuth").length > 0
-    ? [...AWS_PROTECTED_ENV_VARS]
-    : []
+  return parseComponents(content, "AwsAuth").length > 0 ? [...AWS_PROTECTED_ENV_VARS] : []
 }

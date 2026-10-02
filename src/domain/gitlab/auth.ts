@@ -11,7 +11,6 @@
 import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
-import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -20,6 +19,7 @@ import { buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
 import { normalizeGitLabBaseUrl, tryNormalizeGitLabHost } from "../git/gitlab-host.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
+import { errorMessage } from "../../errors/message.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,22 +97,6 @@ const glabSemaphoreFor = (host: string): Effect.Semaphore => {
   }
   return semaphore
 }
-
-// ---------------------------------------------------------------------------
-// Token Validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate a GitLab token by calling the GitLab API (GET /user).
- *
- * `baseUrl` is the instance origin (e.g. `https://gitlab.example.com`) so a
- * self-hosted token validates against its own instance; defaults to gitlab.com.
- */
-export const validateToken = (token: string, baseUrl?: string) =>
-  Effect.gen(function* () {
-    const glClient = yield* GitLabClient
-    return yield* glClient.validateToken(token, baseUrl)
-  })
 
 // ---------------------------------------------------------------------------
 // Token Type Detection
@@ -229,7 +213,7 @@ export const isSpawnEnoent = (err: unknown): boolean => {
   const cause = (err as { cause?: unknown })?.cause
   const code = (cause as { code?: unknown })?.code
   if (code === "ENOENT") return true
-  return `${cause ?? err}`.includes("ENOENT")
+  return errorMessage(cause ?? err).includes("ENOENT")
 }
 
 /**
@@ -558,13 +542,13 @@ export interface GlabHostMeta {
   /** True when this host's stored credential is a glab OAuth2 login (2h expiry). */
   readonly isOAuth2: boolean
   /** Parsed oauth2_expiry_date, when present and parseable. */
-  readonly oauth2ExpiryDate?: Date
+  readonly oauth2ExpiryDate?: Date | undefined
   /** Per-host ca_cert PEM path (harvested into installSystemTrust). */
-  readonly caCert?: string
+  readonly caCert?: string | undefined
   /** True when the host stores its token in the OS keyring (use_keyring). */
   readonly useKeyring: boolean
   /** The host's `api_protocol`, lowercased, when set (glab defaults to https). */
-  readonly apiProtocol?: string
+  readonly apiProtocol?: string | undefined
 }
 
 const asBool = (value: unknown): boolean =>
@@ -585,9 +569,7 @@ export function parseGlabExpiry(value: unknown): Date | undefined {
   const goMatch = raw.match(
     /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?\s*([+-]\d{2}):?(\d{2})?(?:\s+\S+)?$/,
   )
-  const candidate = goMatch
-    ? `${goMatch[1]}T${goMatch[2]}${goMatch[3]}:${goMatch[4] ?? "00"}`
-    : raw
+  const candidate = goMatch ? `${goMatch[1]}T${goMatch[2]}${goMatch[3]}:${goMatch[4] ?? "00"}` : raw
   const parsed = new Date(candidate)
   return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
@@ -665,9 +647,7 @@ const scanGlabConfigs = <T>(pick: (content: string) => T | undefined) =>
     })
 
     for (const path of candidates) {
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
+      const content = yield* fs.readFile(path).pipe(Effect.orElseSucceed(() => ""))
       const picked = pick(content)
       if (picked) return picked
     }
@@ -699,11 +679,7 @@ export const detectConfigHosts = () =>
   scanGlabConfigs((content) => {
     const info = enumerateGlabHosts(content)
     return info.hosts.length > 0 ? info : undefined
-  }).pipe(
-    Effect.map(
-      (info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST },
-    ),
-  )
+  }).pipe(Effect.map((info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST }))
 
 /**
  * Read a host's glab metadata (is_oauth2 / oauth2_expiry_date / ca_cert /

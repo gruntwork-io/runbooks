@@ -45,6 +45,16 @@ To read namespaced variables instead (for example `CI_GITHUB_TOKEN` or `CI_GITLA
 
 `detectCredentials` can also list `{ block: 'block-id' }` to take the token another block wrote to its outputs (`GITHUB_TOKEN`/`GH_TOKEN` or `GITLAB_TOKEN`), or the credential another `<GitAuth>` block authenticated. If that block has not run yet, the block shows *Waiting for "block-id" to run…* and pauses detection there rather than skipping to a later source — the order you write the sources is the priority order. If the block ran without leaving a usable token, detection moves on to the next source.
 
+### Disabling detection
+
+Set `detectCredentials={false}` to have the user always sign in on the block itself:
+
+```mdx
+<GitAuth id="git-auth" detectCredentials={false} />
+```
+
+The block then never uses a token from an environment variable or from the `gh` or `glab` CLI, even when the user is already logged in with one, and it never suggests logging in with the CLI. It shows *This runbook doesn't use existing credentials — sign in below.* instead, with no **Check again** button and no *How can I authenticate … automatically?* help. The host picker still lists the hosts Runbooks knows about, so the user can choose where to sign in, but it has no **Reload** button and doesn't mark which hosts have credentials.
+
 ### Providers
 
 | Provider | Methods | CLI | Token env var | OAuth |
@@ -77,7 +87,7 @@ Both providers support more than their public SaaS host. Set `host` to pin the b
 
 For GitHub, the picker's initial host is the host the user last picked (if a credential for it is still available), then `GH_HOST`, then `github.com`. Environment tokens are bound to a single host: `GITHUB_TOKEN` / `GH_TOKEN` go to `GH_HOST` when it is `github.com` or a `*.ghe.com` tenant (otherwise `github.com`), and `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN` go only to the Enterprise Server host `GH_HOST` names. Tokens never cross hosts.
 
-The Gruntwork OAuth app only exists on `github.com`. On an enterprise host, **Sign in with GitHub** needs `oauthClientId` set to the client ID of an OAuth app registered on that instance with device flow enabled; without one, the block offers a personal access token and the GitHub CLI instead, and explains why.
+The Gruntwork OAuth app only exists on `github.com`. On an enterprise host, **Sign in with GitHub** needs `oauthClientId` set to the client ID of an OAuth app registered on that instance with device flow enabled; without one, the block offers a personal access token and the GitHub CLI instead (only the token when `detectCredentials={false}`), and explains why.
 
 See [`<GitHubAuth>` → GitHub Enterprise Support](/authoring/blocks/githubauth/#github-enterprise-support) for the full host, environment variable, API URL, and OAuth details.
 
@@ -106,7 +116,7 @@ The `GITLAB_TOKEN` environment variable is used for one instance only: the host 
 | `oauthClientId` | `string \| Record<string, string>` | No | Gruntwork's app (`github.com` only) | Custom GitHub OAuth App client ID. A string applies to `host` when set, otherwise to `github.com`; a map is keyed by host. Required for OAuth on GitHub Enterprise hosts. GitHub only. |
 | `oauthScopes` | `string[]` | No | `['repo']` (GitHub) | OAuth scopes to request. |
 | `instanceUrl` | `string` | No | — | GitLab only. The starting value of the editable *GitLab Instance URL* field, such as `https://gitlab.example.com`. Credentials are detected and tokens validated against this instance. Takes precedence over `host`. |
-| `detectCredentials` | `false \| GitCredentialSource[]` | No | `['env', 'cli']` | Credential auto-detection sources, applied to the selected provider. Set to `false` to disable. |
+| `detectCredentials` | `false \| GitCredentialSource[]` | No | `['env', 'cli']` | Credential auto-detection sources, applied to the selected provider. Set to `false` to disable; see [Disabling detection](#disabling-detection). |
 | `defaultTab` | `'oauth' \| 'pat'` | No | `'oauth'` (GitHub), `'pat'` (GitLab) | Which authentication tab the block opens on. GitLab has no OAuth flow, so `'oauth'` falls back to `'pat'` there. Re-applied when the user switches providers. |
 | `inputsId` | `string \| string[]` | No | — | Reference one or more `<Inputs>` blocks for template expressions in props. |
 

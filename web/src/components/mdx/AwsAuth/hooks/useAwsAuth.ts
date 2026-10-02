@@ -3,6 +3,8 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
+import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
 import type {
   AuthMethod,
   AuthStatus,
@@ -19,15 +21,25 @@ import { resolveDefaultAuthMethod } from "../utils"
 
 interface UseAwsAuthOptions {
   id: string
-  ssoStartUrl?: string
+  ssoStartUrl?: string | undefined
   ssoRegion: string
-  ssoAccountId?: string
-  ssoRoleName?: string
+  ssoAccountId?: string | undefined
+  ssoRoleName?: string | undefined
   defaultRegion: string
-  detectCredentials?: false | AwsCredentialSource[]
+  detectCredentials?: false | AwsCredentialSource[] | undefined
   /** Tab to open on; validated by resolveDefaultAuthMethod. */
-  defaultTab?: string
+  defaultTab?: string | undefined
 }
+
+/**
+ * Where a walk of the detection sources ended. The walk only computes this;
+ * applyDetectionOutcome writes it to state.
+ */
+type DetectionOutcome =
+  | { kind: "detected"; credentials: DetectedAwsCredentials; warning?: string | undefined }
+  /** Paused on a block source that has not run; `remaining` follow it. */
+  | { kind: "waiting"; blockId: string; remaining: AwsCredentialSource[] }
+  | { kind: "done"; warnings: string[]; isRetry: boolean }
 
 export function useAwsAuth({
   id,
@@ -36,7 +48,7 @@ export function useAwsAuth({
   ssoAccountId,
   ssoRoleName,
   defaultRegion,
-  detectCredentials = ['env'],  // Default: auto-detect from env vars
+  detectCredentials = ["env"], // Default: auto-detect from env vars
   defaultTab,
 }: UseAwsAuthOptions) {
   const api = useApi()
@@ -47,17 +59,21 @@ export function useAwsAuth({
   // The starting tab is the author's `defaultTab` (validated), not a constant.
   // Only the initial value is taken from the prop — the user's tab clicks own
   // it from then on.
-  const [authMethod, setAuthMethod] = useState<AuthMethod>(() => resolveDefaultAuthMethod(defaultTab))
-  const [authStatus, setAuthStatus] = useState<AuthStatus>('pending')
+  const [authMethod, setAuthMethod] = useState<AuthMethod>(() =>
+    resolveDefaultAuthMethod(defaultTab),
+  )
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("pending")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
-  
+
   // Detection state (new pattern matching GitHubAuth)
   const [detectionStatus, setDetectionStatus] = useState<AwsDetectionStatus>(
-    detectCredentials === false ? 'done' : 'pending'
+    detectCredentials === false ? "done" : "pending",
   )
-  const [detectedCredentials, setDetectedCredentials] = useState<DetectedAwsCredentials | null>(null)
+  const [detectedCredentials, setDetectedCredentials] = useState<DetectedAwsCredentials | null>(
+    null,
+  )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const detectionAttemptedRef = useRef(false)
   // Counter to trigger detection re-run when user clicks "Try auto-detection again"
@@ -71,7 +87,7 @@ export function useAwsAuth({
     const timer = setTimeout(() => setRetryFoundNothing(false), 3000)
     return () => clearTimeout(timer)
   }, [retryFoundNothing])
-  
+
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
   // Remaining credential sources to try if a higher-priority block source fails.
@@ -80,9 +96,9 @@ export function useAwsAuth({
   const remainingSourcesRef = useRef<AwsCredentialSource[]>([])
 
   // Credentials form state
-  const [accessKeyId, setAccessKeyId] = useState('')
-  const [secretAccessKey, setSecretAccessKey] = useState('')
-  const [sessionToken, setSessionToken] = useState('')
+  const [accessKeyId, setAccessKeyId] = useState("")
+  const [secretAccessKey, setSecretAccessKey] = useState("")
+  const [sessionToken, setSessionToken] = useState("")
   const [selectedDefaultRegion, setSelectedDefaultRegion] = useState(defaultRegion)
   const [showSecretKey, setShowSecretKey] = useState(false)
   const [showSessionToken, setShowSessionToken] = useState(false)
@@ -91,17 +107,17 @@ export function useAwsAuth({
   const [profiles, setProfiles] = useState<ProfileInfo[]>([])
   const [selectedProfile, setSelectedProfile] = useState<ProfileInfo | null>(null)
   const [loadingProfiles, setLoadingProfiles] = useState(false)
-  const [profileSearch, setProfileSearch] = useState('')
+  const [profileSearch, setProfileSearch] = useState("")
 
   // SSO account/role selection state
   const [ssoAccessToken, setSsoAccessToken] = useState<string | null>(null)
   const [ssoAccounts, setSsoAccounts] = useState<SSOAccount[]>([])
   const [ssoRoles, setSsoRoles] = useState<SSORole[]>([])
   const [selectedSsoAccount, setSelectedSsoAccount] = useState<SSOAccount | null>(null)
-  const [selectedSsoRole, setSelectedSsoRole] = useState<string>('')
+  const [selectedSsoRole, setSelectedSsoRole] = useState<string>("")
   const [loadingRoles, setLoadingRoles] = useState(false)
-  const [ssoAccountSearch, setSsoAccountSearch] = useState('')
-  const [ssoRoleSearch, setSsoRoleSearch] = useState('')
+  const [ssoAccountSearch, setSsoAccountSearch] = useState("")
+  const [ssoRoleSearch, setSsoRoleSearch] = useState("")
 
   // Each sign-in attempt (SSO, profile, static keys, confirming detected
   // credentials) runs under its own flow number and acts on an IPC reply only
@@ -128,258 +144,317 @@ export function useAwsAuth({
   }, [stopSsoPolling])
 
   // Helper to check for credentials from block outputs
-  const getBlockCredentials = useCallback((blockId: string): { found: boolean; creds?: AwsCredentials; error?: string } => {
-    const normalizedId = normalizeBlockId(blockId)
-    const outputs = blockOutputs[normalizedId]?.values
-    
-    if (!outputs) {
-      return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
-    }
-    
-    const accessKeyId = outputs.AWS_ACCESS_KEY_ID
-    const secretAccessKey = outputs.AWS_SECRET_ACCESS_KEY
-    
-    if (!accessKeyId || !secretAccessKey) {
-      return { found: false, error: `Block "${blockId}" did not output AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY` }
-    }
-    
-    return {
-      found: true,
-      creds: {
-        accessKeyId,
-        secretAccessKey,
-        sessionToken: outputs.AWS_SESSION_TOKEN,
-        region: outputs.AWS_REGION || defaultRegion,
+  const getBlockCredentials = useCallback(
+    (blockId: string): { found: boolean; creds?: AwsCredentials; error?: string } => {
+      const normalizedId = normalizeBlockId(blockId)
+      const values = blockOutputs[normalizedId]?.values
+
+      if (!values) {
+        return {
+          found: false,
+          error: `Block "${blockId}" has not been executed yet or has no outputs`,
+        }
       }
-    }
-  }, [blockOutputs, defaultRegion])
+
+      // The script may have marked the credentials sensitive; AwsAuth needs their real values
+      const outputs: Partial<Record<string, string>> = revealOutputs(values)
+      const blockAccessKeyId = outputs.AWS_ACCESS_KEY_ID
+      const blockSecretAccessKey = outputs.AWS_SECRET_ACCESS_KEY
+
+      if (!blockAccessKeyId || !blockSecretAccessKey) {
+        return {
+          found: false,
+          error: `Block "${blockId}" did not output AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY`,
+        }
+      }
+
+      return {
+        found: true,
+        creds: omitUndefined({
+          accessKeyId: blockAccessKeyId,
+          secretAccessKey: blockSecretAccessKey,
+          sessionToken: outputs.AWS_SESSION_TOKEN,
+          region: outputs.AWS_REGION || defaultRegion,
+        }),
+      }
+    },
+    [blockOutputs, defaultRegion],
+  )
 
   // Check if a region is enabled for the AWS account
-  const checkRegionStatus = useCallback(async (creds: AwsCredentials) => {
-    try {
-      const data = await api.invoke('aws:check-region', {
-        accessKeyId: creds.accessKeyId,
-        secretAccessKey: creds.secretAccessKey,
-        sessionToken: creds.sessionToken,
-        region: creds.region,
-      })
-      if (data.warning) {
-        setWarningMessage(data.warning)
+  const checkRegionStatus = useCallback(
+    async (creds: AwsCredentials) => {
+      try {
+        const data = await api.invoke(
+          "aws:check-region",
+          omitUndefined({
+            accessKeyId: creds.accessKeyId,
+            secretAccessKey: creds.secretAccessKey,
+            sessionToken: creds.sessionToken,
+            region: creds.region,
+          }),
+        )
+        if (data.warning) {
+          setWarningMessage(data.warning)
+        }
+      } catch (error) {
+        console.error("Failed to check region status:", error)
       }
-    } catch (error) {
-      console.error('Failed to check region status:', error)
-    }
-  }, [api])
+    },
+    [api],
+  )
 
   // Register credentials as outputs and set session environment
-  const registerCredentials = useCallback(async (creds: AwsCredentials) => {
-    const outputs: Record<string, string> = {
-      AWS_ACCESS_KEY_ID: creds.accessKeyId,
-      AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
-      AWS_REGION: creds.region,
-      AWS_SESSION_TOKEN: creds.sessionToken || '',
-    }
-    
-    registerOutputs(id, outputs)
-    
-    // Also set in session environment for blocks that don't specify awsAuthId
-    try {
-      await api.invoke('session:set-env', { env: outputs })
-    } catch (error) {
-      console.error('Failed to set session environment variables:', error)
-    }
+  const registerCredentials = useCallback(
+    async (creds: AwsCredentials) => {
+      const env = {
+        AWS_ACCESS_KEY_ID: creds.accessKeyId,
+        AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
+        AWS_REGION: creds.region,
+        AWS_SESSION_TOKEN: creds.sessionToken || "",
+      } satisfies Record<string, string>
 
-    await checkRegionStatus(creds)
-  }, [api, id, registerOutputs, checkRegionStatus])
+      // The secret key and session token are published as sensitive outputs,
+      // whatever the credentials came from (including a block that marked them
+      // `sensitive:`), so a template that shows them shows <redacted>. Their
+      // readers (awsAuthId, a { block } source) reveal the real values.
+      registerOutputs(id, {
+        ...env,
+        AWS_SECRET_ACCESS_KEY: sensitiveOutput(env.AWS_SECRET_ACCESS_KEY),
+        AWS_SESSION_TOKEN: sensitiveOutput(env.AWS_SESSION_TOKEN),
+      })
+
+      // Also set in session environment for blocks that don't specify awsAuthId
+      try {
+        await api.invoke("session:set-env", { env })
+      } catch (error) {
+        console.error("Failed to set session environment variables:", error)
+      }
+
+      await checkRegionStatus(creds)
+    },
+    [api, id, registerOutputs, checkRegionStatus],
+  )
 
   // Try to detect credentials from environment variables
   // Returns metadata only - does NOT register credentials (user must confirm first)
-  const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{
-    success: boolean
-    accountId?: string
-    accountName?: string
-    arn?: string
-    region?: string
-    hasSessionToken?: boolean
-    warning?: string
-    error?: string
-    foundButInvalid?: boolean
-  }> => {
-    try {
-      // Read-only detection - credentials are NOT registered to session until
-      // user confirms via handleConfirmDetected
-      const data = await api.invoke('aws:env-credentials', {
-        prefix: options?.prefix || '',
-        defaultRegion: defaultRegion || '',
-      })
+  const tryEnvCredentials = useCallback(
+    async (options?: {
+      prefix?: string | undefined
+    }): Promise<{
+      success: boolean
+      accountId?: string | undefined
+      accountName?: string | undefined
+      arn?: string | undefined
+      region?: string | undefined
+      hasSessionToken?: boolean | undefined
+      warning?: string | undefined
+      error?: string | undefined
+      foundButInvalid?: boolean
+    }> => {
+      try {
+        // Read-only detection - credentials are NOT registered to session until
+        // user confirms via handleConfirmDetected
+        const data = await api.invoke("aws:env-credentials", {
+          prefix: options?.prefix || "",
+          defaultRegion: defaultRegion || "",
+        })
 
-      if (!data.found) {
-        return { success: false, error: data.error }
-      }
+        if (!data.found) {
+          return { success: false, error: data.error }
+        }
 
-      if (!data.valid) {
-        return { success: false, error: data.error, foundButInvalid: true }
-      }
+        if (!data.valid) {
+          return { success: false, error: data.error, foundButInvalid: true }
+        }
 
-      return {
-        success: true,
-        accountId: data.accountId,
-        accountName: data.accountName,
-        arn: data.arn,
-        region: data.region,
-        hasSessionToken: data.hasSessionToken,
-        warning: data.warning,
+        return {
+          success: true,
+          accountId: data.accountId,
+          accountName: data.accountName,
+          arn: data.arn,
+          region: data.region,
+          hasSessionToken: data.hasSessionToken,
+          warning: data.warning,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to check env credentials",
+        }
       }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
-    }
-  }, [api, defaultRegion])
+    },
+    [api, defaultRegion],
+  )
 
   // Try to detect credentials from block outputs. On success, `creds` are the
   // exact credentials that were validated, so confirm can register those.
-  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{
-    success: boolean
-    creds?: AwsCredentials
-    accountId?: string
-    accountName?: string
-    arn?: string
-    region?: string
-    hasSessionToken?: boolean
-    error?: string
-  }> => {
-    const result = getBlockCredentials(blockId)
+  const tryBlockCredentials = useCallback(
+    async (
+      blockId: string,
+    ): Promise<{
+      success: boolean
+      creds?: AwsCredentials
+      accountId?: string | undefined
+      accountName?: string | undefined
+      arn?: string | undefined
+      region?: string
+      hasSessionToken?: boolean
+      error?: string | undefined
+    }> => {
+      const result = getBlockCredentials(blockId)
 
-    if (!result.found || !result.creds) {
-      return { success: false, error: result.error || 'Could not read credentials from block' }
-    }
-    const creds = result.creds
-
-    // Validate the credentials via backend (but don't register them yet)
-    try {
-      const data = await api.invoke('aws:validate', creds)
-
-      if (!data.valid) {
-        return { success: false, error: data.error || 'Block credentials are invalid' }
+      if (!result.found || !result.creds) {
+        return { success: false, error: result.error || "Could not read credentials from block" }
       }
+      const creds = result.creds
 
-      return {
-        success: true,
-        creds,
-        accountId: data.accountId,
-        accountName: data.accountName,
-        arn: data.arn,
-        region: creds.region,
-        hasSessionToken: !!creds.sessionToken,
+      // Validate the credentials via backend (but don't register them yet)
+      try {
+        const data = await api.invoke("aws:validate", creds)
+
+        if (!data.valid) {
+          return { success: false, error: data.error || "Block credentials are invalid" }
+        }
+
+        return {
+          success: true,
+          creds,
+          accountId: data.accountId,
+          accountName: data.accountName,
+          arn: data.arn,
+          region: creds.region,
+          hasSessionToken: !!creds.sessionToken,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to validate credentials",
+        }
       }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to validate credentials' }
-    }
-  }, [api, getBlockCredentials])
+    },
+    [api, getBlockCredentials],
+  )
 
   // Try credential sources in priority order. Stops at the first success or
   // at an unexecuted block source (waiting for it before trying lower-priority
-  // sources). Extracted as a callback so both the initial detection effect and
-  // the block-watcher can reuse the same logic.
-  const trySourcesInOrder = useCallback(async (
-    sources: AwsCredentialSource[],
-    isRetry: boolean
-  ) => {
-    const warnings: string[] = []
+  // sources). Returns where the walk ended without touching state, so both the
+  // initial detection effect and the block watcher apply it the same way, and
+  // only after the walk has settled.
+  const trySourcesInOrder = useCallback(
+    async (sources: AwsCredentialSource[], isRetry: boolean): Promise<DetectionOutcome> => {
+      const warnings: string[] = []
 
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i]
+      for (let i = 0; i < sources.length; i++) {
+        const source = sources[i]
 
-      // Check for 'env' - standard env vars
-      if (source === 'env') {
-        const result = await tryEnvCredentials()
-        if (result.success) {
-          setDetectedCredentials({
-            accountId: result.accountId!,
-            accountName: result.accountName,
-            arn: result.arn!,
-            region: result.region || defaultRegion,
-            source: 'env',
-            hasSessionToken: result.hasSessionToken || false,
-          })
-          if (result.warning) {
-            setDetectionWarning(result.warning)
+        // Check for 'env' - standard env vars
+        if (source === "env") {
+          const result = await tryEnvCredentials()
+          if (result.success) {
+            return {
+              kind: "detected",
+              credentials: {
+                accountId: result.accountId!,
+                accountName: result.accountName,
+                arn: result.arn!,
+                region: result.region || defaultRegion,
+                source: "env",
+                hasSessionToken: result.hasSessionToken || false,
+              },
+              warning: result.warning,
+            }
           }
-          setDetectionStatus('detected')
-          return
-        }
-        if (result.foundButInvalid) {
-          warnings.push('AWS credentials in environment are invalid or expired')
-        }
-      }
-      // Check for { env: { prefix: 'PREFIX_' } } - prefixed env vars
-      else if (typeof source === 'object' && 'env' in source) {
-        const prefix = (source.env as { prefix?: string })?.prefix
-        const result = await tryEnvCredentials({ prefix })
-        if (result.success) {
-          setDetectedCredentials({
-            accountId: result.accountId!,
-            accountName: result.accountName,
-            arn: result.arn!,
-            region: result.region || defaultRegion,
-            source: 'env',
-            hasSessionToken: result.hasSessionToken || false,
-            envPrefix: prefix,
-          })
-          if (result.warning) {
-            setDetectionWarning(result.warning)
+          if (result.foundButInvalid) {
+            warnings.push("AWS credentials in environment are invalid or expired")
           }
-          setDetectionStatus('detected')
-          return
         }
-        if (result.foundButInvalid) {
-          warnings.push(`${prefix}AWS credentials are invalid or expired`)
+        // Check for { env: { prefix: 'PREFIX_' } } - prefixed env vars
+        else if (typeof source === "object" && "env" in source) {
+          const prefix = (source.env as { prefix?: string })?.prefix
+          const result = await tryEnvCredentials({ prefix })
+          if (result.success) {
+            return {
+              kind: "detected",
+              credentials: {
+                accountId: result.accountId!,
+                accountName: result.accountName,
+                arn: result.arn!,
+                region: result.region || defaultRegion,
+                source: "env",
+                hasSessionToken: result.hasSessionToken || false,
+                envPrefix: prefix,
+              },
+              warning: result.warning,
+            }
+          }
+          if (result.foundButInvalid) {
+            warnings.push(`${prefix}AWS credentials are invalid or expired`)
+          }
         }
+        // Check for { block: 'id' } - block outputs
+        else if (typeof source === "object" && "block" in source) {
+          const result = await tryBlockCredentials(source.block)
+          if (result.success) {
+            return {
+              kind: "detected",
+              credentials: {
+                accountId: result.accountId!,
+                accountName: result.accountName,
+                arn: result.arn!,
+                region: result.region || defaultRegion,
+                source: "block",
+                hasSessionToken: result.hasSessionToken || false,
+              },
+            }
+          }
+          // Check if block has actually executed (has any outputs at all, even
+          // if they don't contain AWS credentials)
+          const normalizedBlockId = normalizeBlockId(source.block)
+          const blockHasExecuted = blockOutputs[normalizedBlockId]?.values !== undefined
+          if (!blockHasExecuted) {
+            // Block hasn't executed yet - wait for it before trying lower-priority
+            // sources. This respects the author's intended priority ordering:
+            // if a block source is listed before env, the block takes precedence.
+            return { kind: "waiting", blockId: source.block, remaining: sources.slice(i + 1) }
+          }
+          // Block executed but credentials invalid/missing - continue to next source
+        }
+        // Note: 'default-profile' detection was intentionally not implemented.
+        // Profile-based auth is available via the Profile tab in manual authentication.
+        // Auto-detecting the default profile is complex due to AWS config precedence rules.
       }
-      // Check for { block: 'id' } - block outputs
-      else if (typeof source === 'object' && 'block' in source) {
-        const result = await tryBlockCredentials(source.block)
-        if (result.success) {
-          setDetectedCredentials({
-            accountId: result.accountId!,
-            accountName: result.accountName,
-            arn: result.arn!,
-            region: result.region || defaultRegion,
-            source: 'block',
-            hasSessionToken: result.hasSessionToken || false,
-          })
-          setDetectionStatus('detected')
-          return
-        }
-        // Check if block has actually executed (has any outputs at all, even
-        // if they don't contain AWS credentials)
-        const normalizedBlockId = normalizeBlockId(source.block)
-        const blockHasExecuted = blockOutputs[normalizedBlockId]?.values !== undefined
-        if (!blockHasExecuted) {
-          // Block hasn't executed yet - wait for it before trying lower-priority
-          // sources. This respects the author's intended priority ordering:
-          // if a block source is listed before env, the block takes precedence.
-          remainingSourcesRef.current = sources.slice(i + 1)
-          setWaitingForBlockId(source.block)
-          return
-        }
-        // Block executed but credentials invalid/missing - continue to next source
-      }
-      // Note: 'default-profile' detection was intentionally not implemented.
-      // Profile-based auth is available via the Profile tab in manual authentication.
-      // Auto-detecting the default profile is complex due to AWS config precedence rules.
-    }
 
-    // No source succeeded
-    if (warnings.length > 0) {
-      setDetectionWarning(warnings.join('; '))
-    }
+      return { kind: "done", warnings, isRetry }
+    },
+    [tryEnvCredentials, tryBlockCredentials, blockOutputs, defaultRegion],
+  )
 
-    // Nothing found - show feedback if this was a user-initiated retry
-    if (isRetry) {
-      setRetryFoundNothing(true)
+  const applyDetectionOutcome = useCallback((outcome: DetectionOutcome) => {
+    switch (outcome.kind) {
+      case "detected":
+        setDetectedCredentials(outcome.credentials)
+        if (outcome.warning) {
+          setDetectionWarning(outcome.warning)
+        }
+        setDetectionStatus("detected")
+        return
+      case "waiting":
+        remainingSourcesRef.current = outcome.remaining
+        setWaitingForBlockId(outcome.blockId)
+        return
+      case "done":
+        // No source succeeded
+        if (outcome.warnings.length > 0) {
+          setDetectionWarning(outcome.warnings.join("; "))
+        }
+        // Nothing found - show feedback if this was a user-initiated retry
+        if (outcome.isRetry) {
+          setRetryFoundNothing(true)
+        }
+        setDetectionStatus("done")
     }
-    setDetectionStatus('done')
-  }, [tryEnvCredentials, tryBlockCredentials, blockOutputs, defaultRegion])
+  }, [])
 
   // Run credential detection when session is ready
   useEffect(() => {
@@ -395,12 +470,12 @@ export function useAwsAuth({
 
     detectionAttemptedRef.current = true
 
-    trySourcesInOrder(detectCredentials, detectionAttempt > 0)
-  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt])
+    void trySourcesInOrder(detectCredentials, detectionAttempt > 0).then(applyDetectionOutcome)
+  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
 
   // Watch for block outputs when waiting for a block
   useEffect(() => {
-    if (!waitingForBlockId || detectionStatus === 'detected' || authStatus === 'authenticated') {
+    if (!waitingForBlockId || detectionStatus === "detected" || authStatus === "authenticated") {
       return
     }
 
@@ -413,36 +488,23 @@ export function useAwsAuth({
       return // Block hasn't executed yet, still waiting
     }
 
-    // Block has outputs now, try to validate credentials
-    const doDetection = async () => {
-      const authResult = await tryBlockCredentials(waitingForBlockId)
-      if (authResult.success) {
-        setDetectedCredentials({
-          accountId: authResult.accountId!,
-          accountName: authResult.accountName,
-          arn: authResult.arn!,
-          region: authResult.region || defaultRegion,
-          source: 'block',
-          hasSessionToken: authResult.hasSessionToken || false,
-        })
-        setDetectionStatus('detected')
-        setWaitingForBlockId(null)
-      } else {
-        // Block executed but credentials invalid/missing.
-        // Try remaining lower-priority sources before falling back to manual auth.
-        setWaitingForBlockId(null)
-        const remaining = remainingSourcesRef.current
-        remainingSourcesRef.current = []
-        if (remaining.length > 0) {
-          await trySourcesInOrder(remaining, false)
-        } else {
-          setDetectionStatus('done')
-        }
-      }
-    }
-
-    doDetection()
-  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, tryBlockCredentials, trySourcesInOrder, defaultRegion])
+    // Resume the walk at the block's source: its credentials win, and if they
+    // are invalid or missing, the lower-priority sources stashed at the pause
+    // are tried before falling back to manual auth.
+    const remaining = remainingSourcesRef.current
+    remainingSourcesRef.current = []
+    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining], false).then((outcome) => {
+      setWaitingForBlockId(null)
+      applyDetectionOutcome(outcome)
+    })
+  }, [
+    waitingForBlockId,
+    detectionStatus,
+    authStatus,
+    blockOutputs,
+    trySourcesInOrder,
+    applyDetectionOutcome,
+  ])
 
   // User confirms detected credentials - register them to session and authenticate
   const handleConfirmDetected = useCallback(async () => {
@@ -451,17 +513,17 @@ export function useAwsAuth({
     stopSsoPolling()
     const flow = authFlowRef.current
     const stale = () => authFlowRef.current !== flow
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
 
     // Env-detected credentials: MAIN re-detects and validates them and hands
     // the keys back without writing anything. They are published (block
     // outputs and session env, via registerCredentials) only once this attempt
     // is still current and the account is the one the prompt showed.
-    if (detectedCredentials.source === 'env') {
+    if (detectedCredentials.source === "env") {
       try {
-        const data = await api.invoke('aws:env-credentials-confirm', {
-          prefix: detectedCredentials.envPrefix || '',
-          defaultRegion: defaultRegion || '',
+        const data = await api.invoke("aws:env-credentials-confirm", {
+          prefix: detectedCredentials.envPrefix || "",
+          defaultRegion: defaultRegion || "",
           expectedAccountId: detectedCredentials.accountId,
         })
         if (stale()) return
@@ -474,27 +536,29 @@ export function useAwsAuth({
             accountName: data.accountName,
             arn: data.arn,
             region: data.region || defaultRegion,
-            source: 'env',
+            source: "env",
             envPrefix: detectedCredentials.envPrefix,
             hasSessionToken: data.hasSessionToken || false,
           })
-          setAuthStatus('pending')
+          setAuthStatus("pending")
           return
         }
 
         if (!data.valid || !data.accessKeyId || !data.secretAccessKey) {
-          setAuthStatus('failed')
-          setErrorMessage(data.error || 'Failed to register credentials')
+          setAuthStatus("failed")
+          setErrorMessage(data.error || "Failed to register credentials")
           return
         }
 
-        await registerCredentials({
-          accessKeyId: data.accessKeyId,
-          secretAccessKey: data.secretAccessKey,
-          sessionToken: data.sessionToken,
-          region: data.region || defaultRegion,
-        })
-        setAuthStatus('authenticated')
+        await registerCredentials(
+          omitUndefined({
+            accessKeyId: data.accessKeyId,
+            secretAccessKey: data.secretAccessKey,
+            sessionToken: data.sessionToken,
+            region: data.region || defaultRegion,
+          }),
+        )
+        setAuthStatus("authenticated")
         setAccountInfo({
           accountId: data.accountId,
           accountName: data.accountName,
@@ -503,25 +567,27 @@ export function useAwsAuth({
         if (detectionWarning) {
           setWarningMessage(detectionWarning)
         }
-        setDetectionStatus('done')
+        setDetectionStatus("done")
         return
       } catch (error) {
         if (stale()) return
-        setAuthStatus('failed')
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to register credentials')
+        setAuthStatus("failed")
+        setErrorMessage(error instanceof Error ? error.message : "Failed to register credentials")
         return
       }
     }
 
     // For block-detected credentials, we need to register them
-    if (detectedCredentials.source === 'block') {
+    if (detectedCredentials.source === "block") {
       // Find the block source in detectCredentials. Only one { block } source
       // is allowed (AwsAuth reports a configuration error otherwise), so this
       // `find` is unambiguous.
-      const blockSource = Array.isArray(detectCredentials) 
-        ? detectCredentials.find(s => typeof s === 'object' && 'block' in s) as { block: string } | undefined
+      const blockSource = Array.isArray(detectCredentials)
+        ? (detectCredentials.find((s) => typeof s === "object" && "block" in s) as
+            | { block: string }
+            | undefined)
         : undefined
-      
+
       if (blockSource) {
         // Re-validate the block's current outputs (not detectedCredentials) to
         // avoid TOCTOU: the block may have re-run, or its temporary credentials
@@ -530,8 +596,8 @@ export function useAwsAuth({
         if (stale()) return
 
         if (!result.success || !result.creds) {
-          setAuthStatus('failed')
-          setErrorMessage(result.error || 'Failed to validate block credentials')
+          setAuthStatus("failed")
+          setErrorMessage(result.error || "Failed to validate block credentials")
           return
         }
 
@@ -543,29 +609,38 @@ export function useAwsAuth({
             accountName: result.accountName,
             arn: result.arn!,
             region: result.region || defaultRegion,
-            source: 'block',
+            source: "block",
             hasSessionToken: result.hasSessionToken || false,
           })
-          setAuthStatus('pending')
+          setAuthStatus("pending")
           return
         }
 
         await registerCredentials(result.creds)
-        setAuthStatus('authenticated')
+        setAuthStatus("authenticated")
         setAccountInfo({
           accountId: result.accountId,
           accountName: result.accountName,
           arn: result.arn,
         })
-        setDetectionStatus('done')
+        setDetectionStatus("done")
         return
       }
     }
 
     // Fallback - shouldn't reach here normally
-    setAuthStatus('failed')
-    setErrorMessage('Failed to confirm detected credentials')
-  }, [api, detectedCredentials, detectionWarning, detectCredentials, tryBlockCredentials, defaultRegion, registerCredentials, stopSsoPolling])
+    setAuthStatus("failed")
+    setErrorMessage("Failed to confirm detected credentials")
+  }, [
+    api,
+    detectedCredentials,
+    detectionWarning,
+    detectCredentials,
+    tryBlockCredentials,
+    defaultRegion,
+    registerCredentials,
+    stopSsoPolling,
+  ])
 
   // User rejects detected credentials - show manual auth
   // Note: credentials are not in session until confirmed, so no need to clear them
@@ -573,8 +648,8 @@ export function useAwsAuth({
     // Reset to manual auth state
     setDetectedCredentials(null)
     setDetectionWarning(null)
-    setDetectionStatus('done')
-    setAuthStatus('pending')
+    setDetectionStatus("done")
+    setAuthStatus("pending")
   }, [])
 
   // Retry credential detection (after user rejected and wants to go back).
@@ -584,8 +659,8 @@ export function useAwsAuth({
     // Reset detection state so the effect will re-run
     setDetectedCredentials(null)
     setDetectionWarning(null)
-    setDetectionStatus('pending')
-    setAuthStatus('pending')
+    setDetectionStatus("pending")
+    setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
     setRetryFoundNothing(false)
@@ -593,24 +668,28 @@ export function useAwsAuth({
     // Reset the ref so detection effect will run again
     detectionAttemptedRef.current = false
     // Increment the attempt counter to trigger the effect to re-run
-    setDetectionAttempt(prev => prev + 1)
+    setDetectionAttempt((prev) => prev + 1)
   }, [stopSsoPolling])
 
   // Load AWS profiles from local machine
   const loadAwsProfiles = useCallback(async () => {
     setLoadingProfiles(true)
     try {
-      const data = await api.invoke('aws:profiles', {} as Record<string, never>)
+      const data = await api.invoke("aws:profiles", {} as Record<string, never>)
       const profileList: ProfileInfo[] = data.profiles ?? []
       setProfiles(profileList)
       // Keep the user's pick across a refresh while it is still listed and
       // usable (taking the fresh entry, whose type may have changed); otherwise
       // the first usable profile, or nothing, so a stale pick can't be used.
-      const usable = (p: ProfileInfo) => p.authType === 'static' || p.authType === 'assume_role'
-      setSelectedProfile(prev =>
-        (prev && profileList.find(p => p.name === prev.name && usable(p))) ?? profileList.find(usable) ?? null)
+      const usable = (p: ProfileInfo) => p.authType === "static" || p.authType === "assume_role"
+      setSelectedProfile(
+        (prev) =>
+          (prev && profileList.find((p) => p.name === prev.name && usable(p))) ??
+          profileList.find(usable) ??
+          null,
+      )
     } catch (error) {
-      console.error('Failed to load AWS profiles:', error)
+      console.error("Failed to load AWS profiles:", error)
       setProfiles([])
       setSelectedProfile(null)
     } finally {
@@ -619,189 +698,218 @@ export function useAwsAuth({
   }, [api])
 
   // Validate credentials by calling STS GetCallerIdentity
-  const validateCredentials = useCallback(async (creds: AwsCredentials) => {
-    stopSsoPolling()
-    const flow = authFlowRef.current
-    setAuthStatus('authenticating')
-    setErrorMessage(null)
-    setWarningMessage(null)
+  const validateCredentials = useCallback(
+    async (creds: AwsCredentials) => {
+      stopSsoPolling()
+      const flow = authFlowRef.current
+      setAuthStatus("authenticating")
+      setErrorMessage(null)
+      setWarningMessage(null)
 
-    try {
-      const data = await api.invoke('aws:validate', creds)
-      if (authFlowRef.current !== flow) return
+      try {
+        const data = await api.invoke("aws:validate", creds)
+        if (authFlowRef.current !== flow) return
 
-      if (data.valid) {
-        setAuthStatus('authenticated')
-        setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        registerCredentials(creds)
-      } else {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to validate credentials')
+        if (data.valid) {
+          setAuthStatus("authenticated")
+          setAccountInfo({
+            accountId: data.accountId,
+            accountName: data.accountName,
+            arn: data.arn,
+          })
+          void registerCredentials(creds)
+        } else {
+          setAuthStatus("failed")
+          setErrorMessage(data.error || "Failed to validate credentials")
+        }
+      } catch (error) {
+        if (authFlowRef.current !== flow) return
+        setAuthStatus("failed")
+        setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
       }
-    } catch (error) {
-      if (authFlowRef.current !== flow) return
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
-    }
-  }, [api, registerCredentials, stopSsoPolling])
+    },
+    [api, registerCredentials, stopSsoPolling],
+  )
 
   // Handle static credentials submission
   const handleCredentialsSubmit = useCallback(() => {
     if (!accessKeyId || !secretAccessKey) {
-      setErrorMessage('Access Key ID and Secret Access Key are required')
+      setErrorMessage("Access Key ID and Secret Access Key are required")
       return
     }
-    validateCredentials({
-      accessKeyId,
-      secretAccessKey,
-      sessionToken: sessionToken || undefined,
-      region: selectedDefaultRegion
-    })
+    void validateCredentials(
+      omitUndefined({
+        accessKeyId,
+        secretAccessKey,
+        sessionToken: sessionToken || undefined,
+        region: selectedDefaultRegion,
+      }),
+    )
   }, [accessKeyId, secretAccessKey, sessionToken, selectedDefaultRegion, validateCredentials])
 
   // Poll for SSO authentication completion. `flow` is the attempt this loop
   // belongs to; once it is no longer current the loop stops without touching state.
-  const pollSsoCompletion = useCallback(async (deviceCode: string, clientId: string, clientSecret: string, flow: number) => {
-    const maxAttempts = 60
-    let attempts = 0
-    const stale = () => authFlowRef.current !== flow
+  const pollSsoCompletion = useCallback(
+    async (deviceCode: string, clientId: string, clientSecret: string, flow: number) => {
+      const maxAttempts = 60
+      let attempts = 0
+      const stale = () => authFlowRef.current !== flow
 
-    const poll = async () => {
-      if (stale()) return
-
-      try {
-        const data = await api.invoke('aws:sso-poll', {
-          deviceCode,
-          clientId,
-          clientSecret,
-          region: ssoRegion,
-          accountId: ssoAccountId,
-          roleName: ssoRoleName,
-        })
-
+      const poll = async () => {
         if (stale()) return
 
-        if (data.status === 'pending' && attempts < maxAttempts) {
-          attempts++
-          ssoPollTimeoutRef.current = setTimeout(poll, 2000)
-        } else if (data.status === 'select_account') {
-          setSsoAccessToken(data.accessToken ?? null)
-          setSsoAccounts((data.accounts ?? []) as unknown as SSOAccount[])
-          setAuthStatus('select_account')
-        } else if (data.status === 'success') {
-          setAuthStatus('authenticated')
-          setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-          registerCredentials({
-            accessKeyId: data.accessKeyId!,
-            secretAccessKey: data.secretAccessKey!,
-            sessionToken: data.sessionToken,
-            region: selectedDefaultRegion
-          })
-        } else {
-          setAuthStatus('failed')
-          setErrorMessage(data.error || 'SSO authentication timed out or failed')
+        try {
+          const data = await api.invoke(
+            "aws:sso-poll",
+            omitUndefined({
+              deviceCode,
+              clientId,
+              clientSecret,
+              region: ssoRegion,
+              accountId: ssoAccountId,
+              roleName: ssoRoleName,
+            }),
+          )
+
+          if (stale()) return
+
+          if (data.status === "pending" && attempts < maxAttempts) {
+            attempts++
+            ssoPollTimeoutRef.current = setTimeout(() => {
+              void poll()
+            }, 2000)
+          } else if (data.status === "select_account") {
+            setSsoAccessToken(data.accessToken ?? null)
+            setSsoAccounts((data.accounts ?? []) as unknown as SSOAccount[])
+            setAuthStatus("select_account")
+          } else if (data.status === "success") {
+            setAuthStatus("authenticated")
+            setAccountInfo({
+              accountId: data.accountId,
+              accountName: data.accountName,
+              arn: data.arn,
+            })
+            void registerCredentials(
+              omitUndefined({
+                accessKeyId: data.accessKeyId!,
+                secretAccessKey: data.secretAccessKey!,
+                sessionToken: data.sessionToken,
+                region: selectedDefaultRegion,
+              }),
+            )
+          } else {
+            setAuthStatus("failed")
+            setErrorMessage(data.error || "SSO authentication timed out or failed")
+          }
+        } catch (error) {
+          if (stale()) return
+          setAuthStatus("failed")
+          setErrorMessage(error instanceof Error ? error.message : "Failed to poll SSO status")
         }
-      } catch (error) {
-        if (stale()) return
-        setAuthStatus('failed')
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to poll SSO status')
       }
-    }
 
-    poll()
-  }, [api, ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials])
+      void poll()
+    },
+    [api, ssoRegion, ssoAccountId, ssoRoleName, selectedDefaultRegion, registerCredentials],
+  )
 
   // Handle SSO authentication
   const handleSsoAuth = useCallback(async () => {
     if (!ssoStartUrl) {
-      setErrorMessage('SSO Start URL is required for SSO authentication')
+      setErrorMessage("SSO Start URL is required for SSO authentication")
       return
     }
 
     // End any earlier attempt; this one runs under a fresh flow number.
     stopSsoPolling()
     const flow = authFlowRef.current
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
 
     try {
-      const data = await api.invoke('aws:sso-start', {
-        startUrl: ssoStartUrl,
-        region: ssoRegion,
-        accountId: ssoAccountId,
-        roleName: ssoRoleName,
-      })
+      const data = await api.invoke(
+        "aws:sso-start",
+        omitUndefined({
+          startUrl: ssoStartUrl,
+          region: ssoRegion,
+          accountId: ssoAccountId,
+          roleName: ssoRoleName,
+        }),
+      )
 
       // Cancelled (or superseded) while the device flow was starting: don't
       // open the browser or start polling for an attempt the user abandoned.
       if (authFlowRef.current !== flow) return
 
       if (data.verificationUri) {
-        window.open(data.verificationUri, '_blank')
-        pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret, flow)
+        window.open(data.verificationUri, "_blank")
+        void pollSsoCompletion(data.deviceCode, data.clientId, data.clientSecret, flow)
       } else {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to start SSO authentication')
+        setAuthStatus("failed")
+        setErrorMessage(data.error || "Failed to start SSO authentication")
       }
     } catch (error) {
       if (authFlowRef.current !== flow) return
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
   }, [api, ssoStartUrl, ssoRegion, ssoAccountId, ssoRoleName, pollSsoCompletion, stopSsoPolling])
 
   // Handle SSO account selection - load roles for selected account
-  const handleSsoAccountSelect = useCallback(async (account: SSOAccount) => {
-    // Like the poll loop, a reply that lands after the attempt was cancelled
-    // (the selector's Cancel is handleManualAuth) must not reopen the role picker.
-    const flow = authFlowRef.current
-    setSelectedSsoAccount(account)
-    setLoadingRoles(true)
-    setSelectedSsoRole('')
-    setSsoRoles([])
+  const handleSsoAccountSelect = useCallback(
+    async (account: SSOAccount) => {
+      // Like the poll loop, a reply that lands after the attempt was cancelled
+      // (the selector's Cancel is handleManualAuth) must not reopen the role picker.
+      const flow = authFlowRef.current
+      setSelectedSsoAccount(account)
+      setLoadingRoles(true)
+      setSelectedSsoRole("")
+      setSsoRoles([])
 
-    try {
-      const data = await api.invoke('aws:sso-roles', {
-        accessToken: ssoAccessToken!,
-        accountId: account.accountId,
-        region: ssoRegion,
-      })
+      try {
+        const data = await api.invoke("aws:sso-roles", {
+          accessToken: ssoAccessToken!,
+          accountId: account.accountId,
+          region: ssoRegion,
+        })
 
-      if (authFlowRef.current !== flow) return
+        if (authFlowRef.current !== flow) return
 
-      if (data.roles && data.roles.length > 0) {
-        setSsoRoles(data.roles)
-        if (data.roles.length === 1) {
-          setSelectedSsoRole(data.roles[0].roleName)
+        if (data.roles && data.roles.length > 0) {
+          setSsoRoles(data.roles)
+          if (data.roles.length === 1) {
+            setSelectedSsoRole(data.roles[0]!.roleName)
+          }
+          setAuthStatus("select_role")
+        } else {
+          setErrorMessage(data.error || "No roles available for this account")
+          setAuthStatus("failed")
         }
-        setAuthStatus('select_role')
-      } else {
-        setErrorMessage(data.error || 'No roles available for this account')
-        setAuthStatus('failed')
+      } catch (error) {
+        if (authFlowRef.current !== flow) return
+        setErrorMessage(error instanceof Error ? error.message : "Failed to load roles")
+        setAuthStatus("failed")
+      } finally {
+        setLoadingRoles(false)
       }
-    } catch (error) {
-      if (authFlowRef.current !== flow) return
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load roles')
-      setAuthStatus('failed')
-    } finally {
-      setLoadingRoles(false)
-    }
-  }, [api, ssoAccessToken, ssoRegion])
+    },
+    [api, ssoAccessToken, ssoRegion],
+  )
 
   // Complete SSO authentication with selected account and role
   const handleSsoComplete = useCallback(async () => {
     if (!selectedSsoAccount || !selectedSsoRole || !ssoAccessToken) {
-      setErrorMessage('Please select an account and role')
+      setErrorMessage("Please select an account and role")
       return
     }
 
     // 'authenticating' shows the SSO form's Cancel button. A reply that arrives
     // after Cancel (or after a new sign-in started) must not sign the block in.
     const flow = authFlowRef.current
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
 
     try {
-      const data = await api.invoke('aws:sso-complete', {
+      const data = await api.invoke("aws:sso-complete", {
         accessToken: ssoAccessToken!,
         accountId: selectedSsoAccount.accountId,
         roleName: selectedSsoRole,
@@ -811,73 +919,89 @@ export function useAwsAuth({
       if (authFlowRef.current !== flow) return
 
       if (data.accessKeyId) {
-        setAuthStatus('authenticated')
+        setAuthStatus("authenticated")
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        registerCredentials({
-          accessKeyId: data.accessKeyId!,
-          secretAccessKey: data.secretAccessKey!,
-          sessionToken: data.sessionToken,
-          region: selectedDefaultRegion
-        })
+        void registerCredentials(
+          omitUndefined({
+            accessKeyId: data.accessKeyId!,
+            secretAccessKey: data.secretAccessKey!,
+            sessionToken: data.sessionToken,
+            region: selectedDefaultRegion,
+          }),
+        )
       } else {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to complete SSO authentication')
+        setAuthStatus("failed")
+        setErrorMessage(data.error || "Failed to complete SSO authentication")
       }
     } catch (error) {
       if (authFlowRef.current !== flow) return
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to complete SSO')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to complete SSO")
     }
-  }, [api, selectedSsoAccount, selectedSsoRole, ssoAccessToken, ssoRegion, selectedDefaultRegion, registerCredentials])
+  }, [
+    api,
+    selectedSsoAccount,
+    selectedSsoRole,
+    ssoAccessToken,
+    ssoRegion,
+    selectedDefaultRegion,
+    registerCredentials,
+  ])
 
   // Go back to account selection
   const handleBackToAccountSelection = useCallback(() => {
     setSelectedSsoAccount(null)
-    setSelectedSsoRole('')
+    setSelectedSsoRole("")
     setSsoRoles([])
-    setSsoRoleSearch('')
-    setAuthStatus('select_account')
+    setSsoRoleSearch("")
+    setAuthStatus("select_account")
   }, [])
 
   // Handle profile authentication
   const handleProfileAuth = useCallback(async () => {
     if (!selectedProfile) {
-      setErrorMessage('Please select a profile')
+      setErrorMessage("Please select a profile")
       return
     }
 
-    if (selectedProfile.authType === 'unsupported') {
-      setErrorMessage('This authentication method is not supported')
+    if (selectedProfile.authType === "unsupported") {
+      setErrorMessage("This authentication method is not supported")
       return
     }
 
     stopSsoPolling()
     const flow = authFlowRef.current
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
 
     try {
-      const data = await api.invoke('aws:profile-auth', { profileName: selectedProfile.name, profile: selectedProfile.name, defaultRegion: selectedDefaultRegion })
+      const data = await api.invoke("aws:profile-auth", {
+        profileName: selectedProfile.name,
+        profile: selectedProfile.name,
+        defaultRegion: selectedDefaultRegion,
+      })
       if (authFlowRef.current !== flow) return
 
       if (data.valid) {
-        setAuthStatus('authenticated')
+        setAuthStatus("authenticated")
         setAccountInfo({ accountId: data.accountId, accountName: data.accountName, arn: data.arn })
-        registerCredentials({
-          accessKeyId: data.accessKeyId!,
-          secretAccessKey: data.secretAccessKey!,
-          sessionToken: data.sessionToken,
-          // The region main validated in: the profile's own, else the chosen one.
-          region: data.region || selectedDefaultRegion
-        })
+        void registerCredentials(
+          omitUndefined({
+            accessKeyId: data.accessKeyId!,
+            secretAccessKey: data.secretAccessKey!,
+            sessionToken: data.sessionToken,
+            // The region main validated in: the profile's own, else the chosen one.
+            region: data.region || selectedDefaultRegion,
+          }),
+        )
       } else {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to authenticate with profile')
+        setAuthStatus("failed")
+        setErrorMessage(data.error || "Failed to authenticate with profile")
       }
     } catch (error) {
       if (authFlowRef.current !== flow) return
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
   }, [api, selectedProfile, selectedDefaultRegion, registerCredentials, stopSsoPolling])
 
@@ -888,8 +1012,8 @@ export function useAwsAuth({
     // credential this reset exists to replace (GoogleAuth does the same).
     // registerOutputs replaces the whole map. The session env keeps the old
     // AWS_* values until the next sign-in overwrites them.
-    registerOutputs(id, { __AUTHENTICATED: 'false' })
-    setAuthStatus('pending')
+    registerOutputs(id, { __AUTHENTICATED: "false" })
+    setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
     setAccountInfo(null)
@@ -897,12 +1021,12 @@ export function useAwsAuth({
     setSsoAccounts([])
     setSsoRoles([])
     setSelectedSsoAccount(null)
-    setSelectedSsoRole('')
-    setSsoAccountSearch('')
-    setSsoRoleSearch('')
+    setSelectedSsoRole("")
+    setSsoAccountSearch("")
+    setSsoRoleSearch("")
     setDetectedCredentials(null)
     setDetectionWarning(null)
-    setDetectionStatus('done')
+    setDetectionStatus("done")
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
   }, [stopSsoPolling, registerOutputs, id])
@@ -910,7 +1034,7 @@ export function useAwsAuth({
   // Cancel SSO authentication
   const handleCancelSsoAuth = useCallback(() => {
     stopSsoPolling()
-    setAuthStatus('pending')
+    setAuthStatus("pending")
     setErrorMessage(null)
   }, [stopSsoPolling])
 
@@ -973,7 +1097,7 @@ export function useAwsAuth({
     handleSsoComplete,
     handleBackToAccountSelection,
     handleProfileAuth,
-    
+
     // Detection handlers (new)
     handleConfirmDetected,
     handleRejectDetected,

@@ -1,210 +1,214 @@
 :root {
-    --selected-color: var(--accent);
+  --selected-color: var(--accent);
 }
 
 .tree {
-    font-size: calc(12 / 16 * 1rem);
-    max-width: 175px;
-    min-height: 100px;
-    color: var(--muted-foreground);
-    flex-shrink: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
+  font-size: calc(12 / 16 * 1rem);
+  max-width: 175px;
+  min-height: 100px;
+  color: var(--muted-foreground);
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .tree button[role="treeitem"] {
-    display: flex;
-    background: transparent;
-    border: none;
-    width: 100%;
-    padding: 0 0 2px 0;
+  display: flex;
+  background: transparent;
+  border: none;
+  width: 100%;
+  padding: 0 0 2px 0;
 }
 
 .treeitem {
-    width: 100%;
-    text-align: left;
-    background-color: transparent;
-    padding: 2px 10px;
-    position: relative;
-    border-radius: 4px;
-    transition: background-color .2s ease;
-    cursor: pointer;
-    white-space: nowrap;
+  width: 100%;
+  text-align: left;
+  background-color: transparent;
+  padding: 2px 10px;
+  position: relative;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+  white-space: nowrap;
 }
 .treeitem:hover {
-    background-color: var(--selected-color);
+  background-color: var(--selected-color);
 }
 
 .renaming-item {
-    background-color: var(--selected-color);
-    margin-bottom: 2px;
-    border-radius: 4px;
-    padding: 4px 10px 5px 24px;
+  background-color: var(--selected-color);
+  margin-bottom: 2px;
+  border-radius: 4px;
+  padding: 4px 10px 5px 24px;
 }
 .renaming-item input {
-    width: 100%;
-    height: 100%;
-    border: none;
-    background: transparent;
-    outline: none;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
 }
 
 .treeitem:hover {
-    border-color: var(--border);
+  border-color: var(--border);
 }
 
 .tree button[role="treeitem"]:focus {
-    outline: none;
+  outline: none;
 }
 
 .treeitem.selected {
-    color: var(--foreground);
-    font-weight: 500;
+  color: var(--foreground);
+  font-weight: 500;
 }
 
-button:focus-visible .treeitem.focused, .treeitem.searchmatch.focused {
-    outline: 2px solid var(--ring);
+button:focus-visible .treeitem.focused,
+.treeitem.searchmatch.focused {
+  outline: 2px solid var(--ring);
 }
 
 .treeitem.drop {
-    border-color: var(--selected-color);
-    background-color: var(--info-muted);
+  border-color: var(--selected-color);
+  background-color: var(--info-muted);
 }
 
 .treeitem.searchmatch {
-    background-color: var(--info-muted);
+  background-color: var(--info-muted);
 }
 
 .treeitem.folder:before {
-    content: url(data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHg9IjBweCIgeT0iMHB4IiB2aWV3Qm94PSIwIDAgMTYgMTYiIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgMCAwIDE2IDE2IiB4bWw6c3BhY2U9InByZXNlcnZlIj48Zz48Zz48cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTQuNjQ2IDEuNjQ2YS41LjUgMCAwIDEgLjcwOCAwbDYgNmEuNS41IDAgMCAxIDAgLjcwOGwtNiA2YS41LjUgMCAwIDEtLjcwOC0uNzA4TDEwLjI5MyA4IDQuNjQ2IDIuMzU0YS41LjUgMCAwIDEgMC0uNzA4eiIgY2xhc3M9InJjdC10cmVlLWl0ZW0tYXJyb3ctcGF0aCI+PC9wYXRoPjwvZz48L2c+PC9zdmc+);
-    width: 10px;
-    display: inline-block;
-    z-index: 1;
-    margin-right: 4px;
-    transition: transform 0.1s ease-in-out;
+  content: url(data:image/svg+xml;base64,PHN2ZyB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHg9IjBweCIgeT0iMHB4IiB2aWV3Qm94PSIwIDAgMTYgMTYiIGVuYWJsZS1iYWNrZ3JvdW5kPSJuZXcgMCAwIDE2IDE2IiB4bWw6c3BhY2U9InByZXNlcnZlIj48Zz48Zz48cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGNsaXAtcnVsZT0iZXZlbm9kZCIgZD0iTTQuNjQ2IDEuNjQ2YS41LjUgMCAwIDEgLjcwOCAwbDYgNmEuNS41IDAgMCAxIDAgLjcwOGwtNiA2YS41LjUgMCAwIDEtLjcwOC0uNzA4TDEwLjI5MyA4IDQuNjQ2IDIuMzU0YS41LjUgMCAwIDEgMC0uNzA4eiIgY2xhc3M9InJjdC10cmVlLWl0ZW0tYXJyb3ctcGF0aCI+PC9wYXRoPjwvZz48L2c+PC9zdmc+);
+  width: 10px;
+  display: inline-block;
+  z-index: 1;
+  margin-right: 4px;
+  transition: transform 0.1s ease-in-out;
 }
 
 .treeitem.folder.expanded:before {
-    transform: rotate(90deg);
+  transform: rotate(90deg);
 }
 
 .treeitem:not(.folder) {
-    padding-left: 12px;
+  padding-left: 12px;
 }
 
 .description {
-    font-family: sans-serif;
-    font-size: .8rem;
-    background-color: var(--muted);
-    border-radius: 4px;
-    padding: 8px 12px;
+  font-family: sans-serif;
+  font-size: 0.8rem;
+  background-color: var(--muted);
+  border-radius: 4px;
+  padding: 8px 12px;
 }
 
 .dragline {
-    height: 2px;
-    margin-top: -1px;
-    background-color: var(--primary);
+  height: 2px;
+  margin-top: -1px;
+  background-color: var(--primary);
 }
 
 .dragline::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: -3px;
-    height: 4px;
-    width: 4px;
-    background: var(--background);
-    border: 2px solid var(--primary);
-    border-radius: 99px;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -3px;
+  height: 4px;
+  width: 4px;
+  background: var(--background);
+  border: 2px solid var(--primary);
+  border-radius: 99px;
 }
 
 .outeritem {
-    display: flex;
-    align-items: center;
-    gap: 2px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 .outeritem button:not([role="treeitem"]) {
-    padding: 2px 4px;
-    height: 80%;
+  padding: 2px 4px;
+  height: 80%;
 }
 
 .actionbar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
 }
 
-.foreign-dragsource, .foreign-dropzone, .searchbox, .actionbtn {
-    height: 30px;
-    background-color: transparent;
-    border: 1px solid var(--border);
-    padding: 0 8px;
-    border-radius: 4px;
-    font-size: .8rem;
-    color: var(--foreground);
-    display: flex;
-    align-items: center;
-    justify-items: center;
+.foreign-dragsource,
+.foreign-dropzone,
+.searchbox,
+.actionbtn {
+  height: 30px;
+  background-color: transparent;
+  border: 1px solid var(--border);
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  justify-items: center;
 }
 
 .foreign-dragsource {
-    cursor: grab;
+  cursor: grab;
 }
 .foreign-dragsource:active {
-    cursor: grabbing;
+  cursor: grabbing;
 }
 .foreign-dragsource:before {
-    content: url(data:image/svg+xml;base64,PHN2ZyBzdHJva2U9ImN1cnJlbnRDb2xvciIgZmlsbD0iIzAwMDAwMCIgc3Ryb2tlLXdpZHRoPSIwIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGhlaWdodD0iMThweCIgd2lkdGg9IjE4cHgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkgMTNhMSAxIDAgMSAxIDAtMiAxIDEgMCAwIDEgMCAyWm03LTFhMSAxIDAgMSAxLTIgMCAxIDEgMCAwIDEgMiAwWk05IDhhMSAxIDAgMSAxIDAtMiAxIDEgMCAwIDEgMCAyWm03LTFhMSAxIDAgMSAxLTIgMCAxIDEgMCAwIDEgMiAwWk05IDE4YTEgMSAwIDEgMSAwLTIgMSAxIDAgMCAxIDAgMlptNiAwYTEgMSAwIDEgMSAwLTIgMSAxIDAgMCAxIDAgMloiPjwvcGF0aD48L3N2Zz4=);
-    width: 10px;
-    display: inline-block;
-    z-index: 1;
-    margin-right: 8px;
-    margin-top: 2px;
+  content: url(data:image/svg+xml;base64,PHN2ZyBzdHJva2U9ImN1cnJlbnRDb2xvciIgZmlsbD0iIzAwMDAwMCIgc3Ryb2tlLXdpZHRoPSIwIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGhlaWdodD0iMThweCIgd2lkdGg9IjE4cHgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkgMTNhMSAxIDAgMSAxIDAtMiAxIDEgMCAwIDEgMCAyWm03LTFhMSAxIDAgMSAxLTIgMCAxIDEgMCAwIDEgMiAwWk05IDhhMSAxIDAgMSAxIDAtMiAxIDEgMCAwIDEgMCAyWm03LTFhMSAxIDAgMSAxLTIgMCAxIDEgMCAwIDEgMiAwWk05IDE4YTEgMSAwIDEgMSAwLTIgMSAxIDAgMCAxIDAgMlptNiAwYTEgMSAwIDEgMSAwLTIgMSAxIDAgMCAxIDAgMloiPjwvcGF0aD48L3N2Zz4=);
+  width: 10px;
+  display: inline-block;
+  z-index: 1;
+  margin-right: 8px;
+  margin-top: 2px;
 }
 .foreign-dragsource:hover {
-    background-color: var(--accent);
+  background-color: var(--accent);
 }
 
 .foreign-dropzone {
-    border: 1px dashed var(--border);
-    padding: 0 26px;
+  border: 1px dashed var(--border);
+  padding: 0 26px;
 }
 
 .searchbox {
-    padding: 8px 16px;
-    margin-bottom: 8px;
-    flex-wrap: wrap;
-    gap: 4px;
-    height: unset;
+  padding: 8px 16px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
+  height: unset;
 }
 
 .searchbox:before {
-    content: "Navigate between search results with ArrowUp and ArrowDown. Press Escape to close search.";
-    display: block;
-    width: 100%;
+  content: "Navigate between search results with ArrowUp and ArrowDown. Press Escape to close search.";
+  display: block;
+  width: 100%;
 }
 .searchbox input {
-    flex-grow: 1;
-    padding: 4px;
+  flex-grow: 1;
+  padding: 4px;
 }
 
 .actionbtn:hover {
-    cursor: pointer;
-    background-color: var(--accent);
+  cursor: pointer;
+  background-color: var(--accent);
 }
 
 .visible-assistive-text {
-    position: unset !important;
-    width: unset !important;
-    height: 60px !important;
-    margin: unset !important;
-    overflow: auto !important;
-    clip: unset !important;
+  position: unset !important;
+  width: unset !important;
+  height: 60px !important;
+  margin: unset !important;
+  overflow: auto !important;
+  clip: unset !important;
 
-    display: block;
-    margin-bottom: 1rem !important;
-    background-color: var(--info-muted);
+  display: block;
+  margin-bottom: 1rem !important;
+  background-color: var(--info-muted);
 }

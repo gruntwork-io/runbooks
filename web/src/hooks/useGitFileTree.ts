@@ -1,7 +1,10 @@
-import { useContext } from 'react'
-import { GitFileTreeContext, type GitFileTreeContextType } from '../contexts/WorkspaceGitDataContext.types'
+import { useContext } from "react"
+import {
+  GitFileTreeContext,
+  type GitFileTreeContextType,
+} from "../contexts/WorkspaceGitDataContext.types"
 
-export type { WorkspaceTreeNode } from '../contexts/WorkspaceGitDataContext.types'
+export type { WorkspaceTreeNode } from "../contexts/WorkspaceGitDataContext.types"
 
 /**
  * The structure-only file tree for the active git worktree. Re-fetched
@@ -13,7 +16,7 @@ export type { WorkspaceTreeNode } from '../contexts/WorkspaceGitDataContext.type
 export function useGitFileTree(): GitFileTreeContextType {
   const context = useContext(GitFileTreeContext)
   if (context === undefined) {
-    throw new Error('useGitFileTree must be used within a WorkspaceGitDataProvider')
+    throw new Error("useGitFileTree must be used within a WorkspaceGitDataProvider")
   }
   return context
 }

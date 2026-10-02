@@ -7,7 +7,7 @@ import type { AuthStatus, SSOAccount, SSORole } from "../types"
 
 interface SsoFormProps {
   authStatus: AuthStatus
-  ssoStartUrl?: string
+  ssoStartUrl?: string | undefined
   selectedDefaultRegion: string
   setSelectedDefaultRegion: (value: string) => void
   onSsoAuth: () => void
@@ -22,14 +22,16 @@ export function SsoForm({
   onSsoAuth,
   onCancelSsoAuth,
 }: SsoFormProps) {
-  const isAuthenticating = authStatus === 'authenticating'
+  const isAuthenticating = authStatus === "authenticating"
 
   if (!ssoStartUrl) {
     return (
       <div className="text-warning text-sm flex items-start gap-2">
         <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
         <div>
-          SSO Start URL is not configured. Add <code className="bg-warning-muted px-1 rounded">ssoStartUrl</code> prop to enable SSO authentication.
+          SSO Start URL is not configured. Add{" "}
+          <code className="bg-warning-muted px-1 rounded">ssoStartUrl</code> prop to enable SSO
+          authentication.
         </div>
       </div>
     )
@@ -40,19 +42,20 @@ export function SsoForm({
       <div className="bg-warning-muted/50 rounded p-3 text-sm text-foreground">
         {isAuthenticating ? (
           <p>
-            Complete the authorization request in the applicable browser tab.<br/>
+            Complete the authorization request in the applicable browser tab.
+            <br />
             <span className="text-muted-foreground text-xs mt-1 block">
-              Note: If you cancelled on AWS, click the Cancel button below — AWS doesn't notify this page when you cancel.
+              Note: If you cancelled on AWS, click the Cancel button below — AWS doesn't notify this
+              page when you cancel.
             </span>
-          </p>                        
+          </p>
         ) : (
           <>
             <p className="mb-2">
-              Click the button below to open AWS IAM Identity Center (formerly AWS SSO) in your browser. After authenticating, you'll be redirected back here.
+              Click the button below to open AWS IAM Identity Center (formerly AWS SSO) in your
+              browser. After authenticating, you'll be redirected back here.
             </p>
-            <div className="font-mono text-xs text-muted-foreground truncate">
-              {ssoStartUrl}
-            </div>
+            <div className="font-mono text-xs text-muted-foreground truncate">{ssoStartUrl}</div>
           </>
         )}
       </div>
@@ -62,7 +65,7 @@ export function SsoForm({
         setSelectedRegion={setSelectedDefaultRegion}
         disabled={isAuthenticating}
       />
-      
+
       <div className="flex gap-2">
         <Button
           onClick={onSsoAuth}
@@ -81,7 +84,7 @@ export function SsoForm({
             </>
           )}
         </Button>
-        
+
         {isAuthenticating && (
           <Button
             onClick={onCancelSsoAuth}
@@ -116,21 +119,21 @@ export function SsoAccountSelector({
   onAccountSelect,
   onCancel,
 }: SsoAccountSelectorProps) {
-  const filteredAccounts = accounts.filter((account) =>
-    account.accountName.toLowerCase().includes(searchValue.toLowerCase()) ||
-    account.accountId.includes(searchValue) ||
-    (account.emailAddress && account.emailAddress.toLowerCase().includes(searchValue.toLowerCase()))
+  const filteredAccounts = accounts.filter(
+    (account) =>
+      account.accountName.toLowerCase().includes(searchValue.toLowerCase()) ||
+      account.accountId.includes(searchValue) ||
+      (account.emailAddress &&
+        account.emailAddress.toLowerCase().includes(searchValue.toLowerCase())),
   )
 
   return (
     <div className="space-y-4">
-      <div className="text-info font-semibold text-sm mb-2">
-        ✓ SSO authentication successful
-      </div>
+      <div className="text-info font-semibold text-sm mb-2">✓ SSO authentication successful</div>
       <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         <p>Select an AWS account to continue:</p>
       </div>
-      
+
       <div className="space-y-2">
         {/* Search input */}
         <SearchInput
@@ -153,7 +156,7 @@ export function SsoAccountSelector({
                   "w-full text-left px-4 py-3 rounded-md border transition-colors",
                   isSelected
                     ? "bg-info-muted border-info/40 ring-2 ring-info/40"
-                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer"
+                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer",
                 )}
               >
                 <div className="flex items-center justify-between">
@@ -161,7 +164,7 @@ export function SsoAccountSelector({
                     <Check
                       className={cn(
                         "h-4 w-4 shrink-0",
-                        isSelected ? "opacity-100 text-info" : "opacity-0"
+                        isSelected ? "opacity-100 text-info" : "opacity-0",
                       )}
                     />
                     <div>
@@ -186,7 +189,7 @@ export function SsoAccountSelector({
           )}
         </div>
       </div>
-      
+
       <Button
         onClick={onCancel}
         variant="outline"
@@ -220,7 +223,7 @@ export function SsoRoleSelector({
   onBack,
 }: SsoRoleSelectorProps) {
   const filteredRoles = roles.filter((role) =>
-    role.roleName.toLowerCase().includes(searchValue.toLowerCase())
+    role.roleName.toLowerCase().includes(searchValue.toLowerCase()),
   )
 
   return (
@@ -231,14 +234,10 @@ export function SsoRoleSelector({
       <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         <p>Select a role to assume:</p>
       </div>
-      
+
       <div className="space-y-2">
         {/* Search input */}
-        <SearchInput
-          value={searchValue}
-          onChange={setSearchValue}
-          placeholder="Search roles..."
-        />
+        <SearchInput value={searchValue} onChange={setSearchValue} placeholder="Search roles..." />
 
         {/* Role list */}
         <div className="max-h-[300px] overflow-y-auto space-y-2 p-1">
@@ -252,14 +251,14 @@ export function SsoRoleSelector({
                   "w-full text-left px-4 py-3 rounded-md border transition-colors",
                   isSelected
                     ? "bg-info-muted border-info/40 ring-2 ring-info/40"
-                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer"
+                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer",
                 )}
               >
                 <div className="flex items-center gap-2">
                   <Check
                     className={cn(
                       "h-4 w-4 shrink-0",
-                      isSelected ? "opacity-100 text-info" : "opacity-0"
+                      isSelected ? "opacity-100 text-info" : "opacity-0",
                     )}
                   />
                   <span className="font-medium text-foreground">{role.roleName}</span>
@@ -274,7 +273,7 @@ export function SsoRoleSelector({
           )}
         </div>
       </div>
-      
+
       <div className="flex gap-2">
         <Button
           onClick={onComplete}

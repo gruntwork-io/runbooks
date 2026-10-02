@@ -13,39 +13,39 @@
  * When only one source exists, the context bar is hidden.
  */
 
-import { useState, useMemo, useEffect, useRef } from 'react'
-import { ChevronLeft, FolderOpen } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { ContextSwitcher } from './ContextSwitcher'
-import { RepositoryTabs } from './RepositoryTabs'
-import { RepositoryMetadataBar } from './RepositoryMetadataBar'
-import { GeneratedFilesMetadataBar } from './GeneratedFilesMetadataBar'
-import { RepositoryFileBrowser } from './RepositoryFileBrowser'
-import { ChangedFilesView } from './ChangedFilesView'
-import { CodeFileCollection } from '../code/CodeFileCollection'
-import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import { useGitFileTree } from '@/hooks/useGitFileTree'
-import { useGitFileChanges } from '@/hooks/useGitFileChanges'
-import type { FileTreeNode } from '../code/FileTree'
-import type { WorkspaceTab, WorkspaceContext } from '@/types/workspace'
-import { ChangeProportionBar } from './ChangeProportionBar'
-import type { TruncationInfo } from '@/contexts/GeneratedFilesContext.types'
+import { useState, useMemo, useEffect, useRef } from "react"
+import { ChevronLeft, FolderOpen } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { ContextSwitcher } from "./ContextSwitcher"
+import { RepositoryTabs } from "./RepositoryTabs"
+import { RepositoryMetadataBar } from "./RepositoryMetadataBar"
+import { GeneratedFilesMetadataBar } from "./GeneratedFilesMetadataBar"
+import { RepositoryFileBrowser } from "./RepositoryFileBrowser"
+import { ChangedFilesView } from "./ChangedFilesView"
+import { CodeFileCollection } from "../code/CodeFileCollection"
+import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import { useGitFileTree } from "@/hooks/useGitFileTree"
+import { useGitFileChanges } from "@/hooks/useGitFileChanges"
+import type { FileTreeNode } from "../code/FileTree"
+import type { WorkspaceTab, WorkspaceContext } from "@/types/workspace"
+import { ChangeProportionBar } from "./ChangeProportionBar"
+import type { TruncationInfo } from "@/contexts/GeneratedFilesContext.types"
 
 interface WorkspaceProps {
   /** Generated files tree (from GeneratedFilesContext) */
-  generatedFiles: FileTreeNode[];
+  generatedFiles: FileTreeNode[]
   /** Truncation metadata from the backend (when file tree exceeds limits) */
-  truncationInfo?: TruncationInfo | null;
+  truncationInfo?: TruncationInfo | null | undefined
   /** Additional CSS classes */
-  className?: string;
+  className?: string | undefined
   /** Callback to hide the workspace */
-  onHide?: () => void;
+  onHide?: (() => void) | undefined
   /** Whether to hide content (for animations) */
-  hideContent?: boolean;
+  hideContent?: boolean | undefined
   /** Absolute path to generated files output */
-  absoluteOutputPath?: string;
+  absoluteOutputPath?: string | undefined
   /** Relative path to generated files output */
-  relativeOutputPath?: string;
+  relativeOutputPath?: string | undefined
 }
 
 export const Workspace = ({
@@ -57,15 +57,27 @@ export const Workspace = ({
   absoluteOutputPath,
   relativeOutputPath,
 }: WorkspaceProps) => {
-  const [activeContext, setActiveContext] = useState<WorkspaceContext>('generated')
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('all')
+  const [activeContext, setActiveContext] = useState<WorkspaceContext>("generated")
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("all")
   const hasAutoSwitched = useRef(false)
   const prevTotalChanges = useRef(0)
 
   // Git worktree data
   const { workTrees, activeWorkTree, activeWorkTreeId, setActiveWorkTree } = useGitWorkTree()
-  const { tree: workspaceTree, isLoading: treeLoading, error: treeError, refetch: refetchTree, fetchSubtree } = useGitFileTree()
-  const { changes, totalChanges, tooManyChanges, isLoading: changesLoading, fetchFileDiff } = useGitFileChanges()
+  const {
+    tree: workspaceTree,
+    isLoading: treeLoading,
+    error: treeError,
+    refetch: refetchTree,
+    fetchSubtree,
+  } = useGitFileTree()
+  const {
+    changes,
+    totalChanges,
+    tooManyChanges,
+    isLoading: changesLoading,
+    fetchFileDiff,
+  } = useGitFileChanges()
 
   // Determine what's available
   const hasGeneratedFiles = generatedFiles.length > 0
@@ -80,8 +92,8 @@ export const Workspace = ({
   useEffect(() => {
     if (hasWorkTree && !hasAutoSwitched.current) {
       hasAutoSwitched.current = true
-      setActiveContext('repository')
-      setActiveTab('all')
+      setActiveContext("repository")
+      setActiveTab("all")
     }
   }, [hasWorkTree])
 
@@ -89,36 +101,38 @@ export const Workspace = ({
   // (WorkspaceGitDataProvider refreshes the file tree when the count changes.)
   useEffect(() => {
     if (prevTotalChanges.current === 0 && totalChanges > 0 && hasWorkTree) {
-      setActiveContext('repository')
-      setActiveTab('changed')
+      setActiveContext("repository")
+      setActiveTab("changed")
     }
     prevTotalChanges.current = totalChanges
   }, [totalChanges, hasWorkTree])
 
-  // Ensure active context is valid
-  useEffect(() => {
-    if (activeContext === 'repository' && !hasWorkTree && hasGeneratedFiles) {
-      setActiveContext('generated')
-    } else if (activeContext === 'generated' && !hasGeneratedFiles && hasWorkTree) {
-      setActiveContext('repository')
-      setActiveTab('all')
-    }
-  }, [activeContext, hasWorkTree, hasGeneratedFiles])
+  // Ensure active context is valid. Adjusted during render; each branch's
+  // update makes its own condition false, so this settles in one pass.
+  if (activeContext === "repository" && !hasWorkTree && hasGeneratedFiles) {
+    setActiveContext("generated")
+  } else if (activeContext === "generated" && !hasGeneratedFiles && hasWorkTree) {
+    setActiveContext("repository")
+    setActiveTab("all")
+  }
 
   // Determine the effective view: what's actually showing
-  const isRepositoryView = activeContext === 'repository' || (!hasBothContexts && hasWorkTree)
-  const isGeneratedView = activeContext === 'generated' || (!hasBothContexts && hasGeneratedFiles)
+  const isRepositoryView = activeContext === "repository" || (!hasBothContexts && hasWorkTree)
+  const isGeneratedView = activeContext === "generated" || (!hasBothContexts && hasGeneratedFiles)
 
   // Tab counts for badges
-  const tabCounts = useMemo(() => ({
-    changed: totalChanges,
-  }), [totalChanges])
+  const tabCounts = useMemo(
+    () => ({
+      changed: totalChanges,
+    }),
+    [totalChanges],
+  )
 
   // Change stats for the metadata bar
   const changeStats = useMemo(() => {
-    const added = changes.filter(c => c.changeType === 'added').length
-    const modified = changes.filter(c => c.changeType === 'modified').length
-    const deleted = changes.filter(c => c.changeType === 'deleted').length
+    const added = changes.filter((c) => c.changeType === "added").length
+    const modified = changes.filter((c) => c.changeType === "modified").length
+    const deleted = changes.filter((c) => c.changeType === "deleted").length
     const totalAdditions = changes.reduce((sum, c) => sum + c.additions, 0)
     const totalDeletions = changes.reduce((sum, c) => sum + c.deletions, 0)
     return { added, modified, deleted, totalAdditions, totalDeletions, total: changes.length }
@@ -205,15 +219,19 @@ export const Workspace = ({
           </div>
 
           {/* Change stats (shown under Changed files tab) */}
-          {activeTab === 'changed' && changeStats.total > 0 && (
+          {activeTab === "changed" && changeStats.total > 0 && (
             <div className="flex items-center gap-3 px-3 py-1.5 bg-muted border-b border-border text-sm">
               <span className="text-muted-foreground">
-                <span className="font-medium">{changeStats.total}</span> changed {changeStats.total === 1 ? 'file' : 'files'}
+                <span className="font-medium">{changeStats.total}</span> changed{" "}
+                {changeStats.total === 1 ? "file" : "files"}
               </span>
               <span className="text-muted-foreground">|</span>
               <span className="text-success font-medium">+{changeStats.totalAdditions}</span>
               <span className="text-destructive font-medium">-{changeStats.totalDeletions}</span>
-              <ChangeProportionBar additions={changeStats.totalAdditions} deletions={changeStats.totalDeletions} />
+              <ChangeProportionBar
+                additions={changeStats.totalAdditions}
+                deletions={changeStats.totalDeletions}
+              />
             </div>
           )}
         </>
@@ -242,7 +260,7 @@ export const Workspace = ({
           </div>
         )}
 
-        {isRepositoryView && activeTab === 'all' && (
+        {isRepositoryView && activeTab === "all" && (
           <div data-testid="filetree-all" className="h-full">
             <RepositoryFileBrowser
               tree={workspaceTree}
@@ -255,7 +273,7 @@ export const Workspace = ({
           </div>
         )}
 
-        {isRepositoryView && activeTab === 'changed' && (
+        {isRepositoryView && activeTab === "changed" && (
           <div data-testid="filetree-changed" className="h-full">
             <ChangedFilesView
               changes={changes}
@@ -278,7 +296,7 @@ export const Workspace = ({
 function countFiles(nodes: FileTreeNode[]): number {
   let count = 0
   for (const node of nodes) {
-    if (node.type === 'file') {
+    if (node.type === "file") {
       count++
     }
     if (node.children) {
@@ -287,4 +305,3 @@ function countFiles(nodes: FileTreeNode[]): number {
   }
   return count
 }
-

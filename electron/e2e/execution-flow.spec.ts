@@ -12,7 +12,13 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts execution-flow
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"

@@ -5,4 +5,3 @@
   "installCommand": "cd docs && bun install",
   "framework": null
 }
-

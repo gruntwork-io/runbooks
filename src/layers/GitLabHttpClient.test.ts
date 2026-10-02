@@ -12,7 +12,16 @@ afterEach(() => {
 
 function mockFetch(impl: (url: string, init?: RequestInit) => Response) {
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) =>
-    Promise.resolve(impl(String(input), init))) as typeof fetch
+    Promise.resolve(impl(urlOf(input), init))) as typeof fetch
+}
+
+const urlOf = (input: string | URL | Request): string =>
+  typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+
+/** The JSON object a mocked request sent; fails the test on a non-string body. */
+function sentJson(init?: RequestInit): Record<string, unknown> {
+  if (typeof init?.body !== "string") throw new Error("expected a string request body")
+  return JSON.parse(init.body) as Record<string, unknown>
 }
 
 const json = (body: unknown, status = 200) =>
@@ -183,7 +192,8 @@ describe("GitLabHttpClient.validateToken", () => {
     const cause = Object.assign(new Error("unable to verify the first certificate"), {
       code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
     })
-    globalThis.fetch = (() => Promise.reject(new TypeError("fetch failed", { cause }))) as unknown as typeof fetch
+    globalThis.fetch = (() =>
+      Promise.reject(new TypeError("fetch failed", { cause }))) as unknown as typeof fetch
 
     const result = await Effect.runPromise(Effect.either(validate("glpat-abc")))
 
@@ -261,7 +271,7 @@ describe("GitLabHttpClient.createMergeRequest", () => {
     let sentBody: Record<string, unknown> | null = null
     mockFetch((url, init) => {
       requestedUrl = url
-      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+      sentBody = sentJson(init)
       return json({
         id: 9999, // global DB id — must NOT be surfaced
         iid: 42, // project-scoped, user-facing number
@@ -292,8 +302,12 @@ describe("GitLabHttpClient.createMergeRequest", () => {
   it("omits description and labels when not provided", async () => {
     let sentBody: Record<string, unknown> | null = null
     mockFetch((_url, init) => {
-      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>
-      return json({ iid: 1, web_url: "https://gitlab.com/x/y/-/merge_requests/1", source_branch: "b" })
+      sentBody = sentJson(init)
+      return json({
+        iid: 1,
+        web_url: "https://gitlab.com/x/y/-/merge_requests/1",
+        source_branch: "b",
+      })
     })
 
     await Effect.runPromise(
@@ -310,7 +324,9 @@ describe("GitLabHttpClient.createMergeRequest", () => {
   })
 
   it("fails with GitLabApiError carrying status 409 when an MR already exists", async () => {
-    mockFetch(() => new Response("Cannot Create: This merge request already exists", { status: 409 }))
+    mockFetch(
+      () => new Response("Cannot Create: This merge request already exists", { status: 409 }),
+    )
 
     const result = await Effect.runPromise(Effect.either(createMR("glpat-abc")))
     expect(result._tag).toBe("Left")

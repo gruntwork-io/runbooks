@@ -13,7 +13,7 @@
 import { Duration, Effect, Exit, Fiber, Layer } from "effect"
 import { BundleProducer } from "../services/BundleProducer.ts"
 import type { BundleProducerShape, BundleArtifact } from "../services/BundleProducer.ts"
-import type { InputsMapResult } from "../services/WasmRuntime.ts"
+import type { BundleSnapshot, InputsMapResult } from "../services/WasmRuntime.ts"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import { RenderError } from "../errors/index.ts"
 import { runBoilerplateCli } from "./WasmBoilerplate.ts"
@@ -88,22 +88,23 @@ function buildBundle(templateId: string, templatePath: string) {
     // The bundle field on the CLI output is the same shape WASM
     // expects; just re-serialize the inner object so we have it as a
     // JSON string ready for boilerplateRenderFiles.
-    const bundleJSON = JSON.stringify(parsed.bundle)
+    const bundle = parsed.bundle as BundleSnapshot
+    const bundleJSON = JSON.stringify(bundle)
 
     const artifact: BundleArtifact = {
       templateId,
       templatePath,
       inputsMap: parsed,
+      bundle,
       bundleJSON,
       producedAt: t0,
     }
     const elapsed = Date.now() - t0
-    // eslint-disable-next-line no-console
     console.log("[BundleProducer] built", {
       templateId,
       templatePath,
       elapsedMs: elapsed,
-      bundleFiles: Object.keys((parsed.bundle as { files?: Record<string, unknown> }).files ?? {}).length,
+      bundleFiles: Object.keys(bundle.files).length,
       outputs: Object.keys(parsed.files ?? {}).length,
     })
     return artifact

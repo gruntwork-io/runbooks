@@ -43,7 +43,8 @@ const USER_IDENTITY: GoogleIdentity = {
 }
 
 const KEY_PATH = "/home/dev/.config/gcloud/key.json"
-const KEY_JSON = '{"type":"service_account","client_email":"runbooks@my-project.iam.gserviceaccount.com"}'
+const KEY_JSON =
+  '{"type":"service_account","client_email":"runbooks@my-project.iam.gserviceaccount.com"}'
 const ADC_JSON = '{"type":"authorized_user","refresh_token":"1//refresh"}'
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,7 @@ const ADC_JSON = '{"type":"authorized_user","refresh_token":"1//refresh"}'
 
 describe("client wrappers", () => {
   it("validateServiceAccountKey delegates to the client", async () => {
-    let seen: { keyJson: string; projectId?: string } | undefined
+    let seen: { keyJson: string; projectId?: string | undefined } | undefined
     const layer = makeTestGoogleClient({
       validateServiceAccountKey: (keyJson, projectId) => {
         seen = { keyJson, projectId }
@@ -69,7 +70,7 @@ describe("client wrappers", () => {
   })
 
   it("validateAccessToken delegates to the client", async () => {
-    let seen: { accessToken: string; projectId?: string } | undefined
+    let seen: { accessToken: string; projectId?: string | undefined } | undefined
     const layer = makeTestGoogleClient({
       validateAccessToken: (accessToken, projectId) => {
         seen = { accessToken, projectId }
@@ -86,7 +87,7 @@ describe("client wrappers", () => {
   })
 
   it("validateAdcDocument delegates to the client", async () => {
-    let seen: { adcJson: string; projectId?: string } | undefined
+    let seen: { adcJson: string; projectId?: string | undefined } | undefined
     const layer = makeTestGoogleClient({
       validateAdcDocument: (adcJson, projectId) => {
         seen = { adcJson, projectId }
@@ -116,9 +117,7 @@ describe("client wrappers", () => {
       },
     })
 
-    const result = await Effect.runPromise(
-      readCredentialFile(KEY_PATH).pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(readCredentialFile(KEY_PATH).pipe(Effect.provide(layer)))
 
     expect(seen).toBe(KEY_PATH)
     expect(result).toEqual(adc)
@@ -151,9 +150,7 @@ describe("client wrappers", () => {
       listGcloudConfigurations: () => Effect.succeed(listing),
     })
 
-    const result = await Effect.runPromise(
-      listGcloudConfigurations().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(listGcloudConfigurations().pipe(Effect.provide(layer)))
 
     expect(result).toEqual(listing)
   })
@@ -179,9 +176,7 @@ describe("client wrappers", () => {
       },
     })
 
-    const result = await Effect.runPromise(
-      pollOAuthFlow("flow-1").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(pollOAuthFlow("flow-1").pipe(Effect.provide(layer)))
 
     expect(seen).toBe("flow-1")
     expect(result.status).toBe("pending")
@@ -203,7 +198,7 @@ describe("client wrappers", () => {
 
   it("listProjects delegates to the client", async () => {
     const projects = [{ projectId: "my-project", displayName: "My Project" }]
-    let seen: { query?: string; pageSize?: number } | undefined
+    let seen: { query?: string | undefined; pageSize?: number | undefined } | undefined
     const layer = makeTestGoogleClient({
       listProjects: (_creds, query, pageSize) => {
         seen = { query, pageSize }
@@ -360,9 +355,7 @@ describe("detectEnvCredentials", () => {
   it("detects a credentials file path", async () => {
     const layer = makeTestEnvironment({ GOOGLE_APPLICATION_CREDENTIALS: KEY_PATH })
 
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(result).toBeDefined()
     expect(result!.credentialsPath).toBe(KEY_PATH)
@@ -374,9 +367,7 @@ describe("detectEnvCredentials", () => {
   it("detects inline credentials JSON", async () => {
     const layer = makeTestEnvironment({ GOOGLE_CREDENTIALS: KEY_JSON })
 
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(result!.credentialsJson).toBe(KEY_JSON)
     expect(result!.envVar).toBe("GOOGLE_CREDENTIALS")
@@ -386,9 +377,7 @@ describe("detectEnvCredentials", () => {
   it("detects a bare access token", async () => {
     const layer = makeTestEnvironment({ CLOUDSDK_AUTH_ACCESS_TOKEN: "ya29.cloudsdk" })
 
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(result!.accessToken).toBe("ya29.cloudsdk")
     expect(result!.envVar).toBe("CLOUDSDK_AUTH_ACCESS_TOKEN")
@@ -435,9 +424,7 @@ describe("detectEnvCredentials", () => {
       CLOUDSDK_COMPUTE_REGION: "us-central1",
     })
 
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(result).toBeUndefined()
   })
@@ -508,9 +495,7 @@ describe("detectEnvCredentials", () => {
       GOOGLE_CLOUD_REGION: "europe-west1",
     })
 
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(result!.region).toBe("us-central1")
   })
@@ -563,9 +548,7 @@ describe("detectEnvCredentials", () => {
   it("treats an empty prefix as no prefix", async () => {
     const layer = makeTestEnvironment({ GOOGLE_APPLICATION_CREDENTIALS: KEY_PATH })
 
-    const result = await Effect.runPromise(
-      detectEnvCredentials("").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("").pipe(Effect.provide(layer)))
 
     expect(result!.credentialsPath).toBe(KEY_PATH)
   })
@@ -579,9 +562,7 @@ describe("confirmEnvCredentials", () => {
   it("fails with GoogleAuthError when no env credentials are found", async () => {
     const layer = Layer.merge(makeTestEnvironment({}), makeTestGoogleClient())
 
-    const exit = await Effect.runPromiseExit(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const exit = await Effect.runPromiseExit(confirmEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(Exit.isFailure(exit)).toBe(true)
 
@@ -594,7 +575,7 @@ describe("confirmEnvCredentials", () => {
 
   it("reads the credential file and validates it as a document", async () => {
     let readPath: string | undefined
-    let validated: { adcJson: string; projectId?: string } | undefined
+    let validated: { adcJson: string; projectId?: string | undefined } | undefined
     const layer = Layer.merge(
       makeTestEnvironment({
         GOOGLE_APPLICATION_CREDENTIALS: KEY_PATH,
@@ -612,9 +593,7 @@ describe("confirmEnvCredentials", () => {
       }),
     )
 
-    const result = await Effect.runPromise(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(confirmEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(readPath).toBe(KEY_PATH)
     expect(validated).toEqual({ adcJson: KEY_JSON, projectId: "my-project" })
@@ -636,9 +615,7 @@ describe("confirmEnvCredentials", () => {
       }),
     )
 
-    const result = await Effect.runPromise(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(confirmEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(read).toBe(false)
     expect(result.identity).toEqual(USER_IDENTITY)
@@ -646,7 +623,7 @@ describe("confirmEnvCredentials", () => {
   })
 
   it("validates a bare access token via tokeninfo", async () => {
-    let seen: { accessToken: string; projectId?: string } | undefined
+    let seen: { accessToken: string; projectId?: string | undefined } | undefined
     const layer = Layer.merge(
       makeTestEnvironment({
         GOOGLE_OAUTH_ACCESS_TOKEN: "ya29.oauth",
@@ -660,9 +637,7 @@ describe("confirmEnvCredentials", () => {
       }),
     )
 
-    const result = await Effect.runPromise(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(confirmEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(seen).toEqual({ accessToken: "ya29.oauth", projectId: "my-project" })
     expect(result.identity.credentialType).toBe("access_token")
@@ -674,7 +649,9 @@ describe("confirmEnvCredentials", () => {
       makeTestEnvironment({ GOOGLE_APPLICATION_CREDENTIALS: KEY_PATH }),
       makeTestGoogleClient({
         readCredentialFileContents: (_filePath) =>
-          Effect.fail(new GoogleConfigError({ message: "Failed to read credentials file: ENOENT" })),
+          Effect.fail(
+            new GoogleConfigError({ message: "Failed to read credentials file: ENOENT" }),
+          ),
       }),
     )
 
@@ -692,9 +669,7 @@ describe("confirmEnvCredentials", () => {
       makeTestGoogleClient(),
     )
 
-    const exit = await Effect.runPromiseExit(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const exit = await Effect.runPromiseExit(confirmEnvCredentials().pipe(Effect.provide(layer)))
 
     expect(Exit.isFailure(exit)).toBe(true)
   })

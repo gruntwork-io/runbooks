@@ -84,8 +84,7 @@ function makeFakeWasm(): WasmRuntimeShape {
           renderCalls.push({ template, varsJSON })
           return fakeGoTemplate(template, JSON.parse(varsJSON))
         },
-        catch: (err) =>
-          new WasmError({ message: (err as Error).message, kind: "internal" }),
+        catch: (err) => new WasmError({ message: (err as Error).message, kind: "internal" }),
       }),
     renderFiles: () => notImplemented("renderFiles") as never,
     prepareBundle: () => notImplemented("prepareBundle") as never,

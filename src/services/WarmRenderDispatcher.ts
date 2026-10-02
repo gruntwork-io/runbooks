@@ -41,8 +41,9 @@ export interface WarmRenderResult {
   readonly files: ReadonlyArray<WarmFile>
   /**
    * Paths that the WASM bridge couldn't render with kinds that route to
-   * cold (output_not_produced, dependency_not_in_bundle, dynamic_filename).
-   * Caller renders these via the cold subprocess.
+   * cold (output_not_produced, dependency_not_in_bundle, dynamic_filename),
+   * plus dirty analyzer paths the bridge can't address at all (a templated
+   * filename collapsed to `.`). Caller renders these via the cold subprocess.
    */
   readonly coldNeeded: ReadonlyArray<string>
   /**
@@ -58,8 +59,9 @@ export interface WarmRenderResult {
   readonly renderErrors: ReadonlyArray<WarmPerFileError>
   /**
    * Set when the bundle isn't warm-eligible (analyzer found zero output
-   * paths) or when the WASM runtime isn't loaded. The IPC handler should
-   * skip warm entirely and run the legacy cold path.
+   * paths, or a template declares partials the bundle doesn't hold) or when
+   * the WASM runtime isn't loaded. The IPC handler should skip warm entirely
+   * and run the legacy cold path.
    */
   readonly warmDisabled: boolean
   /** Reason warmDisabled is set, for debug logging only. */
@@ -87,6 +89,21 @@ export interface WarmRenderResult {
   readonly noChanges: boolean
 }
 
+/** The result that tells the IPC handler to skip warm and run cold only. */
+export function warmDisabledResult(disabledReason: WarmDisabledReason): WarmRenderResult {
+  return {
+    files: [],
+    coldNeeded: [],
+    skipped: [],
+    renderErrors: [],
+    warmDisabled: true,
+    disabledReason,
+    allKnownPaths: [],
+    attemptedPaths: [],
+    noChanges: false,
+  }
+}
+
 export interface WarmRenderDispatcherShape {
   /**
    * Attempt to render the template warm. Returns a result describing what
@@ -108,10 +125,7 @@ export interface WarmRenderDispatcherShape {
    * stored. A render that's superseded or fails before then must not commit,
    * so the next dirty set still includes the files it never wrote.
    */
-  readonly commit: (
-    templateId: string,
-    variables: Record<string, unknown>,
-  ) => Effect.Effect<void>
+  readonly commit: (templateId: string, variables: Record<string, unknown>) => Effect.Effect<void>
 
   /**
    * Drop all warm-render state: release every prepared handle, forget every

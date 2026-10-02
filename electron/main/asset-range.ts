@@ -23,7 +23,10 @@ export interface ByteRange {
  * there were no header. A header is ignored when it is malformed, uses a unit
  * other than bytes, or asks for several ranges (media elements never do).
  */
-export function parseByteRange(header: string | null | undefined, size: number): ByteRange | "unsatisfiable" | null {
+export function parseByteRange(
+  header: string | null | undefined,
+  size: number,
+): ByteRange | "unsatisfiable" | null {
   const match = /^bytes=(\d*)-(\d*)$/i.exec(header?.trim() ?? "")
   if (!match) return null
   const [, first, last] = match
@@ -74,7 +77,9 @@ export async function byteRangeResponse(
   }
 
   const { start, end } = range
-  const body = Readable.toWeb(fs.createReadStream(filePath, { start, end })) as ReadableStream<Uint8Array>
+  const body = Readable.toWeb(
+    fs.createReadStream(filePath, { start, end }),
+  ) as ReadableStream<Uint8Array>
   return new Response(body, {
     status: 206,
     headers: {

@@ -8,8 +8,9 @@
 // Import from the canonical src/types.ts so channels.ts and the backend
 // handlers share the same contract. Re-exported so consumers can import
 // these types from channels.ts directly.
-import type { ExecRequest, Section, SessionMetadata } from '../../src/types.ts'
+import type { ExecRequest, Section, SessionMetadata } from "../../src/types.ts"
 export type { ExecRequest, Section, SessionMetadata }
+import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -22,16 +23,30 @@ export interface IpcChannelMap {
      * `reload: "watch"` marks a reload for a watch-mode change: it keeps the
      * session's working dir, which any other load of the same runbook resets.
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
-     * which useIpc ignores.
+     * which useIpc ignores. `assetHost` is the host of the runbook's
+     * runbook-asset:// URLs, the only one the protocol handler serves.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
-    result: { path: string; content: string; contentHash: string; language: string; size: number; isWatchMode?: boolean; warnings?: string[]; remoteSource?: string }
+    result: {
+      path: string
+      content: string
+      contentHash: string
+      language: string
+      size: number
+      isWatchMode?: boolean
+      warnings?: string[]
+      remoteSource?: string
+      assetHost: string
+    }
   }
   "runbook:open-remote": {
     params: { url: string }
     result: { path: string; remoteSource: string }
   }
-  "runbook:executables": { params: void; result: { executables: Record<string, Executable>; warnings?: string[] } }
+  "runbook:executables": {
+    params: void
+    result: { executables: Record<string, Executable>; warnings?: string[] }
+  }
 
   // Session
   "session:get": { params: void; result: SessionMetadata }
@@ -39,7 +54,10 @@ export interface IpcChannelMap {
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
 
   // Execution
-  "exec:run": { params: ExecRequest; result: { status: { status: string; exitCode: number } | null; cancelled?: boolean } }
+  "exec:run": {
+    params: ExecRequest
+    result: { status: { status: string; exitCode: number } | null; cancelled?: boolean }
+  }
   // `executionId` targets a specific run; when omitted, the most-recent active
   // execution is cancelled (back-compat).
   "exec:cancel": { params: { executionId?: string }; result: { ok: true } }
@@ -50,12 +68,42 @@ export interface IpcChannelMap {
     result: BoilerplateConfig
   }
   "boilerplate:render": { params: RenderRequest; result: RenderResponse }
-  "boilerplate:render-inline": { params: RenderInlineRequest; result: { renderedFiles: Record<string, { content: string; name?: string; path?: string; language?: string; size?: number; isTruncated?: boolean }>; message?: string; fileTree?: unknown; meta?: unknown } }
+  "boilerplate:render-inline": {
+    params: RenderInlineRequest
+    result: {
+      renderedFiles: Record<
+        string,
+        {
+          content: string
+          name?: string
+          path?: string
+          language?: string
+          size?: number
+          isTruncated?: boolean
+        }
+      >
+      message?: string
+      fileTree?: unknown
+      meta?: unknown
+    }
+  }
 
   // AWS Authentication
   "aws:validate": {
-    params: { accessKeyId?: string; secretAccessKey?: string; sessionToken?: string; region?: string; credentials?: AwsCredentials }
-    result: { valid: boolean; accountId?: string; accountName?: string; arn?: string; error?: string }
+    params: {
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      region?: string
+      credentials?: AwsCredentials
+    }
+    result: {
+      valid: boolean
+      accountId?: string
+      accountName?: string
+      arn?: string
+      error?: string
+    }
   }
   "aws:profiles": {
     params: Record<string, never>
@@ -63,14 +111,28 @@ export interface IpcChannelMap {
   }
   "aws:sso-start": {
     params: { startUrl: string; region: string; accountId?: string; roleName?: string }
-    result: { verificationUri: string; userCode: string; deviceCode: string; clientId: string; clientSecret: string; error?: string }
+    result: {
+      verificationUri: string
+      userCode: string
+      deviceCode: string
+      clientId: string
+      clientSecret: string
+      error?: string
+    }
   }
   "aws:sso-roles": {
     params: { accessToken: string; accountId: string; region: string }
     result: { roles: SsoRole[]; error?: string }
   }
   "aws:sso-poll": {
-    params: { clientId: string; clientSecret: string; deviceCode: string; region: string; accountId?: string; roleName?: string }
+    params: {
+      clientId: string
+      clientSecret: string
+      deviceCode: string
+      region: string
+      accountId?: string
+      roleName?: string
+    }
     result: {
       status?: string
       accessToken?: string
@@ -149,7 +211,13 @@ export interface IpcChannelMap {
     }
   }
   "aws:check-region": {
-    params: { region: string; accessKeyId?: string; secretAccessKey?: string; sessionToken?: string; credentials?: AwsCredentials }
+    params: {
+      region: string
+      accessKeyId?: string
+      secretAccessKey?: string
+      sessionToken?: string
+      credentials?: AwsCredentials
+    }
     result: { enabled: boolean; warning?: string }
   }
 
@@ -219,7 +287,13 @@ export interface IpcChannelMap {
       scopes?: string[]
       loginHint?: string
     }
-    result: { flowId?: string; authUrl?: string; redirectUri?: string; expiresInSeconds?: number; error?: string }
+    result: {
+      flowId?: string
+      authUrl?: string
+      redirectUri?: string
+      expiresInSeconds?: number
+      error?: string
+    }
   }
   "google:oauth-poll": {
     // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
@@ -431,7 +505,15 @@ export interface IpcChannelMap {
     // IPC); `registerSession` makes MAIN write the session env on success
     // (the PAT path); the renderer never writes session credentials.
     params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number; host?: string } & VcsDetectionMeta
+    result: {
+      valid: boolean
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+      status?: number
+      host?: string
+    } & VcsDetectionMeta
   }
   "github:oauth-start": {
     // clientId/scopes are optional — main owns the defaults (the
@@ -442,7 +524,14 @@ export interface IpcChannelMap {
     params: { clientId?: string; scopes?: string[]; host?: string }
     // expiresIn: seconds until the device code expires; the renderer polls
     // until then.
-    result: { deviceCode: string; userCode: string; verificationUri: string; interval: number; expiresIn?: number; error?: string }
+    result: {
+      deviceCode: string
+      userCode: string
+      verificationUri: string
+      interval: number
+      expiresIn?: number
+      error?: string
+    }
   }
   "github:oauth-poll": {
     // the completion result is METADATA-ONLY — no access token crosses
@@ -497,7 +586,10 @@ export interface IpcChannelMap {
   "github:orgs": { params: { host?: string } | void; result: GitHubOrg[] }
   "github:repos": { params: { org: string; host?: string }; result: GitHubRepo[] }
   "github:refs": { params: { owner: string; repo: string; host?: string }; result: GitHubRef[] }
-  "github:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
+  "github:labels": {
+    params: { owner: string; repo: string; host?: string }
+    result: { labels?: string[] }
+  }
 
   // GitLab Authentication
   // Enumerate the known GitLab hosts for the picker:
@@ -526,15 +618,34 @@ export interface IpcChannelMap {
     // bare host from the picker (or an authored `host` prop); `instanceUrl` is a
     // manually-entered instance URL that overrides `host` when present.
     // registerSession/useSessionToken per github:validate (custody).
-    params: { token?: string; host?: string; instanceUrl?: string; registerSession?: boolean; useSessionToken?: boolean }
-    result: { valid: boolean; user?: GitHubUser; scopes?: string[]; tokenType?: string; error?: string; status?: number } & VcsDetectionMeta
+    params: {
+      token?: string
+      host?: string
+      instanceUrl?: string
+      registerSession?: boolean
+      useSessionToken?: boolean
+    }
+    result: {
+      valid: boolean
+      user?: GitHubUser
+      scopes?: string[]
+      tokenType?: string
+      error?: string
+      status?: number
+    } & VcsDetectionMeta
   }
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
     // call either channel with one payload shape; the gitlab handler ignores
     // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
     // overrides `host`) selects the instance to validate against.
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string; instanceUrl?: string }
+    params: {
+      envVar?: string
+      prefix?: string
+      githubAuthId?: string
+      host?: string
+      instanceUrl?: string
+    }
     result: {
       found: boolean
       valid?: boolean
@@ -562,7 +673,10 @@ export interface IpcChannelMap {
   }
   // `host` is the GitLab instance host the repo lives on (self-hosted or
   // gitlab.com), derived by the renderer from the repo's remote URL.
-  "gitlab:labels": { params: { owner: string; repo: string; host?: string }; result: { labels?: string[] } }
+  "gitlab:labels": {
+    params: { owner: string; repo: string; host?: string }
+    result: { labels?: string[] }
+  }
 
   // Git Operations
   "git:clone": {
@@ -588,19 +702,32 @@ export interface IpcChannelMap {
     params: GitLocalRepoRequest
     result: GitLocalRepoResponse
   }
-  "git:push": { params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }; result: { ok: true } | { error: string } }
+  "git:push": {
+    params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }
+    result: { ok: true } | { error: string }
+  }
   "git:init-default-branch": {
     params: { worktreePath: string; branch: string; provider?: "github" | "gitlab" }
     result: { branch: string } | { error: string }
   }
-  "git:pull-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
-  "git:merge-request": { params: PullRequestRequest; result: { url: string; number: number } | { error: string } }
+  "git:pull-request": {
+    params: PullRequestRequest
+    result: { url: string; number: number } | { error: string }
+  }
+  "git:merge-request": {
+    params: PullRequestRequest
+    result: { url: string; number: number } | { error: string }
+  }
   "git:delete-branch": { params: { worktreePath: string; branch: string }; result: { ok: true } }
 
   // Workspace
   "workspace:tree": {
     params: { worktreePath: string; subpath?: string }
-    result: { tree: WorkspaceTreeNode[]; totalFiles: number; gitInfo?: { branch: string; remoteUrl: string; commitSha: string } }
+    result: {
+      tree: WorkspaceTreeNode[]
+      totalFiles: number
+      gitInfo?: { branch: string; remoteUrl: string; commitSha: string }
+    }
   }
   "workspace:dirs": { params: { worktreePath: string }; result: { dirs?: string[] } }
   "workspace:file": {
@@ -616,7 +743,10 @@ export interface IpcChannelMap {
 
   // Generated Files
   "generated-files:check": { params: void; result: { hasFiles: boolean; fileCount: number } }
-  "generated-files:delete": { params: void; result: { ok: true; success?: boolean; deletedCount?: number; message?: string } }
+  "generated-files:delete": {
+    params: void
+    result: { ok: true; success?: boolean; deletedCount?: number; message?: string }
+  }
 
   // File Operations
   "file:read": { params: { path: string }; result: FileData }
@@ -625,7 +755,10 @@ export interface IpcChannelMap {
   "watch:subscribe": { params: void; result: { ok: true } }
 
   // Telemetry
-  "telemetry:config": { params: void; result: { enabled: boolean; token?: string; anonymousId?: string; version?: string } }
+  "telemetry:config": {
+    params: void
+    result: { enabled: boolean; token?: string; anonymousId?: string; version?: string }
+  }
 
   // CLI
   "cli:check-install": {
@@ -682,11 +815,15 @@ export interface IpcChannelMap {
 // Send channels (server-to-client events, replaces SSE)
 // ---------------------------------------------------------------------------
 
+/** What Edit > Find…, Find Next and Find Previous ask the renderer's find bar to do. */
+export type FindAction = "open" | "next" | "previous"
+
 export interface IpcEventMap {
   "exec:log": { line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { path: string }
   "exec:status": { status: string; exitCode: number }
-  "exec:outputs": { outputs: Record<string, string> }
+  /** Encoded, since a sensitive output's `Redacted` can't cross IPC (see encodeOutputs). */
+  "exec:outputs": { outputs: EncodedOutputValues }
   "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
   /**
    * `path` is the runbook the watcher watches (as runbook:get resolved it), so
@@ -704,6 +841,7 @@ export interface IpcEventMap {
   "menu:open-url-prompt": void
   "menu:close-runbook": void
   "menu:preferences": void
+  "menu:find": { action: FindAction }
   "registry:updated": void
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a

@@ -77,7 +77,10 @@ export interface ResolveOAuthClientInput {
 }
 
 export type ParseOAuthClientResult =
-  | { readonly ok: true; readonly value: { readonly clientId: string; readonly clientSecret: string } }
+  | {
+      readonly ok: true
+      readonly value: { readonly clientId: string; readonly clientSecret: string }
+    }
   | { readonly ok: false; readonly error: string }
 
 /**
@@ -146,9 +149,7 @@ export function parseOAuthClientCredentialsJson(text: string): ParseOAuthClientR
   const clientId =
     typeof installedRecord.client_id === "string" ? installedRecord.client_id.trim() : ""
   const clientSecret =
-    typeof installedRecord.client_secret === "string"
-      ? installedRecord.client_secret.trim()
-      : ""
+    typeof installedRecord.client_secret === "string" ? installedRecord.client_secret.trim() : ""
 
   if (!clientId) {
     return {

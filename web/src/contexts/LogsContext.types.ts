@@ -1,5 +1,5 @@
-import { createContext } from 'react'
-import type { LogEntry } from '@/hooks/useApiExec'
+import { createContext } from "react"
+import type { LogEntry } from "@/hooks/useApiExec"
 
 export interface LogsContextType {
   /** Register or update logs for a specific block (component) */
@@ -13,4 +13,3 @@ export interface LogsContextType {
 }
 
 export const LogsContext = createContext<LogsContextType | undefined>(undefined)
-

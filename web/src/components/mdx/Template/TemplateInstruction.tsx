@@ -1,22 +1,22 @@
-import { useMemo, useState, useCallback, useEffect } from 'react'
-import { FileCode } from 'lucide-react'
-import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
-import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
-import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
-import { CodeBlock } from '../_shared/components/CodeBlock'
-import { BlockIdLabel } from '../_shared/components/BlockIdLabel'
-import { CompletionCheckbox } from '../_shared/components/CompletionCheckbox'
-import { useBlockCompletion } from '../_shared/hooks/useBlockCompletion'
-import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
-import { useRunbookContext, useInputs, flattenInputs } from '@/contexts/useRunbook'
-import { buildBoilerplateInvocation } from '@/components/mdx/_shared/lib/instructionCommands'
-import { useSharedTemplateVars } from './useSharedTemplateVars'
+import { useMemo, useState, useCallback, useEffect } from "react"
+import { FileCode } from "lucide-react"
+import { BoilerplateInputsForm } from "../_shared/components/BoilerplateInputsForm"
+import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
+import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
+import { CodeBlock } from "../_shared/components/CodeBlock"
+import { BlockIdLabel } from "../_shared/components/BlockIdLabel"
+import { CompletionCheckbox } from "../_shared/components/CompletionCheckbox"
+import { useBlockCompletion } from "../_shared/hooks/useBlockCompletion"
+import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
+import { useRunbookContext, useInputs, flattenInputs } from "@/contexts/useRunbook"
+import { buildBoilerplateInvocation } from "@/components/mdx/_shared/lib/instructionCommands"
+import { useSharedTemplateVars } from "./useSharedTemplateVars"
 
 interface TemplateInstructionProps {
   id: string
   path: string
   inputsId?: string | string[]
-  target?: 'generated' | 'worktree'
+  target?: "generated" | "worktree"
 }
 
 /**
@@ -32,7 +32,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   const inputs = useInputs(inputsId)
   const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
 
-  const { data: config, isLoading, error } = useApiGetBoilerplateConfig(path, '', true)
+  const { data: config, isLoading, error } = useApiGetBoilerplateConfig(path, "", true)
 
   // Same shared-variable handling as the interactive Template: variables that
   // are also imported are read-only in the form and live-synced to the imported
@@ -61,7 +61,11 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   // imported (live) value always wins.
   useEffect(() => {
     if (config) {
-      registerInputs(id, { ...inputValues, ...initialData, ...formValues, ...liveVarValues }, config)
+      registerInputs(
+        id,
+        { ...inputValues, ...initialData, ...formValues, ...liveVarValues },
+        config,
+      )
     }
   }, [config, id, inputValues, initialData, formValues, liveVarValues, registerInputs])
 
@@ -86,7 +90,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
       data-instruction-mode="true"
       data-completed={completed || undefined}
       className={`runbook-block relative rounded-sm border mb-5 p-4 ${
-        completed ? 'border-success/40 bg-success-muted' : 'border-border bg-muted/40'
+        completed ? "border-success/40 bg-success-muted" : "border-border bg-muted/40"
       }`}
     >
       <div className="absolute top-3 right-3 z-20">
@@ -95,7 +99,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
 
       <div className="flex">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <FileCode className={`size-6 ${completed ? 'text-success' : 'text-muted-foreground'}`} />
+          <FileCode className={`size-6 ${completed ? "text-success" : "text-muted-foreground"}`} />
         </div>
 
         <div className="flex-1 min-w-0 space-y-3">
