@@ -59,6 +59,7 @@ export function openSessionStorage(userDataDir: string): SessionStorage {
       dirsRoot,
       cipher: safeStorageCipher(),
       ephemeralFileEnvVars: GOOGLE_CREDENTIAL_FILE_ENV_VARS,
+      random: () => Math.random(),
       onSaveError: (err) => {
         log.error("Failed to save the session:", err)
       },

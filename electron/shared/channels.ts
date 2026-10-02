@@ -25,8 +25,9 @@ export interface IpcChannelMap {
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
      * which useIpc ignores. `assetHost` is the host of the runbook's
      * runbook-asset:// URLs, the only one the protocol handler serves.
-     * `sessionId` names the session the runbook was opened in: File > New Session
-     * reloads the same runbook under a new one.
+     * `sessionId` identifies the session the runbook was opened in: File > Reset
+     * Session reloads the same runbook under a new one. `sessionName` is what
+     * the title bar shows it as, e.g. `elegant-elephant`.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
     result: {
@@ -40,6 +41,7 @@ export interface IpcChannelMap {
       remoteSource?: string
       assetHost: string
       sessionId: string
+      sessionName: string
     }
   }
   "runbook:open-remote": {
@@ -825,8 +827,8 @@ export interface IpcChannelMap {
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
   "native:close-runbook": { params: void; result: { ok: true } }
-  /** Start a new session for the open runbook, as File > New Session does. */
-  "native:new-session": { params: void; result: { ok: true } }
+  /** Replace the open runbook's session with a new one, as File > Reset Session does. */
+  "native:reset-session": { params: void; result: { ok: true } }
   "native:get-cli-config": {
     params: void
     result: {

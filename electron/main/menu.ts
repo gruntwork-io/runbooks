@@ -18,7 +18,7 @@ import type { FindAction } from "../shared/channels.ts"
 import { getMainWindow } from "./window.ts"
 import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
 import { runbookConfig } from "./ipc/runtime.ts"
-import { startNewSession } from "./ipc/runbook.ts"
+import { resetToNewSession } from "./ipc/runbook.ts"
 import { closeRunbook } from "./ipc/watch.ts"
 import { makeLogger } from "./logger.ts"
 
@@ -186,10 +186,10 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       },
       { type: "separator" },
       {
-        id: "new-session",
-        label: "New Session",
-        accelerator: "CmdOrCtrl+Shift+N",
-        click: () => startNewSession(),
+        // No accelerator: it discards what the runbook's blocks have done.
+        id: "reset-session",
+        label: "Reset Session",
+        click: () => resetToNewSession(),
       },
       {
         label: "Close Runbook",

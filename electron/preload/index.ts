@@ -90,7 +90,7 @@ const INVOKE_CHANNELS = {
   "native:show-open-dialog": true,
   "native:open-runbook-dialog": true,
   "native:close-runbook": true,
-  "native:new-session": true,
+  "native:reset-session": true,
   "native:get-cli-config": true,
   "native:set-theme": true,
 } satisfies Record<InvokeChannel, true>

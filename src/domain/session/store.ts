@@ -47,6 +47,8 @@ export interface StoredSessionState {
 
 export interface SessionRecord extends StoredSessionState, RunbookSource {
   id: string
+  /** What the app shows the session as, e.g. `elegant-elephant` (names.ts). No two sessions share one. */
+  name: string
   /** The session's own directory, where its scripts start and its files are written. */
   dir: string
   /** The directory `runbooks` was last run from to start this session. */
@@ -58,6 +60,7 @@ export interface SessionRecord extends StoredSessionState, RunbookSource {
 /** A `sessions` row. Both tables are STRICT, so each column has its declared type. */
 interface SessionRow {
   id: string
+  name: string
   runbook_path: string
   remote_source: string | null
   dir: string
@@ -74,6 +77,7 @@ interface SessionRow {
 const MIGRATIONS = [
   `CREATE TABLE sessions (
      id TEXT PRIMARY KEY,
+     name TEXT NOT NULL UNIQUE,
      runbook_path TEXT NOT NULL,
      remote_source TEXT,
      dir TEXT NOT NULL,
@@ -130,12 +134,13 @@ export class SessionStore {
         this.db
           .prepare(
             `INSERT INTO sessions (
-               id, runbook_path, remote_source, dir, working_dir, launch_dir, env,
+               id, name, runbook_path, remote_source, dir, working_dir, launch_dir, env,
                active_worktree, execution_count, created_at, last_launched_at, last_activity_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             record.id,
+            record.name,
             record.path,
             record.remoteSource ?? null,
             record.dir,
@@ -155,6 +160,14 @@ export class SessionStore {
 
   get(id: string): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
     return this.selectOne("WHERE id = ?", [id])
+  }
+
+  /** Whether a session already has this name. */
+  isNameTaken(name: string): Effect.Effect<boolean, SessionStoreError> {
+    return attempt("look up a session name", () => {
+      const row = this.db.prepare("SELECT 1 FROM sessions WHERE name = ?").get(name)
+      return row !== undefined
+    })
   }
 
   /** The most recently launched session of `runbook`. */
@@ -253,6 +266,7 @@ export class SessionStore {
         .all(row.id) as Array<{ path: string }>
       return {
         id: row.id,
+        name: row.name,
         path: row.runbook_path,
         remoteSource: row.remote_source ?? undefined,
         dir: row.dir,

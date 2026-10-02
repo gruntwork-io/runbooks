@@ -29,7 +29,7 @@ import {
   sessionPersistence,
   setSessionPersistence,
 } from "./ipc/runtime.ts"
-import { expectLaunch, isSessionOpen, startNewSession } from "./ipc/runbook.ts"
+import { expectLaunch, isSessionOpen, resetToNewSession } from "./ipc/runbook.ts"
 import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
@@ -399,10 +399,11 @@ ipcMain.handle("native:close-runbook", () => {
   return { ok: true } as const
 })
 
-// The in-app "New Session" menu item (Header dropdown): on Windows and Linux
-// the native menu bar is hidden, so File > New Session is only an accelerator.
-ipcMain.handle("native:new-session", () => {
-  startNewSession()
+// The in-app "Reset Session" menu item (Header dropdown). On Windows and Linux
+// the native menu bar is hidden, so this is the only way to File > Reset
+// Session there.
+ipcMain.handle("native:reset-session", () => {
+  resetToNewSession()
   return { ok: true } as const
 })
 

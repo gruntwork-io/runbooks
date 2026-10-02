@@ -23,6 +23,7 @@ describe("sessionToResume", () => {
       dirsRoot: path.join(tmp, "dirs"),
       cipher: { encrypt: () => undefined, decrypt: () => undefined },
       ephemeralFileEnvVars: [],
+      random: () => Math.random(),
       onSaveError: () => {},
     })
   })
@@ -36,6 +37,7 @@ describe("sessionToResume", () => {
     const runbook = path.join(tmp, `${overrides.id}.mdx`)
     fs.writeFileSync(runbook, "# Runbook\n")
     const session: SessionRecord = {
+      name: `name-of-${overrides.id}`,
       path: runbook,
       remoteSource: undefined,
       dir: path.join(tmp, "dirs", overrides.id),

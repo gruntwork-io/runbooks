@@ -24,8 +24,11 @@ describe("SessionPersistence", () => {
   let dbFile: string
   let processEnv: Record<string, string>
   let saveErrors: unknown[]
+  /** Picks the words of session names; a test replaces it to force collisions. */
+  let random: () => number
 
   beforeEach(() => {
+    random = () => Math.random()
     // realpath: os.tmpdir() is a symlink on macOS, and session dirs are real paths.
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-persistence-")))
     dirsRoot = path.join(root, "dirs")
@@ -55,6 +58,7 @@ describe("SessionPersistence", () => {
       dirsRoot,
       cipher,
       ephemeralFileEnvVars: ["CREDENTIALS_FILE"],
+      random: () => random(),
       onSaveError: (err) => saveErrors.push(err),
     })
     const open = (request: Partial<Parameters<SessionPersistence["open"]>[0]> = {}) =>
@@ -79,7 +83,47 @@ describe("SessionPersistence", () => {
     expect(fs.statSync(session.dir).isDirectory()).toBe(true)
     expect(await run(app.manager.getMetadata())).toMatchObject({ workingDir: session.dir })
     expect(app.manager.getRunbookPath()).toBe("/repo/runbook.mdx")
-    expect(app.persistence.currentSessionId()).toBe(session.id)
+    expect(app.persistence.currentSession()).toEqual(session)
+  })
+
+  describe("session names", () => {
+    it("names a session adjective-noun and keeps the name when it is resumed", async () => {
+      const first = startApp()
+      const session = await first.open()
+      expect(session.name).toMatch(/^[a-z]+-[a-z]+$/)
+      first.quit()
+
+      const second = startApp()
+
+      expect((await second.open()).name).toBe(session.name)
+    })
+
+    it("gives a new session another name than the one it replaces", async () => {
+      const app = startApp()
+      const first = await app.open()
+
+      const second = await app.open({ startNew: true })
+
+      expect(second.name).toMatch(/^[a-z]+-[a-z]+$/)
+      expect(second.name).not.toBe(first.name)
+    })
+
+    it("numbers a name when every random pick is taken, and ends on the session id", async () => {
+      // Always the first adjective and the first noun.
+      random = () => 0
+      const app = startApp()
+
+      const names: string[] = []
+      for (let i = 0; i < 20; i++) names.push((await app.open({ startNew: true })).name)
+      const last = await app.open({ startNew: true })
+
+      expect(names).toEqual([
+        "agile-acorn",
+        ...Array.from({ length: 19 }, (_, i) => `agile-acorn-${i + 2}`),
+      ])
+      // Every numbered name is taken too: the session's own id can't be.
+      expect(last.name).toBe(`agile-acorn-${last.id}`)
+    })
   })
 
   it("resumes the runbook's session in a later run, with what its scripts left behind", async () => {

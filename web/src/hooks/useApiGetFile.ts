@@ -17,6 +17,8 @@ export interface GetFileReturn {
   assetHost?: string
   /** The session the runbook was opened in (runbook:get only) */
   sessionId?: string
+  /** The name the title bar shows that session as, e.g. `elegant-elephant` (runbook:get only) */
+  sessionName?: string
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {

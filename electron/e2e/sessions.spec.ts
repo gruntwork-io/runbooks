@@ -4,7 +4,7 @@
  * Launches the real app on a throwaway runbook and profile, quits it, and
  * launches it again: a session's directory, environment and working directory
  * come back, `runbooks` with no arguments resumes the session last launched
- * from that directory, and File > New Session starts over.
+ * from that directory, and File > Reset Session starts over.
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
@@ -131,6 +131,13 @@ test.describe("Saved sessions", () => {
     return pwd.replace(/^pwd=/, "")
   }
 
+  /** The session name the title bar shows. */
+  async function sessionName(page: Page): Promise<string> {
+    const name = page.getByTestId("session-name")
+    await expect(name).toHaveText(/^[a-z]+-[a-z]+$/)
+    return name.innerText()
+  }
+
   test("opens the sessions database without Node's experimental-SQLite warning", async () => {
     // Started directly, not through Playwright: the database opens before the
     // first window exists, and Playwright hands over the process only then,
@@ -163,8 +170,11 @@ test.describe("Saved sessions", () => {
   test("runs scripts in a directory of the session's own, and resumes it on the next launch", async () => {
     const first = await launch(terminalDir("project"), [runbookDir])
     let sessionDir: string
+    let name: string
     try {
       await expectRunbook(first.page)
+      name = await sessionName(first.page)
+      await expect(first.page).toHaveTitle(`${name} - Gruntwork Runbooks`)
       sessionDir = await showSession(first.page, "unset")
       expect(path.dirname(sessionDir)).toBe(sessionDirs)
       await run(first.page, "save")
@@ -175,6 +185,7 @@ test.describe("Saved sessions", () => {
     const second = await launch(terminalDir("project"), [runbookDir])
     try {
       await expectRunbook(second.page)
+      expect(await sessionName(second.page)).toBe(name)
       // The export and the `cd` of the first run's block are both back.
       expect(await showSession(second.page, "from-first-run")).toBe(path.join(sessionDir, "work"))
     } finally {
@@ -224,12 +235,14 @@ test.describe("Saved sessions", () => {
     }
   })
 
-  test("File > New Session starts over in a new directory, and is what the next launch resumes", async () => {
+  test("File > Reset Session starts over in a new directory, and is what the next launch resumes", async () => {
     const first = await launch(terminalDir("project"), [runbookDir])
     let firstDir: string
     let secondDir: string
+    let secondName: string
     try {
       await expectRunbook(first.page)
+      const firstName = await sessionName(first.page)
       firstDir = await showSession(first.page, "unset")
       await run(first.page, "save")
       await showSession(first.page, "from-first-run")
@@ -237,12 +250,16 @@ test.describe("Saved sessions", () => {
       await runInMain(
         first.app,
         ({ Menu }) => {
-          const item = Menu.getApplicationMenu()?.getMenuItemById("new-session")
-          if (!item) throw new Error("no New Session menu item")
+          const item = Menu.getApplicationMenu()?.getMenuItemById("reset-session")
+          if (!item) throw new Error("no Reset Session menu item")
           item.click()
         },
         undefined,
       )
+
+      // The title bar shows the session that replaced the first one.
+      await expect(first.page.getByTestId("session-name")).not.toHaveText(firstName)
+      secondName = await sessionName(first.page)
 
       // The blocks start over: the earlier run's output is gone.
       const show = first.page.locator('[data-testid="show"]')
@@ -259,6 +276,7 @@ test.describe("Saved sessions", () => {
     const second = await launch(terminalDir("project"), [runbookDir])
     try {
       await expectRunbook(second.page)
+      expect(await sessionName(second.page)).toBe(secondName)
       expect(await showSession(second.page, "unset")).toBe(secondDir)
     } finally {
       await second.app.close()

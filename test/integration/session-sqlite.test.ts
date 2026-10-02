@@ -16,6 +16,7 @@ import { SessionStore, type SessionRecord } from "../../src/domain/session/store
 
 const session: SessionRecord = {
   id: "s1",
+  name: "elegant-elephant",
   path: "/repo/runbook.mdx",
   remoteSource: "https://github.com/acme/runbooks//deploy",
   dir: "/sessions/dirs/s1",
@@ -75,7 +76,12 @@ describe("SessionStore over node:sqlite", () => {
     const store = Effect.runSync(SessionStore.open(openSqliteDatabase(file)))
     Effect.runSync(store.insert(session))
     Effect.runSync(
-      store.insert({ ...session, id: "s2", lastLaunchedAt: "2026-01-05T00:00:00.000Z" }),
+      store.insert({
+        ...session,
+        id: "s2",
+        name: "brave-otter",
+        lastLaunchedAt: "2026-01-05T00:00:00.000Z",
+      }),
     )
 
     Effect.runSync(

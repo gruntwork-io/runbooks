@@ -232,7 +232,7 @@ describe("exec:run captured env", () => {
     expect(ctx.env.FROM_SCRIPT).toBeUndefined()
     // Still the other runbook's own session directory, not the script's `cd`.
     expect(ctx.workDir).toBe(
-      nodePath.join(sessions.dirsRoot, sessions.persistence.currentSessionId()!),
+      nodePath.join(sessions.dirsRoot, sessions.persistence.currentSession()!.id),
     )
   }, 30000)
 })

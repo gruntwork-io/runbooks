@@ -71,7 +71,7 @@ Runbooks captures the environment in its own `EXIT` handler, so it intercepts `t
 
 ### One session per runbook
 
-The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To start over, reset the environment with the session controls in the UI or choose **File > New Session**.
+The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To reset the environment, use the session controls in the UI. To start the runbook over, choose **File > Reset Session**.
 
 ### Starting environment
 

@@ -42,6 +42,9 @@ const RUNBOOKS: Record<string, RunbookFixture> = {
   "/work/c": { path: "/work/c/runbook.mdx", content: "# Runbook C\n" },
 }
 
+/** The names of a runbook's first session and of the one a reset replaces it with. */
+const SESSION_NAMES = ["elegant-elephant", "brave-otter"]
+
 const NO_RUNBOOK_MESSAGE = (dir: string) =>
   `This folder doesn't contain a runbook.mdx file:\n\n${dir}\n\nChoose a folder that contains a runbook.mdx file, or select a runbook file directly.`
 
@@ -88,6 +91,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
             warnings: [],
             remoteSource: params?.remoteSource,
             sessionId: `session-${sessionCounts.get(fixture.path) ?? 0}`,
+            sessionName: SESSION_NAMES[sessionCounts.get(fixture.path) ?? 0],
           }
         }
         case "generated-files:check": {
@@ -128,7 +132,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
   }
 
   /**
-   * What File > New Session does in main: the next `runbook:get` for the open
+   * What File > Reset Session does in main: the next `runbook:get` for the open
    * runbook answers with a new session, and main asks the renderer to load it.
    */
   const newSession = async () => {
@@ -279,6 +283,25 @@ describe("App runbook switching", () => {
     expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
       sessionKey: "/work/a/runbook.mdx\nsession-1",
     })
+  })
+
+  it("shows the session's name in the header and the window title", async () => {
+    const { emit, newSession } = renderApp()
+    expect(screen.queryByTestId("session-name")).not.toBeInTheDocument()
+
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(screen.getByTestId("session-name")).toHaveTextContent("elegant-elephant")
+    expect(document.title).toBe("elegant-elephant - Gruntwork Runbooks")
+
+    // A reset replaces the session, and the name with it.
+    await newSession()
+    await waitFor(() => expect(screen.getByTestId("session-name")).toHaveTextContent("brave-otter"))
+    expect(document.title).toBe("brave-otter - Gruntwork Runbooks")
+
+    await emit("menu:close-runbook")
+    expect(await screen.findByText("Welcome")).toBeInTheDocument()
+    expect(screen.queryByTestId("session-name")).not.toBeInTheDocument()
+    expect(document.title).toBe("Gruntwork Runbooks")
   })
 
   it("clears the previous runbook logs when it is closed before the next one opens", async () => {
