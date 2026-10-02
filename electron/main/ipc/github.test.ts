@@ -237,8 +237,8 @@ describe("github:oauth-start", () => {
     const result = await invoke("github:oauth-start", { host: GHES, clientId: "Iv1.ghes" })
     expect(result.userCode).toBe("UC-123")
     expect(fetchCalls).toHaveLength(1)
-    expect(fetchCalls[0].url).toBe(`https://${GHES}/login/device/code`)
-    expect(JSON.parse(fetchCalls[0].body!)).toEqual({
+    expect(fetchCalls[0]?.url).toBe(`https://${GHES}/login/device/code`)
+    expect(JSON.parse(fetchCalls[0]!.body!)).toEqual({
       client_id: "Iv1.ghes",
       scope: "repo read:org",
     })
@@ -246,8 +246,8 @@ describe("github:oauth-start", () => {
 
   it("github.com (default host) uses the Gruntwork default client ID", async () => {
     await invoke("github:oauth-start", {})
-    expect(fetchCalls[0].url).toBe("https://github.com/login/device/code")
-    expect(JSON.parse(fetchCalls[0].body!).client_id).toBe(DEFAULT_GITHUB_OAUTH_CLIENT_ID)
+    expect(fetchCalls[0]?.url).toBe("https://github.com/login/device/code")
+    expect(JSON.parse(fetchCalls[0]!.body!).client_id).toBe(DEFAULT_GITHUB_OAUTH_CLIENT_ID)
   })
 })
 
@@ -319,7 +319,7 @@ describe("github:validate", () => {
       host: `https://${GHEC}/o/r`,
       registerSession: true,
     })
-    expect(fetchCalls[0].url).toBe(`https://api.${GHEC}/user`)
+    expect(fetchCalls[0]?.url).toBe(`https://api.${GHEC}/user`)
     const env = await sessionEnv()
     expect(env.GITHUB_HOST).toBe(GHEC)
     expect(env.GH_HOST).toBe(GHEC)
@@ -328,7 +328,7 @@ describe("github:validate", () => {
 
   it("github.com (no host): unchanged, not added to the enterprise recents", async () => {
     await invoke("github:validate", { token: "ghp_pat", registerSession: true })
-    expect(fetchCalls[0].url).toBe("https://api.github.com/user")
+    expect(fetchCalls[0]?.url).toBe("https://api.github.com/user")
     const env = await sessionEnv()
     expect(env.GITHUB_HOST).toBe("github.com")
     expect(env.GH_ENTERPRISE_TOKEN).toBeUndefined()
@@ -483,15 +483,15 @@ describe("github:orgs (session credential per host)", () => {
     fetchCalls = []
     const orgs = await invoke("github:orgs", { host: GHES })
     expect(orgs).toEqual([{ id: 1, login: "corp", name: undefined }])
-    expect(fetchCalls[0].url).toBe(`https://${GHES}/api/v3/user/orgs?per_page=100&page=1`)
-    expect(fetchCalls[0].authorization).toBe("Bearer ghp_ghes")
+    expect(fetchCalls[0]?.url).toBe(`https://${GHES}/api/v3/user/orgs?per_page=100&page=1`)
+    expect(fetchCalls[0]?.authorization).toBe("Bearer ghp_ghes")
   })
 
   it("host omitted → the session's GitHub host", async () => {
     await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
     fetchCalls = []
     await invoke("github:orgs")
-    expect(fetchCalls[0].url.startsWith(`https://${GHES}/api/v3/`)).toBe(true)
+    expect(fetchCalls[0]!.url.startsWith(`https://${GHES}/api/v3/`)).toBe(true)
   })
 
   it("a different host gets no token and no request", async () => {
@@ -517,7 +517,7 @@ describe("github:labels", () => {
     // The renderer reads `result.labels`; a bare array leaves the pull
     // request's label picker empty.
     expect(result).toEqual({ labels: ["bug", "infra"] })
-    expect(fetchCalls[0].url).toBe(
+    expect(fetchCalls[0]?.url).toBe(
       `https://${GHES}/api/v3/repos/acme/infra/labels?per_page=100&page=1`,
     )
   })
@@ -567,15 +567,15 @@ describe("github:enumerate-hosts", () => {
       "github.com",
       "recent-ghes.example.com",
     ])
-    expect(hosts["github.com"].sources).toEqual(["gh"])
-    expect(hosts[GHES].sources.sort()).toEqual(["gh", "recent", "session"])
-    expect(hosts[GHEC].sources).toEqual(["env"])
-    expect(hosts["recent-ghes.example.com"].sources).toEqual(["recent"])
+    expect(hosts["github.com"]?.sources).toEqual(["gh"])
+    expect(hosts[GHES]!.sources.sort()).toEqual(["gh", "recent", "session"])
+    expect(hosts[GHEC]?.sources).toEqual(["env"])
+    expect(hosts["recent-ghes.example.com"]?.sources).toEqual(["recent"])
     // offline credential check
-    expect(hosts["github.com"].hasCredential).toBe(true) // hosts.yml token
-    expect(hosts[GHES].hasCredential).toBe(true) // hosts.yml entry (keyring)
-    expect(hosts[GHEC].hasCredential).toBe(true) // GITHUB_TOKEN bound by GH_HOST
-    expect(hosts["recent-ghes.example.com"].hasCredential).toBe(false)
+    expect(hosts["github.com"]?.hasCredential).toBe(true) // hosts.yml token
+    expect(hosts[GHES]?.hasCredential).toBe(true) // hosts.yml entry (keyring)
+    expect(hosts[GHEC]?.hasCredential).toBe(true) // GITHUB_TOKEN bound by GH_HOST
+    expect(hosts["recent-ghes.example.com"]?.hasCredential).toBe(false)
     // no persisted pick → GH_HOST
     expect(result.defaultHost).toBe(GHEC)
   })
@@ -605,11 +605,11 @@ describe("github:enumerate-hosts", () => {
 
   it("GITHUB_TOKEN counts as a github.com credential only when not rebound by GH_HOST", async () => {
     process.env.GITHUB_TOKEN = "ghp_x"
-    expect(byHost(await invoke("github:enumerate-hosts", {}))["github.com"].hasCredential).toBe(
+    expect(byHost(await invoke("github:enumerate-hosts", {}))["github.com"]?.hasCredential).toBe(
       true,
     )
     process.env.GH_HOST = GHEC
-    expect(byHost(await invoke("github:enumerate-hosts", {}))["github.com"].hasCredential).toBe(
+    expect(byHost(await invoke("github:enumerate-hosts", {}))["github.com"]?.hasCredential).toBe(
       false,
     )
   })
@@ -619,9 +619,9 @@ describe("github:enumerate-hosts", () => {
     process.env.GH_ENTERPRISE_TOKEN = "ghp_e"
     writeVcsAuthStore({ recentGitLabHosts: [], recentGitHubHosts: ["other-ghes.example.com"] })
     const hosts = byHost(await invoke("github:enumerate-hosts", {}))
-    expect(hosts[GHES].hasCredential).toBe(true)
-    expect(hosts["other-ghes.example.com"].hasCredential).toBe(false)
-    expect(hosts["github.com"].hasCredential).toBe(false)
+    expect(hosts[GHES]?.hasCredential).toBe(true)
+    expect(hosts["other-ghes.example.com"]?.hasCredential).toBe(false)
+    expect(hosts["github.com"]?.hasCredential).toBe(false)
   })
 })
 

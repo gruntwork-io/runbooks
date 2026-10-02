@@ -29,9 +29,9 @@ variables:
     description: "The project name"
 `)
     expect(result.variables).toHaveLength(1)
-    expect(result.variables[0].name).toBe("project_name")
-    expect(result.variables[0].description).toBe("The project name")
-    expect(result.variables[0].type).toBe("string")
+    expect(result.variables[0]!.name).toBe("project_name")
+    expect(result.variables[0]!.description).toBe("The project name")
+    expect(result.variables[0]!.type).toBe("string")
   })
 
   it("coerces variable types correctly", async () => {
@@ -67,7 +67,7 @@ variables:
   - name: x
     type: foobar
 `)
-    expect(result.variables[0].type).toBe("string")
+    expect(result.variables[0]!.type).toBe("string")
   })
 
   it("preserves default value", async () => {
@@ -76,7 +76,7 @@ variables:
   - name: region
     default: us-east-1
 `)
-    expect(result.variables[0].default).toBe("us-east-1")
+    expect(result.variables[0]!.default).toBe("us-east-1")
   })
 
   it("preserves enum options", async () => {
@@ -86,7 +86,7 @@ variables:
     type: enum
     options: ["dev", "staging", "prod"]
 `)
-    expect(result.variables[0].options).toEqual(["dev", "staging", "prod"])
+    expect(result.variables[0]!.options).toEqual(["dev", "staging", "prod"])
   })
 
   it("surfaces x-options on a list as options (multi-select)", async () => {
@@ -100,8 +100,8 @@ variables:
       - us-west-2
       - eu-west-1
 `)
-    expect(result.variables[0].type).toBe("list")
-    expect(result.variables[0].options).toEqual(["us-east-1", "us-west-2", "eu-west-1"])
+    expect(result.variables[0]!.type).toBe("list")
+    expect(result.variables[0]!.options).toEqual(["us-east-1", "us-west-2", "eu-west-1"])
   })
 
   it("ignores x-options on a plain list when absent", async () => {
@@ -110,7 +110,7 @@ variables:
   - name: catalog_repos
     type: list
 `)
-    expect(result.variables[0].options).toBeUndefined()
+    expect(result.variables[0]!.options).toBeUndefined()
   })
 
   it("drops non-string x-options entries from untyped YAML", async () => {
@@ -124,7 +124,7 @@ variables:
       - true
       - eu-west-1
 `)
-    expect(result.variables[0].options).toEqual(["us-east-1", "eu-west-1"])
+    expect(result.variables[0]!.options).toEqual(["us-east-1", "eu-west-1"])
   })
 
   it("leaves options unset when no x-options entry is a string", async () => {
@@ -136,7 +136,7 @@ variables:
       - 123
       - true
 `)
-    expect(result.variables[0].options).toBeUndefined()
+    expect(result.variables[0]!.options).toBeUndefined()
   })
 
   it("detects sensitive flag", async () => {
@@ -145,7 +145,7 @@ variables:
   - name: secret
     sensitive: true
 `)
-    expect(result.variables[0].sensitive).toBe(true)
+    expect(result.variables[0]!.sensitive).toBe(true)
   })
 
   it("maps required validation and sets isRequired", async () => {
@@ -155,9 +155,9 @@ variables:
     validations:
       - type: required
 `)
-    expect(result.variables[0].required).toBe(true)
-    expect(result.variables[0].validations).toHaveLength(1)
-    expect(result.variables[0].validations[0].type).toBe("required")
+    expect(result.variables[0]!.required).toBe(true)
+    expect(result.variables[0]!.validations).toHaveLength(1)
+    expect(result.variables[0]!.validations[0]!.type).toBe("required")
   })
 
   it("accepts the YAML shorthand validation form (bare string)", async () => {
@@ -167,9 +167,9 @@ variables:
     validations:
       - required
 `)
-    expect(result.variables[0].required).toBe(true)
-    expect(result.variables[0].validations).toHaveLength(1)
-    expect(result.variables[0].validations[0].type).toBe("required")
+    expect(result.variables[0]!.required).toBe(true)
+    expect(result.variables[0]!.validations).toHaveLength(1)
+    expect(result.variables[0]!.validations[0]!.type).toBe("required")
   })
 
   it("accepts a mix of shorthand and long-form validation entries", async () => {
@@ -181,11 +181,11 @@ variables:
       - type: url
         description: "Must be a URL"
 `)
-    expect(result.variables[0].required).toBe(true)
-    expect(result.variables[0].validations).toHaveLength(2)
-    expect(result.variables[0].validations[0].type).toBe("required")
-    expect(result.variables[0].validations[1].type).toBe("url")
-    expect(result.variables[0].validations[1].message).toBe("Must be a URL")
+    expect(result.variables[0]!.required).toBe(true)
+    expect(result.variables[0]!.validations).toHaveLength(2)
+    expect(result.variables[0]!.validations[0]!.type).toBe("required")
+    expect(result.variables[0]!.validations[1]!.type).toBe("url")
+    expect(result.variables[0]!.validations[1]!.message).toBe("Must be a URL")
   })
 
   it("maps multiple validation types", async () => {
@@ -197,9 +197,9 @@ variables:
       - type: url
         description: "Must be a URL"
 `)
-    expect(result.variables[0].validations).toHaveLength(2)
-    expect(result.variables[0].validations[1].type).toBe("url")
-    expect(result.variables[0].validations[1].message).toBe("Must be a URL")
+    expect(result.variables[0]!.validations).toHaveLength(2)
+    expect(result.variables[0]!.validations[1]!.type).toBe("url")
+    expect(result.variables[0]!.validations[1]!.message).toBe("Must be a URL")
   })
 
   it("extracts shorthand args (regex, min, max)", async () => {
@@ -213,8 +213,8 @@ variables:
         min: 1
         max: 10
 `)
-    expect(result.variables[0].validations[0].args).toEqual(["^[A-Z]+$"])
-    expect(result.variables[0].validations[1].args).toEqual([1, 10])
+    expect(result.variables[0]!.validations[0]!.args).toEqual(["^[A-Z]+$"])
+    expect(result.variables[0]!.validations[1]!.args).toEqual([1, 10])
   })
 
   it("explicit args take precedence over shorthand", async () => {
@@ -226,7 +226,7 @@ variables:
         args: ["^custom$"]
         regex: "^ignored$"
 `)
-    expect(result.variables[0].validations[0].args).toEqual(["^custom$"])
+    expect(result.variables[0]!.validations[0]!.args).toEqual(["^custom$"])
   })
 
   it("maps unknown validation type to custom", async () => {
@@ -236,7 +236,7 @@ variables:
     validations:
       - type: special_check
 `)
-    expect(result.variables[0].validations[0].type).toBe("custom")
+    expect(result.variables[0]!.validations[0]!.type).toBe("custom")
   })
 
   it("preserves x-schema extension", async () => {
@@ -247,7 +247,7 @@ variables:
       type: vpc
       region: us-east-1
 `)
-    expect(result.variables[0].schema).toEqual({ type: "vpc", region: "us-east-1" })
+    expect(result.variables[0]!.schema).toEqual({ type: "vpc", region: "us-east-1" })
   })
 
   it("preserves x-schema-instance-label", async () => {
@@ -256,7 +256,7 @@ variables:
   - name: vpc
     x-schema-instance-label: "VPC Name"
 `)
-    expect(result.variables[0].schemaInstanceLabel).toBe("VPC Name")
+    expect(result.variables[0]!.schemaInstanceLabel).toBe("VPC Name")
   })
 
   it("groups variables into sections by x-section", async () => {
@@ -271,12 +271,12 @@ variables:
     x-section: Compute
 `)
     expect(result.sections).toHaveLength(3)
-    expect(result.sections[0].name).toBe("")
-    expect(result.sections[0].variables).toEqual(["a"])
-    expect(result.sections[1].name).toBe("Network")
-    expect(result.sections[1].variables).toEqual(["b", "c"])
-    expect(result.sections[2].name).toBe("Compute")
-    expect(result.sections[2].variables).toEqual(["d"])
+    expect(result.sections[0]!.name).toBe("")
+    expect(result.sections[0]!.variables).toEqual(["a"])
+    expect(result.sections[1]!.name).toBe("Network")
+    expect(result.sections[1]!.variables).toEqual(["b", "c"])
+    expect(result.sections[2]!.name).toBe("Compute")
+    expect(result.sections[2]!.variables).toEqual(["d"])
   })
 
   it("ensures unnamed section is always first", async () => {
@@ -286,8 +286,8 @@ variables:
     x-section: First
   - name: b
 `)
-    expect(result.sections[0].name).toBe("")
-    expect(result.sections[1].name).toBe("First")
+    expect(result.sections[0]!.name).toBe("")
+    expect(result.sections[1]!.name).toBe("First")
   })
 
   it("skips variables without names", async () => {
@@ -297,7 +297,7 @@ variables:
   - name: valid
 `)
     expect(result.variables).toHaveLength(1)
-    expect(result.variables[0].name).toBe("valid")
+    expect(result.variables[0]!.name).toBe("valid")
   })
 
   it("returns empty skipFiles when skip_files is absent", async () => {
@@ -390,9 +390,9 @@ describe("extractOutputDependencies", () => {
   it("extracts a single output dependency", () => {
     const deps = extractOutputDependencies("{{ .outputs.block1.value }}")
     expect(deps).toHaveLength(1)
-    expect(deps[0].blockId).toBe("block1")
-    expect(deps[0].outputName).toBe("value")
-    expect(deps[0].fullPath).toBe("outputs.block1.value")
+    expect(deps[0]!.blockId).toBe("block1")
+    expect(deps[0]!.outputName).toBe("value")
+    expect(deps[0]!.fullPath).toBe("outputs.block1.value")
   })
 
   it("extracts multiple dependencies", () => {
@@ -407,14 +407,14 @@ describe("extractOutputDependencies", () => {
 
   it("normalizes block ID hyphens to underscores", () => {
     const deps = extractOutputDependencies("{{ .outputs.my-block.val }}")
-    expect(deps[0].blockId).toBe("my-block")
-    expect(deps[0].fullPath).toBe("outputs.my_block.val")
+    expect(deps[0]!.blockId).toBe("my-block")
+    expect(deps[0]!.fullPath).toBe("outputs.my_block.val")
   })
 
   it("handles whitespace-trimming markers", () => {
     const deps = extractOutputDependencies("{{- .outputs.block.val -}}")
     expect(deps).toHaveLength(1)
-    expect(deps[0].outputName).toBe("val")
+    expect(deps[0]!.outputName).toBe("val")
   })
 
   it("ignores content outside template blocks", () => {

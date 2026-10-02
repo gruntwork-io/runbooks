@@ -294,7 +294,8 @@ const VALUE_REFERENCE_PATTERN =
 export function extractInputValueReferences(text: string): InputName[] {
   const names = new Set<InputName>()
   for (const [, namespace, path] of text.matchAll(VALUE_REFERENCE_PATTERN)) {
-    if (namespace === "inputs") names.add(path)
+    // Both groups are required by the pattern.
+    if (namespace === "inputs") names.add(path!)
   }
   return [...names]
 }

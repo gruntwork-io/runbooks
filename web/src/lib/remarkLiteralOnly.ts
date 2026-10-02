@@ -200,9 +200,9 @@ function literalStrings(node: EstreeNode | null): string[] {
 // literal value. A missing program (no estree) fails closed.
 function isLiteralProgram(program: Program | null | undefined): boolean {
   if (!program) return false
-  if (program.body.length === 0) return true
-  if (program.body.length !== 1) return false
-  const [statement] = program.body
+  const [statement, ...rest] = program.body
+  if (!statement) return true
+  if (rest.length > 0) return false
   return statement.type === "ExpressionStatement" && isLiteralValue(statement.expression)
 }
 

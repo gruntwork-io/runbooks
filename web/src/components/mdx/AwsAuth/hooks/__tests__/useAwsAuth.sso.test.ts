@@ -164,7 +164,7 @@ describe("useAwsAuth — SSO sign-in", () => {
     expect(result.current.authStatus).toBe("select_account")
     expect(result.current.ssoAccounts).toEqual(ACCOUNTS)
 
-    await act(() => result.current.handleSsoAccountSelect(ACCOUNTS[0]))
+    await act(() => result.current.handleSsoAccountSelect(ACCOUNTS[0]!))
     expect(invoke).toHaveBeenCalledWith("aws:sso-roles", {
       accessToken: "sso-token",
       accountId: "111111111111",
@@ -345,7 +345,7 @@ describe("useAwsAuth — SSO account and role steps after a cancel", () => {
 
     await act(() => result.current.handleSsoAuth())
     await advance(0)
-    await act(() => result.current.handleSsoAccountSelect(ACCOUNTS[0]))
+    await act(() => result.current.handleSsoAccountSelect(ACCOUNTS[0]!))
     expect(result.current.selectedSsoRole).toBe("Admin")
 
     // While aws:sso-complete is in flight the SSO form shows Cancel.
@@ -380,7 +380,7 @@ describe("useAwsAuth — SSO account and role steps after a cancel", () => {
 
     let selecting!: Promise<void>
     act(() => {
-      selecting = result.current.handleSsoAccountSelect(ACCOUNTS[0])
+      selecting = result.current.handleSsoAccountSelect(ACCOUNTS[0]!)
     })
     act(() => result.current.handleManualAuth())
     await act(async () => {

@@ -255,7 +255,7 @@ describe("TemplateInline", () => {
     const { invoke } = renderBlock({ values: WORLD })
 
     await waitFor(() => expect(screen.getByTestId("code-file-out.txt")).toBeInTheDocument())
-    expect(renderInlineCalls(invoke)[0].generateFile).toBe(false)
+    expect(renderInlineCalls(invoke)[0]!.generateFile).toBe(false)
     expect(applyFileTreeUpdate).not.toHaveBeenCalled()
   })
 
@@ -263,7 +263,7 @@ describe("TemplateInline", () => {
     const { invoke } = renderBlock({ values: WORLD, generateFile: true })
 
     await waitFor(() => expect(applyFileTreeUpdate).toHaveBeenCalledTimes(1))
-    const call = renderInlineCalls(invoke)[0]
+    const call = renderInlineCalls(invoke)[0]!
     expect(call.generateFile).toBe(true)
     expect(call).not.toHaveProperty("target")
     // Main keys what each block last wrote by this id, to remove a file left
@@ -283,7 +283,7 @@ describe("TemplateInline", () => {
     })
 
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
-    const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
+    const outputs = renderInlineCalls(invoke)[0]!.inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "<redacted>", user: "alice" } })
   })
 
@@ -329,7 +329,7 @@ describe("TemplateInline", () => {
     })
 
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
-    const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
+    const outputs = renderInlineCalls(invoke)[0]!.inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "s3cr3t", user: "alice" } })
   })
 
@@ -359,7 +359,7 @@ describe("TemplateInline", () => {
     )
     await settle()
     expect(renderInlineCalls(invoke)).toHaveLength(1)
-    expect(renderInlineCalls(invoke)[0].generateFile).toBe(false)
+    expect(renderInlineCalls(invoke)[0]!.generateFile).toBe(false)
     expect(applyFileTreeUpdate).not.toHaveBeenCalled()
   })
 
@@ -377,6 +377,6 @@ describe("TemplateInline", () => {
     // Only the response that wrote files reaches the updater; the preview
     // response still held in state when the mode flipped does not.
     expect(applyFileTreeUpdate).toHaveBeenCalledTimes(1)
-    expect(applyFileTreeUpdate.mock.calls[0][0]).toMatchObject({ fileTree: GENERATED_TREE })
+    expect(applyFileTreeUpdate.mock.calls[0]![0]).toMatchObject({ fileTree: GENERATED_TREE })
   })
 })

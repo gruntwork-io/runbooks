@@ -73,7 +73,7 @@ describe("OpenUrlModal", () => {
     expect(invoke).toHaveBeenCalledWith("runbook:open-remote", { url: "https://github.com/org/a" })
     expect(await screen.findByText("Cloning...")).toBeInTheDocument()
 
-    await act(async () => pending[0].resolve(RESULT_A))
+    await act(async () => pending[0]!.resolve(RESULT_A))
 
     expect(onOpened).toHaveBeenCalledWith(RESULT_A.path, RESULT_A.remoteSource)
     await waitFor(() => expect(screen.queryByText("Open from URL")).not.toBeInTheDocument())
@@ -83,7 +83,7 @@ describe("OpenUrlModal", () => {
     const { pending, onOpened } = renderModal()
     submit("https://github.com/org/a")
 
-    await act(async () => pending[0].reject(new Error("repository not found")))
+    await act(async () => pending[0]!.reject(new Error("repository not found")))
 
     expect(await screen.findByText("repository not found")).toBeInTheDocument()
     expect(onOpened).not.toHaveBeenCalled()
@@ -95,7 +95,7 @@ describe("OpenUrlModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     await waitFor(() => expect(screen.queryByText("Open from URL")).not.toBeInTheDocument())
 
-    await act(async () => pending[0].resolve(RESULT_A))
+    await act(async () => pending[0]!.resolve(RESULT_A))
 
     expect(onOpened).not.toHaveBeenCalled()
     expect(screen.queryByText("Open from URL")).not.toBeInTheDocument()
@@ -106,7 +106,7 @@ describe("OpenUrlModal", () => {
     submit("https://github.com/org/a")
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
 
-    await act(async () => pending[0].reject(new Error("repository not found")))
+    await act(async () => pending[0]!.reject(new Error("repository not found")))
 
     fireEvent.click(screen.getByRole("button", { name: "Reopen" }))
     expect(await screen.findByText("Open from URL")).toBeInTheDocument()
@@ -125,11 +125,11 @@ describe("OpenUrlModal", () => {
     submit("https://github.com/org/b")
 
     // The cancelled first request finishing must not close the modal or open A.
-    await act(async () => pending[0].resolve(RESULT_A))
+    await act(async () => pending[0]!.resolve(RESULT_A))
     expect(onOpened).not.toHaveBeenCalled()
     expect(screen.getByText("Cloning...")).toBeInTheDocument()
 
-    await act(async () => pending[1].resolve(RESULT_B))
+    await act(async () => pending[1]!.resolve(RESULT_B))
     expect(onOpened).toHaveBeenCalledTimes(1)
     expect(onOpened).toHaveBeenCalledWith(RESULT_B.path, RESULT_B.remoteSource)
   })

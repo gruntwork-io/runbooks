@@ -118,7 +118,7 @@ const SPECIAL_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "ws", "ws
 function isRequestTarget(candidate: string): boolean {
   const match = SCHEME_PREFIX.exec(candidate)
   if (!match) return false
-  if (SPECIAL_SCHEMES.has(match[1].toLowerCase())) return true
+  if (SPECIAL_SCHEMES.has(match[1]!.toLowerCase())) return true
   return candidate.startsWith("//", match[0].length)
 }
 

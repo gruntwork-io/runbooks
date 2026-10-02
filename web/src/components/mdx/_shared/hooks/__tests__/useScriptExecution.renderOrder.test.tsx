@@ -100,10 +100,10 @@ describe("useScriptExecution render ordering", () => {
     expect(renders).toHaveLength(2)
 
     await act(async () => {
-      renders[1].resolve(rendered("echo second"))
+      renders[1]!.resolve(rendered("echo second"))
     })
     await act(async () => {
-      renders[0].resolve(rendered("echo first"))
+      renders[0]!.resolve(rendered("echo first"))
     })
     expect(result.current.exec.sourceCode).toBe("echo second")
     expect(result.current.exec.isRendering).toBe(false)
@@ -116,10 +116,10 @@ describe("useScriptExecution render ordering", () => {
     await typeName(result, "second")
 
     await act(async () => {
-      renders[1].resolve(rendered("echo second"))
+      renders[1]!.resolve(rendered("echo second"))
     })
     await act(async () => {
-      renders[0].reject(new Error("template: missing value for name"))
+      renders[0]!.reject(new Error("template: missing value for name"))
     })
     expect(result.current.exec.renderError).toBeNull()
     expect(result.current.exec.sourceCode).toBe("echo second")
@@ -144,7 +144,7 @@ describe("useScriptExecution render ordering", () => {
     expect(result.current.exec.isRendering).toBe(false)
 
     await act(async () => {
-      renders[0].resolve(rendered("echo 1.2.3"))
+      renders[0]!.resolve(rendered("echo 1.2.3"))
     })
     expect(result.current.exec.sourceCode).toBe("echo {{ .outputs.build.version }}")
     expect(result.current.exec.isRendering).toBe(false)
@@ -161,7 +161,7 @@ describe("useScriptExecution render ordering", () => {
     expect(result.current.exec.isRendering).toBe(false)
 
     await act(async () => {
-      renders[0].resolve(rendered("echo first"))
+      renders[0]!.resolve(rendered("echo first"))
     })
     expect(result.current.exec.sourceCode).toBe("echo hello")
     expect(result.current.exec.isRendering).toBe(false)

@@ -82,8 +82,8 @@ function mockIpc({ repos, refs, orgs }: Handlers = {}) {
     if (channel === "session:get") return { workingDir: "/work" }
     // The first call is the block's token check, which shows the browser.
     if (channel === "github:orgs") return orgCalls++ === 0 || !orgs ? ORGS : orgs()
-    if (channel === "github:repos") return repos ? repos(params!.org) : []
-    if (channel === "github:refs") return refs ? refs(params!.owner, params!.repo) : []
+    if (channel === "github:repos") return repos ? repos(params!.org!) : []
+    if (channel === "github:refs") return refs ? refs(params!.owner!, params!.repo!) : []
     return {}
   })
 }
@@ -101,7 +101,7 @@ async function openBrowser(user: ReturnType<typeof userEvent.setup>) {
 }
 
 // Organization, Repository and Ref, in that order, once each is shown.
-const combobox = (index: number) => screen.getAllByRole("combobox")[index]
+const combobox = (index: number) => screen.getAllByRole("combobox")[index]!
 
 async function pick(user: ReturnType<typeof userEvent.setup>, index: number, option: string) {
   await waitFor(() => expect(combobox(index)).toBeEnabled())
@@ -241,13 +241,10 @@ describe("GitHubBrowser — refs", () => {
   })
 
   it("drops a slower earlier repo's refs when another repo was picked", async () => {
-    const pending: Record<string, ReturnType<typeof deferred<unknown>>> = {
-      alpha: deferred(),
-      beta: deferred(),
-    }
+    const pending = { alpha: deferred<unknown>(), beta: deferred<unknown>() }
     mockIpc({
       repos: async () => [repo(1, "alpha", "main"), repo(2, "beta", "master")],
-      refs: (_owner, name) => pending[name].promise,
+      refs: (_owner, name) => pending[name as keyof typeof pending].promise,
     })
     const user = userEvent.setup()
     renderGitClone({ prefilledLocalPath: "out" })
@@ -294,11 +291,8 @@ describe("GitHubBrowser — refs", () => {
 
 describe("GitHubBrowser — repos", () => {
   it("drops a switched-away org's slower repo list", async () => {
-    const pending: Record<string, ReturnType<typeof deferred<unknown>>> = {
-      acme: deferred(),
-      globex: deferred(),
-    }
-    mockIpc({ repos: (org) => pending[org].promise })
+    const pending = { acme: deferred<unknown>(), globex: deferred<unknown>() }
+    mockIpc({ repos: (org) => pending[org as keyof typeof pending].promise })
     const user = userEvent.setup()
     renderGitClone({ prefilledUrl: "https://github.com/acme/infra" })
 

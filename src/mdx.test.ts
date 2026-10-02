@@ -10,7 +10,7 @@ describe("findFencedCodeBlockRanges", () => {
     const content = "before\n```\ncode\n```\nafter"
     const ranges = findFencedCodeBlockRanges(content)
     expect(ranges).toHaveLength(1)
-    expect(ranges[0][0]).toBeLessThan(ranges[0][1])
+    expect(ranges[0]![0]).toBeLessThan(ranges[0]![1])
   })
 
   it("returns multiple ranges for multiple blocks", () => {

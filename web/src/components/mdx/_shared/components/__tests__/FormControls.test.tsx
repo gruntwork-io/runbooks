@@ -68,7 +68,7 @@ describe("FormControls selects match form state", () => {
     const optionLabels = () => Array.from(select.options).map((o) => o.text)
     expect(select.value).toBe("1.29")
     expect(optionLabels()).toEqual(["1.28", "1.29"])
-    expect(select.selectedOptions[0].disabled).toBe(false)
+    expect(select.selectedOptions[0]!.disabled).toBe(false)
 
     fireEvent.change(select, { target: { value: "1.28" } })
     expect(onChange).toHaveBeenCalledWith("1.28")
@@ -76,7 +76,7 @@ describe("FormControls selects match form state", () => {
     rerender(<FormControl id="f" variable={variable} value="1.28" onChange={onChange} />)
     expect(select.value).toBe("1.28")
     expect(optionLabels()).toEqual(["1.28", "1.29"])
-    expect(select.selectedOptions[0].disabled).toBe(false)
+    expect(select.selectedOptions[0]!.disabled).toBe(false)
   })
 
   it("keeps a real '' enum option selectable instead of showing the placeholder again", () => {
@@ -93,7 +93,7 @@ describe("FormControls selects match form state", () => {
 
     // No value yet: the placeholder is shown, not the blank option
     const select = screen.getByRole("combobox") as HTMLSelectElement
-    expect(select.selectedOptions[0].text).toBe("Select…")
+    expect(select.selectedOptions[0]!.text).toBe("Select…")
 
     fireEvent.change(select, { target: { value: "" } })
     expect(onChange).toHaveBeenCalledWith("")
@@ -103,7 +103,7 @@ describe("FormControls selects match form state", () => {
     expect(screen.queryByRole("option", { name: "Select…" })).toBeNull()
     expect(Array.from(select.options).map((o) => o.value)).toEqual(["", "DEBUG"])
     expect(select.value).toBe("")
-    expect(select.selectedOptions[0].disabled).toBe(false)
+    expect(select.selectedOptions[0]!.disabled).toBe(false)
   })
 
   it("saves an untouched bool field of a map entry as 'false'", () => {

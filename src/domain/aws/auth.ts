@@ -296,7 +296,8 @@ export const pollSsoFlow = (
         return selectAccount
       }
 
-      const [account] = accounts
+      // Exactly one account is left: none and several both returned above.
+      const account = accounts[0]!
       const roles = yield* listSsoRoles(accessToken, account.accountId, region)
       if (roles.length === 0) {
         return yield* new AwsSsoError({
@@ -307,7 +308,7 @@ export const pollSsoFlow = (
         return selectAccount
       }
       accountId = account.accountId
-      roleName = roles[0].roleName
+      roleName = roles[0]!.roleName
     }
 
     const { credentials, identity } = yield* signInWithSsoRole({

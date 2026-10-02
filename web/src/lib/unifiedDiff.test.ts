@@ -262,18 +262,21 @@ describe("diffLineArrays", () => {
       return seed % n
     }
     const randomLines = () =>
-      Array.from({ length: random(12) }, () => ["}", "", "a", "b"][random(4)])
+      Array.from({ length: random(12) }, () => ["}", "", "a", "b"][random(4)]!)
+    // dp[i][j] is the LCS length of a[..i] and b[..j]; every index read is in
+    // the (a.length + 1) x (b.length + 1) table.
     const lcsLength = (a: string[], b: string[]) => {
       const dp = Array.from({ length: a.length + 1 }, () =>
         Array.from({ length: b.length + 1 }, () => 0),
       )
+      const at = (i: number, j: number) => dp[i]![j]!
       for (let i = 1; i <= a.length; i++) {
         for (let j = 1; j <= b.length; j++) {
-          dp[i][j] =
-            a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1])
+          dp[i]![j] =
+            a[i - 1] === b[j - 1] ? at(i - 1, j - 1) + 1 : Math.max(at(i - 1, j), at(i, j - 1))
         }
       }
-      return dp[a.length][b.length]
+      return at(a.length, b.length)
     }
 
     for (let i = 0; i < 500; i++) {
@@ -342,8 +345,8 @@ describe("buildDiffSections", () => {
     expect(shape(lines)).toEqual(["top:7", "lines:7", "bottom:7"])
     const [top, visible, bottom] = buildDiffSections(lines, 3)
     expect(top).toMatchObject({ startOldLine: 1, startNewLine: 1 })
-    expect(visible.lines?.[0].content).toBe("c8")
-    expect(visible.lines?.[6].content).toBe("c13")
+    expect(visible?.lines?.[0]?.content).toBe("c8")
+    expect(visible?.lines?.[6]?.content).toBe("c13")
     expect(bottom).toMatchObject({ startOldLine: 14, startNewLine: 15 })
   })
 
@@ -391,8 +394,8 @@ describe("getExpandedLines", () => {
       if (s.type !== "collapsed") return
       const hidden = getExpandedLines(diffLines, sections, i)
       expect(hidden).toHaveLength(s.collapsedCount!)
-      expect(hidden[0].oldLineNum).toBe(s.startOldLine)
-      expect(hidden[0].newLineNum).toBe(s.startNewLine)
+      expect(hidden[0]!.oldLineNum).toBe(s.startOldLine)
+      expect(hidden[0]!.newLineNum).toBe(s.startNewLine)
     })
   })
 })

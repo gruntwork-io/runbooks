@@ -18,7 +18,9 @@ const diffRows = (path: string) =>
     .queryAllByRole("row")
     .map((row) => {
       const cells = within(row).getAllByRole("cell")
-      return cells.length === 4 ? `${cells[2].textContent}${cells[3].textContent}` : row.textContent
+      return cells.length === 4
+        ? `${cells[2]!.textContent}${cells[3]!.textContent}`
+        : row.textContent
     })
 
 describe("ChangedFilesView diff body", () => {

@@ -1303,7 +1303,7 @@ export function useGoogleAuth({
       }
 
       if (visibleProjects.length === 1) {
-        await selectProject(visibleProjects[0], identity)
+        await selectProject(visibleProjects[0]!, identity)
         return
       }
 
@@ -1404,7 +1404,7 @@ export function useGoogleAuth({
       }
 
       if (visibleProjects.length === 1) {
-        await selectProject(visibleProjects[0], identity)
+        await selectProject(visibleProjects[0]!, identity)
         return
       }
 
@@ -1802,7 +1802,7 @@ export function useGoogleAuth({
       // Both project routes below end in a set-project, which sends only the
       // explicit region/zone too, so MAIN's stay in force through the picker.
       if (visibleProjects.length === 1) {
-        await selectProject(visibleProjects[0], identity)
+        await selectProject(visibleProjects[0]!, identity)
         return
       }
 

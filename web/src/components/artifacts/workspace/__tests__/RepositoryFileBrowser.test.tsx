@@ -45,6 +45,7 @@ let disk: Record<string, string>
 const invoke = vi.fn(async (channel: string, args: { filePath: string }) => {
   if (channel !== "workspace:file") throw new Error(`unexpected channel ${channel}`)
   const content = disk[args.filePath]
+  if (content === undefined) throw new Error(`no file ${args.filePath} on the fake disk`)
   return { path: args.filePath, content, language: "text", size: content.length }
 })
 const api = { invoke, on: vi.fn(() => () => {}) } as unknown as typeof window.api

@@ -133,9 +133,9 @@ export const CodeFileCollection = ({
                             <>
                               The{" "}
                               <code className="px-1 py-0.5 bg-warning-muted border border-warning/30 rounded text-xs font-mono">
-                                {truncationInfo.heavyDirs[0].path}/
+                                {truncationInfo.heavyDirs[0]!.path}/
                               </code>{" "}
-                              directory ({truncationInfo.heavyDirs[0].fileCount.toLocaleString()}{" "}
+                              directory ({truncationInfo.heavyDirs[0]!.fileCount.toLocaleString()}{" "}
                               files) may be the cause.
                             </>
                           ) : (

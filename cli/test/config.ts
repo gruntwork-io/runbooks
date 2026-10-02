@@ -210,8 +210,8 @@ function parseDuration(s: string): number {
   const match = s.match(/^(\d+)(ms|s|m|h)$/)
   if (!match) throw new Error(`Invalid duration format: ${s}`)
 
-  const value = Number.parseInt(match[1], 10)
-  switch (match[2]) {
+  const value = Number.parseInt(match[1]!, 10)
+  switch (match[2]!) {
     case "ms":
       return value
     case "s":
@@ -298,16 +298,14 @@ function validateConfig(config: TestConfig): void {
     }
   }
 
-  for (let i = 0; i < config.tests.length; i++) {
-    const tc = config.tests[i]
+  for (const [i, tc] of config.tests.entries()) {
     if (!tc.name) {
       throw new Error(`Test case ${i + 1}: name is required`)
     }
 
     // Validate steps
     if (tc.steps) {
-      for (let j = 0; j < tc.steps.length; j++) {
-        const step = tc.steps[j]
+      for (const [j, step] of tc.steps.entries()) {
         if (!step.block) {
           throw new Error(`Test "${tc.name}" step ${j + 1}: block is required`)
         }
@@ -328,8 +326,8 @@ function validateConfig(config: TestConfig): void {
 
     // Validate assertions
     if (tc.assertions) {
-      for (let j = 0; j < tc.assertions.length; j++) {
-        validateAssertion(tc.name, j, tc.assertions[j])
+      for (const [j, assertion] of tc.assertions.entries()) {
+        validateAssertion(tc.name, j, assertion)
       }
     }
 
@@ -337,8 +335,8 @@ function validateConfig(config: TestConfig): void {
     if (tc.steps) {
       for (const step of tc.steps) {
         if (step.assertions) {
-          for (let j = 0; j < step.assertions.length; j++) {
-            validateAssertion(tc.name, j, step.assertions[j])
+          for (const [j, assertion] of step.assertions.entries()) {
+            validateAssertion(tc.name, j, assertion)
           }
         }
       }

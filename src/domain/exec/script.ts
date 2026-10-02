@@ -94,28 +94,22 @@ export function detectInterpreter(script: string, providedLang: string): [string
     return [providedLang, []]
   }
 
-  // Parse shebang line
-  const lines = script.split("\n")
-  if (lines.length > 0 && lines[0].startsWith("#!")) {
-    const shebang = lines[0].slice(2).trim()
+  // Parse shebang line. split always returns at least one element.
+  const firstLine = script.split("\n", 1)[0]!
+  if (firstLine.startsWith("#!")) {
+    const shebang = firstLine.slice(2).trim()
 
     // Handle #!/usr/bin/env <interpreter> [args...]
     if (shebang.includes("/env ")) {
-      const parts = shebang.split(/\s+/)
-      if (parts.length >= 2) {
-        return [parts[1], parts.slice(2)]
+      const [, interpreter, ...args] = shebang.split(/\s+/)
+      if (interpreter !== undefined) {
+        return [interpreter, args]
       }
     } else {
       // Handle #!/bin/bash or #!/usr/bin/python3 etc.
-      const parts = shebang.split(/\s+/)
-      if (parts.length >= 1) {
-        let interpreter = parts[0]
-        const lastSlash = interpreter.lastIndexOf("/")
-        if (lastSlash !== -1) {
-          interpreter = interpreter.slice(lastSlash + 1)
-        }
-        return [interpreter, parts.slice(1)]
-      }
+      const [interpreterPath, ...args] = shebang.split(/\s+/)
+      const interpreter = interpreterPath!.slice(interpreterPath!.lastIndexOf("/") + 1)
+      return [interpreter, args]
     }
   }
 
@@ -508,8 +502,8 @@ export function parseBlockOutputsContent(content: string): OutputValues {
   const sensitiveKeys = new Set<string>()
 
   const lines = content.split("\n")
-  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-    const line = lines[lineNum].trim()
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
     if (line === "") continue
 
     const eqIdx = line.indexOf("=")

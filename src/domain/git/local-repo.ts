@@ -161,9 +161,9 @@ export const inspectLocalRepo = (
  */
 const firstRemoteUrl = (repoPath: string) =>
   Effect.gen(function* () {
-    const names = yield* readGitLines(repoPath, ["remote"])
-    if (names.length === 0) return undefined
-    const urls = yield* readGitLines(repoPath, ["remote", "get-url", names[0]])
+    const [firstName] = yield* readGitLines(repoPath, ["remote"])
+    if (firstName === undefined) return undefined
+    const urls = yield* readGitLines(repoPath, ["remote", "get-url", firstName])
     return urls[0]
   }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
 

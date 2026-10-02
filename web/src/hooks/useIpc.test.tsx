@@ -67,7 +67,7 @@ describe("useIpc", () => {
       expect(invoke).toHaveBeenCalledWith("file:get", { path: "a" })
       expect(result.current.isLoading).toBe(true)
 
-      await settle(() => pending[0].resolve("A"))
+      await settle(() => pending[0]!.resolve("A"))
 
       expect(result.current.data).toBe("A")
       expect(result.current.isLoading).toBe(false)
@@ -80,12 +80,12 @@ describe("useIpc", () => {
 
       rerender({ channel: "file:get", params: { path: "b" } })
       expect(invoke).toHaveBeenCalledTimes(2)
-      expect(pending[1].params).toEqual({ path: "b" })
+      expect(pending[1]!.params).toEqual({ path: "b" })
 
-      await settle(() => pending[1].resolve("B"))
+      await settle(() => pending[1]!.resolve("B"))
       expect(result.current.data).toBe("B")
 
-      await settle(() => pending[0].resolve("A"))
+      await settle(() => pending[0]!.resolve("A"))
       expect(result.current.data).toBe("B")
       expect(result.current.isLoading).toBe(false)
     })
@@ -95,8 +95,8 @@ describe("useIpc", () => {
       const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
 
       rerender({ channel: "file:get", params: { path: "b" } })
-      await settle(() => pending[1].resolve("B"))
-      await settle(() => pending[0].reject(new Error("stale failure")))
+      await settle(() => pending[1]!.resolve("B"))
+      await settle(() => pending[0]!.reject(new Error("stale failure")))
 
       expect(result.current.data).toBe("B")
       expect(result.current.error).toBeNull()
@@ -114,11 +114,11 @@ describe("useIpc", () => {
     it("leaves state alone when the main process reports the call as superseded", async () => {
       const { api, pending } = createControllableApi()
       const { result } = renderUseIpc(api, { channel: "boilerplate:render", params: { v: 1 } })
-      await settle(() => pending[0].resolve("first"))
+      await settle(() => pending[0]!.resolve("first"))
 
       act(() => result.current.refetch())
       expect(result.current.isLoading).toBe(true)
-      await settle(() => pending[1].resolve({ superseded: true }))
+      await settle(() => pending[1]!.resolve({ superseded: true }))
 
       // Not committed as data; the newer call that superseded it drives state.
       expect(result.current.data).toBe("first")
@@ -133,7 +133,9 @@ describe("useIpc", () => {
       const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
 
       await settle(() =>
-        pending[0].reject(new Error("Error invoking remote method 'file:get': Error: Error: boom")),
+        pending[0]!.reject(
+          new Error("Error invoking remote method 'file:get': Error: Error: boom"),
+        ),
       )
 
       expect(result.current.error?.message).toBe("boom")
@@ -145,7 +147,7 @@ describe("useIpc", () => {
       const { api, pending } = createControllableApi()
       const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
 
-      await settle(() => pending[0].reject("not an Error"))
+      await settle(() => pending[0]!.reject("not an Error"))
 
       expect(result.current.error?.message).toBe("An unexpected error occurred")
     })
@@ -153,11 +155,11 @@ describe("useIpc", () => {
     it("clears the error when a refetch succeeds", async () => {
       const { api, pending } = createControllableApi()
       const { result } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
-      await settle(() => pending[0].reject(new Error("boom")))
+      await settle(() => pending[0]!.reject(new Error("boom")))
       expect(result.current.error).not.toBeNull()
 
       act(() => result.current.refetch())
-      await settle(() => pending[1].resolve("A"))
+      await settle(() => pending[1]!.resolve("A"))
 
       expect(result.current.error).toBeNull()
       expect(result.current.data).toBe("A")
@@ -207,7 +209,7 @@ describe("useIpc", () => {
       expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { v: 3 })
       expect(result.current.isLoading).toBe(true)
 
-      await settle(() => pending[0].resolve("rendered"))
+      await settle(() => pending[0]!.resolve("rendered"))
       expect(result.current.data).toBe("rendered")
       expect(result.current.isLoading).toBe(false)
     })
@@ -241,7 +243,7 @@ describe("useIpc", () => {
       act(() => {
         vi.advanceTimersByTime(300)
       })
-      await settle(() => pending[0].resolve("rendered"))
+      await settle(() => pending[0]!.resolve("rendered"))
 
       rerender({ channel: "boilerplate:render-inline", params: { v: 2 }, options: lazyOptions })
 
@@ -285,7 +287,7 @@ describe("useIpc", () => {
       expect(invoke).toHaveBeenCalledTimes(1)
       expect(invoke).toHaveBeenCalledWith("boilerplate:render-inline", { v: 1 })
 
-      await settle(() => pending[0].resolve("rendered"))
+      await settle(() => pending[0]!.resolve("rendered"))
       expect(result.current.data).toBe("rendered")
       expect(result.current.isLoading).toBe(false)
     })
@@ -305,7 +307,7 @@ describe("useIpc", () => {
       })
 
       expect(invoke).toHaveBeenCalledTimes(1)
-      await settle(() => pending[0].resolve("rendered"))
+      await settle(() => pending[0]!.resolve("rendered"))
 
       expect(result.current.data).toBe("rendered")
       expect(result.current.isLoading).toBe(false)
@@ -339,14 +341,14 @@ describe("useIpc", () => {
       expect(invoke).toHaveBeenCalledTimes(1)
       expect(invoke).toHaveBeenCalledWith("file:get", { path: "a" })
       expect(result.current.isLoading).toBe(true)
-      await settle(() => pending[0].resolve("A"))
+      await settle(() => pending[0]!.resolve("A"))
       expect(result.current.data).toBe("A")
     })
 
     it("clears data and error when disabled", async () => {
       const { api, pending } = createControllableApi()
       const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
-      await settle(() => pending[0].resolve("A"))
+      await settle(() => pending[0]!.resolve("A"))
 
       rerender({ channel: "file:get", params: { path: "a" }, options: { disabled: true } })
 
@@ -360,7 +362,7 @@ describe("useIpc", () => {
       const { result, rerender } = renderUseIpc(api, { channel: "file:get", params: { path: "a" } })
 
       rerender({ channel: "", params: { path: "a" } })
-      await settle(() => pending[0].resolve("A"))
+      await settle(() => pending[0]!.resolve("A"))
 
       expect(result.current.data).toBeNull()
       expect(result.current.isLoading).toBe(false)

@@ -159,16 +159,16 @@ describe("detectCliCredentials", () => {
     expect(calls).toHaveLength(1)
     // the --hostname pin is deterministic for multi-host gh configs and
     // neutralizes GH_HOST.
-    expect(calls[0].args).toEqual(["auth", "token", "--hostname", "github.com"])
+    expect(calls[0]!.args).toEqual(["auth", "token", "--hostname", "github.com"])
     // Child-env hygiene: ambient tokens stripped (the CLI is a distinct
     // source, not an echo of env sources); kill switches set; PATH inherited.
-    expect(calls[0].env).toBeDefined()
-    expect(calls[0].env!.GITHUB_TOKEN).toBeUndefined()
-    expect(calls[0].env!.GH_TOKEN).toBeUndefined()
-    expect(calls[0].env!.GH_PROMPT_DISABLED).toBe("1")
-    expect(calls[0].env!.GH_NO_UPDATE_NOTIFIER).toBe("1")
-    expect(calls[0].env!.NO_COLOR).toBe("1")
-    expect(calls[0].env!.PATH).toBe("/usr/bin")
+    expect(calls[0]!.env).toBeDefined()
+    expect(calls[0]!.env!.GITHUB_TOKEN).toBeUndefined()
+    expect(calls[0]!.env!.GH_TOKEN).toBeUndefined()
+    expect(calls[0]!.env!.GH_PROMPT_DISABLED).toBe("1")
+    expect(calls[0]!.env!.GH_NO_UPDATE_NOTIFIER).toBe("1")
+    expect(calls[0]!.env!.NO_COLOR).toBe("1")
+    expect(calls[0]!.env!.PATH).toBe("/usr/bin")
   })
 
   it("returns undefined when command fails", async () => {

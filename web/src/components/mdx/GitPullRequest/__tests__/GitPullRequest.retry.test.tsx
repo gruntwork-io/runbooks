@@ -61,7 +61,7 @@ function emit(channel: string, data: unknown) {
 function renderBlock(handlers: Record<string, Handler>) {
   listeners = new Map()
   invoke = vi.fn(async (channel: string, args: Record<string, unknown>) =>
-    channel in handlers ? handlers[channel](args) : { labels: [] },
+    channel in handlers ? handlers[channel]!(args) : { labels: [] },
   )
   const api = {
     invoke,

@@ -147,9 +147,9 @@ describe("openRemoteRunbookInWindow", () => {
 
     expect(calls).toEqual([])
     expect(errors).toHaveLength(1)
-    expect(errors[0].win).toBe(win)
-    expect(errors[0].message).toBe("Couldn't open runbook")
-    expect(errors[0].detail).toBe(`${URL}\n\n${hint}`)
+    expect(errors[0]!.win).toBe(win)
+    expect(errors[0]!.message).toBe("Couldn't open runbook")
+    expect(errors[0]!.detail).toBe(`${URL}\n\n${hint}`)
   })
 
   it("redacts credentials from the error it shows", async () => {
@@ -160,8 +160,8 @@ describe("openRemoteRunbookInWindow", () => {
 
     await openRemoteRunbookInWindow(win, URL, deps)
 
-    expect(errors[0].detail).not.toContain("s3cr3t-value")
-    expect(errors[0].detail).toContain("[REDACTED]@github.com/o/r.git")
+    expect(errors[0]!.detail).not.toContain("s3cr3t-value")
+    expect(errors[0]!.detail).toContain("[REDACTED]@github.com/o/r.git")
   })
 
   it.each([
@@ -192,8 +192,8 @@ describe("openRemoteRunbookInWindow", () => {
 
       await openRemoteRunbookInWindow(win, typed.replace("{pw}", password), deps)
 
-      expect(errors[0].detail).not.toContain(password)
-      expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
+      expect(errors[0]!.detail).not.toContain(password)
+      expect(errors[0]!.detail).toBe(`${shown}\n\nnetwork unreachable`)
     },
   )
 
@@ -210,7 +210,7 @@ describe("openRemoteRunbookInWindow", () => {
       deps,
     )
 
-    expect(errors[0].detail).toBe(
+    expect(errors[0]!.detail).toBe(
       "git::ssh://git@git.example.com/o/r.git//rb?sshkey=[REDACTED]\n\nnetwork unreachable",
     )
   })
@@ -229,7 +229,7 @@ describe("openRemoteRunbookInWindow", () => {
 
     fireShow()
     expect(errors).toHaveLength(1)
-    expect(errors[0].detail).toBe(`${URL}\n\nnetwork unreachable`)
+    expect(errors[0]!.detail).toBe(`${URL}\n\nnetwork unreachable`)
   })
 
   it("shows the error right away for a loaded window that is not visible", async () => {

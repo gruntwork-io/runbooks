@@ -14,7 +14,7 @@ const imgSrc = (policy: string): string[] => {
 const directives = (policy: string): string[] =>
   policy
     .split(";")
-    .map((d) => d.trim().split(/\s+/)[0])
+    .map((d) => d.trim().split(/\s+/)[0]!)
     .filter(Boolean)
 
 const BASE_DIRECTIVES = [

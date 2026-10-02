@@ -55,7 +55,8 @@ export function extractTemplateDependenciesFromString(content: string): Template
   let blockMatch
 
   while ((blockMatch = blockRegex.exec(content)) !== null) {
-    const blockContent = blockMatch[1]
+    // Group 1 isn't optional, so a match always has it.
+    const blockContent = blockMatch[1]!
 
     // Second pass: find .inputs.X and .outputs.X.Y references within the block
     // Allow hyphens in path segments — block IDs in MDX use hyphens (e.g., create-account)

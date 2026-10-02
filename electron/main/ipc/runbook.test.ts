@@ -152,7 +152,7 @@ describe("runbook IPC handlers", () => {
       for (const [dir, command] of [
         [dirA, "echo a"],
         [dirB, "echo b"],
-      ]) {
+      ] as const) {
         fs.mkdirSync(dir)
         fs.writeFileSync(path.join(dir, "runbook.mdx"), runbookWith(command))
       }

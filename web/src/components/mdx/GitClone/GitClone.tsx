@@ -31,7 +31,7 @@ import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitCloneInstruction } from "./GitCloneInstruction"
 import type { AppError } from "@/types/error"
 import { resolveInitialSource, defaultDescription } from "./utils"
-import type { GitCloneProps, GitCloneSource, LocalRepoInfo } from "./types"
+import type { GitCloneProps, GitCloneSource, GitCloneStatus, LocalRepoInfo } from "./types"
 
 /**
  * Parse owner and repo from a git remote URL (GitHub, GitLab, or self-hosted),
@@ -291,7 +291,7 @@ function GitCloneInteractive({
     if (!effectivePath && gitUrl.trim()) {
       // Extract repo name from URL
       const match = gitUrl.trim().match(/\/([^/]+?)(?:\.git)?$/)
-      if (match) effectivePath = match[1]
+      if (match) effectivePath = match[1]!
     }
     if (!effectivePath) return null
 
@@ -454,7 +454,10 @@ function GitCloneInteractive({
   }, [reset, unregisterWorkTree, id])
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
-  const statusConfig: Record<string, { bg: string; icon: typeof GitBranch; iconColor: string }> = {
+  const statusConfig: Record<
+    GitCloneStatus,
+    { bg: string; icon: typeof GitBranch; iconColor: string }
+  > = {
     success: {
       bg: "bg-success-muted border-success/30",
       icon: CheckCircle,
@@ -474,7 +477,7 @@ function GitCloneInteractive({
     bg: statusClasses,
     icon: IconComponent,
     iconColor: iconClasses,
-  } = statusConfig[cloneStatus] ?? statusConfig.pending
+  } = statusConfig[cloneStatus]
 
   const isLocalSource = activeSource === "local"
   // Browsing and checking a directory needs no credentials, so the local form

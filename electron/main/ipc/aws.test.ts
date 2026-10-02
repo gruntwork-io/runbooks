@@ -99,7 +99,7 @@ describe("aws:check-region", () => {
       enabled: false,
       warning: `Region ${REGION} is not enabled for this AWS account`,
     })
-    const command = send.mock.calls[0][0] as unknown as GetRegionOptStatusCommand
+    const command = send.mock.calls[0]![0] as unknown as GetRegionOptStatusCommand
     expect(command).toBeInstanceOf(GetRegionOptStatusCommand)
     expect(command.input).toEqual({ RegionName: REGION })
   })
@@ -130,7 +130,7 @@ describe("aws:check-region", () => {
       // Render each argument the way the console shows it. String() would turn
       // a logged params or credentials object into "[object Object]" and hide
       // any secret inside it; makeLogger only scrubs strings and Errors.
-      const text = logged[0]
+      const text = logged[0]!
         .map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity })))
         .join(" ")
       expect(text).toContain("Region opt-in check crashed")

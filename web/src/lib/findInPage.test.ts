@@ -74,7 +74,7 @@ describe("findTextRanges", () => {
     )
     const ranges = findTextRanges(root, "needle")
     expect(ranges).toHaveLength(1)
-    expect(ranges[0].startContainer.parentElement?.tagName).toBe("P")
+    expect(ranges[0]!.startContainer.parentElement?.tagName).toBe("P")
   })
 
   it("skips text whose element is not rendered", () => {
@@ -93,7 +93,7 @@ describe("findTextRanges", () => {
     const ranges = findTextRanges(root, "needle")
     expect(texts(ranges)).toEqual(["needle", "needle", "needle"])
     for (let i = 1; i < ranges.length; i++) {
-      expect(ranges[i].compareBoundaryPoints(Range.START_TO_START, ranges[i - 1])).toBe(1)
+      expect(ranges[i]!.compareBoundaryPoints(Range.START_TO_START, ranges[i - 1]!)).toBe(1)
     }
     expect(texts(findTextRanges(root, "needles"))).toEqual(["needles"])
   })
@@ -103,8 +103,8 @@ describe("indexAtOrAfter", () => {
   it("picks the first match at or after the anchor, else the last one", () => {
     const root = mount("<p>needle</p><p>needle</p><p>needle</p>")
     const ranges = findTextRanges(root, "needle")
-    expect(indexAtOrAfter(ranges, ranges[1])).toBe(1)
-    expect(indexAtOrAfter([], ranges[0])).toBe(-1)
+    expect(indexAtOrAfter(ranges, ranges[1]!)).toBe(1)
+    expect(indexAtOrAfter([], ranges[0]!)).toBe(-1)
 
     const after = document.createRange()
     after.selectNodeContents(root)
@@ -164,7 +164,7 @@ describe("firstMatchInView", () => {
       box(nextTop, 10, 50, 20),
       box(2000, 10, 50, 20),
     ]
-    ranges.forEach((range, i) => (range.getBoundingClientRect = () => rects[i]))
+    ranges.forEach((range, i) => (range.getBoundingClientRect = () => rects[i]!))
     return ranges
   }
 
@@ -202,7 +202,7 @@ describe("scrollRangeIntoView", () => {
       scrollTop: { get: () => scrollTop, set: (value: number) => (scrollTop = value) },
     })
     scroller.getBoundingClientRect = () => box(76, 0, 1000, 400)
-    const [range] = findTextRanges(root, "needle")
+    const range = findTextRanges(root, "needle")[0]!
     range.getBoundingClientRect = () => box(80 + 500 - scrollTop, left, 50, 20)
     return { range, scrollTop: () => scrollTop }
   }

@@ -226,8 +226,7 @@ function buildFileTree(changes: WorkspaceFileChange[]): TreeNode[] {
     let current = root
     let currentPath = ""
 
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
+    for (const [i, part] of parts.entries()) {
       currentPath = currentPath ? `${currentPath}/${part}` : part
       const isFile = i === parts.length - 1
 
@@ -648,7 +647,7 @@ interface DiffLineRowProps {
 }
 
 const diffLineStyles: Record<
-  string,
+  DiffLine["type"],
   { bg: string; prefix: string; prefixColor: string; lineNumBg: string }
 > = {
   addition: {
@@ -667,12 +666,7 @@ const diffLineStyles: Record<
 }
 
 const DiffLineRow = ({ line }: DiffLineRowProps) => {
-  const {
-    bg: bgColor,
-    prefix,
-    prefixColor,
-    lineNumBg,
-  } = diffLineStyles[line.type] ?? diffLineStyles.context
+  const { bg: bgColor, prefix, prefixColor, lineNumBg } = diffLineStyles[line.type]
 
   return (
     <tr className={bgColor}>

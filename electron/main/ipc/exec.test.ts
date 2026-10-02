@@ -73,7 +73,7 @@ describe("cancelAllExecutions", () => {
       ),
     )
     setExecutableRegistry(registry)
-    ;[executableId] = Object.keys(registry.getAllExecutables())
+    executableId = Object.keys(registry.getAllExecutables())[0]!
   })
 
   afterEach(() => {
@@ -111,7 +111,9 @@ describe("cancelAllExecutions", () => {
       8000,
     )
     expect(started).toBe(true)
-    const [leaderPid, childPid] = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const pids = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const leaderPid = pids[0]!
+    const childPid = pids[1]!
     grandchildPids.push(childPid)
     expect(isAlive(childPid)).toBe(true)
     return { run, leaderPid, childPid }

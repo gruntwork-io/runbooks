@@ -242,8 +242,8 @@ export const githubEnvCredentialForHost = (
 ): GitHubEnvCredential | undefined => {
   const names = githubEnvTokenVarsForHost(host, env, prefix)
   const index = names.findIndex((name) => isSetEnvVar(env[name]))
-  if (index === -1) return undefined
   const envVar = names[index]
+  if (envVar === undefined) return undefined
   const token = env[envVar] as string
   // The GITHUB_TOKEN-vs-GH_TOKEN divergence hint is for the unprefixed
   // github.com-family pair only (the enterprise pair follows gh's own order).
@@ -365,7 +365,7 @@ const GH_CLI_SCOPE_PATTERN = /Token scopes?:\s*(.+)/
 export function parseGhCliScopes(statusOutput: string): string[] | undefined {
   const match = GH_CLI_SCOPE_PATTERN.exec(statusOutput)
   if (!match) return undefined
-  const scopes = match[1]
+  const scopes = match[1]!
     .split(",")
     .map((scope) =>
       scope

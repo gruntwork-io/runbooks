@@ -103,7 +103,8 @@ const buildRecursive = (
 
         // Track file counts per top-level subdirectory for heavy dir detection
         if (relativePath !== "") {
-          const topDir = entryRelPath.split(path.sep)[0]
+          // split always returns at least one element.
+          const topDir = entryRelPath.split(path.sep)[0]!
           stats.dirFileCounts.set(topDir, (stats.dirFileCounts.get(topDir) ?? 0) + 1)
         }
 

@@ -69,7 +69,7 @@ function scriptClones(count: number) {
   invoke.mockImplementation(async (channel: string, params?: { cloneId?: string }) => {
     if (channel === "git:clone") {
       cloneIds.push(params!.cloneId!)
-      return pending[cloneIds.length - 1].promise
+      return pending[cloneIds.length - 1]!.promise
     }
     return {}
   })
@@ -138,7 +138,7 @@ describe("useGitClone — cancel", () => {
 
     // The clone finishes anyway (it got past git before the cancel landed).
     await act(async () => {
-      pending[0].resolve(SUCCESS)
+      pending[0]!.resolve(SUCCESS)
     })
 
     expect(result.current.cloneStatus).toBe("ready")
@@ -200,7 +200,7 @@ describe("useGitClone — cancel", () => {
     })
     act(() => result.current.cancel())
     await act(async () => {
-      pending[0].reject(new Error("interrupted"))
+      pending[0]!.reject(new Error("interrupted"))
     })
 
     expect(result.current.cloneStatus).toBe("ready")
@@ -235,7 +235,7 @@ describe("useGitClone — cancel", () => {
     // The cancelled clone then fails (its directory was deleted by the retry's
     // "Delete & Clone"). That is not the retry's failure.
     await act(async () => {
-      pending[0].resolve({ status: "fail", error: "destination vanished" })
+      pending[0]!.resolve({ status: "fail", error: "destination vanished" })
     })
     expect(result.current.cloneStatus).toBe("running")
     expect(result.current.errorMessage).toBeNull()

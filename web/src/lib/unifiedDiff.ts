@@ -176,10 +176,11 @@ function myersDiff(a: string[], b: string[], maxEditLength: number): DiffOp[] | 
     for (let k = -d; k <= d; k += 2) {
       // Move down from diagonal k+1 (an insertion) or right from k-1 (a
       // deletion), whichever got further, then follow any run of equal lines.
-      let x =
-        k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])
-          ? v[offset + k + 1]
-          : v[offset + k - 1] + 1
+      // offset - d - 1 >= 0 and offset + d + 1 < v.length, so both reads are
+      // in bounds.
+      const fromAbove = v[offset + k + 1]!
+      const fromLeft = v[offset + k - 1]!
+      let x = k === -d || (k !== d && fromLeft < fromAbove) ? fromAbove : fromLeft + 1
       let y = x - k
       while (x < n && y < m && a[x] === b[y]) {
         x++
@@ -198,9 +199,11 @@ function backtrack(a: string[], b: string[], trace: Int32Array[]): DiffOp[] {
   let x = a.length
   let y = b.length
 
+  // The walk retraces the path myersDiff found, so every diagonal it reads is
+  // within trace[d] and x, y stay within a and b.
   for (let d = trace.length - 1; d >= 0; d--) {
-    const v = trace[d]
-    const at = (k: number) => v[k + d + 1]
+    const v = trace[d]!
+    const at = (k: number) => v[k + d + 1]!
     const k = x - y
     const prevK = k === -d || (k !== d && at(k - 1) < at(k + 1)) ? k + 1 : k - 1
     const prevX = at(prevK)
@@ -209,15 +212,15 @@ function backtrack(a: string[], b: string[], trace: Int32Array[]): DiffOp[] {
     while (x > prevX && y > prevY) {
       x--
       y--
-      ops.push({ type: "equal", value: a[x] })
+      ops.push({ type: "equal", value: a[x]! })
     }
     if (d > 0) {
       if (x === prevX) {
         y--
-        ops.push({ type: "insert", value: b[y] })
+        ops.push({ type: "insert", value: b[y]! })
       } else {
         x--
-        ops.push({ type: "delete", value: a[x] })
+        ops.push({ type: "delete", value: a[x]! })
       }
     }
   }
@@ -243,12 +246,13 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
 
   if (changeIndices.length === 0) {
     // No changes - collapse entire file (reaches both beginning and end)
-    if (diffLines.length > 0) {
+    const [first] = diffLines
+    if (first) {
       result.push({
         type: "collapsed",
         collapsedCount: diffLines.length,
-        startOldLine: diffLines[0].oldLineNum,
-        startNewLine: diffLines[0].newLineNum,
+        startOldLine: first.oldLineNum,
+        startNewLine: first.newLineNum,
         position: "top", // Starts at beginning, use ArrowUpToLine
       })
     }
@@ -258,16 +262,16 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
   let currentPos = 0
 
   for (let i = 0; i < changeIndices.length; i++) {
-    const changeStart = changeIndices[i]
+    const changeStart = changeIndices[i]!
 
     // Find the end of this change block (consecutive changes)
     let changeEnd = changeStart
     while (
       i + 1 < changeIndices.length &&
-      changeIndices[i + 1] <= changeEnd + contextSize * 2 + 1
+      changeIndices[i + 1]! <= changeEnd + contextSize * 2 + 1
     ) {
       i++
-      changeEnd = changeIndices[i]
+      changeEnd = changeIndices[i]!
     }
 
     const contextStart = Math.max(currentPos, changeStart - contextSize)
@@ -276,15 +280,16 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
     // Add collapsed section before this change (if there's a gap)
     if (contextStart > currentPos) {
       const collapsedLines = diffLines.slice(currentPos, contextStart)
-      if (collapsedLines.length > 0) {
+      const [firstCollapsed] = collapsedLines
+      if (firstCollapsed) {
         // Determine position based on whether it reaches beginning of file
         const startsAtBeginning = currentPos === 0
 
         result.push({
           type: "collapsed",
           collapsedCount: collapsedLines.length,
-          startOldLine: collapsedLines[0].oldLineNum,
-          startNewLine: collapsedLines[0].newLineNum,
+          startOldLine: firstCollapsed.oldLineNum,
+          startNewLine: firstCollapsed.newLineNum,
           position: startsAtBeginning ? "top" : "middle",
         })
       }
@@ -300,14 +305,15 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
   }
 
   // Add trailing collapsed section if needed
-  if (currentPos < diffLines.length) {
-    const collapsedLines = diffLines.slice(currentPos)
+  const trailingLines = diffLines.slice(currentPos)
+  const [firstTrailing] = trailingLines
+  if (firstTrailing) {
     // This section reaches the end of the file
     result.push({
       type: "collapsed",
-      collapsedCount: collapsedLines.length,
-      startOldLine: collapsedLines[0].oldLineNum,
-      startNewLine: collapsedLines[0].newLineNum,
+      collapsedCount: trailingLines.length,
+      startOldLine: firstTrailing.oldLineNum,
+      startNewLine: firstTrailing.newLineNum,
       position: "bottom",
     })
   }
@@ -315,7 +321,10 @@ export function buildDiffSections(diffLines: DiffLine[], contextSize: number = 3
   return result
 }
 
-/** The diff lines hidden behind collapsed section `sectionIndex`. */
+/**
+ * The diff lines hidden behind collapsed section `sectionIndex`, which must be
+ * an index into `sections`.
+ */
 export function getExpandedLines(
   diffLines: DiffLine[],
   sections: DiffSection[],
@@ -323,14 +332,13 @@ export function getExpandedLines(
 ): DiffLine[] {
   // Find the section boundaries in diffLines
   let lineStart = 0
-  for (let i = 0; i < sectionIndex; i++) {
-    const section = sections[i]
+  for (const section of sections.slice(0, sectionIndex)) {
     if (section.type === "lines") {
       lineStart += section.lines?.length || 0
     } else {
       lineStart += section.collapsedCount || 0
     }
   }
-  const section = sections[sectionIndex]
+  const section = sections[sectionIndex]!
   return diffLines.slice(lineStart, lineStart + (section.collapsedCount || 0))
 }

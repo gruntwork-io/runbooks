@@ -317,8 +317,8 @@ describe("detectCliCredentials(host)", () => {
     )
     const token = await Effect.runPromise(detectCliCredentials(GHES).pipe(Effect.provide(layer)))
     expect(token).toBe("ghp_from_gh")
-    expect(spawner.calls[0].args).toEqual(["auth", "token", "--hostname", GHES])
-    const env = spawner.calls[0].env!
+    expect(spawner.calls[0]!.args).toEqual(["auth", "token", "--hostname", GHES])
+    const env = spawner.calls[0]!.env!
     for (const name of [
       "GH_HOST",
       "GH_TOKEN",

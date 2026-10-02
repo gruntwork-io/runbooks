@@ -23,11 +23,12 @@ function randomFloat(min: number, max: number): number {
 }
 
 function randomBool(): boolean {
-  return crypto.randomBytes(1)[0] % 2 === 1
+  return crypto.randomBytes(1).readUInt8() % 2 === 1
 }
 
+/** A random element of `items`, which must not be empty. */
 function randomChoice<T>(items: readonly T[]): T {
-  return items[randomInt(0, items.length - 1)]
+  return items[randomInt(0, items.length - 1)]!
 }
 
 // ---------------------------------------------------------------------------
@@ -194,8 +195,8 @@ function generateURL(config: FuzzConfig): string {
 function generateUUID(): string {
   const bytes = crypto.randomBytes(16)
   // Set version 4 and variant bits
-  bytes[6] = (bytes[6] & 0x0f) | 0x40
-  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  bytes[6] = (bytes.readUInt8(6) & 0x0f) | 0x40
+  bytes[8] = (bytes.readUInt8(8) & 0x3f) | 0x80
   const hex = bytes.toString("hex")
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
@@ -262,7 +263,7 @@ function formatDate(d: Date, fmt: string): string {
     "04": pad(d.getUTCMinutes()),
     "05": pad(d.getUTCSeconds()),
   }
-  return fmt.replace(/Z07:00|-07:00|Z0700|-0700|2006|MST|01|02|15|04|05/g, (token) => parts[token])
+  return fmt.replace(/Z07:00|-07:00|Z0700|-0700|2006|MST|01|02|15|04|05/g, (token) => parts[token]!)
 }
 
 function generateWords(config: FuzzConfig): string {

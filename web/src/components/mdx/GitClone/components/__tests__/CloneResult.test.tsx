@@ -25,7 +25,7 @@ describe("CloneResultDisplay — repository path", () => {
     expect(copyButtons).toHaveLength(1)
     expect(copyButtons[0]).toHaveAttribute("title", "Copy full path: /work/infra")
 
-    await user.click(copyButtons[0])
+    await user.click(copyButtons[0]!)
 
     expect(await navigator.clipboard.readText()).toBe("/work/infra")
   })

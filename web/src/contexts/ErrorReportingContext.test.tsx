@@ -101,7 +101,7 @@ describe("ErrorReportingContext", () => {
     })
 
     expect(result.current.errors).toHaveLength(1)
-    expect(result.current.errors[0].message).toBe("Updated error")
+    expect(result.current.errors[0]!.message).toBe("Updated error")
   })
 
   it("skips re-render when error is identical", () => {
@@ -153,7 +153,7 @@ describe("ErrorReportingContext", () => {
     })
 
     expect(result.current.errorCount).toBe(1)
-    expect(result.current.errors[0].componentId).toBe("cmd-2")
+    expect(result.current.errors[0]!.componentId).toBe("cmd-2")
   })
 
   it("clearAllErrors resets to zero", () => {

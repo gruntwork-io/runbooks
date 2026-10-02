@@ -286,7 +286,7 @@ variables:
     expect(v.hasConfigErrors()).toBe(false)
     const errs = v.validateInputValues({ "i1.env": "production" })
     expect(errs).toHaveLength(1)
-    expect(errs[0].message).toContain("not in enum options")
+    expect(errs[0]!.message).toContain("not in enum options")
 
     const ok = v.validateInputValues({ "i1.env": "dev" })
     expect(ok).toHaveLength(0)
@@ -440,8 +440,8 @@ describe("InputValidator.validateInputValues", () => {
         message: Owner is required`)
     const errs = v.validateInputValues({ "i1.owner": "" })
     expect(errs).toHaveLength(1)
-    expect(errs[0].inputKey).toBe("i1.owner")
-    expect(errs[0].message).toContain("is required")
+    expect(errs[0]!.inputKey).toBe("i1.owner")
+    expect(errs[0]!.message).toContain("is required")
     expect(v.validateInputValues({ "i1.owner": "team-a" })).toEqual([])
   })
 

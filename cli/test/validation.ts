@@ -140,10 +140,9 @@ export class InputValidator {
     const errors: ValidationError[] = []
 
     for (const [key, value] of Object.entries(inputs)) {
-      const parts = key.split(".", 2)
-      if (parts.length !== 2) continue
+      const [inputsId, varName] = key.split(".", 2)
+      if (inputsId === undefined || varName === undefined) continue
 
-      const [inputsId, varName] = parts
       const schema = this.schemas.get(inputsId)
       if (!schema) continue
 
@@ -168,7 +167,7 @@ export class InputValidator {
 
     while ((match = blockRe.exec(content)) !== null) {
       if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) continue
-      const blockType = match[1]
+      const blockType = match[1]!
       if (seen.has(blockType) || KNOWN_BLOCK_TYPES.has(blockType)) continue
       seen.add(blockType)
       this.configErrors.push({
@@ -559,8 +558,7 @@ function parseConfig(yamlContent: string): BoilerplateConfig {
 }
 
 export function lowercaseFirst(s: string): string {
-  if (!s) return s
-  return s[0].toLowerCase() + s.slice(1)
+  return s.charAt(0).toLowerCase() + s.slice(1)
 }
 
 // ---------------------------------------------------------------------------

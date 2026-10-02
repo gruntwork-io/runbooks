@@ -50,7 +50,7 @@ function fakeRenderInline(args: unknown) {
     inputs: TemplateValue[]
   }
   const ctx = Object.fromEntries(inputs.map((v) => [v.name, v.value]))
-  const content = templateFiles["script.sh"].replace(
+  const content = templateFiles["script.sh"]!.replace(
     /\{\{\s*\.([\w.]+)\s*\}\}/g,
     (_, path: string) =>
       String(
@@ -258,11 +258,11 @@ describe("useScriptExecution — outputs", () => {
 
     // ViewOutputs gets the wrapped value, so it masks it
     const shown = result.current.exec.outputs ?? {}
-    expect(isSensitiveOutput(shown.TOKEN)).toBe(true)
+    expect(isSensitiveOutput(shown.TOKEN!)).toBe(true)
     expect(shown.user).toBe("u")
     // Downstream blocks get the same, and read the real value through revealOutput
     const registered = result.current.runbook.blockOutputs.target?.values ?? {}
-    expect(isSensitiveOutput(registered.TOKEN)).toBe(true)
+    expect(isSensitiveOutput(registered.TOKEN!)).toBe(true)
     expect(revealOutputs(registered)).toEqual({ TOKEN: "x", user: "u" })
   })
 })

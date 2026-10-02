@@ -150,7 +150,7 @@ export function renderTemplate(
       if (!Object.hasOwn(values, name)) {
         throw new Error(`The 'runbooks' launcher template has no value for ${placeholder}.`)
       }
-      return values[name]
+      return values[name]!
     })
 }
 
@@ -489,7 +489,7 @@ async function addToWindowsPath(dir: string): Promise<void> {
   )
 
   const match = stdout.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.*)/i)
-  const currentPath = match ? match[1].trim() : ""
+  const currentPath = match ? match[1]!.trim() : ""
 
   // Check if already present (case-insensitive on Windows)
   const entries = currentPath.split(";").map((e) => e.toLowerCase())
@@ -559,7 +559,7 @@ async function removeFromWindowsPath(dir: string): Promise<void> {
   const match = stdout.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.*)/i)
   if (!match) return
 
-  const currentPath = match[1].trim()
+  const currentPath = match[1]!.trim()
   const entries = currentPath.split(";").filter((e) => e.toLowerCase() !== dir.toLowerCase())
   const newPath = entries.join(";")
   // Uninstall runs even when nothing was installed; leave PATH untouched then.

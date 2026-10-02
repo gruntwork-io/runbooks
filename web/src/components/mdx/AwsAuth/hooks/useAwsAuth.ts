@@ -203,12 +203,12 @@ export function useAwsAuth({
   // Register credentials as outputs and set session environment
   const registerCredentials = useCallback(
     async (creds: AwsCredentials) => {
-      const env: Record<string, string> = {
+      const env = {
         AWS_ACCESS_KEY_ID: creds.accessKeyId,
         AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
         AWS_REGION: creds.region,
         AWS_SESSION_TOKEN: creds.sessionToken || "",
-      }
+      } satisfies Record<string, string>
 
       // The secret key and session token are published as sensitive outputs,
       // whatever the credentials came from (including a block that marked them
@@ -862,7 +862,7 @@ export function useAwsAuth({
         if (data.roles && data.roles.length > 0) {
           setSsoRoles(data.roles)
           if (data.roles.length === 1) {
-            setSelectedSsoRole(data.roles[0].roleName)
+            setSelectedSsoRole(data.roles[0]!.roleName)
           }
           setAuthStatus("select_role")
         } else {

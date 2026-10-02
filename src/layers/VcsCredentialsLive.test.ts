@@ -267,10 +267,11 @@ describe("VcsCredentialsLive — glab token binding in the GitLab CLI leg", () =
       respond: respondWith(
         glabInstalled
           ? {
-              "glab config": (args) => ({
-                lines: [{ line: TOKENS[args[args.indexOf("--host") + 1]] ?? "", source: "stdout" }],
-                exitCode: 0,
-              }),
+              "glab config": (args) => {
+                const host = args[args.indexOf("--host") + 1]
+                if (host === undefined) throw new Error("glab config called without --host")
+                return { lines: [{ line: TOKENS[host] ?? "", source: "stdout" }], exitCode: 0 }
+              },
             }
           : {},
       ),
@@ -661,6 +662,7 @@ describe("VcsCredentialsLive — GitHub enterprise hosts", () => {
       "gh auth": (args) => {
         if (args[1] !== "token") return { lines: [], exitCode: 1 }
         const host = args[args.indexOf("--hostname") + 1]
+        if (host === undefined) throw new Error("gh auth token called without --hostname")
         const token = tokens[host]
         return token
           ? { lines: [{ line: token, source: "stdout" }], exitCode: 0 }

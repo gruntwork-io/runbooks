@@ -115,7 +115,7 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
       isDuplicate: true,
       isNormalizedCollision: normalizedCollisions.length > 0 && exactDuplicates.length === 0,
       collidingComponents: collisions,
-      collidingId: normalizedCollisions.length > 0 ? normalizedCollisions[0].id : undefined,
+      collidingId: normalizedCollisions[0]?.id,
     }
   }, [])
 

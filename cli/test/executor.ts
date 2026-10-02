@@ -788,8 +788,7 @@ export class TestExecutor {
     // Find the executable by component ID
     let foundExec: Executable | undefined
     const allExecs = this.registry.getAllExecutables()
-    for (const id of Object.keys(allExecs)) {
-      const entry = allExecs[id]
+    for (const [id, entry] of Object.entries(allExecs)) {
       if (entry.componentId === block.id) {
         foundExec = this.registry.getExecutableSync(id)
         break
@@ -826,7 +825,7 @@ export class TestExecutor {
     // The log files, as in the app: RUNBOOK_LOG, which the log_* helpers
     // append to, and one per level (RUNBOOK_INFO_LOG etc.)
     const logChannelDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-log-channels-"))
-    const [scriptLog] = logChannelFiles(logChannelDir, [RUNBOOK_LOG_CHANNEL])
+    const scriptLog = logChannelFiles(logChannelDir, [RUNBOOK_LOG_CHANNEL])[0]!
     const levelLogs = logChannelFiles(logChannelDir, LEVEL_LOG_CHANNELS)
     for (const { path: logFile } of [scriptLog, ...levelLogs]) fs.writeFileSync(logFile, "")
     // Made below; declared here so the finally can remove them
@@ -1121,9 +1120,9 @@ export class TestExecutor {
       // not nested under inputs ({{ .inputs.config_name }}).
       // Merge this block's inputs into the top level of vars.
       for (const [key, value] of Object.entries(this.testInputs)) {
-        const parts = key.split(".", 2)
-        if (parts.length === 2 && parts[0] === block.id) {
-          vars[parts[1]] = value
+        const [blockId, name] = key.split(".", 2)
+        if (name !== undefined && blockId === block.id) {
+          vars[name] = value
         }
       }
       this.creditGeneratedFiles(block.id, this.renderTemplateDir(templatePath, outputDir, vars))
@@ -1817,9 +1816,9 @@ export class TestExecutor {
   ): Record<string, unknown> {
     const inputs: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(this.testInputs)) {
-      const parts = key.split(".", 2)
-      if (parts.length === 2) {
-        inputs[parts[1]] = value
+      const [, name] = key.split(".", 2)
+      if (name !== undefined) {
+        inputs[name] = value
       }
     }
 
@@ -1861,10 +1860,9 @@ export class TestExecutor {
     >
     const missing: string[] = []
     for (const p of expected) {
-      const parts = p.split(".")
-      if (parts.length >= 3 && parts[0] === "outputs") {
-        const blockId = parts[1].replace(/-/g, "_")
-        const outputName = parts[2]
+      const [root, rawBlockId, outputName] = p.split(".")
+      if (root === "outputs" && rawBlockId !== undefined && outputName !== undefined) {
+        const blockId = rawBlockId.replace(/-/g, "_")
         const outputs = templateOutputs[blockId]
         if (!outputs || !outputs[outputName]) {
           missing.push(p)

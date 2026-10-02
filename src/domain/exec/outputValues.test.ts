@@ -34,13 +34,13 @@ describe("a sensitive output", () => {
   })
 
   it("is read only through revealOutput", () => {
-    expect(isSensitiveOutput(outputs.token)).toBe(true)
+    expect(isSensitiveOutput(outputs.token!)).toBe(true)
     expect(revealOutput(outputs.token)).toBe(SECRET)
     expect(revealOutputs(outputs)).toEqual({ user: "alice", token: SECRET })
   })
 
   it("shows as <redacted> through maskOutput", () => {
-    expect(maskOutput(outputs.token)).toBe("<redacted>")
+    expect(maskOutput(outputs.token!)).toBe("<redacted>")
     expect(maskOutputs(outputs)).toEqual({ user: "alice", token: "<redacted>" })
   })
 
@@ -54,9 +54,9 @@ describe("a sensitive output", () => {
 
 describe("a plain output", () => {
   it("passes through reveal and mask unchanged", () => {
-    expect(isSensitiveOutput(outputs.user)).toBe(false)
+    expect(isSensitiveOutput(outputs.user!)).toBe(false)
     expect(revealOutput(outputs.user)).toBe("alice")
-    expect(maskOutput(outputs.user)).toBe("alice")
+    expect(maskOutput(outputs.user!)).toBe("alice")
   })
 })
 
@@ -78,7 +78,7 @@ describe("IPC encoding", () => {
     const received = decodeOutputs(structuredClone(encodeOutputs(outputs)))
 
     expect(received.user).toBe("alice")
-    expect(isSensitiveOutput(received.token)).toBe(true)
+    expect(isSensitiveOutput(received.token!)).toBe(true)
     expect(revealOutput(received.token)).toBe(SECRET)
     expect(JSON.stringify(received)).not.toContain(SECRET)
   })

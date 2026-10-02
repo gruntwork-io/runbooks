@@ -66,13 +66,15 @@ export function parseLogLine(
 ): { timestamp: string; level: string; message: string } | null {
   const cleanLine = stripAnsi(line)
 
+  // Every named group in both patterns is required, so a match has them all.
+
   // Try full format first: [TIMESTAMP] [LEVEL] Message
   const fullMatch = LOG_LINE_FULL_REGEX.exec(cleanLine)
   if (fullMatch?.groups) {
     return {
-      timestamp: fullMatch.groups.ts,
-      level: fullMatch.groups.level.trim().toUpperCase(),
-      message: fullMatch.groups.msg,
+      timestamp: fullMatch.groups.ts!,
+      level: fullMatch.groups.level!.trim().toUpperCase(),
+      message: fullMatch.groups.msg!,
     }
   }
 
@@ -81,8 +83,8 @@ export function parseLogLine(
   if (shortMatch?.groups) {
     return {
       timestamp: fallbackTimestamp,
-      level: shortMatch.groups.level.toUpperCase(),
-      message: shortMatch.groups.msg,
+      level: shortMatch.groups.level!.toUpperCase(),
+      message: shortMatch.groups.msg!,
     }
   }
 
@@ -132,8 +134,9 @@ export function parseLogsToStructured(
         })
       } else {
         // Non-matching line: append to previous entry or create new INFO entry
-        if (result.length > 0) {
-          result[result.length - 1].message += "\n" + cleanLine
+        const previous = result.at(-1)
+        if (previous) {
+          previous.message += "\n" + cleanLine
         } else {
           result.push({
             timestamp: log.timestamp,

@@ -137,8 +137,8 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.exitCode).toBe(0)
     expect(result.current.state.error).toBeNull()
     expect(result.current.state.logs).toHaveLength(2)
-    expect(result.current.state.logs[0].line).toBe("Starting...")
-    expect(result.current.state.logs[1].line).toBe("Done!")
+    expect(result.current.state.logs[0]!.line).toBe("Starting...")
+    expect(result.current.state.logs[1]!.line).toBe("Done!")
   })
 
   it("status fail event: running -> fail with exit code", async () => {
@@ -191,8 +191,8 @@ describe("useApiExec state machine", () => {
     })
 
     expect(result.current.state.status).toBe("pending")
-    const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
-    expect(lastLog.line).toContain("cancelled")
+    const lastLog = result.current.state.logs.at(-1)
+    expect(lastLog?.line).toContain("cancelled")
   })
 
   it("cancel sends exec:cancel targeting the running execution id", async () => {
@@ -253,8 +253,8 @@ describe("useApiExec state machine", () => {
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("pending"))
-    const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
-    expect(lastLog.line).toContain("another block was run")
+    const lastLog = result.current.state.logs.at(-1)
+    expect(lastLog?.line).toContain("another block was run")
   })
 
   it("a block interrupted by a second block does not stay stuck on running", async () => {
@@ -312,7 +312,7 @@ describe("useApiExec state machine", () => {
       .mocked(mock.api.invoke)
       .mock.calls.filter(([channel]) => channel === "exec:run")
     expect(runCalls).toHaveLength(1)
-    const { executionId } = runCalls[0][1] as { executionId: string }
+    const { executionId } = runCalls[0]![1] as { executionId: string }
 
     // The invoke settles (aborted by a newer run) — which used to clear the id
     // Stop depends on, leaving the button wired to nothing.
@@ -402,7 +402,7 @@ describe("useApiExec state machine", () => {
     await waitFor(() => expect(result.current.state.status).toBe("success"))
 
     const outputs = result.current.state.outputs ?? {}
-    expect(isSensitiveOutput(outputs.AWS_SECRET_ACCESS_KEY)).toBe(true)
+    expect(isSensitiveOutput(outputs.AWS_SECRET_ACCESS_KEY!)).toBe(true)
     expect(outputs.region).toBe("us-west-2")
     expect(JSON.stringify(outputs)).not.toContain("topsecret")
     // Downstream blocks get the same wrapped outputs, and read the real value

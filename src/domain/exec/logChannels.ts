@@ -121,10 +121,10 @@ export function orderLogChannelLines(
     }
     // Lines after the last timestamped line have no next one.
     let previous = ""
-    for (let i = 0; i < lines.length; i++) {
+    for (const [i, line] of lines.entries()) {
       previous = stamps[i] || previous
-      if (keys[i] === "") keys[i] = lastWritten ? logTimestamp(lastWritten) : previous
-      entries.push({ key: keys[i], line: tagLogLine(lines[i], level) })
+      const key = keys[i] || (lastWritten ? logTimestamp(lastWritten) : previous)
+      entries.push({ key, line: tagLogLine(line, level) })
     }
   }
   // Array.prototype.sort is stable, so equal keys keep file, then line, order.
