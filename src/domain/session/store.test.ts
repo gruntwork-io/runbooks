@@ -4,7 +4,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
 import { SessionStore, type SessionRecord } from "./store.ts"
-import { openBunSqlite } from "../../test-utils/bunSqlite.ts"
+import { openSqliteDatabase } from "../../layers/NodeSqlite.ts"
 
 const run = Effect.runSync
 
@@ -31,7 +31,7 @@ describe("SessionStore", () => {
   let store: SessionStore
 
   beforeEach(() => {
-    store = run(SessionStore.open(openBunSqlite()))
+    store = run(SessionStore.open(openSqliteDatabase(":memory:")))
   })
 
   it("returns a session as it was inserted", () => {
@@ -248,11 +248,11 @@ describe("SessionStore", () => {
 
     it("keeps sessions after the database is closed and reopened", () => {
       const file = path.join(dir, "sessions.db")
-      const first = run(SessionStore.open(openBunSqlite(file)))
+      const first = run(SessionStore.open(openSqliteDatabase(file)))
       run(first.insert(record({ worktrees: ["/a"] })))
       run(first.close())
 
-      const second = run(SessionStore.open(openBunSqlite(file)))
+      const second = run(SessionStore.open(openSqliteDatabase(file)))
 
       expect(run(second.get("s1"))).toEqual(record({ worktrees: ["/a"] }))
       run(second.close())
@@ -260,11 +260,11 @@ describe("SessionStore", () => {
 
     it("refuses a database written by a newer schema version", () => {
       const file = path.join(dir, "sessions.db")
-      const db = openBunSqlite(file)
+      const db = openSqliteDatabase(file)
       db.exec("PRAGMA user_version = 99")
       db.close()
 
-      expect(() => run(SessionStore.open(openBunSqlite(file)))).toThrow(/schema version 99/)
+      expect(() => run(SessionStore.open(openSqliteDatabase(file)))).toThrow(/schema version 99/)
     })
   })
 })

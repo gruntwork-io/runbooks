@@ -3,15 +3,16 @@ import { Effect } from "effect"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { openSqliteDatabase } from "../../electron/main/sqlite.ts"
+import { openSqliteDatabase } from "../../src/layers/NodeSqlite.ts"
 import { SessionStore, type SessionRecord } from "../../src/domain/session/store.ts"
 
-// The sessions store over the binding the app ships, `node:sqlite`.
+// The sessions store over Node's `node:sqlite`, the binding Electron ships.
 //
-// Node-only (vitest, environment: node): Bun has no `node:sqlite`, so the
-// store's own tests (src/domain/session/store.test.ts) run it over
-// `bun:sqlite`. This suite covers what differs between the two bindings: the
-// adapter, and the types `node:sqlite` hands back for each column.
+// Node-only (vitest, environment: node): the store's own tests
+// (src/domain/session/store.test.ts) run under `bun test`, where `node:sqlite`
+// is Bun's implementation of the same API. This suite covers what could differ
+// between the two: the types each column comes back as, and how a failed
+// statement is reported.
 
 const session: SessionRecord = {
   id: "s1",

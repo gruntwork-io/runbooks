@@ -18,6 +18,8 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test"
+import { spawn } from "child_process"
+import { createRequire } from "module"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
@@ -128,6 +130,35 @@ test.describe("Saved sessions", () => {
     const pwd = await block.getByText(/^pwd=/).innerText()
     return pwd.replace(/^pwd=/, "")
   }
+
+  test("opens the sessions database without Node's experimental-SQLite warning", async () => {
+    // Started directly, not through Playwright: the database opens before the
+    // first window exists, and Playwright hands over the process only then,
+    // with its earlier output already gone.
+    const electronBinary = createRequire(import.meta.url)("electron") as string
+    const child = spawn(
+      electronBinary,
+      [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, runbookDir],
+      { env: { ...process.env, ELECTRON_NO_UPDATER: "1", RUNBOOKS_NO_TELEMETRY: "1" } },
+    )
+    let output = ""
+    child.stdout.on("data", (chunk) => (output += String(chunk)))
+    child.stderr.on("data", (chunk) => (output += String(chunk)))
+    try {
+      // Logged once the app is ready, after it has opened the database.
+      await expect.poll(() => output, { timeout: 60_000 }).toContain("eager background load")
+      expect(fs.existsSync(path.join(userDataDir, "v0", "sessions", "db", "sessions.db"))).toBe(
+        true,
+      )
+      expect(output).not.toContain("SQLite is an experimental feature")
+    } finally {
+      const exited = new Promise((resolve) => {
+        child.once("exit", resolve)
+      })
+      child.kill()
+      await exited
+    }
+  })
 
   test("runs scripts in a directory of the session's own, and resumes it on the next launch", async () => {
     const first = await launch(terminalDir("project"), [runbookDir])
