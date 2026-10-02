@@ -76,13 +76,13 @@ export function extractProp(props: string, propName: string): string {
 export function extractStringArrayProp(props: string, propName: string): string[] | undefined {
   const match = new RegExp(`(?:^|\\s)${propName}=\\{\\s*\\[([^\\]]*)\\]\\s*\\}`).exec(props)
   if (!match) return undefined
-  const body = match[1]
+  const body = match[1]!
   const items: string[] = []
   const item = /\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)\s*(,|$)/y
   while (item.lastIndex < body.length && body.slice(item.lastIndex).trim() !== "") {
     const found = item.exec(body)
     if (!found) return undefined
-    items.push(found[1] ?? found[2] ?? found[3])
+    items.push(found[1] ?? found[2] ?? found[3]!)
     if (found[4] === "") break
   }
   return items

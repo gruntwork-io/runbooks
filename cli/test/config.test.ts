@@ -122,13 +122,17 @@ describe("parseConfig — failure paths", () => {
 
   it("rejects set_outputs that isn't a map", () => {
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps:\n      - block: p\n        set_outputs: [region]`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps:\n      - block: p\n        set_outputs: [region]`,
+      ),
     ).toThrow(/set_outputs must be a map of output names to values/)
   })
 
   it("rejects a set_outputs value that isn't a string", () => {
     expect(() =>
-      parseConfig(`version: 1\ntests:\n  - name: t\n    steps:\n      - block: p\n        set_outputs:\n          replicas: 3`),
+      parseConfig(
+        `version: 1\ntests:\n  - name: t\n    steps:\n      - block: p\n        set_outputs:\n          replicas: 3`,
+      ),
     ).toThrow(/set_outputs\.replicas must be a string\. Quote it in the YAML\./)
   })
 

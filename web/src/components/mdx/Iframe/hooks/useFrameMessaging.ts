@@ -1,11 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRunbookContext, useTemplateContext } from "@/contexts/useRunbook"
-import { INPUTS_MESSAGE, parsePageMessage } from "../protocol"
+import { parsePageMessage } from "../protocol"
+import {
+  EMBED_PAGE_MESSAGE_CHANNEL,
+  EMBED_RUNBOOK_MESSAGE_CHANNEL,
+  INPUTS_MESSAGE,
+} from "../../../../../../electron/shared/embed-messaging.ts"
+import { errorMessage } from "../../../../../../src/errors/message"
+
+/** The parts of Electron's `<webview>` element (WebviewTag) the block uses. */
+export interface EmbedWebview extends HTMLElement {
+  /** The guest's URL. Throws until the guest exists. */
+  getURL(): string
+  /** Send a message to the guest's preload. */
+  send(channel: string, ...args: unknown[]): Promise<void>
+}
+
+/** A webview's `ipc-message` event: what the guest's preload sent with sendToHost. */
+type IpcMessageEvent = Event & { channel: string; args: unknown[] }
 
 interface FrameMessagingOptions {
-  frameRef: RefObject<HTMLIFrameElement | null>
+  /** The block's `<webview>`, while it is mounted. */
+  webview: EmbedWebview | null
   /**
-   * Origin of the page from the runbook's assets folder that the frame shows.
+   * Origin of the page from the runbook's assets folder that the webview shows.
    * Undefined for an external page or an invalid block, which exchange no messages.
    */
   pageOrigin: string | undefined
@@ -18,16 +36,23 @@ interface FrameMessagingOptions {
 }
 
 /**
- * Exchanges values with a page framed from the runbook's assets folder over
+ * Exchanges values with a page embedded from the runbook's assets folder over
  * the protocol in ../protocol.ts: the page's outputs become the block's
  * outputs, and the page receives the values of the `inputsId` Inputs blocks
  * when it loads, whenever they change, and whenever it asks for them.
  *
- * Only messages from this block's own frame, while it shows a page from
- * `pageOrigin`, are accepted, and inputs are only delivered to that origin. A
- * frame that navigated to another site neither sends nor receives.
+ * The page's guest relays the messages (electron/preload/embed-relay.ts), and
+ * only those the page itself posted, not a frame inside it. They are
+ * accepted, and inputs sent, only while the guest shows a page from
+ * `pageOrigin`, which the main process keeps a local page's guest on.
  */
-export function useFrameMessaging({ frameRef, pageOrigin, id, outputNames, inputsId }: FrameMessagingOptions) {
+export function useFrameMessaging({
+  webview,
+  pageOrigin,
+  id,
+  outputNames,
+  inputsId,
+}: FrameMessagingOptions) {
   const { registerOutputs } = useRunbookContext()
   const templateCtx = useTemplateContext(inputsId)
   const [outputs, setOutputs] = useState<Record<string, string> | null>(null)
@@ -43,25 +68,28 @@ export function useFrameMessaging({ frameRef, pageOrigin, id, outputNames, input
   const inputs = inputsId ? templateCtx.inputs : undefined
 
   const sendInputs = useCallback(() => {
-    if (pageOrigin === undefined || inputs === undefined) return
-    try {
-      // A frame still showing about:blank, or one that navigated away, has
-      // another origin, and the browser drops the message.
-      frameRef.current?.contentWindow?.postMessage({ type: INPUTS_MESSAGE, inputs }, pageOrigin)
-    } catch (error) {
-      setMessageError(`Couldn't send inputs to the page: ${error instanceof Error ? error.message : String(error)}`)
+    if (!webview || pageOrigin === undefined || inputs === undefined) return
+    // Before its guest exists, the webview has no page to send to. Its
+    // dom-ready sends the inputs once the page is there.
+    if (!showsPage(webview, pageOrigin)) return
+    const send = async () => {
+      await webview.send(EMBED_RUNBOOK_MESSAGE_CHANNEL, { type: INPUTS_MESSAGE, inputs })
     }
-  }, [pageOrigin, inputs, frameRef])
+    send().catch((error: unknown) => {
+      setMessageError(`Couldn't send inputs to the page: ${errorMessage(error)}`)
+    })
+  }, [webview, pageOrigin, inputs])
 
   useEffect(() => {
     sendInputs()
   }, [sendInputs])
 
   useEffect(() => {
-    if (pageOrigin === undefined) return
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== frameRef.current?.contentWindow || event.origin !== pageOrigin) return
-      const message = parsePageMessage(event.data, declaredOutputs)
+    if (!webview || pageOrigin === undefined) return
+    const onIpcMessage = (event: Event) => {
+      const { channel, args } = event as IpcMessageEvent
+      if (channel !== EMBED_PAGE_MESSAGE_CHANNEL || !showsPage(webview, pageOrigin)) return
+      const message = parsePageMessage(args[0], declaredOutputs)
       if (!message) return
       switch (message.kind) {
         case "get-inputs":
@@ -84,9 +112,24 @@ export function useFrameMessaging({ frameRef, pageOrigin, id, outputNames, input
         }
       }
     }
-    window.addEventListener("message", onMessage)
-    return () => window.removeEventListener("message", onMessage)
-  }, [pageOrigin, frameRef, declaredOutputs, id, registerOutputs, sendInputs])
+    webview.addEventListener("ipc-message", onIpcMessage)
+    // Each page the guest loads gets the inputs once it has loaded, by when
+    // its preload listens for them.
+    webview.addEventListener("dom-ready", sendInputs)
+    return () => {
+      webview.removeEventListener("ipc-message", onIpcMessage)
+      webview.removeEventListener("dom-ready", sendInputs)
+    }
+  }, [webview, pageOrigin, declaredOutputs, id, registerOutputs, sendInputs])
 
-  return { outputs, messageError, onFrameLoad: sendInputs }
+  return { outputs, messageError }
+}
+
+/** Whether `webview`'s guest shows a page under `origin`. False before the guest exists. */
+function showsPage(webview: EmbedWebview, origin: string): boolean {
+  try {
+    return webview.getURL().startsWith(`${origin}/`)
+  } catch {
+    return false
+  }
 }

@@ -1,21 +1,30 @@
 /**
- * E2E tests for messaging between the Iframe block and a page it frames from
+ * E2E tests for messaging between the Iframe block and a page it embeds from
  * the runbook's assets folder, in the built app.
  *
- * jsdom can't give a frame a runbook-asset:// origin, so these are
- * what check that the block's origin checks match the browser's: the page
- * receives the Inputs values, and the output it sets reaches the runbook.
+ * The page runs in a `<webview>` guest, whose preload relays the messages
+ * (electron/preload/embed-relay.ts), and jsdom has neither. These check that
+ * a page using the documented protocol reaches the runbook: it receives the
+ * Inputs values, the output it sets reaches the runbook, and a frame inside
+ * the page can't set outputs.
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts 'iframe-messaging'
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { inGuest } from "./webview-guests.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -33,13 +42,15 @@ variables:
 \`\`\`
 </Inputs>
 
-<Iframe id="picker" src="./assets/picker.html" title="Picker" inputsId="cfg" outputs={["region"]} />
+<Iframe id="picker" src="./assets/picker.html" title="Picker" inputsId="cfg" outputs={["region", "zone"]} />
 `
 
-// Shows the inputs it receives, asks for them once, and sets an output on click.
+// Shows the inputs it receives, asks for them once, and sets an output on
+// click, as the Iframe docs describe. It also frames nested.html.
 const PICKER_PAGE = `<!doctype html>
 <p id="inputs">none</p>
 <button id="send" type="button">Send region</button>
+<iframe src="./nested.html"></iframe>
 <script>
   window.addEventListener("message", (event) => {
     if (event.source !== parent) return
@@ -54,6 +65,16 @@ const PICKER_PAGE = `<!doctype html>
 </script>
 `
 
+// A frame inside the picker page that tries to set an output through it.
+const NESTED_PAGE = `<!doctype html>
+<script>
+  parent.postMessage({ type: "runbooks:set-outputs", outputs: { zone: "nested" } }, "*")
+  parent.nestedPosted = true
+</script>
+`
+
+const PICKER_URL = /^runbook-asset:\/\/r[0-9a-f]{32}\/picker\.html$/
+
 let tmpDir: string
 
 test.beforeEach(() => {
@@ -62,6 +83,7 @@ test.beforeEach(() => {
   fs.mkdirSync(path.join(runbookDir, "assets"), { recursive: true })
   fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), RUNBOOK)
   fs.writeFileSync(path.join(runbookDir, "assets/picker.html"), PICKER_PAGE)
+  fs.writeFileSync(path.join(runbookDir, "assets/nested.html"), NESTED_PAGE)
 })
 
 test.afterEach(() => {
@@ -71,7 +93,11 @@ test.afterEach(() => {
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
     // --user-data-dir isolates the single-instance lock and trust state.
-    args: [MAIN_ENTRY, `--user-data-dir=${path.join(tmpDir, "user-data")}`, path.join(tmpDir, "runbook")],
+    args: [
+      MAIN_ENTRY,
+      `--user-data-dir=${path.join(tmpDir, "user-data")}`,
+      path.join(tmpDir, "runbook"),
+    ],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
@@ -85,31 +111,38 @@ async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   return { app, page }
 }
 
+/** The picker page's #inputs text. */
+const shownInputs = (app: ElectronApplication) =>
+  inGuest<string>(app, PICKER_URL, `document.getElementById("inputs").textContent`)
+
 test.describe("Iframe messaging", () => {
   test("the page receives the Inputs values, and again when they change", async () => {
     const { app, page } = await launch()
     try {
-      const frame = page.frameLocator('iframe[title="Picker"]')
-      await expect(frame.locator("#inputs")).toHaveText('{"greeting":"hello"}')
+      await expect.poll(() => shownInputs(app)).toBe('{"greeting":"hello"}')
 
       // A standalone Inputs block publishes edits once it has been submitted.
       await page.getByRole("textbox", { name: /greeting/i }).fill("bonjour")
       await page.getByRole("button", { name: "Submit" }).click()
 
-      await expect(frame.locator("#inputs")).toHaveText('{"greeting":"bonjour"}')
+      await expect.poll(() => shownInputs(app)).toBe('{"greeting":"bonjour"}')
     } finally {
       await app.close()
     }
   })
 
-  test("an output the page sets becomes the block's output", async () => {
+  test("an output the page sets becomes the block's output, and a frame inside it sets none", async () => {
     const { app, page } = await launch()
     try {
-      await page.frameLocator('iframe[title="Picker"]').getByRole("button", { name: "Send region" }).click()
+      // The nested frame posts first, so had it got through, its output
+      // would be there before the page's.
+      await expect.poll(() => inGuest(app, PICKER_URL, "window.nestedPosted === true")).toBe(true)
+      await inGuest(app, PICKER_URL, `document.getElementById("send").click()`)
 
       await page.getByRole("button", { name: "View Outputs (1)" }).click()
-      await expect(page.getByRole("cell", { name: "region" })).toBeVisible()
+      await expect(page.getByRole("cell", { name: "region", exact: true })).toBeVisible()
       await expect(page.getByText("eu-west-1")).toBeVisible()
+      await expect(page.getByText("nested")).toHaveCount(0)
     } finally {
       await app.close()
     }

@@ -35,6 +35,7 @@ import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import { readFromMain, runInMain } from "./main-process.ts"
+import { guestUrls, inGuest } from "./webview-guests.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -166,39 +167,6 @@ async function loadFrame(page: Page, title: string): Promise<void> {
 const LOCAL_SITE = /^runbook-asset:\/\/r[0-9a-f]{32}\/site\/index\.html$/
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
-/** The URLs of the <webview> guests. */
-function guestUrls(app: ElectronApplication): Promise<string[]> {
-  return readFromMain(
-    app,
-    ({ webContents }) =>
-      webContents
-        .getAllWebContents()
-        .filter((c) => c.getType() === "webview")
-        .map((c) => c.getURL()),
-    undefined,
-  )
-}
-
-/**
- * Run `script` in the guest whose URL matches `url`, once there is one, and
- * return its result. A lost result runs `script` again, so it has to be safe
- * to repeat.
- */
-async function inGuest<T>(app: ElectronApplication, url: RegExp, script: string): Promise<T> {
-  await expect.poll(async () => (await guestUrls(app)).some((u) => url.test(u))).toBe(true)
-  return (await readFromMain(
-    app,
-    ({ webContents }, { source, code }) => {
-      const pattern = new RegExp(source)
-      const guest = webContents
-        .getAllWebContents()
-        .find((c) => c.getType() === "webview" && pattern.test(c.getURL()))!
-      return guest.executeJavaScript(code)
-    },
-    { source: url.source, code: script },
-  )) as T
-}
 
 /** Whether the stylesheet at `href` loads in the guest whose URL matches `url`. */
 function stylesheetLoads(app: ElectronApplication, url: RegExp, href: string): Promise<boolean> {

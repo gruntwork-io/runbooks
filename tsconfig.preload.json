@@ -1,6 +1,9 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    // Preloads run in a renderer, next to the page's DOM.
+    "lib": ["ES2022", "DOM"],
+    "types": ["bun-types"],
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.preload.tsbuildinfo"
   },
   "include": ["electron/preload/**/*"]
