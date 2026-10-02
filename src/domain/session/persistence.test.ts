@@ -130,6 +130,89 @@ describe("SessionPersistence", () => {
     })
   })
 
+  describe("renameCurrent", () => {
+    /** The failure a rename ends in, as the IPC handler's caller sees it. */
+    const renameFailure = async (app: ReturnType<typeof startApp>, name: string) => {
+      const exit = await run(Effect.either(app.persistence.renameCurrent(name)))
+      return exit._tag === "Left" ? exit.left : undefined
+    }
+
+    it("renames the open session, and the name is still there after a restart", async () => {
+      const first = startApp()
+      const session = await first.open()
+
+      expect(await run(first.persistence.renameCurrent("prod-deploy"))).toBe("prod-deploy")
+
+      expect(first.persistence.currentSession()).toEqual({ ...session, name: "prod-deploy" })
+      first.quit()
+      const second = startApp()
+      expect(await second.open()).toEqual({ ...session, name: "prod-deploy" })
+    })
+
+    it("drops the whitespace around the name", async () => {
+      const app = startApp()
+      await app.open()
+
+      expect(await run(app.persistence.renameCurrent("  prod-deploy\n"))).toBe("prod-deploy")
+    })
+
+    it("does nothing when the session already has the name", async () => {
+      const app = startApp()
+      const session = await app.open()
+
+      expect(await run(app.persistence.renameCurrent(session.name))).toBe(session.name)
+    })
+
+    it.each([
+      ["", "Enter a name."],
+      ["   ", "Enter a name."],
+      ["a".repeat(64), "A session name can be at most 63 characters."],
+      ["Prod Deploy", /^Use lowercase letters, digits and hyphens/],
+      ["../../etc", /^Use lowercase letters, digits and hyphens/],
+    ])("refuses %j and keeps the name the session had", async (name, message) => {
+      const app = startApp()
+      const session = await app.open()
+
+      const failure = await renameFailure(app, name)
+
+      expect(failure).toMatchObject({ _tag: "SessionNameError" })
+      expect((failure as { message: string }).message).toMatch(message)
+      expect(app.persistence.currentSession()?.name).toBe(session.name)
+      expect(Effect.runSync(app.store.get(session.id))?.name).toBe(session.name)
+    })
+
+    it("refuses a name another session has, and says so", async () => {
+      const app = startApp()
+      const first = await app.open()
+      const second = await app.open({ startNew: true })
+
+      const failure = await renameFailure(app, first.name)
+
+      expect(failure).toMatchObject({
+        _tag: "SessionNameError",
+        message: `Another session is already named ${first.name}.`,
+      })
+      expect(app.persistence.currentSession()?.name).toBe(second.name)
+    })
+
+    it("lets a session take a name that another session gave up", async () => {
+      const app = startApp()
+      const first = await app.open()
+      await run(app.persistence.renameCurrent("prod-deploy"))
+      await app.open({ startNew: true })
+
+      expect(await run(app.persistence.renameCurrent(first.name))).toBe(first.name)
+    })
+
+    it("fails when no session is open", async () => {
+      const app = startApp()
+
+      expect(await renameFailure(app, "prod-deploy")).toMatchObject({
+        _tag: "SessionNotFoundError",
+      })
+    })
+  })
+
   it("resumes the runbook's session in a later run, with what its scripts left behind", async () => {
     const first = startApp()
     const session = await first.open()

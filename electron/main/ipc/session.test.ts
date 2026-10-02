@@ -18,6 +18,7 @@ mockElectron({
 
 const { registerSessionHandlers } = await import("./session.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
+const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
 
 registerSessionHandlers()
 
@@ -54,5 +55,63 @@ describe("session IPC handlers", () => {
 
     expect(result).toEqual({ ok: true })
     expect((await sessionEnv()).RUNBOOKS_TEST_VAR).toBeUndefined()
+  })
+
+  describe("session:rename", () => {
+    let sessions: ReturnType<typeof installTestSessionPersistence>
+
+    const rename = (params?: unknown) =>
+      handlers.get("session:rename")!(undefined, params) as Promise<{ name: string }>
+
+    /** Open a runbook's session the way runbook:get does. */
+    const openSession = (runbookPath: string) =>
+      runtime.runPromise(
+        sessions.persistence.open({
+          runbook: { path: runbookPath, remoteSource: undefined },
+          launchDir: undefined,
+          sessionId: undefined,
+          startNew: false,
+        }),
+      )
+
+    beforeEach(() => {
+      sessions = installTestSessionPersistence()
+    })
+
+    afterEach(() => {
+      sessions.cleanup()
+    })
+
+    it("renames the open session and returns its new name", async () => {
+      const session = await openSession("/repo/runbook.mdx")
+
+      expect(await rename({ name: " prod-deploy " })).toEqual({ name: "prod-deploy" })
+
+      expect(sessions.persistence.currentSession()?.name).toBe("prod-deploy")
+      expect((await runtime.runPromise(sessions.store.get(session.id)))?.name).toBe("prod-deploy")
+    })
+
+    it("rejects a name that is not allowed with the reason, and keeps the old name", async () => {
+      const session = await openSession("/repo/runbook.mdx")
+
+      await expect(rename({ name: "Prod Deploy" })).rejects.toThrow(
+        /Use lowercase letters, digits and hyphens/,
+      )
+      await expect(rename({ name: "a".repeat(64) })).rejects.toThrow(/at most 63 characters/)
+      // What a renderer that sends no name, or not a string, gets.
+      await expect(rename(undefined)).rejects.toThrow(/Enter a name/)
+      await expect(rename({ name: 42 })).rejects.toThrow(/Enter a name/)
+
+      expect(sessions.persistence.currentSession()?.name).toBe(session.name)
+    })
+
+    it("rejects another session's name", async () => {
+      const other = await openSession("/other/runbook.mdx")
+      await openSession("/repo/runbook.mdx")
+
+      await expect(rename({ name: other.name })).rejects.toThrow(
+        `Another session is already named ${other.name}.`,
+      )
+    })
   })
 })

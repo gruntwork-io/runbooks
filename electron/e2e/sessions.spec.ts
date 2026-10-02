@@ -146,6 +146,9 @@ test.describe("Saved sessions", () => {
       await expect(first.page).toHaveTitle(`${name} - Gruntwork Runbooks`)
       sessionDir = await showSession(first.page, "unset")
       expect(path.dirname(sessionDir)).toBe(sessionDirs)
+      // The folder button next to the name is for copying that directory.
+      await first.page.getByRole("button", { name: "Copy session directory" }).first().hover()
+      await expect(first.page.getByRole("tooltip")).toContainText(sessionDir)
       // The directory is named after the session's id, a version 7 UUID.
       expect(path.basename(sessionDir)).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -205,6 +208,51 @@ test.describe("Saved sessions", () => {
       await showSession(fromDesktop.page, "from-first-run")
     } finally {
       await fromDesktop.app.close()
+    }
+  })
+
+  test("renames the session from the title bar, and keeps the name and the directory on the next launch", async () => {
+    const first = await launch(terminalDir("project"), [runbookDir])
+    let sessionDir: string
+    try {
+      await expectRunbook(first.page)
+      sessionDir = await showSession(first.page, "unset")
+      const field = first.page.getByRole("textbox", { name: "Session name" })
+
+      await first.page.getByTestId("session-name").click()
+      await expect(field).toBeFocused()
+      // Typed over the selected name, and lowercased as it is typed.
+      await first.page.keyboard.type("Prod Deploy")
+      await expect(field).toHaveValue("prod deploy")
+      await first.page.keyboard.press("Enter")
+      await expect(first.page.getByRole("alert")).toContainText(
+        "Use lowercase letters, digits and hyphens",
+      )
+
+      await field.fill("prod-deploy")
+      await first.page.keyboard.press("Enter")
+      await expect(first.page.getByTestId("session-name")).toHaveText("prod-deploy")
+      await expect(first.page).toHaveTitle("prod-deploy - Gruntwork Runbooks")
+
+      // The header menu's item opens the field too, and the field gets the
+      // focus the closing menu would otherwise take back.
+      await first.page.getByText("Menu", { exact: true }).click()
+      await first.page.getByRole("menuitem", { name: "Rename Session" }).click()
+      await expect(field).toBeFocused()
+      await first.page.keyboard.press("Escape")
+      await expect(first.page.getByTestId("session-name")).toHaveText("prod-deploy")
+    } finally {
+      await first.app.close()
+    }
+
+    const second = await launch(terminalDir("project"), [runbookDir])
+    try {
+      await expectRunbook(second.page)
+      await expect(second.page.getByTestId("session-name")).toHaveText("prod-deploy")
+      // A rename changes what the session is called, not where it lives.
+      expect(await showSession(second.page, "unset")).toBe(sessionDir)
+    } finally {
+      await second.app.close()
     }
   })
 

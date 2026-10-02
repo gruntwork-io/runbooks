@@ -10,9 +10,10 @@
 import { randomUUIDv7 } from "node:crypto"
 import path from "node:path"
 import { Cause, Effect } from "effect"
+import { SessionNameError, SessionNotFoundError } from "../../errors/index.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import type { SessionManager, EnvChanges, SessionState } from "./manager.ts"
-import { sessionNameCandidates } from "./names.ts"
+import { sessionNameCandidates, sessionNameProblem } from "./names.ts"
 import type { RunbookSource, SessionRecord, SessionStore } from "./store.ts"
 
 /**
@@ -158,6 +159,35 @@ export class SessionPersistence {
       at: new Date().toISOString(),
       runbookPath,
       launchDir,
+    })
+  }
+
+  /**
+   * Rename the current session and return its new name, which is `requested`
+   * without the whitespace around it.
+   *
+   * Fails with a SessionNameError when the name breaks the rules of
+   * sessionNameProblem or another session has it, and with a
+   * SessionNotFoundError when no session is open.
+   */
+  renameCurrent(requested: string) {
+    return Effect.gen(this, function* () {
+      const current = this.current
+      if (current === undefined) return yield* new SessionNotFoundError()
+
+      const name = requested.trim()
+      if (name === current.name) return name
+      const problem = sessionNameProblem(name)
+      if (problem !== undefined) return yield* new SessionNameError({ message: problem })
+      if (yield* this.options.store.isNameTaken(name)) {
+        return yield* new SessionNameError({
+          message: `Another session is already named ${name}.`,
+        })
+      }
+
+      yield* this.options.store.rename(current.id, name)
+      this.current = { ...current, name }
+      return name
     })
   }
 

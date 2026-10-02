@@ -81,6 +81,25 @@ describe("SessionStore", () => {
       )
       expect(run(store.get("second"))).toBeUndefined()
     })
+
+    it("renames a session and frees its old name", () => {
+      run(store.insert(record({ name: "elegant-elephant", worktrees: ["/a"] })))
+
+      run(store.rename("s1", "prod-deploy"))
+
+      expect(run(store.get("s1"))).toEqual(record({ name: "prod-deploy", worktrees: ["/a"] }))
+      expect(run(store.isNameTaken("elegant-elephant"))).toBe(false)
+    })
+
+    it("refuses to rename a session to another session's name", () => {
+      run(store.insert(record({ id: "first", name: "elegant-elephant" })))
+      run(store.insert(record({ id: "second", name: "brave-otter" })))
+
+      expect(() => run(store.rename("second", "elegant-elephant"))).toThrow(
+        /failed to rename a session/,
+      )
+      expect(run(store.get("second"))?.name).toBe("brave-otter")
+    })
   })
 
   describe("saveState", () => {

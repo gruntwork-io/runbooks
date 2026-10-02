@@ -186,6 +186,13 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       },
       { type: "separator" },
       {
+        id: "rename-session",
+        label: "Rename Session…",
+        click: () => {
+          getMainWindow()?.webContents.send("menu:rename-session")
+        },
+      },
+      {
         // No accelerator: it discards what the runbook's blocks have done.
         id: "reset-session",
         label: "Reset Session",

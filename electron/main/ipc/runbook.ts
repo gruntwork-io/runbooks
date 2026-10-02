@@ -322,6 +322,7 @@ export function registerRunbookHandlers(): void {
         assetHost: runbookAssetHost(config),
         sessionId: session.id,
         sessionName: session.name,
+        sessionDir: session.dir,
       }
     },
   )

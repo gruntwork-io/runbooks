@@ -226,7 +226,16 @@ function App() {
 
   // The session's name goes in the Header, which is the title bar people see,
   // and in the window title, which the OS shows in its window list and taskbar.
-  const sessionName = getRunbookResult.data?.sessionName
+  // A rename from the Header takes effect here at once: the loaded runbook's
+  // data only has the new name after its next load.
+  const loadedSessionId = getRunbookResult.data?.sessionId
+  const [renamed, setRenamed] = useState<{ sessionId: string | undefined; name: string } | null>(
+    null,
+  )
+  const sessionName =
+    renamed !== null && renamed.sessionId === loadedSessionId
+      ? renamed.name
+      : getRunbookResult.data?.sessionName
   useEffect(() => {
     document.title = sessionName ? `${sessionName} - ${APP_TITLE}` : APP_TITLE
   }, [sessionName])
@@ -279,7 +288,11 @@ function App() {
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
-        <Header sessionName={sessionName} />
+        <Header
+          sessionName={sessionName}
+          sessionDir={getRunbookResult.data?.sessionDir}
+          onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}
+        />
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
