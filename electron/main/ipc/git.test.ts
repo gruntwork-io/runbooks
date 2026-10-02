@@ -20,7 +20,17 @@
  * Both https servers use the committed test/fixtures/tls localhost
  * certificate, trusted through GIT_SSL_CAINFO.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, spyOn } from "bun:test"
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  spyOn,
+  setDefaultTimeout,
+} from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as http from "node:http"
@@ -32,6 +42,10 @@ import { Effect } from "effect"
 import { fetchUrl } from "../test-utils/fetch-url.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 // ---------------------------------------------------------------------------
 // Boundary mocks (must be registered before the handler module is imported)

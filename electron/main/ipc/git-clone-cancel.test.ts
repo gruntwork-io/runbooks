@@ -1,8 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test"
+import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { mockElectron } from "../test-utils/mock-electron.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 // git.ts registers its handlers on electron's ipcMain. Capture them so the
 // real git:clone / git:clone-cancel handlers can be called directly; the rest

@@ -7,7 +7,7 @@
  * guards (a retry dying on "a branch named … already exists") only shows up
  * with real git state left behind by a failed attempt.
  */
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, setDefaultTimeout } from "bun:test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -21,6 +21,10 @@ import { GitError, GitHubApiError, GitLabApiError } from "../../errors/index.ts"
 import { GitCliClientLive } from "../../layers/GitCliClient.ts"
 import { ChildProcessSpawnerLive } from "../../layers/ChildProcessSpawner.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
+
+// These tests spawn real git/ssh processes, which a loaded full-suite run can
+// stall past bun's 5 s default; 30 s matches the other real-git tests.
+setDefaultTimeout(30_000)
 
 const params: CreatePullRequestParams = {
   owner: "acme",
