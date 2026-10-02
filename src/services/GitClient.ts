@@ -9,12 +9,6 @@ export interface CloneOptions {
   /** Basic-auth username sent with `token` (see gitCredentialUsername); defaults to `x-access-token`. */
   readonly username?: string
   readonly force?: boolean
-  /**
-   * When set, sparse-checkout only this repo-relative path. A directory is
-   * checked out with everything under it; a file brings its whole parent
-   * directory.
-   */
-  readonly sparse?: string | undefined
 }
 
 export interface PushOptions {

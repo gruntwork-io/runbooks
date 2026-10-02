@@ -567,7 +567,6 @@ describe("openRemoteRunbook (real git)", () => {
     nodeFs.writeFileSync(nodePath.join(repo, "docs", "guide.md"), "# guide\n")
     nodeFs.symlinkSync(nodePath.join(root, "outside"), nodePath.join(repo, "runbooks", "escape"))
     git(repo, "init", "-b", "main")
-    git(repo, "config", "uploadpack.allowFilter", "true")
     git(repo, "add", ".")
     git(repo, "commit", "-m", "initial")
 
@@ -619,6 +618,23 @@ describe("openRemoteRunbook (real git)", () => {
     expect(sentToken("clone")).toBe(true)
     expect(tokenInAnyArg()).toBe(false)
   }, 30_000)
+
+  it.each([
+    ["go-getter subdirectory", "git::https://git.example.com/org/repo.git//runbooks/vpc?ref=main"],
+    ["browser directory URL", "https://git.example.com/org/repo/tree/main/runbooks/vpc"],
+  ])(
+    "a %s checks out the whole repo, so the runbook can use files outside its directory",
+    async (_kind, source) => {
+      const result = await open(source)
+
+      const repoRoot = nodePath.resolve(nodePath.dirname(result.localPath), "..", "..")
+      expect(nodeFs.readFileSync(nodePath.join(repoRoot, "docs", "guide.md"), "utf8")).toBe(
+        "# guide\n",
+      )
+      expect(nodeFs.readFileSync(nodePath.join(repoRoot, "README.md"), "utf8")).toBe("readme\n")
+    },
+    30_000,
+  )
 
   it("reports the source without a password typed into it, even one holding an @", async () => {
     // Built at runtime so secret scanners don't flag the fixture.
