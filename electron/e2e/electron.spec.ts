@@ -36,12 +36,12 @@ test.describe("Electron App", () => {
     })
 
     try {
-      const window = await app.firstWindow()
+      const page = await app.firstWindow()
       // Window should be visible and have a non-zero size
-      const title = await window.title()
+      const title = await page.title()
       expect(title).toBeDefined()
 
-      const { width, height } = await window.evaluate(() => ({
+      const { width, height } = await page.evaluate(() => ({
         width: window.innerWidth,
         height: window.innerHeight,
       }))
