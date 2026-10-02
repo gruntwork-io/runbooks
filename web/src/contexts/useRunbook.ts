@@ -85,16 +85,13 @@ export function useRunbookContext(): RunbookContextType {
  * @returns Array of TemplateValue objects (merged, later IDs override earlier)
  */
 export function useInputs(inputsId: string | string[] | undefined): TemplateValue[] {
-  const context = useContext(RunbookContext)
-
-  // Get the blockInputs from context to track changes
-  const blockInputs = context?.blockInputs
+  // getInputs changes exactly when the registered inputs do.
+  const getInputs = useContext(RunbookContext)?.getInputs
 
   const inputs = useMemo(() => {
-    if (!context || !inputsId) return EMPTY_INPUTS
-    return context.getInputs(inputsId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputsId, blockInputs])
+    if (!getInputs || !inputsId) return EMPTY_INPUTS
+    return getInputs(inputsId)
+  }, [getInputs, inputsId])
 
   // Keep returning the previous array while its content is unchanged, for
   // referential stability (compare by JSON since TemplateValue has nested value)
@@ -114,16 +111,13 @@ export function useInputs(inputsId: string | string[] | undefined): TemplateValu
  * @returns The block's outputs, or undefined if no outputs exist
  */
 export function useOutputs(blockId: string | undefined): OutputValue[] | undefined {
-  const context = useContext(RunbookContext)
-
-  // Get the blockOutputs from context to track changes
-  const blockOutputs = context?.blockOutputs
+  // getOutputs changes exactly when the registered outputs do.
+  const getOutputs = useContext(RunbookContext)?.getOutputs
 
   return useMemo(() => {
-    if (!context || !blockId) return undefined
-    return context.getOutputs(blockId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockId, blockOutputs])
+    if (!getOutputs || !blockId) return undefined
+    return getOutputs(blockId)
+  }, [getOutputs, blockId])
 }
 
 /**
@@ -147,15 +141,11 @@ export function useAllOutputs(): Record<string, BlockOutputs> {
  * // → { inputs: { region: "us-west-2" }, outputs: { create_account: { account_id: "123" } } }
  */
 export function useTemplateContext(inputsId?: string | string[]): TemplateContext {
-  const context = useContext(RunbookContext)
-
-  // Track both inputs and outputs for re-renders
-  const blockInputs = context?.blockInputs
-  const blockOutputs = context?.blockOutputs
+  // getTemplateContext changes exactly when the inputs or outputs do.
+  const getTemplateContext = useContext(RunbookContext)?.getTemplateContext
 
   return useMemo(() => {
-    if (!context) return EMPTY_TEMPLATE_CONTEXT
-    return context.getTemplateContext(inputsId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputsId, blockInputs, blockOutputs])
+    if (!getTemplateContext) return EMPTY_TEMPLATE_CONTEXT
+    return getTemplateContext(inputsId)
+  }, [getTemplateContext, inputsId])
 }
