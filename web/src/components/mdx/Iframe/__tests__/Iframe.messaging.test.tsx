@@ -1,11 +1,16 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useEffect, type ReactNode } from "react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { Iframe } from "../Iframe"
+import type { EmbedWebview } from "../hooks/useFrameMessaging"
+import {
+  EMBED_PAGE_MESSAGE_CHANNEL,
+  EMBED_RUNBOOK_MESSAGE_CHANNEL,
+} from "../../../../../../electron/shared/embed-messaging.ts"
 
 // The open runbook's runbook-asset:// host, as runbook:get sends it, and the
 // origin its pages have.
@@ -15,7 +20,9 @@ const LOCAL_ORIGIN = `runbook-asset://${ASSET_HOST}`
 /** Shows every block's registered outputs, as later blocks would see them. */
 function OutputsProbe() {
   const { blockOutputs } = useRunbookContext()
-  const values = Object.fromEntries(Object.entries(blockOutputs).map(([id, data]) => [id, data.values]))
+  const values = Object.fromEntries(
+    Object.entries(blockOutputs).map(([id, data]) => [id, data.values]),
+  )
   return <pre data-testid="block-outputs">{JSON.stringify(values)}</pre>
 }
 
@@ -30,7 +37,13 @@ function InputsProbe({ id, values }: { id: string; values: Record<string, unknow
 
 function ReportedErrors() {
   const { errors } = useErrorReporting()
-  return <ul data-testid="reported-errors">{errors.map((e) => <li key={e.componentId}>{e.message}</li>)}</ul>
+  return (
+    <ul data-testid="reported-errors">
+      {errors.map((e) => (
+        <li key={e.componentId}>{e.message}</li>
+      ))}
+    </ul>
+  )
 }
 
 function blocks(children: ReactNode) {
@@ -48,19 +61,33 @@ function renderBlocks(children: ReactNode) {
   return { ...result, rerenderBlocks: (next: ReactNode) => result.rerender(blocks(next)) }
 }
 
-async function loadPage() {
+/**
+ * Click Load, and stand in for the webview's guest, which jsdom has none of:
+ * the guest shows `url`, and `send` records what the block sends its preload.
+ */
+async function loadPage(url = `${LOCAL_ORIGIN}/picker.html`) {
   await userEvent.click(screen.getByRole("button", { name: "Load page" }))
-  return document.querySelector("iframe")!
+  const webview = document.querySelector("webview") as EmbedWebview
+  const send = vi.fn<EmbedWebview["send"]>().mockResolvedValue(undefined)
+  Object.assign(webview, { getURL: () => url, send })
+  return { webview, send }
 }
 
-/** Deliver `data` to the runbook as if posted from `source` at `origin`. */
-function postFromPage(data: unknown, source: Window | null, origin = LOCAL_ORIGIN) {
+/** Deliver `data` to the block as the guest's preload relays a message the page posted. */
+function postFromPage(webview: EmbedWebview, data: unknown, channel = EMBED_PAGE_MESSAGE_CHANNEL) {
   act(() => {
-    window.dispatchEvent(new MessageEvent("message", { data, origin, source }))
+    webview.dispatchEvent(Object.assign(new Event("ipc-message"), { channel, args: [data] }))
   })
 }
 
-function blockOutputs(): unknown {
+/** The guest's page has loaded. */
+function domReady(webview: EmbedWebview) {
+  act(() => {
+    webview.dispatchEvent(new Event("dom-ready"))
+  })
+}
+
+function registeredOutputs(): unknown {
   return JSON.parse(screen.getByTestId("block-outputs").textContent!)
 }
 
@@ -71,71 +98,97 @@ describe("Iframe messaging", () => {
 
   describe("page to runbook", () => {
     it("registers outputs the page sets under the block id, merging later messages", async () => {
-      renderBlocks(<Iframe id="region-picker" src="./assets/picker.html" outputs={["region", "zone"]} />)
-      const frame = await loadPage()
+      renderBlocks(
+        <Iframe id="region-picker" src="./assets/picker.html" outputs={["region", "zone"]} />,
+      )
+      const { webview } = await loadPage()
 
-      postFromPage({ type: "runbooks:set-outputs", outputs: { region: "us-east-1" } }, frame.contentWindow)
-      postFromPage({ type: "runbooks:set-outputs", outputs: { zone: "us-east-1a" } }, frame.contentWindow)
+      postFromPage(webview, { type: "runbooks:set-outputs", outputs: { region: "us-east-1" } })
+      postFromPage(webview, { type: "runbooks:set-outputs", outputs: { zone: "us-east-1a" } })
 
-      expect(blockOutputs()).toEqual({ region_picker: { region: "us-east-1", zone: "us-east-1a" } })
+      expect(registeredOutputs()).toEqual({
+        region_picker: { region: "us-east-1", zone: "us-east-1a" },
+      })
     })
 
-    it("ignores messages from another window", async () => {
+    it("ignores the guest's other channels", async () => {
       renderBlocks(<Iframe id="picker" src="./assets/picker.html" outputs={["region"]} />)
-      await loadPage()
+      const { webview } = await loadPage()
 
-      postFromPage({ type: "runbooks:set-outputs", outputs: { region: "x" } }, window)
+      postFromPage(webview, { type: "runbooks:set-outputs", outputs: { region: "x" } }, "other")
 
-      expect(blockOutputs()).toEqual({})
+      expect(registeredOutputs()).toEqual({})
     })
 
-    it("ignores messages once the frame has navigated to another origin", async () => {
+    it("ignores messages while the guest shows a page outside the runbook's assets", async () => {
       renderBlocks(<Iframe id="picker" src="./assets/picker.html" outputs={["region"]} />)
-      const frame = await loadPage()
+      const { webview } = await loadPage("runbook-asset://rother/picker.html")
 
-      postFromPage({ type: "runbooks:set-outputs", outputs: { region: "x" } }, frame.contentWindow, "https://evil.example")
+      postFromPage(webview, { type: "runbooks:set-outputs", outputs: { region: "x" } })
 
-      expect(blockOutputs()).toEqual({})
+      expect(registeredOutputs()).toEqual({})
     })
 
     it("ignores messages that aren't Runbooks messages", async () => {
       renderBlocks(<Iframe id="picker" src="./assets/picker.html" outputs={["region"]} />)
-      const frame = await loadPage()
+      const { webview } = await loadPage()
 
-      postFromPage({ type: "chart:resize", height: 300 }, frame.contentWindow)
-      postFromPage("hello", frame.contentWindow)
+      postFromPage(webview, { type: "chart:resize", height: 300 })
+      postFromPage(webview, "hello")
 
       expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-      expect(blockOutputs()).toEqual({})
+      expect(registeredOutputs()).toEqual({})
     })
 
     it.each([
-      ["an undeclared output", { region: "x", secret: "y" }, 'The page set output "secret", which the block\'s outputs prop doesn\'t list.'],
-      ["a non-string value", { region: 42 }, 'The page set output "region" to a number. Outputs must be strings.'],
-      ["an oversized value", { region: "x".repeat(64 * 1024 + 1) }, 'The page set output "region" to more than 65536 characters.'],
-      ["outputs that aren't an object", ["region"], "The page sent `outputs` that isn't an object of strings."],
+      [
+        "an undeclared output",
+        { region: "x", secret: "y" },
+        "The page set output \"secret\", which the block's outputs prop doesn't list.",
+      ],
+      [
+        "a non-string value",
+        { region: 42 },
+        'The page set output "region" to a number. Outputs must be strings.',
+      ],
+      [
+        "an oversized value",
+        { region: "x".repeat(64 * 1024 + 1) },
+        'The page set output "region" to more than 65536 characters.',
+      ],
+      [
+        "outputs that aren't an object",
+        ["region"],
+        "The page sent `outputs` that isn't an object of strings.",
+      ],
     ])("rejects %s and shows why", async (_name, outputs, message) => {
       renderBlocks(<Iframe id="picker" src="./assets/picker.html" outputs={["region"]} />)
-      const frame = await loadPage()
+      const { webview } = await loadPage()
 
-      postFromPage({ type: "runbooks:set-outputs", outputs }, frame.contentWindow)
+      postFromPage(webview, { type: "runbooks:set-outputs", outputs })
 
       expect(screen.getByRole("alert")).toHaveTextContent(message)
-      expect(blockOutputs()).toEqual({})
+      expect(registeredOutputs()).toEqual({})
     })
 
     it("rejects an unknown Runbooks message type", async () => {
       renderBlocks(<Iframe id="picker" src="./assets/picker.html" outputs={["region"]} />)
-      const frame = await loadPage()
+      const { webview } = await loadPage()
 
-      postFromPage({ type: "runbooks:run-command", command: "rm -rf /" }, frame.contentWindow)
+      postFromPage(webview, { type: "runbooks:run-command", command: "rm -rf /" })
 
-      expect(screen.getByRole("alert")).toHaveTextContent('unknown message type, "runbooks:run-command"')
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        'unknown message type, "runbooks:run-command"',
+      )
     })
   })
 
   describe("runbook to page", () => {
     const INPUT_VALUES = { region: "us-west-2", replicas: 3 }
+    const inputsMessage = (inputs: unknown) => [
+      EMBED_RUNBOOK_MESSAGE_CHANNEL,
+      { type: "runbooks:inputs", inputs },
+    ]
 
     it("sends the inputsId values when the page loads and when it asks", async () => {
       renderBlocks(
@@ -144,16 +197,12 @@ describe("Iframe messaging", () => {
           <Iframe src="./assets/picker.html" inputsId="config" />
         </>,
       )
-      const frame = await loadPage()
-      const postMessage = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {})
+      const { webview, send } = await loadPage()
 
-      fireEvent.load(frame)
-      postFromPage({ type: "runbooks:get-inputs" }, frame.contentWindow)
+      domReady(webview)
+      postFromPage(webview, { type: "runbooks:get-inputs" })
 
-      expect(postMessage).toHaveBeenCalledTimes(2)
-      for (const call of postMessage.mock.calls) {
-        expect(call).toEqual([{ type: "runbooks:inputs", inputs: INPUT_VALUES }, LOCAL_ORIGIN])
-      }
+      expect(send.mock.calls).toEqual([inputsMessage(INPUT_VALUES), inputsMessage(INPUT_VALUES)])
     })
 
     it("sends the values again when they change", async () => {
@@ -163,8 +212,7 @@ describe("Iframe messaging", () => {
           <Iframe src="./assets/picker.html" inputsId="config" />
         </>,
       )
-      const frame = await loadPage()
-      const postMessage = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {})
+      const { send } = await loadPage()
 
       const changed = { region: "eu-west-1", replicas: 3 }
       rerenderBlocks(
@@ -174,20 +222,48 @@ describe("Iframe messaging", () => {
         </>,
       )
 
-      await waitFor(() =>
-        expect(postMessage).toHaveBeenCalledWith({ type: "runbooks:inputs", inputs: changed }, LOCAL_ORIGIN),
+      await waitFor(() => expect(send).toHaveBeenCalledWith(...inputsMessage(changed)))
+    })
+
+    it("sends nothing to a page outside the runbook's assets", async () => {
+      renderBlocks(
+        <>
+          <InputsProbe id="config" values={INPUT_VALUES} />
+          <Iframe src="./assets/picker.html" inputsId="config" />
+        </>,
+      )
+      const { webview, send } = await loadPage("runbook-asset://rother/picker.html")
+
+      domReady(webview)
+
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it("shows why sending failed", async () => {
+      renderBlocks(
+        <>
+          <InputsProbe id="config" values={INPUT_VALUES} />
+          <Iframe src="./assets/picker.html" inputsId="config" />
+        </>,
+      )
+      const { webview, send } = await loadPage()
+      send.mockRejectedValue(new Error("An object could not be cloned."))
+
+      domReady(webview)
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "Couldn't send inputs to the page: An object could not be cloned.",
       )
     })
 
     it("sends nothing without inputsId", async () => {
       renderBlocks(<Iframe src="./assets/picker.html" />)
-      const frame = await loadPage()
-      const postMessage = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => {})
+      const { webview, send } = await loadPage()
 
-      fireEvent.load(frame)
-      postFromPage({ type: "runbooks:get-inputs" }, frame.contentWindow)
+      domReady(webview)
+      postFromPage(webview, { type: "runbooks:get-inputs" })
 
-      expect(postMessage).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
     })
   })
 
@@ -212,7 +288,7 @@ describe("Iframe messaging", () => {
       renderBlocks(<Iframe {...props} />)
 
       expect(screen.getByText("Invalid Iframe")).toBeInTheDocument()
-      expect(document.querySelector("iframe")).toBeNull()
+      expect(document.querySelector("webview")).toBeNull()
       await waitFor(() => expect(screen.getByTestId("reported-errors")).toHaveTextContent(message))
     })
 
@@ -224,7 +300,11 @@ describe("Iframe messaging", () => {
         </>,
       )
 
-      await waitFor(() => expect(screen.getByTestId("reported-errors")).toHaveTextContent('Duplicate Iframe block ID: "picker"'))
+      await waitFor(() =>
+        expect(screen.getByTestId("reported-errors")).toHaveTextContent(
+          'Duplicate Iframe block ID: "picker"',
+        ),
+      )
     })
 
     it("lets blocks without an id coexist", async () => {
@@ -235,7 +315,9 @@ describe("Iframe messaging", () => {
         </>,
       )
 
-      await waitFor(() => expect(screen.getAllByRole("button", { name: "Load page" })).toHaveLength(2))
+      await waitFor(() =>
+        expect(screen.getAllByRole("button", { name: "Load page" })).toHaveLength(2),
+      )
       expect(screen.queryByText("Invalid Iframe")).not.toBeInTheDocument()
     })
   })

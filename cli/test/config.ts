@@ -327,7 +327,9 @@ function validateConfig(config: TestConfig): void {
         if (step.set_outputs !== undefined) {
           const values = step.set_outputs as unknown
           if (typeof values !== "object" || values === null || Array.isArray(values)) {
-            throw new Error(`Test "${tc.name}" step ${j + 1}: set_outputs must be a map of output names to values`)
+            throw new Error(
+              `Test "${tc.name}" step ${j + 1}: set_outputs must be a map of output names to values`,
+            )
           }
           for (const [name, value] of Object.entries(values)) {
             if (typeof value !== "string") {

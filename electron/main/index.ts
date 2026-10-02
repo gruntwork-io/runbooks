@@ -418,10 +418,13 @@ app
     installEmbedSession(webEmbeds)
     localEmbeds.protocol.handle("runbook-asset", serveRunbookAsset)
     const assetHost = () => runbookAssetHost(runbookConfig)
+    const localEmbedPreload = path.join(__dirname, "../preload/embed.cjs")
     app.on("web-contents-created", (_event, contents) => {
       if (contents.getType() === "window") {
         contents.on("will-attach-webview", (event, webPreferences, params) => {
-          if (!prepareWebviewAttach(webPreferences, params, assetHost())) event.preventDefault()
+          if (!prepareWebviewAttach(webPreferences, params, assetHost(), localEmbedPreload)) {
+            event.preventDefault()
+          }
         })
       } else if (contents.getType() === "webview") {
         // prepareWebviewAttach put every guest it let through in one of the two.

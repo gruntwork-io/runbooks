@@ -5,13 +5,16 @@
  * session of its own, rather than an iframe inside the app's page. A
  * cross-site iframe can move keyboard focus into itself without a click and
  * read what the user types into the app's fields; a guest can't take focus
- * from the app. A guest also has no preload, so no IPC surface, and its
- * session's permission, download and device handlers are its own.
+ * from the app. Its session's permission, download and device handlers are
+ * its own.
  *
  * Local pages (the runbook's assets/, over runbook-asset://) and web pages
  * (https, and plain http on loopback hosts) get separate sessions. Only the
  * local one serves runbook-asset://, so a site the runbook embeds can't load
- * the runbook's assets.
+ * the runbook's assets. Only local pages get a preload: the app's relay
+ * (preload/embed-relay.ts), which passes the Iframe block's messages to the
+ * block and nothing else. No IPC handler in the main process accepts a guest
+ * anyway (ipc/ipc-sender.ts). A web page gets no preload at all.
  *
  * Only `import type` from electron, so this stays unit-testable without an
  * Electron runtime; main/index.ts and window.ts wire it up.
@@ -54,7 +57,9 @@ export function embedPartitionFor(url: string, assetHost: string): string | null
  * Prepare a `<webview>` that is about to attach (the main window's
  * will-attach-webview), or return false to refuse it. The tag only asks: the
  * session comes from its `src`, whatever `partition` it names, and whatever
- * preload, node integration or web preferences it names are overridden.
+ * preload, node integration or web preferences it names are overridden. A
+ * local page gets `localPreload`, the app's messaging relay, and a web page
+ * no preload.
  * Runbook MDX can't write a `<webview>` (remarkLiteralOnly), so this guards
  * against a bug or a compromised renderer, not a runbook author.
  */
@@ -62,10 +67,15 @@ export function prepareWebviewAttach(
   webPreferences: WebPreferences,
   params: Record<string, string>,
   assetHost: string,
+  localPreload: string,
 ): boolean {
   const partition = embedPartitionFor(params.src ?? "", assetHost)
   if (!partition) return false
-  delete webPreferences.preload
+  if (partition === LOCAL_EMBED_PARTITION) {
+    webPreferences.preload = localPreload
+  } else {
+    delete webPreferences.preload
+  }
   Object.assign(webPreferences, {
     partition,
     sandbox: true,

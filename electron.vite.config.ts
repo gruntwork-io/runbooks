@@ -49,6 +49,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: path.resolve(__dirname, "electron/preload/index.ts"),
+          // The Iframe block's local pages (main/embeds.ts).
+          embed: path.resolve(__dirname, "electron/preload/embed.ts"),
         },
         output: {
           format: "cjs",

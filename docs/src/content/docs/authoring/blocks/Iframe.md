@@ -85,8 +85,8 @@ With `inputsId`, the page receives the values of those Inputs blocks as a messag
 
 ```js
 window.addEventListener("message", (event) => {
-  // Only the runbook sends input values. Another frame in the runbook, such
-  // as an external site in a second Iframe block, can post to this page too.
+  // Only the runbook sends input values, but a frame inside this page, such
+  // as a site it embeds, can post to it too.
   if (event.source !== parent) return
   if (event.data?.type === "runbooks:inputs") {
     console.log(event.data.inputs.environment) // "staging"
@@ -115,7 +115,7 @@ The block refuses a whole message, and shows why under the frame, when any of th
 - A value isn't a string.
 - A value is longer than 65,536 characters.
 
-The block only accepts messages from its own frame while that frame still shows a page from `assets/`. If the page navigates to another site, messages from that site are ignored and it receives no input values.
+The block only accepts messages that the page itself posts. Messages from a frame inside the page, such as a site it embeds, are ignored, and that frame receives no input values.
 
 The page gets the input values it asks for, and it can send them anywhere. Only give a page the Inputs it needs.
 

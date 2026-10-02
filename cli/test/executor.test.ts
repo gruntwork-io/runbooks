@@ -340,7 +340,9 @@ describe("TestExecutor — Iframe outputs", () => {
     })
 
     expect(result.status).toBe("failed")
-    expect(result.stepResults[0]?.error).toBe("set_outputs names outputs the block's outputs prop doesn't list: account")
+    expect(result.stepResults[0]?.error).toBe(
+      "set_outputs names outputs the block's outputs prop doesn't list: account",
+    )
   })
 
   it("refuses set_outputs on a block that isn't an Iframe", async () => {
@@ -352,11 +354,15 @@ describe("TestExecutor — Iframe outputs", () => {
     })
 
     expect(result.status).toBe("failed")
-    expect(result.stepResults[0]?.error).toBe("set_outputs only applies to Iframe blocks, not Command")
+    expect(result.stepResults[0]?.error).toBe(
+      "set_outputs only applies to Iframe blocks, not Command",
+    )
   })
 
   it("runs an Iframe with an id, and skips one without, when no steps are listed", async () => {
-    const executor = await makeExecutor(`# Frames\n\n<Iframe id="picker" src="./assets/a.html" />\n\n<Iframe src="./assets/b.html" />\n`)
+    const executor = await makeExecutor(
+      `# Frames\n\n<Iframe id="picker" src="./assets/a.html" />\n\n<Iframe src="./assets/b.html" />\n`,
+    )
 
     const result = executor.runTest({ name: "default" })
 

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useRef, useState } from "react"
+import { useCallback, useContext, useEffect, useId, useState } from "react"
 import { AlertCircle, ExternalLink, FileCode, Globe, RotateCw } from "lucide-react"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { RunbookContext } from "@/contexts/RunbookContext"
@@ -7,7 +7,7 @@ import { runbookAssetOrigin, toRunbookAssetUrl } from "@/lib/assetPaths"
 import { runbookStorageKey } from "@/components/mdx/_shared/lib/runbookStorageKey"
 import { BlockIdLabel } from "@/components/mdx/_shared/components/BlockIdLabel"
 import { ViewOutputs } from "@/components/mdx/_shared/components/ViewOutputs"
-import { useFrameMessaging } from "./hooks/useFrameMessaging"
+import { useFrameMessaging, type EmbedWebview } from "./hooks/useFrameMessaging"
 import { OUTPUT_NAME } from "./protocol"
 
 interface IframeProps {
@@ -75,7 +75,12 @@ export function Iframe({
   const [loaded, setLoaded] = useState(() => readLoaded(loadedKey))
   // Remounting the webview reloads it from `src`.
   const [loadCount, setLoadCount] = useState(0)
-  const frameRef = useRef<HTMLIFrameElement>(null)
+  // State, not a ref: each reload mounts a new webview, whose events the
+  // messaging listens to.
+  const [webview, setWebview] = useState<EmbedWebview | null>(null)
+  const webviewRef = useCallback((element: HTMLWebViewElement | null) => {
+    setWebview(element as EmbedWebview | null)
+  }, [])
   const source = resolveSource(src, runbook?.assetHost)
   const cssHeight = toCssHeight(height)
   const error =
@@ -85,12 +90,8 @@ export function Iframe({
         ? `Invalid height "${height}". Use a number of pixels, such as {600} or "600", or a CSS length such as "70vh".`
         : (messagingConfigError(source.isLocal, id, inputsId, outputs) ??
           idError(id, isDuplicate, isNormalizedCollision, collidingId))
-  const {
-    outputs: pageOutputs,
-    messageError,
-    onFrameLoad,
-  } = useFrameMessaging({
-    frameRef,
+  const { outputs: pageOutputs, messageError } = useFrameMessaging({
+    webview,
     pageOrigin: !error && "origin" in source ? source.origin : undefined,
     id,
     outputNames: outputs,
@@ -173,8 +174,7 @@ export function Iframe({
         // display alone.
         <webview
           key={loadCount}
-          ref={frameRef}
-          onLoad={onFrameLoad}
+          ref={webviewRef}
           src={source.url}
           title={title || source.location}
           className="w-full bg-white"
