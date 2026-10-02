@@ -24,12 +24,12 @@ describe("sessionNameCandidates", () => {
   })
 
   it("goes on to one pair with numbers from 2, and ends with that pair and the unique suffix", () => {
-    const candidates = sessionNameCandidates(() => 0, "3f9c2a61b0e84d17")
+    const candidates = sessionNameCandidates(() => 0, "0199a5c2-7e3b-7c4d-9a1f-3b2c4d5e6f70")
 
     expect(candidates.slice(0, 10)).toEqual(Array.from({ length: 10 }, () => "agile-acorn"))
     expect(candidates.slice(10, 12)).toEqual(["agile-acorn-2", "agile-acorn-3"])
     expect(candidates.at(-2)).toBe("agile-acorn-20")
-    expect(candidates.at(-1)).toBe("agile-acorn-3f9c2a61b0e84d17")
+    expect(candidates.at(-1)).toBe("agile-acorn-0199a5c2-7e3b-7c4d-9a1f-3b2c4d5e6f70")
     expect(candidates).toHaveLength(30)
   })
 

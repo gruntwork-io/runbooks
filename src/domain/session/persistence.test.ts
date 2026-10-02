@@ -79,6 +79,10 @@ describe("SessionPersistence", () => {
 
     const session = await app.open()
 
+    // A version 7 UUID, which is also the name of the session's directory.
+    expect(session.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
     expect(session.dir).toBe(path.join(dirsRoot, session.id))
     expect(fs.statSync(session.dir).isDirectory()).toBe(true)
     expect(await run(app.manager.getMetadata())).toMatchObject({ workingDir: session.dir })

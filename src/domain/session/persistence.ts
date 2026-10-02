@@ -7,6 +7,7 @@
  * written. Opening a runbook resumes its most recently launched session, or
  * creates one when it has none.
  */
+import { randomUUIDv7 } from "node:crypto"
 import path from "node:path"
 import { Cause, Effect } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -100,7 +101,9 @@ export class SessionPersistence {
           request.launchDir === undefined && this.current !== undefined
             ? yield* store.get(this.current.id)
             : undefined
-        const id = newSessionId()
+        // A version 7 UUID starts with its creation time, so session
+        // directories, which are named after their ids, sort by age.
+        const id = randomUUIDv7()
         const dir = yield* this.ensureDir(path.join(this.options.dirsRoot, id))
         const name = yield* this.newName(id)
         yield* store.insert({
@@ -272,12 +275,6 @@ export class SessionPersistence {
       return yield* fs.realpath(dir)
     })
   }
-}
-
-// 64 random bits. The id is a directory name under every path a session's
-// scripts see, and Windows caps paths at 260 characters.
-function newSessionId(): string {
-  return crypto.randomUUID().replaceAll("-", "").slice(0, 16)
 }
 
 function isDirectory(dir: string) {

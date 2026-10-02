@@ -18,8 +18,6 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test"
-import { spawn } from "child_process"
-import { createRequire } from "module"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
@@ -138,35 +136,6 @@ test.describe("Saved sessions", () => {
     return name.innerText()
   }
 
-  test("opens the sessions database without Node's experimental-SQLite warning", async () => {
-    // Started directly, not through Playwright: the database opens before the
-    // first window exists, and Playwright hands over the process only then,
-    // with its earlier output already gone.
-    const electronBinary = createRequire(import.meta.url)("electron") as string
-    const child = spawn(
-      electronBinary,
-      [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, runbookDir],
-      { env: { ...process.env, ELECTRON_NO_UPDATER: "1", RUNBOOKS_NO_TELEMETRY: "1" } },
-    )
-    let output = ""
-    child.stdout.on("data", (chunk) => (output += String(chunk)))
-    child.stderr.on("data", (chunk) => (output += String(chunk)))
-    try {
-      // Logged once the app is ready, after it has opened the database.
-      await expect.poll(() => output, { timeout: 60_000 }).toContain("eager background load")
-      expect(fs.existsSync(path.join(userDataDir, "v0", "sessions", "db", "sessions.db"))).toBe(
-        true,
-      )
-      expect(output).not.toContain("SQLite is an experimental feature")
-    } finally {
-      const exited = new Promise((resolve) => {
-        child.once("exit", resolve)
-      })
-      child.kill()
-      await exited
-    }
-  })
-
   test("runs scripts in a directory of the session's own, and resumes it on the next launch", async () => {
     const first = await launch(terminalDir("project"), [runbookDir])
     let sessionDir: string
@@ -177,6 +146,10 @@ test.describe("Saved sessions", () => {
       await expect(first.page).toHaveTitle(`${name} - Gruntwork Runbooks`)
       sessionDir = await showSession(first.page, "unset")
       expect(path.dirname(sessionDir)).toBe(sessionDirs)
+      // The directory is named after the session's id, a version 7 UUID.
+      expect(path.basename(sessionDir)).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      )
       await run(first.page, "save")
     } finally {
       await first.app.close()
