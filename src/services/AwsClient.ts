@@ -68,19 +68,37 @@ export interface AwsClientShape {
    * the call goes to the home region of its partition, so GovCloud, China and
    * other non-commercial credentials reach their own STS.
    */
-  readonly validateCredentials: (creds: AwsCredentials, region: string) => Effect.Effect<AwsIdentity, AwsAuthError>
+  readonly validateCredentials: (
+    creds: AwsCredentials,
+    region: string,
+  ) => Effect.Effect<AwsIdentity, AwsAuthError>
   readonly listProfiles: () => Effect.Effect<ProfileInfo[], AwsConfigError>
   /**
    * Resolves the profile's credentials without validating them; callers run
    * validateCredentials. `region` is empty when the profile does not set one.
    */
   readonly authenticateProfile: (profileName: string) => Effect.Effect<AwsCredentials, AwsAuthError>
-  readonly startSsoDeviceAuth: (startUrl: string, region: string) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
+  readonly startSsoDeviceAuth: (
+    startUrl: string,
+    region: string,
+  ) => Effect.Effect<SsoDeviceAuth, AwsSsoError>
   readonly pollSsoToken: (params: SsoPollParams) => Effect.Effect<SsoTokenResult, AwsSsoError>
-  readonly completeSsoAuth: (params: SsoCompleteParams) => Effect.Effect<AwsCredentials, AwsSsoError>
-  readonly listSsoAccounts: (accessToken: string, region: string) => Effect.Effect<SsoAccount[], AwsSsoError>
-  readonly listSsoRoles: (accessToken: string, accountId: string, region: string) => Effect.Effect<SsoRole[], AwsSsoError>
-  readonly checkRegion: (region: string, creds: AwsCredentials) => Effect.Effect<boolean, AwsAuthError>
+  readonly completeSsoAuth: (
+    params: SsoCompleteParams,
+  ) => Effect.Effect<AwsCredentials, AwsSsoError>
+  readonly listSsoAccounts: (
+    accessToken: string,
+    region: string,
+  ) => Effect.Effect<SsoAccount[], AwsSsoError>
+  readonly listSsoRoles: (
+    accessToken: string,
+    accountId: string,
+    region: string,
+  ) => Effect.Effect<SsoRole[], AwsSsoError>
+  readonly checkRegion: (
+    region: string,
+    creds: AwsCredentials,
+  ) => Effect.Effect<boolean, AwsAuthError>
 }
 
 export class AwsClient extends Context.Tag("AwsClient")<AwsClient, AwsClientShape>() {}

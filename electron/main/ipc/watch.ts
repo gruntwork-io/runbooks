@@ -46,22 +46,19 @@ export function registerWatchHandlers(): void {
   // Kept for the declared channel contract; nothing calls it. runbook:get
   // owns starting the watcher (in --watch mode), and the renderer only
   // listens for watch:file-change when runbook:get reports isWatchMode.
-  ipcMain.handle(
-    "watch:subscribe",
-    async (_event, params?: { runbookPath?: string }) => {
-      // Prefer the already-trusted runbookConfig.localPath; only use the
-      // renderer-supplied path if it passes validation.
-      let runbookPath = runbookConfig.localPath
-      if (params?.runbookPath && params.runbookPath !== runbookPath) {
-        runbookPath = await runtime.runPromise(validateSessionPath(params.runbookPath))
-      }
+  ipcMain.handle("watch:subscribe", async (_event, params?: { runbookPath?: string }) => {
+    // Prefer the already-trusted runbookConfig.localPath; only use the
+    // renderer-supplied path if it passes validation.
+    let runbookPath = runbookConfig.localPath
+    if (params?.runbookPath && params.runbookPath !== runbookPath) {
+      runbookPath = await runtime.runPromise(validateSessionPath(params.runbookPath))
+    }
 
-      if (!runbookPath) {
-        throw new Error("No runbook path provided and none configured")
-      }
+    if (!runbookPath) {
+      throw new Error("No runbook path provided and none configured")
+    }
 
-      startWatcher(runbookPath)
-      return { ok: true as const }
-    },
-  )
+    startWatcher(runbookPath)
+    return { ok: true as const }
+  })
 }

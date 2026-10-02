@@ -160,7 +160,9 @@ describe("NodeBundleProducer", () => {
     const result = await failed
     expect(Either.isLeft(result)).toBe(true)
     if (Either.isLeft(result)) {
-      expect(result.left.message).toBe("boilerplate inputs map exited with code 1: template not found")
+      expect(result.left.message).toBe(
+        "boilerplate inputs map exited with code 1: template not found",
+      )
     }
 
     const retry = Effect.runFork(producer.get("vpc", VPC))

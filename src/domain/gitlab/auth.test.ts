@@ -40,9 +40,7 @@ describe("detectTokenType", () => {
 describe("detectEnvCredentials", () => {
   it("returns GITLAB_TOKEN when set", async () => {
     const layer = makeTestEnvironment({ GITLAB_TOKEN: "glpat-test123" })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "glpat-test123", envVar: "GITLAB_TOKEN" })
   })
 
@@ -67,41 +65,45 @@ describe("detectEnvCredentials", () => {
 
   it("honors OAUTH_TOKEN — a real, glab-honored legacy credential", async () => {
     const layer = makeTestEnvironment({ OAUTH_TOKEN: "b".repeat(64) })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "b".repeat(64), envVar: "OAUTH_TOKEN" })
   })
 
   it("returns undefined when none is set", async () => {
     const layer = makeTestEnvironment({})
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
   it("treats a blank token var as unset (like glab and hasEnvToken)", async () => {
-    const unprefixed = makeTestEnvironment({ GITLAB_TOKEN: "  ", GITLAB_ACCESS_TOKEN: "glpat-access" })
+    const unprefixed = makeTestEnvironment({
+      GITLAB_TOKEN: "  ",
+      GITLAB_ACCESS_TOKEN: "glpat-access",
+    })
     expect(
       await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(unprefixed))),
     ).toEqual({ token: "glpat-access", envVar: "GITLAB_ACCESS_TOKEN" })
 
-    const prefixed = makeTestEnvironment({ CI_GITLAB_TOKEN: "\t", CI_GITLAB_ACCESS_TOKEN: "glpat-ci" })
+    const prefixed = makeTestEnvironment({
+      CI_GITLAB_TOKEN: "\t",
+      CI_GITLAB_ACCESS_TOKEN: "glpat-ci",
+    })
     expect(
       await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(prefixed))),
     ).toEqual({ token: "glpat-ci", envVar: "CI_GITLAB_ACCESS_TOKEN" })
 
     const blankOnly = makeTestEnvironment({ GITLAB_TOKEN: " ", CI_GITLAB_TOKEN: " " })
-    expect(await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(blankOnly)))).toBeUndefined()
-    expect(await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(blankOnly)))).toBeUndefined()
+    expect(
+      await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(blankOnly))),
+    ).toBeUndefined()
+    expect(
+      await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(blankOnly))),
+    ).toBeUndefined()
   })
 
   it("does not read GITHUB_TOKEN", async () => {
     const layer = makeTestEnvironment({ GITHUB_TOKEN: "ghp_should_be_ignored" })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
@@ -110,17 +112,13 @@ describe("detectEnvCredentials", () => {
       GITLAB_TOKEN: "glpat-personal",
       CI_GITLAB_TOKEN: "glpat-ci",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "glpat-ci", envVar: "CI_GITLAB_TOKEN" })
   })
 
   it("with a prefix, falls back to <PREFIX>GITLAB_ACCESS_TOKEN only", async () => {
     const layer = makeTestEnvironment({ CI_GITLAB_ACCESS_TOKEN: "glpat-ci-access" })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "glpat-ci-access", envVar: "CI_GITLAB_ACCESS_TOKEN" })
   })
 
@@ -130,17 +128,13 @@ describe("detectEnvCredentials", () => {
       GITLAB_ACCESS_TOKEN: "glpat-personal-access",
       OAUTH_TOKEN: "a".repeat(64),
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
   it("with a prefix, does not read <PREFIX>OAUTH_TOKEN (it names no provider)", async () => {
     const layer = makeTestEnvironment({ CI_OAUTH_TOKEN: "a".repeat(64) })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("CI_").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("CI_").pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
@@ -149,17 +143,13 @@ describe("detectEnvCredentials", () => {
       GITLAB_TOKEN: "glpat-personal",
       "ci-GITLAB_TOKEN": "glpat-ci",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("ci-").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("ci-").pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
   it("treats an empty prefix as no prefix", async () => {
     const layer = makeTestEnvironment({ GITLAB_TOKEN: "glpat-test123" })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("").pipe(Effect.provide(layer)))
     expect(result).toEqual({ token: "glpat-test123", envVar: "GITLAB_TOKEN" })
   })
 })
@@ -170,8 +160,16 @@ describe("envTokenHost — the binding rule", () => {
   })
 
   it("follows glab's env precedence: GITLAB_HOST > GITLAB_URI > GL_HOST", () => {
-    expect(envTokenHost({ GITLAB_HOST: "one.example", GITLAB_URI: "two.example", GL_HOST: "three.example" })).toBe("one.example")
-    expect(envTokenHost({ GITLAB_URI: "two.example", GL_HOST: "three.example" })).toBe("two.example")
+    expect(
+      envTokenHost({
+        GITLAB_HOST: "one.example",
+        GITLAB_URI: "two.example",
+        GL_HOST: "three.example",
+      }),
+    ).toBe("one.example")
+    expect(envTokenHost({ GITLAB_URI: "two.example", GL_HOST: "three.example" })).toBe(
+      "two.example",
+    )
     expect(envTokenHost({ GL_HOST: "three.example" })).toBe("three.example")
   })
 
@@ -205,19 +203,29 @@ describe("envTokenHost — the binding rule", () => {
   it("empty/blank host vars count as unset, not as a gitlab.com binding", () => {
     // glab precedence with '' set must fall through to the next var, not
     // short-circuit the chain.
-    expect(envTokenHost({ GITLAB_HOST: "", GITLAB_URI: "git.corp.example" })).toBe("git.corp.example")
-    expect(envTokenHost({ GITLAB_HOST: "  ", GL_HOST: "git.corp.example" })).toBe("git.corp.example")
+    expect(envTokenHost({ GITLAB_HOST: "", GITLAB_URI: "git.corp.example" })).toBe(
+      "git.corp.example",
+    )
+    expect(envTokenHost({ GITLAB_HOST: "  ", GL_HOST: "git.corp.example" })).toBe(
+      "git.corp.example",
+    )
     expect(envTokenHost({ GITLAB_HOST: "" })).toBe("gitlab.com")
   })
 
   it("a prefixed token is bound by the prefixed host vars, in the same precedence", () => {
     expect(
       envTokenHost(
-        { CI_GITLAB_HOST: "one.example", CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" },
+        {
+          CI_GITLAB_HOST: "one.example",
+          CI_GITLAB_URI: "two.example",
+          CI_GL_HOST: "three.example",
+        },
         "CI_",
       ),
     ).toBe("one.example")
-    expect(envTokenHost({ CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" }, "CI_")).toBe("two.example")
+    expect(envTokenHost({ CI_GITLAB_URI: "two.example", CI_GL_HOST: "three.example" }, "CI_")).toBe(
+      "two.example",
+    )
     expect(envTokenHost({ CI_GL_HOST: "three.example" }, "CI_")).toBe("three.example")
 
     const env = { CI_GITLAB_HOST: "git.corp.example" }
@@ -242,7 +250,10 @@ describe("envTokenHost — the binding rule", () => {
     expect(mayAutoSendEnvToken("https://gitlab.com", {}, "CI_")).toBe(true)
 
     // Also when the host var itself names an http:// origin.
-    const env = { GITLAB_HOST: "http://git.corp.example", CI_GITLAB_HOST: "http://git.corp.example" }
+    const env = {
+      GITLAB_HOST: "http://git.corp.example",
+      CI_GITLAB_HOST: "http://git.corp.example",
+    }
     expect(mayAutoSendEnvToken("http://git.corp.example", env)).toBe(false)
     expect(mayAutoSendEnvToken("http://git.corp.example", env, "CI_")).toBe(false)
     expect(mayAutoSendEnvToken("https://git.corp.example", env)).toBe(true)
@@ -260,7 +271,9 @@ describe("gitlabSessionTokenHost", () => {
   })
 
   it("with an auth host: a changed, removed or unparseable GITLAB_HOST binds nowhere", () => {
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.attacker.example" }, "gitlab.com")).toBeUndefined()
+    expect(
+      gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.attacker.example" }, "gitlab.com"),
+    ).toBeUndefined()
     expect(gitlabSessionTokenHost({}, "gitlab.com")).toBeUndefined()
     expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` }, CORP)).toBeUndefined()
     // GITLAB_HOST wins in glab's precedence, so the other vars never rebind it.
@@ -391,9 +404,7 @@ describe("resolveGlabConfigPaths", () => {
       platform: "darwin",
     })
     const legacyIdx = paths.indexOf("/Users/x/.config/glab-cli/config.yml")
-    const libIdx = paths.indexOf(
-      "/Users/x/Library/Application Support/glab-cli/config.yml",
-    )
+    const libIdx = paths.indexOf("/Users/x/Library/Application Support/glab-cli/config.yml")
     // glab checks the legacy location first, then the macOS default.
     expect(legacyIdx).toBe(0)
     expect(libIdx).toBeGreaterThan(legacyIdx)
@@ -414,9 +425,7 @@ describe("resolveGlabConfigPaths", () => {
     })
     // Legacy ~/.config is probed first, then %LOCALAPPDATA% (not Roaming).
     expect(paths[0]).toContain(".config")
-    expect(
-      paths.some((p) => p.includes("AppData/Local") && p.includes("glab-cli")),
-    ).toBe(true)
+    expect(paths.some((p) => p.includes("AppData/Local") && p.includes("glab-cli"))).toBe(true)
     expect(paths.some((p) => p.includes("Roaming"))).toBe(false)
   })
 
@@ -449,7 +458,7 @@ describe("parseGlabToken", () => {
 
   it("extracts an opaque OAuth token (no glpat- prefix)", () => {
     const yaml =
-      "hosts:\n  gitlab.com:\n    token: !!null eb57f299deadbeef\n    is_oauth2: \"true\"\n"
+      'hosts:\n  gitlab.com:\n    token: !!null eb57f299deadbeef\n    is_oauth2: "true"\n'
     expect(parseGlabToken(yaml)).toBe("eb57f299deadbeef")
   })
 
@@ -493,9 +502,7 @@ describe("detectConfigCredentials", () => {
       makeTestEnvironment({ HOME: home }),
     )
 
-    const result = await Effect.runPromise(
-      detectConfigCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectConfigCredentials().pipe(Effect.provide(layer)))
     expect(result).toBe("glpat-from_config")
   })
 
@@ -525,21 +532,14 @@ describe("detectConfigCredentials", () => {
       makeTestEnvironment({ HOME: "/home/tester", GLAB_CONFIG_DIR: "/custom/glab" }),
     )
 
-    const result = await Effect.runPromise(
-      detectConfigCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectConfigCredentials().pipe(Effect.provide(layer)))
     expect(result).toBe("glpat-from_config")
   })
 
   it("returns undefined when no config file exists", async () => {
-    const layer = Layer.merge(
-      makeTestFileSystem({}),
-      makeTestEnvironment({ HOME: "/home/tester" }),
-    )
+    const layer = Layer.merge(makeTestFileSystem({}), makeTestEnvironment({ HOME: "/home/tester" }))
 
-    const result = await Effect.runPromise(
-      detectConfigCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectConfigCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
@@ -553,9 +553,7 @@ describe("detectConfigCredentials", () => {
       makeTestEnvironment({ HOME: home }),
     )
 
-    const result = await Effect.runPromise(
-      detectConfigCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectConfigCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 })
@@ -597,9 +595,7 @@ describe("enumerateGlabHosts", () => {
   })
 
   it("falls back to the first host when the declared default is absent", () => {
-    const yaml =
-      "host: gitlab.absent.io\n" +
-      "hosts:\n  gitlab.gruntwork.io:\n    token: glpat-x\n"
+    const yaml = "host: gitlab.absent.io\n" + "hosts:\n  gitlab.gruntwork.io:\n    token: glpat-x\n"
     expect(enumerateGlabHosts(yaml)).toEqual({
       hosts: ["gitlab.gruntwork.io"],
       defaultHost: "gitlab.gruntwork.io",
@@ -639,9 +635,7 @@ describe("detectConfigHosts", () => {
       makeTestEnvironment({ HOME: home }),
     )
 
-    const result = await Effect.runPromise(
-      detectConfigHosts().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectConfigHosts().pipe(Effect.provide(layer)))
     expect(result).toEqual({
       hosts: ["gitlab.com", "gitlab.gruntwork.io"],
       defaultHost: "gitlab.com",
@@ -649,14 +643,9 @@ describe("detectConfigHosts", () => {
   })
 
   it("returns an empty list with the gitlab.com default when no glab config exists", async () => {
-    const layer = Layer.merge(
-      makeTestFileSystem({}),
-      makeTestEnvironment({ HOME: "/home/tester" }),
-    )
+    const layer = Layer.merge(makeTestFileSystem({}), makeTestEnvironment({ HOME: "/home/tester" }))
 
-    const result = await Effect.runPromise(
-      detectConfigHosts().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectConfigHosts().pipe(Effect.provide(layer)))
     expect(result).toEqual({ hosts: [], defaultHost: "gitlab.com" })
   })
 })
@@ -900,10 +889,7 @@ describe("detectHostMeta / collectGlabCaCertPems (harvest)", () => {
   })
 
   it("returns an empty list when no glab config exists", async () => {
-    const layer = Layer.merge(
-      makeTestEnvironment({ HOME: "/home/u" }),
-      makeTestFileSystem({}),
-    )
+    const layer = Layer.merge(makeTestEnvironment({ HOME: "/home/u" }), makeTestFileSystem({}))
     const pems = await Effect.runPromise(collectGlabCaCertPems().pipe(Effect.provide(layer)))
     expect(pems).toEqual([])
   })

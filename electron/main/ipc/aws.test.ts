@@ -13,7 +13,11 @@
  */
 import { describe, it, expect, afterEach, spyOn } from "bun:test"
 import { Effect } from "effect"
-import { AccountClient, AccessDeniedException, GetRegionOptStatusCommand } from "@aws-sdk/client-account"
+import {
+  AccountClient,
+  AccessDeniedException,
+  GetRegionOptStatusCommand,
+} from "@aws-sdk/client-account"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 type Handler = (event: unknown, params?: unknown) => unknown
@@ -72,7 +76,10 @@ const captureHandlerErrors = () => {
 
 describe("aws:check-region", () => {
   it.each([
-    ["an AccessDeniedException", () => new AccessDeniedException({ message: "not authorized", $metadata: {} })],
+    [
+      "an AccessDeniedException",
+      () => new AccessDeniedException({ message: "not authorized", $metadata: {} }),
+    ],
     ["a network TypeError", () => new TypeError("fetch failed")],
   ])("fails open when GetRegionOptStatus rejects with %s", async (_label, makeError) => {
     stubAccount(() => Promise.reject(makeError()))
@@ -106,28 +113,30 @@ describe("aws:check-region", () => {
   it.each([
     ["a defect", Effect.die(new Error("boom"))],
     ["an interruption", Effect.interrupt],
-  ])("fails open, and logs without the credentials, when the check ends in %s", async (_label, outcome) => {
-    const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce(
-      (() => Effect.runPromise(outcome)) as unknown as typeof runtime.runPromise,
-    )
-    spies.push(runPromise)
-    const handlerErrors = captureHandlerErrors()
+  ])(
+    "fails open, and logs without the credentials, when the check ends in %s",
+    async (_label, outcome) => {
+      const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce((() =>
+        Effect.runPromise(outcome)) as unknown as typeof runtime.runPromise)
+      spies.push(runPromise)
+      const handlerErrors = captureHandlerErrors()
 
-    const reply = await invokeCheckRegion()
+      const reply = await invokeCheckRegion()
 
-    expect(reply).toStrictEqual({ enabled: true })
-    expect(runPromise).toHaveBeenCalledTimes(1)
-    const logged = handlerErrors()
-    expect(logged).toHaveLength(1)
-    // Render each argument the way the console shows it. String() would turn
-    // a logged params or credentials object into "[object Object]" and hide
-    // any secret inside it; makeLogger only scrubs strings and Errors.
-    const text = logged[0]
-      .map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity })))
-      .join(" ")
-    expect(text).toContain("Region opt-in check crashed")
-    for (const secret of [PARAMS.accessKeyId, PARAMS.secretAccessKey, PARAMS.sessionToken]) {
-      expect(text).not.toContain(secret)
-    }
-  })
+      expect(reply).toStrictEqual({ enabled: true })
+      expect(runPromise).toHaveBeenCalledTimes(1)
+      const logged = handlerErrors()
+      expect(logged).toHaveLength(1)
+      // Render each argument the way the console shows it. String() would turn
+      // a logged params or credentials object into "[object Object]" and hide
+      // any secret inside it; makeLogger only scrubs strings and Errors.
+      const text = logged[0]
+        .map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity })))
+        .join(" ")
+      expect(text).toContain("Region opt-in check crashed")
+      for (const secret of [PARAMS.accessKeyId, PARAMS.secretAccessKey, PARAMS.sessionToken]) {
+        expect(text).not.toContain(secret)
+      }
+    },
+  )
 })

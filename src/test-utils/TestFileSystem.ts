@@ -1,19 +1,14 @@
 import { Effect, Layer, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
 import type { WalkEntry } from "../services/FileSystem.ts"
-import {
-  FileNotFoundError,
-  FileWriteError,
-} from "../errors/index.ts"
+import { FileNotFoundError, FileWriteError } from "../errors/index.ts"
 
 export const makeTestFileSystem = (files: Record<string, string> = {}) => {
   const dirs = new Set<string>()
 
   return Layer.succeed(FileSystem, {
     readFile: (path) =>
-      path in files
-        ? Effect.succeed(files[path])
-        : Effect.fail(new FileNotFoundError({ path })),
+      path in files ? Effect.succeed(files[path]) : Effect.fail(new FileNotFoundError({ path })),
 
     readFileBuffer: (path) =>
       path in files
@@ -92,9 +87,7 @@ export const makeTestFileSystem = (files: Record<string, string> = {}) => {
         ? Effect.sync(() => {
             files[dest] = files[src]
           })
-        : Effect.fail(
-            new FileWriteError({ path: dest, cause: `source ${src} not found` }),
-          ),
+        : Effect.fail(new FileWriteError({ path: dest, cause: `source ${src} not found` })),
 
     mkdtemp: (prefix) =>
       Effect.sync(() => {

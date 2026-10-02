@@ -1,5 +1,5 @@
-import { createContext } from 'react'
-import { type Executable } from '@/types/executable'
+import { createContext } from "react"
+import { type Executable } from "@/types/executable"
 
 export interface ExecutableRegistryContextValue {
   getExecutableByComponentId: (componentId: string) => Executable | null
@@ -11,4 +11,6 @@ export interface ExecutableRegistryContextValue {
   registryVersion: number
 }
 
-export const ExecutableRegistryContext = createContext<ExecutableRegistryContextValue | undefined>(undefined)
+export const ExecutableRegistryContext = createContext<ExecutableRegistryContextValue | undefined>(
+  undefined,
+)

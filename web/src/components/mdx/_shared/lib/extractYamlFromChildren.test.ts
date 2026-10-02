@@ -1,9 +1,9 @@
-import React from 'react';
-import { describe, it, expect } from 'vitest';
-import YAML from 'yaml';
-import type { ReactNode } from 'react';
-import { compileMDX } from '@/components/MDXContainer';
-import { extractYamlFromChildren } from './extractYamlFromChildren';
+import React from "react"
+import { describe, it, expect } from "vitest"
+import YAML from "yaml"
+import type { ReactNode } from "react"
+import { compileMDX } from "@/components/MDXContainer"
+import { extractYamlFromChildren } from "./extractYamlFromChildren"
 
 /**
  * Compiles MDX containing a single <Inputs> block with the app's compileMDX,
@@ -12,14 +12,14 @@ import { extractYamlFromChildren } from './extractYamlFromChildren';
 async function compileInputsChildren(mdxContent: string): Promise<ReactNode> {
   const Content = (await compileMDX(mdxContent)) as (
     props: object,
-  ) => React.ReactElement<{ children?: ReactNode }>;
-  return Content({}).props.children;
+  ) => React.ReactElement<{ children?: ReactNode }>
+  return Content({}).props.children
 }
 
-const MISSING_FENCE_ERROR = 'Invalid inline boilerplate configuration format';
+const MISSING_FENCE_ERROR = "Invalid inline boilerplate configuration format"
 
-describe('extractYamlFromChildren', () => {
-  it('should extract YAML from real MDX compilation and parse it correctly', async () => {
+describe("extractYamlFromChildren", () => {
+  it("should extract YAML from real MDX compilation and parse it correctly", async () => {
     // Use the exact same MDX content from the real runbook file
     const mdxContent = `<Inputs id="test">
 \`\`\`yaml
@@ -38,77 +38,81 @@ variables:
       - prod
     default: dev
 \`\`\`
-</Inputs>`;
+</Inputs>`
 
     // Compile the MDX as the app does
-    const capturedChildren = await compileInputsChildren(mdxContent);
+    const capturedChildren = await compileInputsChildren(mdxContent)
 
-    const extractedYaml = extractYamlFromChildren(capturedChildren);
+    const extractedYaml = extractYamlFromChildren(capturedChildren)
 
     // Parse the extracted YAML to verify it is well-formed.
-    const parsedYaml = YAML.parse(extractedYaml.content);
-    
-    // Verify the parsed structure
-    expect(parsedYaml).toBeDefined();
-    expect(parsedYaml.variables).toBeDefined();
-    expect(Array.isArray(parsedYaml.variables)).toBe(true);
-    expect(parsedYaml.variables).toHaveLength(2);
-    
-    // Check first variable
-    const accountNameVar = parsedYaml.variables.find((v: { name: string }) => v.name === 'AccountName');
-    expect(accountNameVar).toBeDefined();
-    expect(accountNameVar.description).toBe('Name for the AWS account');
-    expect(accountNameVar.type).toBe('string');
-    expect(accountNameVar.default).toBe('My account');
-    
-    // Check second variable
-    const environmentVar = parsedYaml.variables.find((v: { name: string }) => v.name === 'Environment');
-    expect(environmentVar).toBeDefined();
-    expect(environmentVar.description).toBe('Deployment environment');
-    expect(environmentVar.type).toBe('enum');
-    expect(environmentVar.options).toEqual(['dev', 'stage', 'prod']);
-    expect(environmentVar.default).toBe('dev');
-  });
+    const parsedYaml = YAML.parse(extractedYaml.content)
 
-  it('extracts fenced YAML when pre is rendered by the CodeBlock component', async () => {
+    // Verify the parsed structure
+    expect(parsedYaml).toBeDefined()
+    expect(parsedYaml.variables).toBeDefined()
+    expect(Array.isArray(parsedYaml.variables)).toBe(true)
+    expect(parsedYaml.variables).toHaveLength(2)
+
+    // Check first variable
+    const accountNameVar = parsedYaml.variables.find(
+      (v: { name: string }) => v.name === "AccountName",
+    )
+    expect(accountNameVar).toBeDefined()
+    expect(accountNameVar.description).toBe("Name for the AWS account")
+    expect(accountNameVar.type).toBe("string")
+    expect(accountNameVar.default).toBe("My account")
+
+    // Check second variable
+    const environmentVar = parsedYaml.variables.find(
+      (v: { name: string }) => v.name === "Environment",
+    )
+    expect(environmentVar).toBeDefined()
+    expect(environmentVar.description).toBe("Deployment environment")
+    expect(environmentVar.type).toBe("enum")
+    expect(environmentVar.options).toEqual(["dev", "stage", "prod"])
+    expect(environmentVar.default).toBe("dev")
+  })
+
+  it("extracts fenced YAML when pre is rendered by the CodeBlock component", async () => {
     const children = await compileInputsChildren(`<Inputs id="test">
 \`\`\`yaml
 variables:
   - name: Region
     default: us-east-1
 \`\`\`
-</Inputs>`);
+</Inputs>`)
 
     // The fence's trailing newline is trimmed only when CodeBlock is recognized as a pre element
     expect(extractYamlFromChildren(children)).toEqual({
-      content: 'variables:\n  - name: Region\n    default: us-east-1',
+      content: "variables:\n  - name: Region\n    default: us-east-1",
       error: null,
-    });
-  });
+    })
+  })
 
-  it('extracts single-line inline YAML passed as a plain string', async () => {
-    const children = await compileInputsChildren('<Inputs id="test">variables: []</Inputs>');
+  it("extracts single-line inline YAML passed as a plain string", async () => {
+    const children = await compileInputsChildren('<Inputs id="test">variables: []</Inputs>')
 
-    expect(extractYamlFromChildren(children)).toEqual({ content: 'variables: []', error: null });
-  });
+    expect(extractYamlFromChildren(children)).toEqual({ content: "variables: []", error: null })
+  })
 
-  it('rejects unfenced YAML with a code-fence configuration error', async () => {
+  it("rejects unfenced YAML with a code-fence configuration error", async () => {
     const children = await compileInputsChildren(`<Inputs id="test">
 variables:
   - name: AccountName
     type: string
   - name: Environment
     type: string
-</Inputs>`);
+</Inputs>`)
 
-    const result = extractYamlFromChildren(children);
+    const result = extractYamlFromChildren(children)
 
-    expect(result.content).toBe('');
-    expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
-    expect(result.error?.details).toContain('code fence');
-  });
+    expect(result.content).toBe("")
+    expect(result.error?.message).toBe(MISSING_FENCE_ERROR)
+    expect(result.error?.details).toContain("code fence")
+  })
 
-  it('rejects unfenced YAML separated by blank lines with a code-fence configuration error', async () => {
+  it("rejects unfenced YAML separated by blank lines with a code-fence configuration error", async () => {
     const children = await compileInputsChildren(`<Inputs id="test">
 variables:
 
@@ -121,34 +125,37 @@ variables:
       - dev
       - prod
     default: dev
-</Inputs>`);
+</Inputs>`)
 
-    const result = extractYamlFromChildren(children);
+    const result = extractYamlFromChildren(children)
 
-    expect(result.content).toBe('');
-    expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
-  });
+    expect(result.content).toBe("")
+    expect(result.error?.message).toBe(MISSING_FENCE_ERROR)
+  })
 
   // An author-written wrapper hides MDX's p/ul/li elements from a top-level
   // check. Without the fence error, the flattened text either fails to parse or
   // parses as `variables: null`, an empty form with no error.
   it.each([
-    ['name-only variables', 'variables:\n  - name: AccountName\n  - name: Environment'],
-    ['a variable with a default', 'variables:\n  - name: Environment\n    default: dev'],
-  ])('rejects unfenced YAML inside a wrapper element (%s) with a code-fence configuration error', async (_label, yaml) => {
-    const children = await compileInputsChildren(`<Inputs id="test">
+    ["name-only variables", "variables:\n  - name: AccountName\n  - name: Environment"],
+    ["a variable with a default", "variables:\n  - name: Environment\n    default: dev"],
+  ])(
+    "rejects unfenced YAML inside a wrapper element (%s) with a code-fence configuration error",
+    async (_label, yaml) => {
+      const children = await compileInputsChildren(`<Inputs id="test">
 <div>
 ${yaml}
 </div>
-</Inputs>`);
+</Inputs>`)
 
-    const result = extractYamlFromChildren(children);
+      const result = extractYamlFromChildren(children)
 
-    expect(result.content).toBe('');
-    expect(result.error?.message).toBe(MISSING_FENCE_ERROR);
-  });
+      expect(result.content).toBe("")
+      expect(result.error?.message).toBe(MISSING_FENCE_ERROR)
+    },
+  )
 
-  it('extracts fenced YAML inside a wrapper element', async () => {
+  it("extracts fenced YAML inside a wrapper element", async () => {
     const children = await compileInputsChildren(`<Inputs id="test">
 <div>
 \`\`\`yaml
@@ -157,11 +164,13 @@ variables:
     default: us-east-1
 \`\`\`
 </div>
-</Inputs>`);
+</Inputs>`)
 
-    const result = extractYamlFromChildren(children);
+    const result = extractYamlFromChildren(children)
 
-    expect(result.error).toBeNull();
-    expect(YAML.parse(result.content)).toEqual({ variables: [{ name: 'Region', default: 'us-east-1' }] });
-  });
-});
+    expect(result.error).toBeNull()
+    expect(YAML.parse(result.content)).toEqual({
+      variables: [{ name: "Region", default: "us-east-1" }],
+    })
+  })
+})

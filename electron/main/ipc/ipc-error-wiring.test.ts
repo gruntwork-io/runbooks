@@ -40,7 +40,8 @@ mockElectron({
   ipcRenderer: {
     invoke: async (channel: string, ...args: unknown[]) => {
       const listener = listeners.get(channel)
-      if (!listener) throw new Error(`Error invoking remote method '${channel}': Error: No handler registered`)
+      if (!listener)
+        throw new Error(`Error invoking remote method '${channel}': Error: No handler registered`)
       try {
         return await listener({}, ...args)
       } catch (err) {
@@ -100,7 +101,12 @@ describe("ipc/index.ts", () => {
     // registerAllIpcHandlers() register theirs: after the import.
     fakeIpcMain.handle("workspace:tree", () =>
       runtime.runPromise(
-        Effect.fail(new FileReadError({ path: "/ws/a.txt", cause: new Error("ENOENT: no such file or directory") })),
+        Effect.fail(
+          new FileReadError({
+            path: "/ws/a.txt",
+            cause: new Error("ENOENT: no such file or directory"),
+          }),
+        ),
       ),
     )
 

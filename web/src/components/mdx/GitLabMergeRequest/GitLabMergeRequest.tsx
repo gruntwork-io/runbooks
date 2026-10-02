@@ -1,5 +1,5 @@
-import { GitPullRequest } from '@/components/mdx/GitPullRequest'
-import type { GitLabMergeRequestProps } from '@/components/mdx/GitPullRequest/types'
+import { GitPullRequest } from "@/components/mdx/GitPullRequest"
+import type { GitLabMergeRequestProps } from "@/components/mdx/GitPullRequest/types"
 
 /**
  * <GitLabMergeRequest> block — a GitLab-locked alias of the generic
@@ -13,7 +13,7 @@ export function GitLabMergeRequest(props: GitLabMergeRequestProps) {
   return (
     <GitPullRequest
       {...props}
-      title={props.title ?? 'Create Merge Request'}
+      title={props.title ?? "Create Merge Request"}
       provider="gitlab"
       hideProviderSelect
       __registryType="GitLabMergeRequest"
@@ -21,6 +21,6 @@ export function GitLabMergeRequest(props: GitLabMergeRequestProps) {
   )
 }
 
-GitLabMergeRequest.displayName = 'GitLabMergeRequest'
+GitLabMergeRequest.displayName = "GitLabMergeRequest"
 
 export default GitLabMergeRequest

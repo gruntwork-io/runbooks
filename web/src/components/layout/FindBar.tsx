@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { useApi } from '@/contexts/ApiContext'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { ChevronDown, ChevronUp, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { useApi } from "@/contexts/ApiContext"
 import {
   clearHighlights,
   findTextRanges,
@@ -9,8 +9,8 @@ import {
   indexAtOrAfter,
   paintHighlights,
   scrollRangeIntoView,
-} from '@/lib/findInPage'
-import './FindBar.css'
+} from "@/lib/findInPage"
+import "./FindBar.css"
 
 /** How long a page change waits before the matches are counted again. */
 const RESCAN_DELAY_MS = 150
@@ -38,7 +38,7 @@ function coveredByModal(bar: Element): boolean {
 export function FindBar() {
   const api = useApi()
   const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState("")
   const [result, setResult] = useState({ count: 0, current: -1 })
   // Bumped by every Find…, so the input takes focus again while already open.
   const [focusRequest, setFocusRequest] = useState(0)
@@ -47,7 +47,7 @@ export function FindBar() {
   const inputRef = useRef<HTMLInputElement>(null)
   // Mirrors of state for the menu listener and the MutationObserver.
   const openRef = useRef(false)
-  const queryRef = useRef('')
+  const queryRef = useRef("")
   const rangesRef = useRef<Range[]>([])
   const currentRef = useRef(-1)
   // What had focus before the bar opened, to give it back on close.
@@ -67,29 +67,41 @@ export function FindBar() {
    * after a page change doesn't do, so streaming logs don't move the page.
    * The bar floats over the page, so a match under it counts as hidden.
    */
-  const search = useCallback((text: string, scroll: boolean) => {
-    const anchor = rangesRef.current[currentRef.current]
-    const ranges = findTextRanges(document.body, text)
-    const bar = barRef.current?.getBoundingClientRect()
-    const current = anchor ? indexAtOrAfter(ranges, anchor) : firstMatchInView(ranges, bar)
-    show(ranges, current)
-    if (scroll && current >= 0) scrollRangeIntoView(ranges[current], bar)
-  }, [show])
+  const search = useCallback(
+    (text: string, scroll: boolean) => {
+      const anchor = rangesRef.current[currentRef.current]
+      const ranges = findTextRanges(document.body, text)
+      const bar = barRef.current?.getBoundingClientRect()
+      const current = anchor ? indexAtOrAfter(ranges, anchor) : firstMatchInView(ranges, bar)
+      show(ranges, current)
+      if (scroll && current >= 0) scrollRangeIntoView(ranges[current], bar)
+    },
+    [show],
+  )
 
-  const step = useCallback((delta: 1 | -1) => {
-    const ranges = rangesRef.current
-    if (ranges.length === 0) return
-    const from = currentRef.current
-    const current = from < 0 ? (delta > 0 ? 0 : ranges.length - 1) : (from + delta + ranges.length) % ranges.length
-    show(ranges, current)
-    scrollRangeIntoView(ranges[current], barRef.current?.getBoundingClientRect())
-  }, [show])
+  const step = useCallback(
+    (delta: 1 | -1) => {
+      const ranges = rangesRef.current
+      if (ranges.length === 0) return
+      const from = currentRef.current
+      const current =
+        from < 0
+          ? delta > 0
+            ? 0
+            : ranges.length - 1
+          : (from + delta + ranges.length) % ranges.length
+      show(ranges, current)
+      scrollRangeIntoView(ranges[current], barRef.current?.getBoundingClientRect())
+    },
+    [show],
+  )
 
   const openBar = useCallback(() => {
     if (!openRef.current) {
       openRef.current = true
       const active = document.activeElement
-      returnFocusRef.current = active instanceof HTMLElement && active !== document.body ? active : null
+      returnFocusRef.current =
+        active instanceof HTMLElement && active !== document.body ? active : null
       setOpen(true)
     }
     setFocusRequest((n) => n + 1)
@@ -112,10 +124,14 @@ export function FindBar() {
     }
   }, [])
 
-  useEffect(() => api.on('menu:find', ({ action }) => {
-    if (action === 'open' || !openRef.current) openBar()
-    else step(action === 'next' ? 1 : -1)
-  }), [api, openBar, step])
+  useEffect(
+    () =>
+      api.on("menu:find", ({ action }) => {
+        if (action === "open" || !openRef.current) openBar()
+        else step(action === "next" ? 1 : -1)
+      }),
+    [api, openBar, step],
+  )
 
   // Focus the input, with its text selected, on open and on every Find….
   useLayoutEffect(() => {
@@ -139,11 +155,15 @@ export function FindBar() {
       if (bar && coveredByModal(bar)) close()
     }
     const observer = new MutationObserver(check)
-    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['aria-hidden', 'inert'] })
-    document.addEventListener('focusin', check)
+    observer.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-hidden", "inert"],
+    })
+    document.addEventListener("focusin", check)
     return () => {
       observer.disconnect()
-      document.removeEventListener('focusin', check)
+      document.removeEventListener("focusin", check)
     }
   }, [open, close])
 
@@ -171,7 +191,7 @@ export function FindBar() {
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['class', 'style', 'hidden', 'open', 'inert'],
+      attributeFilter: ["class", "style", "hidden", "open", "inert"],
     })
     return () => {
       observer.disconnect()
@@ -184,14 +204,14 @@ export function FindBar() {
   if (!open) return null
 
   const status = !query.trim()
-    ? ''
+    ? ""
     : result.count === 0
-      ? 'No results'
+      ? "No results"
       : `${result.current + 1} of ${result.count}`
 
   // Keep focus in the input when a button is clicked, so typing carries on.
   const keepFocus = (e: React.MouseEvent) => e.preventDefault()
-  const buttonClass = 'h-6 w-6 text-muted-foreground hover:text-foreground'
+  const buttonClass = "h-6 w-6 text-muted-foreground hover:text-foreground"
 
   return (
     // data-find-ignore leaves the bar's own text out of the search. Below lg,
@@ -201,7 +221,7 @@ export function FindBar() {
       role="search"
       data-find-ignore=""
       onKeyDown={(e) => {
-        if (e.key !== 'Escape') return
+        if (e.key !== "Escape") return
         e.preventDefault()
         close()
       }}
@@ -221,13 +241,16 @@ export function FindBar() {
           search(e.target.value, true)
         }}
         onKeyDown={(e) => {
-          if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return
           e.preventDefault()
           step(e.shiftKey ? -1 : 1)
         }}
         className="w-48 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
       />
-      <span role="status" className="min-w-16 text-right text-xs whitespace-nowrap text-muted-foreground tabular-nums">
+      <span
+        role="status"
+        className="min-w-16 text-right text-xs whitespace-nowrap text-muted-foreground tabular-nums"
+      >
         {status}
       </span>
       <div className="mx-1 h-4 w-px bg-border" />

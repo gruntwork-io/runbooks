@@ -120,7 +120,12 @@ describe("resolveLaunchTarget", () => {
     // terminal's APPIMAGE/APPDIR; the launcher must still run Runbooks.
     const env = { APPIMAGE: "/home/dev/Apps/Terminal.AppImage", APPDIR: "/tmp/.mount_Term" }
     expect(
-      resolveLaunchTarget({ platform: "linux", execPath: "/opt/Runbooks/runbooks", isPackaged: true, env }),
+      resolveLaunchTarget({
+        platform: "linux",
+        execPath: "/opt/Runbooks/runbooks",
+        isPackaged: true,
+        env,
+      }),
     ).toBe("/opt/Runbooks/runbooks")
     // A sibling mount that merely shares a prefix is not "inside" APPDIR.
     expect(
@@ -152,7 +157,8 @@ describe("resolveLaunchTarget", () => {
 
 describe("renderTemplate", () => {
   it("drops note lines, indented ones too, and writes the given line endings", () => {
-    const template = "#!/bin/sh\n## a note\nif true; then\n  ## an indented note\n  echo {{word}}\nfi\n"
+    const template =
+      "#!/bin/sh\n## a note\nif true; then\n  ## an indented note\n  echo {{word}}\nfi\n"
     expect(renderTemplate(template, "##", "\r\n", { word: "hi" })).toBe(
       "#!/bin/sh\r\nif true; then\r\n  echo hi\r\nfi\r\n",
     )
@@ -162,7 +168,9 @@ describe("renderTemplate", () => {
     const lf = "@echo off\n:: a note\nrem {{marker}}\n"
     const crlf = lf.replace(/\n/g, "\r\n")
     const values = { marker: LAUNCHER_MARKER }
-    expect(renderTemplate(crlf, "::", "\r\n", values)).toBe(renderTemplate(lf, "::", "\r\n", values))
+    expect(renderTemplate(crlf, "::", "\r\n", values)).toBe(
+      renderTemplate(lf, "::", "\r\n", values),
+    )
     expect(renderTemplate(crlf, "::", "\n", values)).toBe(`@echo off\nrem ${LAUNCHER_MARKER}\n`)
   })
 
@@ -177,7 +185,9 @@ describe("renderTemplate", () => {
   })
 
   it("refuses a placeholder it has no value for", () => {
-    expect(() => renderTemplate("{{app}} {{typo}}\n", "##", "\n", { app: "x" })).toThrow(/\{\{typo\}\}/)
+    expect(() => renderTemplate("{{app}} {{typo}}\n", "##", "\n", { app: "x" })).toThrow(
+      /\{\{typo\}\}/,
+    )
     // Not even one that names an Object.prototype member.
     expect(() => renderTemplate("{{constructor}}\n", "##", "\n", {})).toThrow(/\{\{constructor\}\}/)
   })
@@ -213,7 +223,9 @@ describe("renderUnixLauncher", () => {
 
   it("quotes a path with a single quote in it", () => {
     expect(shellSingleQuote("/Users/o'brien/Runbooks")).toBe("'/Users/o'\\''brien/Runbooks'")
-    expect(renderUnixLauncher("/Users/o'brien/Runbooks")).toContain(`app='/Users/o'\\''brien/Runbooks'\n`)
+    expect(renderUnixLauncher("/Users/o'brien/Runbooks")).toContain(
+      `app='/Users/o'\\''brien/Runbooks'\n`,
+    )
   })
 
   // Arguments a shell would expand or split if the launcher mishandled them.
@@ -290,7 +302,8 @@ describe("renderUnixLauncher", () => {
   // When that leader exits, the kernel sends SIGHUP to the terminal's
   // foreground process group.
   const hasScript =
-    !isWindows && spawnSync("/bin/sh", ["-c", "command -v script"], { env: process.env }).status === 0
+    !isWindows &&
+    spawnSync("/bin/sh", ["-c", "command -v script"], { env: process.env }).status === 0
 
   it.skipIf(!hasScript)(
     "puts the app in a process group of its own, which outlives a launcher that is a terminal's own command",
@@ -385,7 +398,10 @@ describe("the --verbose flag the launcher passes on", () => {
 
 describe("renderWindowsLauncher", () => {
   it("starts the executable by absolute path with CRLF line endings", () => {
-    const text = renderWindowsLauncher("C:\\Program Files\\Runbooks\\Runbooks.exe", "C:\\Users\\dev\\AppData\\Local")
+    const text = renderWindowsLauncher(
+      "C:\\Program Files\\Runbooks\\Runbooks.exe",
+      "C:\\Users\\dev\\AppData\\Local",
+    )
     expect(text).toBe(
       [
         "@echo off",
@@ -419,12 +435,18 @@ describe("renderWindowsLauncher", () => {
     // cmd.exe would read the UTF-8 bytes of "José" in the OEM code page.
     const localAppData = "C:\\Users\\José\\AppData\\Local"
     expect(
-      renderWindowsLauncher("C:\\Users\\José\\AppData\\Local\\Programs\\Runbooks\\Runbooks.exe", localAppData),
+      renderWindowsLauncher(
+        "C:\\Users\\José\\AppData\\Local\\Programs\\Runbooks\\Runbooks.exe",
+        localAppData,
+      ),
     ).toContain('"%LOCALAPPDATA%\\Programs\\Runbooks\\Runbooks.exe" %*')
     // Case-insensitive, tolerant of a trailing separator, and still escaping
     // the rest of the path.
     expect(
-      renderWindowsLauncher("c:\\users\\josé\\appdata\\local\\Programs\\100%\\Runbooks.exe", `${localAppData}\\`),
+      renderWindowsLauncher(
+        "c:\\users\\josé\\appdata\\local\\Programs\\100%\\Runbooks.exe",
+        `${localAppData}\\`,
+      ),
     ).toContain('"%LOCALAPPDATA%\\Programs\\100%%\\Runbooks.exe" %*')
     // A sibling directory that merely shares the prefix is left alone.
     expect(
@@ -445,22 +467,31 @@ describe("classifyLauncher", () => {
     expect(classifyLauncher({ present: true, content: expected }, expected)).toBe("installed")
     // Written by a copy of the app that has since moved.
     expect(
-      classifyLauncher({ present: true, content: renderUnixLauncher("/Users/dev/Desktop/Runbooks") }, expected),
+      classifyLauncher(
+        { present: true, content: renderUnixLauncher("/Users/dev/Desktop/Runbooks") },
+        expected,
+      ),
     ).toBe("stale")
     // A symlink, directory or binary: no content to inspect.
     expect(classifyLauncher({ present: true }, expected)).toBe("occupied")
     // Someone else's script.
-    expect(classifyLauncher({ present: true, content: "#!/bin/sh\necho hi\n" }, expected)).toBe("occupied")
+    expect(classifyLauncher({ present: true, content: "#!/bin/sh\necho hi\n" }, expected)).toBe(
+      "occupied",
+    )
   })
 
   it("reports the foreground launcher earlier releases wrote as stale, so install offers to replace it", () => {
     const target = "/Applications/Runbooks.app/Contents/MacOS/Runbooks"
     const previous = ["#!/bin/sh", `# ${LAUNCHER_MARKER}`, `exec '${target}' "$@"`, ""].join("\n")
-    expect(classifyLauncher({ present: true, content: previous }, renderUnixLauncher(target))).toBe("stale")
+    expect(classifyLauncher({ present: true, content: previous }, renderUnixLauncher(target))).toBe(
+      "stale",
+    )
 
     const exe = "C:\\Program Files\\Runbooks\\Runbooks.exe"
     const previousWindows = ["@echo off", `rem ${LAUNCHER_MARKER}`, `"${exe}" %*`, ""].join("\r\n")
-    expect(classifyLauncher({ present: true, content: previousWindows }, renderWindowsLauncher(exe))).toBe("stale")
+    expect(
+      classifyLauncher({ present: true, content: previousWindows }, renderWindowsLauncher(exe)),
+    ).toBe("stale")
   })
 })
 
@@ -542,7 +573,10 @@ describe.skipIf(isWindows)("installUnixLauncher", () => {
 
   it("replaces a stale launcher left by a moved app", async () => {
     const launcher = nodePath.join(tmp, "runbooks")
-    fs.writeFileSync(launcher, renderUnixLauncher("/Users/dev/Desktop/Runbooks.app/Contents/MacOS/Runbooks"))
+    fs.writeFileSync(
+      launcher,
+      renderUnixLauncher("/Users/dev/Desktop/Runbooks.app/Contents/MacOS/Runbooks"),
+    )
     await installUnixLauncher(launcher, content, runWithSh)
     expect(fs.readFileSync(launcher, "utf8")).toBe(content)
   })
@@ -575,11 +609,15 @@ describe.skipIf(isWindows)("installUnixLauncher", () => {
     const link = nodePath.join(tmp, "runbooks")
     fs.symlinkSync("Cellar/runbooks", link)
     const runner = recordingRunner()
-    await expect(installUnixLauncher(link, content, runner.run)).rejects.toThrow(/will not overwrite it/)
+    await expect(installUnixLauncher(link, content, runner.run)).rejects.toThrow(
+      /will not overwrite it/,
+    )
     expect(fs.readlinkSync(link)).toBe("Cellar/runbooks")
 
     fs.rmSync(other)
-    await expect(installUnixLauncher(link, content, runner.run)).rejects.toThrow(/will not overwrite it/)
+    await expect(installUnixLauncher(link, content, runner.run)).rejects.toThrow(
+      /will not overwrite it/,
+    )
     expect(fs.readlinkSync(link)).toBe("Cellar/runbooks")
     expect(runner.commands).toEqual([])
   })
@@ -607,7 +645,10 @@ describe.skipIf(isWindows)("uninstallUnixLauncher", () => {
     expect(await uninstallUnixLauncher(launcher, runWithSh)).toBe(true)
     expect(fs.existsSync(launcher)).toBe(false)
 
-    fs.writeFileSync(launcher, renderUnixLauncher("/Users/dev/Desktop/Runbooks.app/Contents/MacOS/Runbooks"))
+    fs.writeFileSync(
+      launcher,
+      renderUnixLauncher("/Users/dev/Desktop/Runbooks.app/Contents/MacOS/Runbooks"),
+    )
     expect(await uninstallUnixLauncher(launcher, runWithSh)).toBe(true)
     expect(fs.existsSync(launcher)).toBe(false)
   })
@@ -616,12 +657,16 @@ describe.skipIf(isWindows)("uninstallUnixLauncher", () => {
     const runner = recordingRunner()
     const launcher = nodePath.join(tmp, "runbooks")
     fs.writeFileSync(launcher, "#!/bin/sh\necho legacy runbooks\n")
-    await expect(uninstallUnixLauncher(launcher, runner.run)).rejects.toThrow(/not installed by Runbooks/)
+    await expect(uninstallUnixLauncher(launcher, runner.run)).rejects.toThrow(
+      /not installed by Runbooks/,
+    )
     expect(fs.existsSync(launcher)).toBe(true)
 
     const link = nodePath.join(tmp, "linked")
     fs.symlinkSync(launcher, link)
-    await expect(uninstallUnixLauncher(link, runner.run)).rejects.toThrow(/not installed by Runbooks/)
+    await expect(uninstallUnixLauncher(link, runner.run)).rejects.toThrow(
+      /not installed by Runbooks/,
+    )
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
     expect(runner.commands).toEqual([])
   })
@@ -646,7 +691,10 @@ describe("install and remove commands", () => {
 
   it("runs directly when the directory is writable and escalates otherwise", () => {
     const command = "rm -f '/usr/local/bin/runbooks'"
-    expect(shellInvocation("darwin", command, true)).toEqual({ file: "/bin/sh", args: ["-c", command] })
+    expect(shellInvocation("darwin", command, true)).toEqual({
+      file: "/bin/sh",
+      args: ["-c", command],
+    })
     expect(shellInvocation("darwin", command, false)).toEqual({
       file: "osascript",
       args: ["-e", `do shell script ${appleScriptQuote(command)} with administrator privileges`],

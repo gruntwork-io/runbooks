@@ -23,11 +23,7 @@ import {
   isFilesystemRoot,
 } from "../../path-validation.js"
 import { PathTraversalError } from "../../errors/index.js"
-import type {
-  ManifestEntry,
-  TemplateManifest,
-  ManifestDiffResult,
-} from "../../types.js"
+import type { ManifestEntry, TemplateManifest, ManifestDiffResult } from "../../types.js"
 
 /**
  * Bounded concurrency for batched FS operations on the render hot path.
@@ -108,10 +104,7 @@ export type StaleManifestReason =
  * caller should drop the manifest (and the warm dispatcher's cached vars)
  * and render everything from scratch.
  */
-export function findStaleManifestReason(
-  manifest: TemplateManifest | undefined,
-  outputDir: string,
-) {
+export function findStaleManifestReason(manifest: TemplateManifest | undefined, outputDir: string) {
   return Effect.gen(function* () {
     if (!manifest) return null
     if (manifest.outputDir !== outputDir) {
@@ -404,9 +397,7 @@ export function applyDiffFromContent(
         // Missing-content for a path the diff said to write is a caller bug —
         // failing loudly here beats silently leaving the file stale.
         if (content === undefined) {
-          return yield* Effect.fail(
-            new Error(`applyDiffFromContent: no content for "${relPath}"`),
-          )
+          return yield* Effect.fail(new Error(`applyDiffFromContent: no content for "${relPath}"`))
         }
         const dstPath = path.join(outputDir, relPath)
         yield* fs.mkdir(path.dirname(dstPath), { recursive: true })
@@ -425,11 +416,7 @@ export function applyDiffFromContent(
     // contentMap if available; otherwise rely on a future render-all to
     // bring the file back.
     const restorable = diff.unchanged.filter((p) => contents.has(p))
-    const restored = yield* restoreMissingUnchanged(
-      restorable,
-      outputDir,
-      writeFromContent,
-    )
+    const restored = yield* restoreMissingUnchanged(restorable, outputDir, writeFromContent)
 
     return { written: writes.length + restored, deleted } satisfies ApplyDiffResult
   })

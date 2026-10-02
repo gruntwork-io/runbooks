@@ -1,6 +1,6 @@
-import { useCallback, useState, type ReactNode } from 'react'
-import { useApi } from './ApiContext'
-import { SessionContext } from './SessionContext.types'
+import { useCallback, useState, type ReactNode } from "react"
+import { useApi } from "./ApiContext"
+import { SessionContext } from "./SessionContext.types"
 
 interface IpcSessionProviderProps {
   children: ReactNode
@@ -23,10 +23,10 @@ export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
   // Reset the session to its initial environment state
   const resetSession = useCallback(async (): Promise<void> => {
     try {
-      await api.invoke('session:reset')
-      console.log('[IpcSessionContext] Session reset successfully')
+      await api.invoke("session:reset")
+      console.log("[IpcSessionContext] Session reset successfully")
     } catch (err) {
-      console.error('[IpcSessionContext] Failed to reset session:', err)
+      console.error("[IpcSessionContext] Failed to reset session:", err)
       throw err
     }
   }, [api])

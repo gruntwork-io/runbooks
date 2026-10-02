@@ -12,7 +12,13 @@ interface AuthTabsProps {
   oauthDisabledReason?: string
 }
 
-export function AuthTabs({ authMethod, setAuthMethod, provider, oauthDisabled = false, oauthDisabledReason }: AuthTabsProps) {
+export function AuthTabs({
+  authMethod,
+  setAuthMethod,
+  provider,
+  oauthDisabled = false,
+  oauthDisabledReason,
+}: AuthTabsProps) {
   // With a single manual method (e.g. GitLab → PAT only) there is nothing to
   // choose, so the tab bar collapses to the bare form.
   if (provider.manualMethods.length <= 1) {
@@ -24,15 +30,15 @@ export function AuthTabs({ authMethod, setAuthMethod, provider, oauthDisabled = 
       {provider.supportsOAuth && (
         <button
           type="button"
-          onClick={() => !oauthDisabled && setAuthMethod('oauth')}
+          onClick={() => !oauthDisabled && setAuthMethod("oauth")}
           disabled={oauthDisabled}
           title={oauthDisabled ? oauthDisabledReason : undefined}
           className={`px-4 py-2 text-sm font-medium transition-colors ${
             oauthDisabled
-              ? 'text-muted-foreground/50 cursor-not-allowed'
-              : authMethod === 'oauth'
-                ? 'text-info border-b-2 border-info -mb-px cursor-pointer'
-                : 'text-muted-foreground hover:text-foreground cursor-pointer'
+              ? "text-muted-foreground/50 cursor-not-allowed"
+              : authMethod === "oauth"
+                ? "text-info border-b-2 border-info -mb-px cursor-pointer"
+                : "text-muted-foreground hover:text-foreground cursor-pointer"
           }`}
         >
           <ExternalLink className="size-4 inline mr-2" />
@@ -44,11 +50,11 @@ export function AuthTabs({ authMethod, setAuthMethod, provider, oauthDisabled = 
       )}
       <button
         type="button"
-        onClick={() => setAuthMethod('pat')}
+        onClick={() => setAuthMethod("pat")}
         className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          authMethod === 'pat'
-            ? 'text-info border-b-2 border-info -mb-px'
-            : 'text-muted-foreground hover:text-foreground'
+          authMethod === "pat"
+            ? "text-info border-b-2 border-info -mb-px"
+            : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <KeyRound className="size-4 inline mr-2" />

@@ -11,19 +11,19 @@ interface ViewSourceCodeProps {
   onToggle?: (open: boolean) => void
 }
 
-export function ViewSourceCode({ 
-  sourceCode, 
-  path, 
+export function ViewSourceCode({
+  sourceCode,
+  path,
   fileName = "Script",
   language,
   isOpen: externalIsOpen,
-  onToggle
+  onToggle,
 }: ViewSourceCodeProps) {
   const [internalIsOpen, setInternalIsOpen] = useState(false)
-  
+
   // Use external state if provided, otherwise use internal state
   const isOpen = externalIsOpen !== undefined ? externalIsOpen : internalIsOpen
-  
+
   const handleToggle = () => {
     const newValue = !isOpen
     if (onToggle) {
@@ -49,15 +49,9 @@ export function ViewSourceCode({
       </button>
       {isOpen && (
         <div className="border-t border-border p-3 bg-muted">
-          <CodeFile
-            fileName={fileName}
-            filePath={path}
-            code={sourceCode}
-            language={language}
-          />
+          <CodeFile fileName={fileName} filePath={path} code={sourceCode} language={language} />
         </div>
       )}
     </div>
   )
 }
-

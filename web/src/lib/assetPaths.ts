@@ -19,23 +19,23 @@
 // listed: remarkLiteralOnly rejects them in the MDX, and markdown syntax can't
 // produce them. A Map, so a tag named like an Object.prototype member can't match.
 const ASSET_ATTRS = new Map<string, readonly string[]>([
-  ['img', ['src', 'srcset']], // <img src="./assets/image.png" srcSet="./assets/image@2x.png 2x">
-  ['video', ['src', 'poster']], // <video src="./assets/video.mp4" poster="./assets/poster.png">
-  ['audio', ['src']], // <audio src="./assets/audio.mp3">
+  ["img", ["src", "srcset"]], // <img src="./assets/image.png" srcSet="./assets/image@2x.png 2x">
+  ["video", ["src", "poster"]], // <video src="./assets/video.mp4" poster="./assets/poster.png">
+  ["audio", ["src"]], // <audio src="./assets/audio.mp3">
   // <source src="./assets/video.webm"> in <video>/<audio>, <source srcSet="./assets/image.webp"> in <picture>
-  ['source', ['src', 'srcset']],
-  ['track', ['src']], // <track src="./assets/captions.vtt"> (child of video/audio)
-  ['a', ['href']], // <a href="./assets/document.pdf">
+  ["source", ["src", "srcset"]],
+  ["track", ["src"]], // <track src="./assets/captions.vtt"> (child of video/audio)
+  ["a", ["href"]], // <a href="./assets/document.pdf">
 ])
 
 // `./assets/a.png` -> `runbook-asset://assets/a.png`; any other URL unchanged.
 // Only the prefix changes, so anything after the URL (a srcset descriptor) is kept.
 function toRunbookAssetUrl(url: string): string {
-  if (!url.startsWith('./assets/')) {
+  if (!url.startsWith("./assets/")) {
     return url
   }
   // Remove the ./ prefix and use the runbook-asset:// protocol
-  return `runbook-asset://${url.substring('./'.length)}`
+  return `runbook-asset://${url.substring("./".length)}`
 }
 
 // A srcset is comma-separated candidates, each a URL with an optional
@@ -45,12 +45,12 @@ function toRunbookAssetUrl(url: string): string {
 // starts with ./assets/ changes.
 function toRunbookAssetSrcSet(srcSet: string): string {
   return srcSet
-    .split(',')
+    .split(",")
     .map((candidate) => {
       const url = candidate.trimStart()
       return candidate.slice(0, candidate.length - url.length) + toRunbookAssetUrl(url)
     })
-    .join(',')
+    .join(",")
 }
 
 /**
@@ -64,5 +64,5 @@ export function rewriteAssetUrl(tagName: string, attribute: string, value: strin
   if (!ASSET_ATTRS.get(tagName)?.includes(name)) {
     return value
   }
-  return name === 'srcset' ? toRunbookAssetSrcSet(value) : toRunbookAssetUrl(value)
+  return name === "srcset" ? toRunbookAssetSrcSet(value) : toRunbookAssetUrl(value)
 }

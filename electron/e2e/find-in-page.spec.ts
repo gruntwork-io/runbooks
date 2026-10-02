@@ -17,7 +17,13 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts find-in-page.spec.ts
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
@@ -42,7 +48,10 @@ The last needle is here.
 /** Needles above, in and below the view once scrolled to paragraph 40, then one at the end of a long code line. */
 const LONG_RUNBOOK = [
   "# Long runbook",
-  ...Array.from({ length: 90 }, (_, i) => `Paragraph ${i + 1}${[5, 45, 85].includes(i + 1) ? " has a needle" : ""}.`),
+  ...Array.from(
+    { length: 90 },
+    (_, i) => `Paragraph ${i + 1}${[5, 45, 85].includes(i + 1) ? " has a needle" : ""}.`,
+  ),
   "```\n" + "x".repeat(400) + " needle\n```",
 ].join("\n\n")
 
@@ -61,7 +70,11 @@ test.describe("Find in page", () => {
   let page: Page
 
   /** Launch the app on `markdown`, saved as runbook.mdx in a folder named `folder`. */
-  async function launch(markdown: string, heading: string, folder = "needle"): Promise<ElectronApplication> {
+  async function launch(
+    markdown: string,
+    heading: string,
+    folder = "needle",
+  ): Promise<ElectronApplication> {
     const runbookDir = path.join(tmpDir, folder)
     fs.mkdirSync(runbookDir)
     fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), markdown)
@@ -128,11 +141,18 @@ test.describe("Find in page", () => {
       const rect = range.getBoundingClientRect()
       // A pixel of slack for fractional layout.
       const inside = (box: { top: number; bottom: number; left: number; right: number }) =>
-        rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1 && rect.left >= box.left - 1 && rect.right <= box.right + 1
-      if (!inside({ top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth })) return false
+        rect.top >= box.top - 1 &&
+        rect.bottom <= box.bottom + 1 &&
+        rect.left >= box.left - 1 &&
+        rect.right <= box.right + 1
+      if (!inside({ top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth }))
+        return false
       for (let el = range.startContainer.parentElement; el; el = el.parentElement) {
         const style = getComputedStyle(el)
-        if ((style.overflowX !== "visible" || style.overflowY !== "visible") && !inside(el.getBoundingClientRect())) {
+        if (
+          (style.overflowX !== "visible" || style.overflowY !== "visible") &&
+          !inside(el.getBoundingClientRect())
+        ) {
           return false
         }
       }
@@ -212,7 +232,9 @@ test.describe("Find in page", () => {
   test("starts at the first match in view and scrolls each match into view", async () => {
     await launch(LONG_RUNBOOK, "Long runbook", "long")
     // Read from paragraph 40 on: paragraph 5's needle is above the view.
-    await page.getByText("Paragraph 40.", { exact: true }).evaluate((p) => p.scrollIntoView({ block: "start" }))
+    await page
+      .getByText("Paragraph 40.", { exact: true })
+      .evaluate((p) => p.scrollIntoView({ block: "start" }))
 
     await openFind()
     await page.keyboard.type("needle")
@@ -230,10 +252,15 @@ test.describe("Find in page", () => {
   })
 
   // The bar sits lower in the narrow layout, under its Markdown/Code toggle.
-  for (const [layout, width] of [["wide", 1280], ["narrow", 900]] as const) {
+  for (const [layout, width] of [
+    ["wide", 1280],
+    ["narrow", 900],
+  ] as const) {
     test(`brings a match out from under the find bar (${layout} layout)`, async () => {
       const launched = await launch(ROWS_RUNBOOK, "Long rows", "rows")
-      await (await launched.browserWindow(page)).evaluate((win, width) => win.setSize(width, 800), width)
+      await (
+        await launched.browserWindow(page)
+      ).evaluate((win, width) => win.setSize(width, 800), width)
       // The first row of needles at the top of the runbook's box, where the
       // bar floats over the row's right-hand end.
       await page.getByText(/^needle needle/).evaluate((p) => p.scrollIntoView({ block: "start" }))

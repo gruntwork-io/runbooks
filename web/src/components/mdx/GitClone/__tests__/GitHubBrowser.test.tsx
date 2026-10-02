@@ -45,14 +45,26 @@ beforeAll(() => {
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
   return { promise, resolve, reject }
 }
 
-const ORGS = [{ id: 1, login: "acme" }, { id: 2, login: "globex" }]
+const ORGS = [
+  { id: 1, login: "acme" },
+  { id: 2, login: "globex" },
+]
 
-const repo = (id: number, name: string, defaultBranch = "main") =>
-  ({ id, ownerId: 1, name, fullName: `acme/${name}`, private: false, defaultBranch })
+const repo = (id: number, name: string, defaultBranch = "main") => ({
+  id,
+  ownerId: 1,
+  name,
+  fullName: `acme/${name}`,
+  private: false,
+  defaultBranch,
+})
 
 /** Channel-shaped refs: the backend sends `ref`, not `name`. */
 const branches = (...names: string[]) => names.map((ref) => ({ ref, type: "branch" as const }))
@@ -107,7 +119,9 @@ describe("GitHubBrowser — errors", () => {
   it("shows why a repository list failed instead of an empty list", async () => {
     mockIpc({
       repos: async () => {
-        throw new Error("Error invoking remote method 'github:repos': Error: GitHub API error 403: SAML enforcement")
+        throw new Error(
+          "Error invoking remote method 'github:repos': Error: GitHub API error 403: SAML enforcement",
+        )
       },
     })
     const user = userEvent.setup()
@@ -174,7 +188,13 @@ describe("GitHubBrowser — refs", () => {
     await waitFor(() => expect(refField()).toHaveValue("main"))
 
     await pick(user, 1, "fresh")
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "fresh", host: "github.com" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("github:refs", {
+        owner: "acme",
+        repo: "fresh",
+        host: "github.com",
+      }),
+    )
     await act(async () => {})
 
     expect(refField()).toHaveValue("")
@@ -206,8 +226,16 @@ describe("GitHubBrowser — refs", () => {
     })
     renderGitClone({ prefilledUrl: "https://github.com/acme/infra", prefilledRef: "v1.2.0" })
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "infra", host: "github.com" }))
-    await act(async () => { refs.resolve(branches("main", "v1.2.0-hotfix")) })
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("github:refs", {
+        owner: "acme",
+        repo: "infra",
+        host: "github.com",
+      }),
+    )
+    await act(async () => {
+      refs.resolve(branches("main", "v1.2.0-hotfix"))
+    })
 
     expect(refField()).toHaveValue("v1.2.0")
   })
@@ -229,8 +257,12 @@ describe("GitHubBrowser — refs", () => {
     await pick(user, 1, "alpha")
     await pick(user, 1, "beta")
 
-    await act(async () => { pending.beta.resolve(branches("master", "beta-work")) })
-    await act(async () => { pending.alpha.resolve(branches("main", "alpha-work")) })
+    await act(async () => {
+      pending.beta.resolve(branches("master", "beta-work"))
+    })
+    await act(async () => {
+      pending.alpha.resolve(branches("main", "alpha-work"))
+    })
 
     expect(refField()).toHaveValue("master")
     await user.click(combobox(2))
@@ -252,7 +284,9 @@ describe("GitHubBrowser — refs", () => {
     await pick(user, 1, "alpha")
     await pick(user, 0, "globex")
 
-    await act(async () => { alphaRefs.resolve(branches("main")) })
+    await act(async () => {
+      alphaRefs.resolve(branches("main"))
+    })
 
     expect(refField()).toHaveValue("")
   })
@@ -271,8 +305,12 @@ describe("GitHubBrowser — repos", () => {
     await openBrowser(user)
     await pick(user, 0, "globex")
 
-    await act(async () => { pending.globex.resolve([repo(2, "gamma")]) })
-    await act(async () => { pending.acme.resolve([repo(1, "alpha")]) })
+    await act(async () => {
+      pending.globex.resolve([repo(2, "gamma")])
+    })
+    await act(async () => {
+      pending.acme.resolve([repo(1, "alpha")])
+    })
 
     await user.click(combobox(1))
     expect(await screen.findByRole("option", { name: "gamma" })).toBeInTheDocument()

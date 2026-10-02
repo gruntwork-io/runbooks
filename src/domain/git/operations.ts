@@ -102,9 +102,7 @@ export const deleteBranch = (repoPath: string, branch: string) =>
 
     // git's own refusal ("used by worktree at …") doesn't say what to do.
     // Best-effort: if HEAD can't be read, let `git branch -d` decide.
-    const current = yield* gitClient
-      .getCurrentBranch(repoPath)
-      .pipe(Effect.orElseSucceed(() => ""))
+    const current = yield* gitClient.getCurrentBranch(repoPath).pipe(Effect.orElseSucceed(() => ""))
     if (current === branch) {
       return yield* new GitError({
         command: "branch -d",
@@ -251,15 +249,18 @@ const alreadyOpenMessage = (noun: string, headBranch: string, providerMessage: s
  * its commits. Creating with `branch`'s own name resumes on it, which also
  * covers a push that landed before the PR/MR call failed.
  */
-const alreadyPushedMessage = (noun: string, branch: string, baseBranch: string, headBranch: string) =>
+const alreadyPushedMessage = (
+  noun: string,
+  branch: string,
+  baseBranch: string,
+  headBranch: string,
+) =>
   `Nothing to commit: no files changed, and the commits on ${branch} that ${baseBranch} doesn't have are already on origin, so a ${noun} from ${headBranch} would only repeat them. ` +
   `To add changes to the ${noun} open from ${branch}, make them and use Git Push, or create again with ${branch} as the branch name (which also opens a ${noun} from ${branch} if there is none yet).`
 
 /** Wrap an optional progress callback as an Effect-returning reporter. */
-const makeReport =
-  (onProgress?: (line: string) => void) =>
-  (line: string) =>
-    Effect.sync(() => onProgress?.(line))
+const makeReport = (onProgress?: (line: string) => void) => (line: string) =>
+  Effect.sync(() => onProgress?.(line))
 
 /**
  * Shared local-git half of opening a PR/MR: stage all changes, create + switch
@@ -305,7 +306,9 @@ const runGitSteps = (
     // the only thing stopping a commit and push straight to the base branch.
     if (params.headBranch === params.baseBranch || PROTECTED_BRANCHES.has(params.headBranch)) {
       const reason =
-        params.headBranch === params.baseBranch ? "it is the base branch" : "it is a protected branch"
+        params.headBranch === params.baseBranch
+          ? "it is the base branch"
+          : "it is a protected branch"
       return yield* new GitError({
         command: "checkout -b",
         stderr: `Refusing to commit to ${params.headBranch}: ${reason}. Choose a new branch name for the changes.`,
@@ -328,9 +331,7 @@ const runGitSteps = (
       yield* report(
         `Skipping ${embedded.length} embedded git ${
           embedded.length === 1 ? "repository" : "repositories"
-        } (cloned into the workspace; not committed as submodules): ${embedded.join(
-          ", ",
-        )}`,
+        } (cloned into the workspace; not committed as submodules): ${embedded.join(", ")}`,
       )
     }
 
@@ -551,12 +552,12 @@ export const seedDefaultBranch = (
     // Same fallback-author treatment as the PR/MR flows: only used when the
     // machine has no git identity of its own configured. A GitLab token is
     // validated only at the instance origin names; with none, nothing runs.
-    const author = yield* (params.provider === "gitlab"
+    const author = yield* params.provider === "gitlab"
       ? Effect.flatMap(
           gitlabInstanceForRepo(params.repoPath, "creating the default branch"),
           (baseUrl) => resolveGitLabAuthor(token, baseUrl),
         )
-      : resolveGitHubAuthor(token, params.host))
+      : resolveGitHubAuthor(token, params.host)
 
     yield* report(`Creating branch ${params.branch}…`)
     yield* gitClient.createBranch(params.repoPath, params.branch)
@@ -616,11 +617,7 @@ export const unbornBranchName = (repoPath: string) =>
  * working directory. If localPath is provided it is used directly; otherwise
  * the repository name is extracted from the URL.
  */
-export const resolveClonePaths = (
-  localPath: string | undefined,
-  url: string,
-  workingDir: string,
-) =>
+export const resolveClonePaths = (localPath: string | undefined, url: string, workingDir: string) =>
   Effect.sync(() => {
     // Use the explicit localPath, else derive the dir name from the repo URL.
     const dirName = localPath ? localPath : (parseOwnerRepoFromURL(url)?.repo ?? "repo")

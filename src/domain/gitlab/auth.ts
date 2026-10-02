@@ -585,9 +585,7 @@ export function parseGlabExpiry(value: unknown): Date | undefined {
   const goMatch = raw.match(
     /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)?\s*([+-]\d{2}):?(\d{2})?(?:\s+\S+)?$/,
   )
-  const candidate = goMatch
-    ? `${goMatch[1]}T${goMatch[2]}${goMatch[3]}:${goMatch[4] ?? "00"}`
-    : raw
+  const candidate = goMatch ? `${goMatch[1]}T${goMatch[2]}${goMatch[3]}:${goMatch[4] ?? "00"}` : raw
   const parsed = new Date(candidate)
   return Number.isNaN(parsed.getTime()) ? undefined : parsed
 }
@@ -665,9 +663,7 @@ const scanGlabConfigs = <T>(pick: (content: string) => T | undefined) =>
     })
 
     for (const path of candidates) {
-      const content = yield* fs
-        .readFile(path)
-        .pipe(Effect.orElseSucceed(() => ""))
+      const content = yield* fs.readFile(path).pipe(Effect.orElseSucceed(() => ""))
       const picked = pick(content)
       if (picked) return picked
     }
@@ -699,11 +695,7 @@ export const detectConfigHosts = () =>
   scanGlabConfigs((content) => {
     const info = enumerateGlabHosts(content)
     return info.hosts.length > 0 ? info : undefined
-  }).pipe(
-    Effect.map(
-      (info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST },
-    ),
-  )
+  }).pipe(Effect.map((info) => info ?? { hosts: [] as string[], defaultHost: DEFAULT_GITLAB_HOST }))
 
 /**
  * Read a host's glab metadata (is_oauth2 / oauth2_expiry_date / ca_cert /

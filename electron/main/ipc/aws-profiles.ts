@@ -28,7 +28,9 @@ export async function handleProfiles() {
 export async function handleProfileAuth(params: ProfileAuthRequest) {
   const profileName = params.profileName ?? params.profile ?? ""
   try {
-    const credentials = await runtime.runPromise(authenticateProfile(profileName, params.defaultRegion))
+    const credentials = await runtime.runPromise(
+      authenticateProfile(profileName, params.defaultRegion),
+    )
     const identity = await runtime.runPromise(validateCredentials(credentials, credentials.region))
     return {
       valid: true,

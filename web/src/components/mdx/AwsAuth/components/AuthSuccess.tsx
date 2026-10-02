@@ -10,9 +10,14 @@ interface AuthSuccessProps {
   detectionSource?: AwsDetectionSource
 }
 
-export function AuthSuccess({ accountInfo, warningMessage, onReAuthenticate, detectionSource }: AuthSuccessProps) {
+export function AuthSuccess({
+  accountInfo,
+  warningMessage,
+  onReAuthenticate,
+  detectionSource,
+}: AuthSuccessProps) {
   const sourceLabel = detectionSource ? getSourceLabel(detectionSource) : null
-  
+
   return (
     <div className="mb-4">
       <div className="text-success font-semibold text-sm mb-2 flex items-center gap-2">
@@ -31,7 +36,10 @@ export function AuthSuccess({ accountInfo, warningMessage, onReAuthenticate, det
           )}
         </div>
         {accountInfo.arn && (
-          <div className="text-muted-foreground text-xs mt-1 font-mono truncate" title={accountInfo.arn}>
+          <div
+            className="text-muted-foreground text-xs mt-1 font-mono truncate"
+            title={accountInfo.arn}
+          >
             {accountInfo.arn}
           </div>
         )}
@@ -46,11 +54,7 @@ export function AuthSuccess({ accountInfo, warningMessage, onReAuthenticate, det
       {/* Action button */}
       {onReAuthenticate && (
         <div className="mt-3">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={onReAuthenticate}
-          >
+          <Button variant="outline" size="sm" onClick={onReAuthenticate}>
             Re-authenticate
           </Button>
         </div>

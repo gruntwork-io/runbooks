@@ -25,27 +25,29 @@ interface GcloudConfigSelectorProps {
   onRefreshConfigs: () => void
 }
 
-const authTypeLabels: Record<GcloudConfigInfo['authType'], string> = {
-  'adc-user': 'User ADC',
-  'adc-service-account': 'Service Account ADC',
-  'adc-external': 'Federated ADC',
-  'config-only': 'No ADC',
-  'unsupported': 'Unsupported',
+const authTypeLabels: Record<GcloudConfigInfo["authType"], string> = {
+  "adc-user": "User ADC",
+  "adc-service-account": "Service Account ADC",
+  "adc-external": "Federated ADC",
+  "config-only": "No ADC",
+  unsupported: "Unsupported",
 }
 
-const authTypeBadgeStyles: Record<GcloudConfigInfo['authType'], string> = {
-  'adc-user': 'bg-success-muted text-success',
-  'adc-service-account': 'bg-info-muted text-info',
-  'adc-external': 'bg-info-muted text-info',
-  'config-only': 'bg-warning-muted text-warning-foreground',
-  'unsupported': 'bg-muted text-muted-foreground',
+const authTypeBadgeStyles: Record<GcloudConfigInfo["authType"], string> = {
+  "adc-user": "bg-success-muted text-success",
+  "adc-service-account": "bg-info-muted text-info",
+  "adc-external": "bg-info-muted text-info",
+  "config-only": "bg-warning-muted text-warning-foreground",
+  unsupported: "bg-muted text-muted-foreground",
 }
 
 /** A gcloud configuration is only usable when Application Default Credentials back it. */
 function isUsable(config: GcloudConfigInfo): boolean {
-  return config.authType === 'adc-user'
-    || config.authType === 'adc-service-account'
-    || config.authType === 'adc-external'
+  return (
+    config.authType === "adc-user" ||
+    config.authType === "adc-service-account" ||
+    config.authType === "adc-external"
+  )
 }
 
 /**
@@ -71,11 +73,12 @@ export function GcloudConfigSelector({
   onGcloudAuth,
   onRefreshConfigs,
 }: GcloudConfigSelectorProps) {
-  const isAuthenticating = authStatus === 'authenticating'
-  const filteredConfigs = configs.filter((config) =>
-    config.name.toLowerCase().includes(configSearch.toLowerCase())
-    || (config.project?.toLowerCase().includes(configSearch.toLowerCase()) ?? false)
-    || (config.account?.toLowerCase().includes(configSearch.toLowerCase()) ?? false)
+  const isAuthenticating = authStatus === "authenticating"
+  const filteredConfigs = configs.filter(
+    (config) =>
+      config.name.toLowerCase().includes(configSearch.toLowerCase()) ||
+      (config.project?.toLowerCase().includes(configSearch.toLowerCase()) ?? false) ||
+      (config.account?.toLowerCase().includes(configSearch.toLowerCase()) ?? false),
   )
   const selectedIsUsable = selectedConfig !== null && isUsable(selectedConfig)
 
@@ -88,7 +91,7 @@ export function GcloudConfigSelector({
         {loadingConfigs ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
             <Loader2 className="size-4 animate-spin" />
-            Loading configurations from {configRoot ?? 'the gcloud config directory'}...
+            Loading configurations from {configRoot ?? "the gcloud config directory"}...
           </div>
         ) : configs.length > 0 ? (
           <div className="space-y-2">
@@ -117,7 +120,7 @@ export function GcloudConfigSelector({
                         ? "bg-muted/50 border-border cursor-not-allowed"
                         : isSelected
                           ? "bg-info-muted border-info/40 ring-2 ring-info/40"
-                          : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer"
+                          : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer",
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -125,7 +128,7 @@ export function GcloudConfigSelector({
                         <Check
                           className={cn(
                             "h-4 w-4 shrink-0",
-                            isSelected ? "opacity-100 text-info" : "opacity-0"
+                            isSelected ? "opacity-100 text-info" : "opacity-0",
                           )}
                         />
                         <div className="min-w-0">
@@ -138,22 +141,27 @@ export function GcloudConfigSelector({
                             )}
                           </div>
                           <div className="text-sm text-muted-foreground truncate">
-                            {config.project ?? 'No project set'}
+                            {config.project ?? "No project set"}
                             {config.account && ` • ${config.account}`}
                           </div>
                         </div>
                       </div>
-                      <span className={cn(
-                        "text-xs px-2 py-0.5 rounded-full shrink-0",
-                        authTypeBadgeStyles[config.authType]
-                      )}>
+                      <span
+                        className={cn(
+                          "text-xs px-2 py-0.5 rounded-full shrink-0",
+                          authTypeBadgeStyles[config.authType],
+                        )}
+                      >
                         {authTypeLabels[config.authType]}
                       </span>
                     </div>
-                    {config.authType === 'config-only' && (
+                    {config.authType === "config-only" && (
                       <div className="mt-2 text-xs text-muted-foreground">
-                        Configuration found, but no Application Default Credentials — run{' '}
-                        <code className="bg-accent px-1 rounded">gcloud auth application-default login</code>.
+                        Configuration found, but no Application Default Credentials — run{" "}
+                        <code className="bg-accent px-1 rounded">
+                          gcloud auth application-default login
+                        </code>
+                        .
                       </div>
                     )}
                   </button>
@@ -169,13 +177,15 @@ export function GcloudConfigSelector({
         ) : (
           <div className="space-y-3">
             <div className="text-muted-foreground text-sm py-2">
-              No gcloud configurations found{configRoot ? ` at ${configRoot}` : ''}.
+              No gcloud configurations found{configRoot ? ` at ${configRoot}` : ""}.
             </div>
             <div className="text-xs text-muted-foreground bg-muted rounded-md px-3 py-2 flex items-start gap-2">
               <Info className="size-3.5 mt-0.5 shrink-0" />
               <span>
-                Run <code className="bg-accent px-1 rounded">gcloud init</code> to create one, then{' '}
-                <code className="bg-accent px-1 rounded">gcloud auth application-default login</code>{' '}
+                Run <code className="bg-accent px-1 rounded">gcloud init</code> to create one, then{" "}
+                <code className="bg-accent px-1 rounded">
+                  gcloud auth application-default login
+                </code>{" "}
                 so applications can use it.
               </span>
             </div>
@@ -190,9 +200,16 @@ export function GcloudConfigSelector({
           <div className="min-w-0">
             <div>
               Application Default Credentials
-              {adcInfo.clientEmail && <> for <span className="font-mono">{adcInfo.clientEmail}</span></>}
+              {adcInfo.clientEmail && (
+                <>
+                  {" "}
+                  for <span className="font-mono">{adcInfo.clientEmail}</span>
+                </>
+              )}
             </div>
-            <div className="font-mono truncate" title={adcInfo.path}>{adcInfo.path}</div>
+            <div className="font-mono truncate" title={adcInfo.path}>
+              {adcInfo.path}
+            </div>
           </div>
         </div>
       )}
@@ -214,7 +231,7 @@ export function GcloudConfigSelector({
             Authenticating...
           </>
         ) : (
-          'Use Selected Configuration'
+          "Use Selected Configuration"
         )}
       </Button>
 

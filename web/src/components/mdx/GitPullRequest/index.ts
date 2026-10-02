@@ -1,4 +1,4 @@
-import GitPullRequest from './GitPullRequest'
+import GitPullRequest from "./GitPullRequest"
 
 export { GitPullRequest }
 export default GitPullRequest
@@ -11,4 +11,4 @@ export type {
   PRResult,
   GitLabel,
   ChangeSummary,
-} from './types'
+} from "./types"

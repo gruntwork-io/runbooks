@@ -22,10 +22,7 @@ import path from "node:path"
 import { brotliDecompress } from "node:zlib"
 import { promisify } from "node:util"
 import { WasmRuntime } from "../services/WasmRuntime.ts"
-import type {
-  WasmRuntimeShape,
-  WasmRenderFilesResult,
-} from "../services/WasmRuntime.ts"
+import type { WasmRuntimeShape, WasmRenderFilesResult } from "../services/WasmRuntime.ts"
 import { WasmError } from "../errors/index.ts"
 
 const decompress = promisify(brotliDecompress)
@@ -38,11 +35,7 @@ const BOILERPLATE_WASM_DIR_ENV = "BOILERPLATE_WASM_DIR"
  * remain valid for the lifetime of the runtime.
  */
 interface BoilerplateExports {
-  boilerplateRenderFiles(
-    bundleJSON: string,
-    pathsJSON: string,
-    varsJSON: string,
-  ): string | Error
+  boilerplateRenderFiles(bundleJSON: string, pathsJSON: string, varsJSON: string): string | Error
   boilerplatePrepareBundle(bundleJSON: string): string | Error
   boilerplateRenderFilesWithHandle(
     handle: string,
@@ -54,7 +47,10 @@ interface BoilerplateExports {
 }
 
 // bun-types doesn't expose WebAssembly.Imports globally; define the shape here.
-type WasmImports = Record<string, Record<string, Function | WebAssembly.Global | WebAssembly.Memory | WebAssembly.Table | number>>
+type WasmImports = Record<
+  string,
+  Record<string, Function | WebAssembly.Global | WebAssembly.Memory | WebAssembly.Table | number>
+>
 
 /** The Go class set by wasm_exec.js as a side effect on import. */
 interface GoCtor {
@@ -239,11 +235,12 @@ export const NodeWasmRuntimeLive = Layer.effect(
       return callBridge(
         (exp) => exp.boilerplateRenderFiles(bundleJSON, pathsJSON, varsJSON),
         (out) => JSON.parse(out) as WasmRenderFilesResult,
-        (out) => new WasmError({
-          message: `boilerplateRenderFiles returned Error without structural kind: ${out.message}`,
-          kind: "internal",
-          cause: out,
-        }),
+        (out) =>
+          new WasmError({
+            message: `boilerplateRenderFiles returned Error without structural kind: ${out.message}`,
+            kind: "internal",
+            cause: out,
+          }),
       )
     },
 
@@ -251,11 +248,12 @@ export const NodeWasmRuntimeLive = Layer.effect(
       callBridge(
         (exp) => exp.boilerplatePrepareBundle(bundleJSON),
         (out) => out,
-        (out) => new WasmError({
-          message: `boilerplatePrepareBundle returned Error without structural kind: ${out.message}`,
-          kind: "internal",
-          cause: out,
-        }),
+        (out) =>
+          new WasmError({
+            message: `boilerplatePrepareBundle returned Error without structural kind: ${out.message}`,
+            kind: "internal",
+            cause: out,
+          }),
       ),
 
     renderFilesWithHandle: (handle, paths, varsJSON) => {
@@ -263,11 +261,12 @@ export const NodeWasmRuntimeLive = Layer.effect(
       return callBridge(
         (exp) => exp.boilerplateRenderFilesWithHandle(handle, pathsJSON, varsJSON),
         (out) => JSON.parse(out) as WasmRenderFilesResult,
-        (out) => new WasmError({
-          message: `boilerplateRenderFilesWithHandle returned Error without structural kind: ${out.message}`,
-          kind: "internal",
-          cause: out,
-        }),
+        (out) =>
+          new WasmError({
+            message: `boilerplateRenderFilesWithHandle returned Error without structural kind: ${out.message}`,
+            kind: "internal",
+            cause: out,
+          }),
       )
     },
 

@@ -7,10 +7,7 @@ import { registerTestCommand } from "./commands/test.ts"
 
 const program = new Command()
 
-program
-  .name("runbooks-cli")
-  .description("Gruntwork Runbooks CLI tools")
-  .version("0.1.0")
+program.name("runbooks-cli").description("Gruntwork Runbooks CLI tools").version("0.1.0")
 
 registerTestCommand(program)
 

@@ -110,9 +110,13 @@ describe("GitClone — stopping use of a local checkout", () => {
     // The action sits on the status line the user reads, not in a separate
     // control below the panel, and says what it does: undo the choice.
     expect(
-      within(headerRowOf("Using local checkout")).getByRole("button", { name: /Stop using this repo/i }),
+      within(headerRowOf("Using local checkout")).getByRole("button", {
+        name: /Stop using this repo/i,
+      }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /Choose a different repo/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Choose a different repo/i }),
+    ).not.toBeInTheDocument()
   })
 
   it("withdraws the checkout and returns to the directory form", async () => {

@@ -41,10 +41,14 @@ export function readVcsAuthStore(): VcsAuthStore {
     return {
       recentGitLabHosts: stringList(parsed.recentGitLabHosts),
       lastSelectedGitLabHost:
-        typeof parsed.lastSelectedGitLabHost === "string" ? parsed.lastSelectedGitLabHost : undefined,
+        typeof parsed.lastSelectedGitLabHost === "string"
+          ? parsed.lastSelectedGitLabHost
+          : undefined,
       recentGitHubHosts: stringList(parsed.recentGitHubHosts),
       lastSelectedGitHubHost:
-        typeof parsed.lastSelectedGitHubHost === "string" ? parsed.lastSelectedGitHubHost : undefined,
+        typeof parsed.lastSelectedGitHubHost === "string"
+          ? parsed.lastSelectedGitHubHost
+          : undefined,
     }
   } catch {
     return emptyStore()
@@ -61,7 +65,10 @@ function writeVcsAuthStore(store: VcsAuthStore): void {
 
 export function addRecentGitLabHost(host: string): void {
   const store = readVcsAuthStore()
-  const next = [host, ...store.recentGitLabHosts.filter((h) => h !== host)].slice(0, MAX_RECENT_HOSTS)
+  const next = [host, ...store.recentGitLabHosts.filter((h) => h !== host)].slice(
+    0,
+    MAX_RECENT_HOSTS,
+  )
   writeVcsAuthStore({ ...store, recentGitLabHosts: next })
 }
 
@@ -74,7 +81,10 @@ export function setLastSelectedGitLabHost(host: string): void {
 export function addRecentGitHubHost(host: string): void {
   const store = readVcsAuthStore()
   if (store.recentGitHubHosts[0] === host) return
-  const next = [host, ...store.recentGitHubHosts.filter((h) => h !== host)].slice(0, MAX_RECENT_HOSTS)
+  const next = [host, ...store.recentGitHubHosts.filter((h) => h !== host)].slice(
+    0,
+    MAX_RECENT_HOSTS,
+  )
   writeVcsAuthStore({ ...store, recentGitHubHosts: next })
 }
 

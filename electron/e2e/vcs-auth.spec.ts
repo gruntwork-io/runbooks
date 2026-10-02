@@ -54,7 +54,21 @@ interface LaunchResult {
  *  env vars are always stripped for determinism. */
 async function launchApp(runbook: string, env: Record<string, string>): Promise<LaunchResult> {
   const cleanEnv: Record<string, string> = { ...process.env } as Record<string, string>
-  for (const v of ["GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN", "GITLAB_HOST", "GITLAB_URI", "GL_HOST", "GH_HOST", "GLAB_CONFIG_DIR", "GH_CONFIG_DIR"]) {
+  for (const v of [
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "GITLAB_TOKEN",
+    "GITLAB_ACCESS_TOKEN",
+    "OAUTH_TOKEN",
+    "GITLAB_HOST",
+    "GITLAB_URI",
+    "GL_HOST",
+    "GH_HOST",
+    "GLAB_CONFIG_DIR",
+    "GH_CONFIG_DIR",
+  ]) {
     delete cleanEnv[v]
   }
   const collected: string[] = []
@@ -286,7 +300,9 @@ test("gitlab: probe converts a TLS wall into degraded auth with the transparency
     })
     // transparency line + the structured field canary.
     await expect(window.getByTestId("transport-degraded-line")).toBeVisible()
-    await expect(window.getByTestId("transport-degraded-line")).toContainText("validated via glab CLI")
+    await expect(window.getByTestId("transport-degraded-line")).toContainText(
+      "validated via glab CLI",
+    )
     expect(logs()).toContain(`transport degraded for ${stub.host}`)
   } finally {
     await app.close()
@@ -311,7 +327,9 @@ test("github: logged-out gh → manual UI with hint; Check again re-detects with
     // Nothing found → manual UI with the hint line + Check again control,
     // and the OAuth tab is a first-class tab even though gh is installed.
     await expect(
-      window.getByText("No existing credentials found. Sign in below, set GITHUB_TOKEN, or run 'gh auth login'."),
+      window.getByText(
+        "No existing credentials found. Sign in below, set GITHUB_TOKEN, or run 'gh auth login'.",
+      ),
     ).toBeVisible({ timeout: 45_000 })
     await expect(window.getByRole("button", { name: /Sign in with GitHub/ }).first()).toBeVisible()
     await expect(window.getByRole("button", { name: "Check again" })).toBeVisible()
@@ -342,7 +360,9 @@ test("github: gh absent → install hint, OAuth tab still present", async () => 
   })
   try {
     await expect(
-      window.getByText("No existing credentials found. Sign in below, set GITHUB_TOKEN, or install the GitHub CLI (gh)."),
+      window.getByText(
+        "No existing credentials found. Sign in below, set GITHUB_TOKEN, or install the GitHub CLI (gh).",
+      ),
     ).toBeVisible({ timeout: 45_000 })
     await expect(window.getByRole("button", { name: /Sign in with GitHub/ }).first()).toBeVisible()
   } finally {
@@ -363,7 +383,10 @@ test("gitlab: Other instance… sentinel, PAT success, recent persisted across r
   fs.writeFileSync(seamPath, CA_PEM) // trusted from launch (PAT validation target)
   // gitlab.com-only config, no credential: single-host case still renders the
   // select with the Other instance… row.
-  writeGlabConfig(configDir, ["host: gitlab.com", "hosts:", "    gitlab.com:", "        user: someone", ""].join("\n"))
+  writeGlabConfig(
+    configDir,
+    ["host: gitlab.com", "hosts:", "    gitlab.com:", "        user: someone", ""].join("\n"),
+  )
 
   const env = {
     PATH: stubPath(),

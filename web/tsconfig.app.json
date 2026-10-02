@@ -25,10 +25,8 @@
 
     /* Install shadcn/ui per https://ui.shadcn.com/docs/installation/vite */
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
-    },
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }

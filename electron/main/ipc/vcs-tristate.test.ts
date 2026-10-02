@@ -38,8 +38,18 @@ const VALID: DetectionResult = {
   warnings: [],
 }
 const NETWORK: DetectionResult = { ...TLS_WALL, errorKind: "network", error: "ECONNREFUSED" }
-const SERVER_CERT: DetectionResult = { ...TLS_WALL, errorKind: "server-cert", error: "CERT_HAS_EXPIRED" }
-const INVALID: DetectionResult = { outcome: "invalid", token: "glpat-token", source: "env", warnings: [], status: 401 }
+const SERVER_CERT: DetectionResult = {
+  ...TLS_WALL,
+  errorKind: "server-cert",
+  error: "CERT_HAS_EXPIRED",
+}
+const INVALID: DetectionResult = {
+  outcome: "invalid",
+  token: "glpat-token",
+  source: "env",
+  warnings: [],
+  status: 401,
+}
 
 /** A detect step that returns `results` in order, repeating the last one. */
 const detectSequence = (...results: DetectionResult[]) => {
@@ -67,10 +77,12 @@ beforeEach(() => {
   probeCalls = []
   degraded = []
   refresh = spyOn(systemTrust, "refreshSystemTrust").mockResolvedValue({ coldReadOk: true })
-  spyOn(runtime, "runPromise").mockImplementation(((effect: Effect.Effect<unknown, unknown, VcsCredentials>) =>
-    Effect.runPromise(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromise)
-  spyOn(runtime, "runPromiseExit").mockImplementation(((effect: Effect.Effect<unknown, unknown, VcsCredentials>) =>
-    Effect.runPromiseExit(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromiseExit)
+  spyOn(runtime, "runPromise").mockImplementation(((
+    effect: Effect.Effect<unknown, unknown, VcsCredentials>,
+  ) => Effect.runPromise(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromise)
+  spyOn(runtime, "runPromiseExit").mockImplementation(((
+    effect: Effect.Effect<unknown, unknown, VcsCredentials>,
+  ) => Effect.runPromiseExit(Effect.provide(effect, vcsLayer))) as typeof runtime.runPromiseExit)
 })
 
 afterEach(() => {
@@ -97,16 +109,19 @@ describe("withTlsOrchestration", () => {
   it.each([
     ["valid", VALID],
     ["network", NETWORK],
-  ])("on a tls failure, refreshes trust once and returns the retry's %s result", async (_name, retry) => {
-    const detect = detectSequence(TLS_WALL, retry)
+  ])(
+    "on a tls failure, refreshes trust once and returns the retry's %s result",
+    async (_name, retry) => {
+      const detect = detectSequence(TLS_WALL, retry)
 
-    const result = await withTlsOrchestration({ provider: "gitlab", host: HOST, detect })
+      const result = await withTlsOrchestration({ provider: "gitlab", host: HOST, detect })
 
-    expect(result).toBe(retry)
-    expect(refresh).toHaveBeenCalledTimes(1)
-    expect(detect).toHaveBeenCalledTimes(2)
-    expect(probeCalls).toEqual([])
-  })
+      expect(result).toBe(retry)
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(detect).toHaveBeenCalledTimes(2)
+      expect(probeCalls).toEqual([])
+    },
+  )
 
   it("accepts a persisting tls wall via the CLI probe and marks the host degraded", async () => {
     probeResult = Effect.succeed({ user: { login: "cli-user" }, scopes: ["api"] })

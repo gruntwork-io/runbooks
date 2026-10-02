@@ -19,14 +19,8 @@ export function GitLabLogo({ className = "size-6", ariaLabel }: GitLabLogoProps)
         ? { role: "img", "aria-label": ariaLabel }
         : { "aria-hidden": true, focusable: "false" })}
     >
-      <path
-        d="M128.075 236.075l47.104-144.97H80.97l47.104 144.97z"
-        fill="#E24329"
-      />
-      <path
-        d="M128.075 236.074L80.97 91.104H14.956l113.119 144.97z"
-        fill="#FC6D26"
-      />
+      <path d="M128.075 236.075l47.104-144.97H80.97l47.104 144.97z" fill="#E24329" />
+      <path d="M128.075 236.074L80.97 91.104H14.956l113.119 144.97z" fill="#FC6D26" />
       <path
         d="M14.956 91.104L.642 135.16a9.752 9.752 0 003.542 10.903l123.891 90.012-113.12-144.97z"
         fill="#FCA326"
@@ -35,10 +29,7 @@ export function GitLabLogo({ className = "size-6", ariaLabel }: GitLabLogoProps)
         d="M14.956 91.105H80.97L52.601 3.79c-1.46-4.493-7.816-4.492-9.275 0l-28.37 87.315z"
         fill="#E24329"
       />
-      <path
-        d="M128.075 236.074l47.104-144.97h66.015l-113.12 144.97z"
-        fill="#FC6D26"
-      />
+      <path d="M128.075 236.074l47.104-144.97h66.015l-113.12 144.97z" fill="#FC6D26" />
       <path
         d="M241.194 91.104l14.314 44.056a9.752 9.752 0 01-3.543 10.903l-123.89 90.012 113.119-144.97z"
         fill="#FCA326"

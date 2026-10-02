@@ -1,6 +1,11 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useApi } from '@/contexts/ApiContext'
-import { buildTemplatePayload, maskTemplateOutputs, omitSensitiveTemplateOutputs, type TemplateContext } from '@/lib/templateUtils'
+import { useState, useMemo, useEffect, useRef, useCallback } from "react"
+import { useApi } from "@/contexts/ApiContext"
+import {
+  buildTemplatePayload,
+  maskTemplateOutputs,
+  omitSensitiveTemplateOutputs,
+  type TemplateContext,
+} from "@/lib/templateUtils"
 import {
   detectManualFields,
   fieldsNeedingPrompt,
@@ -8,7 +13,7 @@ import {
   resolveCommandClientSide,
   normalizeCommandList,
   type ManualFieldSpec,
-} from '../lib/instructionResolution'
+} from "../lib/instructionResolution"
 
 /** A manual field ready to render: spec plus its current value and a setter. */
 export interface ManualField extends ManualFieldSpec {
@@ -67,10 +72,7 @@ export function useInstructionResolution({
   // produced: the user gets a field to paste it into, and until they do the
   // command shows a `<name>` placeholder. Serializing it as is would turn it
   // into the text `<redacted>`, which would count as its value.
-  const commandKey = useMemo(
-    () => JSON.stringify(normalizeCommandList(command)),
-    [command],
-  )
+  const commandKey = useMemo(() => JSON.stringify(normalizeCommandList(command)), [command])
   const contextKey = useMemo(
     () =>
       JSON.stringify({
@@ -88,8 +90,7 @@ export function useInstructionResolution({
   // Only prompt for references the context can't already resolve (e.g. a
   // DirPicker's published path resolves without a prompt).
   const fieldSpecs = useMemo(
-    () =>
-      fieldsNeedingPrompt(allFieldSpecs, JSON.parse(contextKey) as TemplateContext),
+    () => fieldsNeedingPrompt(allFieldSpecs, JSON.parse(contextKey) as TemplateContext),
     [allFieldSpecs, contextKey],
   )
 
@@ -137,7 +138,7 @@ export function useInstructionResolution({
 
   // No template references → the command is already literal; nothing to render
   // and no IPC needed. Also covers the no-command case.
-  const hasTemplates = commands.some((c) => c.includes('{{'))
+  const hasTemplates = commands.some((c) => c.includes("{{"))
   // No IPC bridge (e.g. component tests without an ApiProvider) → client-side.
   const canInvoke = Boolean(api?.invoke)
 
@@ -177,7 +178,7 @@ export function useInstructionResolution({
     })
 
     api
-      .invoke('boilerplate:render-inline', { templateFiles, inputs })
+      .invoke("boilerplate:render-inline", { templateFiles, inputs })
       .then((response: { renderedFiles?: Record<string, { content: string }> }) => {
         if (cancelled || !isMountedRef.current) return
         const rendered = response?.renderedFiles
@@ -189,7 +190,7 @@ export function useInstructionResolution({
         // so keep it. Fall back to the client-side resolver, and flag it, only
         // for an entry the engine didn't return or returned as that marker.
         const isRendered = (text: string | undefined): text is string =>
-          text !== undefined && !text.startsWith('[template error:')
+          text !== undefined && !text.startsWith("[template error:")
         setEngineResult({
           source: clientResolved,
           commands: out.map((text, i) => (isRendered(text) ? text : clientResolved[i])),
@@ -210,7 +211,7 @@ export function useInstructionResolution({
     () =>
       fieldSpecs.map((spec) => ({
         ...spec,
-        value: manualValues[spec.id] ?? '',
+        value: manualValues[spec.id] ?? "",
         onChange: (value: string) => setFieldValue(spec.id, value),
       })),
     [fieldSpecs, manualValues, setFieldValue],

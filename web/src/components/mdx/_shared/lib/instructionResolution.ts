@@ -14,7 +14,7 @@
 import {
   extractTemplateDependenciesFromString,
   splitDependencies,
-} from '@/lib/extractTemplateDependencies'
+} from "@/lib/extractTemplateDependencies"
 import {
   extractInputValueReferences,
   resolveInputPath,
@@ -22,9 +22,9 @@ import {
   type TemplateContext,
   type TemplateInputs,
   type TemplateOutputs,
-} from '@/lib/templateUtils'
-import { normalizeBlockId } from '@/lib/utils'
-import { isSensitiveOutput } from '@/lib/outputValues'
+} from "@/lib/templateUtils"
+import { normalizeBlockId } from "@/lib/utils"
+import { isSensitiveOutput } from "@/lib/outputValues"
 
 /**
  * A synthesized prompt for an `{{ .outputs.<id>.<key> }}` reference the app can't
@@ -47,9 +47,7 @@ export interface ManualFieldSpec {
  * synthesize one manual field per reference. `{{ .inputs.* }}` references are
  * NOT collected — those come from the still-functional Inputs forms (§6.5.1).
  */
-export function detectManualFields(
-  command: string | string[] | undefined,
-): ManualFieldSpec[] {
+export function detectManualFields(command: string | string[] | undefined): ManualFieldSpec[] {
   const texts = normalizeCommandList(command)
   const seen = new Set<string>()
   const fields: ManualFieldSpec[] = []
@@ -92,8 +90,7 @@ export function buildManualOutputs(
 
   for (const field of fields) {
     const entered = values[field.id]
-    const value =
-      entered != null && entered !== '' ? entered : `<${field.outputName}>`
+    const value = entered != null && entered !== "" ? entered : `<${field.outputName}>`
     const normalized = normalizeBlockId(field.blockId)
     put(normalized, field.outputName, value)
     if (field.blockId !== normalized) {
@@ -128,17 +125,14 @@ export function buildManualOutputs(
  * input, and can't render the command without one), so the command shows the
  * visible `<name>` slot.
  */
-export function buildInputPlaceholders(
-  commands: string[],
-  inputs: TemplateInputs,
-): TemplateInputs {
+export function buildInputPlaceholders(commands: string[], inputs: TemplateInputs): TemplateInputs {
   const referenced = [...new Set(commands.flatMap(extractInputValueReferences))]
   const missing = referenced.filter((name) => resolveInputPath(inputs, name) === undefined)
   if (missing.length === 0) return inputs
 
   const filled: TemplateInputs = { ...inputs }
   for (const name of missing) {
-    const segments = name.split('.')
+    const segments = name.split(".")
     const key = segments.pop() as string
     let target: Record<string, unknown> | null = filled
     for (const segment of segments) {
@@ -147,7 +141,7 @@ export function buildInputPlaceholders(
       // treats as an object.
       if (
         current !== undefined &&
-        (current === null || typeof current !== 'object' || Array.isArray(current))
+        (current === null || typeof current !== "object" || Array.isArray(current))
       ) {
         target = null
         break
@@ -175,9 +169,8 @@ export function contextHasOutput(
   outputName: string,
 ): boolean {
   const value =
-    ctx.outputs[normalizeBlockId(blockId)]?.[outputName] ??
-    ctx.outputs[blockId]?.[outputName]
-  return value != null && !isSensitiveOutput(value) && value !== ''
+    ctx.outputs[normalizeBlockId(blockId)]?.[outputName] ?? ctx.outputs[blockId]?.[outputName]
+  return value != null && !isSensitiveOutput(value) && value !== ""
 }
 
 /**
@@ -227,17 +220,12 @@ export function buildMergedContext(
  * logic (`{{ if … }}`, functions) is left as written, since only the engine can
  * evaluate it.
  */
-export function resolveCommandClientSide(
-  command: string,
-  ctx: TemplateContext,
-): string {
+export function resolveCommandClientSide(command: string, ctx: TemplateContext): string {
   return resolveTemplateReferences(command, ctx)
 }
 
 /** Normalize a `string | string[] | undefined` command into a string array. */
-export function normalizeCommandList(
-  command: string | string[] | undefined,
-): string[] {
+export function normalizeCommandList(command: string | string[] | undefined): string[] {
   if (command == null) return []
   return Array.isArray(command) ? command : [command]
 }

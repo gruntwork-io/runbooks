@@ -52,7 +52,12 @@ variables:
     options: ["x", "y"]
 `)
     expect(result.variables.map((v) => v.type)).toEqual([
-      "int", "float", "bool", "list", "map", "enum",
+      "int",
+      "float",
+      "bool",
+      "list",
+      "map",
+      "enum",
     ])
   })
 
@@ -361,9 +366,7 @@ variables: []
 skip_files: "not-a-list"
 `)
       expect(result.skipFiles).toEqual([])
-      expect(warnings.some((w) => w.includes("skip_files must be a list"))).toBe(
-        true,
-      )
+      expect(warnings.some((w) => w.includes("skip_files must be a list"))).toBe(true)
     } finally {
       console.warn = originalWarn
     }
@@ -393,16 +396,12 @@ describe("extractOutputDependencies", () => {
   })
 
   it("extracts multiple dependencies", () => {
-    const deps = extractOutputDependencies(
-      "{{ .outputs.a.x }} and {{ .outputs.b.y }}",
-    )
+    const deps = extractOutputDependencies("{{ .outputs.a.x }} and {{ .outputs.b.y }}")
     expect(deps).toHaveLength(2)
   })
 
   it("deduplicates identical dependencies", () => {
-    const deps = extractOutputDependencies(
-      "{{ .outputs.a.x }} {{ .outputs.a.x }}",
-    )
+    const deps = extractOutputDependencies("{{ .outputs.a.x }} {{ .outputs.a.x }}")
     expect(deps).toHaveLength(1)
   })
 

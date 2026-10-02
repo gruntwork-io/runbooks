@@ -30,7 +30,12 @@ import { GitLabApiError } from "../../src/errors/index.ts"
 // tls.setDefaultCACertificates, which is exactly why this suite lives under
 // test/integration/ behind the bun-test path-ignore.
 
-const fixtureDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "tls")
+const fixtureDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "fixtures",
+  "tls",
+)
 const fixtureCaPem = fs.readFileSync(path.join(fixtureDir, "ca.pem"), "utf8")
 
 // Snapshot the process-default CA list ONCE, before any
@@ -94,7 +99,9 @@ beforeAll(async () => {
 afterAll(async () => {
   // Restore the original CA list so this suite leaves no trace for others.
   tls.setDefaultCACertificates(defaultsSnapshot)
-  await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
+  await new Promise<void>((resolve, reject) =>
+    server.close((err) => (err ? reject(err) : resolve())),
+  )
 })
 
 const validateAgainstFixture = (token: string) =>
@@ -190,7 +197,10 @@ describe("system-reader contract pins (the refresh design depends on these)", ()
     const fakeStore = Array.from({ length: 600 }, (_, i) => {
       const der = Buffer.alloc(1200, i % 251)
       der.writeUInt32BE(i, 0)
-      const body = der.toString("base64").match(/.{1,64}/g)!.join("\n")
+      const body = der
+        .toString("base64")
+        .match(/.{1,64}/g)!
+        .join("\n")
       return `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`
     })
     const pipeBufferBytes = 64 * 1024
@@ -217,7 +227,8 @@ describe("system-reader contract pins (the refresh design depends on these)", ()
       NODE_OPTIONS: process.env.NODE_OPTIONS,
       RUNBOOKS_FAKE_SYSTEM_STORE: process.env.RUNBOOKS_FAKE_SYSTEM_STORE,
     }
-    process.env.NODE_OPTIONS = `${saved.NODE_OPTIONS ?? ""} --require ${JSON.stringify(preload)}`.trim()
+    process.env.NODE_OPTIONS =
+      `${saved.NODE_OPTIONS ?? ""} --require ${JSON.stringify(preload)}`.trim()
     process.env.RUNBOOKS_FAKE_SYSTEM_STORE = storeFile
     try {
       const pems = await Effect.runPromise(

@@ -36,8 +36,7 @@ function launch(userDataDir: string): Promise<ElectronApplication> {
   })
 }
 
-const isDark = () =>
-  document.documentElement.classList.contains("dark")
+const isDark = () => document.documentElement.classList.contains("dark")
 
 test.describe("Theme toggle", () => {
   let userDataDir: string

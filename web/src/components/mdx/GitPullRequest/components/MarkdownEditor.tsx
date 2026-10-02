@@ -12,8 +12,13 @@ interface MarkdownEditorProps {
   placeholder?: string
 }
 
-export function MarkdownEditor({ value, onChange, disabled = false, placeholder }: MarkdownEditorProps) {
-  const [activeTab, setActiveTab] = useState<'write' | 'preview'>('write')
+export function MarkdownEditor({
+  value,
+  onChange,
+  disabled = false,
+  placeholder,
+}: MarkdownEditorProps) {
+  const [activeTab, setActiveTab] = useState<"write" | "preview">("write")
   const containerRef = useRef<HTMLDivElement>(null)
 
   return (
@@ -22,22 +27,22 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
       <div className="flex border-b border-border bg-muted">
         <button
           type="button"
-          onClick={() => setActiveTab('write')}
+          onClick={() => setActiveTab("write")}
           className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${
-            activeTab === 'write'
-              ? 'text-foreground border-b-2 border-primary bg-card'
-              : 'text-muted-foreground hover:text-foreground'
+            activeTab === "write"
+              ? "text-foreground border-b-2 border-primary bg-card"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Write
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('preview')}
+          onClick={() => setActiveTab("preview")}
           className={`px-3 py-1.5 text-xs font-medium cursor-pointer ${
-            activeTab === 'preview'
-              ? 'text-foreground border-b-2 border-primary bg-card'
-              : 'text-muted-foreground hover:text-foreground'
+            activeTab === "preview"
+              ? "text-foreground border-b-2 border-primary bg-card"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Preview
@@ -53,14 +58,14 @@ export function MarkdownEditor({ value, onChange, disabled = false, placeholder 
           disabled={disabled}
           placeholder={placeholder}
           className={`absolute inset-0 w-full h-full px-3 py-2 text-sm font-sans border-none focus:outline-none resize-none disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground ${
-            activeTab === 'write' ? '' : 'invisible'
+            activeTab === "write" ? "" : "invisible"
           }`}
         />
 
         {/* Preview panel */}
         <div
           className={`absolute inset-0 w-full h-full px-3 py-2 overflow-y-auto ${
-            activeTab === 'preview' ? '' : 'invisible'
+            activeTab === "preview" ? "" : "invisible"
           }`}
         >
           {value ? (

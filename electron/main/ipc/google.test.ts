@@ -14,7 +14,11 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import { Effect } from "effect"
-import type { GoogleClient, GoogleClientShape, GoogleIdentity } from "../../../src/services/GoogleClient.ts"
+import type {
+  GoogleClient,
+  GoogleClientShape,
+  GoogleIdentity,
+} from "../../../src/services/GoogleClient.ts"
 import { GoogleAuthError } from "../../../src/errors/index.ts"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
@@ -31,9 +35,8 @@ mockElectron({
 
 const { registerAuthenticatedCredential, registerGoogleHandlers } = await import("./google.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
-const { activeCredentialFor, resetGoogleCredentialRegistry, setActiveCredential } = await import(
-  "./google-credential-registry.ts"
-)
+const { activeCredentialFor, resetGoogleCredentialRegistry, setActiveCredential } =
+  await import("./google-credential-registry.ts")
 const { cleanupGoogleCredentialFiles } = await import("./google-credentials.ts")
 const { makeTestEnvironment } = await import("../../../src/test-utils/TestEnvironment.ts")
 const { makeTestGoogleClient } = await import("../../../src/test-utils/TestLayer.ts")
@@ -67,9 +70,11 @@ const openRunbookEffect = (name: string) =>
   )
 const openRunbook = (name: string) => Effect.runPromise(openRunbookEffect(name))
 
-const sessionEnv = async () => Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
+const sessionEnv = async () =>
+  Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
 
-const credentialDirs = () => fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("runbooks-gcp-"))
+const credentialDirs = () =>
+  fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("runbooks-gcp-"))
 
 /**
  * Open `name` from inside the next session env write, before it lands: the
@@ -119,7 +124,10 @@ describe("registerAuthenticatedCredential after another runbook opened", () => {
     const spy = openRunbookDuringNextEnvWrite("runbook-b")
 
     await expect(
-      registerAuthenticatedCredential({ blockId: "gcp", identity: SA, accessToken: "ya29.from-a" }, a),
+      registerAuthenticatedCredential(
+        { blockId: "gcp", identity: SA, accessToken: "ya29.from-a" },
+        a,
+      ),
     ).rejects.toThrow(/different runbook was opened/)
     spy.mockRestore()
 
@@ -152,7 +160,9 @@ describe("google:set-project after another runbook opened", () => {
       credentialType: "service_account" as const,
       projectId: "b-proj",
     }
-    const spy = openRunbookDuringNextEnvWrite("runbook-b", () => setActiveCredential("gcp", bCredential))
+    const spy = openRunbookDuringNextEnvWrite("runbook-b", () =>
+      setActiveCredential("gcp", bCredential),
+    )
 
     const result = await invoke("google:set-project", { blockId: "gcp", projectId: "a-proj" })
     spy.mockRestore()
@@ -179,7 +189,9 @@ describe("google:set-project after another runbook opened", () => {
     const spy = openRunbookDuringNextEnvWrite("runbook-b", () => {
       setActiveCredential("gcp", bCredential)
       Effect.runSync(
-        sessionManager.appendToEnv({ CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: bCredential.credentialsPath }),
+        sessionManager.appendToEnv({
+          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: bCredential.credentialsPath,
+        }),
       )
     })
 
@@ -220,7 +232,11 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
       // A user who can list no projects, so no set-project follows.
       listProjects: () => Effect.succeed([]),
       pollOAuthFlow: () =>
-        Effect.succeed({ status: "complete" as const, adcJson: ADC_JSON, accessToken: "ya29.fresh" }),
+        Effect.succeed({
+          status: "complete" as const,
+          adcJson: ADC_JSON,
+          accessToken: "ya29.fresh",
+        }),
       listGcloudConfigurations: () =>
         Effect.succeed({
           configurations: [
@@ -240,10 +256,12 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
         }),
       readCredentialFileContents: () => Effect.succeed(ADC_JSON),
     }
-    runPromise = spyOn(runtime, "runPromise").mockImplementation(
-      (<A, E>(effect: Effect.Effect<A, E, GoogleClient>) =>
-        Effect.runPromise(Effect.provide(effect, makeTestGoogleClient(google)))) as typeof runtime.runPromise,
-    )
+    runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+      effect: Effect.Effect<A, E, GoogleClient>,
+    ) =>
+      Effect.runPromise(
+        Effect.provide(effect, makeTestGoogleClient(google)),
+      )) as typeof runtime.runPromise)
   })
 
   afterEach(() => {
@@ -258,12 +276,19 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
       zone: "europe-west1-b",
     })
 
-    expect(result).toMatchObject({ status: "complete", region: "europe-west1", zone: "europe-west1-b" })
+    expect(result).toMatchObject({
+      status: "complete",
+      region: "europe-west1",
+      zone: "europe-west1-b",
+    })
     const env = await sessionEnv()
     expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
     expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
     // A later "Change project" keeps them.
-    expect(activeCredentialFor("gcp")).toMatchObject({ region: "europe-west1", zone: "europe-west1-b" })
+    expect(activeCredentialFor("gcp")).toMatchObject({
+      region: "europe-west1",
+      zone: "europe-west1-b",
+    })
   })
 
   it("google:oauth-poll with no region/zone writes and returns none", async () => {
@@ -318,11 +343,12 @@ describe("google:check-project", () => {
       credentialType: "service_account",
       projectId: "a-proj",
     })
-    const google = makeTestGoogleClient({ checkProject: (projectId, creds) => checkProject(projectId, creds) })
-    runPromise = spyOn(runtime, "runPromise").mockImplementation(
-      (<A, E>(effect: Effect.Effect<A, E, GoogleClient>) =>
-        Effect.runPromise(Effect.provide(effect, google))) as typeof runtime.runPromise,
-    )
+    const google = makeTestGoogleClient({
+      checkProject: (projectId, creds) => checkProject(projectId, creds),
+    })
+    runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+      effect: Effect.Effect<A, E, GoogleClient>,
+    ) => Effect.runPromise(Effect.provide(effect, google))) as typeof runtime.runPromise)
     consoleError = spyOn(console, "error").mockImplementation(() => {})
   })
 
@@ -331,7 +357,8 @@ describe("google:check-project", () => {
     consoleError.mockRestore()
   })
 
-  const checkProjectReply = () => invoke("google:check-project", { blockId: "gcp", projectId: "a-proj" })
+  const checkProjectReply = () =>
+    invoke("google:check-project", { blockId: "gcp", projectId: "a-proj" })
 
   /**
    * Every console.error the handler's own logger wrote, rendered the way the
@@ -341,11 +368,14 @@ describe("google:check-project", () => {
     consoleError.mock.calls
       .filter((args) => args[0] === "[ipc:google]")
       .map((args) =>
-        args.map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity }))).join(" "),
+        args
+          .map((arg) => (typeof arg === "string" ? arg : Bun.inspect(arg, { depth: Infinity })))
+          .join(" "),
       )
 
   it("warns when the credential cannot build a client", async () => {
-    const message = "Failed to check project: Error: The incoming JSON object does not contain a client_email field"
+    const message =
+      "Failed to check project: Error: The incoming JSON object does not contain a client_email field"
     checkProject = () => Effect.fail(new GoogleAuthError({ message }))
 
     expect(await checkProjectReply()).toStrictEqual({ enabled: false, warning: message })
@@ -355,13 +385,16 @@ describe("google:check-project", () => {
   it.each([
     ["a defect", () => Effect.die(new Error("boom"))],
     ["an interruption", () => Effect.interrupt],
-  ])("fails open, and logs without the credential, when the check ends in %s", async (_label, outcome) => {
-    checkProject = outcome
+  ])(
+    "fails open, and logs without the credential, when the check ends in %s",
+    async (_label, outcome) => {
+      checkProject = outcome
 
-    expect(await checkProjectReply()).toStrictEqual({ enabled: true })
-    const logged = handlerErrors()
-    expect(logged).toHaveLength(1)
-    expect(logged[0]).toContain("Project access check crashed")
-    expect(logged[0]).not.toContain(ACCESS_TOKEN)
-  })
+      expect(await checkProjectReply()).toStrictEqual({ enabled: true })
+      const logged = handlerErrors()
+      expect(logged).toHaveLength(1)
+      expect(logged[0]).toContain("Project access check crashed")
+      expect(logged[0]).not.toContain(ACCESS_TOKEN)
+    },
+  )
 })

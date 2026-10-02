@@ -48,4 +48,4 @@ export const AWS_REGIONS = [
   { code: "sa-east-1", name: "South America (São Paulo)", geography: "Brazil" },
 ] as const
 
-export type AwsRegionCode = typeof AWS_REGIONS[number]['code']
+export type AwsRegionCode = (typeof AWS_REGIONS)[number]["code"]

@@ -10,16 +10,8 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { GCP_REGIONS } from "../constants"
 
 interface RegionPickerProps {
@@ -51,19 +43,27 @@ export function RegionPicker({ selectedRegion, setSelectedRegion, disabled }: Re
         Default Region <span className="font-normal text-muted-foreground">(optional)</span>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button type="button" className="text-muted-foreground hover:text-foreground cursor-help">
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground cursor-help"
+            >
               <Info className="size-3.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[280px]">
-            The Google Cloud region used by commands that don't specify one. This sets the <code>CLOUDSDK_COMPUTE_REGION</code> and <code>GOOGLE_CLOUD_REGION</code> environment variables.
+            The Google Cloud region used by commands that don't specify one. This sets the{" "}
+            <code>CLOUDSDK_COMPUTE_REGION</code> and <code>GOOGLE_CLOUD_REGION</code> environment
+            variables.
           </TooltipContent>
         </Tooltip>
       </label>
-      <Popover open={open} onOpenChange={(isOpen) => {
-        setOpen(isOpen)
-        if (!isOpen) setSearch("") // Reset search when closing
-      }}>
+      <Popover
+        open={open}
+        onOpenChange={(isOpen) => {
+          setOpen(isOpen)
+          if (!isOpen) setSearch("") // Reset search when closing
+        }}
+      >
         <PopoverTrigger asChild>
           <Button
             variant="outline"
@@ -85,7 +85,12 @@ export function RegionPicker({ selectedRegion, setSelectedRegion, disabled }: Re
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[400px] p-0" align="start" side="bottom" avoidCollisions={false}>
+        <PopoverContent
+          className="w-[400px] p-0"
+          align="start"
+          side="bottom"
+          avoidCollisions={false}
+        >
           <Command>
             <CommandInput
               placeholder="Search regions..."
@@ -100,7 +105,7 @@ export function RegionPicker({ selectedRegion, setSelectedRegion, disabled }: Re
                     key="__none__"
                     value="none no default region clear"
                     onSelect={() => {
-                      setSelectedRegion('')
+                      setSelectedRegion("")
                       setOpen(false)
                     }}
                     className="flex items-center gap-2"
@@ -122,15 +127,13 @@ export function RegionPicker({ selectedRegion, setSelectedRegion, disabled }: Re
                     <Check
                       className={cn(
                         "h-4 w-4 shrink-0",
-                        selectedRegion === region.code ? "opacity-100" : "opacity-0"
+                        selectedRegion === region.code ? "opacity-100" : "opacity-0",
                       )}
                     />
                     <span className="font-mono text-xs text-muted-foreground w-[120px] shrink-0">
                       {region.code}
                     </span>
-                    <span className="text-foreground truncate">
-                      {region.name}
-                    </span>
+                    <span className="text-foreground truncate">{region.name}</span>
                   </CommandItem>
                 ))}
               </CommandGroup>

@@ -23,6 +23,7 @@
 | **just** | task / make | See `justfile` for recipes |
 | **mise** | nvm | Tool versioning (`.mise.toml`) |
 | **oxlint** | eslint | Linting |
+| **oxfmt** | prettier | Formatting (`.oxfmtrc.json`) |
 | **electron-vite** | manual vite | Builds main, preload, renderer |
 | **Effect** | raw promises | Services, layers, typed errors, streams |
 | **OpenTofu** | Terraform | IaC examples |
@@ -42,6 +43,7 @@ just test-unit        # Vitest (src/ + web/)
 just test-e2e         # Playwright
 just test-runbooks    # CLI integration tests
 just lint             # oxlint
+just fmt              # oxfmt (fmt-check in CI)
 just typecheck        # tsc -b
 ```
 

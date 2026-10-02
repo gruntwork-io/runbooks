@@ -1,6 +1,11 @@
 import { describe, it, expect } from "bun:test"
 import { Effect } from "effect"
-import { isRemoteSource, parseRemoteSource, redactSourceCredentials, resolveRef } from "./remote-source.ts"
+import {
+  isRemoteSource,
+  parseRemoteSource,
+  redactSourceCredentials,
+  resolveRef,
+} from "./remote-source.ts"
 import { makeTestSpawner } from "./test-utils/TestSpawner.ts"
 
 function parse(url: string) {
@@ -48,34 +53,68 @@ describe("isRemoteSource", () => {
 // Credential-bearing URLs are assembled at runtime so the source holds no
 // `user:password@host` literal for secret scanners to flag.
 const PASSWORD = ["hunter", "22"].join("")
-const withUserinfo = (scheme: string, userinfo: string, rest: string) => `${scheme}://${userinfo}@${rest}`
+const withUserinfo = (scheme: string, userinfo: string, rest: string) =>
+  `${scheme}://${userinfo}@${rest}`
 // A stand-in for go-getter's `?sshkey=`, a base64 private key.
 const SSH_KEY = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
 
 describe("redactSourceCredentials", () => {
   it.each([
-    [withUserinfo("https", `user:${PASSWORD}`, "github.com/o/r/tree/main/x"), "https://github.com/o/r/tree/main/x"],
+    [
+      withUserinfo("https", `user:${PASSWORD}`, "github.com/o/r/tree/main/x"),
+      "https://github.com/o/r/tree/main/x",
+    ],
     // A token can pose as the username, so an http(s) userinfo goes entirely.
     [withUserinfo("https", "ghp_" + "a".repeat(36), "github.com/o/r"), "https://github.com/o/r"],
-    [withUserinfo("git::https", `u:${PASSWORD}`, "git.example.com/o/r.git//x?ref=main"), "git::https://git.example.com/o/r.git//x?ref=main"],
-    [withUserinfo("git::ssh", `git:${PASSWORD}`, "github.com/o/r.git//x"), "git::ssh://git@github.com/o/r.git//x"],
-    [withUserinfo("ssh", `deploy:${PASSWORD}`, "host:2222/o/r.git"), "ssh://deploy@host:2222/o/r.git"],
+    [
+      withUserinfo("git::https", `u:${PASSWORD}`, "git.example.com/o/r.git//x?ref=main"),
+      "git::https://git.example.com/o/r.git//x?ref=main",
+    ],
+    [
+      withUserinfo("git::ssh", `git:${PASSWORD}`, "github.com/o/r.git//x"),
+      "git::ssh://git@github.com/o/r.git//x",
+    ],
+    [
+      withUserinfo("ssh", `deploy:${PASSWORD}`, "host:2222/o/r.git"),
+      "ssh://deploy@host:2222/o/r.git",
+    ],
     // The URL parser ends the userinfo at the last `@` before the path.
-    [withUserinfo("https", `user:p@${PASSWORD}`, "github.com/o/r/tree/main/x"), "https://github.com/o/r/tree/main/x"],
-    [withUserinfo("git::https", `u:p@${PASSWORD}`, "git.example.com/o/r.git//x"), "git::https://git.example.com/o/r.git//x"],
+    [
+      withUserinfo("https", `user:p@${PASSWORD}`, "github.com/o/r/tree/main/x"),
+      "https://github.com/o/r/tree/main/x",
+    ],
+    [
+      withUserinfo("git::https", `u:p@${PASSWORD}`, "git.example.com/o/r.git//x"),
+      "git::https://git.example.com/o/r.git//x",
+    ],
     [withUserinfo("ssh", `git:p@${PASSWORD}`, "host/o/r.git"), "ssh://git@host/o/r.git"],
     // A `?` or `#` before the path leaves no repository, so it can't hide one.
-    [withUserinfo("https", `user:p#${PASSWORD}`, "git.example.com/o/r"), "https://git.example.com/o/r"],
-    [withUserinfo("https", `user:p?${PASSWORD}`, "git.example.com/o/r"), "https://git.example.com/o/r"],
+    [
+      withUserinfo("https", `user:p#${PASSWORD}`, "git.example.com/o/r"),
+      "https://git.example.com/o/r",
+    ],
+    [
+      withUserinfo("https", `user:p?${PASSWORD}`, "git.example.com/o/r"),
+      "https://git.example.com/o/r",
+    ],
     // Transports parseRemoteSource rejects still reach its error's url field.
     [withUserinfo("ftp", `user:${PASSWORD}`, "host/o/r"), "ftp://host/o/r"],
     [withUserinfo("git::ftp", `user:${PASSWORD}`, "host/o/r"), "git::ftp://host/o/r"],
     [withUserinfo("git+https", `user:${PASSWORD}`, "host/o/r"), "git+https://host/o/r"],
     [withUserinfo("git::git+https", `user:${PASSWORD}`, "host/o/r"), "git::git+https://host/o/r"],
     // http(s) may drop or double its `//`: the URL parser reads userinfo either way.
-    [`git::https:/user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:/git.example.com/o/r.git//x"],
-    [`git::https:user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:git.example.com/o/r.git//x"],
-    [`git::https:\\\\user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https:\\\\git.example.com/o/r.git//x"],
+    [
+      `git::https:/user:${PASSWORD}@git.example.com/o/r.git//x`,
+      "git::https:/git.example.com/o/r.git//x",
+    ],
+    [
+      `git::https:user:${PASSWORD}@git.example.com/o/r.git//x`,
+      "git::https:git.example.com/o/r.git//x",
+    ],
+    [
+      `git::https:\\\\user:${PASSWORD}@git.example.com/o/r.git//x`,
+      "git::https:\\\\git.example.com/o/r.git//x",
+    ],
     // Scheme-less credentials, as git's own URLs spell them.
     [`user:${PASSWORD}@github.com/o/r`, "github.com/o/r"],
     [`git::oauth2:p@${PASSWORD}@gitlab.com/g/p.git//x`, "git::gitlab.com/g/p.git//x"],
@@ -83,7 +122,10 @@ describe("redactSourceCredentials", () => {
     // Typos: one `/` after another scheme; a tab the URL parser drops.
     [`git::ssh:/git:${PASSWORD}@host/o/r.git`, "git::ssh:/git@host/o/r.git"],
     [`git+https:/user:${PASSWORD}@host/o/r`, "git+https:/host/o/r"],
-    [`git::ht\ttps://user:${PASSWORD}@git.example.com/o/r.git//x`, "git::https://git.example.com/o/r.git//x"],
+    [
+      `git::ht\ttps://user:${PASSWORD}@git.example.com/o/r.git//x`,
+      "git::https://git.example.com/o/r.git//x",
+    ],
   ])("%s → %s", (input, expected) => {
     expect(redactSourceCredentials(input)).toBe(expected)
   })
@@ -114,18 +156,29 @@ describe("redactSourceCredentials", () => {
   })
 
   it.each([
-    [`git::ssh://git@host/o/r.git//x?ref=main&sshkey=${SSH_KEY}`, "git::ssh://git@host/o/r.git//x?ref=main&sshkey=[REDACTED]"],
+    [
+      `git::ssh://git@host/o/r.git//x?ref=main&sshkey=${SSH_KEY}`,
+      "git::ssh://git@host/o/r.git//x?ref=main&sshkey=[REDACTED]",
+    ],
     [`git@host:o/r.git?sshkey=${SSH_KEY}&ref=main`, "git@host:o/r.git?sshkey=[REDACTED]&ref=main"],
     [`github.com/o/r//x?sshkey=${SSH_KEY}#readme`, "github.com/o/r//x?sshkey=[REDACTED]#readme"],
     // go-getter decodes the parameter's name.
-    [`git::ssh://git@host/o/r.git?ssh%6Bey=${SSH_KEY}`, "git::ssh://git@host/o/r.git?ssh%6Bey=[REDACTED]"],
-    [withUserinfo("git::ssh", `git:${PASSWORD}`, `host/o/r.git?sshkey=${SSH_KEY}`), "git::ssh://git@host/o/r.git?sshkey=[REDACTED]"],
+    [
+      `git::ssh://git@host/o/r.git?ssh%6Bey=${SSH_KEY}`,
+      "git::ssh://git@host/o/r.git?ssh%6Bey=[REDACTED]",
+    ],
+    [
+      withUserinfo("git::ssh", `git:${PASSWORD}`, `host/o/r.git?sshkey=${SSH_KEY}`),
+      "git::ssh://git@host/o/r.git?sshkey=[REDACTED]",
+    ],
   ])("redacts go-getter's sshkey (a private key): %s", (input, expected) => {
     expect(redactSourceCredentials(input)).toBe(expected)
   })
 
   it("leaves the other query parameters alone", () => {
-    expect(redactSourceCredentials("github.com/o/r//x?ref=main&depth=1")).toBe("github.com/o/r//x?ref=main&depth=1")
+    expect(redactSourceCredentials("github.com/o/r//x?ref=main&depth=1")).toBe(
+      "github.com/o/r//x?ref=main&depth=1",
+    )
   })
 })
 
@@ -158,13 +211,16 @@ describe("parseRemoteSource", () => {
       ]) {
         expect(parse(url).refAndPath).toBe("main/runbooks/vpc")
       }
-      expect(parse("https://github.com/owner/repo/blob/main/runbooks/vpc/runbook.mdx?plain=1#L10").refAndPath).toBe(
-        "main/runbooks/vpc/runbook.mdx",
-      )
+      expect(
+        parse("https://github.com/owner/repo/blob/main/runbooks/vpc/runbook.mdx?plain=1#L10")
+          .refAndPath,
+      ).toBe("main/runbooks/vpc/runbook.mdx")
     })
 
     it("decodes percent-escapes in the path", () => {
-      expect(parse("https://github.com/owner/repo/tree/main/my%20runbooks/vpc").refAndPath).toBe("main/my runbooks/vpc")
+      expect(parse("https://github.com/owner/repo/tree/main/my%20runbooks/vpc").refAndPath).toBe(
+        "main/my runbooks/vpc",
+      )
     })
 
     it("a tree URL for a branch (no path)", () => {
@@ -188,12 +244,13 @@ describe("parseRemoteSource", () => {
     })
 
     it("drops GitLab's ?ref_type=heads", () => {
-      expect(parse("https://gitlab.com/owner/repo/-/tree/main/runbooks/vpc?ref_type=heads").refAndPath).toBe(
-        "main/runbooks/vpc",
-      )
-      expect(parse("https://gitlab.com/owner/repo/-/blob/v1.0/runbooks/vpc/runbook.mdx?ref_type=tags").refAndPath).toBe(
-        "v1.0/runbooks/vpc/runbook.mdx",
-      )
+      expect(
+        parse("https://gitlab.com/owner/repo/-/tree/main/runbooks/vpc?ref_type=heads").refAndPath,
+      ).toBe("main/runbooks/vpc")
+      expect(
+        parse("https://gitlab.com/owner/repo/-/blob/v1.0/runbooks/vpc/runbook.mdx?ref_type=tags")
+          .refAndPath,
+      ).toBe("v1.0/runbooks/vpc/runbook.mdx")
     })
 
     it("tree URL with nested groups (full group path as owner)", () => {
@@ -229,10 +286,13 @@ describe("parseRemoteSource", () => {
       "https://gitlab.example.com/group/sub/project/-/commits/main",
       "gitlab.com/group/project/-/raw/main/runbooks/vpc",
       "gitlab.com/group/project/-/commits/main//runbooks/vpc",
-    ])("rejects a GitLab page other than tree/blob instead of reading it as nested groups: %s", (url) => {
-      // `-` is reserved by GitLab: no group or project path can be `-`.
-      expect(parseError(url)).toContain("unsupported URL format")
-    })
+    ])(
+      "rejects a GitLab page other than tree/blob instead of reading it as nested groups: %s",
+      (url) => {
+        // `-` is reserved by GitLab: no group or project path can be `-`.
+        expect(parseError(url)).toContain("unsupported URL format")
+      },
+    )
   })
 
   describe("plain repo URLs", () => {
@@ -248,7 +308,11 @@ describe("parseRemoteSource", () => {
     })
 
     it("tolerates a trailing slash, query and fragment", () => {
-      for (const url of ["https://github.com/owner/repo/", "https://github.com/owner/repo?tab=readme", "https://github.com/owner/repo#readme"]) {
+      for (const url of [
+        "https://github.com/owner/repo/",
+        "https://github.com/owner/repo?tab=readme",
+        "https://github.com/owner/repo#readme",
+      ]) {
         expect(parse(url).cloneURL).toBe("https://github.com/owner/repo.git")
       }
     })
@@ -316,7 +380,9 @@ describe("parseRemoteSource", () => {
     })
 
     it("a path to runbook.mdx", () => {
-      expect(parse("github.com/owner/repo//runbooks/vpc/runbook.mdx?ref=v1.2.0").path).toBe("runbooks/vpc/runbook.mdx")
+      expect(parse("github.com/owner/repo//runbooks/vpc/runbook.mdx?ref=v1.2.0").path).toBe(
+        "runbooks/vpc/runbook.mdx",
+      )
     })
 
     it("github.com/owner/repo/path (go-getter's GitHub detector, no //)", () => {
@@ -375,7 +441,9 @@ describe("parseRemoteSource", () => {
     })
 
     it("ignores go-getter's sshkey parameter", () => {
-      const result = parse(`git::ssh://git@github.com/owner/repo.git//modules/vpc?ref=main&sshkey=${SSH_KEY}`)
+      const result = parse(
+        `git::ssh://git@github.com/owner/repo.git//modules/vpc?ref=main&sshkey=${SSH_KEY}`,
+      )
       expect(result.cloneURL).toBe("ssh://git@github.com/owner/repo.git")
       expect(result.path).toBe("modules/vpc")
       expect(result.ref).toBe("main")
@@ -391,14 +459,18 @@ describe("parseRemoteSource", () => {
     })
 
     it("GitLab nested groups", () => {
-      const result = parse("git::https://gitlab.com/group/subgroup/project.git//modules/vpc?ref=v1.0")
+      const result = parse(
+        "git::https://gitlab.com/group/subgroup/project.git//modules/vpc?ref=v1.0",
+      )
       expect(result.owner).toBe("group/subgroup")
       expect(result.repo).toBe("project")
       expect(result.cloneURL).toBe("https://gitlab.com/group/subgroup/project.git")
     })
 
     it("an arbitrary git host clones the address as given (no .git added)", () => {
-      const result = parse("git::https://dev.example.com/org/project/_git/infra//runbooks/vpc?ref=main")
+      const result = parse(
+        "git::https://dev.example.com/org/project/_git/infra//runbooks/vpc?ref=main",
+      )
       expect(result.host).toBe("dev.example.com")
       expect(result.owner).toBe("org/project/_git")
       expect(result.repo).toBe("infra")
@@ -406,11 +478,15 @@ describe("parseRemoteSource", () => {
     })
 
     it("drops credentials embedded in the URL", () => {
-      expect(parse("git::https://user:secret@github.com/owner/repo.git//x").cloneURL).toBe("https://github.com/owner/repo.git")
+      expect(parse("git::https://user:secret@github.com/owner/repo.git//x").cloneURL).toBe(
+        "https://github.com/owner/repo.git",
+      )
     })
 
     it("keeps an explicit http:// transport", () => {
-      expect(parse("git::http://git.internal/owner/repo.git//x").cloneURL).toBe("http://git.internal/owner/repo.git")
+      expect(parse("git::http://git.internal/owner/repo.git//x").cloneURL).toBe(
+        "http://git.internal/owner/repo.git",
+      )
     })
 
     it("git::ssh:// URL", () => {
@@ -424,16 +500,19 @@ describe("parseRemoteSource", () => {
     })
 
     it("drops an ssh:// password but keeps the user and port", () => {
-      expect(parse(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com:2222/owner/repo.git//x")).cloneURL).toBe(
-        "ssh://git@git.example.com:2222/owner/repo.git",
-      )
-      expect(parse(withUserinfo("ssh", `deploy:${PASSWORD}`, "github.com/owner/repo.git")).cloneURL).toBe(
-        "ssh://deploy@github.com/owner/repo.git",
-      )
+      expect(
+        parse(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com:2222/owner/repo.git//x"))
+          .cloneURL,
+      ).toBe("ssh://git@git.example.com:2222/owner/repo.git")
+      expect(
+        parse(withUserinfo("ssh", `deploy:${PASSWORD}`, "github.com/owner/repo.git")).cloneURL,
+      ).toBe("ssh://deploy@github.com/owner/repo.git")
     })
 
     it("keeps credentials out of the error for a source with no repository", () => {
-      expect(parseError(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/"))).not.toContain(PASSWORD)
+      expect(
+        parseError(withUserinfo("git::ssh", `git:${PASSWORD}`, "git.example.com/")),
+      ).not.toContain(PASSWORD)
     })
 
     it("git:: with an scp-like SSH address", () => {
@@ -477,7 +556,9 @@ describe("parseRemoteSource", () => {
     })
 
     it("drops a #fragment rather than reading it into the ref or path", () => {
-      const withRef = parse("git::https://git.example.com/owner/repo.git//runbooks/vpc?ref=main#readme")
+      const withRef = parse(
+        "git::https://git.example.com/owner/repo.git//runbooks/vpc?ref=main#readme",
+      )
       expect(withRef.ref).toBe("main")
       expect(withRef.path).toBe("runbooks/vpc")
       const noRef = parse("github.com/owner/repo//runbooks/vpc#readme")
@@ -497,27 +578,33 @@ describe("parseRemoteSource", () => {
     })
 
     it("rejects paths that climb out of the repository", () => {
-      expect(parseError("github.com/owner/repo//../../etc?ref=main")).toContain("must stay inside the repository")
+      expect(parseError("github.com/owner/repo//../../etc?ref=main")).toContain(
+        "must stay inside the repository",
+      )
       // A literal `../` in a browser URL is collapsed by the URL parser; an
       // encoded slash survives it and reaches the path check.
-      expect(parseError("https://github.com/owner/repo/tree/main/x%2F..%2F..%2Fy")).toContain("must stay inside the repository")
-      expect(parseError("github.com/owner/repo//a\\..\\b")).toContain("must stay inside the repository")
+      expect(parseError("https://github.com/owner/repo/tree/main/x%2F..%2F..%2Fy")).toContain(
+        "must stay inside the repository",
+      )
+      expect(parseError("github.com/owner/repo//a\\..\\b")).toContain(
+        "must stay inside the repository",
+      )
     })
 
     it("rejects a shorthand with no repo", () => {
       expect(parseError("github.com/owner")).toContain("github.com/<owner>/<repo>")
     })
 
-    it.each([`github.com/owner?sshkey=${SSH_KEY}`, `git::https://git.example.com/?sshkey=${SSH_KEY}`])(
-      "keeps an sshkey out of the error's url field and message: %s",
-      (input) => {
-        const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
-        if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
-        expect(result.left.url).toBe(redactSourceCredentials(input))
-        expect(result.left.url).toContain("sshkey=[REDACTED]")
-        expect(result.left.message).not.toContain(SSH_KEY)
-      },
-    )
+    it.each([
+      `github.com/owner?sshkey=${SSH_KEY}`,
+      `git::https://git.example.com/?sshkey=${SSH_KEY}`,
+    ])("keeps an sshkey out of the error's url field and message: %s", (input) => {
+      const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
+      if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
+      expect(result.left.url).toBe(redactSourceCredentials(input))
+      expect(result.left.url).toContain("sshkey=[REDACTED]")
+      expect(result.left.message).not.toContain(SSH_KEY)
+    })
 
     it("rejects a git transport other than https, http or ssh", () => {
       expect(parseError("git::file:///srv/repo.git//x")).toContain("unsupported git transport")
@@ -561,8 +648,7 @@ describe("parseRemoteSource", () => {
 
 describe("resolveRef", () => {
   // ls-remote output: <sha>\t<refname>; refs/heads/<branch> or refs/tags/<tag>
-  const refOutput = (names: string[]) =>
-    names.map((n, i) => `${"a".repeat(40)}${i}\t${n}`)
+  const refOutput = (names: string[]) => names.map((n, i) => `${"a".repeat(40)}${i}\t${n}`)
 
   it("picks the longest matching ref over a shorter one", async () => {
     const spawner = makeTestSpawner([
@@ -599,9 +685,7 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md").pipe(
-        Effect.provide(spawner),
-      ),
+      resolveRef("https://github.com/o/r.git", "unknown/dir/file.md").pipe(Effect.provide(spawner)),
     )
 
     expect(result.ref).toBe("unknown")
@@ -619,9 +703,7 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "main").pipe(
-        Effect.provide(spawner),
-      ),
+      resolveRef("https://github.com/o/r.git", "main").pipe(Effect.provide(spawner)),
     )
 
     expect(result.ref).toBe("main")
@@ -639,9 +721,7 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md").pipe(
-        Effect.provide(spawner),
-      ),
+      resolveRef("https://github.com/o/r.git", "v1.0.0/README.md").pipe(Effect.provide(spawner)),
     )
 
     expect(result.ref).toBe("v1.0.0")
@@ -716,11 +796,17 @@ describe("parseRemoteSource — GitHub enterprise hosts", () => {
   })
 
   it("an http:// browser URL still clones over https", () => {
-    expect(parseWith("http://ghes.example.com/o/r/tree/main").cloneURL).toBe("https://ghes.example.com/o/r.git")
+    expect(parseWith("http://ghes.example.com/o/r/tree/main").cloneURL).toBe(
+      "https://ghes.example.com/o/r.git",
+    )
   })
 
   it("plain ghe.com repo URL parses without configuration", () => {
-    for (const url of ["https://acme.ghe.com/o/r", "https://acme.ghe.com/o/r.git", "https://ACME.ghe.com/o/r"]) {
+    for (const url of [
+      "https://acme.ghe.com/o/r",
+      "https://acme.ghe.com/o/r.git",
+      "https://ACME.ghe.com/o/r",
+    ]) {
       const result = parseWith(url)
       expect(result.host).toBe("acme.ghe.com")
       expect(result.owner).toBe("o")
@@ -744,7 +830,9 @@ describe("parseRemoteSource — GitHub enterprise hosts", () => {
   })
 
   it("a .git clone URL names a git repo on any host, configured or not", () => {
-    expect(parseWith("https://ghes.example.com/o/r.git").cloneURL).toBe("https://ghes.example.com/o/r.git")
+    expect(parseWith("https://ghes.example.com/o/r.git").cloneURL).toBe(
+      "https://ghes.example.com/o/r.git",
+    )
   })
 
   it("plain github.com still parses without githubHosts", () => {

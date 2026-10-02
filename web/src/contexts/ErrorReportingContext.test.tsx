@@ -114,10 +114,14 @@ describe("ErrorReportingContext", () => {
       message: "Same error",
     }
 
-    act(() => { result.current.reportError(error) })
+    act(() => {
+      result.current.reportError(error)
+    })
     const errorsRef1 = result.current.errors
 
-    act(() => { result.current.reportError(error) })
+    act(() => {
+      result.current.reportError(error)
+    })
     const errorsRef2 = result.current.errors
 
     // Same reference means no re-render

@@ -19,7 +19,10 @@ import { LocalRepoForm } from "./components/LocalRepoForm"
 import { CloneResultDisplay } from "./components/CloneResult"
 import { EmptyRepoWarning } from "./components/EmptyRepoWarning"
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
-import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
+import {
+  extractTemplateDependenciesFromString,
+  splitDependencies,
+} from "@/lib/extractTemplateDependencies"
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
 import { resolveTemplateReferences, filterUnmetOutputDeps } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
@@ -50,20 +53,20 @@ function GitCloneInteractive({
   inputsId,
   githubAuthId,
   gitAuthId,
-  prefilledUrl = '',
-  prefilledRef = '',
-  prefilledRepoPath = '',
-  prefilledLocalPath = '',
+  prefilledUrl = "",
+  prefilledRef = "",
+  prefilledRepoPath = "",
+  prefilledLocalPath = "",
   showFileTree = true,
   source,
   hideSourceSelect = false,
-  prefilledRepoDir = '',
+  prefilledRepoDir = "",
 }: GitCloneProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
         message: "The <GitClone> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
@@ -73,29 +76,43 @@ function GitCloneInteractive({
 
   // 1. EXTRACT — discover dependencies from template-capable props
   // Blocking dependencies (functional props): prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir
-  const blockingDeps = useMemo(() => extractTemplateDependenciesFromString(
-    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir]
-      .filter(Boolean).join('\n')
-  ), [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir])
+  const blockingDeps = useMemo(
+    () =>
+      extractTemplateDependenciesFromString(
+        [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir]
+          .filter(Boolean)
+          .join("\n"),
+      ),
+    [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir],
+  )
 
   // Non-blocking dependencies (display props): title, description
-  const nonBlockingDeps = useMemo(() => extractTemplateDependenciesFromString(
-    [title, description].filter(Boolean).join('\n')
-  ), [title, description])
+  const nonBlockingDeps = useMemo(
+    () => extractTemplateDependenciesFromString([title, description].filter(Boolean).join("\n")),
+    [title, description],
+  )
 
   // Combine for resolution context
-  const allDeps = useMemo(() => [...blockingDeps, ...nonBlockingDeps], [blockingDeps, nonBlockingDeps])
+  const allDeps = useMemo(
+    () => [...blockingDeps, ...nonBlockingDeps],
+    [blockingDeps, nonBlockingDeps],
+  )
 
   // 2. RESOLVE — check context for each dependency (use all deps for context)
-  const { unmetInputDeps: allUnmetInputDeps, unmetOutputDeps: allUnmetOutputDeps, inputs, outputs } =
-    useTemplateDependencies(allDeps, inputsId)
+  const {
+    unmetInputDeps: allUnmetInputDeps,
+    unmetOutputDeps: allUnmetOutputDeps,
+    inputs,
+    outputs,
+  } = useTemplateDependencies(allDeps, inputsId)
 
   // 3. Compute unmet dependencies for BLOCKING props only
   const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
-    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
+    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } =
+      splitDependencies(blockingDeps)
     return {
-      unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
-      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps)
+      unmetInputDeps: allUnmetInputDeps.filter((dep) => blockingInputDeps.includes(dep)),
+      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps),
     }
   }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
 
@@ -103,13 +120,34 @@ function GitCloneInteractive({
 
   // 4. Resolve template expressions client-side (resolve ALL props, blocking + non-blocking)
   const ctx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
-  const resolvedUrl = useMemo(() => resolveTemplateReferences(prefilledUrl, ctx), [prefilledUrl, ctx])
-  const resolvedRef = useMemo(() => resolveTemplateReferences(prefilledRef, ctx), [prefilledRef, ctx])
-  const resolvedRepoPath = useMemo(() => resolveTemplateReferences(prefilledRepoPath, ctx), [prefilledRepoPath, ctx])
-  const resolvedLocalPath = useMemo(() => resolveTemplateReferences(prefilledLocalPath, ctx), [prefilledLocalPath, ctx])
-  const resolvedRepoDir = useMemo(() => resolveTemplateReferences(prefilledRepoDir, ctx), [prefilledRepoDir, ctx])
-  const initialSource = useMemo(() => resolveInitialSource({ source, prefilledRepoDir }), [source, prefilledRepoDir])
-  const resolvedTitle = useMemo(() => resolveTemplateReferences(title ?? 'Clone Repository', ctx), [title, ctx])
+  const resolvedUrl = useMemo(
+    () => resolveTemplateReferences(prefilledUrl, ctx),
+    [prefilledUrl, ctx],
+  )
+  const resolvedRef = useMemo(
+    () => resolveTemplateReferences(prefilledRef, ctx),
+    [prefilledRef, ctx],
+  )
+  const resolvedRepoPath = useMemo(
+    () => resolveTemplateReferences(prefilledRepoPath, ctx),
+    [prefilledRepoPath, ctx],
+  )
+  const resolvedLocalPath = useMemo(
+    () => resolveTemplateReferences(prefilledLocalPath, ctx),
+    [prefilledLocalPath, ctx],
+  )
+  const resolvedRepoDir = useMemo(
+    () => resolveTemplateReferences(prefilledRepoDir, ctx),
+    [prefilledRepoDir, ctx],
+  )
+  const initialSource = useMemo(
+    () => resolveInitialSource({ source, prefilledRepoDir }),
+    [source, prefilledRepoDir],
+  )
+  const resolvedTitle = useMemo(
+    () => resolveTemplateReferences(title ?? "Clone Repository", ctx),
+    [title, ctx],
+  )
   const resolvedDescription = useMemo(
     () => resolveTemplateReferences(description ?? defaultDescription(initialSource), ctx),
     [description, initialSource, ctx],
@@ -117,7 +155,7 @@ function GitCloneInteractive({
 
   // --- End template dependency resolution ---
 
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'GitClone')
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, "GitClone")
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -127,7 +165,7 @@ function GitCloneInteractive({
   const { registerWorkTree, unregisterWorkTree } = useGitWorkTree()
 
   useEffect(() => {
-    trackBlockRender('GitClone')
+    trackBlockRender("GitClone")
   }, [id, trackBlockRender])
 
   const {
@@ -163,7 +201,7 @@ function GitCloneInteractive({
   const outputValues = useOutputs(id)
   const registeredOutputs = useMemo(() => {
     if (!outputValues || outputValues.length === 0) return null
-    return Object.fromEntries(outputValues.map(o => [o.name, o.value]))
+    return Object.fromEntries(outputValues.map((o) => [o.name, o.value]))
   }, [outputValues])
 
   // Form state — initialized from resolved values
@@ -180,7 +218,7 @@ function GitCloneInteractive({
   // repo has been given its default branch.
   const [selectedLocalInfo, setSelectedLocalInfo] = useState<LocalRepoInfo | null>(null)
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
-    !!(prefilledRef || prefilledRepoPath || prefilledLocalPath)
+    !!(prefilledRef || prefilledRepoPath || prefilledLocalPath),
   )
 
   // Reactive sync: when a resolved template value changes, overwrite its
@@ -218,13 +256,15 @@ function GitCloneInteractive({
   // half-typed path doesn't spawn a git process per keystroke; the check only
   // inspects the directory — selecting it is the user's explicit confirmation.
   useEffect(() => {
-    if (activeSource !== 'local' || cloneStatus === 'success') return
+    if (activeSource !== "local" || cloneStatus === "success") return
     const trimmed = repoDir.trim()
     if (!trimmed) {
       resetLocalPreview()
       return
     }
-    const timer = setTimeout(() => { previewLocalRepo(trimmed) }, 400)
+    const timer = setTimeout(() => {
+      previewLocalRepo(trimmed)
+    }, 400)
     return () => clearTimeout(timer)
   }, [repoDir, activeSource, cloneStatus, previewLocalRepo, resetLocalPreview])
 
@@ -259,14 +299,14 @@ function GitCloneInteractive({
     // directory is shown relative to it, as the result panel shows it once
     // cloned. Only one outside it, which the clone rejects, is shown as-is.
     if (/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(effectivePath)) {
-      const base = workingDir.replace(/[\\/]+$/, '')
-      const rest = effectivePath.startsWith(base) ? effectivePath.slice(base.length) : ''
-      const inside = /^[\\/]/.test(rest) ? rest.replace(/^[\\/]+/, '') : ''
+      const base = workingDir.replace(/[\\/]+$/, "")
+      const rest = effectivePath.startsWith(base) ? effectivePath.slice(base.length) : ""
+      const inside = /^[\\/]/.test(rest) ? rest.replace(/^[\\/]+/, "") : ""
       return { relative: inside ? `./${inside}` : effectivePath, absolute: effectivePath }
     }
 
-    const relative = effectivePath.startsWith('./') ? effectivePath : `./${effectivePath}`
-    const absolute = `${workingDir}/${effectivePath.replace(/^\.\//, '')}`
+    const relative = effectivePath.startsWith("./") ? effectivePath : `./${effectivePath}`
+    const absolute = `${workingDir}/${effectivePath.replace(/^\.\//, "")}`
 
     return { relative, absolute }
   }, [workingDir, localPath, gitUrl])
@@ -283,15 +323,15 @@ function GitCloneInteractive({
     if (isDuplicate) {
       reportError({
         componentId: id,
-        componentType: 'GitClone',
-        severity: 'error',
+        componentType: "GitClone",
+        severity: "error",
         message: `Duplicate GitClone block ID: "${id}"`,
       })
     } else if (isNormalizedCollision) {
       reportError({
         componentId: id,
-        componentType: 'GitClone',
-        severity: 'error',
+        componentType: "GitClone",
+        severity: "error",
         message: `GitClone ID "${id}" collides with "${collidingId}" after normalization`,
       })
     } else {
@@ -306,10 +346,10 @@ function GitCloneInteractive({
   // resumes on its own once the default branch is seeded, because that updates
   // cloneResult.
   useEffect(() => {
-    if (cloneStatus !== 'success' || !cloneResult || !showFileTree) return
+    if (cloneStatus !== "success" || !cloneResult || !showFileTree) return
     if (cloneResult.hasCommits === false) return
 
-    if (activeSource === 'local') {
+    if (activeSource === "local") {
       const info = selectedLocalInfo
       if (!info) return
       const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : null
@@ -318,17 +358,17 @@ function GitCloneInteractive({
       const dirName = info.absolutePath.split(/[\\/]/).filter(Boolean).pop() ?? info.absolutePath
       registerWorkTree({
         id,
-        repoUrl: info.remoteUrl ?? '',
+        repoUrl: info.remoteUrl ?? "",
         localPath: info.absolutePath,
         gitInfo: {
-          repoUrl: info.remoteUrl ?? '',
+          repoUrl: info.remoteUrl ?? "",
           repoName: parsed?.repo ?? dirName,
-          repoOwner: parsed?.org ?? '',
+          repoOwner: parsed?.org ?? "",
           // The checked-out ref is the PR base branch, mirroring the clone path
           // where the cloned ref plays that role. cloneResult.ref leads because
           // seeding a default branch updates it and info.ref stays stale.
-          ref: cloneResult.ref || info.ref || 'main',
-          refType: info.refType === 'detached' ? 'commit' : info.refType,
+          ref: cloneResult.ref || info.ref || "main",
+          refType: info.refType === "detached" ? "commit" : info.refType,
           commitSha: info.commitSha,
         },
       })
@@ -345,12 +385,12 @@ function GitCloneInteractive({
       gitInfo: {
         repoUrl: gitUrl.trim(),
         repoName: parsed?.repo ?? cloneResult.relativePath,
-        repoOwner: parsed?.org ?? '',
+        repoOwner: parsed?.org ?? "",
         // The ref the backend reports the clone actually landed on. The typed
         // ref is only a fallback: leaving it blank clones the remote's default
         // branch, which is not always 'main', and assuming otherwise put an
         // invalid base branch on every PR opened against such a repo.
-        ref: cloneResult.ref || ref.trim() || 'main',
+        ref: cloneResult.ref || ref.trim() || "main",
         refType: undefined, // Determined by the backend when the workspace tree is fetched
         commitSha: undefined,
       },
@@ -377,14 +417,23 @@ function GitCloneInteractive({
     setShowOverwriteConfirm(false)
   }, [])
 
-  const handleClone = useCallback(async (force?: boolean) => {
-    if (!gitUrl.trim()) return
-    setShowOverwriteConfirm(false)
-    const result = await clone(gitUrl.trim(), ref.trim(), repoPath.trim(), localPath.trim(), force)
-    if (result === 'directory_exists') {
-      setShowOverwriteConfirm(true)
-    }
-  }, [gitUrl, ref, repoPath, localPath, clone])
+  const handleClone = useCallback(
+    async (force?: boolean) => {
+      if (!gitUrl.trim()) return
+      setShowOverwriteConfirm(false)
+      const result = await clone(
+        gitUrl.trim(),
+        ref.trim(),
+        repoPath.trim(),
+        localPath.trim(),
+        force,
+      )
+      if (result === "directory_exists") {
+        setShowOverwriteConfirm(true)
+      }
+    },
+    [gitUrl, ref, repoPath, localPath, clone],
+  )
 
   const handleRepoSelected = useCallback((url: string) => {
     setGitUrl(url)
@@ -406,27 +455,39 @@ function GitCloneInteractive({
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
   const statusConfig: Record<string, { bg: string; icon: typeof GitBranch; iconColor: string }> = {
-    success: { bg: 'bg-success-muted border-success/30', icon: CheckCircle, iconColor: 'text-success' },
-    fail:    { bg: 'bg-destructive-muted border-destructive/30',     icon: XCircle,     iconColor: 'text-destructive' },
-    running: { bg: 'bg-info-muted border-info/40',    icon: Loader2,     iconColor: 'text-info' },
-    pending: { bg: 'bg-muted border-border',   icon: GitBranch,   iconColor: 'text-muted-foreground' },
-    ready:   { bg: 'bg-muted border-border',   icon: GitBranch,   iconColor: 'text-muted-foreground' },
+    success: {
+      bg: "bg-success-muted border-success/30",
+      icon: CheckCircle,
+      iconColor: "text-success",
+    },
+    fail: {
+      bg: "bg-destructive-muted border-destructive/30",
+      icon: XCircle,
+      iconColor: "text-destructive",
+    },
+    running: { bg: "bg-info-muted border-info/40", icon: Loader2, iconColor: "text-info" },
+    pending: { bg: "bg-muted border-border", icon: GitBranch, iconColor: "text-muted-foreground" },
+    ready: { bg: "bg-muted border-border", icon: GitBranch, iconColor: "text-muted-foreground" },
   }
 
-  const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = statusConfig[cloneStatus] ?? statusConfig.pending
+  const {
+    bg: statusClasses,
+    icon: IconComponent,
+    iconColor: iconClasses,
+  } = statusConfig[cloneStatus] ?? statusConfig.pending
 
-  const isLocalSource = activeSource === 'local'
+  const isLocalSource = activeSource === "local"
   // Browsing and checking a directory needs no credentials, so the local form
   // stays usable while a linked auth block is still pending.
   const isFormDisabled =
-    cloneStatus === 'running' || !hasAllBlockingDependencies || (!isLocalSource && !gitHubAuthMet)
+    cloneStatus === "running" || !hasAllBlockingDependencies || (!isLocalSource && !gitHubAuthMet)
   const isCloneDisabled = isFormDisabled || !gitUrl.trim()
   // Confirming, though, waits for auth exactly like cloning does. The GitHub
   // org/repo ids are resolved once, at confirm time, from the session token —
   // adopting a checkout before the auth block finishes would silently produce a
   // block missing org_id/repo_id, which is precisely the parity with clone that
   // this source is supposed to keep.
-  const isUseRepoDisabled = isFormDisabled || !gitHubAuthMet || localPreviewStatus !== 'valid'
+  const isUseRepoDisabled = isFormDisabled || !gitHubAuthMet || localPreviewStatus !== "valid"
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
@@ -439,7 +500,10 @@ function GitCloneInteractive({
   }
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -448,7 +512,9 @@ function GitCloneInteractive({
       {/* Main container with left icon column */}
       <div className="flex @container">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <IconComponent className={`size-6 ${iconClasses} ${cloneStatus === 'running' ? 'animate-spin' : ''}`} />
+          <IconComponent
+            className={`size-6 ${iconClasses} ${cloneStatus === "running" ? "animate-spin" : ""}`}
+          />
         </div>
 
         <div className="flex-1 min-w-0 space-y-2">
@@ -474,24 +540,26 @@ function GitCloneInteractive({
             <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">Waiting for git authentication</p>
+                <p className="text-sm font-medium text-warning-foreground m-0">
+                  Waiting for git authentication
+                </p>
                 <p className="text-xs text-warning-foreground m-0 mt-0.5">
                   Complete the &apos;{githubAuthId ?? gitAuthId}&apos; authentication block above
-                  before {isLocalSource ? 'selecting a repository' : 'cloning'}.
+                  before {isLocalSource ? "selecting a repository" : "cloning"}.
                 </p>
               </div>
             </div>
           )}
 
           {/* Success state */}
-          {cloneStatus === 'success' && cloneResult ? (
+          {cloneStatus === "success" && cloneResult ? (
             <div className="space-y-3">
               {/* An empty repo is a success as far as the clone goes, but it
                   can't take a pull request yet — say so here rather than
                   letting later blocks discover it the hard way. */}
               {cloneResult.hasCommits === false && (
                 <EmptyRepoWarning
-                  suggestedBranch={cloneResult.ref || 'main'}
+                  suggestedBranch={cloneResult.ref || "main"}
                   status={seedStatus}
                   error={seedError}
                   onCreateDefaultBranch={initDefaultBranch}
@@ -515,7 +583,7 @@ function GitCloneInteractive({
                 <SourceSelect
                   source={activeSource}
                   onSelect={handleSourceSelect}
-                  disabled={cloneStatus === 'running'}
+                  disabled={cloneStatus === "running"}
                 />
               )}
 
@@ -569,7 +637,7 @@ function GitCloneInteractive({
                   {/* Additional Settings (Ref, Repo Path, Local Path) */}
                   <CollapsibleToggle
                     expanded={showAdditionalSettings}
-                    onToggle={() => setShowAdditionalSettings(prev => !prev)}
+                    onToggle={() => setShowAdditionalSettings((prev) => !prev)}
                     label="Additional Settings"
                     disabled={isFormDisabled}
                   >
@@ -579,10 +647,14 @@ function GitCloneInteractive({
                         <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
                           Ref <span className="font-normal text-muted-foreground">(optional)</span>
                           <InfoTooltip>
-                            The branch or tag to clone. Defaults to the repository&apos;s default branch if not specified.
+                            The branch or tag to clone. Defaults to the repository&apos;s default
+                            branch if not specified.
                             {tokenChecked && hasGitHubToken && (
                               <>
-                                <br /><br /><strong>Tip:</strong> Use the GitHub browser above to browse branches and tags.
+                                <br />
+                                <br />
+                                <strong>Tip:</strong> Use the GitHub browser above to browse
+                                branches and tags.
                               </>
                             )}
                           </InfoTooltip>
@@ -600,9 +672,12 @@ function GitCloneInteractive({
                       {/* Repo Path (sparse checkout) */}
                       <div>
                         <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                          Repo Path <span className="font-normal text-muted-foreground">(optional)</span>
+                          Repo Path{" "}
+                          <span className="font-normal text-muted-foreground">(optional)</span>
                           <InfoTooltip>
-                            Check out one subdirectory of the repository using sparse checkout. For example, <code>modules/vpc</code> checks out that directory (plus the files at the top of the repo) instead of the entire repo.
+                            Check out one subdirectory of the repository using sparse checkout. For
+                            example, <code>modules/vpc</code> checks out that directory (plus the
+                            files at the top of the repo) instead of the entire repo.
                           </InfoTooltip>
                         </label>
                         <input
@@ -618,9 +693,12 @@ function GitCloneInteractive({
                       {/* Local Path (destination) */}
                       <div>
                         <label className="text-sm font-medium text-foreground mb-1 flex items-center gap-1.5">
-                          Local Path <span className="font-normal text-muted-foreground">(optional)</span>
+                          Local Path{" "}
+                          <span className="font-normal text-muted-foreground">(optional)</span>
                           <InfoTooltip>
-                            The directory where the cloned files will be saved, relative to the current working directory. Defaults to the repository name if not specified.
+                            The directory where the cloned files will be saved, relative to the
+                            current working directory. Defaults to the repository name if not
+                            specified.
                           </InfoTooltip>
                         </label>
                         <input
@@ -646,12 +724,12 @@ function GitCloneInteractive({
               )}
 
               {/* Error message */}
-              {errorMessage && cloneStatus === 'fail' && (
+              {errorMessage && cloneStatus === "fail" && (
                 <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
                   <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-destructive m-0">
-                      {isLocalSource ? "Couldn't use that repository" : 'Clone failed'}
+                      {isLocalSource ? "Couldn't use that repository" : "Clone failed"}
                     </p>
                     <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
                   </div>
@@ -663,17 +741,28 @@ function GitCloneInteractive({
                 <div className="p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
                   <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-warning-foreground m-0">Local path already exists</p>
+                    <p className="text-sm font-medium text-warning-foreground m-0">
+                      Local path already exists
+                    </p>
                     <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                      The local path{pathPreview?.relative ? <> (<code className="text-warning-foreground" title={pathPreview.absolute}>{pathPreview.relative}</code>)</> : ''} is not empty.
-                      Delete it and continue with git clone? Any changes you&apos;ve made to files in this directory will be lost.
+                      The local path
+                      {pathPreview?.relative ? (
+                        <>
+                          {" "}
+                          (
+                          <code className="text-warning-foreground" title={pathPreview.absolute}>
+                            {pathPreview.relative}
+                          </code>
+                          )
+                        </>
+                      ) : (
+                        ""
+                      )}{" "}
+                      is not empty. Delete it and continue with git clone? Any changes you&apos;ve
+                      made to files in this directory will be lost.
                     </p>
                     <div className="flex items-center gap-2 mt-2">
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleClone(true)}
-                      >
+                      <Button size="sm" variant="destructive" onClick={() => handleClone(true)}>
                         Delete &amp; Clone
                       </Button>
                       <Button
@@ -692,37 +781,29 @@ function GitCloneInteractive({
               {!showOverwriteConfirm && (
                 <div className="flex items-center gap-2">
                   {isLocalSource ? (
-                    <Button
-                      size="sm"
-                      disabled={isUseRepoDisabled}
-                      onClick={handleUseLocalRepo}
-                    >
-                      {cloneStatus === 'running' ? (
+                    <Button size="sm" disabled={isUseRepoDisabled} onClick={handleUseLocalRepo}>
+                      {cloneStatus === "running" ? (
                         <>
                           <Loader2 className="size-4 mr-1 animate-spin" />
                           Selecting...
                         </>
                       ) : (
-                        'Use This Repo'
+                        "Use This Repo"
                       )}
                     </Button>
                   ) : (
                     <>
-                      <Button
-                        size="sm"
-                        disabled={isCloneDisabled}
-                        onClick={() => handleClone()}
-                      >
-                        {cloneStatus === 'running' ? (
+                      <Button size="sm" disabled={isCloneDisabled} onClick={() => handleClone()}>
+                        {cloneStatus === "running" ? (
                           <>
                             <Loader2 className="size-4 mr-1 animate-spin" />
-                            {cancelling ? 'Cancelling...' : 'Cloning...'}
+                            {cancelling ? "Cancelling..." : "Cloning..."}
                           </>
                         ) : (
-                          'Clone'
+                          "Clone"
                         )}
                       </Button>
-                      {cloneStatus === 'running' && (
+                      {cloneStatus === "running" && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -747,20 +828,25 @@ function GitCloneInteractive({
         <div className="mt-4 space-y-2">
           <ViewLogs
             logs={logs}
-            status={cloneStatus === 'running' ? 'running' : cloneStatus === 'success' ? 'success' : cloneStatus === 'fail' ? 'fail' : 'pending'}
-            autoOpen={cloneStatus === 'running'}
+            status={
+              cloneStatus === "running"
+                ? "running"
+                : cloneStatus === "success"
+                  ? "success"
+                  : cloneStatus === "fail"
+                    ? "fail"
+                    : "pending"
+            }
+            autoOpen={cloneStatus === "running"}
             blockId={id}
           />
         </div>
       )}
 
       {/* View Outputs - below logs */}
-      {cloneStatus === 'success' && (
+      {cloneStatus === "success" && (
         <div className="mt-4 space-y-2">
-          <ViewOutputs
-            outputs={registeredOutputs}
-            autoOpen={false}
-          />
+          <ViewOutputs outputs={registeredOutputs} autoOpen={false} />
         </div>
       )}
     </div>
@@ -782,6 +868,6 @@ function GitClone(props: GitCloneProps) {
 }
 
 // Set displayName for React DevTools and component detection
-GitClone.displayName = 'GitClone';
+GitClone.displayName = "GitClone"
 
-export default GitClone;
+export default GitClone

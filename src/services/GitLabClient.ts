@@ -66,10 +66,21 @@ export interface GitLabClientShape {
    * omitted. One that is given but doesn't parse fails with status 400 — never
    * a fallback to gitlab.com, which would send another instance's token there.
    */
-  readonly validateToken: (token: string, baseUrl?: string) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
-  readonly createMergeRequest: (token: string, params: CreateMRParams) => Effect.Effect<MergeRequestResult, GitLabApiError>
+  readonly validateToken: (
+    token: string,
+    baseUrl?: string,
+  ) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
+  readonly createMergeRequest: (
+    token: string,
+    params: CreateMRParams,
+  ) => Effect.Effect<MergeRequestResult, GitLabApiError>
   /** `baseUrl` is the instance origin (bare host or full URL); see validateToken. */
-  readonly listLabels: (token: string, owner: string, repo: string, baseUrl?: string) => Effect.Effect<string[], GitLabApiError>
+  readonly listLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    baseUrl?: string,
+  ) => Effect.Effect<string[], GitLabApiError>
 }
 
 export class GitLabClient extends Context.Tag("GitLabClient")<GitLabClient, GitLabClientShape>() {}

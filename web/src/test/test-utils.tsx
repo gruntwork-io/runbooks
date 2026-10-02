@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react'
-import { ThemeProvider } from '@/contexts/ThemeContext'
-import { InstructionModeProvider } from '@/contexts/InstructionModeContext'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
-import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
-import { ErrorReportingProvider } from '@/contexts/ErrorReportingContext'
-import { TelemetryContext, defaultContextValue } from '@/contexts/TelemetryContext.types'
+import type { ReactNode } from "react"
+import { ThemeProvider } from "@/contexts/ThemeContext"
+import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
+import { RunbookContextProvider } from "@/contexts/RunbookContext"
+import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
+import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
+import { TelemetryContext, defaultContextValue } from "@/contexts/TelemetryContext.types"
 
 /**
  * Wraps children in all required context providers for component tests.
@@ -12,7 +12,13 @@ import { TelemetryContext, defaultContextValue } from '@/contexts/TelemetryConte
  * Telemetry is provided via the raw context with a disabled default so tests
  * don't trigger an IPC init path that isn't what's under test here.
  */
-export function TestWrapper({ children, remoteSource }: { children: ReactNode; remoteSource?: string }) {
+export function TestWrapper({
+  children,
+  remoteSource,
+}: {
+  children: ReactNode
+  remoteSource?: string
+}) {
   return (
     <ThemeProvider>
       <InstructionModeProvider>

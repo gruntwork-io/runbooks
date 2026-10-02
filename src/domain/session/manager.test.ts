@@ -5,7 +5,13 @@ import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import type { SessionExecSnapshot } from "../../types.ts"
 
 function run<A>(effect: Effect.Effect<A, any, any>, env: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<A, any, never>)
+  return Effect.runPromise(
+    effect.pipe(Effect.provide(makeTestEnvironment(env))) as unknown as Effect.Effect<
+      A,
+      any,
+      never
+    >,
+  )
 }
 
 describe("filterCapturedEnv", () => {
@@ -80,7 +86,10 @@ describe("diffEnv", () => {
   })
 
   it("handles names that exist on Object.prototype", () => {
-    const withProtoNames = Object.fromEntries([["__proto__", "1"], ["constructor", "2"]])
+    const withProtoNames = Object.fromEntries([
+      ["__proto__", "1"],
+      ["constructor", "2"],
+    ])
 
     expect(Object.entries(diffEnv({}, withProtoNames).set)).toEqual([
       ["__proto__", "1"],
@@ -99,10 +108,7 @@ describe("SessionManager", () => {
 
   describe("createSession", () => {
     it("captures environment from Environment service", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { HOME: "/home/user", MY_VAR: "test" },
-      )
+      await run(mgr.createSession("/work"), { HOME: "/home/user", MY_VAR: "test" })
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx.env.HOME).toBe("/home/user")
       expect(ctx.env.MY_VAR).toBe("test")
@@ -110,10 +116,12 @@ describe("SessionManager", () => {
 
     it("strips protected env vars", async () => {
       mgr.setProtectedEnvVars(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
-      await run(
-        mgr.createSession("/work"),
-        { HOME: "/home", AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "secret", PATH: "/usr/bin" },
-      )
+      await run(mgr.createSession("/work"), {
+        HOME: "/home",
+        AWS_ACCESS_KEY_ID: "AKIA...",
+        AWS_SECRET_ACCESS_KEY: "secret",
+        PATH: "/usr/bin",
+      })
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx.env.AWS_ACCESS_KEY_ID).toBeUndefined()
       expect(ctx.env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
@@ -179,10 +187,7 @@ describe("SessionManager", () => {
 
   describe("getExecContext", () => {
     it("returns snapshot with env, workDir and the session's generation", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { HOME: "/home", PATH: "/usr/bin" },
-      )
+      await run(mgr.createSession("/work"), { HOME: "/home", PATH: "/usr/bin" })
       const ctx = await Effect.runPromise(mgr.getExecContext())
       expect(ctx).toEqual({
         env: { HOME: "/home", PATH: "/usr/bin" },
@@ -207,20 +212,19 @@ describe("SessionManager", () => {
 
   describe("resetSession", () => {
     it("resets env and workDir to initial values", async () => {
-      await run(
-        mgr.createSession("/initial"),
-        { A: "1" },
-      )
+      await run(mgr.createSession("/initial"), { A: "1" })
 
       // Modify the session
       const start = await run(mgr.getExecContext())
-      await run(mgr.applyCapturedEnv({
-        before: start.env,
-        after: { A: "1", B: "2" },
-        startWorkDir: start.workDir,
-        pwd: "/new/dir",
-        generation: start.generation,
-      }))
+      await run(
+        mgr.applyCapturedEnv({
+          before: start.env,
+          after: { A: "1", B: "2" },
+          startWorkDir: start.workDir,
+          pwd: "/new/dir",
+          generation: start.generation,
+        }),
+      )
 
       // Verify modified
       let ctx = await Effect.runPromise(mgr.getExecContext())
@@ -248,13 +252,15 @@ describe("SessionManager", () => {
       after: Record<string, string>,
       pwd: string = start.workDir,
     ) {
-      return run(mgr.applyCapturedEnv({
-        before: start.env,
-        after,
-        startWorkDir: start.workDir,
-        pwd,
-        generation: start.generation,
-      }))
+      return run(
+        mgr.applyCapturedEnv({
+          before: start.env,
+          after,
+          startWorkDir: start.workDir,
+          pwd,
+          generation: start.generation,
+        }),
+      )
     }
 
     it("applies the script's exports and working dir", async () => {
@@ -375,10 +381,7 @@ describe("SessionManager", () => {
 
   describe("appendToEnv", () => {
     it("merges new vars without replacing existing", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { A: "1", B: "2" },
-      )
+      await run(mgr.createSession("/work"), { A: "1", B: "2" })
 
       await run(mgr.appendToEnv({ C: "3" }))
 
@@ -389,10 +392,7 @@ describe("SessionManager", () => {
     })
 
     it("overwrites existing keys", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { A: "old" },
-      )
+      await run(mgr.createSession("/work"), { A: "old" })
 
       await run(mgr.appendToEnv({ A: "new" }))
 
@@ -407,10 +407,7 @@ describe("SessionManager", () => {
 
   describe("removeFromEnv", () => {
     it("deletes the given keys, leaving others untouched", async () => {
-      await run(
-        mgr.createSession("/work"),
-        { A: "1", B: "2" },
-      )
+      await run(mgr.createSession("/work"), { A: "1", B: "2" })
       await run(mgr.appendToEnv({ C: "3" }))
 
       await run(mgr.removeFromEnv(["B"]))

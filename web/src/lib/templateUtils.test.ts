@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from "vitest"
 import {
   buildRenderVariables,
   buildTemplatePayload,
@@ -9,59 +9,53 @@ import {
   resolveTemplateReferences,
   revealTemplateOutputs,
   type TemplateOutputs,
-} from './templateUtils'
-import { sensitiveOutput } from './outputValues'
-import type { TemplateContext } from './templateUtils'
-import { extractTemplateDependenciesFromString } from './extractTemplateDependencies'
-import type { BlockOutputs } from '@/contexts/RunbookContext'
+} from "./templateUtils"
+import { sensitiveOutput } from "./outputValues"
+import type { TemplateContext } from "./templateUtils"
+import { extractTemplateDependenciesFromString } from "./extractTemplateDependencies"
+import type { BlockOutputs } from "@/contexts/RunbookContext"
 
-describe('buildRenderVariables', () => {
-  it('should wrap user variables under inputs key', () => {
-    const result = buildRenderVariables(
-      { AWSAccounts: '{}', Region: 'us-west-2' },
-      {},
-    )
-    expect(result).toHaveProperty('inputs')
-    expect(result.inputs).toEqual({ AWSAccounts: '{}', Region: 'us-west-2' })
+describe("buildRenderVariables", () => {
+  it("should wrap user variables under inputs key", () => {
+    const result = buildRenderVariables({ AWSAccounts: "{}", Region: "us-west-2" }, {})
+    expect(result).toHaveProperty("inputs")
+    expect(result.inputs).toEqual({ AWSAccounts: "{}", Region: "us-west-2" })
   })
 
-  it('should include outputs at the top level', () => {
-    const outputs = { create_account: { account_id: '123' } }
-    const result = buildRenderVariables({ Name: 'test' }, outputs)
+  it("should include outputs at the top level", () => {
+    const outputs = { create_account: { account_id: "123" } }
+    const result = buildRenderVariables({ Name: "test" }, outputs)
     expect(result.outputs).toEqual(outputs)
   })
 
-  it('should not spread user variables at the root level', () => {
-    const result = buildRenderVariables(
-      { Name: 'test', Region: 'us-west-2' },
-      {},
-    )
-    expect(result).not.toHaveProperty('Name')
-    expect(result).not.toHaveProperty('Region')
-    expect(Object.keys(result).sort()).toEqual(['inputs', 'outputs'])
+  it("should not spread user variables at the root level", () => {
+    const result = buildRenderVariables({ Name: "test", Region: "us-west-2" }, {})
+    expect(result).not.toHaveProperty("Name")
+    expect(result).not.toHaveProperty("Region")
+    expect(Object.keys(result).sort()).toEqual(["inputs", "outputs"])
   })
 })
 
-describe('flattenBlockOutputs', () => {
-  it('should return empty object for empty input', () => {
+describe("flattenBlockOutputs", () => {
+  it("should return empty object for empty input", () => {
     expect(flattenBlockOutputs({})).toEqual({})
   })
 
-  it('should strip the .values wrapper from block outputs', () => {
+  it("should strip the .values wrapper from block outputs", () => {
     const allOutputs: Record<string, BlockOutputs> = {
       create_account: {
-        values: { account_id: '123', role_arn: 'arn:aws:iam::123:role/Admin' },
-        timestamp: '2024-01-01T00:00:00Z',
+        values: { account_id: "123", role_arn: "arn:aws:iam::123:role/Admin" },
+        timestamp: "2024-01-01T00:00:00Z",
       },
       deploy: {
-        values: { status: 'success' },
-        timestamp: '2024-01-01T00:01:00Z',
+        values: { status: "success" },
+        timestamp: "2024-01-01T00:01:00Z",
       },
     }
 
     expect(flattenBlockOutputs(allOutputs)).toEqual({
-      create_account: { account_id: '123', role_arn: 'arn:aws:iam::123:role/Admin' },
-      deploy: { status: 'success' },
+      create_account: { account_id: "123", role_arn: "arn:aws:iam::123:role/Admin" },
+      deploy: { status: "success" },
     })
   })
 })
@@ -69,231 +63,241 @@ describe('flattenBlockOutputs', () => {
 // A render sends plain strings over IPC, so each one chooses what a sensitive
 // output renders as: its real value when the result is run or written to a
 // file, <redacted> when it's only shown.
-describe('sensitive outputs in a render', () => {
+describe("sensitive outputs in a render", () => {
   const outputs: TemplateOutputs = {
-    mint: { user: 'alice', token: sensitiveOutput('s3cr3t') },
-    other: { region: 'us-west-2' },
+    mint: { user: "alice", token: sensitiveOutput("s3cr3t") },
+    other: { region: "us-west-2" },
   }
 
-  it('revealTemplateOutputs gives every output its real value', () => {
+  it("revealTemplateOutputs gives every output its real value", () => {
     expect(revealTemplateOutputs(outputs)).toEqual({
-      mint: { user: 'alice', token: 's3cr3t' },
-      other: { region: 'us-west-2' },
+      mint: { user: "alice", token: "s3cr3t" },
+      other: { region: "us-west-2" },
     })
   })
 
-  it('maskTemplateOutputs shows a sensitive output as <redacted>', () => {
+  it("maskTemplateOutputs shows a sensitive output as <redacted>", () => {
     expect(maskTemplateOutputs(outputs)).toEqual({
-      mint: { user: 'alice', token: '<redacted>' },
-      other: { region: 'us-west-2' },
+      mint: { user: "alice", token: "<redacted>" },
+      other: { region: "us-west-2" },
     })
   })
 
-  it('the template engine gets the real value from a revealed payload', () => {
+  it("the template engine gets the real value from a revealed payload", () => {
     const payload = buildTemplatePayload({ inputs: {}, outputs: revealTemplateOutputs(outputs) })
     const sent = structuredClone(payload)
-    expect(sent.find((v) => v.name === 'outputs')?.value).toEqual({
-      mint: { user: 'alice', token: 's3cr3t' },
-      other: { region: 'us-west-2' },
+    expect(sent.find((v) => v.name === "outputs")?.value).toEqual({
+      mint: { user: "alice", token: "s3cr3t" },
+      other: { region: "us-west-2" },
     })
     expect(buildRenderVariables({}, revealTemplateOutputs(outputs)).outputs).toEqual({
-      mint: { user: 'alice', token: 's3cr3t' },
-      other: { region: 'us-west-2' },
+      mint: { user: "alice", token: "s3cr3t" },
+      other: { region: "us-west-2" },
     })
   })
 })
 
-describe('computeUnmetInputDependencies', () => {
-  it('should return empty array when no deps', () => {
+describe("computeUnmetInputDependencies", () => {
+  it("should return empty array when no deps", () => {
     expect(computeUnmetInputDependencies([], {})).toEqual([])
   })
 
-  it('should return all deps when inputs are empty', () => {
-    expect(computeUnmetInputDependencies(['region', 'env'], {})).toEqual(['region', 'env'])
+  it("should return all deps when inputs are empty", () => {
+    expect(computeUnmetInputDependencies(["region", "env"], {})).toEqual(["region", "env"])
   })
 
-  it('should return only missing deps', () => {
-    expect(
-      computeUnmetInputDependencies(['region', 'env'], { region: 'us-west-2' })
-    ).toEqual(['env'])
+  it("should return only missing deps", () => {
+    expect(computeUnmetInputDependencies(["region", "env"], { region: "us-west-2" })).toEqual([
+      "env",
+    ])
   })
 
-  it('should return empty array when all deps satisfied', () => {
+  it("should return empty array when all deps satisfied", () => {
+    expect(computeUnmetInputDependencies(["region"], { region: "us-west-2" })).toEqual([])
+  })
+
+  it("should treat null, undefined, and empty string as unmet", () => {
     expect(
-      computeUnmetInputDependencies(['region'], { region: 'us-west-2' })
+      computeUnmetInputDependencies(["a", "b", "c"], { a: null, b: undefined, c: "" }),
+    ).toEqual(["a", "b", "c"])
+  })
+
+  it("should treat 0 and false as valid values", () => {
+    expect(
+      computeUnmetInputDependencies(["count", "enabled"], { count: 0, enabled: false }),
     ).toEqual([])
   })
 
-  it('should treat null, undefined, and empty string as unmet', () => {
+  it("should treat inherited or built-in members on a nested path as unmet", () => {
     expect(
-      computeUnmetInputDependencies(
-        ['a', 'b', 'c'],
-        { a: null, b: undefined, c: '' }
-      )
-    ).toEqual(['a', 'b', 'c'])
-  })
-
-  it('should treat 0 and false as valid values', () => {
-    expect(
-      computeUnmetInputDependencies(['count', 'enabled'], { count: 0, enabled: false })
-    ).toEqual([])
-  })
-
-  it('should treat inherited or built-in members on a nested path as unmet', () => {
-    expect(
-      computeUnmetInputDependencies(
-        ['tags.constructor', 'list.length', 'tags.env'],
-        { tags: { env: 'prod' }, list: ['a'] }
-      )
-    ).toEqual(['tags.constructor', 'list.length'])
+      computeUnmetInputDependencies(["tags.constructor", "list.length", "tags.env"], {
+        tags: { env: "prod" },
+        list: ["a"],
+      }),
+    ).toEqual(["tags.constructor", "list.length"])
   })
 })
 
-describe('resolveTemplateReferences', () => {
+describe("resolveTemplateReferences", () => {
   const ctx = {
-    inputs: { region: 'us-west-2', env: 'prod', name: 'my-app' },
+    inputs: { region: "us-west-2", env: "prod", name: "my-app" },
     outputs: {
-      create_account: { account_id: '123456789012', role_arn: 'arn:aws:iam::123:role/Admin' },
-      deploy: { status: 'success' },
+      create_account: { account_id: "123456789012", role_arn: "arn:aws:iam::123:role/Admin" },
+      deploy: { status: "success" },
     },
   }
 
-  it('should return empty/null-ish text unchanged', () => {
-    expect(resolveTemplateReferences('', ctx)).toBe('')
+  it("should return empty/null-ish text unchanged", () => {
+    expect(resolveTemplateReferences("", ctx)).toBe("")
     expect(resolveTemplateReferences(null as unknown as string, ctx)).toBe(null)
     expect(resolveTemplateReferences(undefined as unknown as string, ctx)).toBe(undefined)
   })
 
-  it('should return text without templates unchanged', () => {
-    expect(resolveTemplateReferences('plain text', ctx)).toBe('plain text')
+  it("should return text without templates unchanged", () => {
+    expect(resolveTemplateReferences("plain text", ctx)).toBe("plain text")
   })
 
-  it('should resolve input references', () => {
-    expect(resolveTemplateReferences('{{ .inputs.region }}', ctx)).toBe('us-west-2')
+  it("should resolve input references", () => {
+    expect(resolveTemplateReferences("{{ .inputs.region }}", ctx)).toBe("us-west-2")
   })
 
   // Its results are titles, descriptions, form fields and PR text
-  it('should resolve a sensitive output to <redacted>, never its value', () => {
-    const withSecret = { ...ctx, outputs: { ...ctx.outputs, mint: { token: sensitiveOutput('s3cr3t') } } }
-    expect(resolveTemplateReferences('token: {{ .outputs.mint.token }}', withSecret)).toBe('token: <redacted>')
+  it("should resolve a sensitive output to <redacted>, never its value", () => {
+    const withSecret = {
+      ...ctx,
+      outputs: { ...ctx.outputs, mint: { token: sensitiveOutput("s3cr3t") } },
+    }
+    expect(resolveTemplateReferences("token: {{ .outputs.mint.token }}", withSecret)).toBe(
+      "token: <redacted>",
+    )
   })
 
-  it('should resolve output references', () => {
-    expect(
-      resolveTemplateReferences('{{ .outputs.create_account.account_id }}', ctx)
-    ).toBe('123456789012')
+  it("should resolve output references", () => {
+    expect(resolveTemplateReferences("{{ .outputs.create_account.account_id }}", ctx)).toBe(
+      "123456789012",
+    )
   })
 
-  it('should resolve output references with hyphenated block IDs', () => {
-    expect(
-      resolveTemplateReferences('{{ .outputs.create-account.account_id }}', ctx)
-    ).toBe('123456789012')
+  it("should resolve output references with hyphenated block IDs", () => {
+    expect(resolveTemplateReferences("{{ .outputs.create-account.account_id }}", ctx)).toBe(
+      "123456789012",
+    )
   })
 
-  it('should resolve mixed references in a string', () => {
+  it("should resolve mixed references in a string", () => {
     expect(
       resolveTemplateReferences(
-        'deploy --region {{ .inputs.region }} --account {{ .outputs.create_account.account_id }}',
-        ctx
-      )
-    ).toBe('deploy --region us-west-2 --account 123456789012')
+        "deploy --region {{ .inputs.region }} --account {{ .outputs.create_account.account_id }}",
+        ctx,
+      ),
+    ).toBe("deploy --region us-west-2 --account 123456789012")
   })
 
-  it('should handle whitespace trimming markers', () => {
-    expect(resolveTemplateReferences('{{- .inputs.region -}}', ctx)).toBe('us-west-2')
+  it("should handle whitespace trimming markers", () => {
+    expect(resolveTemplateReferences("{{- .inputs.region -}}", ctx)).toBe("us-west-2")
   })
 
-  it('should handle pipe functions (strips them, resolves base value)', () => {
-    expect(resolveTemplateReferences('{{ .inputs.region | upper }}', ctx)).toBe('us-west-2')
+  it("should handle pipe functions (strips them, resolves base value)", () => {
+    expect(resolveTemplateReferences("{{ .inputs.region | upper }}", ctx)).toBe("us-west-2")
   })
 
-  it('should resolve dotted input paths through nested objects', () => {
+  it("should resolve dotted input paths through nested objects", () => {
     const nestedCtx: TemplateContext = {
-      inputs: { tags: { env: 'prod' }, _module: { source: 'git::x' } },
+      inputs: { tags: { env: "prod" }, _module: { source: "git::x" } },
       outputs: {},
     }
-    expect(resolveTemplateReferences('{{ .inputs.tags.env }}', nestedCtx)).toBe('prod')
-    expect(resolveTemplateReferences('{{ .inputs._module.source }}', nestedCtx)).toBe('git::x')
-    expect(resolveTemplateReferences('{{ .inputs.tags.team }}', nestedCtx)).toBe('`{{ .inputs.tags.team }}`')
+    expect(resolveTemplateReferences("{{ .inputs.tags.env }}", nestedCtx)).toBe("prod")
+    expect(resolveTemplateReferences("{{ .inputs._module.source }}", nestedCtx)).toBe("git::x")
+    expect(resolveTemplateReferences("{{ .inputs.tags.team }}", nestedCtx)).toBe(
+      "`{{ .inputs.tags.team }}`",
+    )
   })
 
-  it('should not resolve inherited or built-in members as input values', () => {
+  it("should not resolve inherited or built-in members as input values", () => {
     // The engine looks up map keys: an object's prototype members and an
     // array's length are not keys, so these stay unresolved.
     const nestedCtx: TemplateContext = {
-      inputs: { tags: { env: 'prod' }, list: ['a', 'b'] },
+      inputs: { tags: { env: "prod" }, list: ["a", "b"] },
       outputs: {},
     }
     for (const ref of [
-      '{{ .inputs.tags.constructor }}',
-      '{{ .inputs.tags.toString }}',
-      '{{ .inputs.list.length }}',
-      '{{ .inputs.constructor }}',
+      "{{ .inputs.tags.constructor }}",
+      "{{ .inputs.tags.toString }}",
+      "{{ .inputs.list.length }}",
+      "{{ .inputs.constructor }}",
     ]) {
       expect(resolveTemplateReferences(ref, nestedCtx)).toBe(`\`${ref}\``)
     }
     // An own key with such a name still resolves.
-    const ownCtx: TemplateContext = { inputs: { tags: { constructor: 'mine' } }, outputs: {} }
-    expect(resolveTemplateReferences('{{ .inputs.tags.constructor }}', ownCtx)).toBe('mine')
+    const ownCtx: TemplateContext = { inputs: { tags: { constructor: "mine" } }, outputs: {} }
+    expect(resolveTemplateReferences("{{ .inputs.tags.constructor }}", ownCtx)).toBe("mine")
   })
 
-  it('should wrap missing input values in backticks for inline-code rendering', () => {
-    expect(resolveTemplateReferences('{{ .inputs.nonexistent }}', ctx)).toBe('`{{ .inputs.nonexistent }}`')
+  it("should wrap missing input values in backticks for inline-code rendering", () => {
+    expect(resolveTemplateReferences("{{ .inputs.nonexistent }}", ctx)).toBe(
+      "`{{ .inputs.nonexistent }}`",
+    )
   })
 
-  it('should wrap missing output values in backticks for inline-code rendering', () => {
-    expect(resolveTemplateReferences('{{ .outputs.missing_block.key }}', ctx)).toBe('`{{ .outputs.missing_block.key }}`')
+  it("should wrap missing output values in backticks for inline-code rendering", () => {
+    expect(resolveTemplateReferences("{{ .outputs.missing_block.key }}", ctx)).toBe(
+      "`{{ .outputs.missing_block.key }}`",
+    )
   })
 
-  it('should wrap missing output key on existing block in backticks', () => {
-    expect(resolveTemplateReferences('{{ .outputs.create_account.missing }}', ctx)).toBe('`{{ .outputs.create_account.missing }}`')
+  it("should wrap missing output key on existing block in backticks", () => {
+    expect(resolveTemplateReferences("{{ .outputs.create_account.missing }}", ctx)).toBe(
+      "`{{ .outputs.create_account.missing }}`",
+    )
   })
 
-  it('should handle multiple occurrences', () => {
-    expect(
-      resolveTemplateReferences('{{ .inputs.region }}-{{ .inputs.env }}', ctx)
-    ).toBe('us-west-2-prod')
+  it("should handle multiple occurrences", () => {
+    expect(resolveTemplateReferences("{{ .inputs.region }}-{{ .inputs.env }}", ctx)).toBe(
+      "us-west-2-prod",
+    )
   })
 
-  it('should not resolve old-style bare variables', () => {
-    expect(resolveTemplateReferences('{{ .region }}', ctx)).toBe('{{ .region }}')
+  it("should not resolve old-style bare variables", () => {
+    expect(resolveTemplateReferences("{{ .region }}", ctx)).toBe("{{ .region }}")
   })
 
-  it('should not resolve old-style _blocks references', () => {
-    expect(
-      resolveTemplateReferences('{{ ._blocks.create_account.outputs.account_id }}', ctx)
-    ).toBe('{{ ._blocks.create_account.outputs.account_id }}')
+  it("should not resolve old-style _blocks references", () => {
+    expect(resolveTemplateReferences("{{ ._blocks.create_account.outputs.account_id }}", ctx)).toBe(
+      "{{ ._blocks.create_account.outputs.account_id }}",
+    )
   })
 
-  it('should coerce non-string input values via String()', () => {
+  it("should coerce non-string input values via String()", () => {
     const numCtx: TemplateContext = {
       inputs: { count: 0, enabled: false, pi: 3.14 },
       outputs: {},
     }
-    expect(resolveTemplateReferences('{{ .inputs.count }}', numCtx)).toBe('0')
-    expect(resolveTemplateReferences('{{ .inputs.enabled }}', numCtx)).toBe('false')
-    expect(resolveTemplateReferences('{{ .inputs.pi }}', numCtx)).toBe('3.14')
+    expect(resolveTemplateReferences("{{ .inputs.count }}", numCtx)).toBe("0")
+    expect(resolveTemplateReferences("{{ .inputs.enabled }}", numCtx)).toBe("false")
+    expect(resolveTemplateReferences("{{ .inputs.pi }}", numCtx)).toBe("3.14")
   })
 
-  it('should wrap output reference without output name in backticks', () => {
+  it("should wrap output reference without output name in backticks", () => {
     const outCtx: TemplateContext = {
       inputs: {},
-      outputs: { block_only: { key: 'val' } },
+      outputs: { block_only: { key: "val" } },
     }
-    expect(resolveTemplateReferences('{{ .outputs.block_only }}', outCtx)).toBe('`{{ .outputs.block_only }}`')
+    expect(resolveTemplateReferences("{{ .outputs.block_only }}", outCtx)).toBe(
+      "`{{ .outputs.block_only }}`",
+    )
   })
 })
 
-describe('extractInputValueReferences', () => {
-  it('returns each input used as a plain value action, once', () => {
+describe("extractInputValueReferences", () => {
+  it("returns each input used as a plain value action, once", () => {
     expect(
       extractInputValueReferences(
-        '{{ .inputs.a }} {{- .inputs.b -}} {{ .inputs.a }} {{ .inputs.tags.env | upper }} {{ .outputs.step.arn }}',
+        "{{ .inputs.a }} {{- .inputs.b -}} {{ .inputs.a }} {{ .inputs.tags.env | upper }} {{ .outputs.step.arn }}",
       ),
-    ).toEqual(['a', 'b', 'tags.env'])
+    ).toEqual(["a", "b", "tags.env"])
   })
 
-  it('skips inputs referenced only inside template logic', () => {
+  it("skips inputs referenced only inside template logic", () => {
     expect(
       extractInputValueReferences(
         '{{ if .inputs.x }}-x{{ end }} {{ eq .inputs.y "a" }} {{ printf "%s" .inputs.z }}',
@@ -301,43 +305,43 @@ describe('extractInputValueReferences', () => {
     ).toEqual([])
   })
 
-  it('matches exactly what resolveTemplateReferences substitutes', () => {
-    const text = '{{ if .inputs.x }}{{ .inputs.y }}{{ end }} {{ .inputs.z | quote }}'
-    const ctx: TemplateContext = { inputs: { x: 'X', y: 'Y', z: 'Z' }, outputs: {} }
-    expect(extractInputValueReferences(text)).toEqual(['y', 'z'])
-    expect(resolveTemplateReferences(text, ctx)).toBe('{{ if .inputs.x }}Y{{ end }} Z')
+  it("matches exactly what resolveTemplateReferences substitutes", () => {
+    const text = "{{ if .inputs.x }}{{ .inputs.y }}{{ end }} {{ .inputs.z | quote }}"
+    const ctx: TemplateContext = { inputs: { x: "X", y: "Y", z: "Z" }, outputs: {} }
+    expect(extractInputValueReferences(text)).toEqual(["y", "z"])
+    expect(resolveTemplateReferences(text, ctx)).toBe("{{ if .inputs.x }}Y{{ end }} Z")
   })
 })
 
-describe('extract → resolve contract', () => {
-  it('should resolve all simple expressions that the extractor finds', () => {
-    const template = 'url: {{ .inputs.region }}, acct: {{ .outputs.create_account.account_id }}'
+describe("extract → resolve contract", () => {
+  it("should resolve all simple expressions that the extractor finds", () => {
+    const template = "url: {{ .inputs.region }}, acct: {{ .outputs.create_account.account_id }}"
     const deps = extractTemplateDependenciesFromString(template)
 
     expect(deps).toHaveLength(2)
 
     const ctx: TemplateContext = {
-      inputs: { region: 'us-east-1' },
-      outputs: { create_account: { account_id: '999' } },
+      inputs: { region: "us-east-1" },
+      outputs: { create_account: { account_id: "999" } },
     }
 
     const resolved = resolveTemplateReferences(template, ctx)
-    expect(resolved).toBe('url: us-east-1, acct: 999')
+    expect(resolved).toBe("url: us-east-1, acct: 999")
     expect(resolved).not.toMatch(/\{\{/)
   })
 
-  it('should leave complex expressions (function calls) unresolved', () => {
-    const template = '{{- range (fromJson .outputs.block.data) -}}item{{ end }}'
+  it("should leave complex expressions (function calls) unresolved", () => {
+    const template = "{{- range (fromJson .outputs.block.data) -}}item{{ end }}"
     const deps = extractTemplateDependenciesFromString(template)
 
     expect(deps).toHaveLength(1)
-    expect(deps[0]).toMatchObject({ type: 'output', blockId: 'block', outputName: 'data' })
+    expect(deps[0]).toMatchObject({ type: "output", blockId: "block", outputName: "data" })
 
     const ctx: TemplateContext = {
       inputs: {},
       outputs: { block: { data: '["a","b"]' } },
     }
     const resolved = resolveTemplateReferences(template, ctx)
-    expect(resolved).toContain('fromJson')
+    expect(resolved).toContain("fromJson")
   })
 })

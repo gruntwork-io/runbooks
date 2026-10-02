@@ -46,7 +46,7 @@ beforeAll(async () => {
       "#!/bin/sh",
       '[ "$1" = clone ] || exit 1',
       `echo $$ > "${pidFile}"`,
-      'for dest; do :; done',
+      "for dest; do :; done",
       'mkdir -p "$dest" && echo partial > "$dest/partial"',
       `echo "Cloning into 'infra'..." >&2`,
       "exec sleep 30",
@@ -112,7 +112,9 @@ describe("git:clone-cancel", () => {
       const dest = path.join(tmpDir, "work", "infra")
       expect(fs.existsSync(path.join(dest, "partial"))).toBe(true)
 
-      await expect(handlers.get("git:clone-cancel")!(null, { cloneId: "clone-1" })).resolves.toEqual({
+      await expect(
+        handlers.get("git:clone-cancel")!(null, { cloneId: "clone-1" }),
+      ).resolves.toEqual({
         ok: true,
       })
 

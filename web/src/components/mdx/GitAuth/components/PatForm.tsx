@@ -1,4 +1,12 @@
-import { Eye, EyeOff, Loader2, HelpCircle, ChevronDown, ChevronUp, ExternalLink } from "lucide-react"
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, type Ref } from "react"
 import type { GitAuthStatus } from "../types"
@@ -32,11 +40,11 @@ export function PatForm({
   onSubmit,
   provider,
   host,
-  instanceUrl = '',
+  instanceUrl = "",
   setInstanceUrl,
   instanceInputRef,
 }: PatFormProps) {
-  const isAuthenticating = authStatus === 'authenticating'
+  const isAuthenticating = authStatus === "authenticating"
   const [showSetupGuide, setShowSetupGuide] = useState(false)
 
   // GitLab can run self-hosted, so let the user point the token at their own
@@ -44,22 +52,22 @@ export function PatForm({
   // keeps the provider's gitlab.com default. GitHub's link follows the active
   // host (github.com, *.ghe.com, or a GHES host).
   const showInstanceField = provider.supportsManualInstance && setInstanceUrl !== undefined
-  const instanceBase = provider.supportsManualInstance ? normalizeInstanceBaseUrl(instanceUrl) : null
+  const instanceBase = provider.supportsManualInstance
+    ? normalizeInstanceBaseUrl(instanceUrl)
+    : null
   const tokenCreateUrl = instanceBase
     ? `${instanceBase}/-/user_settings/personal_access_tokens`
-    : provider.id === 'github' && host
+    : provider.id === "github" && host
       ? githubTokenCreateUrl(host)
       : provider.pat.tokenCreateUrl
   // GHES links to the classic token page (fine-grained tokens aren't on every
   // supported GHES version).
-  const isGhes = provider.id === 'github' && host !== undefined && githubHostKind(host) === 'ghes'
+  const isGhes = provider.id === "github" && host !== undefined && githubHostKind(host) === "ghes"
 
   return (
     <div className="space-y-4">
       <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
-        <p>
-          Enter a {provider.label} Personal Access Token.
-        </p>
+        <p>Enter a {provider.label} Personal Access Token.</p>
       </div>
 
       {/* GitLab instance URL (self-hosted support) */}
@@ -80,8 +88,8 @@ export function PatForm({
             autoCapitalize="none"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Leave blank for gitlab.com. Set this to validate a token for a
-            self-hosted instance (e.g. https://gitlab.example.com).
+            Leave blank for gitlab.com. Set this to validate a token for a self-hosted instance
+            (e.g. https://gitlab.example.com).
           </p>
         </div>
       )}
@@ -93,7 +101,7 @@ export function PatForm({
         </label>
         <div className="relative">
           <input
-            type={showPatToken ? 'text' : 'password'}
+            type={showPatToken ? "text" : "password"}
             value={patToken}
             onChange={(e) => setPatToken(e.target.value)}
             className="w-full px-3 py-2 pr-10 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm"
@@ -109,9 +117,7 @@ export function PatForm({
           </button>
         </div>
         {provider.pat.prefixHint && (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {provider.pat.prefixHint}
-          </p>
+          <p className="mt-1 text-xs text-muted-foreground">{provider.pat.prefixHint}</p>
         )}
       </div>
 
@@ -126,7 +132,7 @@ export function PatForm({
             Authenticating...
           </>
         ) : (
-          'Authenticate'
+          "Authenticate"
         )}
       </Button>
 
@@ -144,7 +150,7 @@ export function PatForm({
 
         {showSetupGuide && (
           <div className="mt-2 p-3 bg-muted rounded border border-border text-muted-foreground space-y-3">
-            {provider.pat.setupGuide === 'gitlab' ? (
+            {provider.pat.setupGuide === "gitlab" ? (
               <>
                 <div>
                   <p className="font-medium text-foreground">1. Create a personal access token:</p>
@@ -155,23 +161,24 @@ export function PatForm({
                     className="inline-flex items-center gap-1 text-info hover:underline break-all"
                   >
                     <ExternalLink className="size-3 flex-shrink-0" />
-                    {tokenCreateUrl.replace(/^https?:\/\//, '')}
+                    {tokenCreateUrl.replace(/^https?:\/\//, "")}
                   </a>
                 </div>
 
                 <div>
                   <p className="font-medium text-foreground">2. Select scopes:</p>
                   <p>
-                    Choose <code className="bg-accent px-1 rounded">api</code> for full access, or{' '}
-                    <code className="bg-accent px-1 rounded">read_repository</code> +{' '}
-                    <code className="bg-accent px-1 rounded">write_repository</code> for clone/push only.
+                    Choose <code className="bg-accent px-1 rounded">api</code> for full access, or{" "}
+                    <code className="bg-accent px-1 rounded">read_repository</code> +{" "}
+                    <code className="bg-accent px-1 rounded">write_repository</code> for clone/push
+                    only.
                   </p>
                 </div>
 
                 <div>
                   <p className="font-medium text-foreground">3. Create and copy the token</p>
                   <p>
-                    Paste it above. GitLab personal access tokens start with{' '}
+                    Paste it above. GitLab personal access tokens start with{" "}
                     <code className="bg-accent px-1 rounded">glpat-</code>.
                   </p>
                 </div>
@@ -180,7 +187,9 @@ export function PatForm({
               <>
                 <div>
                   <p className="font-medium text-foreground">
-                    {isGhes ? '1. Create a personal access token:' : '1. Create a fine-grained token:'}
+                    {isGhes
+                      ? "1. Create a personal access token:"
+                      : "1. Create a fine-grained token:"}
                   </p>
                   <a
                     href={tokenCreateUrl}
@@ -189,7 +198,7 @@ export function PatForm({
                     className="inline-flex items-center gap-1 text-info hover:underline"
                   >
                     <ExternalLink className="size-3" />
-                    {tokenCreateUrl.replace(/^https?:\/\//, '')}
+                    {tokenCreateUrl.replace(/^https?:\/\//, "")}
                   </a>
                 </div>
 
@@ -197,35 +206,53 @@ export function PatForm({
                   <>
                     <div>
                       <p className="font-medium text-foreground">2. Select scopes:</p>
-                      <p>Choose <code className="bg-accent px-1 rounded">repo</code> (clone, push, and pull requests).</p>
+                      <p>
+                        Choose <code className="bg-accent px-1 rounded">repo</code> (clone, push,
+                        and pull requests).
+                      </p>
                     </div>
 
                     <div>
                       <p className="font-medium text-foreground">3. Generate and copy the token</p>
-                      <p>Paste it above. Classic tokens start with <code className="bg-accent px-1 rounded">ghp_</code></p>
+                      <p>
+                        Paste it above. Classic tokens start with{" "}
+                        <code className="bg-accent px-1 rounded">ghp_</code>
+                      </p>
                     </div>
                   </>
                 ) : (
-                <>
-                <div>
-                  <p className="font-medium text-foreground">2. Set repository access:</p>
-                  <p>Select "Only select repositories" and choose the repos you need, or "All repositories" for broader access.</p>
-                </div>
+                  <>
+                    <div>
+                      <p className="font-medium text-foreground">2. Set repository access:</p>
+                      <p>
+                        Select "Only select repositories" and choose the repos you need, or "All
+                        repositories" for broader access.
+                      </p>
+                    </div>
 
-                <div>
-                  <p className="font-medium text-foreground">3. Grant these permissions:</p>
-                  <ul className="ml-4 list-disc">
-                    <li><strong>Contents</strong>: Read and write (for clone/push)</li>
-                    <li><strong>Pull requests</strong>: Read and write (for creating PRs)</li>
-                    <li><strong>Metadata</strong>: Read-only (required, usually auto-selected)</li>
-                  </ul>
-                </div>
+                    <div>
+                      <p className="font-medium text-foreground">3. Grant these permissions:</p>
+                      <ul className="ml-4 list-disc">
+                        <li>
+                          <strong>Contents</strong>: Read and write (for clone/push)
+                        </li>
+                        <li>
+                          <strong>Pull requests</strong>: Read and write (for creating PRs)
+                        </li>
+                        <li>
+                          <strong>Metadata</strong>: Read-only (required, usually auto-selected)
+                        </li>
+                      </ul>
+                    </div>
 
-                <div>
-                  <p className="font-medium text-foreground">4. Generate and copy the token</p>
-                  <p>Paste it above. Fine-grained tokens start with <code className="bg-accent px-1 rounded">github_pat_</code></p>
-                </div>
-                </>
+                    <div>
+                      <p className="font-medium text-foreground">4. Generate and copy the token</p>
+                      <p>
+                        Paste it above. Fine-grained tokens start with{" "}
+                        <code className="bg-accent px-1 rounded">github_pat_</code>
+                      </p>
+                    </div>
+                  </>
                 )}
               </>
             )}

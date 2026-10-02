@@ -94,7 +94,10 @@ export type EncodedOutputValues = Record<string, EncodedOutputValue>
 
 /** Flatten outputs to send over IPC. */
 export function encodeOutputs(values: OutputValues): EncodedOutputValues {
-  return mapValues(values, (value) => ({ value: revealOutput(value), sensitive: isSensitiveOutput(value) }))
+  return mapValues(values, (value) => ({
+    value: revealOutput(value),
+    sensitive: isSensitiveOutput(value),
+  }))
 }
 
 /** Rebuild outputs received over IPC, wrapping the sensitive ones again. */

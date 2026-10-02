@@ -272,7 +272,9 @@ function parseShorthand(input: string, opts: ParseRemoteSourceOptions): ParsedRe
   const host = hostPart.toLowerCase()
   const segments = rest.filter(Boolean)
   if (segments.length < 2) {
-    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${redactSourceCredentials(input)}`)
+    throw new InvalidSource(
+      `expected ${host}/<owner>/<repo>, got ${redactSourceCredentials(input)}`,
+    )
   }
   if (host === "github.com") {
     // go-getter's GitHub detector: segments past owner/repo are the path.
@@ -352,7 +354,11 @@ function repoSource(
 }
 
 /** A browser URL's repo, with its `<ref>/<path>` left joined for resolveRef. */
-function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: string): ParsedRemoteSource {
+function browserSource(
+  host: string,
+  ownerRepoPath: string,
+  rawRefAndPath: string,
+): ParsedRemoteSource {
   const source = repoSource(host, ownerRepoPath)
   // A ref can't contain `..` either (git check-ref-format), so the whole
   // string gets the path rules.
@@ -377,7 +383,9 @@ function splitGoGetter(raw: string): { address: string; subdir?: string; ref?: s
   const source = hashStart === -1 ? raw : raw.slice(0, hashStart)
   const queryStart = source.indexOf("?")
   const beforeQuery = queryStart === -1 ? source : source.slice(0, queryStart)
-  const query = new URLSearchParams(queryStart === -1 ? "" : source.slice(queryStart + 1).replace(/\+/g, "%2B"))
+  const query = new URLSearchParams(
+    queryStart === -1 ? "" : source.slice(queryStart + 1).replace(/\+/g, "%2B"),
+  )
   const ref = query.get("ref") || undefined
 
   const schemeEnd = beforeQuery.indexOf("://")
@@ -486,7 +494,11 @@ export const resolveRef = (
     const code = yield* proc.exitCode
     if (code !== 0) {
       return yield* Effect.fail(
-        new GitError({ command: "git ls-remote", stderr: redactSecrets(stderr.join("\n")), exitCode: code }),
+        new GitError({
+          command: "git ls-remote",
+          stderr: redactSecrets(stderr.join("\n")),
+          exitCode: code,
+        }),
       )
     }
 

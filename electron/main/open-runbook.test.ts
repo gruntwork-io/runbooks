@@ -55,9 +55,7 @@ describe("openRunbookInWindow", () => {
     // The "app already running" case (e.g. Finder "Open with… > Runbooks").
     const { win, calls } = makeFakeWindow(false)
     openRunbookInWindow(win, { path: "/x/runbook.mdx" })
-    expect(calls).toEqual([
-      { channel: "file:open-runbook", payload: { path: "/x/runbook.mdx" } },
-    ])
+    expect(calls).toEqual([{ channel: "file:open-runbook", payload: { path: "/x/runbook.mdx" } }])
   })
 
   it("defers until did-finish-load when the window is still loading", () => {
@@ -68,9 +66,7 @@ describe("openRunbookInWindow", () => {
     expect(calls).toEqual([])
 
     fireFinishLoad()
-    expect(calls).toEqual([
-      { channel: "file:open-runbook", payload: { path: "/x/runbook.mdx" } },
-    ])
+    expect(calls).toEqual([{ channel: "file:open-runbook", payload: { path: "/x/runbook.mdx" } }])
   })
 
   it("forwards remoteSource in the payload", () => {
@@ -103,12 +99,18 @@ describe("openRemoteRunbookInWindow", () => {
 
   it("opens the cloned runbook with its remote source", async () => {
     const { win, calls } = makeFakeWindow(false)
-    const { deps, errors } = makeDeps(async (url) => ({ localPath: "/tmp/clone/rb/runbook.mdx", remoteSource: url }))
+    const { deps, errors } = makeDeps(async (url) => ({
+      localPath: "/tmp/clone/rb/runbook.mdx",
+      remoteSource: url,
+    }))
 
     await openRemoteRunbookInWindow(win, URL, deps)
 
     expect(calls).toEqual([
-      { channel: "file:open-runbook", payload: { path: "/tmp/clone/rb/runbook.mdx", remoteSource: URL } },
+      {
+        channel: "file:open-runbook",
+        payload: { path: "/tmp/clone/rb/runbook.mdx", remoteSource: URL },
+      },
     ])
     expect(errors).toEqual([])
   })
@@ -116,7 +118,10 @@ describe("openRemoteRunbookInWindow", () => {
   it("waits for a still-loading window before sending the cloned runbook", async () => {
     // Cold launch: the clone starts alongside the page load.
     const { win, calls, fireFinishLoad } = makeFakeWindow(true)
-    const { deps } = makeDeps(async (url) => ({ localPath: "/tmp/clone/runbook.mdx", remoteSource: url }))
+    const { deps } = makeDeps(async (url) => ({
+      localPath: "/tmp/clone/runbook.mdx",
+      remoteSource: url,
+    }))
 
     await openRemoteRunbookInWindow(win, URL, deps)
     expect(calls).toEqual([])
@@ -129,10 +134,13 @@ describe("openRemoteRunbookInWindow", () => {
     // resolveRemoteRunbook's own failure path: the run exits with a
     // RemoteSourceError carrying classifyCloneError's hint, and
     // valueOrUserError rethrows it as a plain Error with that message.
-    const hint = "authentication required for github.com/o/r: set GITHUB_TOKEN, or run 'gh auth login'"
+    const hint =
+      "authentication required for github.com/o/r: set GITHUB_TOKEN, or run 'gh auth login'"
     const { win, calls } = makeFakeWindow(false)
     const { deps, errors } = makeDeps(async (url) =>
-      valueOrUserError(await Effect.runPromiseExit(Effect.fail(new RemoteSourceError({ url, message: hint })))),
+      valueOrUserError(
+        await Effect.runPromiseExit(Effect.fail(new RemoteSourceError({ url, message: hint }))),
+      ),
     )
 
     await openRemoteRunbookInWindow(win, URL, deps)
@@ -157,26 +165,37 @@ describe("openRemoteRunbookInWindow", () => {
   })
 
   it.each([
-    ["https", "https://user:{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
-    ["https (an @ in the password)", "https://user:p@{pw}@git.example.com/o/r/tree/main/rb", "https://git.example.com/o/r/tree/main/rb"],
+    [
+      "https",
+      "https://user:{pw}@git.example.com/o/r/tree/main/rb",
+      "https://git.example.com/o/r/tree/main/rb",
+    ],
+    [
+      "https (an @ in the password)",
+      "https://user:p@{pw}@git.example.com/o/r/tree/main/rb",
+      "https://git.example.com/o/r/tree/main/rb",
+    ],
     [
       "git::https",
       "git::https://deploy:{pw}@git.example.com/o/r.git//rb?ref=main",
       "git::https://git.example.com/o/r.git//rb?ref=main",
     ],
-  ])("strips the userinfo of a %s source from the error it shows", async (_scheme, typed, shown) => {
-    // Built at runtime so secret scanners don't flag the fixture.
-    const password = ["hunter", "2"].join("")
-    const { win } = makeFakeWindow(false)
-    const { deps, errors } = makeDeps(async () => {
-      throw new Error("network unreachable")
-    })
+  ])(
+    "strips the userinfo of a %s source from the error it shows",
+    async (_scheme, typed, shown) => {
+      // Built at runtime so secret scanners don't flag the fixture.
+      const password = ["hunter", "2"].join("")
+      const { win } = makeFakeWindow(false)
+      const { deps, errors } = makeDeps(async () => {
+        throw new Error("network unreachable")
+      })
 
-    await openRemoteRunbookInWindow(win, typed.replace("{pw}", password), deps)
+      await openRemoteRunbookInWindow(win, typed.replace("{pw}", password), deps)
 
-    expect(errors[0].detail).not.toContain(password)
-    expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
-  })
+      expect(errors[0].detail).not.toContain(password)
+      expect(errors[0].detail).toBe(`${shown}\n\nnetwork unreachable`)
+    },
+  )
 
   it("redacts go-getter's sshkey (a private key) from the error it shows", async () => {
     const sshKey = ["c3NoLWtl", "eQ+/ZmFrZQ=="].join("")
@@ -185,9 +204,15 @@ describe("openRemoteRunbookInWindow", () => {
       throw new Error("network unreachable")
     })
 
-    await openRemoteRunbookInWindow(win, `git::ssh://git@git.example.com/o/r.git//rb?sshkey=${sshKey}`, deps)
+    await openRemoteRunbookInWindow(
+      win,
+      `git::ssh://git@git.example.com/o/r.git//rb?sshkey=${sshKey}`,
+      deps,
+    )
 
-    expect(errors[0].detail).toBe("git::ssh://git@git.example.com/o/r.git//rb?sshkey=[REDACTED]\n\nnetwork unreachable")
+    expect(errors[0].detail).toBe(
+      "git::ssh://git@git.example.com/o/r.git//rb?sshkey=[REDACTED]\n\nnetwork unreachable",
+    )
   })
 
   it("waits for a cold launch's window to be shown before showing the error", async () => {

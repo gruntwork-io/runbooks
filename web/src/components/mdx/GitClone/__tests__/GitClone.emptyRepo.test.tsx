@@ -103,9 +103,7 @@ describe("GitClone — a repository with no commits", () => {
     await waitFor(() =>
       expect(screen.getByText(/This repository has no commits yet/i)).toBeInTheDocument(),
     )
-    expect(
-      screen.getByRole("button", { name: /Create default branch/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Create default branch/i })).toBeInTheDocument()
   })
 
   it("withholds its outputs and worktree so downstream blocks can't start", async () => {

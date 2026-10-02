@@ -28,7 +28,12 @@ import { getLanguageFromExtension, VCS_DIRS, BINARY_EXTENSIONS_BASE } from "./fi
 const BINARY_EXTENSIONS = new Set([
   ...BINARY_EXTENSIONS_BASE,
   // Images — file-tree treats all image formats as binary (incl. .bmp)
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
 ])
 
 /** Returns `true` when the lowercase extension indicates a binary file. */
@@ -82,9 +87,7 @@ const buildRecursive = (
         continue
       }
 
-      const entryRelPath = relativePath
-        ? path.join(relativePath, entryName)
-        : entryName
+      const entryRelPath = relativePath ? path.join(relativePath, entryName) : entryName
       const entryFullPath = path.join(rootPath, entryRelPath)
 
       if (entry.isDirectory) {
@@ -101,10 +104,7 @@ const buildRecursive = (
         // Track file counts per top-level subdirectory for heavy dir detection
         if (relativePath !== "") {
           const topDir = entryRelPath.split(path.sep)[0]
-          stats.dirFileCounts.set(
-            topDir,
-            (stats.dirFileCounts.get(topDir) ?? 0) + 1,
-          )
+          stats.dirFileCounts.set(topDir, (stats.dirFileCounts.get(topDir) ?? 0) + 1)
         }
 
         // Beyond the file limit: count the file (for totalFiles/heavyDirs) but

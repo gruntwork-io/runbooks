@@ -1,5 +1,5 @@
-import { GitPullRequest } from '@/components/mdx/GitPullRequest'
-import type { GitHubPullRequestProps } from '@/components/mdx/GitPullRequest/types'
+import { GitPullRequest } from "@/components/mdx/GitPullRequest"
+import type { GitHubPullRequestProps } from "@/components/mdx/GitPullRequest/types"
 
 /**
  * Backward-compatible <GitHubPullRequest> block.
@@ -18,7 +18,7 @@ export function GitHubPullRequest(props: GitHubPullRequestProps) {
       {...props}
       // Preserve the legacy default title; the generic block defaults per
       // provider ("Create Pull Request" for github), so this matches.
-      title={props.title ?? 'Create Pull Request'}
+      title={props.title ?? "Create Pull Request"}
       provider="github"
       hideProviderSelect
       __registryType="GitHubPullRequest"
@@ -26,6 +26,6 @@ export function GitHubPullRequest(props: GitHubPullRequestProps) {
   )
 }
 
-GitHubPullRequest.displayName = 'GitHubPullRequest'
+GitHubPullRequest.displayName = "GitHubPullRequest"
 
 export default GitHubPullRequest

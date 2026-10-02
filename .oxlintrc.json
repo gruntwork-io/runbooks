@@ -3,12 +3,7 @@
   "options": {
     "reportUnusedDisableDirectives": "error"
   },
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "react"
-  ],
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
   "jsPlugins": [
     {
       "name": "react-compiler",
@@ -51,21 +46,12 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/e2e/**"
-      ],
+      "files": ["**/e2e/**"],
       "rules": {
         "no-empty-pattern": "off",
         "react-hooks/rules-of-hooks": "off"
       }
     }
   ],
-  "ignorePatterns": [
-    "dist",
-    "out",
-    "node_modules",
-    "*.config.*",
-    "**/*.astro",
-    "testdata/**"
-  ]
+  "ignorePatterns": ["dist", "out", "node_modules", "*.config.*", "**/*.astro", "testdata/**"]
 }

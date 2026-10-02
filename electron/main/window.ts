@@ -20,7 +20,9 @@ function openExternalIfAllowed(url: string): void {
     if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
       shell.openExternal(url)
     }
-  } catch { /* ignore invalid URLs */ }
+  } catch {
+    /* ignore invalid URLs */
+  }
 }
 
 /**
@@ -34,7 +36,9 @@ function knownGitHubHosts(): string[] {
   try {
     const hostsPath = resolveGhHostsPath({ env: process.env })
     if (hostsPath) hosts.push(...parseGhHosts(fs.readFileSync(hostsPath, "utf8")))
-  } catch { /* no gh config */ }
+  } catch {
+    /* no gh config */
+  }
   const store = readVcsAuthStore()
   hosts.push(...store.recentGitHubHosts)
   if (store.lastSelectedGitHubHost) hosts.push(store.lastSelectedGitHubHost)
@@ -85,8 +89,7 @@ export function createMainWindow(): BrowserWindow {
         height: 64,
       },
     }),
-    backgroundColor:
-      TITLE_BAR_THEMES[nativeTheme.shouldUseDarkColors ? "dark" : "light"].color,
+    backgroundColor: TITLE_BAR_THEMES[nativeTheme.shouldUseDarkColors ? "dark" : "light"].color,
     show: false,
   })
 
@@ -130,7 +133,9 @@ export function createMainWindow(): BrowserWindow {
       try {
         const devOrigin = new URL(process.env.ELECTRON_RENDERER_URL).origin
         if (new URL(url).origin === devOrigin) return
-      } catch { /* fall through to block */ }
+      } catch {
+        /* fall through to block */
+      }
     }
     // Production, or a cross-origin navigation in dev — open externally if
     // the scheme is allowed.

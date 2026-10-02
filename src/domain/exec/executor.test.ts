@@ -236,9 +236,16 @@ describe("executeScript — log files", () => {
           // What a line written straight to each file turns into.
           const lines = (options?.logChannels ?? []).map((channel) => {
             const raw = `raw ${channel.path}`
-            return { line: channel.formatLine ? channel.formatLine(raw) : raw, source: "file" as const }
+            return {
+              line: channel.formatLine ? channel.formatLine(raw) : raw,
+              source: "file" as const,
+            }
           })
-          return { output: Stream.fromIterable(lines), exitCode: Effect.succeed(0), kill: Effect.void }
+          return {
+            output: Stream.fromIterable(lines),
+            exitCode: Effect.succeed(0),
+            kill: Effect.void,
+          }
         }),
     })
     const layer = Layer.mergeAll(
@@ -420,20 +427,22 @@ describe("executeScript — outputs", () => {
     )
 
     const events = await Effect.runPromise(program.pipe(Effect.provide(layer)))
-    return events.find(
-      (e): e is Extract<ExecEvent, { _tag: "outputs" }> => e._tag === "outputs",
-    )
+    return events.find((e): e is Extract<ExecEvent, { _tag: "outputs" }> => e._tag === "outputs")
   }
 
   it("carries a sensitive output wrapped, under its plain key", async () => {
-    const outputs = await runWritingOutputs("region=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc\n")
+    const outputs = await runWritingOutputs(
+      "region=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc\n",
+    )
 
     // toEqual can't see inside a Redacted, so compare the encoded form
     expect(encodeOutputs(outputs?.event.outputs ?? {})).toEqual({
       region: { value: "us-west-2", sensitive: false },
       AWS_SECRET_ACCESS_KEY: { value: "abc", sensitive: true },
     })
-    expect(JSON.stringify(outputs?.event)).toBe('{"outputs":{"region":"us-west-2","AWS_SECRET_ACCESS_KEY":"<redacted>"}}')
+    expect(JSON.stringify(outputs?.event)).toBe(
+      '{"outputs":{"region":"us-west-2","AWS_SECRET_ACCESS_KEY":"<redacted>"}}',
+    )
   })
 
   it("carries plain outputs as strings", async () => {

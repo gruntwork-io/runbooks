@@ -3,11 +3,17 @@
  * Used by Template, TemplateInline, useScriptExecution, GitClone, and other blocks.
  */
 
-import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import type { OutputDependency } from '@/lib/extractTemplateDependencies'
-import { normalizeBlockId } from '@/lib/utils'
-import { isSensitiveOutput, maskOutputs, maskOutput, revealOutputs, type OutputValue } from '@/lib/outputValues'
+import type { BlockOutputs, TemplateValue } from "@/contexts/RunbookContext"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import type { OutputDependency } from "@/lib/extractTemplateDependencies"
+import { normalizeBlockId } from "@/lib/utils"
+import {
+  isSensitiveOutput,
+  maskOutputs,
+  maskOutput,
+  revealOutputs,
+  type OutputValue,
+} from "@/lib/outputValues"
 
 export type { OutputValue }
 
@@ -57,12 +63,16 @@ export interface PlainTemplateContext {
 
 /** Every output with its real value, for a render whose result is run or written to a file. */
 export function revealTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
-  return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, revealOutputs(values)]))
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [blockId, revealOutputs(values)]),
+  )
 }
 
 /** Every output as it may be shown: sensitive ones as `<redacted>`. For a render that is only displayed. */
 export function maskTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
-  return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]))
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]),
+  )
 }
 
 /**
@@ -75,7 +85,9 @@ export function omitSensitiveTemplateOutputs(outputs: TemplateOutputs): PlainTem
     Object.entries(outputs).map(([blockId, values]) => [
       blockId,
       Object.fromEntries(
-        Object.entries(values).filter((entry): entry is [OutputName, string] => !isSensitiveOutput(entry[1])),
+        Object.entries(values).filter(
+          (entry): entry is [OutputName, string] => !isSensitiveOutput(entry[1]),
+        ),
       ),
     ]),
   )
@@ -127,8 +139,8 @@ export function buildRenderVariables(
  */
 export function buildTemplatePayload(ctx: PlainTemplateContext): TemplateValue[] {
   return [
-    { name: 'inputs', type: BoilerplateVariableType.Map, value: ctx.inputs },
-    { name: 'outputs', type: BoilerplateVariableType.Map, value: ctx.outputs },
+    { name: "inputs", type: BoilerplateVariableType.Map, value: ctx.inputs },
+    { name: "outputs", type: BoilerplateVariableType.Map, value: ctx.outputs },
   ]
 }
 
@@ -143,7 +155,9 @@ export function buildTemplatePayload(ctx: PlainTemplateContext): TemplateValue[]
  */
 export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
   return inputs.some(
-    i => (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) && i.value === ''
+    (i) =>
+      (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) &&
+      i.value === "",
   )
 }
 
@@ -154,7 +168,7 @@ export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
  */
 export function computeUnmetOutputDependencies(
   outputDependencies: OutputDependency[],
-  allOutputs: Record<string, BlockOutputs>
+  allOutputs: Record<string, BlockOutputs>,
 ): BlockOutput[] {
   if (outputDependencies.length === 0) return []
 
@@ -169,7 +183,7 @@ export function computeUnmetOutputDependencies(
       // Block hasn't produced any outputs yet - preserve original blockId for display
       unmet.push({ blockId, outputNames })
     } else {
-      const missingOutputs = outputNames.filter(name => !(name in blockData.values))
+      const missingOutputs = outputNames.filter((name) => !(name in blockData.values))
       if (missingOutputs.length > 0) {
         unmet.push({ blockId, outputNames: missingOutputs })
       }
@@ -185,9 +199,7 @@ export function computeUnmetOutputDependencies(
  * Used inside useTemplateDependencies to provide callers with the flat format
  * matching {{ .outputs.*.* }} template expressions.
  */
-export function flattenBlockOutputs(
-  allOutputs: Record<string, BlockOutputs>
-): TemplateOutputs {
+export function flattenBlockOutputs(allOutputs: Record<string, BlockOutputs>): TemplateOutputs {
   const result: TemplateOutputs = {}
   for (const [blockId, data] of Object.entries(allOutputs)) {
     result[blockId] = data.values
@@ -203,12 +215,12 @@ export function flattenBlockOutputs(
  * member.
  */
 function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const segments = path.split('.')
+  const segments = path.split(".")
   let current: unknown = obj
   for (const segment of segments) {
     if (
       current === null ||
-      typeof current !== 'object' ||
+      typeof current !== "object" ||
       Array.isArray(current) ||
       !Object.hasOwn(current, segment)
     ) {
@@ -236,11 +248,13 @@ export function resolveInputPath(inputs: TemplateInputs, path: InputName): unkno
  */
 export function computeUnmetInputDependencies(
   deps: InputName[],
-  inputs: TemplateInputs
+  inputs: TemplateInputs,
 ): InputName[] {
-  return deps.filter(name => {
-    const value = name.includes('.') ? resolveNestedValue(inputs as Record<string, unknown>, name) : inputs[name]
-    return value === undefined || value === null || value === ''
+  return deps.filter((name) => {
+    const value = name.includes(".")
+      ? resolveNestedValue(inputs as Record<string, unknown>, name)
+      : inputs[name]
+    return value === undefined || value === null || value === ""
   })
 }
 
@@ -251,14 +265,14 @@ export function computeUnmetInputDependencies(
  */
 export function filterUnmetOutputDeps(
   allUnmetOutputDeps: BlockOutput[],
-  targetOutputDeps: OutputDependency[]
+  targetOutputDeps: OutputDependency[],
 ): BlockOutput[] {
   return allUnmetOutputDeps
-    .map(dep => {
+    .map((dep) => {
       const blockingNames = targetOutputDeps
-        .filter(bd => bd.blockId === dep.blockId)
-        .map(bd => bd.outputName)
-      const matchedNames = dep.outputNames.filter(n => blockingNames.includes(n))
+        .filter((bd) => bd.blockId === dep.blockId)
+        .map((bd) => bd.outputName)
+      const matchedNames = dep.outputNames.filter((n) => blockingNames.includes(n))
       return matchedNames.length > 0 ? { ...dep, outputNames: matchedNames } : null
     })
     .filter((dep): dep is NonNullable<typeof dep> => dep !== null)
@@ -280,7 +294,7 @@ const VALUE_REFERENCE_PATTERN =
 export function extractInputValueReferences(text: string): InputName[] {
   const names = new Set<InputName>()
   for (const [, namespace, path] of text.matchAll(VALUE_REFERENCE_PATTERN)) {
-    if (namespace === 'inputs') names.add(path)
+    if (namespace === "inputs") names.add(path)
   }
   return [...names]
 }
@@ -294,32 +308,26 @@ export function extractInputValueReferences(text: string): InputName[] {
  * where a secret doesn't belong (a PR title or body), so a sensitive output
  * resolves to `<redacted>`, never its real value.
  */
-export function resolveTemplateReferences(
-  text: string,
-  ctx: TemplateContext
-): string {
+export function resolveTemplateReferences(text: string, ctx: TemplateContext): string {
   if (!text) return text
-  return text.replace(
-    VALUE_REFERENCE_PATTERN,
-    (match, namespace, path) => {
-      if (namespace === 'inputs') {
-        // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
-        // through nested objects, like computeUnmetInputDependencies.
-        const value = resolveInputPath(ctx.inputs, path)
-        return value != null ? String(value) : `\`${match}\``
-      }
-      if (namespace === 'outputs') {
-        const dotIdx = path.indexOf('.')
-        if (dotIdx > 0) {
-          const blockId = normalizeBlockId(path.slice(0, dotIdx))
-          const outputName = path.slice(dotIdx + 1)
-          const value = ctx.outputs[blockId]?.[outputName]
-          return value !== undefined ? maskOutput(value) : `\`${match}\``
-        }
-      }
-      return `\`${match}\``
+  return text.replace(VALUE_REFERENCE_PATTERN, (match, namespace, path) => {
+    if (namespace === "inputs") {
+      // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
+      // through nested objects, like computeUnmetInputDependencies.
+      const value = resolveInputPath(ctx.inputs, path)
+      return value != null ? String(value) : `\`${match}\``
     }
-  )
+    if (namespace === "outputs") {
+      const dotIdx = path.indexOf(".")
+      if (dotIdx > 0) {
+        const blockId = normalizeBlockId(path.slice(0, dotIdx))
+        const outputName = path.slice(dotIdx + 1)
+        const value = ctx.outputs[blockId]?.[outputName]
+        return value !== undefined ? maskOutput(value) : `\`${match}\``
+      }
+    }
+    return `\`${match}\``
+  })
 }
 
 // --- Internal helpers ---

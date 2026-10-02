@@ -128,7 +128,9 @@ describe("exec:run captured env", () => {
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
     }
-    const executableId = Object.keys(executables).find((id) => executables[id]!.componentId === "wait")!
+    const executableId = Object.keys(executables).find(
+      (id) => executables[id]!.componentId === "wait",
+    )!
 
     return {
       /**
@@ -154,7 +156,9 @@ describe("exec:run captured env", () => {
 
     const run = await runbook.start()
     // What GitAuth / AwsAuth / GoogleAuth do while a long Command is running.
-    await runtime.runPromise(sessionManager.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run", PRE_EXISTING: "fresh" }))
+    await runtime.runPromise(
+      sessionManager.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run", PRE_EXISTING: "fresh" }),
+    )
     await runtime.runPromise(sessionManager.removeFromEnv(["AWS_SESSION_TOKEN"]))
     runbook.release()
 
@@ -181,7 +185,9 @@ describe("exec:run captured env", () => {
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
     }
-    const executableId = Object.keys(executables).find((id) => executables[id]!.componentId === "cmd")!
+    const executableId = Object.keys(executables).find(
+      (id) => executables[id]!.componentId === "cmd",
+    )!
     const result = (await handlers.get("exec:run")!(
       { sender: { send: () => {} } },
       { executableId, executionId: name, envVarsOverride: opts.envVarsOverride },

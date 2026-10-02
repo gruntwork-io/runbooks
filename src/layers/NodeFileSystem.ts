@@ -7,7 +7,12 @@ import * as os from "node:os"
 import { Effect, Layer, Stream } from "effect"
 import { watch as chokidarWatch } from "chokidar"
 import { FileSystem } from "../services/FileSystem.ts"
-import type { FileSystemShape, WalkEntry, FileChangeEvent, WatchOptions } from "../services/FileSystem.ts"
+import type {
+  FileSystemShape,
+  WalkEntry,
+  FileChangeEvent,
+  WatchOptions,
+} from "../services/FileSystem.ts"
 import {
   FileNotFoundError,
   FileReadError,

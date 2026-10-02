@@ -106,7 +106,13 @@ export class GitError extends Data.TaggedError("GitError")<{
  * crosses IPC or hits a log.
  */
 export class VcsCliError extends Data.TaggedError("VcsCliError")<{
-  readonly kind: "not-installed" | "not-authenticated" | "keyring-blocked" | "spawn" | "timeout" | "api"
+  readonly kind:
+    | "not-installed"
+    | "not-authenticated"
+    | "keyring-blocked"
+    | "spawn"
+    | "timeout"
+    | "api"
   readonly stderr: string
 }> {}
 

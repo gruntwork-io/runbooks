@@ -110,7 +110,9 @@ export interface GoogleSessionEnvChange {
  * goes through here. Keys this credential does not carry are left as they are
  * (see the known gap in the module doc).
  */
-export function sessionEnvForCredential(credential: ActiveGoogleCredential): GoogleSessionEnvChange {
+export function sessionEnvForCredential(
+  credential: ActiveGoogleCredential,
+): GoogleSessionEnvChange {
   return {
     set: buildGoogleSessionEnv({
       credentialsPath: credential.credentialsPath,

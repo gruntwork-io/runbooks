@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react'
-import type { ReactNode } from 'react'
-import { GeneratedFilesContext } from './GeneratedFilesContext.types'
-import type { FileTreeNode } from '../components/artifacts/code/FileTree'
-import type { FileTreeResponse, TruncationInfo } from './GeneratedFilesContext.types'
+import React, { useState, useCallback } from "react"
+import type { ReactNode } from "react"
+import { GeneratedFilesContext } from "./GeneratedFilesContext.types"
+import type { FileTreeNode } from "../components/artifacts/code/FileTree"
+import type { FileTreeResponse, TruncationInfo } from "./GeneratedFilesContext.types"
 
 interface GeneratedFilesProviderProps {
   children: ReactNode
@@ -31,12 +31,20 @@ export const GeneratedFilesProvider: React.FC<GeneratedFilesProviderProps> = ({ 
             totalFiles: response.totalFiles ?? 0,
             heavyDirs: response.heavyDirs,
           }
-        : null
+        : null,
     )
   }, [])
 
   return (
-    <GeneratedFilesContext.Provider value={{ fileTree, truncationInfo, localPath, setLocalPath: stableSetLocalPath, updateGeneratedFileTree }}>
+    <GeneratedFilesContext.Provider
+      value={{
+        fileTree,
+        truncationInfo,
+        localPath,
+        setLocalPath: stableSetLocalPath,
+        updateGeneratedFileTree,
+      }}
+    >
       {children}
     </GeneratedFilesContext.Provider>
   )

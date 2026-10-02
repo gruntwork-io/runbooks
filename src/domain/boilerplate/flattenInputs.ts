@@ -116,8 +116,7 @@ export function resolveInputTemplates(
       // Feed only already-resolved values into the render context. A
       // template string in context would render as its literal `{{ }}`
       // text, which is never what the user meant.
-      const context =
-        (stripTemplateValues(current) as Record<string, unknown> | undefined) ?? {}
+      const context = (stripTemplateValues(current) as Record<string, unknown> | undefined) ?? {}
       // Mirror the lifting `flattenVariables` does at the end: legacy template
       // refs use top-level `{{ .OrgNamePrefix }}` syntax, not
       // `{{ .inputs.OrgNamePrefix }}`. If we only expose the `inputs`
@@ -141,9 +140,7 @@ function hasAnyTemplateString(value: unknown): boolean {
   if (isTemplateString(value)) return true
   if (Array.isArray(value)) return value.some(hasAnyTemplateString)
   if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).some(
-      hasAnyTemplateString,
-    )
+    return Object.values(value as Record<string, unknown>).some(hasAnyTemplateString)
   }
   return false
 }
@@ -244,9 +241,7 @@ export function flattenVariables(
     // Anything that didn't resolve gets dropped so boilerplate's own
     // `default:` clause runs in the parent scope.
     const cleanedInputs =
-      (stripTemplateValues(resolvedInputs) as
-        | Record<string, unknown>
-        | undefined) ?? {}
+      (stripTemplateValues(resolvedInputs) as Record<string, unknown> | undefined) ?? {}
 
     return liftInputsToRoot({ ...src, inputs: cleanedInputs }, cleanedInputs)
   })

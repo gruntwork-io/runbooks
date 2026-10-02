@@ -1,10 +1,10 @@
 /**
  * @fileoverview FileTree Component
- * 
+ *
  * A lightweight, custom file tree component that renders hierarchical file/folder structures.
  * This component was created as a reliable alternative to the @headless-tree/react library
  * to ensure consistent rendering with the API data structure.
- * 
+ *
  * Features:
  * - Expand/collapse functionality for folders
  * - File/folder selection
@@ -12,25 +12,25 @@
  * - No external dependencies (pure React implementation)
  */
 
-import { useState, type SVGProps } from 'react'
-import { 
-  Folder, 
-  FolderOpen, 
-  FileCode, 
-  FileText, 
-  FileJson, 
-  FileType, 
+import { useState, type SVGProps } from "react"
+import {
+  Folder,
+  FolderOpen,
+  FileCode,
+  FileText,
+  FileJson,
+  FileType,
   File,
   Image,
   Settings,
   FileTerminal,
   Lock,
-  ChevronRight, 
+  ChevronRight,
   ChevronDown,
   Loader2,
-  type LucideIcon
-} from 'lucide-react'
-import { cn } from '../../../lib/utils'
+  type LucideIcon,
+} from "lucide-react"
+import { cn } from "../../../lib/utils"
 
 // Icon component type that works with both Lucide icons and custom SVG icons
 type IconComponent = LucideIcon | React.FC<SVGProps<SVGSVGElement> & { className?: string }>
@@ -38,7 +38,10 @@ type IconComponent = LucideIcon | React.FC<SVGProps<SVGSVGElement> & { className
 /**
  * OpenTofu icon - official logo (dark alpha version)
  */
-const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({ className, ...props }) => (
+const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({
+  className,
+  ...props
+}) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     viewBox="0 0 32 32"
@@ -47,32 +50,70 @@ const OpenTofuIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> =
     {...props}
   >
     {/* Top face */}
-    <path fill="currentColor" fillOpacity="0.4" d="M15.75 2.08a.5.5 0 0 1 .5 0l10.84 5.97c.35.19.35.7 0 .89L16.24 14.9a.5.5 0 0 1-.49 0L4.91 8.94a.5.5 0 0 1 0-.9z"/>
+    <path
+      fill="currentColor"
+      fillOpacity="0.4"
+      d="M15.75 2.08a.5.5 0 0 1 .5 0l10.84 5.97c.35.19.35.7 0 .89L16.24 14.9a.5.5 0 0 1-.49 0L4.91 8.94a.5.5 0 0 1 0-.9z"
+    />
     {/* Left face */}
-    <path fill="currentColor" fillOpacity="0.8" d="M3.19 10.78a.5.5 0 0 1 .75-.45l10.95 6.02c.16.1.26.26.26.44v11.93a.5.5 0 0 1-.75.44L3.46 23.15a.51.51 0 0 1-.26-.44V10.78z"/>
+    <path
+      fill="currentColor"
+      fillOpacity="0.8"
+      d="M3.19 10.78a.5.5 0 0 1 .75-.45l10.95 6.02c.16.1.26.26.26.44v11.93a.5.5 0 0 1-.75.44L3.46 23.15a.51.51 0 0 1-.26-.44V10.78z"
+    />
     {/* Right face */}
-    <path fill="currentColor" fillOpacity="0.6" d="M28.06 10.33a.5.5 0 0 1 .74.45V22.7a.5.5 0 0 1-.26.44L17.6 29.16a.5.5 0 0 1-.75-.44V16.79c0-.18.1-.35.26-.44z"/>
+    <path
+      fill="currentColor"
+      fillOpacity="0.6"
+      d="M28.06 10.33a.5.5 0 0 1 .74.45V22.7a.5.5 0 0 1-.26.44L17.6 29.16a.5.5 0 0 1-.75-.44V16.79c0-.18.1-.35.26-.44z"
+    />
     {/* Eyes on left face */}
-    <path fill="currentColor" d="M7.79 20.13v.02L5.22 18.8v-.02c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12m4.04 2.33v.02l-2.57-1.36v-.01c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12"/>
+    <path
+      fill="currentColor"
+      d="M7.79 20.13v.02L5.22 18.8v-.02c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12m4.04 2.33v.02l-2.57-1.36v-.01c.06-.8.68-1.15 1.39-.77s1.24 1.32 1.18 2.12"
+    />
   </svg>
 )
 
 /**
  * Terragrunt icon - official logo
  */
-const TerragruntIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({ className, ...props }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 525 526"
-    className={className}
-    {...props}
-  >
-    <path fillRule="evenodd" clipRule="evenodd" d="M256.867 0.513672L479.187 128.514V384.514L256.867 512.514L34.5469 384.514V128.514L256.867 0.513672ZM455.187 142.332L256.867 28.1495L58.5469 142.332V370.696L256.867 484.878L455.187 370.696V142.332Z" fill="currentColor"/>
-    <path d="M356.027 427.788L455.187 370.697L356.027 313.606L256.867 370.697V484.879L356.027 427.788Z" fill="currentColor" fillOpacity="0.4"/>
-    <path d="M256.867 256.515V370.697L356.027 313.606L256.867 256.515Z" fill="currentColor" fillOpacity="0.8"/>
-    <path d="M356.027 199.423L256.867 256.515L356.027 313.606L455.187 256.515L356.027 199.423Z" fill="currentColor" fillOpacity="0.6"/>
-    <path d="M356.027 85.2414L256.867 28.1504L157.707 85.2414L58.5469 142.332L157.707 199.423L256.867 142.332L356.027 199.423L455.187 142.332L356.027 85.2414Z" fill="currentColor" fillOpacity="0.4"/>
-    <path d="M256.867 256.515L356.027 199.423L256.867 142.332L157.707 199.423L256.867 256.515Z" fill="currentColor" fillOpacity="0.8"/>
+const TerragruntIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }> = ({
+  className,
+  ...props
+}) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 525 526" className={className} {...props}>
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M256.867 0.513672L479.187 128.514V384.514L256.867 512.514L34.5469 384.514V128.514L256.867 0.513672ZM455.187 142.332L256.867 28.1495L58.5469 142.332V370.696L256.867 484.878L455.187 370.696V142.332Z"
+      fill="currentColor"
+    />
+    <path
+      d="M356.027 427.788L455.187 370.697L356.027 313.606L256.867 370.697V484.879L356.027 427.788Z"
+      fill="currentColor"
+      fillOpacity="0.4"
+    />
+    <path
+      d="M256.867 256.515V370.697L356.027 313.606L256.867 256.515Z"
+      fill="currentColor"
+      fillOpacity="0.8"
+    />
+    <path
+      d="M356.027 199.423L256.867 256.515L356.027 313.606L455.187 256.515L356.027 199.423Z"
+      fill="currentColor"
+      fillOpacity="0.6"
+    />
+    <path
+      d="M356.027 85.2414L256.867 28.1504L157.707 85.2414L58.5469 142.332L157.707 199.423L256.867 142.332L356.027 199.423L455.187 142.332L356.027 85.2414Z"
+      fill="currentColor"
+      fillOpacity="0.4"
+    />
+    <path
+      d="M256.867 256.515L356.027 199.423L256.867 142.332L157.707 199.423L256.867 256.515Z"
+      fill="currentColor"
+      fillOpacity="0.8"
+    />
   </svg>
 )
 
@@ -80,110 +121,110 @@ const TerragruntIcon: React.FC<SVGProps<SVGSVGElement> & { className?: string }>
  * Returns the appropriate icon component for a file based on its extension.
  */
 function getFileIcon(filename: string): IconComponent {
-  const ext = filename.split('.').pop()?.toLowerCase() || ''
+  const ext = filename.split(".").pop()?.toLowerCase() || ""
   const name = filename.toLowerCase()
-  
+
   // Special filenames
-  if (name === 'terragrunt.hcl' || name === 'terragrunt.stack.hcl') return TerragruntIcon
-  if (name === 'dockerfile' || name === 'makefile' || name === 'taskfile.yml') return Settings
-  if (name.startsWith('.env')) return Lock
-  if (name === 'license' || name === 'license.md' || name === 'license.txt') return FileText
-  
+  if (name === "terragrunt.hcl" || name === "terragrunt.stack.hcl") return TerragruntIcon
+  if (name === "dockerfile" || name === "makefile" || name === "taskfile.yml") return Settings
+  if (name.startsWith(".env")) return Lock
+  if (name === "license" || name === "license.md" || name === "license.txt") return FileText
+
   // By extension
   switch (ext) {
     // Code files
-    case 'ts':
-    case 'tsx':
-    case 'js':
-    case 'jsx':
-    case 'go':
-    case 'py':
-    case 'rb':
-    case 'rs':
-    case 'java':
-    case 'c':
-    case 'cpp':
-    case 'h':
-    case 'cs':
-    case 'php':
-    case 'swift':
-    case 'kt':
-    case 'scala':
-    case 'vue':
-    case 'svelte':
+    case "ts":
+    case "tsx":
+    case "js":
+    case "jsx":
+    case "go":
+    case "py":
+    case "rb":
+    case "rs":
+    case "java":
+    case "c":
+    case "cpp":
+    case "h":
+    case "cs":
+    case "php":
+    case "swift":
+    case "kt":
+    case "scala":
+    case "vue":
+    case "svelte":
       return FileCode
-    
+
     // Config/data files
-    case 'json':
-    case 'jsonc':
+    case "json":
+    case "jsonc":
       return FileJson
-    
-    case 'yaml':
-    case 'yml':
-    case 'toml':
-    case 'ini':
-    case 'conf':
-    case 'config':
+
+    case "yaml":
+    case "yml":
+    case "toml":
+    case "ini":
+    case "conf":
+    case "config":
       return Settings
-    
+
     // Markup/text
-    case 'md':
-    case 'mdx':
-    case 'txt':
-    case 'rtf':
-    case 'rst':
+    case "md":
+    case "mdx":
+    case "txt":
+    case "rtf":
+    case "rst":
       return FileText
-    
+
     // Web
-    case 'html':
-    case 'htm':
-    case 'xml':
-    case 'svg':
-    case 'css':
-    case 'scss':
-    case 'sass':
-    case 'less':
+    case "html":
+    case "htm":
+    case "xml":
+    case "svg":
+    case "css":
+    case "scss":
+    case "sass":
+    case "less":
       return FileType
-    
+
     // Images
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'webp':
-    case 'ico':
-    case 'bmp':
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "ico":
+    case "bmp":
       return Image
-    
+
     // Shell/scripts
-    case 'sh':
-    case 'bash':
-    case 'zsh':
-    case 'fish':
-    case 'ps1':
-    case 'bat':
-    case 'cmd':
+    case "sh":
+    case "bash":
+    case "zsh":
+    case "fish":
+    case "ps1":
+    case "bat":
+    case "cmd":
       return FileTerminal
-    
+
     // Terraform/OpenTofu/HCL
-    case 'tf':
-    case 'tfvars':
-    case 'hcl':
-    case 'tofu':
+    case "tf":
+    case "tfvars":
+    case "hcl":
+    case "tofu":
       return OpenTofuIcon
-    
+
     // Lock files
-    case 'lock':
+    case "lock":
       return Lock
-    
+
     default:
       return File
   }
 }
-import '../../../css/headless-tree.css'
+import "../../../css/headless-tree.css"
 
-import type { FileTreeNode } from './FileTree.types'
-export type { File, FileTreeNode } from './FileTree.types'
+import type { FileTreeNode } from "./FileTree.types"
+export type { File, FileTreeNode } from "./FileTree.types"
 
 /**
  * Indentation (px) added per nesting level. Exported so sibling trees that
@@ -198,21 +239,21 @@ export const FILE_TREE_INDENT = 11
  */
 export interface FileTreeProps {
   /** Array of file/folder items to display in the tree */
-  items: FileTreeNode[];
+  items: FileTreeNode[]
   /** Callback function called when a file/folder is clicked */
-  onItemClick?: (item: FileTreeNode) => void;
+  onItemClick?: (item: FileTreeNode) => void
   /** Additional CSS classes to apply to the tree container */
-  className?: string;
+  className?: string
   /** Indentation in pixels for each level of nesting (default: FILE_TREE_INDENT) */
-  indent?: number;
+  indent?: number
 }
 
 /**
  * Renders a hierarchical file tree with expand/collapse functionality.
- * 
+ *
  * @param props - The component props
  * @returns JSX element representing the file tree
- * 
+ *
  * @example
  * ```tsx
  * const fileData = [
@@ -220,7 +261,7 @@ export interface FileTreeProps {
  *     { id: '2', name: 'index.ts', type: 'file', filePath: 'src/index.ts' }
  *   ]}
  * ];
- * 
+ *
  * <FileTree
  *   items={fileData}
  *   onItemClick={(item) => console.log('Clicked:', item.name)}
@@ -234,61 +275,61 @@ export const FileTree = ({
   indent = FILE_TREE_INDENT, // Indent per level (8 base + 11 = 19px for level 1)
 }: FileTreeProps) => {
   /** Set of expanded folder IDs */
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   /** Currently selected item ID */
-  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null)
 
   /**
    * Toggles the expanded state of a folder item.
-   * 
+   *
    * @param itemId - The ID of the folder to toggle
    */
   const toggleExpanded = (itemId: string) => {
-    setExpandedItems(prev => {
-      const newSet = new Set(prev);
+    setExpandedItems((prev) => {
+      const newSet = new Set(prev)
       if (newSet.has(itemId)) {
-        newSet.delete(itemId);
+        newSet.delete(itemId)
       } else {
-        newSet.add(itemId);
+        newSet.add(itemId)
       }
-      return newSet;
-    });
-  };
+      return newSet
+    })
+  }
 
   /**
    * Handles click events on tree items.
    * Sets the selected item, toggles folder expansion, and calls the onItemClick callback.
-   * 
+   *
    * @param item - The clicked item
    */
   const handleItemClick = (item: FileTreeNode) => {
-    setSelectedItem(item.id);
-    if (item.type === 'folder') {
-      toggleExpanded(item.id);
+    setSelectedItem(item.id)
+    if (item.type === "folder") {
+      toggleExpanded(item.id)
     }
     if (onItemClick) {
-      onItemClick(item);
+      onItemClick(item)
     }
-  };
+  }
 
   /**
    * Recursively renders a tree item and its children.
    * GitHub-style layout:
    * - Folders: [padding][chevron][icon][name]
    * - Files: [padding][icon][name]  (NO chevron spacer)
-   * 
+   *
    * With indent = chevron width, file icons align with parent folder icons.
-   * 
+   *
    * @param item - The item to render
    * @param level - The nesting level (used for indentation)
    * @returns JSX element representing the item and its children
    */
   const renderItem = (item: FileTreeNode, level: number = 0) => {
-    const isExpanded = expandedItems.has(item.id);
-    const isSelected = selectedItem === item.id;
-    const isFolder = item.type === 'folder';
-    const isIgnored = item.isIgnored ?? false;
-    const FileIcon = !isFolder ? getFileIcon(item.name) : null;
+    const isExpanded = expandedItems.has(item.id)
+    const isSelected = selectedItem === item.id
+    const isFolder = item.type === "folder"
+    const isIgnored = item.isIgnored ?? false
+    const FileIcon = !isFolder ? getFileIcon(item.name) : null
 
     return (
       <div key={item.id} className="w-max min-w-full">
@@ -301,43 +342,71 @@ export const FileTree = ({
           )}
           style={{
             paddingLeft: `${8 + level * indent}px`,
-            backgroundColor: isSelected ? 'var(--accent)' : undefined,
+            backgroundColor: isSelected ? "var(--accent)" : undefined,
             fontWeight: isSelected ? 500 : undefined,
           }}
           onMouseEnter={(e) => {
-            if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--accent)'
+            if (!isSelected) e.currentTarget.style.backgroundColor = "var(--accent)"
           }}
           onMouseLeave={(e) => {
-            if (!isSelected) e.currentTarget.style.backgroundColor = ''
+            if (!isSelected) e.currentTarget.style.backgroundColor = ""
           }}
         >
           {isFolder ? (
             <>
               {isExpanded ? (
-                <ChevronDown className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
+                <ChevronDown
+                  className={cn(
+                    "w-4 h-4 flex-shrink-0",
+                    isIgnored ? "text-muted-foreground/60" : "text-muted-foreground",
+                  )}
+                />
               ) : (
-                <ChevronRight className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
+                <ChevronRight
+                  className={cn(
+                    "w-4 h-4 flex-shrink-0",
+                    isIgnored ? "text-muted-foreground/60" : "text-muted-foreground",
+                  )}
+                />
               )}
               {isExpanded ? (
-                <FolderOpen className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
+                <FolderOpen
+                  className={cn(
+                    "w-4 h-4 flex-shrink-0",
+                    isIgnored ? "text-muted-foreground/60" : "text-muted-foreground",
+                  )}
+                />
               ) : (
-                <Folder className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />
+                <Folder
+                  className={cn(
+                    "w-4 h-4 flex-shrink-0",
+                    isIgnored ? "text-muted-foreground/60" : "text-muted-foreground",
+                  )}
+                />
               )}
             </>
           ) : (
             <>
               <span className="w-4 flex-shrink-0" />
-              {FileIcon && <FileIcon className={cn("w-4 h-4 flex-shrink-0", isIgnored ? "text-muted-foreground/60" : "text-muted-foreground")} />}
+              {FileIcon && (
+                <FileIcon
+                  className={cn(
+                    "w-4 h-4 flex-shrink-0",
+                    isIgnored ? "text-muted-foreground/60" : "text-muted-foreground",
+                  )}
+                />
+              )}
             </>
           )}
-          
+
           <span className="whitespace-nowrap ml-1">{item.name}</span>
         </button>
-        
-        {isFolder && isExpanded && (
-          item.children && item.children.length > 0 ? (
+
+        {isFolder &&
+          isExpanded &&
+          (item.children && item.children.length > 0 ? (
             <div className="w-max min-w-full">
-              {item.children.map(child => renderItem(child, level + 1))}
+              {item.children.map((child) => renderItem(child, level + 1))}
             </div>
           ) : item.isLazyLoad ? (
             <div
@@ -347,22 +416,19 @@ export const FileTree = ({
               <Loader2 className="w-3 h-3 animate-spin" />
               Loading...
             </div>
-          ) : null
-        )}
+          ) : null)}
       </div>
-    );
-  };
+    )
+  }
 
   // Render the tree container with items or empty state
   return (
-    <div 
-      className={cn("tree pt-1 pb-1 mt-[7px] w-max min-w-full", className)}
-    >
+    <div className={cn("tree pt-1 pb-1 mt-[7px] w-max min-w-full", className)}>
       {items.length === 0 ? (
         <div className="p-4 text-muted-foreground text-sm">No files to display</div>
       ) : (
-        items.map(item => renderItem(item))
+        items.map((item) => renderItem(item))
       )}
     </div>
-  );
-};
+  )
+}

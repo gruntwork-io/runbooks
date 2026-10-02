@@ -72,11 +72,15 @@ describe("describeCredentialFailure", () => {
   })
 
   it("maps client, scope, and network failures", () => {
-    expect(describeCredentialFailure(new Error('{"error":"invalid_client"}'))).toContain("oauthClientId")
-    expect(describeCredentialFailure(new Error('{"error":"invalid_scope"}'))).toContain("cloud-platform")
-    expect(describeCredentialFailure(new Error("getaddrinfo ENOTFOUND oauth2.googleapis.com"))).toContain(
-      "network",
+    expect(describeCredentialFailure(new Error('{"error":"invalid_client"}'))).toContain(
+      "oauthClientId",
     )
+    expect(describeCredentialFailure(new Error('{"error":"invalid_scope"}'))).toContain(
+      "cloud-platform",
+    )
+    expect(
+      describeCredentialFailure(new Error("getaddrinfo ENOTFOUND oauth2.googleapis.com")),
+    ).toContain("network")
   })
 
   it("returns undefined for unrecognised errors so the caller keeps its own message", () => {
@@ -110,7 +114,11 @@ describe("classifyProjectAccessError", () => {
               ...(reason
                 ? {
                     details: [
-                      { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason, domain: "googleapis.com" },
+                      {
+                        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                        reason,
+                        domain: "googleapis.com",
+                      },
                     ],
                   }
                 : {}),
@@ -174,9 +182,9 @@ describe("classifyProjectAccessError", () => {
   })
 
   it("treats a PERMISSION_DENIED that IAM names as denied", () => {
-    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "IAM_PERMISSION_DENIED"))).toBe(
-      "denied",
-    )
+    expect(
+      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "IAM_PERMISSION_DENIED")),
+    ).toBe("denied")
   })
 
   it("does NOT blame the project when the Resource Manager API is disabled", () => {
@@ -190,11 +198,13 @@ describe("classifyProjectAccessError", () => {
 
   it("does NOT blame the project for a refusal aimed at the token or quota project", () => {
     expect(
-      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT")),
+      classifyProjectAccessError(
+        gaxios(403, "PERMISSION_DENIED", "ACCESS_TOKEN_SCOPE_INSUFFICIENT"),
+      ),
     ).toBe("unknown")
-    expect(classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "USER_PROJECT_DENIED"))).toBe(
-      "unknown",
-    )
+    expect(
+      classifyProjectAccessError(gaxios(403, "PERMISSION_DENIED", "USER_PROJECT_DENIED")),
+    ).toBe("unknown")
   })
 
   it("reads the reason off the error gaxios actually throws", async () => {
@@ -209,9 +219,11 @@ describe("classifyProjectAccessError", () => {
 
   it("does NOT blame the project for a server error or a dropped connection", () => {
     expect(classifyProjectAccessError(gaxios(500))).toBe("unknown")
-    expect(classifyProjectAccessError(Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }))).toBe(
-      "unknown",
-    )
+    expect(
+      classifyProjectAccessError(
+        Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }),
+      ),
+    ).toBe("unknown")
     expect(classifyProjectAccessError(undefined)).toBe("unknown")
   })
 
@@ -224,17 +236,25 @@ describe("classifyProjectAccessError", () => {
     // no reason, so this is the bare 403 verdict rather than a throw.
     const malformed = (details: unknown): unknown => ({
       status: 403,
-      response: { status: 403, data: { error: { code: 403, status: "PERMISSION_DENIED", details } } },
+      response: {
+        status: 403,
+        data: { error: { code: 403, status: "PERMISSION_DENIED", details } },
+      },
     })
     expect(classifyProjectAccessError(malformed([{ "@type": 1 }, null, "x"]))).toBe("denied")
     expect(
-      classifyProjectAccessError(malformed([{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: 7 }])),
+      classifyProjectAccessError(
+        malformed([{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: 7 }]),
+      ),
     ).toBe("denied")
     expect(classifyProjectAccessError(malformed("not-a-list"))).toBe("denied")
     // A readable ErrorInfo next to junk still decides the verdict.
     expect(
       classifyProjectAccessError(
-        malformed([{ "@type": 1 }, { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" }]),
+        malformed([
+          { "@type": 1 },
+          { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED" },
+        ]),
       ),
     ).toBe("unknown")
   })
@@ -250,7 +270,9 @@ const run = <A, E>(f: (client: GoogleClientShape) => Effect.Effect<A, E>): Promi
 const runEither = <A, E>(
   f: (client: GoogleClientShape) => Effect.Effect<A, E>,
 ): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.provide(Effect.either(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive))
+  Effect.runPromise(
+    Effect.provide(Effect.either(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive),
+  )
 
 /**
  * The 'adc' detection source is the well-known file under the gcloud config
@@ -393,7 +415,9 @@ describe("the OAuth loopback listener", () => {
 
     try {
       // 1. The exact spray a malicious page performs: right path, wrong state.
-      expect(await probe(port, "/oauth2callback?state=x", { headers: BROWSER_NAVIGATION })).toBe(400)
+      expect(await probe(port, "/oauth2callback?state=x", { headers: BROWSER_NAVIGATION })).toBe(
+        400,
+      )
       await expectStillPending()
 
       // 2. No query string at all — "" vs a UUID also fails the state compare.
@@ -472,7 +496,12 @@ describe("isPlausibleOAuthCallback", () => {
   it("accepts the redirect a browser actually sends", () => {
     expect(
       isPlausibleOAuthCallback(
-        req({ host: HOST, "sec-fetch-dest": "document", "sec-fetch-mode": "navigate", "sec-fetch-site": "cross-site" }),
+        req({
+          host: HOST,
+          "sec-fetch-dest": "document",
+          "sec-fetch-mode": "navigate",
+          "sec-fetch-site": "cross-site",
+        }),
         HOST,
       ),
     ).toBe(true)
@@ -493,8 +522,12 @@ describe("isPlausibleOAuthCallback", () => {
   })
 
   it("rejects subresource probes", () => {
-    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-dest": "image" }), HOST)).toBe(false)
-    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-mode": "no-cors" }), HOST)).toBe(false)
+    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-dest": "image" }), HOST)).toBe(
+      false,
+    )
+    expect(isPlausibleOAuthCallback(req({ host: HOST, "sec-fetch-mode": "no-cors" }), HOST)).toBe(
+      false,
+    )
   })
 
   it("rejects a repeated fetch-metadata header", () => {

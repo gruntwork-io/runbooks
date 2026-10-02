@@ -46,14 +46,14 @@ interface UseGitAuthOptions {
 
 // Module-level so the default keeps one identity across renders: the
 // detection effect and the redetect callbacks depend on it.
-const DEFAULT_DETECT_CREDENTIALS: GitCredentialSource[] = ['env', 'cli']
+const DEFAULT_DETECT_CREDENTIALS: GitCredentialSource[] = ["env", "cli"]
 
 /** GitHub's device-code lifetime in seconds when oauth-start reports none. */
 const DEFAULT_OAUTH_EXPIRES_IN = 900
 
 // Shown both when GitHub answers `expired_token` and when the polling deadline
 // passes first, so a timeout never reads as a denial.
-const OAUTH_CODE_EXPIRED_MESSAGE = 'Authorization request expired. Please try again.'
+const OAUTH_CODE_EXPIRED_MESSAGE = "Authorization request expired. Please try again."
 
 // The manual-UI hint when the author turned detection off. Nothing was looked
 // for, so it must not read as a failed search or suggest a CLI login or env
@@ -81,7 +81,7 @@ type CredentialDetails = {
 function blockCredentialDetails(result: {
   scopes?: string[]
   tokenType?: GitTokenType
-  validatedVia?: 'direct' | 'cli'
+  validatedVia?: "direct" | "cli"
   sessionEnvWarning?: string
 }): CredentialDetails {
   return {
@@ -99,18 +99,24 @@ function blockCredentialDetails(result: {
  */
 type DetectionOutcome =
   | {
-    kind: 'detected'
-    source: GitDetectionSource
-    user: GitUserInfo
-    details: CredentialDetails
-    /** A {block} source's raw token, published like a PAT. */
-    token?: string
-  }
+      kind: "detected"
+      source: GitDetectionSource
+      user: GitUserInfo
+      details: CredentialDetails
+      /** A {block} source's raw token, published like a PAT. */
+      token?: string
+    }
   /** Stopped at a source that could not reach the host; later sources were not tried. */
-  | { kind: 'unreachable'; errorKind: GitErrorKind; host?: string; coldReadOk?: boolean; warnings: string[] }
+  | {
+      kind: "unreachable"
+      errorKind: GitErrorKind
+      host?: string
+      coldReadOk?: boolean
+      warnings: string[]
+    }
   /** Paused on a block source that has not run; `remaining` follow it. */
-  | { kind: 'waiting'; blockId: string; remaining: GitCredentialSource[]; warnings: string[] }
-  | { kind: 'done'; warnings: string[] }
+  | { kind: "waiting"; blockId: string; remaining: GitCredentialSource[]; warnings: string[] }
+  | { kind: "done"; warnings: string[] }
 
 /**
  * Extract the bare host from a user-entered GitLab instance URL (bare host or
@@ -135,7 +141,7 @@ export function useGitAuth({
   provider,
   instanceUrl,
   oauthClientId,
-  oauthScopes = ['repo'],
+  oauthScopes = ["repo"],
   detectCredentials = DEFAULT_DETECT_CREDENTIALS,
   host: authoredHost,
   defaultTab,
@@ -143,9 +149,10 @@ export function useGitAuth({
   // A GitHub host is normalized like main does (so `https://GHES.corp/` and
   // `ghes.corp` agree). An unparseable one is kept raw: main refuses it rather
   // than falling back to github.com, and GitAuth reports it as a config error.
-  const host = authoredHost && provider.id === 'github'
-    ? (tryNormalizeGitHubHost(authoredHost) ?? authoredHost)
-    : authoredHost
+  const host =
+    authoredHost && provider.id === "github"
+      ? (tryNormalizeGitHubHost(authoredHost) ?? authoredHost)
+      : authoredHost
 
   const api = useApi()
   const { registerOutputs, blockOutputs } = useRunbookContext()
@@ -155,16 +162,16 @@ export function useGitAuth({
   // provider offers it; otherwise the provider's own default (GitHub → OAuth,
   // GitLab → PAT, as it has no OAuth). Only the initial value comes from the
   // prop — the user's tab clicks own it from then on.
-  const [authMethod, setAuthMethod] = useState<GitAuthMethod>(
-    () => resolveDefaultAuthMethod(provider, defaultTab)
+  const [authMethod, setAuthMethod] = useState<GitAuthMethod>(() =>
+    resolveDefaultAuthMethod(provider, defaultTab),
   )
-  const [authStatus, setAuthStatus] = useState<GitAuthStatus>('pending')
+  const [authStatus, setAuthStatus] = useState<GitAuthStatus>("pending")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [userInfo, setUserInfo] = useState<GitUserInfo | null>(null)
 
   // Detection state
   const [detectionStatus, setDetectionStatus] = useState<GitDetectionStatus>(
-    detectCredentials === false ? 'done' : 'pending'
+    detectCredentials === false ? "done" : "pending",
   )
   const [detectionSource, setDetectionSource] = useState<GitDetectionSource>(null)
   const [detectedScopes, setDetectedScopes] = useState<string[] | null>(null)
@@ -242,7 +249,7 @@ export function useGitAuth({
   const pausedWalkRef = useRef<{ sources: GitCredentialSource[]; warnings: string[] } | null>(null)
 
   // PAT form state
-  const [patToken, setPatToken] = useState('')
+  const [patToken, setPatToken] = useState("")
   const [showPatToken, setShowPatToken] = useState(false)
   // The current PAT submission. Each submit takes the next number and
   // clearDetectionState (a provider switch, Re-authenticate, a host pick,
@@ -254,16 +261,17 @@ export function useGitAuth({
   // GitLab self-hosted instance URL, seeded from the prop and editable in the
   // PAT form. Only meaningful for the GitLab provider; sent with the token so
   // validation/detection targets the right instance (empty → gitlab.com).
-  const [gitlabInstanceUrl, setGitlabInstanceUrl] = useState(instanceUrl ?? '')
+  const [gitlabInstanceUrl, setGitlabInstanceUrl] = useState(instanceUrl ?? "")
   // Bumped when "Other instance…" is picked; the block focuses the
   // instance-URL field on each bump.
   const [instanceFieldFocusNonce, setInstanceFieldFocusNonce] = useState(0)
 
   // The instance URL to send over IPC: only for GitLab, and only when non-empty
   // (so GitHub and the gitlab.com default both send nothing).
-  const instanceUrlForIpc = provider.supportsManualInstance && gitlabInstanceUrl.trim()
-    ? gitlabInstanceUrl.trim()
-    : undefined
+  const instanceUrlForIpc =
+    provider.supportsManualInstance && gitlabInstanceUrl.trim()
+      ? gitlabInstanceUrl.trim()
+      : undefined
 
   // The host threaded into provider IPC calls. Held in a ref so the credential
   // callbacks don't need it as a dependency (which would churn the detect loop).
@@ -271,7 +279,9 @@ export function useGitAuth({
   // the backend's `instanceUrl ?? host` rule), so the session GITLAB_HOST and the
   // success banner agree with the instance the token was validated against.
   const effectiveHost = provider.supportsHostSelection
-    ? ((instanceUrlForIpc ? hostFromInstanceUrl(instanceUrlForIpc) : undefined) ?? host ?? selectedHost)
+    ? ((instanceUrlForIpc ? hostFromInstanceUrl(instanceUrlForIpc) : undefined) ??
+      host ??
+      selectedHost)
     : undefined
   const effectiveHostRef = useRef<string | undefined>(effectiveHost)
   useLayoutEffect(() => {
@@ -294,10 +304,11 @@ export function useGitAuth({
   // the renderer never holds that constant. Undefined on an enterprise host
   // means OAuth is unavailable there (main has no default for it).
   const oauthHost = effectiveHost ?? provider.defaultHost
-  const effectiveClientId = provider.id === 'github'
-    ? resolveGitHubOAuthClientId(oauthClientId, authoredHost, oauthHost)
-    : undefined
-  const isEnterpriseOAuthHost = provider.id === 'github' && isGitHubEnterpriseHost(oauthHost)
+  const effectiveClientId =
+    provider.id === "github"
+      ? resolveGitHubOAuthClientId(oauthClientId, authoredHost, oauthHost)
+      : undefined
+  const isEnterpriseOAuthHost = provider.id === "github" && isGitHubEnterpriseHost(oauthHost)
   // The custom-app warning offers "use the default app", which only exists on
   // github.com; an enterprise host always uses the author's own app.
   const isCustomClientId = Boolean(effectiveClientId) && !isEnterpriseOAuthHost
@@ -309,42 +320,54 @@ export function useGitAuth({
   // than one grants the needed access (e.g. GitLab's `api` ⊇ `write_repository`).
   // The warning's copy lives in the provider config
   // (`provider.success.scopeWarningDetail`) and is rendered by AuthSuccess.
-  const shouldWarnMissingScope = useCallback((scopes: string[] | undefined): boolean => {
-    if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
-    if (!scopes || scopes.length === 0) return false
-    const acceptable = provider.success.acceptableScopes ?? [provider.success.requiredScope]
-    return !scopes.some((scope) => acceptable.includes(scope))
-  }, [provider])
+  const shouldWarnMissingScope = useCallback(
+    (scopes: string[] | undefined): boolean => {
+      if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
+      if (!scopes || scopes.length === 0) return false
+      const acceptable = provider.success.acceptableScopes ?? [provider.success.requiredScope]
+      return !scopes.some((scope) => acceptable.includes(scope))
+    },
+    [provider],
+  )
 
   // Helper to check for credentials from block outputs. A referenced GitAuth
   // block (marked __AUTHENTICATED) is metadata-only — its credential
   // lives in the session env and is resolved MAIN-SIDE via the validate
   // channels' useSessionToken mode.
-  const getBlockCredentials = useCallback((blockId: string): { found: boolean; token?: string; isGitAuthBlock?: boolean; error?: string } => {
-    const normalizedId = normalizeBlockId(blockId)
-    const values = blockOutputs[normalizedId]?.values
+  const getBlockCredentials = useCallback(
+    (
+      blockId: string,
+    ): { found: boolean; token?: string; isGitAuthBlock?: boolean; error?: string } => {
+      const normalizedId = normalizeBlockId(blockId)
+      const values = blockOutputs[normalizedId]?.values
 
-    if (!values) {
-      return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
-    }
-
-    // The script may have marked the token sensitive; GitAuth needs its real value
-    const outputs: Partial<Record<string, string>> = revealOutputs(values)
-    const isGitAuthBlock = outputs.__AUTHENTICATED === 'true'
-    const token = outputs[provider.env.tokenVar] ||
-      provider.env.altTokenVars.map((v) => outputs[v]).find(Boolean)
-    if (!token) {
-      if (isGitAuthBlock) {
-        // The referenced GitAuth block authenticated; its token is in the
-        // session env (main-side), not in outputs.
-        return { found: true, isGitAuthBlock: true }
+      if (!values) {
+        return {
+          found: false,
+          error: `Block "${blockId}" has not been executed yet or has no outputs`,
+        }
       }
-      const names = [provider.env.tokenVar, ...provider.env.altTokenVars].join(' or ')
-      return { found: false, error: `Block "${blockId}" did not output ${names}` }
-    }
 
-    return { found: true, token, isGitAuthBlock }
-  }, [blockOutputs, provider])
+      // The script may have marked the token sensitive; GitAuth needs its real value
+      const outputs: Partial<Record<string, string>> = revealOutputs(values)
+      const isGitAuthBlock = outputs.__AUTHENTICATED === "true"
+      const token =
+        outputs[provider.env.tokenVar] ||
+        provider.env.altTokenVars.map((v) => outputs[v]).find(Boolean)
+      if (!token) {
+        if (isGitAuthBlock) {
+          // The referenced GitAuth block authenticated; its token is in the
+          // session env (main-side), not in outputs.
+          return { found: true, isGitAuthBlock: true }
+        }
+        const names = [provider.env.tokenVar, ...provider.env.altTokenVars].join(" or ")
+        return { found: false, error: `Block "${blockId}" did not output ${names}` }
+      }
+
+      return { found: true, token, isGitAuthBlock }
+    },
+    [blockOutputs, provider],
+  )
 
   // Whether a {block} source should still be waited on. getBlockCredentials'
   // `found: false` conflates "never ran" with "ran, but left no token", so
@@ -353,13 +376,18 @@ export function useGitAuth({
   // switching its provider (or re-authenticating) registers just
   // GIT_PROVIDER, and a block chained off it must keep waiting for the real
   // auth rather than fall through to later sources.
-  const blockPending = useCallback((blockId: string): boolean => {
-    const values = blockOutputs[normalizeBlockId(blockId)]?.values
-    if (values === undefined) return true
-    const outputs: Partial<Record<string, string>> = revealOutputs(values)
-    const hasToken = [provider.env.tokenVar, ...provider.env.altTokenVars].some((v) => Boolean(outputs[v]))
-    return outputs.GIT_PROVIDER !== undefined && outputs.__AUTHENTICATED !== 'true' && !hasToken
-  }, [blockOutputs, provider])
+  const blockPending = useCallback(
+    (blockId: string): boolean => {
+      const values = blockOutputs[normalizeBlockId(blockId)]?.values
+      if (values === undefined) return true
+      const outputs: Partial<Record<string, string>> = revealOutputs(values)
+      const hasToken = [provider.env.tokenVar, ...provider.env.altTokenVars].some((v) =>
+        Boolean(outputs[v]),
+      )
+      return outputs.GIT_PROVIDER !== undefined && outputs.__AUTHENTICATED !== "true" && !hasToken
+    },
+    [blockOutputs, provider],
+  )
 
   // Register credentials as BLOCK OUTPUTS only (main writes the session
   // env during validation). Used by the PAT path and the non-GitAuth
@@ -369,58 +397,76 @@ export function useGitAuth({
   // sensitive output, whatever it came from (including a block that marked it
   // `sensitive:`), so a template that shows it shows <redacted>. Its readers
   // (gitAuthId/githubAuthId, a {block} source) reveal the real value.
-  const registerCredentials = useCallback((token: string, user: GitUserInfo): void => {
-    registerOutputs(id, {
-      [provider.env.tokenVar]: sensitiveOutput(token),
-      [provider.env.userVar]: user.login,
-      [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
-      GIT_PROVIDER: provider.id,
-      __AUTHENTICATED: 'true',
-    })
-  }, [id, provider, registerOutputs])
+  const registerCredentials = useCallback(
+    (token: string, user: GitUserInfo): void => {
+      registerOutputs(id, {
+        [provider.env.tokenVar]: sensitiveOutput(token),
+        [provider.env.userVar]: user.login,
+        [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
+        GIT_PROVIDER: provider.id,
+        __AUTHENTICATED: "true",
+      })
+    },
+    [id, provider, registerOutputs],
+  )
 
   // Metadata-only output registration for the env/cli/oauth/session-chained
   // paths — no raw token ever enters block outputs for these.
-  const registerMetadataOutputs = useCallback((user?: GitUserInfo): void => {
-    registerOutputs(id, {
-      ...(user ? { [provider.env.userVar]: user.login } : {}),
-      [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
-      GIT_PROVIDER: provider.id,
-      __AUTHENTICATED: 'true',
-    })
-  }, [id, provider, registerOutputs])
+  const registerMetadataOutputs = useCallback(
+    (user?: GitUserInfo): void => {
+      registerOutputs(id, {
+        ...(user ? { [provider.env.userVar]: user.login } : {}),
+        [provider.env.hostVar]: effectiveHostRef.current ?? provider.defaultHost,
+        GIT_PROVIDER: provider.id,
+        __AUTHENTICATED: "true",
+      })
+    },
+    [id, provider, registerOutputs],
+  )
 
   // Clear this block's registered outputs. When the user explicitly switches
   // providers, pass `retainProvider` so the new provider's id is written
   // immediately — downstream blocks (e.g. GitPullRequest) need GIT_PROVIDER
   // to derive the right channel even before authentication completes.
-  const clearRegisteredOutputs = useCallback((retainProvider?: string) => {
-    registerOutputs(id, retainProvider ? { GIT_PROVIDER: retainProvider } : {})
-  }, [id, registerOutputs])
+  const clearRegisteredOutputs = useCallback(
+    (retainProvider?: string) => {
+      registerOutputs(id, retainProvider ? { GIT_PROVIDER: retainProvider } : {})
+    },
+    [id, registerOutputs],
+  )
 
   // The host an unreachable card should name: the effective (picked/pinned/
   // entered) host. A backend-reported host wins.
-  const unreachableHost = useCallback((reportedHost?: string): string => {
-    return reportedHost ?? effectiveHostRef.current ?? provider.defaultHost
-  }, [provider])
+  const unreachableHost = useCallback(
+    (reportedHost?: string): string => {
+      return reportedHost ?? effectiveHostRef.current ?? provider.defaultHost
+    },
+    [provider],
+  )
 
-  const markUnreachable = useCallback((errorKind: GitErrorKind, reportedHost?: string, coldReadOk?: boolean) => {
-    setUnreachableInfo({ errorKind, host: unreachableHost(reportedHost), coldReadOk })
-  }, [unreachableHost])
+  const markUnreachable = useCallback(
+    (errorKind: GitErrorKind, reportedHost?: string, coldReadOk?: boolean) => {
+      setUnreachableInfo({ errorKind, host: unreachableHost(reportedHost), coldReadOk })
+    },
+    [unreachableHost],
+  )
 
   // Publish what a validated credential reported to the success card. Shared
   // by every success path (detection, PAT, OAuth) so none of them can drop a
   // field the others show; each field is set outright, so the card reflects
   // exactly this credential.
-  const applyCredentialDetails = useCallback((details: CredentialDetails) => {
-    const scopes = details.scopes && details.scopes.length > 0 ? details.scopes : null
-    setDetectedScopes(scopes)
-    setMissingScope(shouldWarnMissingScope(details.scopes))
-    setDetectedTokenType(details.tokenType ?? null)
-    setSuccessMeta(details.meta ?? null)
-    setDivergenceHint(details.divergenceHint ?? null)
-    setSessionEnvWarning(details.sessionEnvWarning ?? null)
-  }, [shouldWarnMissingScope])
+  const applyCredentialDetails = useCallback(
+    (details: CredentialDetails) => {
+      const scopes = details.scopes && details.scopes.length > 0 ? details.scopes : null
+      setDetectedScopes(scopes)
+      setMissingScope(shouldWarnMissingScope(details.scopes))
+      setDetectedTokenType(details.tokenType ?? null)
+      setSuccessMeta(details.meta ?? null)
+      setDivergenceHint(details.divergenceHint ?? null)
+      setSessionEnvWarning(details.sessionEnvWarning ?? null)
+    },
+    [shouldWarnMissingScope],
+  )
 
   // Shared success epilogue — every detection source ends a successful
   // detection the same way, and it is the only place detection publishes
@@ -429,115 +475,174 @@ export function useGitAuth({
   // downstream blocks read GITHUB_USER/GITLAB_USER regardless of credential
   // source. `token` is for a {block} source whose block output a raw token:
   // the renderer already holds it, so it is published like a PAT.
-  const finishAuthenticated = useCallback((
-    src: GitDetectionSource,
-    user: GitUserInfo,
-    details: CredentialDetails,
-    opts?: { token?: string },
-  ) => {
-    setDetectionSource(src)
-    setAuthStatus('authenticated')
-    setUserInfo(user)
-    applyCredentialDetails(details)
-    setDetectionStatus('done')
-    if (opts?.token) {
-      registerCredentials(opts.token, user)
-    } else {
-      registerMetadataOutputs(user)
-    }
-  }, [applyCredentialDetails, registerCredentials, registerMetadataOutputs])
+  const finishAuthenticated = useCallback(
+    (
+      src: GitDetectionSource,
+      user: GitUserInfo,
+      details: CredentialDetails,
+      opts?: { token?: string },
+    ) => {
+      setDetectionSource(src)
+      setAuthStatus("authenticated")
+      setUserInfo(user)
+      applyCredentialDetails(details)
+      setDetectionStatus("done")
+      if (opts?.token) {
+        registerCredentials(opts.token, user)
+      } else {
+        registerMetadataOutputs(user)
+      }
+    },
+    [applyCredentialDetails, registerCredentials, registerMetadataOutputs],
+  )
 
   // Validate a token via the provider's API. `registerSession` makes MAIN
   // write the session env on success (the PAT and block paths);
   // `useSessionToken` validates the provider's session credential instead of
   // sending one (the GitAuth-block chaining mode — no token crosses IPC).
-  const validateToken = useCallback(async (
-    token: string | undefined,
-    opts?: { registerSession?: boolean; useSessionToken?: boolean },
-  ): Promise<{ valid: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; errorKind?: GitErrorKind; coldReadOk?: boolean; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string }> => {
-    try {
-      // A manually-entered instance URL takes precedence over the picked host.
-      const data = await api.invoke(provider.channels.validate, {
-        ...(token !== undefined ? { token } : {}),
-        ...(opts?.registerSession ? { registerSession: true } : {}),
-        ...(opts?.useSessionToken ? { useSessionToken: true } : {}),
-        ...(instanceUrlForIpc
-          ? { instanceUrl: instanceUrlForIpc }
-          : { host: effectiveHostRef.current }),
-      })
-      return {
-        valid: data.valid,
-        user: data.user as GitUserInfo | undefined,
-        scopes: data.scopes,
-        tokenType: data.tokenType as GitTokenType | undefined,
-        error: data.error,
-        errorKind: data.errorKind as GitErrorKind | undefined,
-        coldReadOk: data.coldReadOk,
-        validatedVia: data.validatedVia,
-        sessionEnvWarning: data.sessionEnvWarning,
-      }
-    } catch (error) {
-      return {
-        valid: false,
-        error: error instanceof Error ? error.message : 'Failed to validate token'
-      }
-    }
-  }, [api, provider, instanceUrlForIpc])
-
-  // Try to detect credentials from environment variables
-  const tryEnvCredentials = useCallback(async (options?: { prefix?: string }): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean; warning?: string; envVar?: string; divergenceHint?: string; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean } }> => {
-    try {
-      const data = await api.invoke(provider.channels.envCredentials, {
-        prefix: options?.prefix || '',
-        ...(instanceUrlForIpc
-          ? { instanceUrl: instanceUrlForIpc }
-          : { host: effectiveHostRef.current }),
-      }) as unknown as GitCliCredentialsResponse
-
-      if (!data.found) {
-        return { success: false, error: data.error }
-      }
-
-      if (data.outcome === 'unreachable' && data.errorKind) {
+  const validateToken = useCallback(
+    async (
+      token: string | undefined,
+      opts?: { registerSession?: boolean; useSessionToken?: boolean },
+    ): Promise<{
+      valid: boolean
+      user?: GitUserInfo
+      scopes?: string[]
+      tokenType?: GitTokenType
+      error?: string
+      errorKind?: GitErrorKind
+      coldReadOk?: boolean
+      validatedVia?: "direct" | "cli"
+      sessionEnvWarning?: string
+    }> => {
+      try {
+        // A manually-entered instance URL takes precedence over the picked host.
+        const data = await api.invoke(provider.channels.validate, {
+          ...(token !== undefined ? { token } : {}),
+          ...(opts?.registerSession ? { registerSession: true } : {}),
+          ...(opts?.useSessionToken ? { useSessionToken: true } : {}),
+          ...(instanceUrlForIpc
+            ? { instanceUrl: instanceUrlForIpc }
+            : { host: effectiveHostRef.current }),
+        })
         return {
-          success: false,
+          valid: data.valid,
+          user: data.user as GitUserInfo | undefined,
+          scopes: data.scopes,
+          tokenType: data.tokenType as GitTokenType | undefined,
           error: data.error,
-          unreachable: { errorKind: data.errorKind, host: data.host, coldReadOk: data.coldReadOk },
+          errorKind: data.errorKind as GitErrorKind | undefined,
+          coldReadOk: data.coldReadOk,
+          validatedVia: data.validatedVia,
+          sessionEnvWarning: data.sessionEnvWarning,
+        }
+      } catch (error) {
+        return {
+          valid: false,
+          error: error instanceof Error ? error.message : "Failed to validate token",
         }
       }
+    },
+    [api, provider, instanceUrlForIpc],
+  )
 
-      if (!data.valid) {
-        // Token was found but is invalid. `warning` carries main's exact chip
-        // copy ("<VAR> is not valid for <host>" — never "expired").
-        return { success: false, error: data.error, foundButInvalid: true, warning: data.warning, envVar: data.envVar }
-      }
+  // Try to detect credentials from environment variables
+  const tryEnvCredentials = useCallback(
+    async (options?: {
+      prefix?: string
+    }): Promise<{
+      success: boolean
+      user?: GitUserInfo
+      scopes?: string[]
+      tokenType?: GitTokenType
+      error?: string
+      foundButInvalid?: boolean
+      warning?: string
+      envVar?: string
+      divergenceHint?: string
+      validatedVia?: "direct" | "cli"
+      sessionEnvWarning?: string
+      unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean }
+    }> => {
+      try {
+        const data = (await api.invoke(provider.channels.envCredentials, {
+          prefix: options?.prefix || "",
+          ...(instanceUrlForIpc
+            ? { instanceUrl: instanceUrlForIpc }
+            : { host: effectiveHostRef.current }),
+        })) as unknown as GitCliCredentialsResponse
 
-      return {
-        success: true,
-        user: data.user as GitUserInfo | undefined,
-        scopes: data.scopes,
-        tokenType: data.tokenType as GitTokenType | undefined,
-        divergenceHint: data.divergenceHint,
-        envVar: data.envVar,
-        validatedVia: data.validatedVia,
-        sessionEnvWarning: data.sessionEnvWarning,
+        if (!data.found) {
+          return { success: false, error: data.error }
+        }
+
+        if (data.outcome === "unreachable" && data.errorKind) {
+          return {
+            success: false,
+            error: data.error,
+            unreachable: {
+              errorKind: data.errorKind,
+              host: data.host,
+              coldReadOk: data.coldReadOk,
+            },
+          }
+        }
+
+        if (!data.valid) {
+          // Token was found but is invalid. `warning` carries main's exact chip
+          // copy ("<VAR> is not valid for <host>" — never "expired").
+          return {
+            success: false,
+            error: data.error,
+            foundButInvalid: true,
+            warning: data.warning,
+            envVar: data.envVar,
+          }
+        }
+
+        return {
+          success: true,
+          user: data.user as GitUserInfo | undefined,
+          scopes: data.scopes,
+          tokenType: data.tokenType as GitTokenType | undefined,
+          divergenceHint: data.divergenceHint,
+          envVar: data.envVar,
+          validatedVia: data.validatedVia,
+          sessionEnvWarning: data.sessionEnvWarning,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to check env credentials",
+        }
       }
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to check env credentials' }
-    }
-  }, [api, provider, instanceUrlForIpc])
+    },
+    [api, provider, instanceUrlForIpc],
+  )
 
   // Try to detect credentials from the provider's CLI
-  const tryCliCredentials = useCallback(async (): Promise<{ success: boolean; user?: GitUserInfo; scopes?: string[]; tokenType?: GitTokenType; error?: string; foundButInvalid?: boolean; warning?: string; hint?: string; host?: string; source?: 'env' | 'cli' | 'config'; validatedVia?: 'direct' | 'cli'; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean } }> => {
+  const tryCliCredentials = useCallback(async (): Promise<{
+    success: boolean
+    user?: GitUserInfo
+    scopes?: string[]
+    tokenType?: GitTokenType
+    error?: string
+    foundButInvalid?: boolean
+    warning?: string
+    hint?: string
+    host?: string
+    source?: "env" | "cli" | "config"
+    validatedVia?: "direct" | "cli"
+    sessionEnvWarning?: string
+    unreachable?: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean }
+  }> => {
     try {
-      const data = await api.invoke(
+      const data = (await api.invoke(
         provider.channels.cliCredentials,
-        instanceUrlForIpc
-          ? { instanceUrl: instanceUrlForIpc }
-          : { host: effectiveHostRef.current },
-      ) as unknown as GitCliCredentialsResponse
+        instanceUrlForIpc ? { instanceUrl: instanceUrlForIpc } : { host: effectiveHostRef.current },
+      )) as unknown as GitCliCredentialsResponse
 
-      if (data.outcome === 'unreachable' && data.errorKind) {
+      if (data.outcome === "unreachable" && data.errorKind) {
         return {
           success: false,
           error: data.error,
@@ -553,8 +658,15 @@ export function useGitAuth({
         // it from HTTP status codes or error-string matching (a GitLab 401 body
         // reads "401 Unauthorized", not "invalid"/"expired"). Mirrors the env
         // path, which keys off the same outcome.
-        const foundButInvalid = data.outcome === 'invalid'
-        return { success: false, error: data.error, foundButInvalid, warning: data.warning, hint: data.hint, host: data.host }
+        const foundButInvalid = data.outcome === "invalid"
+        return {
+          success: false,
+          error: data.error,
+          foundButInvalid,
+          warning: data.warning,
+          hint: data.hint,
+          host: data.host,
+        }
       }
 
       return {
@@ -568,7 +680,10 @@ export function useGitAuth({
         sessionEnvWarning: data.sessionEnvWarning,
       }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Failed to check CLI credentials' }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to check CLI credentials",
+      }
     }
   }, [api, provider, instanceUrlForIpc])
 
@@ -578,41 +693,56 @@ export function useGitAuth({
   // renderer-held output value flows as today, with main writing the session.
   // Publishes nothing: the caller does, via finishAuthenticated, once it has
   // checked the detection run survived the validation await.
-  const tryBlockCredentials = useCallback(async (blockId: string): Promise<{ success: boolean; user?: GitUserInfo; token?: string; scopes?: string[]; tokenType?: GitTokenType; validatedVia?: 'direct' | 'cli'; error?: string; sessionEnvWarning?: string; unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean } }> => {
-    const result = getBlockCredentials(blockId)
+  const tryBlockCredentials = useCallback(
+    async (
+      blockId: string,
+    ): Promise<{
+      success: boolean
+      user?: GitUserInfo
+      token?: string
+      scopes?: string[]
+      tokenType?: GitTokenType
+      validatedVia?: "direct" | "cli"
+      error?: string
+      sessionEnvWarning?: string
+      unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean }
+    }> => {
+      const result = getBlockCredentials(blockId)
 
-    if (!result.found) {
-      return { success: false, error: result.error || 'Could not read token from block' }
-    }
-
-    const useSessionToken = result.token === undefined && result.isGitAuthBlock === true
-    const validation = useSessionToken
-      ? await validateToken(undefined, { useSessionToken: true })
-      : await validateToken(result.token, { registerSession: true })
-
-    if (!validation.valid || !validation.user) {
-      // Transport failure: the block's token was not consumed/judged.
-      if (validation.errorKind) {
-        return {
-          success: false,
-          error: validation.error,
-          unreachable: { errorKind: validation.errorKind, coldReadOk: validation.coldReadOk },
-        }
+      if (!result.found) {
+        return { success: false, error: result.error || "Could not read token from block" }
       }
-      return { success: false, error: validation.error || 'Block token is invalid' }
-    }
 
-    return {
-      success: true,
-      user: validation.user,
-      // Absent on the session-chained path, whose outputs stay metadata-only.
-      token: result.token,
-      scopes: validation.scopes,
-      tokenType: validation.tokenType,
-      validatedVia: validation.validatedVia,
-      sessionEnvWarning: validation.sessionEnvWarning,
-    }
-  }, [getBlockCredentials, validateToken])
+      const useSessionToken = result.token === undefined && result.isGitAuthBlock === true
+      const validation = useSessionToken
+        ? await validateToken(undefined, { useSessionToken: true })
+        : await validateToken(result.token, { registerSession: true })
+
+      if (!validation.valid || !validation.user) {
+        // Transport failure: the block's token was not consumed/judged.
+        if (validation.errorKind) {
+          return {
+            success: false,
+            error: validation.error,
+            unreachable: { errorKind: validation.errorKind, coldReadOk: validation.coldReadOk },
+          }
+        }
+        return { success: false, error: validation.error || "Block token is invalid" }
+      }
+
+      return {
+        success: true,
+        user: validation.user,
+        // Absent on the session-chained path, whose outputs stay metadata-only.
+        token: result.token,
+        scopes: validation.scopes,
+        tokenType: validation.tokenType,
+        validatedVia: validation.validatedVia,
+        sessionEnvWarning: validation.sessionEnvWarning,
+      }
+    },
+    [getBlockCredentials, validateToken],
+  )
 
   // Discover which hosts the user is logged into via glab/gh, to drive the
   // host picker. Skipped when the author pinned a `host`. Re-runs on a manual
@@ -637,7 +767,7 @@ export function useGitAuth({
         setSelectedHost((prev) =>
           userPickedHostRef.current && hostNames.includes(prev)
             ? prev
-            : (data.defaultHost || hostNames[0] || provider.defaultHost),
+            : data.defaultHost || hostNames[0] || provider.defaultHost,
         )
       } catch {
         if (!cancelled) {
@@ -663,142 +793,176 @@ export function useGitAuth({
   // Returns where the walk ended for applyDetectionOutcome to write. The CLI
   // hint and host downgrades are set as the walk passes them, so they show
   // while later sources are still being tried.
-  const trySourcesInOrder = useCallback(async (
-    sources: GitCredentialSource[],
-    runId: number,
-    priorWarnings: string[] = [],
-  ): Promise<DetectionOutcome | null> => {
-    const cancelled = () => detectionRunRef.current !== runId
-    const warnings = [...priorWarnings]
+  const trySourcesInOrder = useCallback(
+    async (
+      sources: GitCredentialSource[],
+      runId: number,
+      priorWarnings: string[] = [],
+    ): Promise<DetectionOutcome | null> => {
+      const cancelled = () => detectionRunRef.current !== runId
+      const warnings = [...priorWarnings]
 
-    // 'unreachable' stops the chain WITHOUT consuming later sources: every
-    // one of them would hit the same wall. Warnings accumulated from earlier
-    // (genuinely invalid) sources are preserved.
-    const unreachable = (info: { errorKind: GitErrorKind; host?: string; coldReadOk?: boolean }): DetectionOutcome =>
-      ({ kind: 'unreachable', ...info, warnings })
+      // 'unreachable' stops the chain WITHOUT consuming later sources: every
+      // one of them would hit the same wall. Warnings accumulated from earlier
+      // (genuinely invalid) sources are preserved.
+      const unreachable = (info: {
+        errorKind: GitErrorKind
+        host?: string
+        coldReadOk?: boolean
+      }): DetectionOutcome => ({ kind: "unreachable", ...info, warnings })
 
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i]
-      // Check for 'env' (standard env vars) or { env: { prefix: 'PREFIX_' } }
-      // (prefixed env vars) — the same channel, differing only in the prefix
-      if (source === 'env' || (typeof source === 'object' && 'env' in source)) {
-        const prefix = source === 'env' ? undefined : (source.env as { prefix?: string })?.prefix
-        const result = await tryEnvCredentials({ prefix })
-        if (cancelled()) return null
-        if (result.unreachable) {
-          return unreachable(result.unreachable)
-        }
-        if (result.success && result.user) {
-          return {
-            kind: 'detected',
-            source: 'env',
-            user: result.user,
-            details: {
-              scopes: result.scopes,
-              tokenType: result.tokenType,
-              divergenceHint: result.divergenceHint,
-              sessionEnvWarning: result.sessionEnvWarning,
-              meta: { source: 'env', envVar: result.envVar, validatedVia: result.validatedVia },
-            },
+      for (let i = 0; i < sources.length; i++) {
+        const source = sources[i]
+        // Check for 'env' (standard env vars) or { env: { prefix: 'PREFIX_' } }
+        // (prefixed env vars) — the same channel, differing only in the prefix
+        if (source === "env" || (typeof source === "object" && "env" in source)) {
+          const prefix = source === "env" ? undefined : (source.env as { prefix?: string })?.prefix
+          const result = await tryEnvCredentials({ prefix })
+          if (cancelled()) return null
+          if (result.unreachable) {
+            return unreachable(result.unreachable)
+          }
+          if (result.success && result.user) {
+            return {
+              kind: "detected",
+              source: "env",
+              user: result.user,
+              details: {
+                scopes: result.scopes,
+                tokenType: result.tokenType,
+                divergenceHint: result.divergenceHint,
+                sessionEnvWarning: result.sessionEnvWarning,
+                meta: { source: "env", envVar: result.envVar, validatedVia: result.validatedVia },
+              },
+            }
+          }
+          if (result.foundButInvalid) {
+            // env-chip copy: "<VAR> is not valid for <host>" — never
+            // "expired" (a 401 can't distinguish expired from wrong-host).
+            // Main supplies the exact copy; the construction is the fallback.
+            warnings.push(
+              result.warning ??
+                `${result.envVar ?? `${prefix ?? ""}${provider.env.tokenVar}`} is not valid for ${unreachableHost()}`,
+            )
           }
         }
-        if (result.foundButInvalid) {
-          // env-chip copy: "<VAR> is not valid for <host>" — never
-          // "expired" (a 401 can't distinguish expired from wrong-host).
-          // Main supplies the exact copy; the construction is the fallback.
-          warnings.push(result.warning ?? `${result.envVar ?? `${prefix ?? ''}${provider.env.tokenVar}`} is not valid for ${unreachableHost()}`)
-        }
-      }
-      // Check for 'cli' - provider CLI
-      else if (source === 'cli') {
-        const result = await tryCliCredentials()
-        if (cancelled()) return null
-        if (result.unreachable) {
-          return unreachable(result.unreachable)
-        }
-        if (result.hint) {
-          // Informational manual-UI hint (e.g. the glab keyring contracts)
-          // — distinct from a warning chip by design. Downgrades the
-          // host's key icon (the credential exists but is unreadable).
-          setDetectionHint(result.hint)
-          const downgraded = unreachableHost(result.host)
-          setDowngradedHosts((prev) => new Set(prev).add(downgraded))
-        }
-        if (result.success && result.user) {
-          return {
-            kind: 'detected',
-            source: 'cli',
-            user: result.user,
-            details: {
-              scopes: result.scopes,
-              tokenType: result.tokenType,
-              sessionEnvWarning: result.sessionEnvWarning,
-              meta: { source: result.source ?? 'cli', validatedVia: result.validatedVia },
-            },
+        // Check for 'cli' - provider CLI
+        else if (source === "cli") {
+          const result = await tryCliCredentials()
+          if (cancelled()) return null
+          if (result.unreachable) {
+            return unreachable(result.unreachable)
+          }
+          if (result.hint) {
+            // Informational manual-UI hint (e.g. the glab keyring contracts)
+            // — distinct from a warning chip by design. Downgrades the
+            // host's key icon (the credential exists but is unreadable).
+            setDetectionHint(result.hint)
+            const downgraded = unreachableHost(result.host)
+            setDowngradedHosts((prev) => new Set(prev).add(downgraded))
+          }
+          if (result.success && result.user) {
+            return {
+              kind: "detected",
+              source: "cli",
+              user: result.user,
+              details: {
+                scopes: result.scopes,
+                tokenType: result.tokenType,
+                sessionEnvWarning: result.sessionEnvWarning,
+                meta: { source: result.source ?? "cli", validatedVia: result.validatedVia },
+              },
+            }
+          }
+          if (result.foundButInvalid) {
+            const where = result.host ? ` for ${result.host}` : ""
+            warnings.push(
+              result.warning ?? `${provider.cli.label} token${where} is invalid or expired`,
+            )
+            // downgrade the picked host's key icon for the rest of the
+            // session so the dropdown never contradicts the warning chip.
+            const downgraded = unreachableHost(result.host)
+            setDowngradedHosts((prev) => new Set(prev).add(downgraded))
           }
         }
-        if (result.foundButInvalid) {
-          const where = result.host ? ` for ${result.host}` : ''
-          warnings.push(result.warning ?? `${provider.cli.label} token${where} is invalid or expired`)
-          // downgrade the picked host's key icon for the rest of the
-          // session so the dropdown never contradicts the warning chip.
-          const downgraded = unreachableHost(result.host)
-          setDowngradedHosts((prev) => new Set(prev).add(downgraded))
+        // Check for { block: 'id' } - block outputs
+        else if (typeof source === "object" && "block" in source) {
+          const result = await tryBlockCredentials(source.block)
+          if (cancelled()) return null
+          if (result.unreachable) {
+            return unreachable(result.unreachable)
+          }
+          if (result.success && result.user) {
+            return {
+              kind: "detected",
+              source: "block",
+              user: result.user,
+              details: blockCredentialDetails(result),
+              token: result.token,
+            }
+          }
+          // If the block hasn't run yet, wait for it before trying the
+          // lower-priority sources after it.
+          if (blockPending(source.block)) {
+            return {
+              kind: "waiting",
+              blockId: source.block,
+              remaining: sources.slice(i + 1),
+              warnings,
+            }
+          }
+          // The block ran but left no usable token — fall through.
         }
       }
-      // Check for { block: 'id' } - block outputs
-      else if (typeof source === 'object' && 'block' in source) {
-        const result = await tryBlockCredentials(source.block)
-        if (cancelled()) return null
-        if (result.unreachable) {
-          return unreachable(result.unreachable)
-        }
-        if (result.success && result.user) {
-          return { kind: 'detected', source: 'block', user: result.user, details: blockCredentialDetails(result), token: result.token }
-        }
-        // If the block hasn't run yet, wait for it before trying the
-        // lower-priority sources after it.
-        if (blockPending(source.block)) {
-          return { kind: 'waiting', blockId: source.block, remaining: sources.slice(i + 1), warnings }
-        }
-        // The block ran but left no usable token — fall through.
-      }
-    }
 
-    return { kind: 'done', warnings }
-  }, [provider, unreachableHost, tryEnvCredentials, tryCliCredentials, tryBlockCredentials, blockPending])
+      return { kind: "done", warnings }
+    },
+    [
+      provider,
+      unreachableHost,
+      tryEnvCredentials,
+      tryCliCredentials,
+      tryBlockCredentials,
+      blockPending,
+    ],
+  )
 
   // Write where a detection walk ended, unless a provider switch, host change
   // or reload started a new run since the walk began.
-  const applyDetectionOutcome = useCallback((outcome: DetectionOutcome | null, runId: number) => {
-    if (outcome === null || detectionRunRef.current !== runId) return
-    switch (outcome.kind) {
-      case 'detected':
-        finishAuthenticated(outcome.source, outcome.user, outcome.details, { token: outcome.token })
-        return
-      case 'unreachable':
-        // Detection still ends 'done' so the manual UI renders beneath the
-        // error card.
-        markUnreachable(outcome.errorKind, outcome.host, outcome.coldReadOk)
-        if (outcome.warnings.length > 0) {
-          setDetectionWarning(outcome.warnings.join('; '))
-        }
-        setDetectionStatus('done')
-        return
-      case 'waiting':
-        // Stash the rest of the walk, with the warnings so far, for the block
-        // watcher to resume. detectionStatus stays 'pending' until then.
-        pausedWalkRef.current = { sources: outcome.remaining, warnings: outcome.warnings }
-        setWaitingForBlockId(outcome.blockId)
-        return
-      case 'done':
-        // Nothing found; show any warnings from invalid credentials.
-        if (outcome.warnings.length > 0) {
-          setDetectionWarning(outcome.warnings.join('; '))
-        }
-        setDetectionStatus('done')
-    }
-  }, [markUnreachable, finishAuthenticated])
+  const applyDetectionOutcome = useCallback(
+    (outcome: DetectionOutcome | null, runId: number) => {
+      if (outcome === null || detectionRunRef.current !== runId) return
+      switch (outcome.kind) {
+        case "detected":
+          finishAuthenticated(outcome.source, outcome.user, outcome.details, {
+            token: outcome.token,
+          })
+          return
+        case "unreachable":
+          // Detection still ends 'done' so the manual UI renders beneath the
+          // error card.
+          markUnreachable(outcome.errorKind, outcome.host, outcome.coldReadOk)
+          if (outcome.warnings.length > 0) {
+            setDetectionWarning(outcome.warnings.join("; "))
+          }
+          setDetectionStatus("done")
+          return
+        case "waiting":
+          // Stash the rest of the walk, with the warnings so far, for the block
+          // watcher to resume. detectionStatus stays 'pending' until then.
+          pausedWalkRef.current = { sources: outcome.remaining, warnings: outcome.warnings }
+          setWaitingForBlockId(outcome.blockId)
+          return
+        case "done":
+          // Nothing found; show any warnings from invalid credentials.
+          if (outcome.warnings.length > 0) {
+            setDetectionWarning(outcome.warnings.join("; "))
+          }
+          setDetectionStatus("done")
+      }
+    },
+    [markUnreachable, finishAuthenticated],
+  )
 
   // Run credential detection when session is ready
   useEffect(() => {
@@ -821,8 +985,17 @@ export function useGitAuth({
     detectionAttemptedRef.current = true
 
     const runId = detectionRunRef.current
-    void trySourcesInOrder(detectCredentials, runId).then((outcome) => applyDetectionOutcome(outcome, runId))
-  }, [detectCredentials, sessionReady, hostsReady, detectionNonce, trySourcesInOrder, applyDetectionOutcome])
+    void trySourcesInOrder(detectCredentials, runId).then((outcome) =>
+      applyDetectionOutcome(outcome, runId),
+    )
+  }, [
+    detectCredentials,
+    sessionReady,
+    hostsReady,
+    detectionNonce,
+    trySourcesInOrder,
+    applyDetectionOutcome,
+  ])
 
   // Probe CLI install state (vcs:cli-status) once detection settles — drives
   // the hint copy and the Windows schannel suggestion. Runs on SUCCESS
@@ -830,11 +1003,11 @@ export function useGitAuth({
   // detection is its primary path (main caches the probe, so this is cheap).
   // Advisory: failures leave the hint generic.
   useEffect(() => {
-    if (detectionStatus !== 'done') return
+    if (detectionStatus !== "done") return
     let cancelled = false
     void (async () => {
       try {
-        const status = await api.invoke('vcs:cli-status')
+        const status = await api.invoke("vcs:cli-status")
         if (!cancelled) setCliStatus(status as VcsCliStatusResult)
       } catch {
         /* hint copy is enrichment */
@@ -849,7 +1022,7 @@ export function useGitAuth({
   // at that block's source, so its token (or its lack of one, which falls
   // through to the sources after it) is handled exactly as in the walk.
   useEffect(() => {
-    if (!waitingForBlockId || authStatus === 'authenticated') {
+    if (!waitingForBlockId || authStatus === "authenticated") {
       return
     }
 
@@ -867,19 +1040,22 @@ export function useGitAuth({
     pausedWalkRef.current = null
 
     const runId = detectionRunRef.current
-    void trySourcesInOrder([{ block: waitingForBlockId }, ...paused.sources], runId, paused.warnings)
-      .then((outcome) => applyDetectionOutcome(outcome, runId))
+    void trySourcesInOrder(
+      [{ block: waitingForBlockId }, ...paused.sources],
+      runId,
+      paused.warnings,
+    ).then((outcome) => applyDetectionOutcome(outcome, runId))
   }, [waitingForBlockId, authStatus, blockPending, trySourcesInOrder, applyDetectionOutcome])
 
   // Handle PAT submission
   const handlePatSubmit = useCallback(async () => {
     if (!patToken) {
-      setErrorMessage('Personal Access Token is required')
+      setErrorMessage("Personal Access Token is required")
       return
     }
 
     const submit = ++patSubmitRef.current
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
     setUnreachableInfo(null)
 
@@ -895,16 +1071,16 @@ export function useGitAuth({
       // the TLS/server-cert/network card instead of an auth failure.
       if (validation.errorKind) {
         markUnreachable(validation.errorKind, undefined, validation.coldReadOk)
-        setAuthStatus('pending')
+        setAuthStatus("pending")
         return
       }
-      setAuthStatus('failed')
-      setErrorMessage(validation.error || 'Invalid token')
+      setAuthStatus("failed")
+      setErrorMessage(validation.error || "Invalid token")
       return
     }
 
     registerCredentials(patToken, validation.user)
-    setAuthStatus('authenticated')
+    setAuthStatus("authenticated")
     setUserInfo(validation.user)
     // Scopes come back for GitHub classic PATs (the X-OAuth-Scopes header);
     // fine-grained PATs and GitLab tokens may report none.
@@ -931,75 +1107,85 @@ export function useGitAuth({
   // `expired_token` itself once it lapses; the deadline is only a backstop.
   // `flow` is the device flow this loop belongs to; once it is no longer the
   // current one the loop stops without touching state or outputs.
-  const pollOAuthCompletion = useCallback(async (flow: number, deviceCode: string, interval: number = 5, expiresIn: number = DEFAULT_OAUTH_EXPIRES_IN) => {
-    const deadline = Date.now() + expiresIn * 1000
-    let currentInterval = Math.max(interval, 5) * 1000 // GitHub requires at least 5 seconds
-    const stale = () => oauthFlowRef.current !== flow
+  const pollOAuthCompletion = useCallback(
+    async (
+      flow: number,
+      deviceCode: string,
+      interval: number = 5,
+      expiresIn: number = DEFAULT_OAUTH_EXPIRES_IN,
+    ) => {
+      const deadline = Date.now() + expiresIn * 1000
+      let currentInterval = Math.max(interval, 5) * 1000 // GitHub requires at least 5 seconds
+      const stale = () => oauthFlowRef.current !== flow
 
-    const poll = async () => {
-      if (stale()) return
-
-      try {
-        const data = await api.invoke('github:oauth-poll', {
-          ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
-          deviceCode,
-          host: oauthHost,
-        })
-
+      const poll = async () => {
         if (stale()) return
 
-        if (data.status === 'pending') {
-          if (Date.now() >= deadline) {
-            setAuthStatus('failed')
-            setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
-            return
-          }
-          // slow_down (RFC 8628 §3.5): add 5 seconds, or wait GitHub's new
-          // interval if that is longer, for this and every later poll.
-          if (data.slowDown) {
-            currentInterval = Math.max(currentInterval + 5000, (data.interval ?? 0) * 1000)
-          }
-          oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
-        } else if (data.status === 'complete') {
-          // Success! The completion is METADATA-ONLY: main already wrote
-          // the session env; the token never reaches the renderer.
-          const user = data.user as unknown as GitUserInfo
-          registerMetadataOutputs(user)
-          setAuthStatus('authenticated')
-          setUserInfo(user)
-          applyCredentialDetails({
-            scopes: data.scopes,
-            tokenType: data.tokenType as GitTokenType | undefined,
-            sessionEnvWarning: data.sessionEnvWarning,
+        try {
+          const data = await api.invoke("github:oauth-poll", {
+            ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
+            deviceCode,
+            host: oauthHost,
           })
-        } else if (data.status === 'expired') {
-          setAuthStatus('failed')
-          setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
-        } else {
-          // Denied, or another error main reported
-          setAuthStatus('failed')
-          setErrorMessage(data.error || 'Authorization failed')
-        }
-      } catch (error) {
-        if (stale()) return
-        setAuthStatus('failed')
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to check authorization status')
-      }
-    }
 
-    poll()
-  }, [api, effectiveClientId, oauthHost, registerMetadataOutputs, applyCredentialDetails])
+          if (stale()) return
+
+          if (data.status === "pending") {
+            if (Date.now() >= deadline) {
+              setAuthStatus("failed")
+              setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
+              return
+            }
+            // slow_down (RFC 8628 §3.5): add 5 seconds, or wait GitHub's new
+            // interval if that is longer, for this and every later poll.
+            if (data.slowDown) {
+              currentInterval = Math.max(currentInterval + 5000, (data.interval ?? 0) * 1000)
+            }
+            oauthPollTimeoutRef.current = setTimeout(poll, currentInterval)
+          } else if (data.status === "complete") {
+            // Success! The completion is METADATA-ONLY: main already wrote
+            // the session env; the token never reaches the renderer.
+            const user = data.user as unknown as GitUserInfo
+            registerMetadataOutputs(user)
+            setAuthStatus("authenticated")
+            setUserInfo(user)
+            applyCredentialDetails({
+              scopes: data.scopes,
+              tokenType: data.tokenType as GitTokenType | undefined,
+              sessionEnvWarning: data.sessionEnvWarning,
+            })
+          } else if (data.status === "expired") {
+            setAuthStatus("failed")
+            setErrorMessage(OAUTH_CODE_EXPIRED_MESSAGE)
+          } else {
+            // Denied, or another error main reported
+            setAuthStatus("failed")
+            setErrorMessage(data.error || "Authorization failed")
+          }
+        } catch (error) {
+          if (stale()) return
+          setAuthStatus("failed")
+          setErrorMessage(
+            error instanceof Error ? error.message : "Failed to check authorization status",
+          )
+        }
+      }
+
+      poll()
+    },
+    [api, effectiveClientId, oauthHost, registerMetadataOutputs, applyCredentialDetails],
+  )
 
   // Start OAuth device flow
   const startOAuth = useCallback(async () => {
     // A new flow supersedes any earlier one, even a poll still in flight.
     stopOAuthPolling()
     const flow = oauthFlowRef.current
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
 
     try {
-      const data = await api.invoke('github:oauth-start', {
+      const data = await api.invoke("github:oauth-start", {
         ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
         scopes: oauthScopes,
         host: oauthHost,
@@ -1009,7 +1195,7 @@ export function useGitAuth({
       if (oauthFlowRef.current !== flow) return
 
       if (data.error) {
-        setAuthStatus('failed')
+        setAuthStatus("failed")
         setErrorMessage(data.error)
         return
       }
@@ -1021,18 +1207,23 @@ export function useGitAuth({
       // default 5s and 15 minutes)
       // Note: We don't auto-open the browser - let user see the code first
       const pollInterval = data.interval || 5
-      pollOAuthCompletion(flow, data.deviceCode, pollInterval, data.expiresIn || DEFAULT_OAUTH_EXPIRES_IN)
+      pollOAuthCompletion(
+        flow,
+        data.deviceCode,
+        pollInterval,
+        data.expiresIn || DEFAULT_OAUTH_EXPIRES_IN,
+      )
     } catch (error) {
       if (oauthFlowRef.current !== flow) return
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to start OAuth flow')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to start OAuth flow")
     }
   }, [api, effectiveClientId, oauthHost, oauthScopes, pollOAuthCompletion, stopOAuthPolling])
 
   // Cancel OAuth polling
   const cancelOAuth = useCallback(() => {
     stopOAuthPolling()
-    setAuthStatus('pending')
+    setAuthStatus("pending")
     setOauthUserCode(null)
     setOauthVerificationUri(null)
   }, [stopOAuthPolling])
@@ -1052,7 +1243,7 @@ export function useGitAuth({
     patSubmitRef.current += 1
     setOauthUserCode(null)
     setOauthVerificationUri(null)
-    setAuthStatus('pending')
+    setAuthStatus("pending")
     setUserInfo(null)
     setDetectionSource(null)
     setDetectedScopes(null)
@@ -1073,7 +1264,7 @@ export function useGitAuth({
   const resetAuth = useCallback(() => {
     clearDetectionState()
     setErrorMessage(null)
-    setPatToken('')
+    setPatToken("")
   }, [clearDetectionState])
 
   // "Re-authenticate" on the success card. The card going back to the form
@@ -1102,7 +1293,7 @@ export function useGitAuth({
     pausedWalkRef.current = null
     setWaitingForBlockId(null)
     setRedetectSuppressed(false)
-    setDetectionStatus(detectCredentials === false ? 'done' : 'pending')
+    setDetectionStatus(detectCredentials === false ? "done" : "pending")
   }, [detectCredentials])
 
   // Clear transient auth/detection state and arm the detection effect to fire
@@ -1112,7 +1303,7 @@ export function useGitAuth({
   // nothing on the new host must not leave the old host's credential
   // published, and an `*AuthId` step must not run with it while "Checking…".
   const beginRedetect = useCallback(() => {
-    if (authStatus === 'authenticated') clearRegisteredOutputs(provider.id)
+    if (authStatus === "authenticated") clearRegisteredOutputs(provider.id)
     clearDetectionState()
     resetDetectionState()
   }, [authStatus, clearRegisteredOutputs, provider.id, clearDetectionState, resetDetectionState])
@@ -1121,34 +1312,37 @@ export function useGitAuth({
   // explicit re-detection observes a terminal `gh auth switch`/`glab auth
   // login` immediately instead of after the 5-minute TTL. Fire-and-forget.
   const invalidateMainCache = useCallback(() => {
-    void api.invoke('vcs:invalidate-cache').catch(() => {})
+    void api.invoke("vcs:invalidate-cache").catch(() => {})
   }, [api])
 
   // The success card's "Apply" for the Windows schannel suggestion: main sets
   // git's http.sslBackend to schannel. Fire-and-forget, like the suggestion.
   const applySchannel = useCallback(() => {
-    void api.invoke('vcs:apply-git-schannel').catch(() => {})
+    void api.invoke("vcs:apply-git-schannel").catch(() => {})
   }, [api])
 
   // Switch the selected host and re-detect against it. Compares with the
   // host the picker shows (effectiveHost), not the internal pick: once a
   // GitLab instance URL is entered the two differ, and picking the previously
   // picked host must still take effect.
-  const changeHost = useCallback((nextHost: string) => {
-    if (nextHost === effectiveHostRef.current) return
-    userPickedHostRef.current = true
-    invalidateMainCache()
-    // Persist the explicit pick (any source) so it survives restart.
-    if (provider.channels.hostPicked) {
-      void api.invoke(provider.channels.hostPicked, { host: nextHost }).catch(() => {})
-    }
-    // A pick supersedes an entered or prop-seeded instance URL, which would
-    // otherwise keep overriding effectiveHost and every IPC call.
-    setGitlabInstanceUrl('')
-    setSelectedHost(nextHost)
-    beginRedetect()
-    setDetectionNonce((n) => n + 1)
-  }, [api, provider, beginRedetect, invalidateMainCache])
+  const changeHost = useCallback(
+    (nextHost: string) => {
+      if (nextHost === effectiveHostRef.current) return
+      userPickedHostRef.current = true
+      invalidateMainCache()
+      // Persist the explicit pick (any source) so it survives restart.
+      if (provider.channels.hostPicked) {
+        void api.invoke(provider.channels.hostPicked, { host: nextHost }).catch(() => {})
+      }
+      // A pick supersedes an entered or prop-seeded instance URL, which would
+      // otherwise keep overriding effectiveHost and every IPC call.
+      setGitlabInstanceUrl("")
+      setSelectedHost(nextHost)
+      beginRedetect()
+      setDetectionNonce((n) => n + 1)
+    },
+    [api, provider, beginRedetect, invalidateMainCache],
+  )
 
   // HostSelect onChange wrapper: the "Other instance…" row uses a sentinel
   // value intercepted BEFORE changeHost. When authenticated it leaves the
@@ -1156,17 +1350,20 @@ export function useGitAuth({
   // carries the instance-URL field, renders; either way that field is then
   // focused. It does NOT alter selectedHost or run detection; the controlled
   // select snaps back to its prior value on the next render.
-  const handleHostSelect = useCallback((value: string) => {
-    if (value === OTHER_INSTANCE_SENTINEL && provider.supportsManualInstance) {
-      // Only when authenticated: resetting a pending form would also wipe a
-      // typed token and the current host's unreachable card.
-      if (authStatus === 'authenticated') reAuthenticate()
-      setAuthMethod('pat')
-      setInstanceFieldFocusNonce((n) => n + 1)
-      return
-    }
-    changeHost(value)
-  }, [provider, authStatus, reAuthenticate, changeHost])
+  const handleHostSelect = useCallback(
+    (value: string) => {
+      if (value === OTHER_INSTANCE_SENTINEL && provider.supportsManualInstance) {
+        // Only when authenticated: resetting a pending form would also wipe a
+        // typed token and the current host's unreachable card.
+        if (authStatus === "authenticated") reAuthenticate()
+        setAuthMethod("pat")
+        setInstanceFieldFocusNonce((n) => n + 1)
+        return
+      }
+      changeHost(value)
+    },
+    [provider, authStatus, reAuthenticate, changeHost],
+  )
 
   // Re-read glab's config (hosts may have changed after a `glab auth login`) and
   // re-run detection for the current host. Backs the "Reload" button.
@@ -1209,17 +1406,18 @@ export function useGitAuth({
 
   // Track which host this block authenticated against, and watch for another
   // block replacing the provider's single session credential.
-  if (authStatus !== 'authenticated' && sessionStale) {
+  if (authStatus !== "authenticated" && sessionStale) {
     setSessionStale(false)
   }
   useEffect(() => {
-    authenticatedHostRef.current = authStatus === 'authenticated'
-      ? (effectiveHostRef.current ?? provider.defaultHost)
-      : undefined
+    authenticatedHostRef.current =
+      authStatus === "authenticated"
+        ? (effectiveHostRef.current ?? provider.defaultHost)
+        : undefined
   }, [authStatus, provider])
 
   useEffect(() => {
-    const unsubscribe = api.on('vcs:session-changed', (payload) => {
+    const unsubscribe = api.on("vcs:session-changed", (payload) => {
       if (payload.provider !== provider.id) return
       const myHost = authenticatedHostRef.current
       if (myHost && payload.host !== myHost) {
@@ -1238,7 +1436,10 @@ export function useGitAuth({
   // Re-authenticate, re-detection is user-initiated only (Check again, Retry,
   // Reload), as AwsAuth's and GoogleAuth's "Try auto-detection again" is.
   const focusRedetectArmed =
-    detectCredentials !== false && detectionStatus === 'done' && authStatus === 'pending' && !redetectSuppressed
+    detectCredentials !== false &&
+    detectionStatus === "done" &&
+    authStatus === "pending" &&
+    !redetectSuppressed
   useEffect(() => {
     if (!focusRedetectArmed) return
     let lastRun = 0
@@ -1248,14 +1449,14 @@ export function useGitAuth({
       lastRun = now
       retryUnreachable()
     }
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
   }, [focusRedetectArmed, retryUnreachable])
 
   const oauthUnavailableReason =
     provider.supportsOAuth &&
     unreachableInfo &&
-    (unreachableInfo.errorKind === 'network' || unreachableInfo.errorKind === 'tls')
+    (unreachableInfo.errorKind === "network" || unreachableInfo.errorKind === "tls")
       ? `${unreachableInfo.host} is unreachable — fix connectivity first`
       : provider.supportsOAuth && isEnterpriseOAuthHost && !effectiveClientId
         ? githubOAuthUnavailableReason(oauthHost, { cliLogin: detectCredentials !== false })
@@ -1274,9 +1475,10 @@ export function useGitAuth({
     if (!providerCliStatus) return null
     const lead = `No existing credentials found. Sign in below, set ${provider.env.tokenVar}, or`
     // Both gh and glab take --hostname for a non-default host.
-    const loginCmd = oauthHost !== provider.defaultHost
-      ? `${provider.cli.loginCmd} --hostname ${oauthHost}`
-      : provider.cli.loginCmd
+    const loginCmd =
+      oauthHost !== provider.defaultHost
+        ? `${provider.cli.loginCmd} --hostname ${oauthHost}`
+        : provider.cli.loginCmd
     return providerCliStatus.installed
       ? `${lead} run '${loginCmd}'.`
       : `${lead} install the ${provider.label} CLI (${provider.cli.binary}).`
@@ -1299,7 +1501,8 @@ export function useGitAuth({
     detectionWarning,
     sessionEnvWarning,
     // The wait ends when the block runs, before the resumed walk settles.
-    waitingForBlockId: waitingForBlockId && blockPending(waitingForBlockId) ? waitingForBlockId : null,
+    waitingForBlockId:
+      waitingForBlockId && blockPending(waitingForBlockId) ? waitingForBlockId : null,
 
     // Tri-state unreachable outcome
     unreachableInfo,

@@ -10,7 +10,10 @@ import {
   parseBoilerplateConfig,
   extractOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
-import { flattenVariables, resolveInputTemplates } from "../../../src/domain/boilerplate/flattenInputs.ts"
+import {
+  flattenVariables,
+  resolveInputTemplates,
+} from "../../../src/domain/boilerplate/flattenInputs.ts"
 import {
   writeInlineRenderedFiles,
   type InlineWriteRecord,
@@ -32,11 +35,7 @@ import {
 } from "../../../src/domain/files/manifest.ts"
 import { RenderError } from "../../../src/errors/index.ts"
 import type { FileTreeMeta, ManifestEntry } from "../../../src/types.ts"
-import type {
-  RenderRequest,
-  RenderInlineRequest,
-  BoilerplateRequest,
-} from "../../../src/types.ts"
+import type { RenderRequest, RenderInlineRequest, BoilerplateRequest } from "../../../src/types.ts"
 import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
 /**
@@ -140,7 +139,9 @@ const describeRenderError = ({ path: filePath, message }: WarmPerFileError): str
   const text = message.startsWith("render: ") ? message.slice("render: ".length) : message
   const namePrefix = `template: ${filePath.slice(filePath.lastIndexOf("/") + 1)}:`
   if (!text.startsWith(namePrefix)) return `${filePath}: ${text}`
-  const location = text.slice(namePrefix.length).replace(/^(\d+(?::\d+)?): executing "[^"]*" at /, "$1: at ")
+  const location = text
+    .slice(namePrefix.length)
+    .replace(/^(\d+(?::\d+)?): executing "[^"]*" at /, "$1: at ")
   return `${filePath}:${location}`
 }
 
@@ -152,170 +153,165 @@ const describeRenderErrors = (errors: ReadonlyArray<WarmPerFileError>): string =
 }
 
 export function registerBoilerplateHandlers(): void {
-  ipcMain.handle(
-    "boilerplate:variables",
-    async (_event, params: BoilerplateRequest) => {
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          let yamlContent: string
+  ipcMain.handle("boilerplate:variables", async (_event, params: BoilerplateRequest) => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        let yamlContent: string
 
-          let resolvedTemplatePath: string | undefined
+        let resolvedTemplatePath: string | undefined
 
-          if (params.boilerplateContent) {
-            yamlContent = params.boilerplateContent
-          } else if (params.templatePath) {
-            resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
-            const fs = yield* FileSystem
+        if (params.boilerplateContent) {
+          yamlContent = params.boilerplateContent
+        } else if (params.templatePath) {
+          resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
+          const fs = yield* FileSystem
 
-            // If the path is a directory, look for boilerplate.yml inside it
-            const stat = yield* fs.stat(resolvedTemplatePath)
-            if (stat.isDirectory) {
-              // Try boilerplate.yml, then boilerplate.yaml
-              const ymlPath = `${resolvedTemplatePath}/boilerplate.yml`
-              const yamlPath = `${resolvedTemplatePath}/boilerplate.yaml`
-              const ymlExists = yield* Effect.either(fs.stat(ymlPath))
-              if (ymlExists._tag === "Right") {
-                resolvedTemplatePath = ymlPath
-              } else {
-                resolvedTemplatePath = yamlPath
-              }
-            }
-
-            yamlContent = yield* fs.readFile(resolvedTemplatePath)
-          } else {
-            throw new Error("Either templatePath or boilerplateContent is required")
-          }
-
-          const config = yield* parseBoilerplateConfig(yamlContent)
-
-          // Extract output dependencies from the boilerplate.yml itself.
-          // Variable defaults often reference `{{ .outputs.blockId.X }}`, and
-          // those deps must gate the Generate button just like refs in
-          // template files do.
-          const yamlDeps = extractOutputDependencies(yamlContent)
-          for (const dep of yamlDeps) {
-            if (!config.outputDependencies.some((d) => d.fullPath === dep.fullPath)) {
-              config.outputDependencies.push(dep)
+          // If the path is a directory, look for boilerplate.yml inside it
+          const stat = yield* fs.stat(resolvedTemplatePath)
+          if (stat.isDirectory) {
+            // Try boilerplate.yml, then boilerplate.yaml
+            const ymlPath = `${resolvedTemplatePath}/boilerplate.yml`
+            const yamlPath = `${resolvedTemplatePath}/boilerplate.yaml`
+            const ymlExists = yield* Effect.either(fs.stat(ymlPath))
+            if (ymlExists._tag === "Right") {
+              resolvedTemplatePath = ymlPath
+            } else {
+              resolvedTemplatePath = yamlPath
             }
           }
 
-          // Extract output dependencies from template files if we have a path
-          if (resolvedTemplatePath) {
-            const fs = yield* FileSystem
-            const templateDir = resolvedTemplatePath.replace(/\/[^/]+$/, "")
-            const entries = yield* Effect.either(fs.readdir(templateDir))
-
-            if (entries._tag === "Right") {
-              for (const entry of entries.right) {
-                if (entry === "boilerplate.yml" || entry === "boilerplate.yaml") continue
-                const filePath = `${templateDir}/${entry}`
-                const content = yield* Effect.either(fs.readFile(filePath))
-                if (content._tag === "Right") {
-                  const deps = extractOutputDependencies(content.right)
-                  config.outputDependencies.push(...deps)
-                }
-              }
-            }
-          }
-
-          return config
-        }),
-      )
-    },
-  )
-
-  ipcMain.handle(
-    "boilerplate:render",
-    async (_event, params: RenderRequest) => {
-      const templateId = params.templateId ?? params.templatePath
-      // runbook:get clears the manifests and warm-render state when a
-      // different runbook opens. Captured before the first await, so a render
-      // still in flight from the old runbook can tell (see runbookChanged).
-      const generation = sessionManager.getGeneration()
-      const t0 = Date.now()
-      const perf = params.perf
-      const perfTag = perf ? `[perf seq=${perf.seq}]` : ""
-      const ipcTransit = perf ? t0 - perf.sentAt : undefined
-      const sinceKeystroke = perf ? t0 - perf.keystrokeAt : undefined
-      console.log("[ipc boilerplate:render] invoked", {
-        templatePath: params.templatePath,
-        templateId,
-        target: params.target,
-        varKeys: params.variables ? Object.keys(params.variables) : [],
-        ...(perf ? { perfSeq: perf.seq, ipcTransitMs: ipcTransit, sinceKeystrokeMs: sinceKeystroke } : {}),
-      })
-
-      // Interrupt any in-flight render for this same templateId. See the
-      // `activeRenders` doc-comment above for what "interrupt" means on
-      // warm vs cold paths.
-      const prior = activeRenders.get(templateId)
-      if (prior) {
-        const priorStartedAt = renderStartTimes.get(templateId)
-        const wastedMs = priorStartedAt ? t0 - priorStartedAt : 0
-        const stats = supersessionStats.get(templateId) ?? { count: 0, wastedMs: 0 }
-        stats.count += 1
-        stats.wastedMs += wastedMs
-        supersessionStats.set(templateId, stats)
-        console.log("[ipc boilerplate:render] superseding in-flight render", {
-          templateId,
-          killedAfterMs: wastedMs,
-          totalSupersedeCount: stats.count,
-          totalWastedMs: stats.wastedMs,
-        })
-        await Effect.runPromise(Fiber.interrupt(prior).pipe(Effect.ignore))
-      }
-      renderStartTimes.set(templateId, t0)
-
-      // Tracked at this scope so the Effect.ensuring finalizer below can
-      // clean it up even when the fiber is interrupted mid-render.
-      const tempDirRef: { path: string | null } = { path: null }
-
-      const program = Effect.gen(function* () {
-        const renderer = yield* BoilerplateRenderer
-        const fs = yield* FileSystem
-        const warmDispatcher = yield* WarmRenderDispatcher
-
-        const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
-
-        // Resolve output directory
-        const outputDir = yield* resolveRenderOutputDir(params.target, params.outputPath)
-        yield* validateSessionPath(outputDir)
-
-        // Detect a previous manifest that no longer describes the output dir:
-        // an external wipe of the worktree (e.g., a `GitClone` block that
-        // re-clones over the worktree, `git reset --hard`, or `rm -rf`), or
-        // output that now goes to a different directory (the active worktree
-        // changed). Without this check, the warm dispatcher's dirty-set +
-        // manifest diff assume any "unchanged" file is still on disk from the
-        // prior render, so they're not re-emitted — leaving the tree partially
-        // populated. Drop the manifest + dispatcher cache so this render is
-        // treated as a first-render and rebuilds everything from scratch.
-        const stale = yield* findStaleManifestReason(manifestStore.get(templateId), outputDir)
-        if (stale) {
-          console.log(
-            "[ipc boilerplate:render] previous manifest is stale; treating as first-render",
-            { templateId, outputDir, ...stale },
-          )
-          manifestStore.delete(templateId)
-          yield* warmDispatcher.invalidate(templateId)
+          yamlContent = yield* fs.readFile(resolvedTemplatePath)
+        } else {
+          throw new Error("Either templatePath or boilerplateContent is required")
         }
 
-        const tFlatten = Date.now()
-        const flattenedVariables = yield* flattenVariables(params.variables)
-        const dFlatten = Date.now() - tFlatten
+        const config = yield* parseBoilerplateConfig(yamlContent)
 
-        // ---------- Warm attempt ----------
-        // If WASM is configured + loaded AND the bundle's analyzer
-        // produced output paths, we render entirely in-process. The
-        // dispatcher returns a per-file partition: warm-success, paths
-        // that must fall back to cold, paths excluded by skip_files, and
-        // template-execution errors to surface to the user.
-        const tWarm = Date.now()
-        const warmResult = yield* warmDispatcher.render(
-          templateId,
-          resolvedTemplatePath,
-          flattenedVariables,
-        ).pipe(
+        // Extract output dependencies from the boilerplate.yml itself.
+        // Variable defaults often reference `{{ .outputs.blockId.X }}`, and
+        // those deps must gate the Generate button just like refs in
+        // template files do.
+        const yamlDeps = extractOutputDependencies(yamlContent)
+        for (const dep of yamlDeps) {
+          if (!config.outputDependencies.some((d) => d.fullPath === dep.fullPath)) {
+            config.outputDependencies.push(dep)
+          }
+        }
+
+        // Extract output dependencies from template files if we have a path
+        if (resolvedTemplatePath) {
+          const fs = yield* FileSystem
+          const templateDir = resolvedTemplatePath.replace(/\/[^/]+$/, "")
+          const entries = yield* Effect.either(fs.readdir(templateDir))
+
+          if (entries._tag === "Right") {
+            for (const entry of entries.right) {
+              if (entry === "boilerplate.yml" || entry === "boilerplate.yaml") continue
+              const filePath = `${templateDir}/${entry}`
+              const content = yield* Effect.either(fs.readFile(filePath))
+              if (content._tag === "Right") {
+                const deps = extractOutputDependencies(content.right)
+                config.outputDependencies.push(...deps)
+              }
+            }
+          }
+        }
+
+        return config
+      }),
+    )
+  })
+
+  ipcMain.handle("boilerplate:render", async (_event, params: RenderRequest) => {
+    const templateId = params.templateId ?? params.templatePath
+    // runbook:get clears the manifests and warm-render state when a
+    // different runbook opens. Captured before the first await, so a render
+    // still in flight from the old runbook can tell (see runbookChanged).
+    const generation = sessionManager.getGeneration()
+    const t0 = Date.now()
+    const perf = params.perf
+    const perfTag = perf ? `[perf seq=${perf.seq}]` : ""
+    const ipcTransit = perf ? t0 - perf.sentAt : undefined
+    const sinceKeystroke = perf ? t0 - perf.keystrokeAt : undefined
+    console.log("[ipc boilerplate:render] invoked", {
+      templatePath: params.templatePath,
+      templateId,
+      target: params.target,
+      varKeys: params.variables ? Object.keys(params.variables) : [],
+      ...(perf
+        ? { perfSeq: perf.seq, ipcTransitMs: ipcTransit, sinceKeystrokeMs: sinceKeystroke }
+        : {}),
+    })
+
+    // Interrupt any in-flight render for this same templateId. See the
+    // `activeRenders` doc-comment above for what "interrupt" means on
+    // warm vs cold paths.
+    const prior = activeRenders.get(templateId)
+    if (prior) {
+      const priorStartedAt = renderStartTimes.get(templateId)
+      const wastedMs = priorStartedAt ? t0 - priorStartedAt : 0
+      const stats = supersessionStats.get(templateId) ?? { count: 0, wastedMs: 0 }
+      stats.count += 1
+      stats.wastedMs += wastedMs
+      supersessionStats.set(templateId, stats)
+      console.log("[ipc boilerplate:render] superseding in-flight render", {
+        templateId,
+        killedAfterMs: wastedMs,
+        totalSupersedeCount: stats.count,
+        totalWastedMs: stats.wastedMs,
+      })
+      await Effect.runPromise(Fiber.interrupt(prior).pipe(Effect.ignore))
+    }
+    renderStartTimes.set(templateId, t0)
+
+    // Tracked at this scope so the Effect.ensuring finalizer below can
+    // clean it up even when the fiber is interrupted mid-render.
+    const tempDirRef: { path: string | null } = { path: null }
+
+    const program = Effect.gen(function* () {
+      const renderer = yield* BoilerplateRenderer
+      const fs = yield* FileSystem
+      const warmDispatcher = yield* WarmRenderDispatcher
+
+      const resolvedTemplatePath = yield* validateSessionPath(params.templatePath)
+
+      // Resolve output directory
+      const outputDir = yield* resolveRenderOutputDir(params.target, params.outputPath)
+      yield* validateSessionPath(outputDir)
+
+      // Detect a previous manifest that no longer describes the output dir:
+      // an external wipe of the worktree (e.g., a `GitClone` block that
+      // re-clones over the worktree, `git reset --hard`, or `rm -rf`), or
+      // output that now goes to a different directory (the active worktree
+      // changed). Without this check, the warm dispatcher's dirty-set +
+      // manifest diff assume any "unchanged" file is still on disk from the
+      // prior render, so they're not re-emitted — leaving the tree partially
+      // populated. Drop the manifest + dispatcher cache so this render is
+      // treated as a first-render and rebuilds everything from scratch.
+      const stale = yield* findStaleManifestReason(manifestStore.get(templateId), outputDir)
+      if (stale) {
+        console.log(
+          "[ipc boilerplate:render] previous manifest is stale; treating as first-render",
+          { templateId, outputDir, ...stale },
+        )
+        manifestStore.delete(templateId)
+        yield* warmDispatcher.invalidate(templateId)
+      }
+
+      const tFlatten = Date.now()
+      const flattenedVariables = yield* flattenVariables(params.variables)
+      const dFlatten = Date.now() - tFlatten
+
+      // ---------- Warm attempt ----------
+      // If WASM is configured + loaded AND the bundle's analyzer
+      // produced output paths, we render entirely in-process. The
+      // dispatcher returns a per-file partition: warm-success, paths
+      // that must fall back to cold, paths excluded by skip_files, and
+      // template-execution errors to surface to the user.
+      const tWarm = Date.now()
+      const warmResult = yield* warmDispatcher
+        .render(templateId, resolvedTemplatePath, flattenedVariables)
+        .pipe(
           // Any warm-path failure (loader/bundle producer/structural) is
           // recoverable — fall through to the cold path. We don't want a
           // WASM init bug to break renders.
@@ -326,373 +322,373 @@ export function registerBoilerplateHandlers(): void {
                 error: (err as { message?: string }).message ?? String(err),
               })
               return warmDisabledResult("warm-error-fallback")
-            })
+            }),
           ),
         )
-        const dWarm = Date.now() - tWarm
+      const dWarm = Date.now() - tWarm
 
-        // Template-execution errors (kind "render", which never routes to
-        // cold: the subprocess would hit the same bug). Fail the render the
-        // way the cold path does when boilerplate exits non-zero: write
-        // nothing, store no manifest and commit no vars baseline, so a retry
-        // with the same values renders again instead of taking the no-change
-        // shortcut below.
-        if (warmResult.renderErrors.length > 0) {
-          console.log("[ipc boilerplate:render] template render errors", {
-            templateId,
-            errors: warmResult.renderErrors,
-          })
-          return yield* Effect.fail(
-            new RenderError({
-              message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
-            }),
-          )
+      // Template-execution errors (kind "render", which never routes to
+      // cold: the subprocess would hit the same bug). Fail the render the
+      // way the cold path does when boilerplate exits non-zero: write
+      // nothing, store no manifest and commit no vars baseline, so a retry
+      // with the same values renders again instead of taking the no-change
+      // shortcut below.
+      if (warmResult.renderErrors.length > 0) {
+        console.log("[ipc boilerplate:render] template render errors", {
+          templateId,
+          errors: warmResult.renderErrors,
+        })
+        return yield* Effect.fail(
+          new RenderError({
+            message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
+          }),
+        )
+      }
+
+      const needsCold = warmResult.warmDisabled || warmResult.coldNeeded.length > 0
+
+      // Short-circuit when the dirty-set computation found no changes
+      // (e.g., the user pressed a non-mutating key, or a downstream
+      // re-render fired with identical vars). Reuse the previous
+      // manifest, skip every subprocess, return immediately. No
+      // `fileTree` here: nothing was written, and the renderer would
+      // take an empty list as the new Generated tree and clear it.
+      if (warmResult.noChanges && !warmResult.warmDisabled) {
+        const prevManifestEntries = manifestStore.get(templateId)?.files ?? []
+        const dTotal = Date.now() - t0
+        console.log("[ipc boilerplate:render] timing(ms)", {
+          templateId,
+          path: "noop",
+          total: dTotal,
+          files: prevManifestEntries.length,
+          ...(perf
+            ? {
+                perfSeq: perf.seq,
+                ipcTransitMs: ipcTransit,
+                sinceKeystrokeMs: Date.now() - perf.keystrokeAt,
+              }
+            : {}),
+        })
+        return {
+          message: `Template up-to-date (no var changes)`,
+          outputDir,
+          templatePath: params.templatePath,
+          deletedFiles: [] as string[],
+          createdFiles: [] as string[],
+          modifiedFiles: [] as string[],
+          skippedFiles: prevManifestEntries.map((e) => e.path),
         }
+      }
 
-        const needsCold = warmResult.warmDisabled || warmResult.coldNeeded.length > 0
+      // Build the in-memory content map. Warm-success files seed it;
+      // cold renders (when needed) fill in the rest by reading from a
+      // tempdir.
+      const contentMap = new Map<string, string>()
+      for (const file of warmResult.files) {
+        contentMap.set(file.path, file.content)
+      }
 
-        // Short-circuit when the dirty-set computation found no changes
-        // (e.g., the user pressed a non-mutating key, or a downstream
-        // re-render fired with identical vars). Reuse the previous
-        // manifest, skip every subprocess, return immediately. No
-        // `fileTree` here: nothing was written, and the renderer would
-        // take an empty list as the new Generated tree and clear it.
-        if (warmResult.noChanges && !warmResult.warmDisabled) {
-          const prevManifestEntries = manifestStore.get(templateId)?.files ?? []
-          const dTotal = Date.now() - t0
-          console.log("[ipc boilerplate:render] timing(ms)", {
-            templateId,
-            path: "noop",
-            total: dTotal,
-            files: prevManifestEntries.length,
-            ...(perf ? {
+      let dCold = 0
+      let dRender = 0
+
+      if (needsCold) {
+        // ---------- Cold fallback ----------
+        // Run the full subprocess render into a tempdir. We then merge
+        // its output into the content map for every path the warm
+        // attempt did NOT successfully render — that's coldNeeded plus
+        // (in the warm-disabled case) every path the subprocess produced.
+        const tMkdtemp = Date.now()
+        const createdTempDir = yield* fs.mkdtemp("boilerplate-render-")
+        tempDirRef.path = createdTempDir
+        const dMkdtemp = Date.now() - tMkdtemp
+
+        const tRenderInner = Date.now()
+        yield* renderer.renderTemplate(resolvedTemplatePath, createdTempDir, flattenedVariables)
+        dRender = Date.now() - tRenderInner
+
+        // Merge subprocess output into our content map, but only for
+        // paths warm didn't successfully render — we deliberately
+        // preserve warm content where it succeeded so a future build
+        // of boilerplate-fast that fixes more analyzer edge cases
+        // keeps the warm win. buildManifestFromDirectoryWithContent
+        // returns the content alongside the hash so we avoid a second
+        // read pass over the tempdir.
+        const coldEntries = yield* buildManifestFromDirectoryWithContent(createdTempDir)
+        for (const entry of coldEntries) {
+          if (!contentMap.has(entry.path)) {
+            contentMap.set(entry.path, entry.content)
+          }
+        }
+        dCold = dMkdtemp + dRender
+      }
+
+      // ---------- Manifest + diff + apply ----------
+      // We only re-rendered the dirty subset (plus, when needed, the
+      // full cold tree). The manifest must cover the FULL set of files
+      // this template produces, not just what we touched this call —
+      // otherwise unchanged files appear as orphaned and we delete
+      // them from disk.
+      //
+      // Universe of paths = (rendered this time) ∪ (previous manifest)
+      //                   ∪ (analyzer's known set).
+      // For each path:
+      //   - In contentMap → use the freshly-computed hash
+      //   - Else in prev manifest → carry forward the prev hash (file
+      //     wasn't re-rendered because no relevant var changed)
+      //   - Else (analyzer ghost: in `files` but never produced) → skip
+      const tManifest = Date.now()
+      const oldManifest = manifestStore.get(templateId)
+      const oldEntries = oldManifest?.files ?? []
+      const prevByPath = new Map<string, string>()
+      for (const e of oldEntries) prevByPath.set(e.path, e.contentHash)
+
+      const universe = new Set<string>()
+      for (const p of warmResult.allKnownPaths) universe.add(p)
+      for (const p of contentMap.keys()) universe.add(p)
+      for (const p of prevByPath.keys()) universe.add(p)
+
+      const newEntries: ManifestEntry[] = []
+      for (const path of universe) {
+        if (contentMap.has(path)) {
+          newEntries.push({ path, contentHash: hashFileContent(contentMap.get(path)!) })
+        } else if (prevByPath.has(path)) {
+          newEntries.push({ path, contentHash: prevByPath.get(path)! })
+        }
+        // else: analyzer ghost — never rendered, no prev. Skip.
+      }
+      newEntries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      const dManifest = Date.now() - tManifest
+
+      const diff = computeDiff(oldEntries, newEntries)
+
+      // A different runbook opened while this render ran. End as superseded
+      // instead of writing the old runbook's output or putting its manifest
+      // back after runbook:get cleared them. Checked in the same synchronous
+      // step as the write and as the manifest update, since the write yields.
+      const runbookChanged = () => !sessionManager.isCurrentGeneration(generation)
+
+      const tApply = Date.now()
+      // Pure warm: write content directly. Cold-fallback: same — we
+      // already merged everything into contentMap above. Either way we
+      // write from the in-memory content map rather than copying from a
+      // tempdir for the write step. (Cleanup of the tempdir, if we made
+      // one, happens below.)
+      if (runbookChanged()) return yield* Effect.interrupt
+      const applied = yield* applyDiffFromContent(diff, contentMap, outputDir)
+      const dApply = Date.now() - tApply
+
+      if (runbookChanged()) return yield* Effect.interrupt
+      manifestStore.set(templateId, { templateId, outputDir, files: newEntries })
+      // The output for these vars is now on disk, so the next render can
+      // diff against them. A render superseded or failed before this point
+      // never commits, and the next dirty set still covers its change.
+      yield* warmDispatcher.commit(templateId, flattenedVariables)
+
+      // For worktree target the UI discards fileTree and just refreshes
+      // via invalidateGitFileTree, so skip the expensive walk.
+      let treeNodes: unknown[] = []
+      let treeMeta: FileTreeMeta = { totalFiles: 0, truncatedTree: false, heavyDirs: [] }
+      const tTree = Date.now()
+      if (params.target !== "worktree") {
+        const built = yield* buildFileTree(outputDir)
+        treeNodes = built.tree as unknown[]
+        treeMeta = built.meta
+      }
+      const dTree = Date.now() - tTree
+
+      const dTotal = Date.now() - t0
+      const cumStats = supersessionStats.get(templateId) ?? { count: 0, wastedMs: 0 }
+      console.log("[ipc boilerplate:render] timing(ms)", {
+        templateId,
+        flatten: dFlatten,
+        warm: dWarm,
+        cold: dCold,
+        render: dRender,
+        manifest: dManifest,
+        apply: dApply,
+        tree: dTree,
+        total: dTotal,
+        path: warmResult.warmDisabled
+          ? `cold (${warmResult.disabledReason ?? "unknown"})`
+          : warmResult.coldNeeded.length > 0
+            ? `hybrid (warm=${warmResult.files.length}, cold=${warmResult.coldNeeded.length})`
+            : "warm",
+        files: newEntries.length,
+        created: diff.created.length,
+        modified: diff.modified.length,
+        orphaned: diff.orphaned.length,
+        unchanged: diff.unchanged.length,
+        applied,
+        warmFiles: warmResult.files.length,
+        warmColdNeeded: warmResult.coldNeeded.length,
+        warmSkipped: warmResult.skipped.length,
+        // Dirty-set sizing — useful for spotting cases where we
+        // accidentally render the world (attempted ≈ known) and
+        // cases where the savings actually land (attempted << known).
+        warmAttempted: warmResult.attemptedPaths.length,
+        warmKnown: warmResult.allKnownPaths.length,
+        // Cumulative since main-process start. Useful for tuning the
+        // renderer-side debounce: rising wasted_ms means typists are
+        // outrunning the binary and we're paying for killed work.
+        supersedeCount: cumStats.count,
+        supersedeWastedMs: cumStats.wastedMs,
+        ...(perf
+          ? {
               perfSeq: perf.seq,
               ipcTransitMs: ipcTransit,
               sinceKeystrokeMs: Date.now() - perf.keystrokeAt,
-            } : {}),
-          })
-          return {
-            message: `Template up-to-date (no var changes)`,
-            outputDir,
-            templatePath: params.templatePath,
-            deletedFiles: [] as string[],
-            createdFiles: [] as string[],
-            modifiedFiles: [] as string[],
-            skippedFiles: prevManifestEntries.map((e) => e.path),
-          }
-        }
-
-        // Build the in-memory content map. Warm-success files seed it;
-        // cold renders (when needed) fill in the rest by reading from a
-        // tempdir.
-        const contentMap = new Map<string, string>()
-        for (const file of warmResult.files) {
-          contentMap.set(file.path, file.content)
-        }
-
-        let dCold = 0
-        let dRender = 0
-
-        if (needsCold) {
-          // ---------- Cold fallback ----------
-          // Run the full subprocess render into a tempdir. We then merge
-          // its output into the content map for every path the warm
-          // attempt did NOT successfully render — that's coldNeeded plus
-          // (in the warm-disabled case) every path the subprocess produced.
-          const tMkdtemp = Date.now()
-          const createdTempDir = yield* fs.mkdtemp("boilerplate-render-")
-          tempDirRef.path = createdTempDir
-          const dMkdtemp = Date.now() - tMkdtemp
-
-          const tRenderInner = Date.now()
-          yield* renderer.renderTemplate(
-            resolvedTemplatePath,
-            createdTempDir,
-            flattenedVariables,
-          )
-          dRender = Date.now() - tRenderInner
-
-          // Merge subprocess output into our content map, but only for
-          // paths warm didn't successfully render — we deliberately
-          // preserve warm content where it succeeded so a future build
-          // of boilerplate-fast that fixes more analyzer edge cases
-          // keeps the warm win. buildManifestFromDirectoryWithContent
-          // returns the content alongside the hash so we avoid a second
-          // read pass over the tempdir.
-          const coldEntries = yield* buildManifestFromDirectoryWithContent(createdTempDir)
-          for (const entry of coldEntries) {
-            if (!contentMap.has(entry.path)) {
-              contentMap.set(entry.path, entry.content)
             }
-          }
-          dCold = dMkdtemp + dRender
-        }
-
-        // ---------- Manifest + diff + apply ----------
-        // We only re-rendered the dirty subset (plus, when needed, the
-        // full cold tree). The manifest must cover the FULL set of files
-        // this template produces, not just what we touched this call —
-        // otherwise unchanged files appear as orphaned and we delete
-        // them from disk.
-        //
-        // Universe of paths = (rendered this time) ∪ (previous manifest)
-        //                   ∪ (analyzer's known set).
-        // For each path:
-        //   - In contentMap → use the freshly-computed hash
-        //   - Else in prev manifest → carry forward the prev hash (file
-        //     wasn't re-rendered because no relevant var changed)
-        //   - Else (analyzer ghost: in `files` but never produced) → skip
-        const tManifest = Date.now()
-        const oldManifest = manifestStore.get(templateId)
-        const oldEntries = oldManifest?.files ?? []
-        const prevByPath = new Map<string, string>()
-        for (const e of oldEntries) prevByPath.set(e.path, e.contentHash)
-
-        const universe = new Set<string>()
-        for (const p of warmResult.allKnownPaths) universe.add(p)
-        for (const p of contentMap.keys()) universe.add(p)
-        for (const p of prevByPath.keys()) universe.add(p)
-
-        const newEntries: ManifestEntry[] = []
-        for (const path of universe) {
-          if (contentMap.has(path)) {
-            newEntries.push({ path, contentHash: hashFileContent(contentMap.get(path)!) })
-          } else if (prevByPath.has(path)) {
-            newEntries.push({ path, contentHash: prevByPath.get(path)! })
-          }
-          // else: analyzer ghost — never rendered, no prev. Skip.
-        }
-        newEntries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-        const dManifest = Date.now() - tManifest
-
-        const diff = computeDiff(oldEntries, newEntries)
-
-        // A different runbook opened while this render ran. End as superseded
-        // instead of writing the old runbook's output or putting its manifest
-        // back after runbook:get cleared them. Checked in the same synchronous
-        // step as the write and as the manifest update, since the write yields.
-        const runbookChanged = () => !sessionManager.isCurrentGeneration(generation)
-
-        const tApply = Date.now()
-        // Pure warm: write content directly. Cold-fallback: same — we
-        // already merged everything into contentMap above. Either way we
-        // write from the in-memory content map rather than copying from a
-        // tempdir for the write step. (Cleanup of the tempdir, if we made
-        // one, happens below.)
-        if (runbookChanged()) return yield* Effect.interrupt
-        const applied = yield* applyDiffFromContent(diff, contentMap, outputDir)
-        const dApply = Date.now() - tApply
-
-        if (runbookChanged()) return yield* Effect.interrupt
-        manifestStore.set(templateId, { templateId, outputDir, files: newEntries })
-        // The output for these vars is now on disk, so the next render can
-        // diff against them. A render superseded or failed before this point
-        // never commits, and the next dirty set still covers its change.
-        yield* warmDispatcher.commit(templateId, flattenedVariables)
-
-        // For worktree target the UI discards fileTree and just refreshes
-        // via invalidateGitFileTree, so skip the expensive walk.
-        let treeNodes: unknown[] = []
-        let treeMeta: FileTreeMeta = { totalFiles: 0, truncatedTree: false, heavyDirs: [] }
-        const tTree = Date.now()
-        if (params.target !== "worktree") {
-          const built = yield* buildFileTree(outputDir)
-          treeNodes = built.tree as unknown[]
-          treeMeta = built.meta
-        }
-        const dTree = Date.now() - tTree
-
-        const dTotal = Date.now() - t0
-        const cumStats = supersessionStats.get(templateId) ?? { count: 0, wastedMs: 0 }
-        console.log("[ipc boilerplate:render] timing(ms)", {
-          templateId,
-          flatten: dFlatten,
-          warm: dWarm,
-          cold: dCold,
-          render: dRender,
-          manifest: dManifest,
-          apply: dApply,
-          tree: dTree,
-          total: dTotal,
-          path: warmResult.warmDisabled
-            ? `cold (${warmResult.disabledReason ?? "unknown"})`
-            : warmResult.coldNeeded.length > 0
-              ? `hybrid (warm=${warmResult.files.length}, cold=${warmResult.coldNeeded.length})`
-              : "warm",
-          files: newEntries.length,
-          created: diff.created.length,
-          modified: diff.modified.length,
-          orphaned: diff.orphaned.length,
-          unchanged: diff.unchanged.length,
-          applied,
-          warmFiles: warmResult.files.length,
-          warmColdNeeded: warmResult.coldNeeded.length,
-          warmSkipped: warmResult.skipped.length,
-          // Dirty-set sizing — useful for spotting cases where we
-          // accidentally render the world (attempted ≈ known) and
-          // cases where the savings actually land (attempted << known).
-          warmAttempted: warmResult.attemptedPaths.length,
-          warmKnown: warmResult.allKnownPaths.length,
-          // Cumulative since main-process start. Useful for tuning the
-          // renderer-side debounce: rising wasted_ms means typists are
-          // outrunning the binary and we're paying for killed work.
-          supersedeCount: cumStats.count,
-          supersedeWastedMs: cumStats.wastedMs,
-          ...(perf ? {
-            perfSeq: perf.seq,
-            ipcTransitMs: ipcTransit,
-            sinceKeystrokeMs: Date.now() - perf.keystrokeAt,
-          } : {}),
+          : {}),
+      })
+      if (perf) {
+        console.log(`${perfTag} [perf main] boilerplate:render done`, {
+          totalSinceKeystrokeMs: Date.now() - perf.keystrokeAt,
+          handlerMs: dTotal,
+          warmMs: dWarm,
+          coldMs: dCold,
         })
-        if (perf) {
-          console.log(`${perfTag} [perf main] boilerplate:render done`, {
-            totalSinceKeystrokeMs: Date.now() - perf.keystrokeAt,
-            handlerMs: dTotal,
-            warmMs: dWarm,
-            coldMs: dCold,
-          })
-        }
-        return {
-          message: `Template rendered to ${outputDir}`,
-          outputDir,
-          templatePath: params.templatePath,
-          fileTree: treeNodes,
-          // Top level, where the renderer's updateGeneratedFileTree reads
-          // the truncation fields.
-          ...treeMeta,
-          deletedFiles: diff.orphaned,
-          createdFiles: diff.created,
-          modifiedFiles: diff.modified,
-          skippedFiles: diff.unchanged,
-        }
-      }).pipe(
-        // Tempdir cleanup. Runs on success, failure, and interruption (a
-        // superseding render). Returns void either way so failures don't
-        // mask a real render error.
-        Effect.ensuring(
-          Effect.gen(function* () {
-            if (tempDirRef.path) {
-              const fs = yield* FileSystem
-              yield* fs.rm(tempDirRef.path, { recursive: true, force: true }).pipe(Effect.ignore)
-              tempDirRef.path = null
-            }
-          }).pipe(Effect.ignore),
-        ),
-      )
-
-      const fiber = runtime.runFork(program)
-      activeRenders.set(templateId, fiber as Fiber.RuntimeFiber<unknown, unknown>)
-
-      try {
-        // Use Fiber.await (returns an Exit) instead of Fiber.join so we can
-        // distinguish interruption (= superseded by a newer request) from a
-        // real failure. Superseded calls resolve to a sentinel that the
-        // client's useApi treats as "ignore, the newer call will update UI".
-        const exit = await runtime.runPromise(Fiber.await(fiber))
-        if (Exit.isSuccess(exit)) {
-          return exit.value
-        }
-        if (Cause.isInterruptedOnly(exit.cause)) {
-          console.log("[ipc boilerplate:render] superseded, discarding result", {
-            templateId,
-            elapsed: Date.now() - t0,
-          })
-          return { superseded: true } as const
-        }
-        throw Cause.squash(exit.cause)
-      } finally {
-        // Only clear if *our* fiber is still the registered one — a superseding
-        // call may have already registered a newer fiber under this templateId.
-        if (activeRenders.get(templateId) === (fiber as Fiber.RuntimeFiber<unknown, unknown>)) {
-          activeRenders.delete(templateId)
-          renderStartTimes.delete(templateId)
-        }
       }
-    },
-  )
-
-  ipcMain.handle(
-    "boilerplate:render-inline",
-    async (_event, params: RenderInlineRequest) => {
-      return runtime.runPromise(
+      return {
+        message: `Template rendered to ${outputDir}`,
+        outputDir,
+        templatePath: params.templatePath,
+        fileTree: treeNodes,
+        // Top level, where the renderer's updateGeneratedFileTree reads
+        // the truncation fields.
+        ...treeMeta,
+        deletedFiles: diff.orphaned,
+        createdFiles: diff.created,
+        modifiedFiles: diff.modified,
+        skippedFiles: diff.unchanged,
+      }
+    }).pipe(
+      // Tempdir cleanup. Runs on success, failure, and interruption (a
+      // superseding render). Returns void either way so failures don't
+      // mask a real render error.
+      Effect.ensuring(
         Effect.gen(function* () {
-          const renderer = yield* BoilerplateRenderer
-
-          // Build variables record from inputs
-          const variables: Record<string, unknown> = {}
-          for (const input of params.inputs) {
-            variables[input.name] = input.value
+          if (tempDirRef.path) {
+            const fs = yield* FileSystem
+            yield* fs.rm(tempDirRef.path, { recursive: true, force: true }).pipe(Effect.ignore)
+            tempDirRef.path = null
           }
+        }).pipe(Effect.ignore),
+      ),
+    )
 
-          // Resolve nested input templates before rendering. An input value can
-          // itself be a template — e.g. a Template block exposes
-          //   LogsAccountEmail = "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}"
-          // via inputsId. Without this, a single renderFile pass substitutes that
-          // value verbatim and leaves the inner `{{ .inputs.* }}` unrendered, so
-          // the "View Source" preview diverges from what exec actually runs. This
-          // mirrors the exec path and flattenVariables.
-          const rawInputs =
-            variables.inputs &&
-            typeof variables.inputs === "object" &&
-            !Array.isArray(variables.inputs)
-              ? (variables.inputs as Record<string, unknown>)
-              : {}
-          variables.inputs = yield* resolveInputTemplates(rawInputs, variables.outputs)
+    const fiber = runtime.runFork(program)
+    activeRenders.set(templateId, fiber as Fiber.RuntimeFiber<unknown, unknown>)
 
-          // Render each template file
-          const renderedFiles: Record<string, any> = {}
-          const contents: Record<string, string> = {}
-          for (const [name, templateContent] of Object.entries(params.templateFiles)) {
-            const rendered = yield* renderer.renderFile(templateContent, variables)
-            contents[name] = rendered
-            renderedFiles[name] = {
-              name,
-              path: name,
-              content: rendered,
-              language: "",
-              size: rendered.length,
-              isTruncated: false,
-            }
+    try {
+      // Use Fiber.await (returns an Exit) instead of Fiber.join so we can
+      // distinguish interruption (= superseded by a newer request) from a
+      // real failure. Superseded calls resolve to a sentinel that the
+      // client's useApi treats as "ignore, the newer call will update UI".
+      const exit = await runtime.runPromise(Fiber.await(fiber))
+      if (Exit.isSuccess(exit)) {
+        return exit.value
+      }
+      if (Cause.isInterruptedOnly(exit.cause)) {
+        console.log("[ipc boilerplate:render] superseded, discarding result", {
+          templateId,
+          elapsed: Date.now() - t0,
+        })
+        return { superseded: true } as const
+      }
+      throw Cause.squash(exit.cause)
+    } finally {
+      // Only clear if *our* fiber is still the registered one — a superseding
+      // call may have already registered a newer fiber under this templateId.
+      if (activeRenders.get(templateId) === (fiber as Fiber.RuntimeFiber<unknown, unknown>)) {
+        activeRenders.delete(templateId)
+        renderStartTimes.delete(templateId)
+      }
+    }
+  })
+
+  ipcMain.handle("boilerplate:render-inline", async (_event, params: RenderInlineRequest) => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const renderer = yield* BoilerplateRenderer
+
+        // Build variables record from inputs
+        const variables: Record<string, unknown> = {}
+        for (const input of params.inputs) {
+          variables[input.name] = input.value
+        }
+
+        // Resolve nested input templates before rendering. An input value can
+        // itself be a template — e.g. a Template block exposes
+        //   LogsAccountEmail = "{{ .inputs.EmailUsername }}+logs@{{ .inputs.EmailDomainName }}"
+        // via inputsId. Without this, a single renderFile pass substitutes that
+        // value verbatim and leaves the inner `{{ .inputs.* }}` unrendered, so
+        // the "View Source" preview diverges from what exec actually runs. This
+        // mirrors the exec path and flattenVariables.
+        const rawInputs =
+          variables.inputs &&
+          typeof variables.inputs === "object" &&
+          !Array.isArray(variables.inputs)
+            ? (variables.inputs as Record<string, unknown>)
+            : {}
+        variables.inputs = yield* resolveInputTemplates(rawInputs, variables.outputs)
+
+        // Render each template file
+        const renderedFiles: Record<string, any> = {}
+        const contents: Record<string, string> = {}
+        for (const [name, templateContent] of Object.entries(params.templateFiles)) {
+          const rendered = yield* renderer.renderFile(templateContent, variables)
+          contents[name] = rendered
+          renderedFiles[name] = {
+            name,
+            path: name,
+            content: rendered,
+            language: "",
+            size: rendered.length,
+            isTruncated: false,
           }
+        }
 
-          // Preview only: nothing was written, so send no `fileTree`. The
-          // renderer would take an empty list as the new Generated tree.
-          if (!params.generateFile) {
-            return { message: "Inline template rendered", renderedFiles }
-          }
+        // Preview only: nothing was written, so send no `fileTree`. The
+        // renderer would take an empty list as the new Generated tree.
+        if (!params.generateFile) {
+          return { message: "Inline template rendered", renderedFiles }
+        }
 
-          // generateFile: write each rendered file under the target's output
-          // dir. The templateFiles keys are the block's outputPath, i.e. file
-          // paths relative to that dir.
-          const outputDir = yield* resolveRenderOutputDir(params.target)
-          yield* validateSessionPath(outputDir)
-          const key = params.blockId ? inlineWriteKey(params.blockId) : undefined
-          yield* inlineWriteLock.withPermits(1)(
-            Effect.gen(function* () {
-              // The helper cleans up after the previous render only when it
-              // wrote into this same outputDir (already validated above), so
-              // a file left in an earlier worktree is never touched.
-              const previous = key ? inlineWrites.get(key) : undefined
-              const written = yield* writeInlineRenderedFiles(contents, outputDir, previous)
-              if (key) inlineWrites.set(key, written)
-            }),
-          )
+        // generateFile: write each rendered file under the target's output
+        // dir. The templateFiles keys are the block's outputPath, i.e. file
+        // paths relative to that dir.
+        const outputDir = yield* resolveRenderOutputDir(params.target)
+        yield* validateSessionPath(outputDir)
+        const key = params.blockId ? inlineWriteKey(params.blockId) : undefined
+        yield* inlineWriteLock.withPermits(1)(
+          Effect.gen(function* () {
+            // The helper cleans up after the previous render only when it
+            // wrote into this same outputDir (already validated above), so
+            // a file left in an earlier worktree is never touched.
+            const previous = key ? inlineWrites.get(key) : undefined
+            const written = yield* writeInlineRenderedFiles(contents, outputDir, previous)
+            if (key) inlineWrites.set(key, written)
+          }),
+        )
 
-          // Same tree contract as boilerplate:render: for the worktree target
-          // the UI ignores the tree and only refreshes the git tree, so skip
-          // the walk and send an empty list.
-          if (params.target === "worktree") {
-            return { message: `Inline template rendered to ${outputDir}`, renderedFiles, fileTree: [] }
-          }
-          const built = yield* buildFileTree(outputDir)
+        // Same tree contract as boilerplate:render: for the worktree target
+        // the UI ignores the tree and only refreshes the git tree, so skip
+        // the walk and send an empty list.
+        if (params.target === "worktree") {
           return {
             message: `Inline template rendered to ${outputDir}`,
             renderedFiles,
-            fileTree: built.tree,
-            ...built.meta,
+            fileTree: [],
           }
-        }),
-      )
-    },
-  )
+        }
+        const built = yield* buildFileTree(outputDir)
+        return {
+          message: `Inline template rendered to ${outputDir}`,
+          renderedFiles,
+          fileTree: built.tree,
+          ...built.meta,
+        }
+      }),
+    )
+  })
 }

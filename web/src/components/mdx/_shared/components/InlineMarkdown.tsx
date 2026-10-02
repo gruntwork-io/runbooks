@@ -26,7 +26,7 @@ export const InlineMarkdown = ({ children }: InlineMarkdownProps) => {
       remarkPlugins={[remarkGfm]}
       urlTransform={urlTransform}
       components={{
-        p: ({children}) => <>{children}</>, // Unwrap paragraphs for inline rendering
+        p: ({ children }) => <>{children}</>, // Unwrap paragraphs for inline rendering
         a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
       }}
     >

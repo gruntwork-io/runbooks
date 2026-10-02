@@ -1,4 +1,4 @@
-import type { RunbooksAPI } from '@/contexts/ApiContext'
+import type { RunbooksAPI } from "@/contexts/ApiContext"
 
 /**
  * Channels with a sensible default response so tests that render inside
@@ -6,7 +6,7 @@ import type { RunbooksAPI } from '@/contexts/ApiContext'
  */
 const DEFAULT_RESPONSES: Record<string, unknown> = {
   // ThemeProvider notifies the main process of the resolved theme on mount.
-  'native:set-theme': { ok: true },
+  "native:set-theme": { ok: true },
 }
 
 /**

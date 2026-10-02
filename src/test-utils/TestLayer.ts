@@ -60,90 +60,221 @@ const makeStubAwsClient = (overrides: Partial<AwsClientShape> = {}): AwsClientSh
 
 const makeStubGitHubClient = (overrides: Partial<GitHubClientShape> = {}): GitHubClientShape => ({
   validateToken: (_token) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "validateToken") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "validateToken") }),
+    ),
   startOAuthDeviceFlow: (_clientId, _scopes) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "startOAuthDeviceFlow") })),
+    Effect.fail(
+      new GitHubApiError({
+        status: 0,
+        message: notConfigured("GitHubClient", "startOAuthDeviceFlow"),
+      }),
+    ),
   pollOAuthToken: (_clientId, _deviceCode) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "pollOAuthToken") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "pollOAuthToken") }),
+    ),
   listOrgs: (_token) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listOrgs") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listOrgs") }),
+    ),
   listRepos: (_token, _owner, _query) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listRepos") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listRepos") }),
+    ),
   getRepo: (_token, _owner, _repo) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "getRepo") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "getRepo") }),
+    ),
   listRefs: (_token, _owner, _repo, _query) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listRefs") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listRefs") }),
+    ),
   listLabels: (_token, _owner, _repo) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listLabels") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "listLabels") }),
+    ),
   createPullRequest: (_token, _params) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "createPullRequest") })),
+    Effect.fail(
+      new GitHubApiError({
+        status: 0,
+        message: notConfigured("GitHubClient", "createPullRequest"),
+      }),
+    ),
   addLabels: (_token, _owner, _repo, _prNumber, _labels) =>
-    Effect.fail(new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "addLabels") })),
+    Effect.fail(
+      new GitHubApiError({ status: 0, message: notConfigured("GitHubClient", "addLabels") }),
+    ),
   ...overrides,
 })
 
 const makeStubGitLabClient = (overrides: Partial<GitLabClientShape> = {}): GitLabClientShape => ({
   validateToken: (_token) =>
-    Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "validateToken") })),
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "validateToken") }),
+    ),
   createMergeRequest: (_token, _params) =>
-    Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "createMergeRequest") })),
+    Effect.fail(
+      new GitLabApiError({
+        status: 0,
+        message: notConfigured("GitLabClient", "createMergeRequest"),
+      }),
+    ),
   listLabels: (_token, _owner, _repo) =>
-    Effect.fail(new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listLabels") })),
+    Effect.fail(
+      new GitLabApiError({ status: 0, message: notConfigured("GitLabClient", "listLabels") }),
+    ),
   ...overrides,
 })
 
 const makeStubGitClient = (overrides: Partial<GitClientShape> = {}): GitClientShape => ({
   cloneSimple: (_url, _dest, _options) =>
-    Effect.fail(new GitError({ command: "clone", stderr: notConfigured("GitClient", "cloneSimple"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "clone",
+        stderr: notConfigured("GitClient", "cloneSimple"),
+        exitCode: 1,
+      }),
+    ),
   push: (_repoPath, _remote, _branch, _options) =>
-    Effect.fail(new GitError({ command: "push", stderr: notConfigured("GitClient", "push"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({ command: "push", stderr: notConfigured("GitClient", "push"), exitCode: 1 }),
+    ),
   deleteBranch: (_repoPath, _branch) =>
-    Effect.fail(new GitError({ command: "branch -d", stderr: notConfigured("GitClient", "deleteBranch"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "branch -d",
+        stderr: notConfigured("GitClient", "deleteBranch"),
+        exitCode: 1,
+      }),
+    ),
   getCurrentBranch: (_repoPath) =>
-    Effect.fail(new GitError({ command: "branch", stderr: notConfigured("GitClient", "getCurrentBranch"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "branch",
+        stderr: notConfigured("GitClient", "getCurrentBranch"),
+        exitCode: 1,
+      }),
+    ),
   getRepoRoot: (_repoPath) =>
-    Effect.fail(new GitError({ command: "rev-parse", stderr: notConfigured("GitClient", "getRepoRoot"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "rev-parse",
+        stderr: notConfigured("GitClient", "getRepoRoot"),
+        exitCode: 1,
+      }),
+    ),
   getRemoteUrl: (_repoPath) =>
-    Effect.fail(new GitError({ command: "remote", stderr: notConfigured("GitClient", "getRemoteUrl"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "remote",
+        stderr: notConfigured("GitClient", "getRemoteUrl"),
+        exitCode: 1,
+      }),
+    ),
   getInfo: (_repoPath) =>
-    Effect.fail(new GitError({ command: "info", stderr: notConfigured("GitClient", "getInfo"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({ command: "info", stderr: notConfigured("GitClient", "getInfo"), exitCode: 1 }),
+    ),
   diff: (_repoPath, _filePath) =>
-    Effect.fail(new GitError({ command: "diff", stderr: notConfigured("GitClient", "diff"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({ command: "diff", stderr: notConfigured("GitClient", "diff"), exitCode: 1 }),
+    ),
   status: (_repoPath) =>
-    Effect.fail(new GitError({ command: "status", stderr: notConfigured("GitClient", "status"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "status",
+        stderr: notConfigured("GitClient", "status"),
+        exitCode: 1,
+      }),
+    ),
   hasCommits: (_repoPath) =>
-    Effect.fail(new GitError({ command: "log", stderr: notConfigured("GitClient", "hasCommits"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "log",
+        stderr: notConfigured("GitClient", "hasCommits"),
+        exitCode: 1,
+      }),
+    ),
   hasCommitsNotIn: (_repoPath, _ref) =>
-    Effect.fail(new GitError({ command: "rev-list", stderr: notConfigured("GitClient", "hasCommitsNotIn"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "rev-list",
+        stderr: notConfigured("GitClient", "hasCommitsNotIn"),
+        exitCode: 1,
+      }),
+    ),
   hasCommitsNotOnRemote: (_repoPath, _remote) =>
-    Effect.fail(new GitError({ command: "rev-list", stderr: notConfigured("GitClient", "hasCommitsNotOnRemote"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "rev-list",
+        stderr: notConfigured("GitClient", "hasCommitsNotOnRemote"),
+        exitCode: 1,
+      }),
+    ),
   checkIgnored: (_repoPath, _paths) =>
-    Effect.fail(new GitError({ command: "check-ignore", stderr: notConfigured("GitClient", "checkIgnored"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "check-ignore",
+        stderr: notConfigured("GitClient", "checkIgnored"),
+        exitCode: 1,
+      }),
+    ),
   createBranch: (_repoPath, _branch) =>
-    Effect.fail(new GitError({ command: "checkout -b", stderr: notConfigured("GitClient", "createBranch"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "checkout -b",
+        stderr: notConfigured("GitClient", "createBranch"),
+        exitCode: 1,
+      }),
+    ),
   stageAll: (_repoPath) =>
-    Effect.fail(new GitError({ command: "add", stderr: notConfigured("GitClient", "stageAll"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({ command: "add", stderr: notConfigured("GitClient", "stageAll"), exitCode: 1 }),
+    ),
   commit: (_repoPath, _message, _options) =>
-    Effect.fail(new GitError({ command: "commit", stderr: notConfigured("GitClient", "commit"), exitCode: 1 })),
+    Effect.fail(
+      new GitError({
+        command: "commit",
+        stderr: notConfigured("GitClient", "commit"),
+        exitCode: 1,
+      }),
+    ),
   ...overrides,
 })
 
 const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): GoogleClientShape => ({
   validateServiceAccountKey: (_keyJson, _projectIdOverride) =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "validateServiceAccountKey") })),
+    Effect.fail(
+      new GoogleAuthError({ message: notConfigured("GoogleClient", "validateServiceAccountKey") }),
+    ),
   validateAccessToken: (_accessToken, _projectIdOverride) =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "validateAccessToken") })),
+    Effect.fail(
+      new GoogleAuthError({ message: notConfigured("GoogleClient", "validateAccessToken") }),
+    ),
   validateAdcDocument: (_adcJson, _projectIdOverride) =>
-    Effect.fail(new GoogleAuthError({ message: notConfigured("GoogleClient", "validateAdcDocument") })),
+    Effect.fail(
+      new GoogleAuthError({ message: notConfigured("GoogleClient", "validateAdcDocument") }),
+    ),
   readCredentialFile: (_filePath) =>
-    Effect.fail(new GoogleConfigError({ message: notConfigured("GoogleClient", "readCredentialFile") })),
+    Effect.fail(
+      new GoogleConfigError({ message: notConfigured("GoogleClient", "readCredentialFile") }),
+    ),
   readCredentialFileContents: (_filePath) =>
-    Effect.fail(new GoogleConfigError({ message: notConfigured("GoogleClient", "readCredentialFileContents") })),
+    Effect.fail(
+      new GoogleConfigError({
+        message: notConfigured("GoogleClient", "readCredentialFileContents"),
+      }),
+    ),
   listGcloudConfigurations: () =>
-    Effect.fail(new GoogleConfigError({ message: notConfigured("GoogleClient", "listGcloudConfigurations") })),
+    Effect.fail(
+      new GoogleConfigError({ message: notConfigured("GoogleClient", "listGcloudConfigurations") }),
+    ),
   readApplicationDefaultCredentials: () =>
     Effect.fail(
-      new GoogleConfigError({ message: notConfigured("GoogleClient", "readApplicationDefaultCredentials") }),
+      new GoogleConfigError({
+        message: notConfigured("GoogleClient", "readApplicationDefaultCredentials"),
+      }),
     ),
   startOAuthFlow: (_params) =>
     Effect.fail(new GoogleOAuthError({ message: notConfigured("GoogleClient", "startOAuthFlow") })),
@@ -158,7 +289,9 @@ const makeStubGoogleClient = (overrides: Partial<GoogleClientShape> = {}): Googl
   ...overrides,
 })
 
-const makeStubBoilerplate = (overrides: Partial<BoilerplateRendererShape> = {}): BoilerplateRendererShape => ({
+const makeStubBoilerplate = (
+  overrides: Partial<BoilerplateRendererShape> = {},
+): BoilerplateRendererShape => ({
   renderFile: (templateContent, _variables) => Effect.succeed(templateContent),
   renderFileStrict: (templateContent, _variables) => Effect.succeed(templateContent),
   renderTemplate: (_templateDir, _outputDir, _variables) => Effect.void,
