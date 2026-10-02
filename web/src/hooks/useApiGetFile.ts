@@ -15,6 +15,12 @@ export interface GetFileReturn {
   remoteSource?: string
   /** The host of the runbook's runbook-asset:// URLs (runbook:get only) */
   assetHost?: string
+  /** The session the runbook was opened in (runbook:get only) */
+  sessionId?: string
+  /** The name the title bar shows that session as, e.g. `elegant-elephant` (runbook:get only) */
+  sessionName?: string
+  /** That session's own directory, where its scripts start and its files are written (runbook:get only) */
+  sessionDir?: string
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {

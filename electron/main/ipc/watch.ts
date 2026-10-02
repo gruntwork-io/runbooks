@@ -14,7 +14,7 @@ import { ipcMain } from "electron"
 import { runtime, runbookConfig } from "./runtime.ts"
 import { makeRunbookWatcher } from "./runbook-watcher.ts"
 import { validateSessionPath } from "./path-guard.ts"
-import { supersedeRunbookLoads } from "./runbook.ts"
+import { markRunbookClosed } from "./runbook.ts"
 import { getMainWindow } from "../window.ts"
 
 const runbookWatcher = makeRunbookWatcher(runtime, (runbookPath) => {
@@ -37,7 +37,7 @@ export const stopWatcher = runbookWatcher.stop
  * or set a registry once it resumes.
  */
 export function closeRunbook(): void {
-  supersedeRunbookLoads()
+  markRunbookClosed()
   void stopWatcher()
   getMainWindow()?.webContents.send("menu:close-runbook")
 }

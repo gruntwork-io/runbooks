@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
@@ -42,6 +43,9 @@ const RUNBOOKS: Record<string, RunbookFixture> = {
   "/work/c": { path: "/work/c/runbook.mdx", content: "# Runbook C\n" },
 }
 
+/** The names of a runbook's first session and of the one a reset replaces it with. */
+const SESSION_NAMES = ["elegant-elephant", "brave-otter"]
+
 const NO_RUNBOOK_MESSAGE = (dir: string) =>
   `This folder doesn't contain a runbook.mdx file:\n\n${dir}\n\nChoose a folder that contains a runbook.mdx file, or select a runbook file directly.`
 
@@ -63,12 +67,19 @@ interface ApiOptions {
 function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
+  // How many times each runbook was given a new session (see newSession).
+  const sessionCounts = new Map<string, number>()
 
   const invoke = vi.fn(
-    async (channel: string, params?: { path?: string; remoteSource?: string; reload?: string }) => {
+    async (
+      channel: string,
+      params?: { path?: string; remoteSource?: string; reload?: string; name?: string },
+    ) => {
       switch (channel) {
         case "native:get-cli-config":
           return {}
+        case "session:rename":
+          return { name: params?.name }
         case "runbook:get": {
           // A runbook's directory or its runbook.mdx, like resolveRunbookPath
           const fixture = params?.path
@@ -76,6 +87,7 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
             : undefined
           if (!fixture) throw new Error(NO_RUNBOOK_MESSAGE(params?.path ?? ""))
           current = fixture
+          const sessionCount = sessionCounts.get(fixture.path) ?? 0
           return {
             path: fixture.path,
             content: fixture.content,
@@ -85,6 +97,9 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
             isWatchMode: watchMode,
             warnings: [],
             remoteSource: params?.remoteSource,
+            sessionId: `session-${sessionCount}`,
+            sessionName: SESSION_NAMES[sessionCount],
+            sessionDir: `/sessions/dirs/session-${sessionCount}`,
           }
         }
         case "generated-files:check": {
@@ -124,8 +139,18 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
     })
   }
 
+  /**
+   * What File > Reset Session does in main: the next `runbook:get` for the open
+   * runbook answers with a new session, and main asks the renderer to load it.
+   */
+  const newSession = async () => {
+    if (!current) throw new Error("no runbook is open")
+    sessionCounts.set(current.path, (sessionCounts.get(current.path) ?? 0) + 1)
+    await emit("file:open-runbook", { path: current.path })
+  }
+
   const api = { invoke, on } as unknown as Parameters<typeof ApiProvider>[0]["api"]
-  return { api, invoke, emit }
+  return { api, invoke, emit, newSession }
 }
 
 /** Stands in for a block of the open runbook writing to the shared logs store. */
@@ -220,6 +245,7 @@ describe("App runbook switching", () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => {
     window.api = originalApi
+    Reflect.deleteProperty(navigator, "clipboard")
   })
 
   it("resets per-runbook state when a different runbook is opened without closing the first", async () => {
@@ -241,8 +267,117 @@ describe("App runbook switching", () => {
       expect(callsTo(invoke, "generated-files:check").length).toBeGreaterThan(checksBefore),
     )
     expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
-      runbookPath: "/work/b/runbook.mdx",
+      sessionKey: "/work/b/runbook.mdx\nsession-0",
     })
+  })
+
+  it("resets per-runbook state when the open runbook starts a new session", async () => {
+    const { invoke, emit, newSession } = renderApp()
+    await openRunbook(emit, "/work/a", "Runbook A")
+    await trustRunbook()
+    fireEvent.click(screen.getByRole("button", { name: "Seed logs" }))
+    expect(await isLogDownloadEnabled(emit)).toBe(true)
+    const checksBefore = callsTo(invoke, "generated-files:check").length
+
+    await newSession()
+
+    // The same runbook, but its blocks start over: the trust banner asks again.
+    await waitFor(() => expect(isTrustPending()).toBe(true))
+    expect(screen.getByRole("heading", { name: "Runbook A" })).toBeInTheDocument()
+    expect(await isLogDownloadEnabled(emit)).toBe(false)
+    // The new session has its own generated-files directory to check.
+    await waitFor(() =>
+      expect(callsTo(invoke, "generated-files:check").length).toBeGreaterThan(checksBefore),
+    )
+    expect(callsTo(invoke, "generated-files:check").at(-1)?.[1]).toEqual({
+      sessionKey: "/work/a/runbook.mdx\nsession-1",
+    })
+  })
+
+  it("shows the session's name in the header and the window title", async () => {
+    const { emit, newSession } = renderApp()
+    expect(screen.queryByTestId("session-name")).not.toBeInTheDocument()
+
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(screen.getByTestId("session-name")).toHaveTextContent("elegant-elephant")
+    expect(document.title).toBe("elegant-elephant - Gruntwork Runbooks")
+
+    // A reset replaces the session, and the name with it.
+    await newSession()
+    await waitFor(() => expect(screen.getByTestId("session-name")).toHaveTextContent("brave-otter"))
+    expect(document.title).toBe("brave-otter - Gruntwork Runbooks")
+
+    await emit("menu:close-runbook")
+    expect(await screen.findByText("Welcome")).toBeInTheDocument()
+    expect(screen.queryByTestId("session-name")).not.toBeInTheDocument()
+    expect(document.title).toBe("Gruntwork Runbooks")
+  })
+
+  it("renames the session from the header, and shows the new name there and in the window title", async () => {
+    const { invoke, emit, newSession } = renderApp()
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    await userEvent.click(screen.getByTestId("session-name"))
+    await userEvent.keyboard("prod-deploy{Enter}")
+
+    expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
+    await waitFor(() => expect(screen.getByTestId("session-name")).toHaveTextContent("prod-deploy"))
+    expect(document.title).toBe("prod-deploy - Gruntwork Runbooks")
+
+    // A reset replaces the session: the rename belonged to the old one.
+    await newSession()
+    await waitFor(() => expect(screen.getByTestId("session-name")).toHaveTextContent("brave-otter"))
+  })
+
+  it("opens the name's field from the native menu item and from the header menu", async () => {
+    const { emit } = renderApp()
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    await emit("menu:rename-session")
+    expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus()
+    await userEvent.keyboard("{Escape}")
+    expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
+
+    await emit("menu:preferences")
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename Session" }))
+    // The field keeps the focus the closing menu would give back to its button.
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus())
+  })
+
+  it("has no session to rename while no runbook is open", async () => {
+    const { emit } = renderApp()
+
+    await emit("menu:rename-session")
+    expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
+
+    await emit("menu:preferences")
+    expect(await screen.findByRole("menuitem", { name: "Rename Session" })).toHaveAttribute(
+      "data-disabled",
+    )
+  })
+
+  it("copies the session's directory from the header, for a remote runbook too", async () => {
+    // jsdom has no clipboard; the afterEach below takes this one away again.
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    const { emit } = renderApp()
+    expect(screen.queryByRole("button", { name: "Copy session directory" })).toBeNull()
+
+    await openRunbook(emit, "/work/a", "Runbook A")
+    fireEvent.click(screen.getByRole("button", { name: "Copy session directory" }))
+    await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("/sessions/dirs/session-0"))
+
+    // A remote runbook is cloned to a temp folder: the button still copies the
+    // session's directory, not the clone's.
+    await emit("file:open-runbook", {
+      path: "/work/b",
+      remoteSource: "https://github.com/acme/runbooks/tree/main/b",
+    })
+    expect(await screen.findByRole("heading", { name: "Runbook B" })).toBeInTheDocument()
+    writeText.mockClear()
+    fireEvent.click(screen.getByRole("button", { name: "Copy session directory" }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+    expect(writeText).toHaveBeenCalledWith("/sessions/dirs/session-0")
   })
 
   it("clears the previous runbook logs when it is closed before the next one opens", async () => {

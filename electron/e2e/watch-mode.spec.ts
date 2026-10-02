@@ -22,6 +22,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -54,6 +55,7 @@ test.describe("Watch mode", () => {
       // --user-data-dir isolates the single-instance lock and trust state.
       args: [
         MAIN_ENTRY,
+        MOCK_KEYCHAIN,
         `--user-data-dir=${path.join(tmpDir, "user-data")}`,
         ...flags,
         path.dirname(runbookPath),

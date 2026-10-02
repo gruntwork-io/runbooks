@@ -74,7 +74,7 @@ runbooks open "git@github.com:org/repo.git//runbooks/setup-vpc?ref=v1.0"
 As in go-getter, `github.com/org/repo/runbooks/setup-vpc` (without the `//`) also works, because a GitHub repo is always `owner/repo`. GitLab projects can sit under nested groups, so GitLab shorthand needs the `//` to mark where the path starts. `?ref=` is the only go-getter query parameter Runbooks reads. A `+` in it stays a `+` (`?ref=v1.0.0+build.1`), where go-getter would read it as a space. Quote sources that contain `?` or `&` so your shell leaves them alone.
 
 <Aside type="note">
-When you open a remote runbook, Runbooks clones it into a temporary directory. The runbook's folder inside that clone becomes the working directory: scripts start there, and generated files are saved inside it. The temporary directory is deleted when you quit Runbooks.
+When you open a remote runbook, Runbooks clones it into a temporary directory, which is deleted when you quit Runbooks. Scripts and generated files don't use that clone: like any runbook, a remote one runs in the directory of its [session](/commands/sessions/), which is kept.
 </Aside>
 
 ### Authentication for private repos

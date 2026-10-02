@@ -31,11 +31,13 @@ export interface UseIpcGetRunbookReturn extends UseIpcReturn<GetFileReturn> {
 /**
  * IPC hook to fetch the runbook file data.
  *
- * 1. On mount, fetches the CLI config to get the initial runbook path.
- *    If a remote URL was provided via CLI, the main process resolves it
- *    and sends a "file:open-runbook" event once the clone is ready.
- * 2. Listens for "file:open-runbook" events (sent by main process on CLI launch,
- *    second-instance, macOS open-file, and the Open menu/dialog).
+ * 1. On mount, fetches the CLI config to get the initial runbook path: the
+ *    local path on the command line or, with none, the runbook of the session
+ *    the launch resumes. If that runbook is remote, the main process clones
+ *    it and sends a "file:open-runbook" event once the clone is ready.
+ * 2. Listens for "file:open-runbook" events (sent by main process for a remote
+ *    runbook at launch, second-instance, macOS open-file, the Open
+ *    menu/dialog, and Reset Session).
  * 3. Exposes `openRunbook` for opens the renderer decides on itself: the
  *    Open from URL modal calls it with the path `runbook:open-remote` returns,
  *    so a cancelled clone never replaces the current runbook.
@@ -48,9 +50,8 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // Bumped on every open so a repeat open of the current path still changes
   // the useIpc params (and so fetches again). runbook:get ignores the field.
   // A same-path open is therefore a reload: main resets the session's working
-  // dir to the runbook's directory (block state here is kept). On a CLI launch
-  // with a local path, main's file:open-runbook for the path we already took
-  // from native:get-cli-config can also trigger a second, harmless fetch.
+  // dir to the session's own directory (block state here is kept, unless main
+  // answers with a new sessionId, as it does for Reset Session).
   const [openNonce, setOpenNonce] = useState(0)
   // 'watch' while the current request is a watch-mode reload (see reloadForWatch)
   const [reload, setReload] = useState<"watch" | undefined>(undefined)
@@ -74,9 +75,11 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
     [load],
   )
 
-  // Fetch CLI config on mount to get the initial runbook path.
-  // Remote URLs are handled by the main process (index.ts) which sends
-  // file:open-runbook after resolving, so we only handle local paths here.
+  // Fetch CLI config on mount to get the initial runbook path. Main sends no
+  // file:open-runbook for it: a second open of the same path would reset the
+  // working dir of a resumed session. Remote URLs are handled by the main
+  // process (index.ts) which sends file:open-runbook after resolving, so we
+  // only handle local paths here.
   useEffect(() => {
     api
       .invoke("native:get-cli-config")

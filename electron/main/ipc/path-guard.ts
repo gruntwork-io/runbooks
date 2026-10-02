@@ -146,8 +146,7 @@ export function runbookAssetHost(
  * on the symlink-resolved path, so a symlinked file
  * (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file from outside
  * assets/. Nothing is served when assets/ is itself a symlink, because
- * `assets -> .` would make the whole runbook directory, generated files
- * included, count as assets/.
+ * `assets -> .` would make the whole runbook directory count as assets/.
  */
 export async function resolveRunbookAssetPath(
   requestUrl: string,
@@ -178,7 +177,7 @@ export async function resolveRunbookAssetPath(
  * here so they agree on one directory.
  *
  * A relative `outputPath` resolves against the session's `initialWorkDir` (the
- * realpath'd runbook directory), never the live `workingDir`: that follows a
+ * session's own directory), never the live `workingDir`: that follows a
  * script's `cd`, which would scatter output across whatever directories the
  * runbook's scripts happened to leave the session in.
  *

@@ -25,6 +25,10 @@ export interface IpcChannelMap {
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
      * which useIpc ignores. `assetHost` is the host of the runbook's
      * runbook-asset:// URLs, the only one the protocol handler serves.
+     * `sessionId` identifies the session the runbook was opened in: File > Reset
+     * Session reloads the same runbook under a new one. `sessionName` is what
+     * the title bar shows it as, e.g. `elegant-elephant`, and `sessionDir` is
+     * the session's own directory, which the title bar's folder button copies.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
     result: {
@@ -37,6 +41,9 @@ export interface IpcChannelMap {
       warnings?: string[]
       remoteSource?: string
       assetHost: string
+      sessionId: string
+      sessionName: string
+      sessionDir: string
     }
   }
   "runbook:open-remote": {
@@ -52,6 +59,12 @@ export interface IpcChannelMap {
   "session:get": { params: void; result: SessionMetadata }
   "session:reset": { params: void; result: { ok: true } }
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
+  /**
+   * Rename the open runbook's session. Resolves to the name it now has, and
+   * rejects with a sentence for the user when the name is not allowed (see
+   * sessionNameProblem) or is another session's.
+   */
+  "session:rename": { params: { name: string }; result: { name: string } }
 
   // Execution
   "exec:run": {
@@ -795,6 +808,8 @@ export interface IpcChannelMap {
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
   "native:close-runbook": { params: void; result: { ok: true } }
+  /** Replace the open runbook's session with a new one, as File > Reset Session does. */
+  "native:reset-session": { params: void; result: { ok: true } }
   "native:get-cli-config": {
     params: void
     result: {
@@ -840,6 +855,8 @@ export interface IpcEventMap {
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "menu:close-runbook": void
+  /** File > Rename Session…: the title bar turns the session's name into a field. */
+  "menu:rename-session": void
   "menu:preferences": void
   "menu:find": { action: FindAction }
   "registry:updated": void

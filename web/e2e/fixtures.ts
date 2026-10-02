@@ -10,6 +10,7 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "../../electron/e2e/launch.ts"
 
 /** Repo root: two directories above web/e2e/ */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
@@ -86,7 +87,13 @@ export const test = base.extend<RunbookAppFixture>({
         // (SingletonLock in the shared userData dir) which would cause the
         // second process to app.quit() before firstWindow() resolves.
         // Chromium switches must come AFTER MAIN_ENTRY in Electron's argv.
-        args: [MAIN_ENTRY, "--no-sandbox", `--user-data-dir=${userDataDir}`, copiedRunbookPath],
+        args: [
+          MAIN_ENTRY,
+          MOCK_KEYCHAIN,
+          "--no-sandbox",
+          `--user-data-dir=${userDataDir}`,
+          copiedRunbookPath,
+        ],
         env: {
           ...process.env,
           ELECTRON_NO_UPDATER: "1",

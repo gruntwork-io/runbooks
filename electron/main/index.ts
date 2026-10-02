@@ -16,10 +16,20 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
-import { requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
+import { launchDirContext, requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
+import { sessionToResume } from "./launch-session.ts"
+import type { SessionRecord } from "../../src/domain/session/store.ts"
+import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
-import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
+import {
+  runtime,
+  setRunbookConfig,
+  runbookConfig,
+  sessionPersistence,
+  setSessionPersistence,
+} from "./ipc/runtime.ts"
+import { expectLaunch, isSessionOpen, resetToNewSession } from "./ipc/runbook.ts"
 import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
@@ -179,17 +189,42 @@ if (!gotLock) {
     const win = focusOrCreateWindow()
     // Resolve relative paths against the directory the second instance was
     // launched from, not this (first) instance's cwd.
+    const secondLaunchDir = secondInstanceLaunchDirectory(workingDirectory, additionalData)
     const secondArgs = parseCliArgs(
       secondInstanceArgv(argv, additionalData),
-      secondInstanceLaunchDirectory(workingDirectory, additionalData),
+      secondLaunchDir,
       app.getAppPath(),
     )
+    const from = launchDirContext(secondLaunchDir)
     if (secondArgs.remoteUrl) {
+      expectLaunch({ source: secondArgs.remoteUrl, launchDir: from, sessionId: undefined })
       openRemoteRunbook(win, secondArgs.remoteUrl)
     } else if (secondArgs.runbookPath) {
+      expectLaunch({ source: secondArgs.runbookPath, launchDir: from, sessionId: undefined })
       // focusOrCreateWindow may return a window that is still loading.
       openRunbookInWindow(win, { path: secondArgs.runbookPath })
+    } else if (from !== undefined && sessionPersistence) {
+      // `runbooks` alone, run in a directory: bring up that directory's
+      // session. With nothing to resume, the window keeps what it shows.
+      const saved = sessionToResume(sessionPersistence, from)
+      if (saved && !isSessionOpen(saved.id)) {
+        expectResume(saved, from)
+        if (saved.remoteSource !== undefined) {
+          openRemoteRunbook(win, saved.remoteSource)
+        } else {
+          openRunbookInWindow(win, { path: saved.path })
+        }
+      }
     }
+  })
+}
+
+/** Have the runbook:get that loads `saved`'s runbook resume that session. */
+function expectResume(saved: SessionRecord, from: string | undefined): void {
+  expectLaunch({
+    source: saved.remoteSource ?? saved.path,
+    launchDir: from,
+    sessionId: saved.id,
   })
 }
 
@@ -211,6 +246,45 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 // ---------------------------------------------------------------------------
 
 const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
+
+/**
+ * The local runbook the renderer opens when it starts, which it asks for with
+ * native:get-cli-config: the path on the command line or, with no arguments,
+ * the runbook of the session this launch resumes (prepareStartupLaunch).
+ */
+let startupRunbookPath = cliConfig.runbookPath
+
+/** The open sessions database, from when the app is ready until it quits. */
+let sessionStore: SessionStorage | null = null
+
+/**
+ * Tell runbook:get how this process was launched, and pick the session to
+ * resume when the command line names no runbook: the one last launched from
+ * this directory, or the most recent of all for a launch from the dock.
+ *
+ * A resumed local runbook becomes startupRunbookPath. A resumed remote one
+ * has to be cloned again first, so its URL is returned instead.
+ */
+function prepareStartupLaunch(storage: SessionStorage): string | undefined {
+  const from = launchDirContext(launchDir)
+  const source = cliConfig.remoteUrl ?? cliConfig.runbookPath
+  if (source) {
+    expectLaunch({ source, launchDir: from, sessionId: undefined })
+    return undefined
+  }
+  // A runbook double-clicked in Finder is what this launch opens.
+  if (pendingOpenFilePath) return undefined
+
+  const saved = sessionToResume(storage.persistence, from)
+  if (!saved) return undefined
+  expectResume(saved, from)
+  if (saved.remoteSource !== undefined) return saved.remoteSource
+  startupRunbookPath = saved.path
+  // As for a path on the command line below: an asset request must not find
+  // an empty localPath if it gets ahead of the renderer's runbook:get.
+  setRunbookConfig({ ...runbookConfig, localPath: saved.path })
+  return undefined
+}
 
 // Before the IPC handlers register, so the renderer's telemetry:config call
 // sees the final state. --no-telemetry or RUNBOOKS_TELEMETRY_DISABLE keeps it
@@ -323,12 +397,20 @@ ipcMain.handle("native:close-runbook", () => {
   return { ok: true } as const
 })
 
+// The in-app "Reset Session" menu item (Header dropdown). On Windows and Linux
+// the native menu bar is hidden, so this is the only way to File > Reset
+// Session there.
+ipcMain.handle("native:reset-session", () => {
+  resetToNewSession()
+  return { ok: true } as const
+})
+
 // CLI symlink management
 ipcMain.handle("cli:check-install", () => checkCliInstall())
 ipcMain.handle("cli:install", () => installCli())
 
 ipcMain.handle("native:get-cli-config", () => ({
-  runbookPath: cliConfig.runbookPath,
+  runbookPath: startupRunbookPath,
   remoteUrl: cliConfig.remoteUrl,
   watch: cliConfig.watch,
   noTelemetry: cliConfig.noTelemetry,
@@ -444,6 +526,12 @@ app
     // re-confirms over the native:set-theme IPC channel once it mounts.
     nativeTheme.themeSource = getStoredTheme()
 
+    // Before the window exists: runbook:get needs the storage, and the
+    // renderer reads the runbook to resume as soon as it starts.
+    sessionStore = openSessionStorage(app.getPath("userData"))
+    setSessionPersistence(sessionStore.persistence)
+    const resumedRemoteUrl = prepareStartupLaunch(sessionStore)
+
     setupApplicationMenu()
     registerAllIpcHandlers()
     createMainWindow()
@@ -466,17 +554,17 @@ app
     log.info("Starting eager background load of vendored boilerplate WASM")
     eagerLoadBoilerplateWasm()
 
-    // If a runbook was specified via CLI, tell the renderer once it's ready.
-    // openRunbookInWindow waits for the page to load, so a remote clone can
-    // start right away.
-    if (cliConfig.remoteUrl) {
+    // A remote runbook, named on the command line or resumed, is cloned and
+    // then pushed to the renderer. openRunbookInWindow waits for the page to
+    // load, so the clone can start right away. A local one needs nothing
+    // here: the renderer asks for startupRunbookPath itself. Pushing it too
+    // would open the runbook twice, and the second open resets the working
+    // directory a resumed session was left in.
+    const remoteUrl = cliConfig.remoteUrl ?? resumedRemoteUrl
+    if (remoteUrl) {
       const win = getMainWindow()
-      if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
-    } else if (cliConfig.runbookPath) {
-      const runbookPath = cliConfig.runbookPath
-      const win = getMainWindow()
-      if (win) openRunbookInWindow(win, { path: runbookPath })
-    } else if (pendingOpenFilePath) {
+      if (win) openRemoteRunbook(win, remoteUrl)
+    } else if (!startupRunbookPath && pendingOpenFilePath) {
       // A macOS open-file event (Finder double-click) arrived before the window
       // was ready. Now that the window exists, open the stashed runbook.
       const filePath = pendingOpenFilePath
@@ -543,6 +631,7 @@ app.on("will-quit", (event) => {
         }),
         shutdownTelemetry(),
       ]).finally(() => {
+        sessionStore?.close()
         clearTimeout(timeout)
         app.exit(0)
       })

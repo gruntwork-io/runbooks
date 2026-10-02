@@ -1,0 +1,111 @@
+---
+title: Sessions
+---
+
+import { Aside, FileTree } from '@astrojs/starlight/components';
+
+Runbooks keeps a session for every runbook you open. A session is what the runbook's blocks build up as you run them:
+
+- A directory of its own. Scripts start there, [\<GitClone\>](/authoring/blocks/gitclone/) blocks clone into it, and [generated files](/intro/files_workspace/#generated-files) are written to it.
+- The environment variables that scripts exported and auth blocks set.
+- The directory the last script left off in.
+- The repositories its \<GitClone\> blocks cloned or opened.
+
+Runbooks saves the session after every change, so quitting the app keeps it.
+
+## Session names
+
+Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and nothing else about the runbook, neither its path nor its URL. The window title starts with the name too.
+
+The folder button next to the name copies the path of the session's directory. Hover over it to see the path. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+
+Runbooks picks the name when it creates the session, and the session keeps it until you rename it. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
+
+### Renaming a session
+
+Click the name in the title bar, or choose **File > Rename Session…** or **Rename Session** in the app's menu. Type the new name and press <kbd>Enter</kbd>. Press <kbd>Esc</kbd> or click elsewhere to keep the name as it was.
+
+A name follows these rules:
+
+- It is 1 to 63 characters long.
+- It uses lowercase letters (`a` to `z`), digits and hyphens. Uppercase letters are lowercased as you type.
+- It starts and ends with a letter or digit, and has no two hyphens in a row.
+- No other session has it.
+
+`prod-deploy` and `release-2026-10-02` are allowed. `Prod Deploy`, `prod_deploy` and `-prod` are not. When a name is refused, the title bar says why and the session keeps its name.
+
+Renaming changes only what the session is called. Its directory, files and environment stay as they are.
+
+## Resuming a session
+
+Opening a runbook resumes its most recent session. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were.
+
+The blocks themselves start over. The values you typed into forms, block outputs and logs are not saved, so a block that reads another block's output needs that block run again.
+
+Which session opens depends on how you launch Runbooks:
+
+| Launch | What opens |
+|--------|------------|
+| `runbooks open SOURCE` | `SOURCE`, in its most recent session. A runbook you have not opened before gets a new one. |
+| `runbooks` with no arguments, in a terminal | The session last launched from the terminal's current directory. If there is none, the welcome screen. |
+| The dock, the Start menu, or a desktop shortcut | The most recent session. If there is none, the welcome screen. |
+
+Runbooks records the directory you ran `runbooks open SOURCE` from, which is how `runbooks` alone finds the session later. Your home directory counts as no directory: `runbooks` run there opens the most recent session.
+
+A [remote runbook](/commands/open/#remote-sources) is cloned again every time it opens, and resumes the session of the source you opened it with.
+
+If a resumed session's working directory or one of its cloned repositories has been deleted, the session starts in its own directory and drops the missing repository.
+
+## Resetting a session
+
+Choose **File > Reset Session**, or **Reset Session** in the app's menu, to start the open runbook over. Its blocks go back to their initial state, and scripts run in an empty directory with the environment Runbooks was launched with.
+
+A reset replaces the session with a new one, so the name in the title bar changes. The runbook resumes the new session from then on.
+
+Nothing is deleted. The session that was replaced keeps its directory and files on disk, but Runbooks can't open it again. See [Deleting sessions](#deleting-sessions) to remove it.
+
+## Where sessions are stored
+
+Sessions live in the `v0/sessions` folder of the app's data directory:
+
+| OS | Path |
+|----|------|
+| macOS | `~/Library/Application Support/Runbooks/v0/sessions` |
+| Linux | `~/.config/Runbooks/v0/sessions` |
+| Windows | `%APPDATA%\Runbooks\v0\sessions` |
+
+<FileTree>
+- sessions/
+  - db/
+    - sessions.db A SQLite database with one row per session
+  - dirs/
+    - 0199a5c2-7e3b-7c4d-9a1f-3b2c4d5e6f70/ One directory per session
+      - generated/
+      - my-cloned-repo/
+</FileTree>
+
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
+
+```bash
+sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"
+```
+
+## What is encrypted
+
+The environment can hold credentials: cloud keys an auth block exported, or a token a script set. Runbooks encrypts it with the operating system's credential store before writing it to the database: Keychain on macOS, DPAPI on Windows, and a secret service such as GNOME Keyring or KWallet on Linux.
+
+On Linux without a secret service, Runbooks does not save the environment. A resumed session there starts from the environment Runbooks was launched with, and keeps its directory and files.
+
+The rest of the database and the files in a session's directory are not encrypted.
+
+<Aside type="note">
+[\<GoogleAuth\>](/authoring/blocks/googleauth/) writes credentials to a temporary file that is deleted when Runbooks quits. A resumed session drops the variables that point to that file, so sign in again.
+</Aside>
+
+## Deleting sessions
+
+Runbooks does not delete sessions, and their cloned repositories add up. To remove them, quit Runbooks and delete the `sessions` folder, or a single folder under `dirs/`.
+
+<Aside type="caution">
+Uninstalling Runbooks on Windows deletes its data directory, sessions included. Push or copy out any work in a session's cloned repositories first.
+</Aside>

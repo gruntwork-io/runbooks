@@ -88,6 +88,8 @@ The session starts from the environment the Runbooks app was started with:
 - **Started from a terminal** (any terminal or SSH session that sets `TERM`): Runbooks uses that terminal's environment as it is. A variable you set on the command line that starts Runbooks, such as `AWS_PROFILE=prod`, is the value your scripts see.
 - **Started from Finder, the Dock, or a desktop launcher** (macOS and Linux): Runbooks first loads the environment from your login shell, so your `PATH` and the variables your shell profile exports are available to scripts.
 
+A [resumed session](/commands/sessions/#resuming-a-session) starts from that same environment, and then gets back the variables its scripts and auth blocks had set or unset when it was last open.
+
 ### How Script Changes Are Applied
 
 When a script finishes, Runbooks applies only what that script changed to the session:
@@ -108,7 +110,7 @@ Only one script runs at a time. Starting a script (for example, clicking "Run" o
 
 The Runbooks main process maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
 
-The session resets when you restart the app. You can also manually reset the environment to its initial state using the session controls in the UI.
+The session is saved, and opening the runbook again resumes it, even after you restart the app: see [Sessions](/commands/sessions/). You can manually reset the environment to its initial state using the session controls in the UI, or start the runbook over with **File > Reset Session**.
 
 ---
 

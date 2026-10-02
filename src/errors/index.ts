@@ -152,6 +152,17 @@ export class SessionError extends Data.TaggedError("SessionError")<{
 
 export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{}> {}
 
+/** A session can't take the name it was asked to. `message` says why, in words fit to show the user. */
+export class SessionNameError extends Data.TaggedError("SessionNameError")<{
+  readonly message: string
+}> {}
+
+/** The sessions database could not be opened or migrated, or rejected a statement. */
+export class SessionStoreError extends Data.TaggedError("SessionStoreError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 // Execution
 export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
   readonly timeoutMs: number
