@@ -47,9 +47,9 @@ const USER_JSON = JSON.stringify({
   refresh_token: "1//refresh",
 })
 
-const credential = (path: string) => ({
-  ref: { kind: "file", path } as const,
-  credentialsPath: path,
+const credential = (filePath: string) => ({
+  ref: { kind: "file", path: filePath } as const,
+  credentialsPath: filePath,
   principal: SA.email,
   credentialType: "service_account" as const,
 })

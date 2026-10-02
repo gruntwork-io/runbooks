@@ -194,7 +194,12 @@ describe("resolveSshCommand timeout", () => {
           resolveSshCommand("/repo").pipe(Effect.provide(spawner.layer)),
         )
         // Let the lookup spawn git and register its timeout with the TestClock.
-        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)))
+        yield* Effect.promise(
+          () =>
+            new Promise((resolve) => {
+              setTimeout(resolve, 20)
+            }),
+        )
         expect(spawner.processes).toHaveLength(1)
         yield* TestClock.adjust("5 seconds")
         return yield* Fiber.join(lookup)

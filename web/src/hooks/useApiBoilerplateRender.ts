@@ -74,9 +74,14 @@ export function useApiBoilerplateRender(
 
   const { debouncedRequest } = apiResult
   const autoRender = useCallback(
-    (templatePath: string, variables: Record<string, unknown>) => {
-      if (debouncedRequest && templatePath && templateId) {
-        debouncedRequest({ templatePath, templateId, variables, ...(target ? { target } : {}) })
+    (renderPath: string, renderVariables: Record<string, unknown>) => {
+      if (debouncedRequest && renderPath && templateId) {
+        debouncedRequest({
+          templatePath: renderPath,
+          templateId,
+          variables: renderVariables,
+          ...(target ? { target } : {}),
+        })
       }
     },
     [debouncedRequest, templateId, target],

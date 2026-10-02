@@ -213,21 +213,21 @@ export function computeDiff(
   const unchanged: string[] = []
 
   // Files in old but not in new — orphaned
-  for (const path of oldMap.keys()) {
-    if (!newMap.has(path)) {
-      orphaned.push(path)
+  for (const filePath of oldMap.keys()) {
+    if (!newMap.has(filePath)) {
+      orphaned.push(filePath)
     }
   }
 
   // Categorise new files
-  for (const [path, newHash] of newMap) {
-    const oldHash = oldMap.get(path)
+  for (const [filePath, newHash] of newMap) {
+    const oldHash = oldMap.get(filePath)
     if (oldHash === undefined) {
-      created.push(path)
+      created.push(filePath)
     } else if (oldHash === newHash) {
-      unchanged.push(path)
+      unchanged.push(filePath)
     } else {
-      modified.push(path)
+      modified.push(filePath)
     }
   }
 

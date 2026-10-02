@@ -163,7 +163,12 @@ function renderBlock(initial: BlockProps = {}) {
 
 /** Wait out the 300ms render debounce, so "no call" assertions mean something. */
 const settle = () =>
-  act(() => new Promise<void>((resolve) => setTimeout(resolve, DEBOUNCE_SETTLE_MS)))
+  act(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, DEBOUNCE_SETTLE_MS)
+      }),
+  )
 
 const WORLD = { name: "world", count: 3 }
 

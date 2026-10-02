@@ -38,7 +38,9 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (pred()) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => {
+      setTimeout(r, 50)
+    })
   }
   return pred()
 }

@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
 import { useApi } from "./ApiContext"
 import { SessionContext } from "./SessionContext.types"
 
@@ -32,7 +32,10 @@ export function IpcSessionProvider({ children }: IpcSessionProviderProps) {
   }, [api])
 
   // Provide SessionContext so useSession() keeps working.
-  const sessionValue = { isReady, resetSession, error }
+  const sessionValue = useMemo(
+    () => ({ isReady, resetSession, error }),
+    [isReady, resetSession, error],
+  )
 
   return <SessionContext.Provider value={sessionValue}>{children}</SessionContext.Provider>
 }

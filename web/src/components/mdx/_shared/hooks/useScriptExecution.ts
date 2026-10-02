@@ -614,7 +614,10 @@ export function useScriptExecution({
   // Function to render script with inputs. `errorDetails` explains a failed
   // render under its error message.
   const renderScript = useCallback(
-    async (inputs: TemplateValue[], errorDetails = "Failed to render script with variables") => {
+    async (
+      renderInputs: TemplateValue[],
+      errorDetails = "Failed to render script with variables",
+    ) => {
       // Supersede any pending render request
       const seq = ++renderSeqRef.current
 
@@ -634,7 +637,7 @@ export function useScriptExecution({
       try {
         const responseData = await api.invoke("boilerplate:render-inline", {
           templateFiles,
-          inputs,
+          inputs: renderInputs,
         })
 
         // Check if component is still mounted and this is still the latest render

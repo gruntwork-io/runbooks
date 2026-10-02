@@ -1574,12 +1574,12 @@ export class TestExecutor {
         throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
 
-      for (const step of cloneSteps.right) {
+      for (const gitStep of cloneSteps.right) {
         // A repository with no commits has nothing to check out, as in the app.
-        if (step.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
+        if (gitStep.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
         // Every step gets the clone's auth: a sparse clone is blobless, so its
         // checkout fetches file contents lazily from origin.
-        execFileSync("git", step.args, {
+        execFileSync("git", gitStep.args, {
           timeout: this.options.timeout,
           stdio: "pipe",
           env: cloneEnv,

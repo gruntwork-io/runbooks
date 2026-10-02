@@ -75,7 +75,12 @@ function setUpstreamRegion(region: string) {
 
 // Long enough for useFormState's 50 ms trailing debounce to fire.
 async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 120)))
+  await act(
+    () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 120)
+      }),
+  )
 }
 
 function renderedRegions() {

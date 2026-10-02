@@ -90,7 +90,9 @@ beforeAll(async () => {
       res.end()
     },
   )
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
   const { port } = server.address() as AddressInfo
   // The leaf is issued for localhost (SAN: DNS:localhost, IP:127.0.0.1).
   baseUrl = `https://localhost:${port}`
@@ -99,9 +101,9 @@ beforeAll(async () => {
 afterAll(async () => {
   // Restore the original CA list so this suite leaves no trace for others.
   tls.setDefaultCACertificates(defaultsSnapshot)
-  await new Promise<void>((resolve, reject) =>
-    server.close((err) => (err ? reject(err) : resolve())),
-  )
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()))
+  })
 })
 
 const validateAgainstFixture = (token: string) =>

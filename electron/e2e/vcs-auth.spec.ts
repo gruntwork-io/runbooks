@@ -113,11 +113,16 @@ async function startGitLabStub(): Promise<{ host: string; close: () => Promise<v
       res.end()
     },
   )
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
   const { port } = server.address() as AddressInfo
   return {
     host: `localhost:${port}`,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        server.close(() => resolve())
+      }),
   }
 }
 

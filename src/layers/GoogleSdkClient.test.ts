@@ -341,7 +341,7 @@ describe("readApplicationDefaultCredentials", () => {
 /** A single request against the loopback listener, with full control of headers. */
 function probe(
   port: number,
-  path: string,
+  requestPath: string,
   options: { method?: string; headers?: Record<string, string> } = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -349,7 +349,7 @@ function probe(
       {
         host: "127.0.0.1",
         port,
-        path,
+        path: requestPath,
         method: options.method ?? "GET",
         headers: options.headers ?? {},
       },

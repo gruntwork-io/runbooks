@@ -419,7 +419,9 @@ describe("a sign-in that finishes after another runbook opened", () => {
    */
   const holdValidation = () => {
     let release!: () => void
-    const released = new Promise<void>((resolve) => (release = resolve))
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
     globalThis.fetch = (async (input: string | URL | Request) => {
       const url = String(input)
       fetchCalls.push({ url, method: "GET" })

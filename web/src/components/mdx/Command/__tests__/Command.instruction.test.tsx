@@ -42,10 +42,10 @@ let mockExecution = { ...baseExecution }
 // With an inline Inputs, templateContext comes from the real RunbookContext (as
 // in the real hook), so values entered in the embedded form reach the command.
 vi.mock("@/components/mdx/_shared/hooks/useScriptExecution", async () => {
-  const { useRunbookContext } = await import("@/contexts/useRunbook")
+  const { useRunbookContext: useRealRunbookContext } = await import("@/contexts/useRunbook")
   return {
     useScriptExecution: () => {
-      const { getTemplateContext } = useRunbookContext()
+      const { getTemplateContext } = useRealRunbookContext()
       return mockExecution.inlineInputsId
         ? { ...mockExecution, templateContext: getTemplateContext(mockExecution.inlineInputsId) }
         : mockExecution

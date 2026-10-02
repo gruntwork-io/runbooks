@@ -33,11 +33,16 @@ async function waitFor(condition: () => boolean, timeoutMs = 3000): Promise<void
   const deadline = Date.now() + timeoutMs
   while (!condition()) {
     if (Date.now() > deadline) throw new Error("timed out waiting for condition")
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 10)
+    })
   }
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+const settle = () =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 20)
+  })
 
 let reloads: string[] = []
 let watcher: RunbookWatcher
@@ -115,7 +120,9 @@ describe("makeRunbookWatcher", () => {
     emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
     emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
     await waitFor(() => reloads.length > 0)
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400)
+    })
 
     expect(reloads).toEqual(["/work/a/runbook.mdx"])
   })
@@ -126,7 +133,9 @@ describe("makeRunbookWatcher", () => {
 
     emitters[0]({ type: "change", path: "/work/a/runbook.mdx" })
     await watcher.stop()
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400)
+    })
 
     expect(reloads).toEqual([])
   })

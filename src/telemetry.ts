@@ -134,7 +134,9 @@ export function shutdown(): Promise<void> {
 
   // Mixpanel Node SDK doesn't expose a flush/close, so we just give a brief
   // window for in-flight HTTP requests to complete.
-  return new Promise((resolve) => setTimeout(resolve, 500))
+  return new Promise((resolve) => {
+    setTimeout(resolve, 500)
+  })
 }
 
 // ---------------------------------------------------------------------------

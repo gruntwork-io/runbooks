@@ -57,14 +57,10 @@ export function ErrorReportingProvider({ children }: ErrorReportingProviderProps
     return { errorCount: numErrors, warningCount: numWarnings }
   }, [errors])
 
-  const value = {
-    errors,
-    errorCount,
-    warningCount,
-    reportError,
-    clearError,
-    clearAllErrors,
-  }
+  const value = useMemo(
+    () => ({ errors, errorCount, warningCount, reportError, clearError, clearAllErrors }),
+    [errors, errorCount, warningCount, reportError, clearError, clearAllErrors],
+  )
 
   return <ErrorReportingContext.Provider value={value}>{children}</ErrorReportingContext.Provider>
 }

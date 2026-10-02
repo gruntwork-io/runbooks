@@ -56,7 +56,9 @@ async function waitUntil(condition: () => boolean, timeoutMs: number): Promise<b
   const deadline = Date.now() + timeoutMs
   while (!condition()) {
     if (Date.now() > deadline) return false
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20)
+    })
   }
   return true
 }
@@ -91,9 +93,13 @@ function holdRunPromiseCall(callNumber: number) {
   const runPromise = runtime.runPromise
   let calls = 0
   let release!: () => void
-  const released = new Promise<void>((resolve) => (release = resolve))
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
   let reached!: () => void
-  const held = new Promise<void>((resolve) => (reached = resolve))
+  const held = new Promise<void>((resolve) => {
+    reached = resolve
+  })
   const spy = spyOn(runtime, "runPromise").mockImplementation(((
     ...args: Parameters<typeof runPromise>
   ) => {
@@ -206,7 +212,9 @@ describe("runbook IPC handlers", () => {
         fs.writeFileSync(a.path, runbookWith("echo a-after-close"))
         // There is no event to wait for when nothing should happen: give a
         // watcher that is still running well over its 300ms debounce.
-        await new Promise((resolve) => setTimeout(resolve, 1_000))
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1_000)
+        })
         expect(reloadsSince(closed)).toEqual([])
       },
       WATCH_TEST_TIMEOUT_MS,
@@ -241,9 +249,13 @@ describe("runbook IPC handlers", () => {
             // initial scan plus its 300ms debounce, and nothing reloads.
             for (let edit = 1; edit <= 5; edit++) {
               fs.writeFileSync(runbookA, runbookWith(`echo a-after-close-${edit}`))
-              await new Promise((resolve) => setTimeout(resolve, 300))
+              await new Promise((resolve) => {
+                setTimeout(resolve, 300)
+              })
             }
-            await new Promise((resolve) => setTimeout(resolve, 700))
+            await new Promise((resolve) => {
+              setTimeout(resolve, 700)
+            })
             expect(reloadsSince(closed)).toEqual([])
           },
           WATCH_TEST_TIMEOUT_MS,

@@ -132,7 +132,7 @@ function MDXContainer({
           runbookFilePath={runbookFilePath}
           storageScope={remoteSource ?? runbookPath}
         >
-          <CustomMDXComponentErrorBoundary onError={(error) => setError(error)}>
+          <CustomMDXComponentErrorBoundary onError={setError}>
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
               <Admonition
@@ -391,7 +391,7 @@ class CustomMDXComponentErrorBoundary extends React.Component<
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error) {
+  override componentDidCatch(error: Error) {
     console.error("Runtime error in MDX component:", error.message)
     const appError: AppError = {
       message: error.message,
@@ -407,7 +407,7 @@ class CustomMDXComponentErrorBoundary extends React.Component<
     }
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
         <div

@@ -45,7 +45,7 @@ mockElectron({
       try {
         return await listener({}, ...args)
       } catch (err) {
-        throw new Error(`Error invoking remote method '${channel}': ${String(err)}`)
+        throw new Error(`Error invoking remote method '${channel}': ${String(err)}`, { cause: err })
       }
     },
     on: () => {},

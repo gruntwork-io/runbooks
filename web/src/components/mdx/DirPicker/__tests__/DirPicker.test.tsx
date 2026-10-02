@@ -106,8 +106,8 @@ function Harness({ api, children }: { api: RunbooksAPI; children: ReactNode }) {
 }
 
 const selects = () => screen.getAllByRole("combobox") as HTMLSelectElement[]
-const optionValues = (select: HTMLSelectElement) =>
-  Array.from(select.options)
+const optionValues = (selectElement: HTMLSelectElement) =>
+  Array.from(selectElement.options)
     .map((o) => o.value)
     .filter(Boolean)
 const pathInput = () => screen.getByRole("textbox") as HTMLInputElement

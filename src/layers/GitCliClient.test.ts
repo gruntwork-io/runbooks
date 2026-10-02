@@ -30,48 +30,48 @@ const layer = GitCliClientLive.pipe(Layer.provide(ChildProcessSpawnerLive))
 const runDiff = (repoPath: string, filePath?: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.diff(repoPath, filePath)
+      const client = yield* GitClient
+      return yield* client.diff(repoPath, filePath)
     }).pipe(Effect.provide(layer)),
   )
 
 const runStatus = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.status(repoPath)
+      const client = yield* GitClient
+      return yield* client.status(repoPath)
     }).pipe(Effect.provide(layer)),
   )
 
 const runCheckIgnored = (repoPath: string, paths: string[]) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.checkIgnored(repoPath, paths)
+      const client = yield* GitClient
+      return yield* client.checkIgnored(repoPath, paths)
     }).pipe(Effect.provide(layer)),
   )
 
 const runStageAll = (repoPath: string, excludePaths: string[] = []) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.stageAll(repoPath, excludePaths)
+      const client = yield* GitClient
+      return yield* client.stageAll(repoPath, excludePaths)
     }).pipe(Effect.provide(layer)),
   )
 
 const runInfo = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.getInfo(repoPath)
+      const client = yield* GitClient
+      return yield* client.getInfo(repoPath)
     }).pipe(Effect.provide(layer)),
   )
 
 const runHasCommitsEither = (repoPath: string) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.hasCommits(repoPath)
+      const client = yield* GitClient
+      return yield* client.hasCommits(repoPath)
     }).pipe(Effect.provide(layer), Effect.either),
   )
 
@@ -82,8 +82,8 @@ const runCommitEither = (
 ) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const git = yield* GitClient
-      return yield* git.commit(repoPath, message, options)
+      const client = yield* GitClient
+      return yield* client.commit(repoPath, message, options)
     }).pipe(Effect.provide(layer), Effect.either),
   )
 
@@ -818,8 +818,8 @@ describe("GitCliClientLive.cloneSimple (real git)", () => {
     const marker = path.join(tmp, "upload-pack-ran")
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const git = yield* GitClient
-        return yield* git.cloneSimple(
+        const client = yield* GitClient
+        return yield* client.cloneSimple(
           `--upload-pack=touch ${marker};`,
           `file://${path.join(tmp, "src")}`,
           { repoPath: path.join(tmp, "work"), ...extra },
@@ -877,8 +877,8 @@ describe("GitCliClientLive ssh command (real git)", () => {
 
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const git = yield* GitClient
-        return yield* git.push(repoPath, "origin", "main")
+        const client = yield* GitClient
+        return yield* client.push(repoPath, "origin", "main")
       }).pipe(Effect.provide(layer), Effect.either),
     )
 
@@ -904,8 +904,8 @@ describe("GitCliClientLive ssh command (real git)", () => {
 
       const result = await Effect.runPromise(
         Effect.gen(function* () {
-          const git = yield* GitClient
-          return yield* git.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
+          const client = yield* GitClient
+          return yield* client.cloneSimple("git@example.invalid:o/r.git", path.join(work, "r"), {
             repoPath: work,
             ...extra,
           })
@@ -1109,12 +1109,15 @@ function startGitHttpServer(projectRoot: string, expectedAuthorization: string) 
   return {
     seenAuthorization,
     listen: () =>
-      new Promise<string>((resolve) =>
+      new Promise<string>((resolve) => {
         server.listen(0, "127.0.0.1", () =>
           resolve(`http://127.0.0.1:${(server.address() as AddressInfo).port}`),
-        ),
-      ),
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+        )
+      }),
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve())
+      }),
   }
 }
 

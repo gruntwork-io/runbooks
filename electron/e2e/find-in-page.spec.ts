@@ -110,9 +110,9 @@ test.describe("Find in page", () => {
 
   /** Click an Edit menu item by id, as its keyboard shortcut would. */
   const clickMenuItem = (id: string) =>
-    app!.evaluate(({ Menu }, id) => {
-      const item = Menu.getApplicationMenu()?.getMenuItemById(id)
-      if (!item) throw new Error(`no menu item ${id}`)
+    app!.evaluate(({ Menu }, itemId) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById(itemId)
+      if (!item) throw new Error(`no menu item ${itemId}`)
       item.click()
     }, id)
 
@@ -127,7 +127,10 @@ test.describe("Find in page", () => {
   }
 
   const highlightSize = (name: string) =>
-    page.evaluate((name) => (CSS.highlights.get(name) as Set<Range> | undefined)?.size ?? 0, name)
+    page.evaluate(
+      (highlightName) => (CSS.highlights.get(highlightName) as Set<Range> | undefined)?.size ?? 0,
+      name,
+    )
 
   /**
    * Whether the current match is on screen: inside the window and every box
@@ -260,7 +263,7 @@ test.describe("Find in page", () => {
       const launched = await launch(ROWS_RUNBOOK, "Long rows", "rows")
       await (
         await launched.browserWindow(page)
-      ).evaluate((win, width) => win.setSize(width, 800), width)
+      ).evaluate((win, windowWidth) => win.setSize(windowWidth, 800), width)
       // The first row of needles at the top of the runbook's box, where the
       // bar floats over the row's right-hand end.
       await page.getByText(/^needle needle/).evaluate((p) => p.scrollIntoView({ block: "start" }))

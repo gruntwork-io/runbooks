@@ -79,7 +79,9 @@ async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!check()) {
     if (Date.now() > deadline) throw new Error("timed out waiting for condition")
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20)
+    })
   }
 }
 
