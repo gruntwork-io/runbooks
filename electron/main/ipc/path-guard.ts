@@ -126,7 +126,9 @@ export const validateCloneDestination = (
  * page keeps its storage across opens of the same runbook.
  * Starts with a letter so the URL parser never reads it as an IPv4 address.
  */
-export function runbookAssetHost(config: Pick<RunbookConfig, "localPath" | "remoteSourceURL">): string {
+export function runbookAssetHost(
+  config: Pick<RunbookConfig, "localPath" | "remoteSourceURL">,
+): string {
   const identity = config.remoteSourceURL ?? config.localPath
   return "r" + createHash("sha256").update(identity).digest("hex").slice(0, 32)
 }

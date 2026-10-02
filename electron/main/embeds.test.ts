@@ -13,7 +13,11 @@ const HOST = "rabc"
 
 describe("embedPartitionFor", () => {
   it.each([
-    ["the open runbook's asset page", `runbook-asset://${HOST}/site/index.html`, LOCAL_EMBED_PARTITION],
+    [
+      "the open runbook's asset page",
+      `runbook-asset://${HOST}/site/index.html`,
+      LOCAL_EMBED_PARTITION,
+    ],
     ["an https page", "https://example.com/dashboard", WEB_EMBED_PARTITION],
     ["plain http on localhost", "http://localhost:3000/", WEB_EMBED_PARTITION],
     ["plain http on 127.0.0.1", "http://127.0.0.1:8080/", WEB_EMBED_PARTITION],
@@ -40,7 +44,10 @@ describe("prepareWebviewAttach", () => {
       enableBlinkFeatures: "SomeFeature",
       webviewTag: true,
     }
-    const params: Record<string, string> = { src: "https://example.com/", partition: "persist:asked" }
+    const params: Record<string, string> = {
+      src: "https://example.com/",
+      partition: "persist:asked",
+    }
 
     expect(prepareWebviewAttach(prefs, params, HOST)).toBe(true)
 
@@ -60,7 +67,9 @@ describe("prepareWebviewAttach", () => {
 
   it("puts the open runbook's asset pages in the local session", () => {
     const prefs: WebPreferences = {}
-    expect(prepareWebviewAttach(prefs, { src: `runbook-asset://${HOST}/index.html` }, HOST)).toBe(true)
+    expect(prepareWebviewAttach(prefs, { src: `runbook-asset://${HOST}/index.html` }, HOST)).toBe(
+      true,
+    )
     expect(prefs.partition).toBe(LOCAL_EMBED_PARTITION)
   })
 
@@ -77,12 +86,20 @@ function emitter<T extends object>(extra: T = {} as T) {
   const listeners = new Map<string, (...args: never[]) => unknown>()
   return {
     listeners,
-    target: { ...extra, on: (name: string, listener: (...args: never[]) => unknown) => listeners.set(name, listener) },
+    target: {
+      ...extra,
+      on: (name: string, listener: (...args: never[]) => unknown) => listeners.set(name, listener),
+    },
   }
 }
 
 /** Emit `name` with a preventable event carrying `fields`; returns whether it was prevented. */
-function emit(listeners: Map<string, (...args: never[]) => unknown>, name: string, fields = {}, ...args: unknown[]) {
+function emit(
+  listeners: Map<string, (...args: never[]) => unknown>,
+  name: string,
+  fields = {},
+  ...args: unknown[]
+) {
   let prevented = false
   const event = { ...fields, preventDefault: () => (prevented = true) }
   ;(listeners.get(name) as (...a: unknown[]) => unknown)(event, ...args)
@@ -102,7 +119,9 @@ describe("installEmbedSession", () => {
     let granted: boolean | undefined
     ;(handlers.request as (...a: unknown[]) => void)({}, "media", (g: boolean) => (granted = g), {})
     expect(granted).toBe(false)
-    expect((handlers.check as (...a: unknown[]) => boolean)({}, "clipboard-sanitized-write", "", {})).toBe(false)
+    expect(
+      (handlers.check as (...a: unknown[]) => boolean)({}, "clipboard-sanitized-write", "", {}),
+    ).toBe(false)
     expect((handlers.device as (...a: unknown[]) => boolean)({ deviceType: "usb" })).toBe(false)
     expect(emit(listeners, "will-download")).toBe(true)
   })
@@ -124,14 +143,17 @@ describe("hardenEmbedGuest", () => {
 
   it("keeps a web page's main frame on https or loopback pages", () => {
     const { listeners } = guest(WEB_EMBED_PARTITION)
-    const navigate = (url: string, isMainFrame = true) => emit(listeners, "will-navigate", { url, isMainFrame })
+    const navigate = (url: string, isMainFrame = true) =>
+      emit(listeners, "will-navigate", { url, isMainFrame })
     expect(navigate("https://example.com/next")).toBe(false)
     expect(navigate("http://example.com/")).toBe(true)
     expect(navigate(`runbook-asset://${HOST}/index.html`)).toBe(true)
     expect(navigate("file:///etc/hosts")).toBe(true)
     // The page's own subframes are its business.
     expect(navigate("http://example.com/", false)).toBe(false)
-    expect(emit(listeners, "will-redirect", { url: "file:///etc/hosts", isMainFrame: true })).toBe(true)
+    expect(emit(listeners, "will-redirect", { url: "file:///etc/hosts", isMainFrame: true })).toBe(
+      true,
+    )
   })
 
   it("keeps a local page in the open runbook's assets", () => {
@@ -147,7 +169,11 @@ describe("hardenEmbedGuest", () => {
     expect(emit(listeners, "will-prevent-unload")).toBe(true)
 
     const picked: string[] = []
-    expect(emit(listeners, "select-bluetooth-device", {}, [{ deviceId: "d1" }], (id: string) => picked.push(id))).toBe(true)
+    expect(
+      emit(listeners, "select-bluetooth-device", {}, [{ deviceId: "d1" }], (id: string) =>
+        picked.push(id),
+      ),
+    ).toBe(true)
     expect(picked).toEqual([""])
   })
 })

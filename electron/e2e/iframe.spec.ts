@@ -21,7 +21,13 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts 'iframe\.spec'
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as fs from "fs"
 import * as http from "http"
 import type { AddressInfo } from "net"
@@ -57,7 +63,8 @@ const GRAB_PAGE = `<!doctype html><input id="grab"><script>
 </script>`
 
 // Sets a mark on the page if it runs, which it must not: see the <webview> test.
-const PRELOAD = 'document.addEventListener("DOMContentLoaded", () => { document.documentElement.dataset.preloaded = "yes" })\n'
+const PRELOAD =
+  'document.addEventListener("DOMContentLoaded", () => { document.documentElement.dataset.preloaded = "yes" })\n'
 
 // A host that starts like AWS's and ends with the site it really is.
 const SPOOF_URL = `https://console.aws.amazon.com.signin-verify-session-${"0".repeat(40)}.evil.example/`
@@ -71,12 +78,16 @@ test.beforeAll(async () => {
     res.writeHead(200, { "Content-Type": "text/html" })
     res.end(EXTERNAL_PAGE)
   })
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve)
+  })
   serverUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
 })
 
 test.afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()))
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve())
+  })
 })
 
 /** Write runbook `name`, which frames a page that reports and saves localStorage. */
@@ -84,7 +95,10 @@ function writeRunbook(name: string, blocks: string): string {
   const runbookDir = path.join(tmpDir, name)
   const storageDir = path.join(runbookDir, "assets/storage")
   fs.mkdirSync(storageDir, { recursive: true })
-  fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), `# Iframes\n\n${blocks}<Iframe src="./assets/storage/index.html" title="Storage" />\n`)
+  fs.writeFileSync(
+    path.join(runbookDir, "runbook.mdx"),
+    `# Iframes\n\n${blocks}<Iframe src="./assets/storage/index.html" title="Storage" />\n`,
+  )
   fs.writeFileSync(path.join(storageDir, "index.html"), STORAGE_PAGE)
   fs.writeFileSync(path.join(storageDir, "storage.js"), storageScript(name))
   return runbookDir
@@ -106,7 +120,10 @@ test.beforeEach(() => {
   fs.writeFileSync(path.join(runbookDir, "secret.txt"), "secret")
   fs.writeFileSync(path.join(siteDir, "index.html"), LOCAL_PAGE)
   fs.writeFileSync(path.join(siteDir, "style.css"), "h1 { color: rgb(37, 99, 235); }\n")
-  fs.writeFileSync(path.join(siteDir, "app.js"), 'document.getElementById("status").textContent = "script ran"\n')
+  fs.writeFileSync(
+    path.join(siteDir, "app.js"),
+    'document.getElementById("status").textContent = "script ran"\n',
+  )
   writeRunbook("other", "")
 })
 
@@ -118,7 +135,11 @@ test.afterEach(() => {
 async function launch(name = "runbook"): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
     // --user-data-dir isolates the single-instance lock and trust state.
-    args: [MAIN_ENTRY, `--user-data-dir=${path.join(tmpDir, "user-data")}`, path.join(tmpDir, name)],
+    args: [
+      MAIN_ENTRY,
+      `--user-data-dir=${path.join(tmpDir, "user-data")}`,
+      path.join(tmpDir, name),
+    ],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
@@ -156,7 +177,9 @@ async function inMain<T>(evaluate: () => Promise<T>): Promise<T> {
       return await evaluate()
     } catch (err) {
       if (attempt === 5 || !String(err).includes("Execution context was destroyed")) throw err
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100)
+      })
     }
   }
 }
@@ -178,14 +201,14 @@ async function inGuest<T>(app: ElectronApplication, url: RegExp, script: string)
   await expect.poll(async () => (await guestUrls(app)).some((u) => url.test(u))).toBe(true)
   return (await inMain(() =>
     app.evaluate(
-      ({ webContents }, { source, script }) => {
+      ({ webContents }, { source, code }) => {
         const pattern = new RegExp(source)
         const guest = webContents
           .getAllWebContents()
           .find((c) => c.getType() === "webview" && pattern.test(c.getURL()))!
-        return guest.executeJavaScript(script)
+        return guest.executeJavaScript(code)
       },
-      { source: url.source, script },
+      { source: url.source, code: script },
     ),
   )) as T
 }
@@ -219,27 +242,37 @@ test.describe("Iframe block", () => {
     const { app, page } = await launch()
     try {
       await loadFrame(page, "Local")
-      await expect.poll(() => inGuest(app, LOCAL_SITE, `document.getElementById("status")?.textContent`)).toBe("script ran")
-      expect(await inGuest(app, LOCAL_SITE, `getComputedStyle(document.querySelector("h1")).color`)).toBe("rgb(37, 99, 235)")
+      await expect
+        .poll(() => inGuest(app, LOCAL_SITE, `document.getElementById("status")?.textContent`))
+        .toBe("script ran")
+      expect(
+        await inGuest(app, LOCAL_SITE, `getComputedStyle(document.querySelector("h1")).color`),
+      ).toBe("rgb(37, 99, 235)")
 
       // No preload, so no window.api and nothing of Node.
-      expect(await inGuest(app, LOCAL_SITE, `[typeof window.api, typeof require, typeof process]`)).toEqual([
-        "undefined",
-        "undefined",
-        "undefined",
-      ])
+      expect(
+        await inGuest(app, LOCAL_SITE, `[typeof window.api, typeof require, typeof process]`),
+      ).toEqual(["undefined", "undefined", "undefined"])
       // secret.txt sits in the runbook directory, next to runbook.mdx.
-      expect(await inGuest(app, LOCAL_SITE, `fetch("/..%2Fsecret.txt").then((r) => r.status)`)).toBe(403)
+      expect(
+        await inGuest(app, LOCAL_SITE, `fetch("/..%2Fsecret.txt").then((r) => r.status)`),
+      ).toBe(403)
       // alert() would open a native dialog over the app. (Calling it here
       // trips Playwright's own dialog handling, so check the preference.)
       const prefs = await inMain(() =>
         app.evaluate(({ webContents }) => {
           const guest = webContents.getAllWebContents().find((c) => c.getType() === "webview")!
-          const { disableDialogs, sandbox, contextIsolation, nodeIntegration } = guest.getLastWebPreferences()!
+          const { disableDialogs, sandbox, contextIsolation, nodeIntegration } =
+            guest.getLastWebPreferences()!
           return { disableDialogs, sandbox, contextIsolation, nodeIntegration }
         }),
       )
-      expect(prefs).toEqual({ disableDialogs: true, sandbox: true, contextIsolation: true, nodeIntegration: false })
+      expect(prefs).toEqual({
+        disableDialogs: true,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      })
 
       // window.open is denied instead of reaching the main process's
       // window-open handler, which would open the URL in the browser without
@@ -251,8 +284,14 @@ test.describe("Iframe block", () => {
           shell.openExternal = async (url) => void opened.push(url)
         }),
       )
-      expect(await inGuest(app, LOCAL_SITE, `window.open("https://example.com/") === null`)).toBe(true)
-      expect(await inMain(() => app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))).toEqual([])
+      expect(await inGuest(app, LOCAL_SITE, `window.open("https://example.com/") === null`)).toBe(
+        true,
+      )
+      expect(
+        await inMain(() =>
+          app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened),
+        ),
+      ).toEqual([])
     } finally {
       await app.close()
     }
@@ -284,7 +323,9 @@ test.describe("Iframe block", () => {
       // A click into the page does give it the keyboard.
       await page.locator("webview[title=Grabber]").click()
       await page.keyboard.type("ok", { delay: 60 })
-      await expect.poll(() => inGuest(app, grabber, `document.getElementById("grab").value`)).toBe("ok")
+      await expect
+        .poll(() => inGuest(app, grabber, `document.getElementById("grab").value`))
+        .toBe("ok")
     } finally {
       await app.close()
     }
@@ -299,13 +340,17 @@ test.describe("Iframe block", () => {
       const external = new RegExp(`^${escapeRegExp(serverUrl)}$`)
       const localhost = new RegExp(`^${escapeRegExp(serverUrl.replace("127.0.0.1", "localhost"))}$`)
       for (const url of [external, localhost]) {
-        await expect.poll(() => inGuest(app, url, `document.querySelector("h1")?.textContent`)).toBe("External page")
+        await expect
+          .poll(() => inGuest(app, url, `document.querySelector("h1")?.textContent`))
+          .toBe("External page")
         expect(await inGuest(app, url, "typeof window.api")).toBe("undefined")
       }
 
       // Web pages run in a session that doesn't serve runbook-asset://, so a
       // site the runbook embeds can't load its assets; the local page can.
-      await expect.poll(() => inGuest(app, LOCAL_SITE, `document.getElementById("status")?.textContent`)).toBe("script ran")
+      await expect
+        .poll(() => inGuest(app, LOCAL_SITE, `document.getElementById("status")?.textContent`))
+        .toBe("script ran")
       const localUrl = (await guestUrls(app)).find((u) => LOCAL_SITE.test(u))!
       const stylesheet = new URL("style.css", localUrl).href
       expect(await stylesheetLoads(app, LOCAL_SITE, stylesheet)).toBe(true)
@@ -313,9 +358,13 @@ test.describe("Iframe block", () => {
 
       // Electron's default would answer "granted".
       for (const name of ["camera", "notifications", "clipboard-write"]) {
-        expect(await inGuest(app, external, `navigator.permissions.query({ name: "${name}" }).then((p) => p.state)`)).toBe(
-          "denied",
-        )
+        expect(
+          await inGuest(
+            app,
+            external,
+            `navigator.permissions.query({ name: "${name}" }).then((p) => p.state)`,
+          ),
+        ).toBe("denied")
       }
     } finally {
       await app.close()
@@ -329,7 +378,9 @@ test.describe("Iframe block", () => {
       try {
         await loadFrame(page, "Storage")
         const storage = /\/storage\/index\.html$/
-        await expect.poll(() => inGuest(app, storage, `document.getElementById("seen")?.textContent ?? ""`)).not.toBe("")
+        await expect
+          .poll(() => inGuest(app, storage, `document.getElementById("seen")?.textContent ?? ""`))
+          .not.toBe("")
         return inGuest(app, storage, `document.getElementById("seen").textContent`)
       } finally {
         await app.close()
@@ -360,7 +411,10 @@ test.describe("Iframe block", () => {
           range.setEnd(text, i + 1)
           return range.getBoundingClientRect()
         }
-        return { first: charBox(0).left >= box.left, last: charBox(text.length - 1).right <= box.right + 0.5 }
+        return {
+          first: charBox(0).left >= box.left,
+          last: charBox(text.length - 1).right <= box.right + 0.5,
+        }
       })
       // Cut from the start: …signin-verify-session-000….evil.example
       expect(inView).toEqual({ first: false, last: true })
@@ -375,33 +429,41 @@ test.describe("Iframe block", () => {
     const { app, page } = await launch()
     try {
       await page.evaluate(
-        ({ serverUrl, preload }) => {
+        ({ pageUrl, preload }) => {
           const add = (attributes: Record<string, string>) => {
             const webview = document.createElement("webview")
-            for (const [name, value] of Object.entries(attributes)) webview.setAttribute(name, value)
+            for (const [name, value] of Object.entries(attributes))
+              webview.setAttribute(name, value)
             document.body.append(webview)
           }
           add({ src: "file:///etc/hosts" })
           add({
-            src: `${serverUrl}?asked`,
+            src: `${pageUrl}?asked`,
             partition: "persist:asked",
             preload,
             nodeintegration: "",
             webpreferences: "contextIsolation=no, sandbox=no",
           })
         },
-        { serverUrl, preload: `file://${path.join(tmpDir, "preload.js")}` },
+        { pageUrl: serverUrl, preload: `file://${path.join(tmpDir, "preload.js")}` },
       )
 
       const asked = /\?asked$/
-      await expect.poll(() => inGuest(app, asked, `document.querySelector("h1")?.textContent`)).toBe("External page")
-      expect(await inGuest(app, asked, `[document.documentElement.dataset.preloaded ?? "none", typeof require]`)).toEqual([
-        "none",
-        "undefined",
-      ])
+      await expect
+        .poll(() => inGuest(app, asked, `document.querySelector("h1")?.textContent`))
+        .toBe("External page")
+      expect(
+        await inGuest(
+          app,
+          asked,
+          `[document.documentElement.dataset.preloaded ?? "none", typeof require]`,
+        ),
+      ).toEqual(["none", "undefined"])
       const inWebSession = await inMain(() =>
         app.evaluate(({ webContents, session }) => {
-          const guest = webContents.getAllWebContents().find((c) => c.getType() === "webview" && c.getURL().endsWith("?asked"))!
+          const guest = webContents
+            .getAllWebContents()
+            .find((c) => c.getType() === "webview" && c.getURL().endsWith("?asked"))!
           return guest.session === session.fromPartition("persist:embed-web")
         }),
       )
@@ -420,7 +482,10 @@ test.describe("Iframe block", () => {
     const { app, page } = await launch()
     try {
       const query = (name: string) =>
-        page.evaluate(async (n) => (await navigator.permissions.query({ name: n as PermissionName })).state, name)
+        page.evaluate(
+          async (n) => (await navigator.permissions.query({ name: n as PermissionName })).state,
+          name,
+        )
       expect(await query("microphone")).toBe("denied")
       expect(await query("camera")).toBe("denied")
       expect(await query("geolocation")).toBe("denied")

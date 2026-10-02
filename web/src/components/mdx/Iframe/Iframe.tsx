@@ -226,5 +226,3 @@ function writeLoaded(key: string): void {
     /* sessionStorage unavailable: the page stays loaded until the block remounts */
   }
 }
-
-export default Iframe

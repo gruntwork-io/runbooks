@@ -41,7 +41,10 @@ export function embedPartitionFor(url: string, assetHost: string): string | null
   if (parsed.protocol === "runbook-asset:") {
     return parsed.hostname === assetHost ? LOCAL_EMBED_PARTITION : null
   }
-  if (parsed.protocol === "https:" || (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname))) {
+  if (
+    parsed.protocol === "https:" ||
+    (parsed.protocol === "http:" && LOOPBACK_HOSTS.has(parsed.hostname))
+  ) {
     return WEB_EMBED_PARTITION
   }
   return null
@@ -106,7 +109,11 @@ export function installEmbedSession(session: Session): void {
  * `assetHost` returns the open runbook's host, which a local guest's
  * navigations must stay on.
  */
-export function hardenEmbedGuest(guest: WebContents, partition: string, assetHost: () => string): void {
+export function hardenEmbedGuest(
+  guest: WebContents,
+  partition: string,
+  assetHost: () => string,
+): void {
   guest.setWindowOpenHandler(() => ({ action: "deny" }))
   const stayInPartition = (event: Event<{ url: string; isMainFrame: boolean }>) => {
     if (event.isMainFrame && embedPartitionFor(event.url, assetHost()) !== partition) {

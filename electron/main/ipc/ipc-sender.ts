@@ -24,7 +24,10 @@ type SenderEvent = {
  * which is file:// in a build and ELECTRON_RENDERER_URL in dev. The URL
  * check keeps a window added later for remote content from counting.
  */
-export function isAppMainFrame(event: SenderEvent, devRendererUrl = process.env.ELECTRON_RENDERER_URL): boolean {
+export function isAppMainFrame(
+  event: SenderEvent,
+  devRendererUrl = process.env.ELECTRON_RENDERER_URL,
+): boolean {
   const frame = event.senderFrame
   if (!frame || frame.parent !== null || event.sender.getType() !== "window") return false
   try {

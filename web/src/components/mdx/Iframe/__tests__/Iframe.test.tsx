@@ -8,7 +8,13 @@ import { Iframe } from "../Iframe"
 
 function ReportedErrors() {
   const { errors } = useErrorReporting()
-  return <ul data-testid="reported-errors">{errors.map((e) => <li key={e.componentId}>{e.message}</li>)}</ul>
+  return (
+    <ul data-testid="reported-errors">
+      {errors.map((e) => (
+        <li key={e.componentId}>{e.message}</li>
+      ))}
+    </ul>
+  )
 }
 
 // The open runbook's runbook-asset:// host, as runbook:get sends it.
@@ -66,11 +72,20 @@ describe("Iframe", () => {
     expect(frame()!.getAttribute("title")).toBe("Example docs")
     // The main process picks the session and web preferences (embeds.ts);
     // the tag asks for nothing.
-    for (const attribute of ["partition", "preload", "nodeintegration", "allowpopups", "webpreferences"]) {
+    for (const attribute of [
+      "partition",
+      "preload",
+      "nodeintegration",
+      "allowpopups",
+      "webpreferences",
+    ]) {
       expect(frame()!.hasAttribute(attribute)).toBe(false)
     }
     expect(document.querySelector("iframe")).toBeNull()
-    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute("href", "https://example.com/docs")
+    expect(screen.getByRole("link", { name: "Open in browser" })).toHaveAttribute(
+      "href",
+      "https://example.com/docs",
+    )
   })
 
   it("shows the real host next to the author's title", () => {
@@ -109,7 +124,9 @@ describe("Iframe", () => {
 
     expect(frame()).toBeNull()
     await waitFor(() =>
-      expect(screen.getByTestId("reported-errors")).toHaveTextContent("can only be shown in an open runbook"),
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent(
+        "can only be shown in an open runbook",
+      ),
     )
   })
 
@@ -127,7 +144,9 @@ describe("Iframe", () => {
 
     expect(frame()).toBeNull()
     expect(screen.queryByRole("button", { name: "Load page" })).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getByTestId("reported-errors")).toHaveTextContent(`Invalid height "${height}"`))
+    await waitFor(() =>
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent(`Invalid height "${height}"`),
+    )
   })
 
   it("reloads by replacing the frame", async () => {
@@ -164,13 +183,20 @@ describe("Iframe", () => {
     renderIframe({ src: "" })
 
     expect(frame()).toBeNull()
-    await waitFor(() => expect(screen.getByTestId("reported-errors")).toHaveTextContent("The `src` prop is required."))
+    await waitFor(() =>
+      expect(screen.getByTestId("reported-errors")).toHaveTextContent(
+        "The `src` prop is required.",
+      ),
+    )
   })
 
   it("renders from runbook MDX", async () => {
     render(
       <TestWrapper>
-        <MDXContainer content={'<Iframe src="./assets/site/index.html" title="Dashboard" height={300} />\n'} assetHost={ASSET_HOST} />
+        <MDXContainer
+          content={'<Iframe src="./assets/site/index.html" title="Dashboard" height={300} />\n'}
+          assetHost={ASSET_HOST}
+        />
       </TestWrapper>,
     )
 

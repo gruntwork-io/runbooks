@@ -63,10 +63,13 @@ describe("installPermissionHandlers", () => {
     },
   )
 
-  it.each(["media", "clipboard-sanitized-write", "fullscreen", "geolocation"])("denies %s to a frame", (permission) => {
-    expect(requestAnswer(permission, false)).toBe(false)
-    expect(checkAnswer(permission, false)).toBe(false)
-  })
+  it.each(["media", "clipboard-sanitized-write", "fullscreen", "geolocation"])(
+    "denies %s to a frame",
+    (permission) => {
+      expect(requestAnswer(permission, false)).toBe(false)
+      expect(checkAnswer(permission, false)).toBe(false)
+    },
+  )
 })
 
 describe("installClientCertificateHandler", () => {
