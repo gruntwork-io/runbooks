@@ -40,7 +40,7 @@ Download the latest version of Runbooks from the [GitHub releases page](https://
       sudo dpkg -i runbooks_x.y.z_amd64.deb
       ```
 
-    After installation, launch Runbooks from your application menu or by running `runbooks` in a terminal.
+    After installation, launch Runbooks from your application menu or by running `runbooks` in a terminal. The `.deb` package's `runbooks` command runs the app itself, so it holds the terminal and prints the app's logs until you quit Runbooks. For a `runbooks` command that gives you your prompt back right away, [install the command](#installing-the-runbooks-command) from Runbooks, then open a new terminal.
   </TabItem>
 
   <TabItem label="Windows">
@@ -58,6 +58,8 @@ To open runbooks from a terminal with the [`runbooks` command](/commands/overvie
 
 - **macOS and Linux:** Runbooks writes a small launcher script to `/usr/local/bin/runbooks`. If you can't write to that folder, you're asked for your administrator password.
 - **Windows:** Runbooks writes `runbooks.cmd` to `%LOCALAPPDATA%\Runbooks\bin` and adds that folder to your user `PATH`. Open a new terminal to pick up the change.
+
+Like `code .`, the `runbooks` command starts Runbooks and gives you your prompt back right away. A command installed by an earlier version of Runbooks instead holds the terminal and prints the app's logs until you quit Runbooks. To update it, install the command again. Until you do, the welcome screen shows **Install command line tool**.
 
 The launcher records where the app is installed. If you move Runbooks, or switch to a different AppImage file, install the command again to update it. On macOS, move Runbooks to your **Applications** folder before you install the command.
 

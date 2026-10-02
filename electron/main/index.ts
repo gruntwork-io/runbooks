@@ -16,6 +16,7 @@ import { getStoredTheme } from "./theme-store.ts"
 import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
+import { requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
@@ -26,6 +27,13 @@ import { cancelAllExecutions } from "./ipc/exec.ts"
 import { resolveRunbookAssetPath, runbookAssetHost } from "./ipc/path-guard.ts"
 import { byteRangeResponse } from "./asset-range.ts"
 import { installClientCertificateHandler, installPermissionHandlers } from "./permissions.ts"
+import {
+  LOCAL_EMBED_PARTITION,
+  WEB_EMBED_PARTITION,
+  hardenEmbedGuest,
+  installEmbedSession,
+  prepareWebviewAttach,
+} from "./embeds.ts"
 import { getContentType } from "../../src/domain/workspace/file.ts"
 import { makeLogger } from "./logger.ts"
 import { populateShellEnv } from "./shell-env.ts"
@@ -149,10 +157,19 @@ protocol.registerSchemesAsPrivileged([
 // Single instance lock — focus existing window instead of opening a second.
 // ---------------------------------------------------------------------------
 
+// requestLaunchLock first makes the cwd readable: when `runbooks` is run from
+// a folder that has been deleted, process.cwd() throws and Chromium's hand-off
+// to the running app fails (see launch-dir.ts). launchDir is what relative CLI
+// paths resolve against.
+//
 // A second instance sends its unmodified argv along: the `argv` Electron
 // hands to "second-instance" has been reordered by Chromium (see
-// secondInstanceArgv).
-const gotLock = app.requestSingleInstanceLock({ argv: process.argv })
+// secondInstanceArgv). It sends launchDir too: after a recovery, Electron's
+// `workingDirectory` is the folder it moved to, not the one it was run from.
+const { gotLock, launchDir } = requestLaunchLock(
+  (data) => app.requestSingleInstanceLock(data),
+  process.argv,
+)
 
 if (!gotLock) {
   app.quit()
@@ -163,7 +180,7 @@ if (!gotLock) {
     // launched from, not this (first) instance's cwd.
     const secondArgs = parseCliArgs(
       secondInstanceArgv(argv, additionalData),
-      workingDirectory,
+      secondInstanceLaunchDirectory(workingDirectory, additionalData),
       app.getAppPath(),
     )
     if (secondArgs.remoteUrl) {
@@ -192,7 +209,7 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 // Parse CLI arguments
 // ---------------------------------------------------------------------------
 
-const cliConfig = parseCliArgs(process.argv, process.cwd(), app.getAppPath())
+const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
 
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
@@ -333,6 +350,37 @@ app.on("open-file", (event, filePath) => {
   }
 })
 
+/**
+ * Answer a runbook-asset:// request from the open runbook's assets/ folder.
+ *
+ * Security: resolveRunbookAssetPath returns null unless the URL has the open
+ * runbook's host and the file is within its assets/ folder after resolving
+ * symlinks, so neither `..` nor a symlink shipped in the runbook dir can serve
+ * a file from outside it.
+ */
+async function serveRunbookAsset(request: Request): Promise<Response> {
+  const resolved = await resolveRunbookAssetPath(
+    request.url,
+    path.dirname(runbookConfig.localPath),
+    runbookAssetHost(runbookConfig),
+  )
+  if (!resolved) {
+    return new Response("Forbidden", { status: 403 })
+  }
+
+  // <video>/<audio> fetch byte ranges and can only seek when the answer is
+  // a 206 with a Content-Range, which net.fetch's file:// response never
+  // has, so ranged GETs are answered from the file here. Without a Range
+  // header, or with one byteRangeResponse ignores, the whole file is served.
+  const rangeHeader = request.headers.get("range")
+  if (rangeHeader && request.method === "GET") {
+    const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
+    if (partial) return partial
+  }
+
+  return net.fetch(pathToFileURL(resolved).href)
+}
+
 // ---------------------------------------------------------------------------
 // App lifecycle
 // ---------------------------------------------------------------------------
@@ -346,31 +394,31 @@ app.whenReady().then(() => {
   // runbook-asset://<host>/foo.png, where <host> is the open runbook's
   // (runbookAssetHost, sent with runbook:get), which this handler resolves
   // relative to the runbook's assets/ folder.
-  protocol.handle("runbook-asset", async (request) => {
-    // Security: resolveRunbookAssetPath returns null unless the URL has the
-    // open runbook's host and the file is within its assets/ folder after
-    // resolving symlinks, so neither `..` nor a symlink shipped in the runbook
-    // dir can serve a file from outside it.
-    const resolved = await resolveRunbookAssetPath(
-      request.url,
-      path.dirname(runbookConfig.localPath),
-      runbookAssetHost(runbookConfig),
-    )
-    if (!resolved) {
-      return new Response("Forbidden", { status: 403 })
-    }
+  protocol.handle("runbook-asset", serveRunbookAsset)
 
-    // <video>/<audio> fetch byte ranges and can only seek when the answer is
-    // a 206 with a Content-Range, which net.fetch's file:// response never
-    // has, so ranged GETs are answered from the file here. Without a Range
-    // header, or with one byteRangeResponse ignores, the whole file is served.
-    const rangeHeader = request.headers.get("range")
-    if (rangeHeader && request.method === "GET") {
-      const partial = await byteRangeResponse(resolved, rangeHeader, getContentType(resolved))
-      if (partial) return partial
+  // Pages the Iframe block embeds run in <webview> guests, in sessions of
+  // their own (embeds.ts). Only local pages' session serves runbook-asset://.
+  const localEmbeds = session.fromPartition(LOCAL_EMBED_PARTITION)
+  const webEmbeds = session.fromPartition(WEB_EMBED_PARTITION)
+  installEmbedSession(localEmbeds)
+  installEmbedSession(webEmbeds)
+  localEmbeds.protocol.handle("runbook-asset", serveRunbookAsset)
+  const assetHost = () => runbookAssetHost(runbookConfig)
+  app.on("web-contents-created", (_event, contents) => {
+    if (contents.getType() === "window") {
+      contents.on("will-attach-webview", (event, webPreferences, params) => {
+        if (!prepareWebviewAttach(webPreferences, params, assetHost())) event.preventDefault()
+      })
+    } else if (contents.getType() === "webview") {
+      // prepareWebviewAttach put every guest it let through in one of the two.
+      const partition =
+        contents.session === localEmbeds ? LOCAL_EMBED_PARTITION : contents.session === webEmbeds ? WEB_EMBED_PARTITION : null
+      if (partition) {
+        hardenEmbedGuest(contents, partition, assetHost)
+      } else {
+        contents.close()
+      }
     }
-
-    return net.fetch(pathToFileURL(resolved).href)
   })
 
   // Apply the persisted theme before creating the window so its background

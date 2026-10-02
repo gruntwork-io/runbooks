@@ -30,7 +30,6 @@ const TONES = {
     heading: 'flex items-center gap-2 text-success font-medium',
     text: 'text-success',
     label: 'text-sm font-medium text-success',
-    smallLabel: 'text-xs text-success',
     code: 'text-sm bg-success-muted px-1.5 py-0.5 rounded font-mono text-success',
     copyButton: 'shrink-0 p-0.5 text-success hover:text-success cursor-pointer',
     row: 'flex items-center gap-2 text-success',
@@ -41,7 +40,6 @@ const TONES = {
     heading: 'flex items-center gap-2 text-warning-foreground font-medium',
     text: 'text-warning-foreground',
     label: 'text-sm font-medium text-warning-foreground',
-    smallLabel: 'text-xs text-warning-foreground',
     code: 'text-sm bg-warning-muted px-1.5 py-0.5 rounded font-mono text-warning-foreground',
     copyButton: 'shrink-0 p-0.5 text-warning-foreground hover:text-warning-foreground cursor-pointer',
     row: 'flex items-center gap-2 text-warning-foreground',
@@ -50,8 +48,7 @@ const TONES = {
 } as const
 
 export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn = false, onCloneAgain }: CloneResultDisplayProps) {
-  const relative = useCopyToClipboard(2000)
-  const absolute = useCopyToClipboard(2000)
+  const { didCopy, copy } = useCopyToClipboard(2000)
   const isLocal = source === 'local'
   const t = warn ? TONES.warning : TONES.success
 
@@ -59,13 +56,21 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
     <div className="space-y-3">
       {/* Result panel */}
       <div className={t.panel}>
-        <div className={t.heading}>
-          {warn ? (
-            <AlertTriangle className="size-5 text-warning" />
-          ) : (
-            <CheckCircle className="size-5 text-success" />
-          )}
-          {isLocal ? 'Using local checkout' : 'Clone complete'}
+        {/* Start over sits in the header row so it reads as part of the
+            result. It stays a sibling of the heading, not a child: the e2e
+            specs match the heading's whole text ("Clone complete") exactly. */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className={t.heading}>
+            {warn ? (
+              <AlertTriangle className="size-5 text-warning" />
+            ) : (
+              <CheckCircle className="size-5 text-success" />
+            )}
+            {isLocal ? 'Using local checkout' : 'Clone complete'}
+          </div>
+          <Button variant="outline" size="sm" onClick={onCloneAgain}>
+            {isLocal ? 'Stop using this repo' : 'Clone again'}
+          </Button>
         </div>
 
         <div className={t.row}>
@@ -83,57 +88,32 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
           </div>
         )}
 
-        <div className="space-y-1">
-          <span className={t.label}>
+        {/* Show the short relative path; hovering reveals the absolute path,
+            and the copy button copies it, since that is what gets pasted into
+            a terminal or editor. A checkout outside the working directory has
+            no relative form: the domain layer returns the absolute path for
+            both, so it is shown once as-is. */}
+        <div className="flex items-center gap-1.5">
+          <span className={`shrink-0 ${t.label}`}>
             {isLocal ? 'Repository path:' : 'Local path:'}
           </span>
-          {/* A checkout outside the working directory has no meaningful
-              relative form — the domain layer returns the absolute path for
-              both, so don't print it twice. */}
-          <div className={`flex items-center gap-1.5 ${result.relativePath === result.absolutePath ? 'hidden' : ''}`}>
-            <span className={t.smallLabel}>Relative:</span>
-            <code className={t.code}>
-              {result.relativePath}
-            </code>
-            <button
-              onClick={() => relative.copy(result.relativePath)}
-              className={t.copyButton}
-            >
-              {relative.didCopy ? (
-                <Check className="size-3.5" />
-              ) : (
-                <Copy className="size-3.5" />
-              )}
-            </button>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className={t.smallLabel}>Absolute:</span>
-            <code className={t.code}>
-              {result.absolutePath}
-            </code>
-            <button
-              onClick={() => absolute.copy(result.absolutePath)}
-              className={t.copyButton}
-            >
-              {absolute.didCopy ? (
-                <Check className="size-3.5" />
-              ) : (
-                <Copy className="size-3.5" />
-              )}
-            </button>
-          </div>
+          <code className={t.code} title={result.absolutePath}>
+            {result.relativePath}
+          </code>
+          <button
+            type="button"
+            onClick={() => copy(result.absolutePath)}
+            className={t.copyButton}
+            title={`Copy full path: ${result.absolutePath}`}
+          >
+            {didCopy ? (
+              <Check className="size-3.5" />
+            ) : (
+              <Copy className="size-3.5" />
+            )}
+          </button>
         </div>
       </div>
-
-      {/* Start over: clone again, or pick a different checkout */}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onCloneAgain}
-        className="text-muted-foreground"
-      >
-        {isLocal ? 'Choose a different repo' : 'Clone again'}
-      </Button>
     </div>
   )
 }

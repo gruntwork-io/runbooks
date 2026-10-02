@@ -1,10 +1,12 @@
 /**
- * Wiring tests for IPC error normalization, with `electron` as the only
- * stand-in: importing ipc/index.ts wraps ipcMain.handle before main/index.ts
- * or registerAllIpcHandlers() registers any handler, and the preload's
- * api.invoke hands the renderer only the handler's message.
+ * Wiring tests for IPC error normalization and the sender check, with
+ * `electron` as the only stand-in: importing ipc/index.ts wraps
+ * ipcMain.handle before main/index.ts or registerAllIpcHandlers() registers
+ * any handler, and the preload's api.invoke hands the renderer only the
+ * handler's message.
  *
- * The stand-in ipcRenderer.invoke calls the MAIN listener and rejects the way
+ * The stand-in ipcRenderer.invoke calls the MAIN listener with an event from
+ * `sender` (the app's page unless a test says otherwise) and rejects the way
  * Electron does: MAIN sends the listener's rejection as `error.toString()`,
  * and the renderer's invoke rejects with
  * "Error invoking remote method '<channel>': <that string>".
@@ -27,6 +29,14 @@ const fakeIpcMain = {
   removeHandler: () => {},
 }
 let exposedApi: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } | undefined
+
+/** An IPC event from the main frame of a web contents of `type` showing `url`. */
+const eventFrom = (type: string, url: string) => ({
+  sender: { getType: () => type },
+  senderFrame: { parent: null, url },
+})
+const APP_PAGE = eventFrom("window", "file:///app/dist/renderer/index.html")
+let sender: unknown = APP_PAGE
 const userDataDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-ipc-error-wiring-"))
 
 mockElectron({
@@ -42,7 +52,7 @@ mockElectron({
       const listener = listeners.get(channel)
       if (!listener) throw new Error(`Error invoking remote method '${channel}': Error: No handler registered`)
       try {
-        return await listener({}, ...args)
+        return await listener(sender, ...args)
       } catch (err) {
         throw new Error(`Error invoking remote method '${channel}': ${String(err)}`)
       }
@@ -108,5 +118,22 @@ describe("ipc/index.ts", () => {
     expect(err.message).toBe("FileReadError (/ws/a.txt): ENOENT: no such file or directory")
     expect(err.message).not.toContain("FiberFailure")
     expect(err.message).not.toContain("    at ")
+  })
+
+  it("rejects a call from a page the Iframe block embeds before its handler runs", async () => {
+    await importFresh("./index.ts")
+    let ran = false
+    fakeIpcMain.handle("exec:run", () => {
+      ran = true
+    })
+
+    sender = eventFrom("webview", "https://evil.example/")
+    try {
+      const err = await rendererRejection("exec:run")
+      expect(err.message).toBe("exec:run can only be called from the app's window")
+      expect(ran).toBe(false)
+    } finally {
+      sender = APP_PAGE
+    }
   })
 })

@@ -1,17 +1,35 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite"
+import type { Plugin } from "vite"
 import react from "@vitejs/plugin-react-swc"
 import tailwindcss from "@tailwindcss/vite"
+import fs from "fs"
 import path from "path"
 import { assertNoNestedNodeModules } from "./scripts/no-nested-node-modules.ts"
 
 // A leftover web/node_modules would shadow the root tree for renderer imports.
 assertNoNestedNodeModules(__dirname)
 
+/**
+ * Bundles a file imported `with { type: "text" }` as a string, as Bun does
+ * natively for `bun test`. The main process imports the templates of the
+ * installed `runbooks` launchers (electron/main/cli-launcher/) this way.
+ */
+function textImports(): Plugin {
+  return {
+    name: "runbooks:text-imports",
+    enforce: "pre",
+    load(id) {
+      if (this.getModuleInfo(id)?.attributes.type !== "text") return null
+      return `export default ${JSON.stringify(fs.readFileSync(id, "utf8"))}`
+    },
+  }
+}
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({
       exclude: ["electron-updater"],
-    })],
+    }), textImports()],
     build: {
       outDir: "dist/main",
       rollupOptions: {

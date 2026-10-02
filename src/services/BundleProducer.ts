@@ -16,7 +16,7 @@
  */
 import { Context, Effect } from "effect"
 import type { WasmError, RenderError } from "../errors/index.ts"
-import type { InputsMapResult } from "./WasmRuntime.ts"
+import type { BundleSnapshot, InputsMapResult } from "./WasmRuntime.ts"
 
 /**
  * Cached bundle artifact. The full inputs-map result is preserved so the
@@ -30,6 +30,12 @@ export interface BundleArtifact {
   readonly templatePath: string
   /** The full inputs-map JSON parsed once at bundle-producer time. */
   readonly inputsMap: InputsMapResult
+  /**
+   * The inputs map's `bundle` field. The producer fails a build that lacks
+   * one, so it is always present here even though `InputsMapResult` types
+   * it optional.
+   */
+  readonly bundle: BundleSnapshot
   /** JSON-string form of the bundle field, ready to hand to WASM. */
   readonly bundleJSON: string
   /** Wall-clock ms when the bundle was produced. For debug logging only. */

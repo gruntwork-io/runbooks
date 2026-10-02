@@ -69,6 +69,9 @@ export function createMainWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      // The Iframe block's pages run in <webview> guests. main/index.ts
+      // hardens each one before it attaches (embeds.ts).
+      webviewTag: true,
     },
     icon: path.join(__dirname, "../../build/icon.png"),
     // Frameless on all platforms so our custom Header acts as the drag handle.

@@ -103,4 +103,9 @@ describe('resolveGitHubOAuthClientId', () => {
     expect(reason).toContain('ghes.corp')
     expect(reason).toContain('gh auth login --hostname ghes.corp')
   })
+
+  it('leaves out gh auth login when the block does not use CLI credentials', () => {
+    const reason = githubOAuthUnavailableReason('ghes.corp', { cliLogin: false })
+    expect(reason).toBe("Sign-in with GitHub isn't set up for ghes.corp. Use a personal access token instead.")
+  })
 })

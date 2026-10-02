@@ -13,6 +13,12 @@ interface OAuthFlowProps {
   onStartOAuth: () => void
   onCancelOAuth: () => void
   provider: ProviderConfig
+  /**
+   * Show the "How can I authenticate automatically?" FAQ (default true). Off
+   * when the block doesn't detect credentials: the FAQ recommends a CLI login
+   * and an env var that such a block would ignore.
+   */
+  showAutoAuthInfo?: boolean
 }
 
 export function OAuthFlow({
@@ -22,6 +28,7 @@ export function OAuthFlow({
   onStartOAuth,
   onCancelOAuth,
   provider,
+  showAutoAuthInfo = true,
 }: OAuthFlowProps) {
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [showPermissionsInfo, setShowPermissionsInfo] = useState(false)
@@ -152,7 +159,7 @@ export function OAuthFlow({
         </div>
 
         {/* Auto-auth info (shared with the GitLab PAT flow) */}
-        <AutoAuthInfo provider={provider} />
+        {showAutoAuthInfo && <AutoAuthInfo provider={provider} />}
       </div>
     </div>
   )

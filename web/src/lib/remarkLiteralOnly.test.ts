@@ -63,6 +63,7 @@ describe('remarkLiteralOnly', () => {
       ['a frame element', '<frame src="./page.html" />'],
       ['an object element', '<object data="./page.html" />'],
       ['an embed element', '<embed src="./page.svg" />'],
+      ['a webview element', '<webview src="https://example.com" />'],
       ['a mixed-case blocked element', '<iFrame src="./page.html" />'],
       ['dangerouslySetInnerHTML', `<div dangerouslySetInnerHTML={{ __html: '<img src=x onerror="alert(1)">' }} />`],
       ['a srcDoc prop', `<div srcDoc="<script>alert(1)</script>" />`],

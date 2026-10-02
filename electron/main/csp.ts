@@ -10,10 +10,9 @@
  * frame loads, so a host first used mid-session gets its avatars on the next
  * load (the block falls back to no avatar until then).
  *
- * `frame-src` allows the pages the Iframe block embeds: any https site, plain
- * http only on loopback hosts, and files from the runbook's folder over
- * runbook-asset:. file: stays out because a file:// frame would share the
- * renderer's origin. A frame that navigates itself is held to the same list.
+ * There is no `frame-src`, so `default-src 'self'` keeps other sites' frames
+ * out of the app's page. The Iframe block's pages are <webview> guests, which
+ * main/index.ts vets (embeds.ts), not frames.
  */
 import { githubHostKind, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
 
@@ -44,7 +43,6 @@ export function buildContentSecurityPolicy(githubHosts: Iterable<string> = []): 
   const imgSrc = [...BASE_IMG_SOURCES, ...githubImageOrigins(githubHosts)].join(" ")
   return (
     "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; " +
-    `img-src ${imgSrc}; media-src 'self' runbook-asset:; font-src 'self' data:; ` +
-    "frame-src https: http://localhost:* http://127.0.0.1:* runbook-asset:"
+    `img-src ${imgSrc}; media-src 'self' runbook-asset:; font-src 'self' data:`
   )
 }

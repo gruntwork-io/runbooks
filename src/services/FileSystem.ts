@@ -42,6 +42,8 @@ export interface FileSystemShape {
   readonly stat: (path: string) => Effect.Effect<FileStat, FileNotFoundError>
   readonly exists: (path: string) => Effect.Effect<boolean>
   readonly writeFile: (path: string, content: string | Buffer) => Effect.Effect<void, FileWriteError>
+  /** Appends to the file, creating it if missing. */
+  readonly appendFile: (path: string, content: string) => Effect.Effect<void, FileWriteError>
   readonly mkdir: (path: string, options?: { recursive?: boolean }) => Effect.Effect<void, FileWriteError>
   readonly rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => Effect.Effect<void, FileWriteError>
   readonly copyFile: (src: string, dest: string) => Effect.Effect<void, FileWriteError>
