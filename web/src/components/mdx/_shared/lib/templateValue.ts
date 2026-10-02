@@ -8,8 +8,8 @@
  * resolveInputTemplates in src/domain/boilerplate/flattenInputs.ts).
  */
 
-import { formatVariableLabel } from './formatVariableLabel'
-import { isTemplateString } from '../../../../../../src/domain/boilerplate/templateString'
+import { formatVariableLabel } from "./formatVariableLabel"
+import { isTemplateString } from "../../../../../../src/domain/boilerplate/templateString"
 
 const ACTION_RE = /\{\{(.*?)\}\}/gs
 
@@ -20,15 +20,13 @@ const FIELD_CHAIN_RE = /(?<![\w$)\]])\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/g
 /** Go string, raw string and char literals, whose contents are never variable references. */
 const LITERAL_RE = /"(?:[^"\\]|\\.)*"|`[^`]*`|'(?:[^'\\]|\\.)*'/g
 
-export type TemplateSegment =
-  | { kind: 'text'; text: string }
-  | { kind: 'ref'; name: string }
+export type TemplateSegment = { kind: "text"; text: string } | { kind: "ref"; name: string }
 
 export type ParsedTemplateValue =
   /** Literal text and plain variable references, in order. */
-  | { kind: 'segments'; segments: TemplateSegment[] }
+  | { kind: "segments"; segments: TemplateSegment[] }
   /** Anything more (conditionals, pipelines, functions): only the variables it uses. */
-  | { kind: 'computed'; refs: string[] }
+  | { kind: "computed"; refs: string[] }
 
 /** The same test main uses to pick the values it resolves, so a value shown as linked is exactly one main resolves. */
 export function isTemplateValue(value: unknown): value is string {
@@ -37,16 +35,16 @@ export function isTemplateValue(value: unknown): value is string {
 
 /** A form variable name, not a namespace or a boilerplate internal like `__each__`. */
 function isVariableName(name: string | undefined): name is string {
-  return !!name && name !== 'inputs' && name !== 'outputs' && !name.startsWith('__')
+  return !!name && name !== "inputs" && name !== "outputs" && !name.startsWith("__")
 }
 
 /** The variables an action refers to: the first segment of each root field chain, or the one after `.inputs`. */
 function variablesIn(action: string): string[] {
   const names: string[] = []
   for (const [, chain] of action.replace(LITERAL_RE, '""').matchAll(FIELD_CHAIN_RE)) {
-    const [first, second] = chain.split('.')
-    if (first === 'outputs') continue
-    const name = first === 'inputs' ? second : first
+    const [first, second] = chain!.split(".")
+    if (first === "outputs") continue
+    const name = first === "inputs" ? second : first
     if (isVariableName(name)) names.push(name)
   }
   return names
@@ -69,11 +67,11 @@ export function parseTemplateValue(expr: string): ParsedTemplateValue {
     if (!refs.includes(name)) refs.push(name)
   }
   const addText = (text: string) => {
-    if (text) segments.push({ kind: 'text', text })
+    if (text) segments.push({ kind: "text", text })
   }
 
   for (const match of expr.matchAll(ACTION_RE)) {
-    let action = match[1]
+    let action = match[1]!
     const trimBefore = /^-\s/.test(action)
     const trimAfter = /\s-$/.test(action)
     if (trimBefore) action = action.slice(1)
@@ -89,7 +87,7 @@ export function parseTemplateValue(expr: string): ParsedTemplateValue {
 
     const name = PLAIN_REF_RE.exec(action)?.[1]
     if (isVariableName(name)) {
-      segments.push({ kind: 'ref', name })
+      segments.push({ kind: "ref", name })
       addRef(name)
     } else {
       computed = true
@@ -100,7 +98,7 @@ export function parseTemplateValue(expr: string): ParsedTemplateValue {
   const rest = expr.slice(textStart)
   addText(trimLeadingText ? rest.trimStart() : rest)
 
-  return computed ? { kind: 'computed', refs } : { kind: 'segments', segments }
+  return computed ? { kind: "computed", refs } : { kind: "segments", segments }
 }
 
 /**
@@ -111,12 +109,15 @@ export function parseTemplateValue(expr: string): ParsedTemplateValue {
 export function summarizeTemplateValue(expr: string): string {
   const parsed = parseTemplateValue(expr)
   let refs: string[]
-  if (parsed.kind === 'segments') {
+  if (parsed.kind === "segments") {
     const [first] = parsed.segments
-    if (parsed.segments.length === 1 && first.kind === 'ref') return `Same as ${formatVariableLabel(first.name)}`
-    refs = [...new Set(parsed.segments.flatMap(s => (s.kind === 'ref' ? [s.name] : [])))]
+    if (parsed.segments.length === 1 && first?.kind === "ref")
+      return `Same as ${formatVariableLabel(first.name)}`
+    refs = [...new Set(parsed.segments.flatMap((s) => (s.kind === "ref" ? [s.name] : [])))]
   } else {
     refs = parsed.refs
   }
-  return refs.length > 0 ? `Based on ${refs.map(formatVariableLabel).join(', ')}` : 'Set automatically'
+  return refs.length > 0
+    ? `Based on ${refs.map(formatVariableLabel).join(", ")}`
+    : "Set automatically"
 }
