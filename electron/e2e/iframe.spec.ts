@@ -34,6 +34,7 @@ import type { AddressInfo } from "net"
 import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { readFromMain, runInMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -166,50 +167,36 @@ const LOCAL_SITE = /^runbook-asset:\/\/r[0-9a-f]{32}\/site\/index\.html$/
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
-/**
- * Run `evaluate` (an `app.evaluate` call), retrying when it fails with
- * "Execution context was destroyed": since Electron 27 it does now and then
- * although nothing navigated (microsoft/playwright#33737).
- */
-async function inMain<T>(evaluate: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await evaluate()
-    } catch (err) {
-      if (attempt === 5 || !String(err).includes("Execution context was destroyed")) throw err
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100)
-      })
-    }
-  }
-}
-
 /** The URLs of the <webview> guests. */
 function guestUrls(app: ElectronApplication): Promise<string[]> {
-  return inMain(() =>
-    app.evaluate(({ webContents }) =>
+  return readFromMain(
+    app,
+    ({ webContents }) =>
       webContents
         .getAllWebContents()
         .filter((c) => c.getType() === "webview")
         .map((c) => c.getURL()),
-    ),
+    undefined,
   )
 }
 
-/** Run `script` in the guest whose URL matches `url`, once there is one, and return its result. */
+/**
+ * Run `script` in the guest whose URL matches `url`, once there is one, and
+ * return its result. A lost result runs `script` again, so it has to be safe
+ * to repeat.
+ */
 async function inGuest<T>(app: ElectronApplication, url: RegExp, script: string): Promise<T> {
   await expect.poll(async () => (await guestUrls(app)).some((u) => url.test(u))).toBe(true)
-  return (await inMain(() =>
-    app.evaluate(
-      ({ webContents }, { source, code }) => {
-        const pattern = new RegExp(source)
-        const guest = webContents
-          .getAllWebContents()
-          .find((c) => c.getType() === "webview" && pattern.test(c.getURL()))!
-        return guest.executeJavaScript(code)
-      },
-      { source: url.source, code: script },
-    ),
+  return (await readFromMain(
+    app,
+    ({ webContents }, { source, code }) => {
+      const pattern = new RegExp(source)
+      const guest = webContents
+        .getAllWebContents()
+        .find((c) => c.getType() === "webview" && pattern.test(c.getURL()))!
+      return guest.executeJavaScript(code)
+    },
+    { source: url.source, code: script },
   )) as T
 }
 
@@ -259,13 +246,15 @@ test.describe("Iframe block", () => {
       ).toBe(403)
       // alert() would open a native dialog over the app. (Calling it here
       // trips Playwright's own dialog handling, so check the preference.)
-      const prefs = await inMain(() =>
-        app.evaluate(({ webContents }) => {
+      const prefs = await readFromMain(
+        app,
+        ({ webContents }) => {
           const guest = webContents.getAllWebContents().find((c) => c.getType() === "webview")!
           const { disableDialogs, sandbox, contextIsolation, nodeIntegration } =
             guest.getLastWebPreferences()!
           return { disableDialogs, sandbox, contextIsolation, nodeIntegration }
-        }),
+        },
+        undefined,
       )
       expect(prefs).toEqual({
         disableDialogs: true,
@@ -277,19 +266,23 @@ test.describe("Iframe block", () => {
       // window.open is denied instead of reaching the main process's
       // window-open handler, which would open the URL in the browser without
       // a click.
-      await inMain(() =>
-        app.evaluate(({ shell }) => {
+      await runInMain(
+        app,
+        ({ shell }) => {
           const opened: string[] = []
           Object.assign(globalThis, { opened })
           shell.openExternal = async (url) => void opened.push(url)
-        }),
+        },
+        undefined,
       )
       expect(await inGuest(app, LOCAL_SITE, `window.open("https://example.com/") === null`)).toBe(
         true,
       )
       expect(
-        await inMain(() =>
-          app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened),
+        await readFromMain(
+          app,
+          () => (globalThis as unknown as { opened: string[] }).opened,
+          undefined,
         ),
       ).toEqual([])
     } finally {
@@ -459,13 +452,15 @@ test.describe("Iframe block", () => {
           `[document.documentElement.dataset.preloaded ?? "none", typeof require]`,
         ),
       ).toEqual(["none", "undefined"])
-      const inWebSession = await inMain(() =>
-        app.evaluate(({ webContents, session }) => {
+      const inWebSession = await readFromMain(
+        app,
+        ({ webContents, session }) => {
           const guest = webContents
             .getAllWebContents()
             .find((c) => c.getType() === "webview" && c.getURL().endsWith("?asked"))!
           return guest.session === session.fromPartition("persist:embed-web")
-        }),
+        },
+        undefined,
       )
       expect(inWebSession).toBe(true)
       // The file: one never got a guest.
