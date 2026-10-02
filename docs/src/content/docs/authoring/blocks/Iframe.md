@@ -6,9 +6,9 @@ The `<Iframe>` block embeds a web page in your runbook. It can show an external 
 
 The page doesn't load when the runbook opens. The block shows a **Load page** button, so a runbook can't run its author's scripts until the user asks for it. Once loaded, the page stays loaded until the app quits, including across live reloads while you edit the runbook.
 
-The page runs as a separate page with its own browser session, not as part of the runbook. It can't read what you type into the runbook's other blocks, and it has no access to the Runbooks app.
+The page has its own browser session. It can't read what you type into the runbook's other blocks, and it has no access to the Runbooks app.
 
-## Basic Usage
+## Basic usage
 
 Embed an external site:
 
@@ -24,14 +24,14 @@ Embed a page from the runbook's `assets/` folder:
 
 ## Props
 
-### Required Props
+### Required props
 
-- `src` (string) - The page to load: an `https://` URL, an `http://` URL on `localhost` or `127.0.0.1` (such as a local dev server), or a path that starts with `./assets/` for a file in the runbook's `assets/` folder.
+- `src` (string). The page to load: an `https://` URL, an `http://` URL on `localhost` or `127.0.0.1` (such as a local dev server), or a path that starts with `./assets/` for a file in the runbook's `assets/` folder.
 
-### Optional Props
+### Optional props
 
-- `title` (string) - Label shown above the frame. Screen readers announce it too. The title bar always shows the frame's host, or its `./assets/` path, next to the label.
-- `height` (number or string) - Height of the frame. A number, or a string of digits, is a pixel count (`height={600}` or `height="600"`). Any other string must be a CSS length (`height="70vh"`). Defaults to 500 pixels.
+- `title` (string). Label shown above the frame. Screen readers announce it too. The title bar always shows the frame's host, or its `./assets/` path, next to the label.
+- `height` (number or string). Height of the frame. A number, or a string of digits, is a pixel count (`height={600}` or `height="600"`). Any other string must be a CSS length (`height="70vh"`). Defaults to 500 pixels.
 
 The frame always fills the width of the runbook.
 
@@ -63,7 +63,7 @@ An external page can navigate to other `https://` pages, and to `http://` pages 
 
 External pages share one browser session, kept between app restarts, so signing in to a site in one runbook signs you in wherever it's embedded. That session is separate from your web browser's.
 
-The page runs as a page of its own, not inside the runbook's, so sites that forbid framing with an `X-Frame-Options` or `Content-Security-Policy: frame-ancestors` header still load.
+Runbooks loads the page as a top-level page rather than a frame, so sites that forbid framing with an `X-Frame-Options` or `Content-Security-Policy: frame-ancestors` header still load.
 
 ## Behavior
 

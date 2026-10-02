@@ -89,7 +89,7 @@ test.describe("Find in page", () => {
         ...process.env,
         HOME: home,
         ELECTRON_NO_UPDATER: "1",
-        RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TELEMETRY_DISABLE: "1",
       },
     })
     app = launched

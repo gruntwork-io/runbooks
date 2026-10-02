@@ -4,9 +4,9 @@ title: <TemplateInline>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<TemplateInline>` block renders Boilerplate templates directly in your runbook, displaying the rendered output inline. Unlike `<Template>`, which loads templates from a directory, `<TemplateInline>` lets you write template content directly in your runbook file.
+The `<TemplateInline>` block renders a Boilerplate template written in the runbook file itself and shows the rendered output inline. [`<Template>`](/authoring/blocks/template/) loads its templates from a directory.
 
-## Basic Usage
+## Basic usage
 
 `````mdx
 <Inputs id="greeting">
@@ -27,40 +27,36 @@ Hello, {{ .inputs.Name }}!
 
 ## vs. Template
 
-TemplateInline and [Template](/authoring/blocks/template/) both render Boilerplate templates, but they serve different purposes:
+TemplateInline and [Template](/authoring/blocks/template/) both render Boilerplate templates:
 
 | Feature | `<TemplateInline>` | `<Template>` |
 |---------|-------------------|--------------|
 | Template source | Inline in runbook | Directory with `boilerplate.yml` |
 | Form rendered | No (uses [Inputs](/authoring/blocks/inputs/)) | Yes, from `boilerplate.yml` |
 | File generation | Optional (`generateFile={true}`) | Always saves to workspace |
-| Use case | Show preview of single files inline | Generate files from template directories |
-
-Use `<TemplateInline>` when you want to show users what generated content looks like inline, or for quick single-file templates. Use `<Template>` when you have a full Boilerplate template directory with multiple files and a `boilerplate.yml` configuration.
+| Use case | Preview or generate a single file without a template directory | Generate files from a template directory with a `boilerplate.yml` |
 
 ## Props
 
-### Required Props
+### Required props
 
-- `id` (string) - Unique identifier for this block.
-- **[Inline template content]** - The template content to render, written as a fenced code block inside the `<TemplateInline>` tags. The code block should include a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
+- `id` (string). Unique identifier for this block. See [Block IDs](/authoring/blocks/#block-ids).
+- Inline template content. The template to render, written as a fenced code block inside the `<TemplateInline>` tags. Give the code block a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
 
-### Optional Props
+### Optional props
 
-- `inputsId` (string | string[]) - ID of the Inputs block(s) to get variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones). If not provided, the template renders without variable substitution.
-- `outputPath` (string) - File path for the rendered output (e.g., `config.yaml` or `docs/account.hcl`). This appears as the filename in the code block header. With `generateFile={true}`, it is also where the file is saved, relative to the output directory; missing parent directories are created.
-- `generateFile` (boolean) - Whether to add the rendered file to the file tree. When `false` (the default), the template is preview-only and displays inline. Set to `true` to also save the rendered file to the workspace.
-- `target` (`"generated"` | `"worktree"`) - Where template output is written when `generateFile={true}`. Defaults to `"generated"`, which writes to the standard generated files directory (`$GENERATED_FILES`). Set to `"worktree"` to write directly into the active git worktree (the most recently cloned repo via `<GitClone>`). Requires a `<GitClone>` block to have run first; until then, the block shows an error in place of the preview.
+- `inputsId` (string | string[]). ID of the Inputs block(s) to get variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones). If not provided, the template renders without variable substitution.
+- `outputPath` (string). File path for the rendered output (e.g., `config.yaml` or `docs/account.hcl`). This appears as the filename in the code block header. With `generateFile={true}`, it is also where the file is saved, relative to the output directory. Missing parent directories are created.
+- `generateFile` (boolean). Whether to save the rendered file to the workspace. When `false` (the default), the block only shows the rendered output inline.
+- `target` (`"generated"` | `"worktree"`). Where template output is written when `generateFile={true}`. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree: the one selected in the workspace, or else the most recently cloned repository. It requires a `<GitClone>` block to have run first. Until then, the block shows an error in place of the preview.
 
 <Aside type="note">
-For security reasons, `outputPath` must be a relative path. Absolute paths and directory traversal attempts (e.g., `../`) are blocked.
+`outputPath` must be a relative path. Absolute paths and paths that leave the output directory (e.g., `../`) are rejected.
 </Aside>
 
-## With Variables
+## With variables
 
-There are several ways to provide variables to a TemplateInline.
-
-### Using inputsId
+### Using `inputsId`
 
 Reference a separate Inputs block to get variable values:
 
@@ -91,7 +87,7 @@ CMD ["node", "server.js"]
 </TemplateInline>
 `````
 
-### Using Multiple inputsIds
+### Using multiple `inputsId` values
 
 You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
 
@@ -130,9 +126,7 @@ resource "aws_ecs_service" "main" {
 </TemplateInline>
 `````
 
-In this example, the template has access to variables from both Inputs blocks.
-
-## Multiple Files
+## Multiple files
 
 You can have multiple `<TemplateInline>` blocks referencing the same `<Inputs>`:
 
@@ -164,9 +158,9 @@ ENVIRONMENT={{ .inputs.Environment }}
 </TemplateInline>
 `````
 
-## With Boilerplate Logic
+## With Boilerplate logic
 
-You can use full Boilerplate template syntax including conditionals and loops:
+Templates can use Boilerplate template syntax, including conditionals and loops:
 
 `````mdx
 <Inputs id="terraform-config">
@@ -195,9 +189,9 @@ resource "aws_instance" "app" {
 </TemplateInline>
 `````
 
-For full details on template syntax, see [Boilerplate Template Syntax](/authoring/boilerplate/#template-syntax).
+See [Template syntax](/authoring/boilerplate/#template-syntax).
 
-## Using Block Outputs
+## Using block outputs
 
 TemplateInline can reference outputs from [Command](/authoring/blocks/command/) or [Check](/authoring/blocks/check/) blocks using the `outputs` namespace:
 
@@ -212,11 +206,11 @@ Region:     {{ .outputs.create_account.region }}
 
 Runbooks scans the template content for output references and shows a warning until all upstream blocks have run.
 
-For the full guide on producing outputs, consuming them, dependency behavior, and ID naming rules, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
+For producing outputs, consuming them, dependency behavior, and ID naming rules, see [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
 
-## Generating Files
+## Generating files
 
-By default, `<TemplateInline>` is preview-only—it shows the rendered output but doesn't save files. To also save the rendered content to the generated files workspace, set `generateFile={true}`. The file is saved at `outputPath` inside the generated files directory (or inside the active git worktree with `target="worktree"`), and it is rewritten each time the block re-renders, for example when its inputs change:
+By default, `<TemplateInline>` shows the rendered output and saves no file. To also save it, set `generateFile={true}`. The file is saved at `outputPath` inside the generated files directory (or inside the active git worktree with `target="worktree"`), and it is rewritten each time the block re-renders, for example when its inputs change:
 
 `````mdx
 <Inputs id="config">
@@ -241,10 +235,6 @@ Welcome to {{ .inputs.ProjectName }}!
 </TemplateInline>
 `````
 
-<Aside type="tip">
-Use `generateFile={true}` when you want users to both see the output inline _and_ have the file saved to their workspace.
-</Aside>
-
 If `outputPath` changes between renders, for example because it uses a [`<DirPicker>`](/authoring/blocks/dirpicker/) output, the block saves the file at the new path and cleans up the one it saved at the old path:
 
 - If the block created the old file, it is removed, along with any directories that removal leaves empty.
@@ -253,15 +243,7 @@ If `outputPath` changes between renders, for example because it uses a [`<DirPic
 
 Cleanup only happens inside the directory the block is writing to now. With `target="worktree"`, a file the block wrote into an earlier repo stays there after another `<GitClone>` makes a different repo the active worktree.
 
-## Block IDs
-
-Like all other blocks, `<TemplateInline>` requires an `id` prop. The `id` uniquely identifies the block within the runbook and is used for dependency resolution between blocks.
-
-Learn more about block IDs in the [testing documentation](/authoring/testing/#block-ids).
-
-## Complete Example
-
-Here's a complete example showing `<Inputs>` with multiple `<TemplateInline>` blocks:
+## Complete example
 
 `````mdx
 # Configure Your Docker Service

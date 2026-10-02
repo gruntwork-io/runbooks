@@ -61,7 +61,7 @@ test.describe("Watch mode", () => {
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
-        RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TELEMETRY_DISABLE: "1",
       },
     })
     const page = await app.firstWindow()

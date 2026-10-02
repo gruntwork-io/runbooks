@@ -2,11 +2,9 @@
 title: Markdown Support
 ---
 
-# Markdown in Runbooks
+Runbooks renders GitHub-flavored Markdown (GFM).
 
-Runbooks uses **GitHub-flavored Markdown** (GFM) with full support for common markdown elements. That means you can include any of the following elements in your runbooks.
-
-## Supported Elements
+## Supported elements
 
 ### Headers
 
@@ -19,7 +17,7 @@ Runbooks uses **GitHub-flavored Markdown** (GFM) with full support for common ma
 ###### Header 6
 ```
 
-### Text Formatting
+### Text formatting
 
 ```markdown
 **Bold text**
@@ -78,9 +76,9 @@ Contact support@example.com for help.
 ![Image with title](./assets/image.png "Image title")
 ```
 
-Image paths must start with `./assets/`. Runbooks loads them from the `assets/` folder next to your runbook file. Any other relative path, such as `images/diagram.png` or `assets/diagram.png` without the leading `./`, won't load. To set an image's size, use an `<img>` tag with the same kind of path, for example `<img src="./assets/image.png" width="400" />`. See [Relative Paths](/authoring/runbook-structure/#relative-paths) for video and audio.
+Image paths must start with `./assets/`. Runbooks loads them from the `assets/` folder next to your runbook file. Any other relative path, such as `images/diagram.png` or `assets/diagram.png` without the leading `./`, won't load. To set an image's size, use an `<img>` tag with the same kind of path, for example `<img src="./assets/image.png" width="400" />`. See [Relative paths](/authoring/runbook-structure/#relative-paths) for video and audio.
 
-### Code Blocks
+### Code blocks
 
 Inline code:
 ```markdown
@@ -103,7 +101,7 @@ console.log("Hello, world!");
 ```
 ````
 
-Supported languages include: bash, sh, shell, python, javascript, typescript, go, rust, java, terraform, hcl, yaml, json, and many more.
+Supported languages include bash, sh, shell, python, javascript, typescript, go, rust, java, terraform, hcl, yaml and json.
 
 ### Blockquotes
 
@@ -114,7 +112,7 @@ Supported languages include: bash, sh, shell, python, javascript, typescript, go
 > And have multiple paragraphs.
 ```
 
-### Horizontal Rules
+### Horizontal rules
 
 ```markdown
 ---
@@ -148,11 +146,11 @@ Here is a sentence with a footnote.[^1]
 
 Footnotes are collected and rendered at the bottom of the document.
 
-## MDX Features
+## MDX features
 
-Because Runbooks supports MDX, you also have access to a few special features beyond standard markdown elements.
+MDX adds a few things on top of markdown.
 
-### Mix Markdown and JSX
+### Mix markdown and JSX
 
 ```mdx
 # My Runbook
@@ -164,17 +162,17 @@ Regular markdown text here.
 More markdown text.
 ```
 
-### Use Literal Values in Props
+### Literal values in props
 
-Use `{...}` to pass a prop value that isn't a plain string, such as a boolean, a number, an array or an object:
+Use `{...}` to pass a prop value that isn't a plain string, such as a number, a boolean, an array or an object:
 
 ```mdx
-<Command id="build" command="make build" usePty={false} />
+<Command id="build" command="make build" timeoutMs={300000} />
 
 <AwsAuth id="prod-auth" detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']} />
 ```
 
-Runbooks never runs JavaScript from your `runbook.mdx`. The value inside `{...}` must be a literal: a string, number, boolean or `null`, a template string without `${...}` substitutions, or an array or object made only of those. You can also write `{/* comments */}`. `import` and `export` statements, JavaScript expressions such as `{new Date().toLocaleDateString()}`, and spread props such as `{...props}` are rejected with an error when the runbook opens. See [Execution Security Model](/security/execution-model/) for why.
+Runbooks never runs JavaScript from your `runbook.mdx`. The value inside `{...}` must be a literal: a string, number, boolean or `null`, a template string without `${...}` substitutions, or an array or object made only of those. You can also write `{/* comments */}`. `import` and `export` statements, JavaScript expressions such as `{new Date().toLocaleDateString()}`, and spread props such as `{...props}` are rejected with an error when the runbook opens. See the [execution security model](/security/execution-model/) for why.
 
 ### HTML
 
@@ -186,11 +184,11 @@ This text will be red.
 </div>
 ```
 
-Because Runbooks never runs JavaScript from your `runbook.mdx`, elements and props that load scripts, embed other documents or inject raw HTML are rejected with an error. These include `<script>`, `<iframe>`, `<object>`, `<embed>`, custom elements such as `<my-widget>`, namespaced elements such as `<svg:script>`, `dangerouslySetInnerHTML`, `srcDoc` and `javascript:` URLs in props. See [Execution Security Model](/security/execution-model/) for the full list.
+Because Runbooks never runs JavaScript from your `runbook.mdx`, elements and props that load scripts, embed other documents or inject raw HTML are rejected with an error. These include `<script>`, `<iframe>`, `<object>`, `<embed>`, custom elements such as `<my-widget>`, namespaced elements such as `<svg:script>`, `dangerouslySetInnerHTML`, `srcDoc` and `javascript:` URLs in props. See the [execution security model](/security/execution-model/) for the full list.
 
-### Escaping Special Characters
+### Escaping special characters
 
-If you need to display special characters literally, escape them with a backslash:
+To display a markdown character literally, escape it with a backslash:
 
 ```markdown
 \* This won't be italic
@@ -198,19 +196,19 @@ If you need to display special characters literally, escape them with a backslas
 \`This won't be code\`
 ```
 
-### Code Blocks in Special Blocks
+### Code blocks inside blocks
 
-When embedding YAML or other code in special blocks, use proper fencing:
+Blocks such as `<Inputs>` take a fenced code block as their content:
 
-```mdx
-<BoilerplateInputs id="my-form">
+````mdx
+<Inputs id="my-form">
 ```yaml
 variables:
   - name: Example
     type: string
-\```
-</BoilerplateInputs>
 ```
+</Inputs>
+````
 
-Note: Use a backslash before the closing triple backticks to escape them within the outer code block.
+To show a fenced block inside another fenced block, as this page does, give the outer fence more backticks than the inner one. Do not escape the inner backticks.
 

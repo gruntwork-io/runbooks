@@ -1,11 +1,11 @@
 ---
-title: Shell Execution Context
-description: Understanding how Runbooks executes scripts and maintains environment state
+title: Shell execution context
+description: How Runbooks runs scripts and keeps environment state between blocks
 ---
 
-## Persistent Environment Model
+## Environment persists between blocks
 
-**Think of Runbooks like a persistent terminal session.** When you run scripts in Check or Command blocks, environment changes carry forward to subsequent blocks — just like typing commands in a terminal.
+Scripts in Check and Command blocks share one session. When a Bash script exits with code 0 or 2, Runbooks applies its environment changes to the session, and later blocks see them.
 
 | What persists | Example |
 |---------------|---------|
@@ -13,34 +13,30 @@ description: Understanding how Runbooks executes scripts and maintains environme
 | Working directory | `cd /path/to/project` changes where later scripts run |
 | Unset variables | `unset DEBUG` removes the variable for later blocks |
 
-This means you can structure your runbook like a workflow:
+Changes made by a script that exits with any other code, times out or is cancelled are discarded.
 
-1. **Block 1**: Set up environment (`export AWS_REGION=us-east-1`)
-2. **Block 2**: Run a command that uses `$AWS_REGION`
-3. **Block 3**: Clean up (`unset AWS_REGION`)
-
-### Bash Scripts Only
+### Bash scripts only
 
 :::caution[Environment persistence requires Bash]
-Environment variable changes **only persist for Bash scripts** (`#!/bin/bash` or `#!/bin/sh`). Non-Bash scripts like Python, Ruby, or Node.js can **read** environment variables from the session, but changes they make (e.g., `os.environ["VAR"] = "value"` in Python) will **not** persist to subsequent blocks.
+Only scripts with a `#!/bin/bash` or `#!/bin/sh` shebang, or no shebang, can change the session. Scripts in other languages can read the session's environment variables, but a change such as `os.environ["VAR"] = "value"` in Python does not reach later blocks.
 :::
 
-| Script Type | Can read env vars | Can set persistent env vars |
-|-------------|-------------------|----------------------------|
-| Bash (`#!/bin/bash`) | ✅ Yes | ✅ Yes |
-| Sh (`#!/bin/sh`) | ✅ Yes | ✅ Yes |
-| Python (`#!/usr/bin/env python3`) | ✅ Yes | ❌ No |
-| Ruby (`#!/usr/bin/env ruby`) | ✅ Yes | ❌ No |
-| Node.js (`#!/usr/bin/env node`) | ✅ Yes | ❌ No |
-| Other interpreters | ✅ Yes | ❌ No |
+| Script type | Can read env vars | Can set persistent env vars |
+|-------------|-------------------|-----------------------------|
+| Bash (`#!/bin/bash`) | Yes | Yes |
+| Sh (`#!/bin/sh`) | Yes | Yes |
+| Python (`#!/usr/bin/env python3`) | Yes | No |
+| Ruby (`#!/usr/bin/env ruby`) | Yes | No |
+| Node.js (`#!/usr/bin/env node`) | Yes | No |
+| Other interpreters | Yes | No |
 
-**Why?** Environment persistence works by wrapping your script in a Bash wrapper that captures environment changes after execution. This wrapper is Bash-specific and can't be applied to other interpreters. Additionally, environment changes in subprocesses (like a Python script) can't propagate back to the parent process — this is a fundamental limitation of how Unix processes work.
+Runbooks wraps each Bash script in Bash code that writes the environment and working directory to temporary files when the script exits. That wrapper cannot run under another interpreter, and a child process cannot change its parent's environment.
 
-Because the wrapper is Bash code, scripts with a `#!/bin/sh` shebang run under `bash`, not your system's `sh`. On Debian and Ubuntu, `sh` is `dash`, which can't run the wrapper at all. Bash runs POSIX `sh` scripts as they are. For `#!/bin/sh` scripts Runbooks also turns on Bash's `xpg_echo` option, so `echo "a\nb"` prints two lines, just as `sh` does on macOS, Debian, and Ubuntu. Scripts with a `#!/bin/bash` shebang keep Bash's default, where `echo` prints `\n` literally unless you pass `-e`.
+Because the wrapper is Bash code, scripts with a `#!/bin/sh` shebang run under `bash`. On Debian and Ubuntu, `sh` is `dash`, which can't run the wrapper. Bash runs POSIX `sh` scripts as they are. For `#!/bin/sh` scripts Runbooks also turns on Bash's `xpg_echo` option, so `echo "a\nb"` prints two lines, as `sh` does on macOS, Debian and Ubuntu. Scripts with a `#!/bin/bash` shebang keep Bash's default, where `echo` prints `\n` literally unless you pass `-e`.
 
-### Multiline Environment Variables
+### Multiline environment variables
 
-Environment variables can contain embedded newlines — RSA keys, JSON configs, multiline strings, etc. These values are correctly preserved across blocks:
+Values with embedded newlines, such as RSA keys and JSON, persist across blocks unchanged. Runbooks captures the environment with NUL-terminated output (`env -0`).
 
 ```bash
 #!/bin/bash
@@ -54,11 +50,9 @@ export JSON_CONFIG='{
 }'
 ```
 
-Runbooks uses NUL-terminated output (`env -0`) when capturing environment variables, which correctly handles values containing newlines. This works on Linux, macOS, and Windows with Git Bash.
+### `trap` handlers
 
-### User Trap Support
-
-Your scripts can optionally use `trap` commands for cleanup.
+Scripts can set their own `EXIT` trap for cleanup.
 
 ```bash
 #!/bin/bash
@@ -69,64 +63,57 @@ trap "rm -rf $TEMP_DIR" EXIT
 export RESULT="computed value"
 ```
 
-Runbooks intercepts EXIT traps to ensure both your cleanup code **and** environment capture (capturing the environment variables that were set in this script and making those values available to other scripts) run correctly. The usual `trap` forms all work: `trap -- cleanup EXIT`, `trap cleanup INT EXIT` (the `INT` handler is installed as usual), and resets such as `trap - EXIT` or `trap EXIT`. When your script exits:
+Runbooks captures the environment in its own `EXIT` handler, so it intercepts `trap` calls that name `EXIT` and saves your handler. The usual `trap` forms all work: `trap -- cleanup EXIT`, `trap cleanup INT EXIT` (the `INT` handler is installed as usual), and resets such as `trap - EXIT` or `trap EXIT`. When your script exits:
 
-1. Your trap handler runs first (cleanup happens)
-2. Runbooks captures the final environment state
-3. The original exit code is preserved
+1. Your trap handler runs.
+2. Runbooks captures the environment and working directory.
+3. The script exits with its original exit code.
 
-This means you can write scripts with proper cleanup logic and still have environment changes persist to subsequent blocks.
+### One session per runbook
 
-### Single Session
+The app has one window and one session. Every script in a runbook shares it. The session lasts until you open a different runbook or quit the app.
 
-The Runbooks app uses a single window and a single session. All scripts within a runbook share the same environment state.
+### Starting environment
 
-### Starting Environment
+The session starts from the environment the Runbooks app was started with.
 
-The session starts from the environment the Runbooks app was started with:
+If you start Runbooks from a terminal or an SSH session, it uses that terminal's environment as it is. A variable you set on the command line that starts Runbooks, such as `AWS_PROFILE=prod`, is the value your scripts see.
 
-- **Started from a terminal** (any terminal or SSH session that sets `TERM`): Runbooks uses that terminal's environment as it is. A variable you set on the command line that starts Runbooks, such as `AWS_PROFILE=prod`, is the value your scripts see.
-- **Started from Finder, the Dock, or a desktop launcher** (macOS and Linux): Runbooks first loads the environment from your login shell, so your `PATH` and the variables your shell profile exports are available to scripts.
+If you start Runbooks from Finder, the Dock or a desktop launcher on macOS or Linux, it first runs your login shell once as `$SHELL -ilc` and copies the environment that shell ends up with. Because the shell is both a login and an interactive shell, it reads your profile and rc files, so your `PATH` and the variables they export are available to scripts.
 
-### How Script Changes Are Applied
+On Windows, Runbooks uses the environment it was started with.
 
-When a script finishes, Runbooks applies only what that script changed to the session:
+### How script changes are applied
+
+When a Bash script exits with code 0 or 2, Runbooks applies only what that script changed:
 
 - Variables the script exported or changed are set to their new values.
 - Variables the script unset are removed from the session.
 - The working directory changes only if the script changed directory.
 
-Everything else in the session is left as it is. If the session changed while the script was running — for example, an auth block authenticated and added credentials, or you reset the session — those changes are kept, and the script's own changes are applied on top of them. If the script and something else both changed the same variable, the script's value wins, because it is applied last.
+Everything else in the session is left as it is. If the session changed while the script was running, for example because an auth block added credentials, those changes are kept and the script's changes are applied on top of them. If the script and something else both changed the same variable, the script's value wins.
 
-If you open a different runbook while a script is running, the finished script's changes are discarded instead of being applied to the new runbook's session. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
+If you open a different runbook while a script is running, the finished script's changes are discarded. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
 
-### One Script at a Time
+### One script at a time
 
-Only one script runs at a time. Starting a script (for example, clicking "Run" on another block before the first one finishes) cancels the script that is already running, and the cancelled script's environment changes are discarded. If your scripts depend on environment changes from earlier scripts, wait for each script to complete before running the next one. The environment model is designed for sequential, step-by-step execution, similar to typing commands in a terminal one at a time.
+Starting a script cancels any script that is already running, and the cancelled script's environment changes are discarded. If a script depends on environment changes from an earlier one, wait for the earlier one to finish before you click Run.
 
-### Implementation Notes
+## Built-in environment variables
 
-The Runbooks main process maintains a single session per runbook instance. Each script execution captures environment changes and working directory updates, then applies them to the session state. This happens automatically — you don't need to do anything special in your scripts.
-
-The session resets when you restart the app. You can also manually reset the environment to its initial state using the session controls in the UI.
-
----
-
-## Built-in Environment Variables
-
-Runbooks exposes the following environment variables to all scripts:
+Runbooks sets the following environment variables for every script:
 
 | Variable | Description |
 |----------|-------------|
-| `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
-| `REPO_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
-| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. Write `sensitive:key=value` to mask a credential in the UI (see [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs)). |
+| `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated files** tab when the script exits with code 0 or 2. |
+| `REPO_FILES` | Path to the active git worktree: the one you selected in the workspace, or the most recently registered one if you selected none. Unset if no repository has been cloned. |
+| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for later blocks. Write `sensitive:key=value` to mask a credential in the UI (see [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs)). |
 
-Each script also gets log files. The `log_info`, `log_warn`, `log_error` and `log_debug` functions append to `RUNBOOK_LOG`, and each of their lines names its level. `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG` take lines that don't name a level, which show up at the file's level. Any command or script can append to them all, and their lines appear in the block's logs as the script writes them. The files are deleted when the run ends. See [Log Files](/authoring/blocks/command/#log-files).
+Each script also gets log files. The `log_info`, `log_warn`, `log_error` and `log_debug` functions append to `RUNBOOK_LOG`, and each of their lines names its level. `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG` take lines that don't name a level, which show up at the file's level. Any command or script can append to them all, and their lines appear in the block's logs as the script writes them. The files are deleted when the run ends. See [Log files](/authoring/blocks/command/#log-files).
 
-### Capturing Output Files
+### Capturing output files
 
-To save files to the generated files directory, write them to `$GENERATED_FILES`:
+Write files to `$GENERATED_FILES` to save them to the generated files directory:
 
 ```bash
 #!/bin/bash
@@ -138,13 +125,13 @@ mkdir -p "$GENERATED_FILES/config"
 echo '{"env": "production"}' > "$GENERATED_FILES/config/settings.json"
 ```
 
-Files are only captured after successful execution (exit code 0 or 2). If your script fails, any files written to `$GENERATED_FILES` are discarded.
+Files are captured only when the script exits with code 0 or 2. If the script fails, files written to `$GENERATED_FILES` are discarded.
 
-See [Capturing Output Files](/authoring/blocks/command/#capturing-output-files) for more details.
+See [Capturing output files](/authoring/blocks/command/#capturing-output-files) for more.
 
-### Modifying Cloned Repositories
+### Modifying cloned repositories
 
-If a `<GitClone>` block has cloned a repository, use `$REPO_FILES` to modify files in the cloned repo:
+If a `<GitClone>` block has cloned a repository, use `$REPO_FILES` to modify files in it:
 
 ```bash
 #!/bin/bash
@@ -156,94 +143,80 @@ else
 fi
 ```
 
-Unlike `$GENERATED_FILES`, writes to `$REPO_FILES` happen directly on the filesystem — they are not captured to a temporary directory. Changes show up in the **Changed** tab via `git diff`.
+Writes to `$REPO_FILES` go straight to the checkout on disk, whatever the script's exit code. They show up in the **Changed files** tab.
 
----
+## Non-interactive shell
 
-## Non-Interactive Shell
+Scripts run in a non-interactive shell, which limits what they can use:
 
-Scripts run in a **non-interactive shell**, which affects what's available:
+| Feature | Available | Notes |
+|---------|-----------|-------|
+| Environment variables | Yes | The session's environment, including changes from earlier blocks |
+| Binaries in `$PATH` | Yes | `git`, `aws`, `tofu` and so on |
+| Shell aliases | No | `ll`, `la`, custom aliases |
+| Shell functions | No | `nvm`, `rvm`, `assume` and so on |
+| RC files | No | Scripts do not source `.bashrc` or `.zshrc`. On a desktop launch Runbooks reads them once at startup for exported variables only (see [Starting environment](#starting-environment)). |
 
-| Feature | Available? | Notes |
-|---------|------------|-------|
-| Environment variables | ✅ Yes | Inherited from Runbooks + changes from previous blocks |
-| Binaries in `$PATH` | ✅ Yes | `git`, `aws`, `terraform`, etc. |
-| Shell aliases | ❌ No | `ll`, `la`, custom aliases |
-| Shell functions | ❌ No | `nvm`, `rvm`, `assume`, etc. |
-| RC files | ❌ No | `.bashrc`, `.zshrc` are NOT sourced |
-
-### Example: Aliases vs Binaries
+### Aliases and binaries
 
 ```bash
-# ❌ Will NOT work - ll is typically a bash alias for "ls -l"
+# Fails: ll is usually a shell alias for "ls -l"
 <Check command="ll" ... />
 
-# ✅ Will work - ls is an actual binary
+# Works: ls is a binary
 <Check command="ls -l" ... />
 ```
 
-### Why This Matters
+### Tools that are shell functions
 
-Many developer tools are implemented as **shell functions** rather than standalone binaries. These functions are defined in your shell's RC files (`.bashrc`, `.zshrc`) and only exist in interactive shell sessions.
+Some developer tools are shell functions defined in your rc files (`.bashrc`, `.zshrc`), so they exist only in interactive shells:
 
-Common tools that are shell functions (not binaries):
-- **nvm** — Node Version Manager
-- **rvm** — Ruby Version Manager  
-- **pyenv** shell integration
-- **conda activate**
-- **assume** — Shell function from [Granted](https://docs.commonfate.io/granted/introduction)
+- `nvm`, Node Version Manager
+- `rvm`, Ruby Version Manager
+- `pyenv` shell integration
+- `conda activate`
+- `assume`, from [Granted](https://docs.commonfate.io/granted/introduction)
 
-These tools need to be shell functions because they modify your current shell's environment (e.g., changing `$PATH`), which can't be done from a subprocess.
+They are functions because they change the current shell's environment, such as `$PATH`, which a child process cannot do.
 
 ### Workarounds
 
-For tools that are shell functions, check for the underlying installation instead:
+For a tool that is a shell function, check for its installation:
 
 ```bash
 #!/bin/bash
-# Instead of running "nvm --version" (won't work), check if nvm is installed:
+# "nvm --version" fails here, so check that nvm is installed
 if [ -d "$HOME/.nvm" ] && [ -s "$HOME/.nvm/nvm.sh" ]; then
-    echo "✅ nvm is installed"
+    echo "nvm is installed"
     exit 0
 else
-    echo "❌ nvm is not installed"
+    echo "nvm is not installed"
     exit 1
 fi
 ```
 
-If you absolutely need shell functions, source the RC file in your script (use with caution):
+If a script needs the function itself, source the rc file in the script. This ties the script to one shell's configuration.
 
 ```bash
 #!/bin/bash
-# Source shell config to get functions (not recommended for portability)
 source ~/.bashrc 2>/dev/null || source ~/.zshrc 2>/dev/null
 
-# Now nvm should be available
 nvm --version
 ```
 
----
+## Interpreter detection
 
-## Interpreter Detection
-
-Runbooks determines which interpreter to use for your script:
-
-1. **Shebang line** — If your script starts with `#!/bin/bash`, `#!/usr/bin/env python3`, etc., that interpreter is used
-2. **Default** — If no shebang is present, `bash` is used
-
-### Common Shebangs
+If a script starts with a shebang such as `#!/bin/bash` or `#!/usr/bin/env python3`, Runbooks runs it with that interpreter. Without a shebang it uses `bash`.
 
 | Shebang | Interpreter |
 |---------|-------------|
-| `#!/bin/bash` | Bash shell |
-| `#!/bin/sh` | Bash shell (see [Bash Scripts Only](#bash-scripts-only)) |
-| `#!/bin/zsh` | Zsh shell |
+| `#!/bin/bash` | Bash |
+| `#!/bin/sh` | Bash (see [Bash scripts only](#bash-scripts-only)) |
+| `#!/bin/zsh` | Zsh |
 | `#!/usr/bin/env python3` | Python 3 |
 | `#!/usr/bin/env node` | Node.js |
 
-### Best Practice
-
-Always include a shebang in your scripts to ensure predictable execution:
+Start each script with a shebang so the interpreter does not depend on the default:
 
 ```bash
 #!/bin/bash
@@ -251,34 +224,25 @@ set -e
 # Your script here...
 ```
 
----
+## Demo runbooks
 
-## Demo Runbooks
+The Runbooks repository has demo runbooks for these features.
 
-The Runbooks repository includes demo runbooks that showcase these execution features:
-
-### Persistent Environment Demo
-
-The [`runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/runbook-execution-model) demo demonstrates:
+[`runbook-execution-model`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/runbook-execution-model) covers environment persistence:
 
 - Setting and reading environment variables across blocks
 - Working directory persistence
 - Multiline environment variables (RSA keys, JSON)
-- Non-bash scripts reading (but not setting) persistent env vars
+- Non-Bash scripts reading persistent environment variables
 
-### File Capture Demo
-
-The [`capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/capture-files-from-scripts) demo demonstrates:
+[`capture-files-from-scripts`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/capture-files-from-scripts) covers file capture:
 
 - Using `$GENERATED_FILES` to capture generated files
-- Combining environment persistence with file generation
 - Creating OpenTofu configs from environment variables set in earlier blocks
 
-### File Workspace Demo
-
-The [`file-workspace`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/file-workspace) demo demonstrates:
+[`file-workspace`](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/file-workspace) covers the file workspace:
 
 - Cloning a repository with `<GitClone>` and browsing its files
 - Using `$REPO_FILES` to modify files in a cloned repo
 - Writing templates directly into a worktree with `target="worktree"`
-- Viewing changes in the "Changed files" diff view
+- Viewing changes in the **Changed files** diff view
