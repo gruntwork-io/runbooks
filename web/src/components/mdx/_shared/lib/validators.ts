@@ -16,4 +16,4 @@ export {
   isCountryCode2,
   applyValidationRule,
   validateVariableValue,
-} from '../../../../../../src/domain/boilerplate/validators'
+} from "../../../../../../src/domain/boilerplate/validators"

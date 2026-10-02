@@ -8,65 +8,55 @@ import { Effect } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, runbookConfig } from "./runtime.ts"
 import { readFileMetadata } from "../../../src/domain/workspace/file.ts"
-import {
-  checkGeneratedFiles,
-  deleteGeneratedFiles,
-} from "../../../src/domain/files/generated.ts"
+import { checkGeneratedFiles, deleteGeneratedFiles } from "../../../src/domain/files/generated.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
 import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
 export function registerFileHandlers(): void {
-  ipcMain.handle(
-    "file:read",
-    async (_event, params: { path: string }) => {
-      if (containsPathTraversal(params.path)) {
-        throw new Error("Path contains directory traversal")
-      }
-      const workingDir = await getWorkingDir()
-      const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
+  ipcMain.handle("file:read", async (_event, params: { path: string }) => {
+    if (containsPathTraversal(params.path)) {
+      throw new Error("Path contains directory traversal")
+    }
+    const workingDir = await getWorkingDir()
+    const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
 
-      // Resolve relative paths against the runbook directory
-      let resolvedPath = params.path
-      if (!path.isAbsolute(params.path) && runbookDir) {
-        resolvedPath = path.resolve(runbookDir, params.path)
-      }
+    // Resolve relative paths against the runbook directory
+    let resolvedPath = params.path
+    if (!path.isAbsolute(params.path) && runbookDir) {
+      resolvedPath = path.resolve(runbookDir, params.path)
+    }
 
-      // Resolve symlinks before the containment check: the fs read below
-      // follows them, so a symlink inside the working/runbook dir must not be
-      // allowed to dereference to a file outside it.
-      if (!(await isContainedInReal(resolvedPath, workingDir)) &&
-          (!runbookDir || !(await isContainedInReal(resolvedPath, runbookDir)))) {
-        throw new Error("Path outside allowed directories")
-      }
-      return runtime.runPromise(readFileMetadata(resolvedPath))
-    },
-  )
+    // Resolve symlinks before the containment check: the fs read below
+    // follows them, so a symlink inside the working/runbook dir must not be
+    // allowed to dereference to a file outside it.
+    if (
+      !(await isContainedInReal(resolvedPath, workingDir)) &&
+      (!runbookDir || !(await isContainedInReal(resolvedPath, runbookDir)))
+    ) {
+      throw new Error("Path outside allowed directories")
+    }
+    return runtime.runPromise(readFileMetadata(resolvedPath))
+  })
 
-  ipcMain.handle(
-    "generated-files:check",
-    async (_event, params?: { outputPath?: string }) => {
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          const dir = yield* resolveGeneratedDir(params?.outputPath)
-          yield* validateSessionPath(dir.absolutePath)
-          return yield* checkGeneratedFiles(dir.baseDir, dir.outputPath)
-        }),
-      )
-    },
-  )
+  ipcMain.handle("generated-files:check", async (_event, params?: { outputPath?: string }) => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* resolveGeneratedDir(params?.outputPath)
+        yield* validateSessionPath(dir.absolutePath)
+        return yield* checkGeneratedFiles(dir.baseDir, dir.outputPath)
+      }),
+    )
+  })
 
-  ipcMain.handle(
-    "generated-files:delete",
-    async (_event, params?: { outputPath?: string }) => {
-      return runtime.runPromise(
-        Effect.gen(function* () {
-          const dir = yield* resolveGeneratedDir(params?.outputPath)
-          yield* validateSessionPath(dir.absolutePath)
-          return yield* deleteGeneratedFiles(dir.baseDir, dir.outputPath)
-        }),
-      )
-    },
-  )
+  ipcMain.handle("generated-files:delete", async (_event, params?: { outputPath?: string }) => {
+    return runtime.runPromise(
+      Effect.gen(function* () {
+        const dir = yield* resolveGeneratedDir(params?.outputPath)
+        yield* validateSessionPath(dir.absolutePath)
+        return yield* deleteGeneratedFiles(dir.baseDir, dir.outputPath)
+      }),
+    )
+  })
 }
 
 /**

@@ -1,6 +1,11 @@
 import { describe, it, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
-import { detectEnvCredentials, confirmEnvCredentials, pollSsoFlow, validateCredentials } from "./auth.ts"
+import {
+  detectEnvCredentials,
+  confirmEnvCredentials,
+  pollSsoFlow,
+  validateCredentials,
+} from "./auth.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import { makeTestAwsClient } from "../../test-utils/TestLayer.ts"
 import { AwsAuthError, AwsSsoError } from "../../errors/index.ts"
@@ -12,9 +17,7 @@ describe("detectEnvCredentials", () => {
       AWS_ACCESS_KEY_ID: "AKID",
       AWS_SECRET_ACCESS_KEY: "SECRET",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeDefined()
     expect(result!.accessKeyId).toBe("AKID")
     expect(result!.secretAccessKey).toBe("SECRET")
@@ -24,9 +27,7 @@ describe("detectEnvCredentials", () => {
     const layer = makeTestEnvironment({
       AWS_SECRET_ACCESS_KEY: "SECRET",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
@@ -34,9 +35,7 @@ describe("detectEnvCredentials", () => {
     const layer = makeTestEnvironment({
       AWS_ACCESS_KEY_ID: "AKID",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result).toBeUndefined()
   })
 
@@ -47,9 +46,7 @@ describe("detectEnvCredentials", () => {
       AWS_SESSION_TOKEN: "TOKEN",
       AWS_DEFAULT_REGION: "eu-west-1",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result!.sessionToken).toBe("TOKEN")
     expect(result!.region).toBe("eu-west-1")
   })
@@ -61,9 +58,7 @@ describe("detectEnvCredentials", () => {
       AWS_REGION: "eu-west-1",
       AWS_DEFAULT_REGION: "us-west-2",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials().pipe(Effect.provide(layer)))
     expect(result!.region).toBe("eu-west-1")
   })
 
@@ -72,9 +67,7 @@ describe("detectEnvCredentials", () => {
       AWS_ACCESS_KEY_ID: "AKID",
       AWS_SECRET_ACCESS_KEY: "SECRET",
     })
-    const result = await Effect.runPromise(
-      detectEnvCredentials("").pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(detectEnvCredentials("").pipe(Effect.provide(layer)))
     expect(result?.accessKeyId).toBe("AKID")
   })
 })
@@ -152,13 +145,8 @@ describe("detectEnvCredentials — {env:{prefix}} variant", () => {
 
 describe("confirmEnvCredentials", () => {
   it("fails with AwsAuthError when no env credentials found", async () => {
-    const layer = Layer.merge(
-      makeTestEnvironment({}),
-      makeTestAwsClient(),
-    )
-    const exit = await Effect.runPromiseExit(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const layer = Layer.merge(makeTestEnvironment({}), makeTestAwsClient())
+    const exit = await Effect.runPromiseExit(confirmEnvCredentials().pipe(Effect.provide(layer)))
     expect(Exit.isFailure(exit)).toBe(true)
   })
 
@@ -183,9 +171,7 @@ describe("confirmEnvCredentials", () => {
         },
       }),
     )
-    const result = await Effect.runPromise(
-      confirmEnvCredentials().pipe(Effect.provide(layer)),
-    )
+    const result = await Effect.runPromise(confirmEnvCredentials().pipe(Effect.provide(layer)))
     expect(validated).toBe(true)
     expect(result.credentials.accessKeyId).toBe("AKID")
     expect(result.identity.accountId).toBe("123456789012")
@@ -204,7 +190,10 @@ describe("confirmEnvCredentials", () => {
       makeTestAwsClient({
         validateCredentials: (creds) => {
           seen.push(creds.accessKeyId)
-          return Effect.succeed({ accountId: "222222222222", arn: "arn:aws:iam::222222222222:user/prod" })
+          return Effect.succeed({
+            accountId: "222222222222",
+            arn: "arn:aws:iam::222222222222:user/prod",
+          })
         },
       }),
     )
@@ -228,7 +217,10 @@ describe("confirmEnvCredentials", () => {
         makeTestAwsClient({
           validateCredentials: (_creds, region) => {
             stsRegion = region
-            return Effect.succeed({ accountId: "123456789012", arn: "arn:aws:iam::123456789012:user/test" })
+            return Effect.succeed({
+              accountId: "123456789012",
+              arn: "arn:aws:iam::123456789012:user/test",
+            })
           },
         }),
       )
@@ -239,7 +231,8 @@ describe("confirmEnvCredentials", () => {
     }
 
     const workingRegion = (exit: Exit.Exit<{ credentials: { region: string } }, unknown>) => {
-      if (!Exit.isSuccess(exit)) throw new Error(`expected confirm to succeed: ${Cause.pretty(exit.cause)}`)
+      if (!Exit.isSuccess(exit))
+        throw new Error(`expected confirm to succeed: ${Cause.pretty(exit.cause)}`)
       return exit.value.credentials.region
     }
 
@@ -293,7 +286,10 @@ describe("pollSsoFlow", () => {
     sessionToken: "role-token",
     region: SSO_REGION,
   }
-  const IDENTITY = { accountId: "111111111111", arn: "arn:aws:sts::111111111111:assumed-role/Admin/me" }
+  const IDENTITY = {
+    accountId: "111111111111",
+    arn: "arn:aws:sts::111111111111:assumed-role/Admin/me",
+  }
 
   /**
    * Runs one poll. Every SSO call records the region it was sent to; the
@@ -333,7 +329,8 @@ describe("pollSsoFlow", () => {
   }
 
   const outcome = (exit: Exit.Exit<unknown, unknown>) => {
-    if (!Exit.isSuccess(exit)) throw new Error(`expected the poll to succeed: ${Cause.pretty(exit.cause)}`)
+    if (!Exit.isSuccess(exit))
+      throw new Error(`expected the poll to succeed: ${Cause.pretty(exit.cause)}`)
     return exit.value
   }
 
@@ -350,11 +347,23 @@ describe("pollSsoFlow", () => {
   })
 
   it("signs in to the pinned account and role without listing accounts", async () => {
-    const { exit, regions, completed } = await run({}, { accountId: "111111111111", roleName: "Admin" })
+    const { exit, regions, completed } = await run(
+      {},
+      { accountId: "111111111111", roleName: "Admin" },
+    )
 
-    expect(outcome(exit)).toEqual({ status: "success", credentials: ROLE_CREDS, identity: IDENTITY })
+    expect(outcome(exit)).toEqual({
+      status: "success",
+      credentials: ROLE_CREDS,
+      identity: IDENTITY,
+    })
     expect(completed).toEqual([
-      { accessToken: "sso-token", accountId: "111111111111", roleName: "Admin", region: SSO_REGION },
+      {
+        accessToken: "sso-token",
+        accountId: "111111111111",
+        roleName: "Admin",
+        region: SSO_REGION,
+      },
     ])
     // pollSsoToken, then completeSsoAuth: no listing call.
     expect(regions).toEqual([SSO_REGION, SSO_REGION])
@@ -392,9 +401,18 @@ describe("pollSsoFlow", () => {
       listSsoRoles: (_token, accountId) => Effect.succeed([{ roleName: "ReadOnly", accountId }]),
     })
 
-    expect(outcome(exit)).toEqual({ status: "success", credentials: ROLE_CREDS, identity: IDENTITY })
+    expect(outcome(exit)).toEqual({
+      status: "success",
+      credentials: ROLE_CREDS,
+      identity: IDENTITY,
+    })
     expect(completed).toEqual([
-      { accessToken: "sso-token", accountId: "111111111111", roleName: "ReadOnly", region: SSO_REGION },
+      {
+        accessToken: "sso-token",
+        accountId: "111111111111",
+        roleName: "ReadOnly",
+        region: SSO_REGION,
+      },
     ])
     // poll, list accounts, list roles, complete — all in the SSO region.
     expect(regions).toEqual([SSO_REGION, SSO_REGION, SSO_REGION, SSO_REGION])
@@ -404,10 +422,17 @@ describe("pollSsoFlow", () => {
     const { exit, completed } = await run({
       listSsoAccounts: () => Effect.succeed([ACCOUNT_A]),
       listSsoRoles: (_token, accountId) =>
-        Effect.succeed([{ roleName: "ReadOnly", accountId }, { roleName: "Admin", accountId }]),
+        Effect.succeed([
+          { roleName: "ReadOnly", accountId },
+          { roleName: "Admin", accountId },
+        ]),
     })
 
-    expect(outcome(exit)).toEqual({ status: "select_account", accessToken: "sso-token", accounts: [ACCOUNT_A] })
+    expect(outcome(exit)).toEqual({
+      status: "select_account",
+      accessToken: "sso-token",
+      accounts: [ACCOUNT_A],
+    })
     expect(completed).toEqual([])
   })
 
@@ -428,17 +453,22 @@ describe("pollSsoFlow", () => {
 
   it("fails with the SSO error when the token poll fails", async () => {
     const { exit } = await run({
-      pollSsoToken: () => Effect.fail(new AwsSsoError({ message: "The SSO sign-in request expired. Please try again." })),
+      pollSsoToken: () =>
+        Effect.fail(
+          new AwsSsoError({ message: "The SSO sign-in request expired. Please try again." }),
+        ),
     })
     expect(failureMessage(exit)).toBe("The SSO sign-in request expired. Please try again.")
   })
 
   it("validates the role credentials in the SSO region", async () => {
     const stsRegions: string[] = []
-    const record = { validateCredentials: (_creds: unknown, region: string) => {
-      stsRegions.push(region)
-      return Effect.succeed(IDENTITY)
-    } }
+    const record = {
+      validateCredentials: (_creds: unknown, region: string) => {
+        stsRegions.push(region)
+        return Effect.succeed(IDENTITY)
+      },
+    }
     await run(record, { accountId: "111111111111", roleName: "Admin" })
     const gov = makeTestAwsClient({
       pollSsoToken: () => Effect.succeed({ accessToken: "sso-token" }),
@@ -446,7 +476,12 @@ describe("pollSsoFlow", () => {
       ...record,
     })
     await Effect.runPromise(
-      pollSsoFlow({ ...POLL, region: "us-gov-east-1", accountId: "111111111111", roleName: "Admin" }).pipe(Effect.provide(gov)),
+      pollSsoFlow({
+        ...POLL,
+        region: "us-gov-east-1",
+        accountId: "111111111111",
+        roleName: "Admin",
+      }).pipe(Effect.provide(gov)),
     )
     // AwsSdkClient maps each to its partition's STS (src/layers/AwsPartition.test.ts).
     expect(stsRegions).toEqual(["eu-central-1", "us-gov-east-1"])
@@ -466,15 +501,23 @@ describe("validateCredentials", () => {
 
   // Which STS endpoint a region maps to is the client's job
   // (src/layers/AwsPartition.ts); the domain passes the working region along.
-  it.each(["us-gov-east-1", "cn-north-1", "eu-west-2"])("passes the working region %s to the client", async (region) => {
-    let stsRegion: string | undefined
-    const layer = makeTestAwsClient({
-      validateCredentials: (_creds, r) => {
-        stsRegion = r
-        return Effect.succeed({ accountId: "123456789012", arn: "arn:aws:iam::123456789012:user/test" })
-      },
-    })
-    await Effect.runPromise(validateCredentials({ ...creds, region }, region).pipe(Effect.provide(layer)))
-    expect(stsRegion).toBe(region)
-  })
+  it.each(["us-gov-east-1", "cn-north-1", "eu-west-2"])(
+    "passes the working region %s to the client",
+    async (region) => {
+      let stsRegion: string | undefined
+      const layer = makeTestAwsClient({
+        validateCredentials: (_creds, r) => {
+          stsRegion = r
+          return Effect.succeed({
+            accountId: "123456789012",
+            arn: "arn:aws:iam::123456789012:user/test",
+          })
+        },
+      })
+      await Effect.runPromise(
+        validateCredentials({ ...creds, region }, region).pipe(Effect.provide(layer)),
+      )
+      expect(stsRegion).toBe(region)
+    },
+  )
 })

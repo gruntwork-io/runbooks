@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // Only the IPC boundary is mocked: the real block parses the remote and
 // registers the worktree that <GitPullRequest> later reads owner/repo from.

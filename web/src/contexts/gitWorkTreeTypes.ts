@@ -1,5 +1,5 @@
-import React from 'react'
-import type { GitRepoInfo } from '../types/workspace'
+import React from "react"
+import type { GitRepoInfo } from "../types/workspace"
 
 /**
  * Represents a single git worktree registered by a GitClone block.
@@ -10,7 +10,7 @@ export interface GitWorkTree {
   /** Clone URL (e.g., "https://github.com/gruntwork-io/terraform-aws-lambda") */
   repoUrl: string
   /** Sparse checkout path (if used) */
-  repoPath?: string
+  repoPath?: string | undefined
   /** Absolute local path where the repo was cloned */
   localPath: string
   /** Git metadata: ref, refType, commit, owner, repoName */

@@ -27,9 +27,12 @@ function textImports(): Plugin {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({
-      exclude: ["electron-updater"],
-    }), textImports()],
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: ["electron-updater"],
+      }),
+      textImports(),
+    ],
     build: {
       outDir: "dist/main",
       rollupOptions: {
@@ -73,10 +76,7 @@ export default defineConfig({
           manualChunks: {
             "react-vendor": ["react", "react-dom"],
             "mdx-vendor": ["@mdx-js/mdx", "react-markdown", "remark-gfm"],
-            "ui-vendor": [
-              "@radix-ui/react-alert-dialog",
-              "@radix-ui/react-tooltip",
-            ],
+            "ui-vendor": ["@radix-ui/react-alert-dialog", "@radix-ui/react-tooltip"],
             "syntax-highlighter": ["react-syntax-highlighter"],
           },
         },

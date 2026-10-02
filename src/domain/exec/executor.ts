@@ -19,12 +19,7 @@ import type {
   CapturedFile,
   SessionExecContext,
 } from "../../types.ts"
-import {
-  prepareScript,
-  parseBlockOutputs,
-  parseEnvCapture,
-  captureFilesFromDir,
-} from "./script.ts"
+import { prepareScript, parseBlockOutputs, parseEnvCapture, captureFilesFromDir } from "./script.ts"
 import type { ScriptSetup } from "./script.ts"
 import { LOG_CHANNELS, logChannelFiles, tagLogLine } from "./logChannels.ts"
 
@@ -87,10 +82,7 @@ function setupExecEnvVars(
  * Exit code 0 = success, code 2 = warn, anything else = fail.
  * Timeout is always fail with exit code -1.
  */
-function determineExitStatus(
-  exitCode: number,
-  timedOut: boolean,
-): ExecStatusEvent {
+function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEvent {
   if (timedOut) {
     return { status: "fail", exitCode: -1 }
   }
@@ -268,14 +260,17 @@ export const executeScript = (
 
     log.debug("step 6: building streams")
     // Stream log lines from process output in real-time
-    const logStream = Stream.map(process.output, (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
-      _tag: "log",
-      event: {
-        line: outputLine.line,
-        timestamp: new Date().toISOString(),
-        replace: false,
-      },
-    }))
+    const logStream = Stream.map(
+      process.output,
+      (outputLine): Extract<ExecEvent, { _tag: "log" }> => ({
+        _tag: "log",
+        event: {
+          line: outputLine.line,
+          timestamp: new Date().toISOString(),
+          replace: false,
+        },
+      }),
+    )
 
     // Build completion events as an Effect that runs after logs drain.
     // We return logStream and completionEffect separately because
@@ -325,10 +320,9 @@ export const executeScript = (
       }
 
       if (isSuccessOrWarn) {
-        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(
-          filesDir,
-          outputPath,
-        ).pipe(Effect.catchAll(() => Effect.succeed([] as CapturedFile[])))
+        const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(filesDir, outputPath).pipe(
+          Effect.catchAll(() => Effect.succeed([] as CapturedFile[])),
+        )
 
         if (capturedFiles.length > 0) {
           // Send the whole generated-files tree, built the way

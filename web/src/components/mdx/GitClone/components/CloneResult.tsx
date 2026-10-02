@@ -7,15 +7,15 @@ interface CloneResultDisplayProps {
   result: CloneResult
   /** Where the repo came from — drives the copy, since nothing was downloaded
    *  when the user picked a checkout they already had. Defaults to 'clone'. */
-  source?: GitCloneSource
+  source?: GitCloneSource | undefined
   /** Remote of the selected local checkout, shown so the user can confirm it. */
-  remoteUrl?: string
+  remoteUrl?: string | undefined
   /**
    * Render in the warning tone instead of the success tone. Used when the repo
    * arrived without commits: the clone itself worked, but the block is not done
    * — nothing downstream can use the repo until it has a default branch.
    */
-  warn?: boolean
+  warn?: boolean | undefined
   onCloneAgain: () => void
 }
 
@@ -26,30 +26,37 @@ interface CloneResultDisplayProps {
  */
 const TONES = {
   success: {
-    panel: 'bg-success-muted border border-success/30 rounded-md p-4 space-y-2',
-    heading: 'flex items-center gap-2 text-success font-medium',
-    text: 'text-success',
-    label: 'text-sm font-medium text-success',
-    code: 'text-sm bg-success-muted px-1.5 py-0.5 rounded font-mono text-success',
-    copyButton: 'shrink-0 p-0.5 text-success hover:text-success cursor-pointer',
-    row: 'flex items-center gap-2 text-success',
-    remote: 'text-sm text-success',
+    panel: "bg-success-muted border border-success/30 rounded-md p-4 space-y-2",
+    heading: "flex items-center gap-2 text-success font-medium",
+    text: "text-success",
+    label: "text-sm font-medium text-success",
+    code: "text-sm bg-success-muted px-1.5 py-0.5 rounded font-mono text-success",
+    copyButton: "shrink-0 p-0.5 text-success hover:text-success cursor-pointer",
+    row: "flex items-center gap-2 text-success",
+    remote: "text-sm text-success",
   },
   warning: {
-    panel: 'bg-warning-muted border border-warning/30 rounded-md p-4 space-y-2',
-    heading: 'flex items-center gap-2 text-warning-foreground font-medium',
-    text: 'text-warning-foreground',
-    label: 'text-sm font-medium text-warning-foreground',
-    code: 'text-sm bg-warning-muted px-1.5 py-0.5 rounded font-mono text-warning-foreground',
-    copyButton: 'shrink-0 p-0.5 text-warning-foreground hover:text-warning-foreground cursor-pointer',
-    row: 'flex items-center gap-2 text-warning-foreground',
-    remote: 'text-sm text-warning-foreground',
+    panel: "bg-warning-muted border border-warning/30 rounded-md p-4 space-y-2",
+    heading: "flex items-center gap-2 text-warning-foreground font-medium",
+    text: "text-warning-foreground",
+    label: "text-sm font-medium text-warning-foreground",
+    code: "text-sm bg-warning-muted px-1.5 py-0.5 rounded font-mono text-warning-foreground",
+    copyButton:
+      "shrink-0 p-0.5 text-warning-foreground hover:text-warning-foreground cursor-pointer",
+    row: "flex items-center gap-2 text-warning-foreground",
+    remote: "text-sm text-warning-foreground",
   },
 } as const
 
-export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn = false, onCloneAgain }: CloneResultDisplayProps) {
+export function CloneResultDisplay({
+  result,
+  source = "clone",
+  remoteUrl,
+  warn = false,
+  onCloneAgain,
+}: CloneResultDisplayProps) {
   const { didCopy, copy } = useCopyToClipboard(2000)
-  const isLocal = source === 'local'
+  const isLocal = source === "local"
   const t = warn ? TONES.warning : TONES.success
 
   return (
@@ -66,10 +73,10 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
             ) : (
               <CheckCircle className="size-5 text-success" />
             )}
-            {isLocal ? 'Using local checkout' : 'Clone complete'}
+            {isLocal ? "Using local checkout" : "Clone complete"}
           </div>
           <Button variant="outline" size="sm" onClick={onCloneAgain}>
-            {isLocal ? 'Stop using this repo' : 'Clone again'}
+            {isLocal ? "Stop using this repo" : "Clone again"}
           </Button>
         </div>
 
@@ -77,7 +84,7 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
           <FolderOpen className={`size-4 ${t.text}`} />
           <span>
             {isLocal
-              ? `${result.fileCount} tracked ${result.fileCount === 1 ? 'file' : 'files'}`
+              ? `${result.fileCount} tracked ${result.fileCount === 1 ? "file" : "files"}`
               : `Downloaded ${result.fileCount} files`}
           </span>
         </div>
@@ -95,7 +102,7 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
             both, so it is shown once as-is. */}
         <div className="flex items-center gap-1.5">
           <span className={`shrink-0 ${t.label}`}>
-            {isLocal ? 'Repository path:' : 'Local path:'}
+            {isLocal ? "Repository path:" : "Local path:"}
           </span>
           <code className={t.code} title={result.absolutePath}>
             {result.relativePath}
@@ -106,11 +113,7 @@ export function CloneResultDisplay({ result, source = 'clone', remoteUrl, warn =
             className={t.copyButton}
             title={`Copy full path: ${result.absolutePath}`}
           >
-            {didCopy ? (
-              <Check className="size-3.5" />
-            ) : (
-              <Copy className="size-3.5" />
-            )}
+            {didCopy ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           </button>
         </div>
       </div>

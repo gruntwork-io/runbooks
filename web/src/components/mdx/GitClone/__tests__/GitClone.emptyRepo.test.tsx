@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // Only the IPC boundary is mocked, so the real useGitClone drives the block and
 // these tests cover its gating of outputs as well as the rendered warning.
@@ -103,9 +103,7 @@ describe("GitClone — a repository with no commits", () => {
     await waitFor(() =>
       expect(screen.getByText(/This repository has no commits yet/i)).toBeInTheDocument(),
     )
-    expect(
-      screen.getByRole("button", { name: /Create default branch/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Create default branch/i })).toBeInTheDocument()
   })
 
   it("withholds its outputs and worktree so downstream blocks can't start", async () => {

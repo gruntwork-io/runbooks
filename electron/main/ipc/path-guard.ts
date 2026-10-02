@@ -36,7 +36,9 @@ function resolveAgainstRunbook(p: string): string {
 export const validateSessionPath = (p: string) =>
   Effect.gen(function* () {
     if (!p) {
-      return yield* Effect.fail(new PathTraversalError({ path: p, message: "path must not be empty" }))
+      return yield* Effect.fail(
+        new PathTraversalError({ path: p, message: "path must not be empty" }),
+      )
     }
 
     const resolved = resolveAgainstRunbook(p)
@@ -102,9 +104,14 @@ export const validateCloneDestination = (
     }
     // Contained both ways means it is the working directory itself.
     if (yield* Effect.promise(() => isContainedInReal(workingDir, absolutePath))) {
-      return yield* reject("clone destination must be a subdirectory of the session working directory")
+      return yield* reject(
+        "clone destination must be a subdirectory of the session working directory",
+      )
     }
-    if (runbookPath && (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))) {
+    if (
+      runbookPath &&
+      (yield* Effect.promise(() => isContainedInReal(runbookPath, absolutePath)))
+    ) {
       return yield* reject("clone destination must not contain the open runbook")
     }
   })

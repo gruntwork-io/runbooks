@@ -1,9 +1,9 @@
-import type { FC } from 'react'
-import type { GitAuthMethod, GitProvider } from '../types'
-import { githubProviderConfig } from './github'
-import { gitlabProviderConfig } from './gitlab'
+import type { FC } from "react"
+import type { GitAuthMethod, GitProvider } from "../types"
+import { githubProviderConfig } from "./github"
+import { gitlabProviderConfig } from "./gitlab"
 
-export type { GitProvider } from '../types'
+export type { GitProvider } from "../types"
 
 export interface LogoProps {
   className?: string
@@ -27,13 +27,13 @@ export interface ProviderConfig {
 
   /** IPC channels for this provider. */
   channels: {
-    validate: 'github:validate' | 'gitlab:validate'
-    envCredentials: 'github:env-credentials' | 'gitlab:env-credentials'
-    cliCredentials: 'github:cli-credentials' | 'gitlab:cli-credentials'
+    validate: "github:validate" | "gitlab:validate"
+    envCredentials: "github:env-credentials" | "gitlab:env-credentials"
+    cliCredentials: "github:cli-credentials" | "gitlab:cli-credentials"
     /** Enumerate available hosts for the host picker. */
-    enumerateHosts?: 'github:enumerate-hosts' | 'gitlab:enumerate-hosts'
+    enumerateHosts?: "github:enumerate-hosts" | "gitlab:enumerate-hosts"
     /** Persist an explicit host pick so it survives restart. */
-    hostPicked?: 'github:host-picked' | 'gitlab:host-picked'
+    hostPicked?: "github:host-picked" | "gitlab:host-picked"
   }
   /**
    * Whether this provider supports choosing among multiple hosts/instances
@@ -41,7 +41,7 @@ export interface ProviderConfig {
    */
   supportsHostSelection?: boolean
   /** The host used when none is picked, pinned, or enumerated. */
-  defaultHost: 'github.com' | 'gitlab.com'
+  defaultHost: "github.com" | "gitlab.com"
   /**
    * Whether the user can type an arbitrary instance URL (the "Other
    * instance…" picker row and the PAT form's instance-URL field). GitLab only.
@@ -49,10 +49,10 @@ export interface ProviderConfig {
   supportsManualInstance: boolean
   /** Session/output env var names this provider writes. */
   env: {
-    tokenVar: 'GITHUB_TOKEN' | 'GITLAB_TOKEN'
-    userVar: 'GITHUB_USER' | 'GITLAB_USER'
+    tokenVar: "GITHUB_TOKEN" | "GITLAB_TOKEN"
+    userVar: "GITHUB_USER" | "GITLAB_USER"
     /** Block output naming the host this block authenticated against. */
-    hostVar: 'GITHUB_HOST' | 'GITLAB_HOST'
+    hostVar: "GITHUB_HOST" | "GITLAB_HOST"
     /** Alternate token env vars (used for block-output detection). */
     altTokenVars: string[]
   }
@@ -61,7 +61,7 @@ export interface ProviderConfig {
     placeholder: string
     prefixHint: string | null
     tokenCreateUrl: string
-    setupGuide: 'github' | 'gitlab'
+    setupGuide: "github" | "gitlab"
   }
   /** Success-card behavior. */
   success: {
@@ -85,7 +85,7 @@ export interface ProviderConfig {
   }
   /** CLI auto-detection copy. `binary` is the CLI's executable name, which
    *  doubles as the vcs:cli-status result key (gh / glab). */
-  cli: { label: string; loginCmd: string; binary: 'gh' | 'glab' }
+  cli: { label: string; loginCmd: string; binary: "gh" | "glab" }
   defaultOAuthScopes: string[]
   defaultInstructionScopes: string[]
 }
@@ -101,5 +101,5 @@ export const PROVIDERS: Record<GitProvider, ProviderConfig> = {
  * indexed with it (own keys only — "toString" is not a provider).
  */
 export function isGitProvider(value: unknown): value is GitProvider {
-  return typeof value === 'string' && Object.hasOwn(PROVIDERS, value)
+  return typeof value === "string" && Object.hasOwn(PROVIDERS, value)
 }

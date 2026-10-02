@@ -1,14 +1,25 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { z } from 'zod'
-import { useApi } from '@/contexts/ApiContext'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { normalizeBlockId } from '@/lib/utils'
-import { cleanIpcErrorMessage } from '@/lib/ipcError'
-import { deriveProviderFromAuth } from '@/components/mdx/_shared/lib/gitProvider'
-import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from '@/components/mdx/_shared/lib/githubHost'
-import type { LogEntry } from '@/hooks/useApiExec'
-import type { GitCloneStatus, CloneResult, GitHubOrg, GitHubRepo, GitHubRef, LocalRepoInfo } from '../types'
-import type { GitCloneRequest } from '../../../../../../electron/shared/channels.ts'
+import { useCallback, useMemo, useRef, useState } from "react"
+import { z } from "zod"
+import { useApi } from "@/contexts/ApiContext"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { normalizeBlockId } from "@/lib/utils"
+import { revealOutput, revealOutputs } from "@/lib/outputValues"
+import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import { deriveProviderFromAuth } from "@/components/mdx/_shared/lib/gitProvider"
+import {
+  DEFAULT_GITHUB_HOST,
+  tryNormalizeGitHubHost,
+} from "@/components/mdx/_shared/lib/githubHost"
+import type { LogEntry } from "@/hooks/useApiExec"
+import type {
+  GitCloneStatus,
+  CloneResult,
+  GitHubOrg,
+  GitHubRepo,
+  GitHubRef,
+  LocalRepoInfo,
+} from "../types"
+import type { GitCloneRequest } from "../../../../../../electron/shared/channels.ts"
 
 const CloneLogEventSchema = z.object({
   line: z.string(),
@@ -26,9 +37,9 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
 
 interface UseGitCloneOptions {
   id: string
-  githubAuthId?: string
+  githubAuthId?: string | undefined
   /** Reference to a GitAuth block (GitHub or GitLab) by ID. */
-  gitAuthId?: string
+  gitAuthId?: string | undefined
 }
 
 export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions) {
@@ -36,7 +47,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   // State
-  const [cloneStatus, setCloneStatus] = useState<GitCloneStatus>('pending')
+  const [cloneStatus, setCloneStatus] = useState<GitCloneStatus>("pending")
   // A cancelled clone still being stopped in main; cloneStatus stays 'running'.
   const [cancelling, setCancelling] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -49,7 +60,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Local-checkout preview: what `git:local-repo` reports about the directory
   // currently typed/picked, before the user confirms it.
   const [localPreview, setLocalPreview] = useState<LocalRepoInfo | null>(null)
-  const [localPreviewStatus, setLocalPreviewStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle')
+  const [localPreviewStatus, setLocalPreviewStatus] = useState<
+    "idle" | "checking" | "valid" | "invalid"
+  >("idle")
   const [localPreviewError, setLocalPreviewError] = useState<string | null>(null)
 
   // Seeding an empty repo's default branch: status of that one action, plus
@@ -57,7 +70,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // branch for a pull request to target, so the block withholds its outputs
   // (and its worktree registration) rather than letting downstream blocks run
   // toward a failure that only surfaces after their work is already pushed.
-  const [seedStatus, setSeedStatus] = useState<'idle' | 'running' | 'fail'>('idle')
+  const [seedStatus, setSeedStatus] = useState<"idle" | "running" | "fail">("idle")
   const [seedError, setSeedError] = useState<string | null>(null)
   const pendingOutputsRef = useRef<Record<string, string> | null>(null)
 
@@ -81,10 +94,13 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const gitHubAuthMet = useMemo((): boolean => {
     const isAuthMet = (authId: string | undefined): boolean => {
       if (!authId) return true // No dependency
-      const values = allOutputs[normalizeBlockId(authId)]?.values
-      if (values?.GITHUB_TOKEN && values.GITHUB_TOKEN !== '') return true
-      if (values?.GITLAB_TOKEN && values.GITLAB_TOKEN !== '') return true
-      if (values?.__AUTHENTICATED === 'true') return true
+      const outputs = allOutputs[normalizeBlockId(authId)]?.values
+      if (!outputs) return false
+      // A token counts only if it isn't empty, which needs its real value
+      const values: Partial<Record<string, string>> = revealOutputs(outputs)
+      if (values.GITHUB_TOKEN && values.GITHUB_TOKEN !== "") return true
+      if (values.GITLAB_TOKEN && values.GITLAB_TOKEN !== "") return true
+      if (values.__AUTHENTICATED === "true") return true
       return false
     }
     return isAuthMet(githubAuthId) && isAuthMet(gitAuthId)
@@ -95,7 +111,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // x-access-token username) by PROVIDER rather than parsing the remote host —
   // the only thing that works for self-hosted GitHub/GitLab instances.
   const authProvider = useMemo(
-    () => deriveProviderFromAuth(gitAuthId, allOutputs) ?? deriveProviderFromAuth(githubAuthId, allOutputs),
+    () =>
+      deriveProviderFromAuth(gitAuthId, allOutputs) ??
+      deriveProviderFromAuth(githubAuthId, allOutputs),
     [gitAuthId, githubAuthId, allOutputs],
   )
 
@@ -105,7 +123,9 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const githubHost = useMemo((): string => {
     for (const authId of [gitAuthId, githubAuthId]) {
       if (!authId) continue
-      const host = tryNormalizeGitHubHost(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST)
+      const host = tryNormalizeGitHubHost(
+        revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST),
+      )
       if (host) return host
     }
     return DEFAULT_GITHUB_HOST
@@ -114,7 +134,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
     try {
-      const data = await api.invoke('session:get')
+      const data = await api.invoke("session:get")
       if (data.workingDir) {
         setWorkingDir(data.workingDir)
       }
@@ -126,10 +146,10 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // Detect if a GitHub token is available in the session
   const checkGitHubToken = useCallback(async () => {
     // Fetch working dir in parallel
-    fetchWorkingDir()
+    void fetchWorkingDir()
 
     try {
-      const orgs = await api.invoke('github:orgs', { host: githubHost })
+      const orgs = await api.invoke("github:orgs", { host: githubHost })
       // If we got orgs back (even just the user), we have a token
       setHasGitHubToken(Array.isArray(orgs) && orgs.length > 0)
     } catch {
@@ -138,117 +158,135 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       setTokenChecked(true)
       // Only leave the initial state: the check can finish after the user has
       // already started a clone, which must stay running (or done).
-      setCloneStatus(prev => (prev === 'pending' ? 'ready' : prev))
+      setCloneStatus((prev) => (prev === "pending" ? "ready" : prev))
     }
   }, [api, fetchWorkingDir, githubHost])
 
   // The GitHub browser fetchers reject on failure so the browser can show why
   // a list is empty, rather than an expired token or a 403 reading as "none".
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
-    return api.invoke('github:orgs', { host: githubHost })
+    return api.invoke("github:orgs", { host: githubHost })
   }, [api, githubHost])
 
-  const fetchRepos = useCallback(async (owner: string): Promise<GitHubRepo[]> => {
-    return api.invoke('github:repos', { org: owner, host: githubHost })
-  }, [api, githubHost])
+  const fetchRepos = useCallback(
+    async (owner: string): Promise<GitHubRepo[]> => {
+      return api.invoke("github:repos", { org: owner, host: githubHost })
+    },
+    [api, githubHost],
+  )
 
-  const fetchRefs = useCallback(async (owner: string, repo: string): Promise<GitHubRef[]> => {
-    const refs = await api.invoke('github:refs', { owner, repo, host: githubHost })
-    return refs.map((r) => ({ name: r.ref, type: r.type }))
-  }, [api, githubHost])
+  const fetchRefs = useCallback(
+    async (owner: string, repo: string): Promise<GitHubRef[]> => {
+      const refs = await api.invoke("github:refs", { owner, repo, host: githubHost })
+      return refs.map((r) => ({ name: r.ref, type: r.type }))
+    },
+    [api, githubHost],
+  )
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
   // already exists and force was not set, so the caller can prompt the user.
-  const clone = useCallback(async (url: string, ref: string, repoPath: string, localPath: string, force?: boolean): Promise<'directory_exists' | void> => {
-    const runId = ++cloneRunRef.current
-    const cloneId = crypto.randomUUID()
-    cloneIdRef.current = cloneId
-    setCloneStatus('running')
-    setCancelling(false)
-    setLogs([])
-    setCloneResult(null)
-    setErrorMessage(null)
+  const clone = useCallback(
+    async (
+      url: string,
+      ref: string,
+      repoPath: string,
+      localPath: string,
+      force?: boolean,
+    ): Promise<"directory_exists" | void> => {
+      const runId = ++cloneRunRef.current
+      const cloneId = crypto.randomUUID()
+      cloneIdRef.current = cloneId
+      setCloneStatus("running")
+      setCancelling(false)
+      setLogs([])
+      setCloneResult(null)
+      setErrorMessage(null)
 
-    let unsubLog: (() => void) | null = null
+      let unsubLog: (() => void) | null = null
 
-    try {
-      const body: GitCloneRequest = { url, cloneId }
-      if (ref) body.ref = ref
-      if (repoPath) body.repo_path = repoPath
-      if (localPath) body.localPath = localPath
-      if (force) body.force = true
-      if (authProvider) body.provider = authProvider
+      try {
+        const body: GitCloneRequest = { url, cloneId }
+        if (ref) body.ref = ref
+        if (repoPath) body.repo_path = repoPath
+        if (localPath) body.localPath = localPath
+        if (force) body.force = true
+        if (authProvider) body.provider = authProvider
 
-      // Subscribe to streaming events before starting the clone.
-      // Store in ref so cancel() can unsubscribe.
-      unsubLog = api.on('git:clone-progress', (data) => {
-        const parsed = CloneLogEventSchema.safeParse(data)
-        // The channel is shared, so skip another clone's lines. Main echoes
-        // the cloneId sent below on every event.
-        if (parsed.success && parsed.data.cloneId === cloneId) {
-          const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
-          setLogs(prev => {
-            if (parsed.data.replace && prev.length > 0) {
-              return [...prev.slice(0, -1), newEntry]
-            }
-            return [...prev, newEntry]
-          })
-        }
-      })
-      unsubLogRef.current = unsubLog
-
-      const result = await api.invoke('git:clone', body)
-      // Cancelled while git ran: the block has moved on without this result.
-      if (runId !== cloneRunRef.current) return
-
-      if (result.error === 'directory_exists') {
-        setCloneStatus('ready')
-        return 'directory_exists'
-      }
-
-      if (result.status === 'success') {
-        if (result.outputs) {
-          // Hold the outputs back for an empty repo — publishing clone_path
-          // would let downstream blocks start work this repo can't yet accept
-          // a pull request for.
-          if (result.hasCommits === false) {
-            pendingOutputsRef.current = result.outputs
-          } else {
-            registerOutputs(id, result.outputs)
+        // Subscribe to streaming events before starting the clone.
+        // Store in ref so cancel() can unsubscribe.
+        unsubLog = api.on("git:clone-progress", (data) => {
+          const parsed = CloneLogEventSchema.safeParse(data)
+          // The channel is shared, so skip another clone's lines. Main echoes
+          // the cloneId sent below on every event.
+          if (parsed.success && parsed.data.cloneId === cloneId) {
+            const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
+            setLogs((prev) => {
+              if (parsed.data.replace && prev.length > 0) {
+                return [...prev.slice(0, -1), newEntry]
+              }
+              return [...prev, newEntry]
+            })
           }
+        })
+        unsubLogRef.current = unsubLog
+
+        const result = await api.invoke("git:clone", body)
+        // Cancelled while git ran: the block has moved on without this result.
+        if (runId !== cloneRunRef.current) return
+
+        if (result.error === "directory_exists") {
+          setCloneStatus("ready")
+          return "directory_exists"
         }
-        setCloneResult(result as unknown as typeof cloneResult)
-        setCloneStatus('success')
-      } else {
-        setErrorMessage(result.error || 'Clone failed')
-        setCloneStatus('fail')
+
+        if (result.status === "success") {
+          if (result.outputs) {
+            // Hold the outputs back for an empty repo — publishing clone_path
+            // would let downstream blocks start work this repo can't yet accept
+            // a pull request for.
+            if (result.hasCommits === false) {
+              pendingOutputsRef.current = result.outputs
+            } else {
+              registerOutputs(id, result.outputs)
+            }
+          }
+          setCloneResult(result as unknown as typeof cloneResult)
+          setCloneStatus("success")
+        } else {
+          setErrorMessage(result.error || "Clone failed")
+          setCloneStatus("fail")
+        }
+      } catch (error) {
+        if (runId !== cloneRunRef.current) return
+        const msg =
+          error instanceof Error
+            ? cleanIpcErrorMessage(error.message)
+            : "An unexpected error occurred"
+        setErrorMessage(msg)
+        setCloneStatus("fail")
+        setLogs((prev) => [...prev, createLogEntry(`Error: ${msg}`)])
+      } finally {
+        // Clean up progress listener after a short delay to allow
+        // late-arriving IPC events to be delivered.
+        if (unsubLog) {
+          const unsub = unsubLog
+          setTimeout(() => unsub(), 200)
+        }
+        // A cancelled run must not clear the refs of the retry that replaced it,
+        // or a second Cancel could no longer reach that retry.
+        if (unsubLogRef.current === unsubLog) unsubLogRef.current = null
+        if (cloneIdRef.current === cloneId) cloneIdRef.current = null
       }
-    } catch (error) {
-      if (runId !== cloneRunRef.current) return
-      const msg = error instanceof Error ? cleanIpcErrorMessage(error.message) : 'An unexpected error occurred'
-      setErrorMessage(msg)
-      setCloneStatus('fail')
-      setLogs(prev => [...prev, createLogEntry(`Error: ${msg}`)])
-    } finally {
-      // Clean up progress listener after a short delay to allow
-      // late-arriving IPC events to be delivered.
-      if (unsubLog) {
-        const unsub = unsubLog
-        setTimeout(() => unsub(), 200)
-      }
-      // A cancelled run must not clear the refs of the retry that replaced it,
-      // or a second Cancel could no longer reach that retry.
-      if (unsubLogRef.current === unsubLog) unsubLogRef.current = null
-      if (cloneIdRef.current === cloneId) cloneIdRef.current = null
-    }
-  }, [api, id, registerOutputs, authProvider])
+    },
+    [api, id, registerOutputs, authProvider],
+  )
 
   // Open the native folder picker and return the chosen directory, if any.
   // Kept in the hook so every IPC call this block makes goes through useApi().
   const browseForRepoDir = useCallback(async (): Promise<string | null> => {
     try {
-      const result = await api.invoke('native:show-open-dialog', {
-        properties: ['openDirectory'],
+      const result = await api.invoke("native:show-open-dialog", {
+        properties: ["openDirectory"],
       })
       return result?.filePaths?.[0] ?? null
     } catch {
@@ -259,123 +297,141 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
 
   // Inspect a local checkout WITHOUT registering it, to drive the inline
   // "is this a git repo?" preview as the user types or browses.
-  const previewLocalRepo = useCallback(async (repoDir: string) => {
-    const seq = ++previewSeqRef.current
-    if (!repoDir.trim()) {
-      setLocalPreview(null)
-      setLocalPreviewStatus('idle')
-      setLocalPreviewError(null)
-      return
-    }
-
-    setLocalPreviewStatus('checking')
-    try {
-      const result = await api.invoke('git:local-repo', { path: repoDir.trim() })
-      if (seq !== previewSeqRef.current) return // superseded by a newer path
-      if (result.status === 'success') {
-        setLocalPreview(result as LocalRepoInfo)
-        setLocalPreviewStatus('valid')
-        setLocalPreviewError(null)
-      } else {
+  const previewLocalRepo = useCallback(
+    async (repoDir: string) => {
+      const seq = ++previewSeqRef.current
+      if (!repoDir.trim()) {
         setLocalPreview(null)
-        setLocalPreviewStatus('invalid')
-        setLocalPreviewError(result.error ?? 'Not a git repository')
+        setLocalPreviewStatus("idle")
+        setLocalPreviewError(null)
+        return
       }
-    } catch (error) {
-      if (seq !== previewSeqRef.current) return
-      setLocalPreview(null)
-      setLocalPreviewStatus('invalid')
-      setLocalPreviewError(error instanceof Error ? cleanIpcErrorMessage(error.message) : 'Failed to inspect directory')
-    }
-  }, [api])
+
+      setLocalPreviewStatus("checking")
+      try {
+        const result = await api.invoke("git:local-repo", { path: repoDir.trim() })
+        if (seq !== previewSeqRef.current) return // superseded by a newer path
+        if (result.status === "success") {
+          setLocalPreview(result as LocalRepoInfo)
+          setLocalPreviewStatus("valid")
+          setLocalPreviewError(null)
+        } else {
+          setLocalPreview(null)
+          setLocalPreviewStatus("invalid")
+          setLocalPreviewError(result.error ?? "Not a git repository")
+        }
+      } catch (error) {
+        if (seq !== previewSeqRef.current) return
+        setLocalPreview(null)
+        setLocalPreviewStatus("invalid")
+        setLocalPreviewError(
+          error instanceof Error
+            ? cleanIpcErrorMessage(error.message)
+            : "Failed to inspect directory",
+        )
+      }
+    },
+    [api],
+  )
 
   // Confirm a local checkout: register it as a session worktree and emit the
   // same outputs a clone would, so downstream blocks can't tell the difference.
   // Returns the repo metadata so the caller can register the worktree in the
   // renderer's GitWorkTree context.
-  const selectLocalRepo = useCallback(async (repoDir: string): Promise<LocalRepoInfo | null> => {
-    setCloneStatus('running')
-    setErrorMessage(null)
-    setCloneResult(null)
+  const selectLocalRepo = useCallback(
+    async (repoDir: string): Promise<LocalRepoInfo | null> => {
+      setCloneStatus("running")
+      setErrorMessage(null)
+      setCloneResult(null)
 
-    try {
-      const result = await api.invoke('git:local-repo', {
-        path: repoDir.trim(),
-        register: true,
-        ...(authProvider ? { provider: authProvider } : {}),
-      })
+      try {
+        const result = await api.invoke("git:local-repo", {
+          path: repoDir.trim(),
+          register: true,
+          ...(authProvider ? { provider: authProvider } : {}),
+        })
 
-      if (result.status !== 'success') {
-        setErrorMessage(result.error ?? 'Failed to use local checkout')
-        setCloneStatus('fail')
+        if (result.status !== "success") {
+          setErrorMessage(result.error ?? "Failed to use local checkout")
+          setCloneStatus("fail")
+          return null
+        }
+
+        if (result.outputs) {
+          if (result.hasCommits === false) {
+            pendingOutputsRef.current = result.outputs
+          } else {
+            registerOutputs(id, result.outputs)
+          }
+        }
+        setCloneResult({
+          fileCount: result.fileCount ?? 0,
+          absolutePath: result.absolutePath ?? "",
+          relativePath: result.relativePath ?? "",
+          ref: result.ref,
+          hasCommits: result.hasCommits,
+        })
+        setCloneStatus("success")
+        return result as LocalRepoInfo
+      } catch (error) {
+        const msg =
+          error instanceof Error
+            ? cleanIpcErrorMessage(error.message)
+            : "An unexpected error occurred"
+        setErrorMessage(msg)
+        setCloneStatus("fail")
         return null
       }
-
-      if (result.outputs) {
-        if (result.hasCommits === false) {
-          pendingOutputsRef.current = result.outputs
-        } else {
-          registerOutputs(id, result.outputs)
-        }
-      }
-      setCloneResult({
-        fileCount: result.fileCount ?? 0,
-        absolutePath: result.absolutePath ?? '',
-        relativePath: result.relativePath ?? '',
-        ref: result.ref,
-        hasCommits: result.hasCommits,
-      })
-      setCloneStatus('success')
-      return result as LocalRepoInfo
-    } catch (error) {
-      const msg = error instanceof Error ? cleanIpcErrorMessage(error.message) : 'An unexpected error occurred'
-      setErrorMessage(msg)
-      setCloneStatus('fail')
-      return null
-    }
-  }, [api, id, registerOutputs, authProvider])
+    },
+    [api, id, registerOutputs, authProvider],
+  )
 
   // Seed an empty repo's default branch with an empty initial commit, then
   // release everything that was held back so the block behaves exactly as it
   // would have if the repo had arrived with commits.
-  const initDefaultBranch = useCallback(async (branch: string) => {
-    if (!cloneResult?.absolutePath) return
-    // 'Clone again' (or another clone) while this runs moves the block on to
-    // another repo, whose held-back outputs this seed must not release.
-    const runId = cloneRunRef.current
-    setSeedStatus('running')
-    setSeedError(null)
+  const initDefaultBranch = useCallback(
+    async (branch: string) => {
+      if (!cloneResult?.absolutePath) return
+      // 'Clone again' (or another clone) while this runs moves the block on to
+      // another repo, whose held-back outputs this seed must not release.
+      const runId = cloneRunRef.current
+      setSeedStatus("running")
+      setSeedError(null)
 
-    try {
-      const result = await api.invoke('git:init-default-branch', {
-        worktreePath: cloneResult.absolutePath,
-        branch,
-        ...(authProvider ? { provider: authProvider } : {}),
-      })
-      if (runId !== cloneRunRef.current) return
+      try {
+        const result = await api.invoke("git:init-default-branch", {
+          worktreePath: cloneResult.absolutePath,
+          branch,
+          ...(authProvider ? { provider: authProvider } : {}),
+        })
+        if (runId !== cloneRunRef.current) return
 
-      if ('error' in result) {
-        setSeedError(result.error)
-        setSeedStatus('fail')
-        return
+        if ("error" in result) {
+          setSeedError(result.error)
+          setSeedStatus("fail")
+          return
+        }
+
+        if (pendingOutputsRef.current) {
+          registerOutputs(id, pendingOutputsRef.current)
+          pendingOutputsRef.current = null
+        }
+        // The seeded branch is now the repo's only ref, so it is what a pull
+        // request should target.
+        setCloneResult((prev) => (prev ? { ...prev, hasCommits: true, ref: result.branch } : prev))
+        setSeedStatus("idle")
+      } catch (error) {
+        if (runId !== cloneRunRef.current) return
+        setSeedError(
+          error instanceof Error
+            ? cleanIpcErrorMessage(error.message)
+            : "Failed to create the default branch",
+        )
+        setSeedStatus("fail")
       }
-
-      if (pendingOutputsRef.current) {
-        registerOutputs(id, pendingOutputsRef.current)
-        pendingOutputsRef.current = null
-      }
-      // The seeded branch is now the repo's only ref, so it is what a pull
-      // request should target.
-      setCloneResult(prev =>
-        prev ? { ...prev, hasCommits: true, ref: result.branch } : prev,
-      )
-      setSeedStatus('idle')
-    } catch (error) {
-      if (runId !== cloneRunRef.current) return
-      setSeedError(error instanceof Error ? cleanIpcErrorMessage(error.message) : 'Failed to create the default branch')
-      setSeedStatus('fail')
-    }
-  }, [api, id, cloneResult, registerOutputs, authProvider])
+    },
+    [api, id, cloneResult, registerOutputs, authProvider],
+  )
 
   // Cancel an in-progress clone: stop git in the main process, and detach
   // this run so its late result can't land on the block afterwards.
@@ -391,8 +447,8 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       // A clone or reset since then owns the block.
       if (runId !== cloneRunRef.current) return
       setCancelling(false)
-      setLogs(prev => [...prev, createLogEntry('Clone cancelled by user')])
-      setCloneStatus('ready')
+      setLogs((prev) => [...prev, createLogEntry("Clone cancelled by user")])
+      setCloneStatus("ready")
     }
     if (!cloneId) {
       cancelled()
@@ -403,7 +459,10 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     // Clone and Delete & Clone never start while that is still going on. A
     // failed cancel call ends it too: this run is detached either way.
     setCancelling(true)
-    api.invoke('git:clone-cancel', { cloneId }).catch(() => {}).finally(cancelled)
+    api
+      .invoke("git:clone-cancel", { cloneId })
+      .catch(() => {})
+      .finally(cancelled)
   }, [api])
 
   // Start over ('Clone again' / 'Stop using this repo'). The previous
@@ -412,14 +471,14 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   // still in flight for that repo goes stale too.
   const reset = useCallback(() => {
     cloneRunRef.current++
-    setCloneStatus('ready')
+    setCloneStatus("ready")
     setCancelling(false)
     setLogs([])
     setCloneResult(null)
     setErrorMessage(null)
     pendingOutputsRef.current = null
     registerOutputs(id, {})
-    setSeedStatus('idle')
+    setSeedStatus("idle")
     setSeedError(null)
   }, [id, registerOutputs])
 
@@ -428,7 +487,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const resetLocalPreview = useCallback(() => {
     previewSeqRef.current++
     setLocalPreview(null)
-    setLocalPreviewStatus('idle')
+    setLocalPreviewStatus("idle")
     setLocalPreviewError(null)
   }, [])
 

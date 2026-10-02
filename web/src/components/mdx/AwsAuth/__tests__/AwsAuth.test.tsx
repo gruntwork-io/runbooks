@@ -88,7 +88,11 @@ describe("AwsAuth — rendering", () => {
 
   it("opens the SSO form when its tab is picked", () => {
     renderBlock(
-      <AwsAuth id="test-aws" detectCredentials={false} ssoStartUrl="https://acme.awsapps.com/start" />,
+      <AwsAuth
+        id="test-aws"
+        detectCredentials={false}
+        ssoStartUrl="https://acme.awsapps.com/start"
+      />,
     )
 
     fireEvent.click(screen.getByRole("button", { name: "AWS SSO" }))
@@ -105,7 +109,11 @@ describe("AwsAuth — rendering", () => {
 
   it("renders description", () => {
     renderBlock(
-      <AwsAuth id="test-aws" detectCredentials={false} description="Authenticate with your AWS account" />,
+      <AwsAuth
+        id="test-aws"
+        detectCredentials={false}
+        description="Authenticate with your AWS account"
+      />,
     )
     expect(screen.getByText("Authenticate with your AWS account")).toBeInTheDocument()
   })
@@ -150,7 +158,13 @@ describe("AwsAuth — detection", () => {
   it("prompts with env credentials and shows the account once they are confirmed", async () => {
     installApi((channel) => {
       if (channel === "aws:env-credentials") {
-        return { found: true, valid: true, ...IDENTITY, region: "us-east-1", hasSessionToken: false }
+        return {
+          found: true,
+          valid: true,
+          ...IDENTITY,
+          region: "us-east-1",
+          hasSessionToken: false,
+        }
       }
       if (channel === "aws:env-credentials-confirm") {
         return {

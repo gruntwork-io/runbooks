@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
-import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from 'lucide-react'
-import { useApi } from '@/contexts/ApiContext'
-import { useTheme } from '@/contexts/useTheme'
-import { cleanIpcErrorMessage } from '@/lib/ipcError'
-import logoDarkColor from '@/assets/runbooks-logo-dark-color.svg'
-import logoLightColor from '@/assets/runbooks-logo-light-color.svg'
+import { useState, useEffect, useCallback } from "react"
+import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from "lucide-react"
+import { useApi } from "@/contexts/ApiContext"
+import { useTheme } from "@/contexts/useTheme"
+import { cleanIpcErrorMessage } from "@/lib/ipcError"
+import { errorMessage } from "../../../../src/errors/message"
+import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
+import logoLightColor from "@/assets/runbooks-logo-light-color.svg"
 
 interface WelcomeScreenProps {
   onOpenUrl?: () => void
@@ -17,12 +18,12 @@ interface WelcomeScreenProps {
  * Matches showCliError in electron/main/menu.ts.
  */
 function isUserCancel(message: string): boolean {
-  return message.includes('User canceled') || message.includes('dismissed')
+  return message.includes("User canceled") || message.includes("dismissed")
 }
 
 /** The handler's own message, without Electron's "Error invoking remote method" wrapper. */
 function invokeErrorMessage(err: unknown): string {
-  return cleanIpcErrorMessage(err instanceof Error ? err.message : String(err))
+  return cleanIpcErrorMessage(errorMessage(err))
 }
 
 export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) {
@@ -33,7 +34,8 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
   const [cliError, setCliError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.invoke('cli:check-install')
+    api
+      .invoke("cli:check-install")
       .then((result) => setCliInstalled(result.installed))
       .catch(() => setCliInstalled(false))
   }, [api])
@@ -42,7 +44,7 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
     setCliLoading(true)
     setCliError(null)
     try {
-      await api.invoke('cli:install')
+      await api.invoke("cli:install")
       setCliInstalled(true)
     } catch (err) {
       const message = invokeErrorMessage(err)
@@ -56,13 +58,11 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
     <div className="flex items-center justify-center h-[calc(100vh-5rem)]">
       <div className="text-center max-w-lg mx-auto px-6">
         <img
-          src={resolvedTheme === 'dark' ? logoLightColor : logoDarkColor}
+          src={resolvedTheme === "dark" ? logoLightColor : logoDarkColor}
           alt="Gruntwork Runbooks"
           className="h-20 mx-auto mb-6"
         />
-        <p className="text-muted-foreground text-lg mb-10">
-          Open a runbook to get started.
-        </p>
+        <p className="text-muted-foreground text-lg mb-10">Open a runbook to get started.</p>
 
         <div className="grid gap-4 text-left">
           <button
@@ -74,7 +74,10 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
             <div>
               <p className="text-sm font-medium text-foreground">Open Runbook</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Browse for a runbook file or directory, or press <kbd className="px-1.5 py-0.5 rounded bg-accent text-muted-foreground font-mono text-[10px]">&#8984;O</kbd>
+                Browse for a runbook file or directory, or press{" "}
+                <kbd className="px-1.5 py-0.5 rounded bg-accent text-muted-foreground font-mono text-[10px]">
+                  &#8984;O
+                </kbd>
               </p>
             </div>
           </button>
@@ -105,7 +108,9 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  <code className="bg-accent px-1.5 py-0.5 rounded font-mono text-[11px] text-muted-foreground">runbooks ./path/to/runbook.mdx</code>
+                  <code className="bg-accent px-1.5 py-0.5 rounded font-mono text-[11px] text-muted-foreground">
+                    runbooks ./path/to/runbook.mdx
+                  </code>
                 </p>
               </div>
             </div>
@@ -128,12 +133,18 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Install the <code className="bg-accent px-1 rounded font-mono text-[11px] text-muted-foreground">runbooks</code> command in your PATH to open runbooks from the terminal
+                    Install the{" "}
+                    <code className="bg-accent px-1 rounded font-mono text-[11px] text-muted-foreground">
+                      runbooks
+                    </code>{" "}
+                    command in your PATH to open runbooks from the terminal
                   </p>
                 </div>
               </button>
               {cliError && (
-                <p role="alert" className="mt-2 px-1 text-xs text-destructive">{cliError}</p>
+                <p role="alert" className="mt-2 px-1 text-xs text-destructive">
+                  {cliError}
+                </p>
               )}
             </div>
           )}

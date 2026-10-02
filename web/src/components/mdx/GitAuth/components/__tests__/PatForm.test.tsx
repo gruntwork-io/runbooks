@@ -80,11 +80,17 @@ describe("PatForm — GitHub token link follows the active host", () => {
   }
 
   it("github.com (unchanged)", () => {
-    expect(linkFor("github.com")).toHaveAttribute("href", "https://github.com/settings/personal-access-tokens/new")
+    expect(linkFor("github.com")).toHaveAttribute(
+      "href",
+      "https://github.com/settings/personal-access-tokens/new",
+    )
   })
 
   it("a *.ghe.com tenant uses fine-grained tokens on its own host", () => {
-    expect(linkFor("acme.ghe.com")).toHaveAttribute("href", "https://acme.ghe.com/settings/personal-access-tokens/new")
+    expect(linkFor("acme.ghe.com")).toHaveAttribute(
+      "href",
+      "https://acme.ghe.com/settings/personal-access-tokens/new",
+    )
   })
 
   it("GHES links to the classic token page", () => {

@@ -1,5 +1,5 @@
-import { GitAuth } from '@/components/mdx/GitAuth'
-import type { GitLabAuthProps } from '@/components/mdx/GitAuth/types'
+import { GitAuth } from "@/components/mdx/GitAuth"
+import type { GitLabAuthProps } from "@/components/mdx/GitAuth/types"
 
 /**
  * <GitLabAuth> block.
@@ -14,7 +14,7 @@ export function GitLabAuth(props: GitLabAuthProps) {
   return (
     <GitAuth
       {...props}
-      title={props.title ?? 'GitLab Authentication'}
+      title={props.title ?? "GitLab Authentication"}
       provider="gitlab"
       hideProviderSelect
       __registryType="GitLabAuth"
@@ -22,4 +22,4 @@ export function GitLabAuth(props: GitLabAuthProps) {
   )
 }
 
-GitLabAuth.displayName = 'GitLabAuth'
+GitLabAuth.displayName = "GitLabAuth"

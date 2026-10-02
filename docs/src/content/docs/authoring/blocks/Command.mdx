@@ -557,7 +557,7 @@ ACCOUNT_ID=$(aws organizations create-account ...)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```
 
-After a block runs, click **"View Outputs"** below the log viewer to inspect its outputs.
+After a block runs, click **"View Outputs"** below the log viewer to inspect its outputs. To keep a credential off screen there, write `sensitive:` before its key, as in `echo "sensitive:API_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. See [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 
 For the full guide on producing outputs, consuming them in templates, dependency behavior, and working with complex data types, see [Inputs & Outputs — Block Outputs](/authoring/inputs-and-outputs/#block-outputs).
 

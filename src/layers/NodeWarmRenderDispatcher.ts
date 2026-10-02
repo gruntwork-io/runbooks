@@ -151,7 +151,10 @@ function computeDirtyPaths(
   prevVars: Record<string, unknown> | undefined,
   currentVars: Record<string, unknown>,
   allKnownPaths: ReadonlyArray<string>,
-): { paths: ReadonlyArray<string>; reason: "first-render" | "outputs-changed" | "vars-diff" | "no-change" } {
+): {
+  paths: ReadonlyArray<string>
+  reason: "first-render" | "outputs-changed" | "vars-diff" | "no-change"
+} {
   if (!prevVars) {
     return { paths: allKnownPaths, reason: "first-render" }
   }
@@ -242,7 +245,6 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
 
           const missingPartials = unresolvablePartials(bundle)
           if (missingPartials.length > 0) {
-            // eslint-disable-next-line no-console
             console.log("[WarmRenderDispatcher] partials outside bundle, rendering cold", {
               templateId,
               partials: missingPartials,
@@ -266,7 +268,6 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
           const wasmPaths = dirtyPaths.filter(isWarmRenderablePath)
           const coldOnlyPaths = dirtyPaths.filter((p) => !isWarmRenderablePath(p))
 
-          // eslint-disable-next-line no-console
           console.log("[WarmRenderDispatcher] dirty-set", {
             templateId,
             reason,
@@ -319,11 +320,13 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
               // We don't want a prepare failure to block all rendering.
               Effect.catchAll((err) =>
                 Effect.sync(() => {
-                  // eslint-disable-next-line no-console
-                  console.log("[WarmRenderDispatcher] prepareBundle failed, will use non-handle path", {
-                    templateId,
-                    error: (err as { message?: string }).message ?? String(err),
-                  })
+                  console.log(
+                    "[WarmRenderDispatcher] prepareBundle failed, will use non-handle path",
+                    {
+                      templateId,
+                      error: (err as { message?: string }).message ?? String(err),
+                    },
+                  )
                   return ""
                 }),
               ),
@@ -332,7 +335,6 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             if (handle) {
               handlesByTemplate.set(templateId, handle)
               preparedThisCall = true
-              // eslint-disable-next-line no-console
               console.log("[WarmRenderDispatcher] prepared handle", {
                 templateId,
                 handle,
@@ -359,12 +361,14 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
                       // for THIS render, fall through to the non-handle
                       // path so the user gets a result.
                       if (err instanceof WasmError && err.kind === "structural") {
-                        // eslint-disable-next-line no-console
-                        console.log("[WarmRenderDispatcher] handle rejected, falling back to renderFiles", {
-                          templateId,
-                          handle,
-                          message: err.message,
-                        })
+                        console.log(
+                          "[WarmRenderDispatcher] handle rejected, falling back to renderFiles",
+                          {
+                            templateId,
+                            handle,
+                            message: err.message,
+                          },
+                        )
                         handlesByTemplate.delete(templateId)
                         handle = undefined
                         return Effect.succeed(null as WasmRenderFilesResult | null)
@@ -404,7 +408,6 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
             files.push({ path: r.path, content: r.content ?? "" })
           }
 
-          // eslint-disable-next-line no-console
           console.log("[WarmRenderDispatcher] rendered", {
             templateId,
             wasmMs,

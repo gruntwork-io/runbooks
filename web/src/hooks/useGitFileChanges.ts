@@ -1,7 +1,10 @@
-import { useContext } from 'react'
-import { GitFileChangesContext, type GitFileChangesContextType } from '../contexts/WorkspaceGitDataContext.types'
+import { useContext } from "react"
+import {
+  GitFileChangesContext,
+  type GitFileChangesContextType,
+} from "../contexts/WorkspaceGitDataContext.types"
 
-export type { WorkspaceFileChange } from '../contexts/WorkspaceGitDataContext.types'
+export type { WorkspaceFileChange } from "../contexts/WorkspaceGitDataContext.types"
 
 /**
  * Git changes in the active worktree, polled every 3 seconds.
@@ -12,7 +15,7 @@ export type { WorkspaceFileChange } from '../contexts/WorkspaceGitDataContext.ty
 export function useGitFileChanges(): GitFileChangesContextType {
   const context = useContext(GitFileChangesContext)
   if (context === undefined) {
-    throw new Error('useGitFileChanges must be used within a WorkspaceGitDataProvider')
+    throw new Error("useGitFileChanges must be used within a WorkspaceGitDataProvider")
   }
   return context
 }

@@ -100,7 +100,6 @@ function buildBundle(templateId: string, templatePath: string) {
       producedAt: t0,
     }
     const elapsed = Date.now() - t0
-    // eslint-disable-next-line no-console
     console.log("[BundleProducer] built", {
       templateId,
       templatePath,

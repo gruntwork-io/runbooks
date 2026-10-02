@@ -14,10 +14,17 @@ const imgSrc = (policy: string): string[] => {
 const directives = (policy: string): string[] =>
   policy
     .split(";")
-    .map((d) => d.trim().split(/\s+/)[0])
+    .map((d) => d.trim().split(/\s+/)[0]!)
     .filter(Boolean)
 
-const BASE_DIRECTIVES = ["default-src", "script-src", "style-src", "img-src", "media-src", "font-src"]
+const BASE_DIRECTIVES = [
+  "default-src",
+  "script-src",
+  "style-src",
+  "img-src",
+  "media-src",
+  "font-src",
+]
 
 describe("buildContentSecurityPolicy", () => {
   it("with no hosts: the static policy (github.com + every ghe.com tenant + gitlab.com + gravatar)", () => {
@@ -64,8 +71,12 @@ describe("buildContentSecurityPolicy", () => {
   })
 
   it("github.com and ghe.com tenants add nothing (covered by the static entries)", () => {
-    expect(githubImageOrigins(["github.com", "api.github.com", "acme.ghe.com", "api.acme.ghe.com"])).toEqual([])
-    expect(buildContentSecurityPolicy(["github.com", "acme.ghe.com"])).toBe(buildContentSecurityPolicy())
+    expect(
+      githubImageOrigins(["github.com", "api.github.com", "acme.ghe.com", "api.acme.ghe.com"]),
+    ).toEqual([])
+    expect(buildContentSecurityPolicy(["github.com", "acme.ghe.com"])).toBe(
+      buildContentSecurityPolicy(),
+    )
   })
 
   it("junk hosts with spaces or other schemes/userinfo never reach the policy", () => {

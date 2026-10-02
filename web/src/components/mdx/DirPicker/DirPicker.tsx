@@ -30,7 +30,7 @@ function DirPickerInteractive({
     if (!id) {
       return {
         message: "The <DirPicker> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
@@ -40,13 +40,31 @@ function DirPickerInteractive({
   const templateCtx = useTemplateContext(inputsId)
 
   // Resolve display props - no dependency tracking since all props are non-blocking (display-only)
-  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
-  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
-  const resolvedPathLabel = useMemo(() => pathLabel ? resolveTemplateReferences(pathLabel, templateCtx) : pathLabel, [pathLabel, templateCtx])
-  const resolvedPathLabelDescription = useMemo(() => pathLabelDescription ? resolveTemplateReferences(pathLabelDescription, templateCtx) : pathLabelDescription, [pathLabelDescription, templateCtx])
+  const resolvedTitle = useMemo(
+    () => (title ? resolveTemplateReferences(title, templateCtx) : title),
+    [title, templateCtx],
+  )
+  const resolvedDescription = useMemo(
+    () => (description ? resolveTemplateReferences(description, templateCtx) : description),
+    [description, templateCtx],
+  )
+  const resolvedPathLabel = useMemo(
+    () => (pathLabel ? resolveTemplateReferences(pathLabel, templateCtx) : pathLabel),
+    [pathLabel, templateCtx],
+  )
+  const resolvedPathLabelDescription = useMemo(
+    () =>
+      pathLabelDescription
+        ? resolveTemplateReferences(pathLabelDescription, templateCtx)
+        : pathLabelDescription,
+    [pathLabelDescription, templateCtx],
+  )
 
   // Check for duplicate component IDs
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'DirPicker')
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    "DirPicker",
+  )
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -54,7 +72,7 @@ function DirPickerInteractive({
 
   // Track render
   useEffect(() => {
-    trackBlockRender('DirPicker')
+    trackBlockRender("DirPicker")
   }, [id, trackBlockRender])
 
   // Cap dropdown depth to dirLabels.length unless dirLabelsExtra is true. When
@@ -63,14 +81,13 @@ function DirPickerInteractive({
   const maxLevels = dirLabelsExtra || dirLabels.length === 0 ? undefined : dirLabels.length
 
   // Core hook
-  const {
-    levels,
-    manualPath,
-    error,
-    isWorkspaceReady,
-    selectDir,
-    setPath,
-  } = useDirPicker({ id, rootDir, gitCloneId, maxLevels, isDuplicate })
+  const { levels, manualPath, error, isWorkspaceReady, selectDir, setPath } = useDirPicker({
+    id,
+    rootDir,
+    gitCloneId,
+    maxLevels,
+    isDuplicate,
+  })
 
   const missingRootConfig = !rootDir && !gitCloneId
 
@@ -79,28 +96,36 @@ function DirPickerInteractive({
     if (isDuplicate) {
       reportError({
         componentId: id,
-        componentType: 'DirPicker',
-        severity: 'error',
+        componentType: "DirPicker",
+        severity: "error",
         message: `Duplicate DirPicker block ID: "${id}"`,
       })
     } else if (isNormalizedCollision) {
       reportError({
         componentId: id,
-        componentType: 'DirPicker',
-        severity: 'error',
+        componentType: "DirPicker",
+        severity: "error",
         message: `DirPicker ID "${id}" collides with "${collidingId}" after normalization`,
       })
     } else if (missingRootConfig) {
       reportError({
         componentId: id,
-        componentType: 'DirPicker',
-        severity: 'error',
+        componentType: "DirPicker",
+        severity: "error",
         message: `DirPicker "${id}" requires either a rootDir or gitCloneId prop`,
       })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, isNormalizedCollision, collidingId, missingRootConfig, reportError, clearError])
+  }, [
+    id,
+    isDuplicate,
+    isNormalizedCollision,
+    collidingId,
+    missingRootConfig,
+    reportError,
+    clearError,
+  ])
 
   // Early return for validation errors (e.g. missing id prop)
   if (validationError) {
@@ -115,15 +140,16 @@ function DirPickerInteractive({
   const hasError = error || missingRootConfig
 
   const statusClasses = hasError
-    ? 'bg-destructive-muted border-destructive/30'
-    : 'bg-card border-border'
+    ? "bg-destructive-muted border-destructive/30"
+    : "bg-card border-border"
 
-  const iconColor = hasError
-    ? 'text-destructive'
-    : 'text-muted-foreground'
+  const iconColor = hasError ? "text-destructive" : "text-muted-foreground"
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -149,7 +175,9 @@ function DirPickerInteractive({
             <div className="text-sm text-destructive flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <span>
-                DirPicker requires either a <code className="bg-destructive-muted px-1 rounded text-xs">rootDir</code> or <code className="bg-destructive-muted px-1 rounded text-xs">gitCloneId</code> prop.
+                DirPicker requires either a{" "}
+                <code className="bg-destructive-muted px-1 rounded text-xs">rootDir</code> or{" "}
+                <code className="bg-destructive-muted px-1 rounded text-xs">gitCloneId</code> prop.
               </span>
             </div>
           )}
@@ -159,7 +187,7 @@ function DirPickerInteractive({
             <div className="text-sm text-warning flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div>
-                <strong>Waiting for git clone to complete from:</strong>{' '}
+                <strong>Waiting for git clone to complete from:</strong>{" "}
                 <code className="bg-warning-muted px-1 rounded text-xs">{gitCloneId}</code>
                 <div className="text-xs mt-1 text-warning">
                   Complete the GitClone block above to browse directories.
@@ -169,9 +197,7 @@ function DirPickerInteractive({
           )}
 
           {/* Error message */}
-          {error && (
-            <div className="text-sm text-destructive">{error}</div>
-          )}
+          {error && <div className="text-sm text-destructive">{error}</div>}
 
           {/* Cascading directory dropdowns (vertical, full width) */}
           {isWorkspaceReady && levels.length > 0 && (
@@ -188,11 +214,11 @@ function DirPickerInteractive({
                       onChange={(e) => selectDir(index, e.target.value)}
                       className="flex-1 px-2 py-1.5 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring"
                     >
-                      <option value="">
-                        {`Select ${levelLabel.toLowerCase()}...`}
-                      </option>
-                      {level.dirs.map(dir => (
-                        <option key={dir} value={dir}>{dir}</option>
+                      <option value="">{`Select ${levelLabel.toLowerCase()}...`}</option>
+                      {level.dirs.map((dir) => (
+                        <option key={dir} value={dir}>
+                          {dir}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -241,6 +267,6 @@ function DirPicker(props: DirPickerProps) {
 }
 
 // Set displayName for React DevTools and component detection
-DirPicker.displayName = 'DirPicker';
+DirPicker.displayName = "DirPicker"
 
-export default DirPicker;
+export default DirPicker

@@ -1,27 +1,27 @@
 /** Which authentication tab is active. Maps 1:1 onto AwsAuth's three tabs:
  *  `service_account` <- `credentials`, `oauth` <- `sso`, `gcloud` <- `profile`. */
-export type GoogleAuthMethod = 'service_account' | 'oauth' | 'gcloud'
+export type GoogleAuthMethod = "service_account" | "oauth" | "gcloud"
 
 /**
  * One sub-selection state, not two: GCP has no account -> role two-step, so
  * AwsAuth's `select_account` + `select_role` collapse into `select_project`.
  */
 export type GoogleAuthStatus =
-  | 'pending'
-  | 'authenticating'
-  | 'authenticated'
-  | 'failed'
-  | 'select_project'
+  | "pending"
+  | "authenticating"
+  | "authenticated"
+  | "failed"
+  | "select_project"
 
 // =============================================================================
 // Credential Detection Types (same pattern as AwsAuth / GitAuth)
 // =============================================================================
 
 /** Status of the credential detection process. */
-export type GoogleDetectionStatus = 'pending' | 'detected' | 'done'
+export type GoogleDetectionStatus = "pending" | "detected" | "done"
 
 /** Where the detected credentials came from. */
-export type GoogleDetectionSource = 'env' | 'adc' | 'gcloud' | 'block' | null
+export type GoogleDetectionSource = "env" | "adc" | "gcloud" | "block" | null
 
 /**
  * Credential source configuration for auto-detection. Sources are tried in the
@@ -30,23 +30,23 @@ export type GoogleDetectionSource = 'env' | 'adc' | 'gcloud' | 'block' | null
  * IMPORTANT: only one { block: string } source is allowed in the array.
  */
 export type GoogleCredentialSource =
-  | 'env'                        // GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_CREDENTIALS / access token
+  | "env" // GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_CREDENTIALS / access token
   | { env: { prefix?: string } } // PREFIX_GOOGLE_APPLICATION_CREDENTIALS, ...
-  | 'adc'                        // ~/.config/gcloud/application_default_credentials.json
-  | 'gcloud'                     // the ACTIVE gcloud configuration (account + project + ADC)
-  | { block: string }            // Command block output (only one allowed)
+  | "adc" // ~/.config/gcloud/application_default_credentials.json
+  | "gcloud" // the ACTIVE gcloud configuration (account + project + ADC)
+  | { block: string } // Command block output (only one allowed)
 
 /**
  * How a credential was obtained. Mirrors the `type` field of a Google
  * credentials JSON document, plus the two shapes that have no file form.
  */
 export type GoogleCredentialType =
-  | 'service_account'
-  | 'authorized_user'
-  | 'external_account'
-  | 'impersonated_service_account'
-  | 'access_token'
-  | 'gce_metadata'
+  | "service_account"
+  | "authorized_user"
+  | "external_account"
+  | "impersonated_service_account"
+  | "access_token"
+  | "gce_metadata"
 
 /**
  * Detected credentials awaiting user confirmation. Metadata about the
@@ -101,7 +101,7 @@ export interface GcloudConfigInfo {
   project?: string
   region?: string
   zone?: string
-  authType: 'adc-user' | 'adc-service-account' | 'adc-external' | 'config-only' | 'unsupported'
+  authType: "adc-user" | "adc-service-account" | "adc-external" | "config-only" | "unsupported"
 }
 
 /** Metadata about the well-known application_default_credentials.json. */
@@ -117,7 +117,7 @@ export interface GoogleAccountInfo {
   projectId?: string
   projectName?: string
   principal?: string
-  accountType?: 'service_account' | 'user'
+  accountType?: "service_account" | "user"
   credentialType?: GoogleCredentialType
   scopes?: string[]
   /** Absolute path of the credentials file backing this session. Not a secret. */

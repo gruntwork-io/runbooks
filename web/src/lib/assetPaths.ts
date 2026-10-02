@@ -22,13 +22,13 @@
 // listed: remarkLiteralOnly rejects them in the MDX, and markdown syntax can't
 // produce them. A Map, so a tag named like an Object.prototype member can't match.
 const ASSET_ATTRS = new Map<string, readonly string[]>([
-  ['img', ['src', 'srcset']], // <img src="./assets/image.png" srcSet="./assets/image@2x.png 2x">
-  ['video', ['src', 'poster']], // <video src="./assets/video.mp4" poster="./assets/poster.png">
-  ['audio', ['src']], // <audio src="./assets/audio.mp3">
+  ["img", ["src", "srcset"]], // <img src="./assets/image.png" srcSet="./assets/image@2x.png 2x">
+  ["video", ["src", "poster"]], // <video src="./assets/video.mp4" poster="./assets/poster.png">
+  ["audio", ["src"]], // <audio src="./assets/audio.mp3">
   // <source src="./assets/video.webm"> in <video>/<audio>, <source srcSet="./assets/image.webp"> in <picture>
-  ['source', ['src', 'srcset']],
-  ['track', ['src']], // <track src="./assets/captions.vtt"> (child of video/audio)
-  ['a', ['href']], // <a href="./assets/document.pdf">
+  ["source", ["src", "srcset"]],
+  ["track", ["src"]], // <track src="./assets/captions.vtt"> (child of video/audio)
+  ["a", ["href"]], // <a href="./assets/document.pdf">
 ])
 
 /**
@@ -36,10 +36,10 @@ const ASSET_ATTRS = new Map<string, readonly string[]>([
  * Only the prefix changes, so anything after the URL (a srcset descriptor) is kept.
  */
 export function toRunbookAssetUrl(url: string, host: string | undefined): string {
-  if (!host || !url.startsWith('./assets/')) {
+  if (!host || !url.startsWith("./assets/")) {
     return url
   }
-  return `runbook-asset://${host}/${url.substring('./assets/'.length)}`
+  return `runbook-asset://${host}/${url.substring("./assets/".length)}`
 }
 
 // A srcset is comma-separated candidates, each a URL with an optional
@@ -49,12 +49,12 @@ export function toRunbookAssetUrl(url: string, host: string | undefined): string
 // starts with ./assets/ changes.
 function toRunbookAssetSrcSet(srcSet: string, host: string | undefined): string {
   return srcSet
-    .split(',')
+    .split(",")
     .map((candidate) => {
       const url = candidate.trimStart()
       return candidate.slice(0, candidate.length - url.length) + toRunbookAssetUrl(url, host)
     })
-    .join(',')
+    .join(",")
 }
 
 /**
@@ -63,10 +63,15 @@ function toRunbookAssetSrcSet(srcSet: string, host: string | undefined): string 
  * `runbook-asset://<host>/` URL, as does each such candidate in a srcset, and
  * anything else is returned unchanged.
  */
-export function rewriteAssetUrl(tagName: string, attribute: string, value: string, host: string | undefined): string {
+export function rewriteAssetUrl(
+  tagName: string,
+  attribute: string,
+  value: string,
+  host: string | undefined,
+): string {
   const name = attribute.toLowerCase()
   if (!ASSET_ATTRS.get(tagName)?.includes(name)) {
     return value
   }
-  return name === 'srcset' ? toRunbookAssetSrcSet(value, host) : toRunbookAssetUrl(value, host)
+  return name === "srcset" ? toRunbookAssetSrcSet(value, host) : toRunbookAssetUrl(value, host)
 }

@@ -41,17 +41,16 @@ export function ProjectSelector({
   onCancel,
 }: ProjectSelectorProps) {
   const query = searchValue.toLowerCase()
-  const filteredProjects = projects.filter((project) =>
-    project.projectId.toLowerCase().includes(query)
-    || project.displayName.toLowerCase().includes(query)
-    || (project.projectNumber?.includes(searchValue) ?? false)
+  const filteredProjects = projects.filter(
+    (project) =>
+      project.projectId.toLowerCase().includes(query) ||
+      project.displayName.toLowerCase().includes(query) ||
+      (project.projectNumber?.includes(searchValue) ?? false),
   )
 
   return (
     <div className="space-y-4">
-      <div className="text-info font-semibold text-sm mb-2">
-        ✓ Signed in to Google Cloud
-      </div>
+      <div className="text-info font-semibold text-sm mb-2">✓ Signed in to Google Cloud</div>
       <div className="bg-info-muted/50 rounded p-3 text-sm text-foreground">
         <p>Select a Google Cloud project to continue:</p>
       </div>
@@ -88,7 +87,7 @@ export function ProjectSelector({
                   "w-full text-left px-4 py-3 rounded-md border transition-colors",
                   isSelected
                     ? "bg-info-muted border-info/40 ring-2 ring-info/40"
-                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer"
+                    : "bg-info-muted/50 border-border hover:bg-info-muted hover:border-info/40 cursor-pointer",
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -96,11 +95,13 @@ export function ProjectSelector({
                     <Check
                       className={cn(
                         "h-4 w-4 shrink-0",
-                        isSelected ? "opacity-100 text-info" : "opacity-0"
+                        isSelected ? "opacity-100 text-info" : "opacity-0",
                       )}
                     />
                     <div className="min-w-0">
-                      <div className="font-medium text-foreground truncate">{project.displayName}</div>
+                      <div className="font-medium text-foreground truncate">
+                        {project.displayName}
+                      </div>
                       <div className="text-sm text-muted-foreground truncate">
                         <span className="font-mono">{project.projectId}</span>
                         {project.projectNumber && ` • ${project.projectNumber}`}
@@ -108,7 +109,7 @@ export function ProjectSelector({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {project.state && project.state !== 'ACTIVE' && (
+                    {project.state && project.state !== "ACTIVE" && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-warning-muted text-warning-foreground">
                         {project.state}
                       </span>

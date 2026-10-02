@@ -90,7 +90,9 @@ export function recoverLaunchDirectory(proc: ProcessDirectory = currentProcess()
       (knowsFolder
         ? `Relative paths resolve against ${launchDir}; `
         : `The shell didn't say which folder that was, so relative paths resolve against the home folder (${launchDir}); `) +
-      (movedTo ? `Runbooks now runs from ${movedTo}.` : "Runbooks couldn't move to another directory."),
+      (movedTo
+        ? `Runbooks now runs from ${movedTo}.`
+        : "Runbooks couldn't move to another directory."),
   )
   return launchDir
 }
@@ -131,7 +133,10 @@ export function requestLaunchLock(
  * which is what Electron then reports as `workingDirectory`. A sender without
  * an absolute `cwd` string (an older build) falls back to `workingDirectory`.
  */
-export function secondInstanceLaunchDirectory(workingDirectory: string, additionalData: unknown): string {
+export function secondInstanceLaunchDirectory(
+  workingDirectory: string,
+  additionalData: unknown,
+): string {
   const forwarded = (additionalData as { cwd?: unknown } | null | undefined)?.cwd
   return typeof forwarded === "string" && path.isAbsolute(forwarded) ? forwarded : workingDirectory
 }

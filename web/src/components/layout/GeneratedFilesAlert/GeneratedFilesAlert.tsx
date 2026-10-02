@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState } from "react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,17 +8,17 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '../../ui/alert-dialog';
-import { useApiGeneratedFilesDelete } from '../../../hooks/useApiGeneratedFilesDelete';
-import { dismissGeneratedFilesAlert } from './utils';
+} from "../../ui/alert-dialog"
+import { useApiGeneratedFilesDelete } from "../../../hooks/useApiGeneratedFilesDelete"
+import { dismissGeneratedFilesAlert } from "./utils"
 
 /**
  * Alert dialog that warns users about existing generated files in the output directory.
- * 
+ *
  * When a runbook with boilerplate templates is loaded, this component checks if files
  * already exist in the output directory and prompts the user to either keep or delete them.
  * This prevents accidental overwrites and conflicts with newly generated files.
- * 
+ *
  * Features:
  * - Displays file count and output directory path
  * - Allows users to delete existing files via API call
@@ -26,11 +26,11 @@ import { dismissGeneratedFilesAlert } from './utils';
  * - Shows success/error states after delete operation
  */
 interface GeneratedFilesAlertProps {
-  isOpen: boolean;
-  fileCount: number;
-  absoluteOutputPath: string;
-  onClose: () => void;
-  onDeleted: () => void;
+  isOpen: boolean
+  fileCount: number
+  absoluteOutputPath: string
+  onClose: () => void
+  onDeleted: () => void
 }
 
 export function GeneratedFilesAlert({
@@ -40,26 +40,26 @@ export function GeneratedFilesAlert({
   onClose,
   onDeleted,
 }: GeneratedFilesAlertProps) {
-  const [dontAskAgain, setDontAskAgain] = useState(false);
-  const { deleteFiles, isDeleting, deleteError, deleteSuccess } = useApiGeneratedFilesDelete();
+  const [dontAskAgain, setDontAskAgain] = useState(false)
+  const { deleteFiles, isDeleting, deleteError, deleteSuccess } = useApiGeneratedFilesDelete()
 
   const handleKeepFiles = () => {
     if (dontAskAgain) {
-      dismissGeneratedFilesAlert();
+      dismissGeneratedFilesAlert()
     }
-    onClose();
-  };
+    onClose()
+  }
 
   const handleDeleteFiles = async () => {
-    const success = await deleteFiles();
+    const success = await deleteFiles()
 
     if (success) {
       if (dontAskAgain) {
-        dismissGeneratedFilesAlert();
+        dismissGeneratedFilesAlert()
       }
-      onDeleted();
+      onDeleted()
     }
-  };
+  }
 
   // Show success or error state in the dialog
   if (deleteSuccess) {
@@ -68,18 +68,14 @@ export function GeneratedFilesAlert({
         <AlertDialogContent data-testid="delete-files-alert">
           <AlertDialogHeader>
             <AlertDialogTitle>Files Deleted Successfully</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteSuccess.message}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{deleteSuccess.message}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={handleKeepFiles}>
-              Close
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleKeepFiles}>Close</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    );
+    )
   }
 
   if (deleteError) {
@@ -91,20 +87,16 @@ export function GeneratedFilesAlert({
             <AlertDialogDescription>
               {deleteError.message}
               {deleteError.details && (
-                <div className="mt-2 text-sm text-muted-foreground">
-                  {deleteError.details}
-                </div>
+                <div className="mt-2 text-sm text-muted-foreground">{deleteError.details}</div>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction onClick={handleKeepFiles}>
-              Close
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleKeepFiles}>Close</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    );
+    )
   }
 
   return (
@@ -113,9 +105,14 @@ export function GeneratedFilesAlert({
         <AlertDialogHeader>
           <AlertDialogTitle>Existing Generated Files Detected</AlertDialogTitle>
           <AlertDialogDescription>
-            There {fileCount === 1 ? 'is' : 'are'} {fileCount} file{fileCount === 1 ? '' : 's'} in{' '}
-            the <code className="px-1 py-0.5 bg-muted rounded text-sm break-all">{absoluteOutputPath}/</code> directory. {fileCount === 1 ? 'This' : 'These'} may
-            conflict with the files you generate from the current runbook. Would you like to delete the existing file{fileCount === 1 ? '' : 's'}?
+            There {fileCount === 1 ? "is" : "are"} {fileCount} file{fileCount === 1 ? "" : "s"} in{" "}
+            the{" "}
+            <code className="px-1 py-0.5 bg-muted rounded text-sm break-all">
+              {absoluteOutputPath}/
+            </code>{" "}
+            directory. {fileCount === 1 ? "This" : "These"} may conflict with the files you generate
+            from the current runbook. Would you like to delete the existing file
+            {fileCount === 1 ? "" : "s"}?
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -141,11 +138,10 @@ export function GeneratedFilesAlert({
             disabled={isDeleting}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {isDeleting ? 'Deleting...' : 'Delete Files'}
+            {isDeleting ? "Deleting..." : "Delete Files"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  );
+  )
 }
-

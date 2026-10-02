@@ -169,6 +169,53 @@ echo 'users=["alice","bob","charlie"]' >> "$RUNBOOK_OUTPUT"
 
 You don't need to define the `$RUNBOOK_OUTPUT` environment variable in your script. Runbooks will automatically create it for you.
 
+### Sensitive Outputs
+
+When an output holds a credential, such as a secret key, token or password, write `sensitive:` before its key:
+
+```bash
+echo "AWS_ACCESS_KEY_ID=$ACCESS_KEY_ID" >> "$RUNBOOK_OUTPUT"
+echo "sensitive:AWS_SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY" >> "$RUNBOOK_OUTPUT"
+echo "sensitive:AWS_SESSION_TOKEN=$SESSION_TOKEN" >> "$RUNBOOK_OUTPUT"
+```
+
+The prefix isn't part of the key. The second output above is named `AWS_SECRET_ACCESS_KEY`, so downstream blocks read it as `{{ .outputs.<block_id>.AWS_SECRET_ACCESS_KEY }}`. Auth blocks that take credentials from a block, such as `<AwsAuth detectCredentials={[{ block: '<block-id>' }]} />`, find it by its usual name too.
+
+Runbooks hands a sensitive output's real value only to what uses it:
+
+- A Command or Check script that references it in a template runs with the real value.
+- A [`<Template>`](/authoring/blocks/template/), or a [`<TemplateInline>`](/authoring/blocks/templateinline/) with `generateFile`, writes the real value into the file it generates.
+- An auth block's `detectCredentials` block source reads the real value.
+- The copy button on the output's row in **View Outputs** copies the real value.
+- The [test CLI](/authoring/testing/)'s `output_equals` and `output_matches` assertions compare the real value.
+
+Everywhere Runbooks only shows the value, it masks it:
+
+- **View Outputs** shows `••••••••`, and **Copy JSON** writes `"<redacted>"`.
+- The script view of a Command or Check that references the output shows `<redacted>` in its place, though the script runs with the real value.
+- A `<TemplateInline>` without `generateFile` shows `<redacted>` in its preview.
+- A block prop that references the output, such as a title, a description, a clone URL or a pull request's title and body, gets `<redacted>`.
+- The test CLI prints `<redacted>` in its `--verbose` output, in the rendered output of a `<TemplateInline>` and in the message of a failed `output_equals` or `output_matches` assertion.
+
+An empty sensitive output reveals nothing, so wherever `<redacted>` would stand in for it, it stays empty. An `{{ if }}` on it then takes the same branch in the script view as when the script runs.
+
+`<redacted>` only stands in for the value, so a template that processes the value can't process `<redacted>`. For example, the script view of `{{ (fromJson .outputs.<block_id>.credentials).user }}` shows a render error that explains this, though the script runs with the real value. A `<TemplateInline>` preview of it shows the same error.
+
+[Instruction mode](/intro/instruction-mode/) treats a sensitive output like one that hasn't been produced yet, even if its step already ran. The command shows a `<name>` placeholder, with a field to paste the value into.
+
+Auth blocks mark their own secrets the same way, including a credential they read from a block that marked it `sensitive:`. [`<AwsAuth>`](/authoring/blocks/awsauth/) publishes `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` as sensitive outputs. [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitHubAuth>`](/authoring/blocks/githubauth/) and [`<GitLabAuth>`](/authoring/blocks/gitlabauth/) publish their token as one when their outputs include it, which they do for a personal access token or a `{ block }` source. So `{{ .outputs.<auth_block_id>.AWS_SECRET_ACCESS_KEY }}` is masked like any other sensitive output.
+
+Once any line marks a key `sensitive:`, that output stays sensitive, even if a later line writes the same key without the prefix. The prefix is lowercase and comes first on the line.
+
+<Aside type="caution">
+Runbooks can't mask what your scripts and templates produce from the real value:
+
+- A block's log shows everything its script prints, so don't `echo` a sensitive value, in the script that produces it or in one that uses it.
+- A file that a `<Template>` or a `<TemplateInline>` with `generateFile` writes holds the real value, and the block's preview and the generated files show it.
+
+To use a credential in later blocks without writing it anywhere, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/). For a credential no auth block handles, `export` it in the producing script, and later Command and Check scripts read it from the environment (see [Shell Execution Context](/security/shell-execution-context/)).
+</Aside>
+
 ### Consuming Outputs
 
 Downstream blocks reference outputs using the `outputs` namespace:
@@ -207,7 +254,7 @@ If a block references outputs from another block that hasn't run yet:
 2. The **Run / Generate button is disabled** until the upstream block executes
 3. The template shows the raw syntax until outputs are available
 
-After a block runs, you can click **"View Outputs"** below the log viewer to inspect its outputs in a table.
+After a block runs, you can click **"View Outputs"** below the log viewer to inspect its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 
 <Aside type="note">
 Block outputs are stored in browser memory and cleared on page refresh.

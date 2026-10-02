@@ -64,7 +64,7 @@ export function ServiceAccountKeyForm({
   setSelectedRegion,
   onSubmit,
 }: ServiceAccountKeyFormProps) {
-  const isAuthenticating = authStatus === 'authenticating'
+  const isAuthenticating = authStatus === "authenticating"
 
   // Parse for display only. Never touches `private_key`; a parse failure is not
   // an error here (the user may still be typing) — main is the authority on
@@ -74,12 +74,12 @@ export function ServiceAccountKeyForm({
     if (!text) return null
     try {
       const parsed: unknown = JSON.parse(text)
-      if (typeof parsed !== 'object' || parsed === null) return null
+      if (typeof parsed !== "object" || parsed === null) return null
       const record = parsed as Record<string, unknown>
       return {
-        ...(typeof record.type === 'string' ? { type: record.type } : {}),
-        ...(typeof record.client_email === 'string' ? { clientEmail: record.client_email } : {}),
-        ...(typeof record.project_id === 'string' ? { projectId: record.project_id } : {}),
+        ...(typeof record.type === "string" ? { type: record.type } : {}),
+        ...(typeof record.client_email === "string" ? { clientEmail: record.client_email } : {}),
+        ...(typeof record.project_id === "string" ? { projectId: record.project_id } : {}),
       }
     } catch {
       return null
@@ -90,7 +90,7 @@ export function ServiceAccountKeyForm({
   const usingFile = keyFilePath !== null
   const hasKey = hasPastedKey || usingFile
   const notJsonYet = hasPastedKey && summary === null
-  const wrongType = summary?.type !== undefined && summary.type !== 'service_account'
+  const wrongType = summary?.type !== undefined && summary.type !== "service_account"
 
   return (
     <div className="space-y-4">
@@ -121,49 +121,51 @@ export function ServiceAccountKeyForm({
             </span>
           </div>
         ) : (
-        <div className="relative">
-          {showServiceAccountKey ? (
-            <textarea
-              value={serviceAccountKey}
-              onChange={(e) => setServiceAccountKey(e.target.value)}
-              rows={8}
-              aria-label="Service account key JSON"
-              placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}'
-              className="w-full px-3 py-2 pr-10 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-xs placeholder-muted-foreground resize-y"
-              disabled={isAuthenticating}
-              spellCheck={false}
-              autoCapitalize="none"
-              autoComplete="off"
-            />
-          ) : (
-            /* Masked single-line field: the key material stays out of the
+          <div className="relative">
+            {showServiceAccountKey ? (
+              <textarea
+                value={serviceAccountKey}
+                onChange={(e) => setServiceAccountKey(e.target.value)}
+                rows={8}
+                aria-label="Service account key JSON"
+                placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}'
+                className="w-full px-3 py-2 pr-10 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-xs placeholder-muted-foreground resize-y"
+                disabled={isAuthenticating}
+                spellCheck={false}
+                autoCapitalize="none"
+                autoComplete="off"
+              />
+            ) : (
+              /* Masked single-line field: the key material stays out of the
                rendered text until the user asks for it. Pasting multi-line JSON
                here is fine — the whitespace collapses and the document still
                parses. */
-            <input
-              type="password"
-              value={serviceAccountKey}
-              onChange={(e) => setServiceAccountKey(e.target.value)}
-              aria-label="Service account key JSON"
-              placeholder="Paste the key JSON, or choose a key file"
-              className="w-full px-3 py-2 pr-10 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm placeholder-muted-foreground"
-              disabled={isAuthenticating}
-              spellCheck={false}
-              autoCapitalize="none"
-              autoComplete="off"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setShowServiceAccountKey(!showServiceAccountKey)}
-            aria-label={showServiceAccountKey ? 'Hide service account key' : 'Show service account key'}
-            className={`absolute right-2 text-muted-foreground hover:text-foreground ${
-              showServiceAccountKey ? 'top-2' : 'top-1/2 -translate-y-1/2'
-            }`}
-          >
-            {showServiceAccountKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
-        </div>
+              <input
+                type="password"
+                value={serviceAccountKey}
+                onChange={(e) => setServiceAccountKey(e.target.value)}
+                aria-label="Service account key JSON"
+                placeholder="Paste the key JSON, or choose a key file"
+                className="w-full px-3 py-2 pr-10 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring font-mono text-sm placeholder-muted-foreground"
+                disabled={isAuthenticating}
+                spellCheck={false}
+                autoCapitalize="none"
+                autoComplete="off"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => setShowServiceAccountKey(!showServiceAccountKey)}
+              aria-label={
+                showServiceAccountKey ? "Hide service account key" : "Show service account key"
+              }
+              className={`absolute right-2 text-muted-foreground hover:text-foreground ${
+                showServiceAccountKey ? "top-2" : "top-1/2 -translate-y-1/2"
+              }`}
+            >
+              {showServiceAccountKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
         )}
 
         {/* Provenance + non-secret summary of whatever is currently loaded */}
@@ -175,13 +177,14 @@ export function ServiceAccountKeyForm({
         {summary && (summary.clientEmail || summary.projectId) && (
           <p className="mt-1 text-xs text-muted-foreground break-all">
             {summary.clientEmail}
-            {summary.clientEmail && summary.projectId && ' • '}
+            {summary.clientEmail && summary.projectId && " • "}
             {summary.projectId && <span className="font-mono">{summary.projectId}</span>}
           </p>
         )}
         {wrongType && (
           <p className="mt-1 text-xs text-warning-foreground">
-            This looks like a <span className="font-mono">{summary?.type}</span> credential, not a service account key.
+            This looks like a <span className="font-mono">{summary?.type}</span> credential, not a
+            service account key.
           </p>
         )}
         {notJsonYet && (
@@ -206,7 +209,8 @@ export function ServiceAccountKeyForm({
           autoCapitalize="none"
         />
         <p className="mt-1 text-xs text-muted-foreground">
-          Leave blank to use the key's own <code className="bg-accent px-1 rounded">project_id</code>.
+          Leave blank to use the key's own{" "}
+          <code className="bg-accent px-1 rounded">project_id</code>.
         </p>
       </div>
 
@@ -227,7 +231,7 @@ export function ServiceAccountKeyForm({
             Validating...
           </>
         ) : (
-          'Authenticate'
+          "Authenticate"
         )}
       </Button>
     </div>

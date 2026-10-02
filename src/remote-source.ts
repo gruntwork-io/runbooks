@@ -216,14 +216,15 @@ function parseHttpSource(input: string, opts: ParseRemoteSourceOptions): ParsedR
   // Browser tree/blob URLs. A GitLab host's `/g/p/tree/...` is a subgroup
   // path, not a GitHub URL.
   const github = url.pathname.match(GITHUB_BROWSER_PATH)
+  // Every capture group in both patterns is required, so a match has them all.
   if (github && !isGitLabHost(host)) {
     const [, owner, repo, refAndPath] = github
-    return browserSource(host, decodePath(`${owner}/${repo}`), refAndPath)
+    return browserSource(host, decodePath(`${owner!}/${repo!}`), refAndPath!)
   }
   const gitlab = url.pathname.match(GITLAB_BROWSER_PATH)
   if (gitlab) {
     const [, ownerRepoPath, refAndPath] = gitlab
-    return browserSource(host, decodePath(ownerRepoPath), refAndPath)
+    return browserSource(host, decodePath(ownerRepoPath!), refAndPath!)
   }
 
   const { address, subdir, ref } = splitGoGetter(input)
@@ -268,11 +269,14 @@ function parseShorthand(input: string, opts: ParseRemoteSourceOptions): ParsedRe
     }
   }
 
+  // split always yields at least one segment.
   const [hostPart, ...rest] = address.split("/")
-  const host = hostPart.toLowerCase()
+  const host = hostPart!.toLowerCase()
   const segments = rest.filter(Boolean)
   if (segments.length < 2) {
-    throw new InvalidSource(`expected ${host}/<owner>/<repo>, got ${redactSourceCredentials(input)}`)
+    throw new InvalidSource(
+      `expected ${host}/<owner>/<repo>, got ${redactSourceCredentials(input)}`,
+    )
   }
   if (host === "github.com") {
     // go-getter's GitHub detector: segments past owner/repo are the path.
@@ -300,8 +304,9 @@ function parseGitSource(source: string): ParsedRemoteSource {
   let repoPath: string
   let cloneURL: string
   if (scp) {
-    host = scp[2].toLowerCase()
-    repoPath = scp[3]
+    // SCP_LIKE's capture groups are all required.
+    host = scp[2]!.toLowerCase()
+    repoPath = scp[3]!
     cloneURL = address
   } else {
     const url = parseUrl(address)
@@ -337,7 +342,7 @@ function parseGitSource(source: string): ParsedRemoteSource {
 function repoSource(
   host: string,
   ownerRepoPath: string,
-  extra: { ref?: string; path?: string } = {},
+  extra: { ref?: string | undefined; path?: string | undefined } = {},
 ): ParsedRemoteSource {
   const { owner, repo } = splitOwnerRepo(ownerRepoPath)
   return {
@@ -352,7 +357,11 @@ function repoSource(
 }
 
 /** A browser URL's repo, with its `<ref>/<path>` left joined for resolveRef. */
-function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: string): ParsedRemoteSource {
+function browserSource(
+  host: string,
+  ownerRepoPath: string,
+  rawRefAndPath: string,
+): ParsedRemoteSource {
   const source = repoSource(host, ownerRepoPath)
   // A ref can't contain `..` either (git check-ref-format), so the whole
   // string gets the path rules.
@@ -372,12 +381,18 @@ function browserSource(host: string, ownerRepoPath: string, rawRefAndPath: strin
  * as a space, which no git ref can contain, while a tag can hold one (semver
  * build metadata, `v1.0.0+build.1`). `%2B` still decodes to `+`.
  */
-function splitGoGetter(raw: string): { address: string; subdir?: string; ref?: string } {
+function splitGoGetter(raw: string): {
+  address: string
+  subdir?: string
+  ref?: string | undefined
+} {
   const hashStart = raw.indexOf("#")
   const source = hashStart === -1 ? raw : raw.slice(0, hashStart)
   const queryStart = source.indexOf("?")
   const beforeQuery = queryStart === -1 ? source : source.slice(0, queryStart)
-  const query = new URLSearchParams(queryStart === -1 ? "" : source.slice(queryStart + 1).replace(/\+/g, "%2B"))
+  const query = new URLSearchParams(
+    queryStart === -1 ? "" : source.slice(queryStart + 1).replace(/\+/g, "%2B"),
+  )
   const ref = query.get("ref") || undefined
 
   const schemeEnd = beforeQuery.indexOf("://")
@@ -486,16 +501,20 @@ export const resolveRef = (
     const code = yield* proc.exitCode
     if (code !== 0) {
       return yield* Effect.fail(
-        new GitError({ command: "git ls-remote", stderr: redactSecrets(stderr.join("\n")), exitCode: code }),
+        new GitError({
+          command: "git ls-remote",
+          stderr: redactSecrets(stderr.join("\n")),
+          exitCode: code,
+        }),
       )
     }
 
     // Build set of known ref names (strip refs/heads/ and refs/tags/)
     const knownRefs = new Set<string>()
     for (const line of lines) {
-      const parts = line.split("\t")
-      if (parts.length >= 2) {
-        const refName = parts[1]
+      const [, refField] = line.split("\t")
+      if (refField !== undefined) {
+        const refName = refField
           .trim()
           .replace(/^refs\/heads\//, "")
           .replace(/^refs\/tags\//, "")
@@ -515,7 +534,8 @@ export const resolveRef = (
 
     // Fall back: assume first segment is the ref (a commit SHA from a
     // permalink lands here — ls-remote lists only branches and tags).
-    const ref = segments[0]
+    // split always yields at least one segment.
+    const ref = segments[0]!
     const path = segments.slice(1).join("/") || undefined
     return { ref, path }
   })

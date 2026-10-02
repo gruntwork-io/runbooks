@@ -40,6 +40,7 @@ import { populateShellEnv } from "./shell-env.ts"
 import { initSystemTrust } from "./system-trust.ts"
 import { eagerLoadInBackground as eagerLoadBoilerplateWasm } from "../../src/layers/NodeWasmRuntime.ts"
 import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../src/domain/vcs/redact.ts"
+import { init as initTelemetry, shutdown as shutdownTelemetry } from "../../src/telemetry.ts"
 
 const log = makeLogger("main")
 
@@ -211,6 +212,11 @@ function openRemoteRunbook(win: BrowserWindow, url: string): void {
 
 const cliConfig = parseCliArgs(process.argv, launchDir, app.getAppPath())
 
+// Before the IPC handlers register, so the renderer's telemetry:config call
+// sees the final state. --no-telemetry or RUNBOOKS_TELEMETRY_DISABLE keeps it
+// off.
+initTelemetry(app.getVersion(), cliConfig.noTelemetry)
+
 // Apply CLI overrides to the shared runtime config.
 // Remote URLs are resolved asynchronously after app.whenReady().
 //
@@ -266,24 +272,30 @@ ipcMain.handle("native:open-external", async (_event, params: { url: string }) =
 
 ipcMain.handle(
   "native:show-open-dialog",
-  async (_event, params: { properties: Array<"openFile" | "openDirectory" | "multiSelections">; filters?: Electron.FileFilter[] }) => {
+  async (
+    _event,
+    params: {
+      properties: Array<"openFile" | "openDirectory" | "multiSelections">
+      filters?: Electron.FileFilter[]
+    },
+  ) => {
     const result = await dialog.showOpenDialog({
       properties: params.properties,
-      defaultPath: getDialogDefaultPath(),
-      filters: params.filters,
+      ...dialogDefaultPath(),
+      ...(params.filters !== undefined ? { filters: params.filters } : {}),
     })
     return { filePaths: result.filePaths }
   },
 )
 
 // Open dialogs at the current runbook's directory when one is loaded, so the
-// file browser lands where the user expects. Falls back to undefined (OS
-// default) on cold launch before any runbook has been opened.
-function getDialogDefaultPath(): string | undefined {
+// file browser lands where the user expects. On cold launch, before any
+// runbook has been opened, it sets nothing and the OS default applies.
+function dialogDefaultPath(): Pick<Electron.OpenDialogOptions, "defaultPath"> {
   if (runbookConfig.localPath) {
-    return path.dirname(runbookConfig.localPath)
+    return { defaultPath: path.dirname(runbookConfig.localPath) }
   }
-  return undefined
+  return {}
 }
 
 ipcMain.handle("native:open-runbook-dialog", async () => {
@@ -291,7 +303,7 @@ ipcMain.handle("native:open-runbook-dialog", async () => {
   if (!win) return { ok: false }
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile", "openDirectory"],
-    defaultPath: getDialogDefaultPath(),
+    ...dialogDefaultPath(),
     filters: [
       { name: "Runbook files", extensions: ["mdx", "md"] },
       { name: "All Files", extensions: ["*"] },
@@ -385,92 +397,101 @@ async function serveRunbookAsset(request: Request): Promise<Response> {
 // App lifecycle
 // ---------------------------------------------------------------------------
 
-app.whenReady().then(() => {
-  installPermissionHandlers(session.defaultSession)
-  installClientCertificateHandler(app)
+app
+  .whenReady()
+  .then(() => {
+    installPermissionHandlers(session.defaultSession)
+    installClientCertificateHandler(app)
 
-  // Register a protocol handler to serve runbook assets (images, videos, etc.)
-  // from the local filesystem. The renderer rewrites ./assets/foo.png to
-  // runbook-asset://<host>/foo.png, where <host> is the open runbook's
-  // (runbookAssetHost, sent with runbook:get), which this handler resolves
-  // relative to the runbook's assets/ folder.
-  protocol.handle("runbook-asset", serveRunbookAsset)
+    // Register a protocol handler to serve runbook assets (images, videos, etc.)
+    // from the local filesystem. The renderer rewrites ./assets/foo.png to
+    // runbook-asset://<host>/foo.png, where <host> is the open runbook's
+    // (runbookAssetHost, sent with runbook:get), which this handler resolves
+    // relative to the runbook's assets/ folder.
+    protocol.handle("runbook-asset", serveRunbookAsset)
 
-  // Pages the Iframe block embeds run in <webview> guests, in sessions of
-  // their own (embeds.ts). Only local pages' session serves runbook-asset://.
-  const localEmbeds = session.fromPartition(LOCAL_EMBED_PARTITION)
-  const webEmbeds = session.fromPartition(WEB_EMBED_PARTITION)
-  installEmbedSession(localEmbeds)
-  installEmbedSession(webEmbeds)
-  localEmbeds.protocol.handle("runbook-asset", serveRunbookAsset)
-  const assetHost = () => runbookAssetHost(runbookConfig)
-  app.on("web-contents-created", (_event, contents) => {
-    if (contents.getType() === "window") {
-      contents.on("will-attach-webview", (event, webPreferences, params) => {
-        if (!prepareWebviewAttach(webPreferences, params, assetHost())) event.preventDefault()
-      })
-    } else if (contents.getType() === "webview") {
-      // prepareWebviewAttach put every guest it let through in one of the two.
-      const partition =
-        contents.session === localEmbeds ? LOCAL_EMBED_PARTITION : contents.session === webEmbeds ? WEB_EMBED_PARTITION : null
-      if (partition) {
-        hardenEmbedGuest(contents, partition, assetHost)
-      } else {
-        contents.close()
+    // Pages the Iframe block embeds run in <webview> guests, in sessions of
+    // their own (embeds.ts). Only local pages' session serves runbook-asset://.
+    const localEmbeds = session.fromPartition(LOCAL_EMBED_PARTITION)
+    const webEmbeds = session.fromPartition(WEB_EMBED_PARTITION)
+    installEmbedSession(localEmbeds)
+    installEmbedSession(webEmbeds)
+    localEmbeds.protocol.handle("runbook-asset", serveRunbookAsset)
+    const assetHost = () => runbookAssetHost(runbookConfig)
+    app.on("web-contents-created", (_event, contents) => {
+      if (contents.getType() === "window") {
+        contents.on("will-attach-webview", (event, webPreferences, params) => {
+          if (!prepareWebviewAttach(webPreferences, params, assetHost())) event.preventDefault()
+        })
+      } else if (contents.getType() === "webview") {
+        // prepareWebviewAttach put every guest it let through in one of the two.
+        const partition =
+          contents.session === localEmbeds
+            ? LOCAL_EMBED_PARTITION
+            : contents.session === webEmbeds
+              ? WEB_EMBED_PARTITION
+              : null
+        if (partition) {
+          hardenEmbedGuest(contents, partition, assetHost)
+        } else {
+          contents.close()
+        }
       }
-    }
-  })
+    })
 
-  // Apply the persisted theme before creating the window so its background
-  // color and title bar overlay are correct on the first frame. The renderer
-  // re-confirms over the native:set-theme IPC channel once it mounts.
-  nativeTheme.themeSource = getStoredTheme()
+    // Apply the persisted theme before creating the window so its background
+    // color and title bar overlay are correct on the first frame. The renderer
+    // re-confirms over the native:set-theme IPC channel once it mounts.
+    nativeTheme.themeSource = getStoredTheme()
 
-  setupApplicationMenu()
-  registerAllIpcHandlers()
-  createMainWindow()
-  initAutoUpdater()
+    setupApplicationMenu()
+    registerAllIpcHandlers()
+    createMainWindow()
+    initAutoUpdater()
 
-  // Keep the (Windows/Linux) title bar overlay + window background in sync with
-  // the effective theme. Fires both when the renderer changes themeSource via
-  // the native:set-theme IPC handler and when the OS theme changes while
-  // themeSource is 'system'. The initial call covers the case where assigning
-  // themeSource above doesn't fire an "updated" event (e.g. when the persisted
-  // theme already matches the OS).
-  setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
-  nativeTheme.on("updated", () => {
+    // Keep the (Windows/Linux) title bar overlay + window background in sync with
+    // the effective theme. Fires both when the renderer changes themeSource via
+    // the native:set-theme IPC handler and when the OS theme changes while
+    // themeSource is 'system'. The initial call covers the case where assigning
+    // themeSource above doesn't fire an "updated" event (e.g. when the persisted
+    // theme already matches the OS).
     setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    nativeTheme.on("updated", () => {
+      setTitleBarTheme(nativeTheme.shouldUseDarkColors ? "dark" : "light")
+    })
+
+    // Kick off the boilerplate WASM load as a background task. The full build
+    // is ~600-900ms to instantiate; running it now overlaps the cost with the
+    // user reading the runbook before their first edit.
+    log.info("Starting eager background load of vendored boilerplate WASM")
+    eagerLoadBoilerplateWasm()
+
+    // If a runbook was specified via CLI, tell the renderer once it's ready.
+    // openRunbookInWindow waits for the page to load, so a remote clone can
+    // start right away.
+    if (cliConfig.remoteUrl) {
+      const win = getMainWindow()
+      if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
+    } else if (cliConfig.runbookPath) {
+      const runbookPath = cliConfig.runbookPath
+      const win = getMainWindow()
+      if (win) openRunbookInWindow(win, { path: runbookPath })
+    } else if (pendingOpenFilePath) {
+      // A macOS open-file event (Finder double-click) arrived before the window
+      // was ready. Now that the window exists, open the stashed runbook.
+      const filePath = pendingOpenFilePath
+      pendingOpenFilePath = null
+      const win = getMainWindow()
+      if (win) openRunbookInWindow(win, { path: filePath })
+    }
+
+    app.on("activate", () => {
+      focusOrCreateWindow()
+    })
   })
-
-  // Kick off the boilerplate WASM load as a background task. The full build
-  // is ~600-900ms to instantiate; running it now overlaps the cost with the
-  // user reading the runbook before their first edit.
-  log.info("Starting eager background load of vendored boilerplate WASM")
-  eagerLoadBoilerplateWasm()
-
-  // If a runbook was specified via CLI, tell the renderer once it's ready.
-  // openRunbookInWindow waits for the page to load, so a remote clone can
-  // start right away.
-  if (cliConfig.remoteUrl) {
-    const win = getMainWindow()
-    if (win) openRemoteRunbook(win, cliConfig.remoteUrl)
-  } else if (cliConfig.runbookPath) {
-    const runbookPath = cliConfig.runbookPath
-    const win = getMainWindow()
-    if (win) openRunbookInWindow(win, { path: runbookPath })
-  } else if (pendingOpenFilePath) {
-    // A macOS open-file event (Finder double-click) arrived before the window
-    // was ready. Now that the window exists, open the stashed runbook.
-    const filePath = pendingOpenFilePath
-    pendingOpenFilePath = null
-    const win = getMainWindow()
-    if (win) openRunbookInWindow(win, { path: filePath })
-  }
-
-  app.on("activate", () => {
-    focusOrCreateWindow()
+  .catch((err: unknown) => {
+    log.error("App startup failed:", err)
   })
-})
 
 app.on("window-all-closed", () => {
   app.quit()
@@ -494,7 +515,12 @@ app.on("will-quit", (event) => {
   // cleanup below so a script is signalled before its temp clone or credential
   // file disappears. The wait is capped at 1 s so that cleanup still runs
   // inside the safety timeout.
-  Promise.race([cancelAllExecutions(), new Promise<void>((resolve) => setTimeout(resolve, 1000))])
+  Promise.race([
+    cancelAllExecutions(),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 1000)
+    }),
+  ])
     .catch((err) => {
       log.error("Error cancelling executions:", err)
     })
@@ -509,15 +535,16 @@ app.on("will-quit", (event) => {
       void stopWatcher()
 
       // Dispose the Effect managed runtime to clean up background fibers,
-      // file watchers, etc.
-      runtime
-        .dispose()
-        .catch((err) => {
+      // file watchers, etc., while telemetry gets its brief window to send
+      // in-flight events.
+      void Promise.all([
+        runtime.dispose().catch((err) => {
           log.error("Error disposing runtime:", err)
-        })
-        .finally(() => {
-          clearTimeout(timeout)
-          app.exit(0)
-        })
+        }),
+        shutdownTelemetry(),
+      ]).finally(() => {
+        clearTimeout(timeout)
+        app.exit(0)
+      })
     })
 })

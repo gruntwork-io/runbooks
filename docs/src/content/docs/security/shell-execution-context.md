@@ -120,7 +120,7 @@ Runbooks exposes the following environment variables to all scripts:
 |----------|-------------|
 | `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated** tab after successful execution. |
 | `REPO_FILES` | Path to the active git worktree (set by the most recent `<GitClone>` block). Scripts can modify cloned repo files directly through this path. **Unset** if no repo has been cloned. |
-| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. |
+| `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for downstream blocks. Write `sensitive:key=value` to mask a credential in the UI (see [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs)). |
 
 Each script also gets log files. The `log_info`, `log_warn`, `log_error` and `log_debug` functions append to `RUNBOOK_LOG`, and each of their lines names its level. `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG` take lines that don't name a level, which show up at the file's level. Any command or script can append to them all, and their lines appear in the block's logs as the script writes them. The files are deleted when the run ends. See [Log Files](/authoring/blocks/command/#log-files).
 

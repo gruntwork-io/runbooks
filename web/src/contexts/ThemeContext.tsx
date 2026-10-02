@@ -1,39 +1,34 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
-import { useApi } from './ApiContext'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
+import { useApi } from "./ApiContext"
 import {
   ThemeContext,
   THEME_STORAGE_KEY,
   type Theme,
   type ResolvedTheme,
-} from './ThemeContext.types'
+} from "./ThemeContext.types"
 
-const DARK_QUERY = '(prefers-color-scheme: dark)'
+const DARK_QUERY = "(prefers-color-scheme: dark)"
 
 /** Read the persisted preference, defaulting to 'system'. */
 function readStoredTheme(): Theme {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    if (stored === "light" || stored === "dark" || stored === "system") {
       return stored
     }
   } catch {
     /* localStorage unavailable (e.g. private mode) */
   }
-  return 'system'
+  return "system"
 }
 
 function systemPrefersDark(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia(DARK_QUERY).matches
-}
-
-function resolveTheme(theme: Theme): ResolvedTheme {
-  if (theme === 'system') return systemPrefersDark() ? 'dark' : 'light'
-  return theme
+  return typeof window !== "undefined" && window.matchMedia(DARK_QUERY).matches
 }
 
 /** Toggle the `.dark` class on <html> — the hook for the `dark:` Tailwind variant. */
 function applyThemeClass(resolved: ResolvedTheme): void {
-  document.documentElement.classList.toggle('dark', resolved === 'dark')
+  document.documentElement.classList.toggle("dark", resolved === "dark")
 }
 
 /**
@@ -45,35 +40,30 @@ function applyThemeClass(resolved: ResolvedTheme): void {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const api = useApi()
   const [theme, setThemeState] = useState<Theme>(readStoredTheme)
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
-    resolveTheme(readStoredTheme()),
-  )
+  const [systemDark, setSystemDark] = useState(systemPrefersDark)
+  const resolvedTheme: ResolvedTheme = theme === "system" ? (systemDark ? "dark" : "light") : theme
 
-  // Apply the resolved theme whenever the preference changes, and tell the main
-  // process so it can update native chrome (title bar, nativeTheme.themeSource).
   useEffect(() => {
-    const resolved = resolveTheme(theme)
-    setResolvedTheme(resolved)
-    applyThemeClass(resolved)
+    applyThemeClass(resolvedTheme)
+  }, [resolvedTheme])
+
+  // Tell the main process about the preference so it can update native chrome
+  // (title bar, nativeTheme.themeSource).
+  useEffect(() => {
     // api is null when ThemeProvider is rendered outside ApiProvider (e.g.
     // tests that don't bridge IPC). Native chrome sync is best-effort.
-    api?.invoke('native:set-theme', { theme }).catch(() => {
+    api?.invoke("native:set-theme", { theme }).catch(() => {
       /* native chrome update is best-effort */
     })
   }, [theme, api])
 
-  // In 'system' mode, follow live OS theme changes.
+  // Track the OS theme, which 'system' mode follows live.
   useEffect(() => {
-    if (theme !== 'system') return
     const mq = window.matchMedia(DARK_QUERY)
-    const onChange = () => {
-      const resolved: ResolvedTheme = mq.matches ? 'dark' : 'light'
-      setResolvedTheme(resolved)
-      applyThemeClass(resolved)
-    }
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [theme])
+    const onChange = () => setSystemDark(mq.matches)
+    mq.addEventListener("change", onChange)
+    return () => mq.removeEventListener("change", onChange)
+  }, [])
 
   const setTheme = useCallback((next: Theme) => {
     try {

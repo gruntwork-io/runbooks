@@ -50,7 +50,7 @@ const SOURCE_LABELS: Record<GitHostEntry["sources"][number], string> = {
 export function HostSelect({
   id,
   provider,
-  hosts = [],
+  hosts,
   value,
   onChange,
   onReload,
@@ -143,7 +143,10 @@ export function HostSelect({
           {/* Hosts without a credential get a subtle paste-a-token hint —
               also rendered in the single-host layout, next to Reload. */}
           {annotated && !annotated.hasCredential && (
-            <span className="text-xs text-muted-foreground" data-testid={`host-no-credential-${id}`}>
+            <span
+              className="text-xs text-muted-foreground"
+              data-testid={`host-no-credential-${id}`}
+            >
               no credentials — paste a token
             </span>
           )}
@@ -157,7 +160,7 @@ export function HostSelect({
           title={`Re-read ${provider.cli.binary} config, refresh trust, and re-check credentials`}
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
         >
-          <RefreshCw className={`size-3.5 ${disabled ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`size-3.5 ${disabled ? "animate-spin" : ""}`} />
           Reload
         </button>
       )}

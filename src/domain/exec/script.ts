@@ -3,12 +3,9 @@
  */
 import { Effect, type Scope } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
-import type {
-  FileWriteError,
-  FileReadError,
-  FileNotFoundError,
-} from "../../errors/index.ts"
+import type { FileWriteError, FileReadError, FileNotFoundError } from "../../errors/index.ts"
 import type { CapturedFile } from "../../types.ts"
+import { sensitiveOutput, type OutputValues } from "./outputValues.ts"
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -91,37 +88,28 @@ export interface ScriptSetup {
  * Detect the interpreter from a shebang line or the provided language parameter.
  * Returns [interpreter, args].
  */
-export function detectInterpreter(
-  script: string,
-  providedLang: string,
-): [string, string[]] {
+export function detectInterpreter(script: string, providedLang: string): [string, string[]] {
   // If language is explicitly provided, use it
   if (providedLang) {
     return [providedLang, []]
   }
 
-  // Parse shebang line
-  const lines = script.split("\n")
-  if (lines.length > 0 && lines[0].startsWith("#!")) {
-    const shebang = lines[0].slice(2).trim()
+  // Parse shebang line. split always returns at least one element.
+  const firstLine = script.split("\n", 1)[0]!
+  if (firstLine.startsWith("#!")) {
+    const shebang = firstLine.slice(2).trim()
 
     // Handle #!/usr/bin/env <interpreter> [args...]
     if (shebang.includes("/env ")) {
-      const parts = shebang.split(/\s+/)
-      if (parts.length >= 2) {
-        return [parts[1], parts.slice(2)]
+      const [, interpreter, ...args] = shebang.split(/\s+/)
+      if (interpreter !== undefined) {
+        return [interpreter, args]
       }
     } else {
       // Handle #!/bin/bash or #!/usr/bin/python3 etc.
-      const parts = shebang.split(/\s+/)
-      if (parts.length >= 1) {
-        let interpreter = parts[0]
-        const lastSlash = interpreter.lastIndexOf("/")
-        if (lastSlash !== -1) {
-          interpreter = interpreter.slice(lastSlash + 1)
-        }
-        return [interpreter, parts.slice(1)]
-      }
+      const [interpreterPath, ...args] = shebang.split(/\s+/)
+      const interpreter = interpreterPath!.slice(interpreterPath!.lastIndexOf("/") + 1)
+      return [interpreter, args]
     }
   }
 
@@ -347,11 +335,7 @@ ${script}
 export const prepareScript = (
   content: string,
   language: string,
-): Effect.Effect<
-  ScriptSetup,
-  FileWriteError,
-  FileSystem | Scope.Scope
-> =>
+): Effect.Effect<ScriptSetup, FileWriteError, FileSystem | Scope.Scope> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
@@ -472,28 +456,20 @@ export function parseEnvCaptureContent(data: string): Record<string, string> | u
 export const parseEnvCapture = (
   envCapturePath: string,
   pwdCapturePath: string,
-): Effect.Effect<
-  { env: Record<string, string> | undefined; pwd: string },
-  never,
-  FileSystem
-> =>
+): Effect.Effect<{ env: Record<string, string> | undefined; pwd: string }, never, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
     // Read environment capture
     let env: Record<string, string> | undefined = undefined
-    const envResult = yield* fs
-      .readFile(envCapturePath)
-      .pipe(Effect.option)
+    const envResult = yield* fs.readFile(envCapturePath).pipe(Effect.option)
     if (envResult._tag === "Some") {
       env = parseEnvCaptureContent(envResult.value)
     }
 
     // Read working directory capture
     let pwd = ""
-    const pwdResult = yield* fs
-      .readFile(pwdCapturePath)
-      .pipe(Effect.option)
+    const pwdResult = yield* fs.readFile(pwdCapturePath).pipe(Effect.option)
     if (pwdResult._tag === "Some") {
       pwd = pwdResult.value.trim()
     }
@@ -506,15 +482,28 @@ export const parseEnvCapture = (
 // ---------------------------------------------------------------------------
 
 /**
+ * A key prefix that marks an output as sensitive, e.g.
+ * `sensitive:AWS_SECRET_ACCESS_KEY=...`. The prefix is not part of the key.
+ * `:` can't appear in a valid key, so no existing output reads as marked.
+ */
+const SENSITIVE_OUTPUT_PREFIX = "sensitive:"
+
+/**
  * Parse the contents of a RUNBOOK_OUTPUT file into key=value pairs. Pure, so
  * the test CLI shares this parser with the app.
+ *
+ * A key written as `sensitive:KEY` is stored as `KEY`, so templates and auth
+ * blocks read it by its plain name, and its value is wrapped as a `Redacted`
+ * (see outputValues.ts). Once any line marks a key, it stays sensitive even if
+ * a later line rewrites it; the last value still wins.
  */
-export function parseBlockOutputsContent(content: string): Record<string, string> {
-  const outputs: Record<string, string> = {}
+export function parseBlockOutputsContent(content: string): OutputValues {
+  const values: Record<string, string> = {}
+  const sensitiveKeys = new Set<string>()
 
   const lines = content.split("\n")
-  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-    const line = lines[lineNum].trim()
+  for (const rawLine of lines) {
+    const line = rawLine.trim()
     if (line === "") continue
 
     const eqIdx = line.indexOf("=")
@@ -523,31 +512,37 @@ export function parseBlockOutputsContent(content: string): Record<string, string
       continue
     }
 
-    const key = line.slice(0, eqIdx).trim()
+    let key = line.slice(0, eqIdx).trim()
     const value = line.slice(eqIdx + 1) // Don't trim value - preserve whitespace
+
+    const sensitive = key.startsWith(SENSITIVE_OUTPUT_PREFIX)
+    if (sensitive) {
+      key = key.slice(SENSITIVE_OUTPUT_PREFIX.length).trim()
+    }
 
     if (!IDENT_RE.test(key)) {
       // Invalid output key, skip
       continue
     }
 
-    outputs[key] = value
+    values[key] = value
+    if (sensitive) sensitiveKeys.add(key)
   }
 
+  const outputs: OutputValues = {}
+  for (const [key, value] of Object.entries(values)) {
+    outputs[key] = sensitiveKeys.has(key) ? sensitiveOutput(value) : value
+  }
   return outputs
 }
 
 /**
  * Read the RUNBOOK_OUTPUT file and parse key=value pairs.
- * Returns a map of outputs, or an empty record if the file is empty/missing.
+ * Returns no outputs if the file is empty or missing.
  */
 export const parseBlockOutputs = (
   filePath: string,
-): Effect.Effect<
-  Record<string, string>,
-  never,
-  FileSystem
-> =>
+): Effect.Effect<OutputValues, never, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 
@@ -571,11 +566,7 @@ export const parseBlockOutputs = (
 export const captureFilesFromDir = (
   srcDir: string,
   outputDir: string,
-): Effect.Effect<
-  CapturedFile[],
-  FileWriteError | FileReadError | FileNotFoundError,
-  FileSystem
-> =>
+): Effect.Effect<CapturedFile[], FileWriteError | FileReadError | FileNotFoundError, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
 

@@ -74,7 +74,9 @@ value or, until you supply one, a placeholder such as `<bucket>`:
   the app, because it runs nothing. When a command needs one, instruction mode
   shows a small field labeled with the value it stands in for (for example,
   *`account_id` — output of step `create_account`*). Run that earlier step
-  yourself, then paste the value in; the command updates as you type.
+  yourself, then paste the value in; the command updates as you type. A
+  [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) always
+  gets a field, even if its step already ran, so the command never shows it.
 
 ## Tracking your progress
 
