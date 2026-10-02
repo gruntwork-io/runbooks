@@ -274,6 +274,12 @@ After a successful clone, the GitClone block produces outputs that can be refere
 
 For a local checkout, `clone_path` is the repository root the user selected, and `repo_owner` / `repo_name` come from its remote — `origin` when present, otherwise whichever remote the checkout has. They are omitted entirely when the repo has no remote, which also means no `org_id` / `repo_id`, since those are looked up from the owner and name.
 
+Because `org_id` and `repo_id` (and, for a checkout without a remote, `repo_owner` and `repo_name`) can be missing, read them behind a `hasKey` guard. Otherwise a block that references them waits until they exist, which without a GitHub token is never. See [Outputs a Block Emits Only Sometimes](/authoring/inputs-and-outputs/#outputs-a-block-emits-only-sometimes).
+
+```
+{{ if hasKey .outputs.clone_repo "org_id" }}--org-id {{ .outputs.clone_repo.org_id }}{{ end }}
+```
+
 Reference outputs in downstream blocks using template variables:
 
 ```mdx

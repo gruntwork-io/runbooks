@@ -7,6 +7,7 @@ import { useInputs, useAllOutputs, flattenInputs, useRunbookContext } from "@/co
 import {
   extractTemplateDependencies,
   extractTemplateDependenciesFromString,
+  requireAllOutputs,
   splitDependencies,
 } from "@/lib/extractTemplateDependencies"
 import { extractTemplateFiles } from "./lib/extractTemplateFiles"
@@ -161,11 +162,13 @@ function TemplateInline({
   // Get all block outputs to check dependencies and pass to template rendering
   const allOutputs = useAllOutputs()
 
-  // Extract all template dependencies from children and outputPath
+  // Extract all template dependencies from children and outputPath. outputPath
+  // resolves client-side, which can't evaluate a `hasKey` guard, so every
+  // output it references is required.
   const allDeps = useMemo(
     () => [
       ...extractTemplateDependencies(children),
-      ...extractTemplateDependenciesFromString(outputPath ?? ""),
+      ...requireAllOutputs(extractTemplateDependenciesFromString(outputPath ?? "")),
     ],
     [children, outputPath],
   )

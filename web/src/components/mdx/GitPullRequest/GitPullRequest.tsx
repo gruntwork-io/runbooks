@@ -29,10 +29,10 @@ import {
   resolveTemplateReferences,
   computeUnmetInputDependencies,
   computeUnmetOutputDependencies,
-  filterUnmetOutputDeps,
 } from "@/lib/templateUtils"
 import {
   extractTemplateDependenciesFromString,
+  requireAllOutputs,
   splitDependencies,
 } from "@/lib/extractTemplateDependencies"
 import {
@@ -144,15 +144,22 @@ function GitPullRequestInteractive({
   const titleText = title ?? cfg.defaultTitle
   const descriptionText = description ?? `Open a ${cfg.noun.lower} with your changes`
 
-  // Extract and check template dependencies from props that support template expressions
-  // Blocking dependencies (functional props): prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName, prefilledCommitMessage
-  const blockingDeps = useMemo(
-    () => [
-      ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ""),
-      ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ""),
-      ...extractTemplateDependenciesFromString(prefilledBranchName ?? ""),
-      ...extractTemplateDependenciesFromString(prefilledCommitMessage ?? ""),
-    ],
+  // Extract and check template dependencies from the functional props, which
+  // gate the block: prefilledPullRequestTitle, prefilledPullRequestDescription,
+  // prefilledBranchName, prefilledCommitMessage. The display props (title,
+  // description) resolve too, but never block. These props resolve
+  // client-side, which can't evaluate a `hasKey` guard, so every output they
+  // reference is required.
+  const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = useMemo(
+    () =>
+      splitDependencies(
+        requireAllOutputs([
+          ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ""),
+          ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ""),
+          ...extractTemplateDependenciesFromString(prefilledBranchName ?? ""),
+          ...extractTemplateDependenciesFromString(prefilledCommitMessage ?? ""),
+        ]),
+      ),
     [
       prefilledPullRequestTitle,
       prefilledPullRequestDescription,
@@ -161,44 +168,14 @@ function GitPullRequestInteractive({
     ],
   )
 
-  // Non-blocking dependencies (display props): title, description
-  const nonBlockingDeps = useMemo(
-    () => [
-      ...extractTemplateDependenciesFromString(titleText ?? ""),
-      ...extractTemplateDependenciesFromString(descriptionText ?? ""),
-    ],
-    [titleText, descriptionText],
+  const unmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(blockingInputDeps, templateCtx.inputs),
+    [blockingInputDeps, templateCtx.inputs],
   )
-
-  // Combine all dependencies for resolution context
-  const allDeps = useMemo(
-    () => [...blockingDeps, ...nonBlockingDeps],
-    [blockingDeps, nonBlockingDeps],
+  const unmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(blockingOutputDeps, rawOutputs),
+    [blockingOutputDeps, rawOutputs],
   )
-  const { inputs: allInputDeps, outputs: allOutputDeps } = useMemo(
-    () => splitDependencies(allDeps),
-    [allDeps],
-  )
-
-  const allUnmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(allInputDeps, templateCtx.inputs),
-    [allInputDeps, templateCtx.inputs],
-  )
-
-  const allUnmetOutputDeps = useMemo(
-    () => computeUnmetOutputDependencies(allOutputDeps, rawOutputs),
-    [allOutputDeps, rawOutputs],
-  )
-
-  // Compute unmet dependencies for BLOCKING props only
-  const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
-    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } =
-      splitDependencies(blockingDeps)
-    return {
-      unmetInputDeps: allUnmetInputDeps.filter((dep) => blockingInputDeps.includes(dep)),
-      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps),
-    }
-  }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
 
   const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 

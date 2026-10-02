@@ -33,6 +33,23 @@ describe("detectManualFields", () => {
     const [field] = detectManualFields("{{ .outputs.create-account.account_id }}")
     expect(field!.label).toBe("account_id — output of step create-account")
   })
+
+  it("marks a field the command reads only behind a hasKey guard as optional", () => {
+    const [field] = detectManualFields(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}--org {{ .outputs.clone_repo.org_id }}{{ end }}',
+    )
+    expect(field!.optional).toBe(true)
+    expect(field!.label).toBe("org_id — output of step clone_repo (optional)")
+  })
+
+  it("keeps a field required when any command reads it unguarded", () => {
+    const fields = detectManualFields([
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}',
+      "echo {{ .outputs.clone_repo.org_id }}",
+    ])
+    expect(fields).toHaveLength(1)
+    expect(fields[0]!.optional).toBeUndefined()
+  })
 })
 
 describe("buildManualOutputs", () => {
@@ -46,6 +63,17 @@ describe("buildManualOutputs", () => {
     const fields = detectManualFields("{{ .outputs.step.arn }}")
     const outputs = buildManualOutputs(fields, { "outputs.step.arn": "arn:aws:x" })
     expect(outputs.step!.arn).toBe("arn:aws:x")
+  })
+
+  it("leaves an empty optional field out, so its hasKey guard skips it", () => {
+    const fields = detectManualFields(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}--org {{ .outputs.clone_repo.org_id }}{{ end }}',
+    )
+    // The block keeps an entry: the guard looks the key up in it.
+    expect(buildManualOutputs(fields, {})).toEqual({ clone_repo: {} })
+    expect(buildManualOutputs(fields, { "outputs.clone_repo.org_id": "42" })).toEqual({
+      clone_repo: { org_id: "42" },
+    })
   })
 
   it("stores under both normalized and original block ids", () => {

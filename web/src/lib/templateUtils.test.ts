@@ -395,10 +395,28 @@ describe("computeUnmetOutputDependencies", () => {
     expect(computeUnmetOutputDependencies([required, optional], produced)).toEqual([])
   })
 
-  it("should wait for the block of an optional output until it produces anything", () => {
+  it("should wait for the block of an optional output without naming the output", () => {
     expect(computeUnmetOutputDependencies([optional], {})).toEqual([
-      { blockId: "clone_repo", outputNames: ["org_id"] },
+      { blockId: "clone_repo", outputNames: [] },
     ])
+  })
+
+  it("should name only the required outputs of a block that hasn't run", () => {
+    expect(computeUnmetOutputDependencies([required, optional], {})).toEqual([
+      { blockId: "clone_repo", outputNames: ["repo_owner"] },
+    ])
+  })
+
+  it("should not count withdrawn outputs as the block having run", () => {
+    const withdrawn = (values: Record<string, string>): Record<string, BlockOutputs> => ({
+      clone_repo: { values, timestamp: "2024-01-01T00:00:00Z" },
+    })
+    // A reset GitClone or failed Command publishes {}, a signed-out auth block a marker.
+    for (const values of [{}, { __AUTHENTICATED: "false" }]) {
+      expect(computeUnmetOutputDependencies([optional], withdrawn(values))).toEqual([
+        { blockId: "clone_repo", outputNames: [] },
+      ])
+    }
   })
 
   it("should treat an output as required when any reference to it is unguarded", () => {

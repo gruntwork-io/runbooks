@@ -10,6 +10,7 @@
 import type { ReactNode } from "react"
 import { normalizeBlockId } from "@/lib/utils"
 import type { InputName, BlockId, OutputName } from "@/lib/templateUtils"
+import { scanGuardedCode } from "../../../src/domain/boilerplate/outputGuards"
 
 /**
  * Represents a dependency extracted from a template expression.
@@ -17,9 +18,9 @@ import type { InputName, BlockId, OutputName } from "@/lib/templateUtils"
  * - 'input': {{ .inputs.region }} → needs an input value named "region"
  * - 'output': {{ .outputs.create_account.account_id }} → needs output "account_id" from block "create_account"
  *
- * An output dependency is `optional` when the content guards it with
- * `hasKey .outputs.create_account "account_id"`: the block must have run, but
- * the output itself may be absent.
+ * An output dependency is `optional` when every reference to it sits behind a
+ * `hasKey .outputs.create_account "account_id"` guard (see scanGuardedCode):
+ * the block must have run, but the output itself may be absent.
  */
 export type TemplateDependency =
   | { type: "input"; name: InputName }
@@ -30,14 +31,6 @@ export type TemplateDependency =
       fullPath: string
       optional?: boolean
     }
-
-/**
- * A `hasKey .outputs.X "Y"` guard (the map may be parenthesized, the key
- * double-quoted or backquoted). Templates render with missing-key-action=error,
- * so this is the one way to read an output a block emits only sometimes.
- */
-const OUTPUT_GUARD_PATTERN =
-  /\bhasKey\s+\(?\s*\.outputs\.([a-zA-Z0-9_-]+)\s*\)?\s+(?:"([a-zA-Z0-9_-]+)"|`([a-zA-Z0-9_-]+)`)/g
 
 // OutputDependency is defined canonically alongside the boilerplate config types.
 // Import it for local use below, and re-export so existing importers keep a
@@ -54,10 +47,11 @@ export type { OutputDependency }
  * - {{ .outputs.block_id.output_name }} → output dependency
  * - Handles optional whitespace trimming markers (-) and pipe functions (| upper)
  *
- * Two-pass extraction: first find all {{ }} template blocks, then scan each
- * block for .inputs.X and .outputs.X.Y references. This correctly handles
- * references inside function calls (e.g., fromJson) while ignoring occurrences
- * outside template delimiters (e.g., in comments).
+ * Two-pass extraction: scanGuardedCode finds the code inside {{ }} actions
+ * (skipping template comments), then each part is scanned for .inputs.X and
+ * .outputs.X.Y references. This correctly handles references inside function
+ * calls (e.g., fromJson) while ignoring occurrences outside template
+ * delimiters.
  *
  * @param content - String content to search for dependencies
  * @returns Array of TemplateDependency objects found in the template
@@ -66,37 +60,20 @@ export function extractTemplateDependenciesFromString(content: string): Template
   if (!content) return []
 
   const deps: TemplateDependency[] = []
-  const seen = new Set<string>()
-  const guarded = new Set<string>()
+  const seenInputs = new Set<string>()
+  const outputs = new Map<string, Extract<TemplateDependency, { type: "output" }>>()
 
-  // First pass: find all {{ }} template blocks
-  const blockRegex = /\{\{-?([\s\S]*?)-?\}\}/g
-  let blockMatch
+  // Allow hyphens in path segments — block IDs in MDX use hyphens (e.g., create-account)
+  const refRegex = /\.(?:inputs|outputs)\.[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*/g
 
-  while ((blockMatch = blockRegex.exec(content)) !== null) {
-    // Group 1 isn't optional, so a match always has it.
-    const blockContent = blockMatch[1]!
-
-    OUTPUT_GUARD_PATTERN.lastIndex = 0
-    for (const [, blockId, quoted, backquoted] of blockContent.matchAll(OUTPUT_GUARD_PATTERN)) {
-      // Group 1 isn't optional, so a match always has it.
-      guarded.add(`outputs.${normalizeBlockId(blockId!)}.${quoted ?? backquoted}`)
-    }
-
-    // Second pass: find .inputs.X and .outputs.X.Y references within the block
-    // Allow hyphens in path segments — block IDs in MDX use hyphens (e.g., create-account)
-    const refRegex = /\.(?:inputs|outputs)\.[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)*/g
-    let refMatch
-
-    while ((refMatch = refRegex.exec(blockContent)) !== null) {
-      const path = refMatch[0].slice(1) // Remove leading dot
-
-      if (seen.has(path)) continue
+  for (const { code, guarded } of scanGuardedCode(content)) {
+    for (const [ref] of code.matchAll(refRegex)) {
+      const path = ref.slice(1) // Remove leading dot
 
       if (path.startsWith("inputs.")) {
         const name = path.slice("inputs.".length)
-        if (name) {
-          seen.add(path)
+        if (name && !seenInputs.has(name)) {
+          seenInputs.add(name)
           deps.push({ type: "input", name })
         }
       } else if (path.startsWith("outputs.")) {
@@ -104,30 +81,29 @@ export function extractTemplateDependenciesFromString(content: string): Template
         const dotIdx = rest.indexOf(".")
         if (dotIdx > 0) {
           const originalBlockId = rest.slice(0, dotIdx)
-          const normalizedBlockId = normalizeBlockId(originalBlockId)
           const outputName = rest.slice(dotIdx + 1)
           // Use normalized path for deduplication (create-account and create_account are the same)
-          const normalizedPath = `outputs.${normalizedBlockId}.${outputName}`
+          const normalizedPath = `outputs.${normalizeBlockId(originalBlockId)}.${outputName}`
+          const optional = guarded.has(normalizedPath)
 
-          if (!seen.has(normalizedPath)) {
-            seen.add(normalizedPath)
-            deps.push({
-              type: "output",
-              blockId: originalBlockId,
-              outputName,
-              fullPath: normalizedPath,
-            })
+          const existing = outputs.get(normalizedPath)
+          if (existing) {
+            // One unguarded reference makes the output required.
+            if (!optional) delete existing.optional
+            continue
           }
+          const dep = {
+            type: "output" as const,
+            blockId: originalBlockId,
+            outputName,
+            fullPath: normalizedPath,
+            ...(optional ? { optional: true } : {}),
+          }
+          outputs.set(normalizedPath, dep)
+          deps.push(dep)
         }
       }
     }
-  }
-
-  // The guard and the reference usually sit in separate actions
-  // (`{{ if hasKey ... }}{{ .outputs.x.y }}{{ end }}`), so guards are applied
-  // after the whole content has been scanned.
-  for (const dep of deps) {
-    if (dep.type === "output" && guarded.has(dep.fullPath)) dep.optional = true
   }
 
   return deps
@@ -176,6 +152,20 @@ export function splitDependencies(deps: TemplateDependency[]): {
 }
 
 /**
+ * The same dependencies with every output required. For props that
+ * resolveTemplateReferences resolves client-side: it substitutes plain
+ * `{{ .outputs.X.Y }}` references but can't evaluate `if` or `hasKey`, so a
+ * guard there protects nothing.
+ */
+export function requireAllOutputs(deps: TemplateDependency[]): TemplateDependency[] {
+  return deps.map((dep) =>
+    dep.type === "output" && dep.optional
+      ? { type: dep.type, blockId: dep.blockId, outputName: dep.outputName, fullPath: dep.fullPath }
+      : dep,
+  )
+}
+
+/**
  * Extract template dependencies from React children nodes.
  *
  * MDX compiles code blocks into nested React elements (`<pre>` → `<code>` → text).
@@ -190,15 +180,19 @@ export function splitDependencies(deps: TemplateDependency[]): {
  */
 export function extractTemplateDependencies(children: ReactNode): TemplateDependency[] {
   const allDeps: TemplateDependency[] = []
-  const seen = new Set<string>()
+  const seen = new Map<string, TemplateDependency>()
 
   const collectFromString = (text: string) => {
     const deps = extractTemplateDependenciesFromString(text)
     for (const dep of deps) {
       const key = dep.type === "input" ? `input:${dep.name}` : dep.fullPath
-      if (!seen.has(key)) {
-        seen.add(key)
+      const existing = seen.get(key)
+      if (!existing) {
+        seen.set(key, dep)
         allDeps.push(dep)
+      } else if (existing.type === "output" && dep.type === "output" && !dep.optional) {
+        // One unguarded reference, in any of the strings, makes the output required.
+        delete existing.optional
       }
     }
   }

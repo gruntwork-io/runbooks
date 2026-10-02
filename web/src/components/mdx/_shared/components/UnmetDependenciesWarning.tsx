@@ -50,8 +50,9 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
             {unmetOutputDeps.map((dep, i) => (
               <span key={dep.blockId}>
                 {i > 0 && ", "}
-                <code className="bg-warning-muted px-1 rounded text-xs">{dep.blockId}</code> (
-                {dep.outputNames.join(", ")})
+                <code className="bg-warning-muted px-1 rounded text-xs">{dep.blockId}</code>
+                {/* A block waited on only for optional outputs has no names to list */}
+                {dep.outputNames.length > 0 && ` (${dep.outputNames.join(", ")})`}
               </span>
             ))}
           </div>
