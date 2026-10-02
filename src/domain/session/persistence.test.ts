@@ -8,7 +8,7 @@ import { SessionPersistence, type SessionCipher } from "./persistence.ts"
 import { SessionStore } from "./store.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
-import { openBunSqlite } from "../../test-utils/bunSqlite.ts"
+import { openSqliteDatabase } from "../../layers/NodeSqlite.ts"
 
 /** Reversible and recognizable, so a test can tell the stored env is not the plaintext. */
 const reversingCipher: SessionCipher = {
@@ -47,7 +47,7 @@ describe("SessionPersistence", () => {
 
   /** One run of the app: its own manager and database connection over the same files. */
   function startApp(cipher: SessionCipher = reversingCipher) {
-    const store = Effect.runSync(SessionStore.open(openBunSqlite(dbFile)))
+    const store = Effect.runSync(SessionStore.open(openSqliteDatabase(dbFile)))
     const manager = new SessionManager()
     const persistence = new SessionPersistence({
       store,

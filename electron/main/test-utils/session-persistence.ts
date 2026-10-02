@@ -8,7 +8,7 @@ import * as path from "node:path"
 import { Effect } from "effect"
 import { SessionPersistence } from "../../../src/domain/session/persistence.ts"
 import { SessionStore } from "../../../src/domain/session/store.ts"
-import { openBunSqlite } from "../../../src/test-utils/bunSqlite.ts"
+import { openSqliteDatabase } from "../../../src/layers/NodeSqlite.ts"
 import { sessionManager, setSessionPersistence } from "../ipc/runtime.ts"
 
 export interface TestSessionPersistence {
@@ -27,7 +27,7 @@ export interface TestSessionPersistence {
 export function installTestSessionPersistence(): TestSessionPersistence {
   // realpath: os.tmpdir() is a symlink on macOS, and session dirs are real paths.
   const dirsRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-sessions-")))
-  const store = Effect.runSync(SessionStore.open(openBunSqlite()))
+  const store = Effect.runSync(SessionStore.open(openSqliteDatabase(":memory:")))
   const persistence = new SessionPersistence({
     store,
     manager: sessionManager,

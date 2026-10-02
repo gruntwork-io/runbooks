@@ -7,7 +7,7 @@ import { sessionToResume } from "./launch-session.ts"
 import { SessionManager } from "../../src/domain/session/manager.ts"
 import { SessionPersistence } from "../../src/domain/session/persistence.ts"
 import { SessionStore, type SessionRecord } from "../../src/domain/session/store.ts"
-import { openBunSqlite } from "../../src/test-utils/bunSqlite.ts"
+import { openSqliteDatabase } from "../../src/layers/NodeSqlite.ts"
 
 describe("sessionToResume", () => {
   let tmp: string
@@ -16,7 +16,7 @@ describe("sessionToResume", () => {
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-launch-session-"))
-    store = Effect.runSync(SessionStore.open(openBunSqlite()))
+    store = Effect.runSync(SessionStore.open(openSqliteDatabase(":memory:")))
     persistence = new SessionPersistence({
       store,
       manager: new SessionManager(),

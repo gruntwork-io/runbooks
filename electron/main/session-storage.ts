@@ -15,7 +15,7 @@ import { SessionPersistence, type SessionCipher } from "../../src/domain/session
 import { SessionStore } from "../../src/domain/session/store.ts"
 import { sessionManager } from "./ipc/runtime.ts"
 import { GOOGLE_CREDENTIAL_FILE_ENV_VARS } from "./ipc/google-session-env.ts"
-import { openSqliteDatabase } from "./sqlite.ts"
+import { openSqliteDatabase } from "../../src/layers/NodeSqlite.ts"
 import { makeLogger } from "./logger.ts"
 
 const log = makeLogger("sessions")

@@ -1,10 +1,9 @@
 /**
  * The sessions database: one row per session, kept across app restarts.
  *
- * The store speaks SQL through SqlDatabase, the part of a synchronous SQLite
- * binding it needs. The app passes Electron's `node:sqlite`
- * (electron/main/sqlite.ts); `bun test` has no `node:sqlite`, so tests pass
- * `bun:sqlite` (src/test-utils/bunSqlite.ts).
+ * The store speaks SQL through SqlDatabase, the part of `node:sqlite` it
+ * needs, so that this module imports no Node API. src/layers/NodeSqlite.ts
+ * opens one.
  */
 import { Effect } from "effect"
 import { SessionStoreError } from "../../errors/index.ts"
@@ -14,7 +13,7 @@ export type SqlValue = string | number | null | Uint8Array
 
 export interface SqlStatement {
   run(...params: SqlValue[]): void
-  /** The first row, or undefined or null when there is none. */
+  /** The first row, or undefined when there is none. */
   get(...params: SqlValue[]): unknown
   all(...params: SqlValue[]): unknown[]
 }
@@ -247,9 +246,8 @@ export class SessionStore {
     return attempt("read a session", () => {
       const row = this.db.prepare(`SELECT * FROM sessions ${clause}`).get(...params) as
         | SessionRow
-        | null
         | undefined
-      if (row === null || row === undefined) return undefined
+      if (row === undefined) return undefined
       const worktrees = this.db
         .prepare("SELECT path FROM session_worktrees WHERE session_id = ? ORDER BY position")
         .all(row.id) as Array<{ path: string }>
