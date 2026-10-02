@@ -170,6 +170,13 @@ export class SessionStore {
     })
   }
 
+  /** Give the session a new name. Fails when another session has it. */
+  rename(id: string, name: string): Effect.Effect<void, SessionStoreError> {
+    return attempt("rename a session", () => {
+      this.db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, id)
+    })
+  }
+
   /** The most recently launched session of `runbook`. */
   latestForRunbook(
     runbook: RunbookSource,

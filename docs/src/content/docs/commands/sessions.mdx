@@ -17,7 +17,24 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and nothing else about the runbook, neither its path nor its URL. The window title starts with the name too.
 
-Runbooks picks the name when it creates the session, and the session keeps it for good. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
+The folder button next to the name copies the path of the session's directory. Hover over it to see the path. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+
+Runbooks picks the name when it creates the session, and the session keeps it until you rename it. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
+
+### Renaming a session
+
+Click the name in the title bar, or choose **File > Rename Session…** or **Rename Session** in the app's menu. Type the new name and press <kbd>Enter</kbd>. Press <kbd>Esc</kbd> or click elsewhere to keep the name as it was.
+
+A name follows these rules:
+
+- It is 1 to 63 characters long.
+- It uses lowercase letters (`a` to `z`), digits and hyphens. Uppercase letters are lowercased as you type.
+- It starts and ends with a letter or digit, and has no two hyphens in a row.
+- No other session has it.
+
+`prod-deploy` and `release-2026-10-02` are allowed. `Prod Deploy`, `prod_deploy` and `-prod` are not. When a name is refused, the title bar says why and the session keeps its name.
+
+Renaming changes only what the session is called. Its directory, files and environment stay as they are.
 
 ## Resuming a session
 
@@ -67,7 +84,7 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
       - my-cloned-repo/
 </FileTree>
 
-The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its id, a UUID that never changes, not after its name. To find the directory of the session on screen, run a block that prints `$PWD`, or look the name up:
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
 
 ```bash
 sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"

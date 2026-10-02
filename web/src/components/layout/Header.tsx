@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react"
-import { ChevronDown, Download, Info, RotateCcw, X } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { ChevronDown, Download, Info, Pencil, RotateCcw, X } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
@@ -19,6 +19,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
+import { SessionDirButton } from "./SessionDirButton"
+import { SessionName } from "./SessionName"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
 import { useLogs } from "@/contexts/useLogs"
@@ -34,22 +36,35 @@ import {
 interface HeaderProps {
   /** The open runbook's session name, e.g. `elegant-elephant`. Undefined while no runbook is open. */
   sessionName?: string | undefined
+  /** The absolute path of that session's own directory */
+  sessionDir?: string | undefined
+  /** Called with the session's new name after the user renames it */
+  onSessionRenamed: (name: string) => void
 }
 
 /**
  * A fixed header component that displays the branding and the open runbook's
- * session name. It is the app's title bar: the window has no native one.
+ * session name, which the user can rename here, with a button that copies the
+ * path of the session's directory. It is the app's title bar: the window has
+ * no native one.
  *
  * The header uses a responsive design where mobile devices show only the
- * session name, while desktop devices show the full layout with branding and
- * navigation.
+ * session name and its button, while desktop devices show the full layout
+ * with branding and navigation.
  *
  * @param props - The component props
  * @param props.sessionName - The session name
+ * @param props.sessionDir - The session's directory
+ * @param props.onSessionRenamed - Called with the new name after a rename
  */
-export function Header({ sessionName }: HeaderProps) {
+export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProps) {
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  // Set by the menu's Rename Session item. The name's field opens once the
+  // menu has closed: opened sooner, it would lose the focus to the closing
+  // menu, and a field that loses focus cancels the rename.
+  const renameOnMenuClose = useRef(false)
   const { getAllLogs, hasLogs } = useLogs()
   const api = useApi()
   const { resolvedTheme } = useTheme()
@@ -63,6 +78,15 @@ export function Header({ sessionName }: HeaderProps) {
   }, [api])
 
   const hasRunbookOpen = sessionName !== undefined
+
+  // The native "Rename Session…" menu item.
+  useEffect(() => {
+    const cleanup = api.on("menu:rename-session", () => {
+      if (hasRunbookOpen) setIsRenaming(true)
+    })
+    return cleanup
+  }, [api, hasRunbookOpen])
+
   const handleCloseRunbook = () => {
     api.invoke("native:close-runbook").catch((err: unknown) => {
       console.error("Failed to close the runbook:", err)
@@ -112,15 +136,15 @@ export function Header({ sessionName }: HeaderProps) {
           />
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
-          {sessionName && (
-            <span
-              className="flex-shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-foreground font-mono font-normal"
-              title={`Session: ${sessionName}`}
-              data-testid="session-name"
-            >
-              {sessionName}
-            </span>
+          {sessionName !== undefined && (
+            <SessionName
+              name={sessionName}
+              isRenaming={isRenaming}
+              onRenamingChange={setIsRenaming}
+              onRenamed={onSessionRenamed}
+            />
           )}
+          {sessionDir !== undefined && <SessionDirButton dir={sessionDir} />}
         </div>
         <div
           className={`hidden md:block md:absolute ${menuRightClass} md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md`}
@@ -133,7 +157,16 @@ export function Header({ sessionName }: HeaderProps) {
               Menu
               <ChevronDown className="size-4" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              onCloseAutoFocus={(event) => {
+                if (!renameOnMenuClose.current) return
+                renameOnMenuClose.current = false
+                // Keep the focus off the Menu button: the name's field takes it.
+                event.preventDefault()
+                setIsRenaming(true)
+              }}
+            >
               <DropdownMenuItem
                 onClick={handleDownloadRaw}
                 disabled={!hasLogs}
@@ -151,6 +184,16 @@ export function Header({ sessionName }: HeaderProps) {
                 Download logs (JSON)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  renameOnMenuClose.current = true
+                }}
+                disabled={!hasRunbookOpen}
+                className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
+              >
+                <Pencil className="size-4" />
+                Rename Session
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleResetSession}
                 disabled={!hasRunbookOpen}

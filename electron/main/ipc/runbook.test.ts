@@ -47,6 +47,7 @@ type RunbookGetResult = {
   isWatchMode?: boolean
   sessionId: string
   sessionName: string
+  sessionDir: string
 }
 /** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
 const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
@@ -393,11 +394,12 @@ describe("runbook IPC handlers", () => {
         )
 
       it("starts in the session's own directory, not the runbook's folder", async () => {
-        const { sessionId } = await getRunbook(dirA)
+        const result = await getRunbook(dirA)
 
-        const sessionDir = path.join(sessions.dirsRoot, sessionId)
+        const sessionDir = path.join(sessions.dirsRoot, result.sessionId)
         expect(await workingDir()).toBe(sessionDir)
         expect(fs.statSync(sessionDir).isDirectory()).toBe(true)
+        expect(result.sessionDir).toBe(sessionDir)
       })
 
       it("keeps a block's cd across a watch-mode reload, and resets it on a re-open", async () => {
@@ -407,8 +409,10 @@ describe("runbook IPC handlers", () => {
         fs.mkdirSync(sub)
         await cdInSession(sessionDir, sub)
 
-        await getRunbook(dirA, { reload: "watch" })
+        const reloaded = await getRunbook(dirA, { reload: "watch" })
         expect(await workingDir()).toBe(sub)
+        // The session's directory is where it started, wherever a block has moved to.
+        expect(reloaded.sessionDir).toBe(sessionDir)
         // resetSession goes back to where the session started, not the cd.
         await runtimeModule.runtime.runPromise(sessionManager.resetSession())
         expect(await workingDir()).toBe(sessionDir)

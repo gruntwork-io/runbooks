@@ -162,6 +162,33 @@ const NOUNS = [
   "zebra",
 ] as const
 
+/** The longest a session name can be: the length limit of a DNS label, which a name is shaped like. */
+export const SESSION_NAME_MAX_LENGTH = 63
+
+/** Lowercase letters and digits, in groups joined by single hyphens. */
+const SESSION_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/**
+ * Why `name` can't be a session's name, as a sentence to show the person who
+ * typed it, or undefined when it can. Every name sessionNameCandidates offers
+ * passes.
+ *
+ * A name is 1 to 63 characters: lowercase letters, digits and hyphens, with a
+ * letter or digit at each end and no two hyphens in a row. That keeps a name
+ * one word that reads the same wherever it is shown or typed, in the title
+ * bar, a terminal or a URL.
+ */
+export function sessionNameProblem(name: string): string | undefined {
+  if (name === "") return "Enter a name."
+  if (name.length > SESSION_NAME_MAX_LENGTH) {
+    return `A session name can be at most ${SESSION_NAME_MAX_LENGTH} characters.`
+  }
+  if (!SESSION_NAME.test(name)) {
+    return "Use lowercase letters, digits and hyphens, with a letter or digit at each end and no two hyphens in a row."
+  }
+  return undefined
+}
+
 /** Random pairs to offer before giving up on a plain `adjective-noun`. */
 const PLAIN_CANDIDATES = 10
 
