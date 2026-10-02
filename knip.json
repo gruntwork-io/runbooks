@@ -3,6 +3,7 @@
   "entry": [
     "electron/main/index.ts",
     "electron/preload/index.ts",
+    "electron/preload/embed.ts",
     "web/src/main.tsx",
     "cli/index.ts",
     "scripts/*.ts",

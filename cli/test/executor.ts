@@ -11,7 +11,7 @@ import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
 import { Either, ManagedRuntime } from "effect"
 
-import { extractProp } from "../../src/domain/registry/executable.ts"
+import { extractProp, extractStringArrayProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
 import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
@@ -647,6 +647,14 @@ export class TestExecutor {
       console.log(`\n=== ${block.type}: ${block.id} ===`)
     }
 
+    if (step.set_outputs !== undefined && block.type !== "Iframe") {
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `set_outputs only applies to Iframe blocks, not ${block.type}`
+      result.duration = Date.now() - start
+      return result
+    }
+
     // Handle skip expectation
     if (step.expect === "skip") {
       result.passed = true
@@ -756,6 +764,9 @@ export class TestExecutor {
 
       case "GitClone":
         return this.runGitClone(block, step, start)
+
+      case "Iframe":
+        return this.runIframe(block, step, start)
 
       // `expect: skip` returned above, so any expectation that gets here would
       // need the block to push a branch and open a real pull request.
@@ -1523,6 +1534,35 @@ export class TestExecutor {
   // -----------------------------------------------------------------------
   // GitClone block
   // -----------------------------------------------------------------------
+
+  /**
+   * Stand in for the page an Iframe block frames. The test can't run a page,
+   * so the step's set_outputs become the block's outputs, as if the page had
+   * set them. Like the app, it refuses names the block's outputs prop doesn't
+   * list.
+   */
+  private runIframe(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`iframe:${block.id}`, step.expect)
+    const values = step.set_outputs ?? {}
+    const declared = extractStringArrayProp(block.props, "outputs") ?? []
+    const undeclared = Object.keys(values).filter((name) => !declared.includes(name))
+    if (undeclared.length > 0) {
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = `set_outputs names outputs the block's outputs prop doesn't list: ${undeclared.join(", ")}`
+      result.duration = Date.now() - start
+      return result
+    }
+
+    result.outputs = { ...values }
+    if (Object.keys(values).length > 0) {
+      this.blockOutputs.set(block.id, new Map(Object.entries(values)))
+    }
+    result.actualStatus = "success"
+    result.passed = this.matchesExpectedStatus(step.expect, "success")
+    result.duration = Date.now() - start
+    return result
+  }
 
   private runGitClone(block: ParsedComponent, step: TestStep, start: number): StepResult {
     const result = makeStepResult(`gitClone:${block.id}`, step.expect)

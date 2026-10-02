@@ -273,6 +273,104 @@ describe("TestExecutor — cleanup", () => {
 // and `expect: blocked` is judged before any template rendering.
 // ---------------------------------------------------------------------------
 
+describe("TestExecutor — Iframe outputs", () => {
+  let tmp: string
+
+  const makeExecutor = async (mdx: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, mdx)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const PICKER_RUNBOOK = [
+    "# Picker",
+    "",
+    `<Iframe id="region-picker" src="./assets/picker.html" outputs={["region", "zone"]} />`,
+    "",
+    `<Command id="deploy" command="echo deploying to {{ .outputs.region_picker.region }}" />`,
+    "",
+  ].join("\n")
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-iframe-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("gives later blocks the outputs set_outputs stands in for", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "picked",
+      steps: [
+        { block: "region-picker", expect: "success", set_outputs: { region: "eu-west-1" } },
+        { block: "deploy", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[0]?.outputs).toEqual({ region: "eu-west-1" })
+    expect(result.stepResults[1]?.logs).toContain("deploying to eu-west-1")
+  })
+
+  it("leaves later blocks blocked when the step sets no outputs", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "not-picked",
+      steps: [
+        { block: "region-picker", expect: "success" },
+        { block: "deploy", expect: "blocked", missing_outputs: ["outputs.region_picker.region"] },
+      ],
+    })
+
+    expect(result.status).toBe("passed")
+  })
+
+  it("refuses outputs the block's outputs prop doesn't list", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "undeclared",
+      steps: [{ block: "region-picker", expect: "success", set_outputs: { account: "123" } }],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]?.error).toBe(
+      "set_outputs names outputs the block's outputs prop doesn't list: account",
+    )
+  })
+
+  it("refuses set_outputs on a block that isn't an Iframe", async () => {
+    const executor = await makeExecutor(PICKER_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "wrong-block",
+      steps: [{ block: "deploy", expect: "success", set_outputs: { region: "x" } }],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[0]?.error).toBe(
+      "set_outputs only applies to Iframe blocks, not Command",
+    )
+  })
+
+  it("runs an Iframe with an id, and skips one without, when no steps are listed", async () => {
+    const executor = await makeExecutor(
+      `# Frames\n\n<Iframe id="picker" src="./assets/a.html" />\n\n<Iframe src="./assets/b.html" />\n`,
+    )
+
+    const result = executor.runTest({ name: "default" })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => s.block)).toEqual(["iframe:picker"])
+  })
+})
+
 describe("TestExecutor — explicit steps", () => {
   let tmp: string
 

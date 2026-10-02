@@ -19,3 +19,21 @@ Keep the docs for a block open while you work through a runbook.
 This page lives at `assets/site/index.html`. Its stylesheet and script load from the same folder through relative paths.
 
 <Iframe src="./assets/site/index.html" title="Local site" height={260} />
+
+## A page that exchanges values with the runbook
+
+This picker lives at `assets/picker/index.html`. It receives the environment from the Inputs block below, and the region you pick becomes the Iframe block's `region` output, which the Command after it reads.
+
+<Inputs id="deploy-config">
+```yaml
+variables:
+  - name: environment
+    type: string
+    description: Environment to deploy
+    default: staging
+```
+</Inputs>
+
+<Iframe id="region-picker" src="./assets/picker/index.html" title="Region picker" height={220} inputsId="deploy-config" outputs={["region"]} />
+
+<Command id="show-region" inputsId="deploy-config" command="echo 'Deploying {{ .inputs.environment }} to {{ .outputs.region_picker.region }}'" />
