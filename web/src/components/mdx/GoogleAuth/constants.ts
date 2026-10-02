@@ -54,8 +54,6 @@ export const GCP_REGIONS = [
   { code: "australia-southeast2", name: "Melbourne", geography: "Australia" },
 ] as const
 
-export type GcpRegionCode = (typeof GCP_REGIONS)[number]["code"]
-
 /**
  * OAuth scopes requested by the Google Sign-In tab when the author does not set
  * the `scopes` prop.

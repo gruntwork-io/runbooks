@@ -27,7 +27,7 @@ vi.mock("@/hooks/useGitFileChanges", () => ({
   useGitFileChanges: () => ({ changes: [], isLoading: false, error: null, refetch: vi.fn() }),
 }))
 
-import GitLabMergeRequest from "../GitLabMergeRequest"
+import { GitLabMergeRequest } from "../GitLabMergeRequest"
 
 /** Registers block outputs so the block can derive a linked auth provider. */
 function Seed({ id, values }: { id: string; values: Record<string, string> }) {

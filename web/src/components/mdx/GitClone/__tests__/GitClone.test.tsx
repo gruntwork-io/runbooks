@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
-import GitClone from ".."
+import { GitClone } from ".."
 import { useGitClone } from "../hooks/useGitClone"
 
 // Mock useGitClone hook. A vi.fn lets us assert which auth id the component

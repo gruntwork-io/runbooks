@@ -11,7 +11,6 @@
 import { Effect } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
-import { GitLabClient } from "../../services/GitLabClient.ts"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
 import { Environment } from "../../services/Environment.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -98,22 +97,6 @@ const glabSemaphoreFor = (host: string): Effect.Semaphore => {
   }
   return semaphore
 }
-
-// ---------------------------------------------------------------------------
-// Token Validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate a GitLab token by calling the GitLab API (GET /user).
- *
- * `baseUrl` is the instance origin (e.g. `https://gitlab.example.com`) so a
- * self-hosted token validates against its own instance; defaults to gitlab.com.
- */
-export const validateToken = (token: string, baseUrl?: string) =>
-  Effect.gen(function* () {
-    const glClient = yield* GitLabClient
-    return yield* glClient.validateToken(token, baseUrl)
-  })
 
 // ---------------------------------------------------------------------------
 // Token Type Detection

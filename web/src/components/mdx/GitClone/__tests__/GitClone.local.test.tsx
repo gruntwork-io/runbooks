@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // The IPC boundary is the only thing mocked — the real useGitClone drives the
 // block, so these tests cover the hook's preview/select logic too.

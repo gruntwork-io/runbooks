@@ -8,7 +8,7 @@ vi.mock("@/contexts/useInstructionMode", () => ({
   useInstructionMode: () => ({ enabled: true, setEnabled: vi.fn() }),
 }))
 
-import GitLabMergeRequest from "../GitLabMergeRequest"
+import { GitLabMergeRequest } from "../GitLabMergeRequest"
 
 function Seed({ id, values }: { id: string; values: Record<string, string> }) {
   const { registerOutputs } = useRunbookContext()

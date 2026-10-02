@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest"
 import { render, screen, waitFor, act } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // The IPC boundary is the only thing mocked — the real useGitClone fetchers
 // feed the real GitHubBrowser, so these tests cover the channel mapping too.

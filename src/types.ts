@@ -137,18 +137,6 @@ export interface RenderRequest {
   perf?: RenderPerfContext
 }
 
-export interface RenderResponse extends Partial<FileTreeMeta> {
-  message: string
-  outputDir: string
-  templatePath: string
-  /** Omitted when nothing was written (the no-change shortcut). */
-  fileTree?: FileTreeNode[]
-  deletedFiles: string[]
-  createdFiles: string[]
-  modifiedFiles: string[]
-  skippedFiles: string[]
-}
-
 export interface InputValue {
   name: string
   type: BoilerplateVarType

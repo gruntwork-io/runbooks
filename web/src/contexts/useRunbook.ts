@@ -55,10 +55,8 @@ import type { TemplateContext } from "@/lib/templateUtils"
 export {
   type TemplateValue,
   type OutputValue,
-  type BlockInputs,
   type BlockOutputs,
   flattenInputs,
-  valuesToOutputs,
 } from "./RunbookContext"
 
 // Stable empty arrays to avoid creating new references

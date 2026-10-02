@@ -75,11 +75,23 @@ export function isEnabled(): boolean {
   return enabled
 }
 
-/** Returns config info suitable for an API health-check response. */
-export function getConfig(): { enabled: boolean; token: string | undefined } {
+/**
+ * What the renderer needs to start its own Mixpanel client: whether telemetry
+ * is on, and the anonymous ID and app version to identify events with, so its
+ * events join the main process's.
+ */
+export function getConfig(): {
+  enabled: boolean
+  token?: string
+  anonymousId?: string
+  version?: string
+} {
+  if (!enabled) return { enabled: false }
   return {
-    enabled,
-    token: enabled ? (process.env.MIXPANEL_TOKEN ?? MIXPANEL_TOKEN_FALLBACK) : undefined,
+    enabled: true,
+    token: process.env.MIXPANEL_TOKEN ?? MIXPANEL_TOKEN_FALLBACK,
+    ...(anonymousId !== undefined && { anonymousId }),
+    version: appVersion,
   }
 }
 
