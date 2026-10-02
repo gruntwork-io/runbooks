@@ -1,5 +1,5 @@
 import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle } from "lucide-react"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useEffectEvent, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
 import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
@@ -344,59 +344,67 @@ function GitCloneInteractive({
   // no commits — <GitPullRequest> takes the registered ref as its base branch,
   // and an empty repo has no branch that could serve as one. Registration
   // resumes on its own once the default branch is seeded, because that updates
-  // cloneResult.
-  useEffect(() => {
-    if (cloneStatus !== "success" || !cloneResult || !showFileTree) return
-    if (cloneResult.hasCommits === false) return
+  // cloneResult. Only the clone's status, result and selected checkout trigger
+  // it; the form fields it reads may change afterwards without re-registering.
+  const registerUsableWorkTree = useEffectEvent(
+    (
+      status: typeof cloneStatus,
+      result: typeof cloneResult,
+      localInfo: typeof selectedLocalInfo,
+    ) => {
+      if (status !== "success" || !result || !showFileTree) return
+      if (result.hasCommits === false) return
 
-    if (activeSource === "local") {
-      const info = selectedLocalInfo
-      if (!info) return
-      const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : null
-      // Split on both separators: the backend resolves the root with Node's
-      // path module, which yields backslashes on Windows.
-      const dirName = info.absolutePath.split(/[\\/]/).filter(Boolean).pop() ?? info.absolutePath
+      if (activeSource === "local") {
+        const info = localInfo
+        if (!info) return
+        const parsed = info.remoteUrl ? parseOwnerRepoFromURL(info.remoteUrl) : null
+        // Split on both separators: the backend resolves the root with Node's
+        // path module, which yields backslashes on Windows.
+        const dirName = info.absolutePath.split(/[\\/]/).filter(Boolean).pop() ?? info.absolutePath
+        registerWorkTree({
+          id,
+          repoUrl: info.remoteUrl ?? "",
+          localPath: info.absolutePath,
+          gitInfo: {
+            repoUrl: info.remoteUrl ?? "",
+            repoName: parsed?.repo ?? dirName,
+            repoOwner: parsed?.org ?? "",
+            // The checked-out ref is the PR base branch, mirroring the clone path
+            // where the cloned ref plays that role. cloneResult.ref leads because
+            // seeding a default branch updates it and info.ref stays stale.
+            ref: result.ref || info.ref || "main",
+            refType: info.refType === "detached" ? "commit" : info.refType,
+            commitSha: info.commitSha,
+          },
+        })
+        return
+      }
+
+      // Parse owner/repoName from the git URL
+      const parsed = parseOwnerRepoFromURL(gitUrl)
       registerWorkTree({
         id,
-        repoUrl: info.remoteUrl ?? "",
-        localPath: info.absolutePath,
+        repoUrl: gitUrl.trim(),
+        repoPath: repoPath.trim() || undefined,
+        localPath: result.absolutePath,
         gitInfo: {
-          repoUrl: info.remoteUrl ?? "",
-          repoName: parsed?.repo ?? dirName,
+          repoUrl: gitUrl.trim(),
+          repoName: parsed?.repo ?? result.relativePath,
           repoOwner: parsed?.org ?? "",
-          // The checked-out ref is the PR base branch, mirroring the clone path
-          // where the cloned ref plays that role. cloneResult.ref leads because
-          // seeding a default branch updates it and info.ref stays stale.
-          ref: cloneResult.ref || info.ref || "main",
-          refType: info.refType === "detached" ? "commit" : info.refType,
-          commitSha: info.commitSha,
+          // The ref the backend reports the clone actually landed on. The typed
+          // ref is only a fallback: leaving it blank clones the remote's default
+          // branch, which is not always 'main', and assuming otherwise put an
+          // invalid base branch on every PR opened against such a repo.
+          ref: result.ref || ref.trim() || "main",
+          refType: undefined, // Determined by the backend when the workspace tree is fetched
+          commitSha: undefined,
         },
       })
-      return
-    }
-
-    // Parse owner/repoName from the git URL
-    const parsed = parseOwnerRepoFromURL(gitUrl)
-    registerWorkTree({
-      id,
-      repoUrl: gitUrl.trim(),
-      repoPath: repoPath.trim() || undefined,
-      localPath: cloneResult.absolutePath,
-      gitInfo: {
-        repoUrl: gitUrl.trim(),
-        repoName: parsed?.repo ?? cloneResult.relativePath,
-        repoOwner: parsed?.org ?? "",
-        // The ref the backend reports the clone actually landed on. The typed
-        // ref is only a fallback: leaving it blank clones the remote's default
-        // branch, which is not always 'main', and assuming otherwise put an
-        // invalid base branch on every PR opened against such a repo.
-        ref: cloneResult.ref || ref.trim() || "main",
-        refType: undefined, // Determined by the backend when the workspace tree is fetched
-        commitSha: undefined,
-      },
-    })
-    // Only run when clone status changes to success
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+  )
+  useEffect(() => {
+    registerUsableWorkTree(cloneStatus, cloneResult, selectedLocalInfo)
   }, [cloneStatus, cloneResult, selectedLocalInfo])
 
   // Seed the GitHub browser's org/repo, but only from GitHub URLs (github.com,
