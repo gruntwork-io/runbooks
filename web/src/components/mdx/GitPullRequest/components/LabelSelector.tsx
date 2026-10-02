@@ -34,23 +34,29 @@ export function LabelSelector({
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const handleToggleLabel = useCallback((labelName: string) => {
-    if (selectedLabels.includes(labelName)) {
-      onLabelsChange(selectedLabels.filter(l => l !== labelName))
-    } else {
-      onLabelsChange([...selectedLabels, labelName])
-    }
-  }, [selectedLabels, onLabelsChange])
-
-  const handleRemoveLabel = useCallback((labelName: string) => {
-    onLabelsChange(selectedLabels.filter(l => l !== labelName))
-  }, [selectedLabels, onLabelsChange])
-
-  const filteredLabels = availableLabels.filter(label =>
-    label.name.toLowerCase().includes(filter.toLowerCase())
+  const handleToggleLabel = useCallback(
+    (labelName: string) => {
+      if (selectedLabels.includes(labelName)) {
+        onLabelsChange(selectedLabels.filter((l) => l !== labelName))
+      } else {
+        onLabelsChange([...selectedLabels, labelName])
+      }
+    },
+    [selectedLabels, onLabelsChange],
   )
 
-  const getLabelByName = (name: string) => availableLabels.find(l => l.name === name)
+  const handleRemoveLabel = useCallback(
+    (labelName: string) => {
+      onLabelsChange(selectedLabels.filter((l) => l !== labelName))
+    },
+    [selectedLabels, onLabelsChange],
+  )
+
+  const filteredLabels = availableLabels.filter((label) =>
+    label.name.toLowerCase().includes(filter.toLowerCase()),
+  )
+
+  const getLabelByName = (name: string) => availableLabels.find((l) => l.name === name)
 
   return (
     <div ref={containerRef} className="relative">
@@ -63,10 +69,10 @@ export function LabelSelector({
           }
         }}
         className={`flex flex-wrap items-center gap-1.5 min-h-[38px] px-2 py-1.5 border border-input rounded-md bg-card cursor-text ${
-          disabled ? 'bg-muted cursor-not-allowed' : 'hover:border-ring'
-        } ${isOpen ? 'ring-2 ring-ring border-ring' : ''}`}
+          disabled ? "bg-muted cursor-not-allowed" : "hover:border-ring"
+        } ${isOpen ? "ring-2 ring-ring border-ring" : ""}`}
       >
-        {selectedLabels.map(name => {
+        {selectedLabels.map((name) => {
           const label = getLabelByName(name)
           return (
             <span
@@ -125,7 +131,7 @@ export function LabelSelector({
               {filter ? "No labels match" : "No labels available"}
             </div>
           ) : (
-            filteredLabels.map(label => {
+            filteredLabels.map((label) => {
               const isSelected = selectedLabels.includes(label.name)
               return (
                 <button
@@ -133,7 +139,7 @@ export function LabelSelector({
                   type="button"
                   onClick={() => handleToggleLabel(label.name)}
                   className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left cursor-pointer hover:bg-accent ${
-                    isSelected ? 'bg-info-muted' : ''
+                    isSelected ? "bg-info-muted" : ""
                   }`}
                 >
                   <span
@@ -142,7 +148,9 @@ export function LabelSelector({
                   />
                   <span className="text-foreground truncate">{label.name}</span>
                   {isSelected && (
-                    <span className="ml-auto text-primary text-xs font-medium shrink-0">Selected</span>
+                    <span className="ml-auto text-primary text-xs font-medium shrink-0">
+                      Selected
+                    </span>
                   )}
                 </button>
               )

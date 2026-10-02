@@ -32,6 +32,7 @@ import { registerWatchHandlers } from "./watch.ts"
 import { registerTelemetryHandlers } from "./telemetry.ts"
 import { registerThemeHandlers } from "./theme.ts"
 import { withVcs } from "./vcs-tristate.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 installIpcErrorNormalization(ipcMain)
 
@@ -50,7 +51,12 @@ function registerVcsStatusHandler(): void {
       const result = await runtime.runPromise(
         Effect.gen(function* () {
           const spawner = yield* ProcessSpawner
-          const proc = yield* spawner.spawn("git", ["config", "--global", "http.sslBackend", "schannel"])
+          const proc = yield* spawner.spawn("git", [
+            "config",
+            "--global",
+            "http.sslBackend",
+            "schannel",
+          ])
           return yield* proc.exitCode
         }),
       )
@@ -60,7 +66,7 @@ function registerVcsStatusHandler(): void {
       }
       return { ok: false, error: `git config exited with code ${result}` }
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      return { ok: false, error: errorMessage(err) }
     }
   })
 }

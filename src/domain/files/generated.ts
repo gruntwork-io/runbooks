@@ -11,10 +11,7 @@ import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
 import { PathValidationError } from "../../errors/index.js"
-import type {
-  GeneratedFilesCheckResponse,
-  GeneratedFilesDeleteResponse,
-} from "../../types.js"
+import type { GeneratedFilesCheckResponse, GeneratedFilesDeleteResponse } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Path resolution

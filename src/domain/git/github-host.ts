@@ -33,7 +33,8 @@ const GHE_CLOUD_API_HOST = /^api\.([a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.ghe\.com)$/
 export type GitHubHostKind = "dotcom" | "ghe-cloud" | "ghes"
 
 /** A lowercase DNS hostname with an optional port. */
-const DNS_HOST = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/
+const DNS_HOST =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/
 
 /**
  * Normalize a user-supplied GitHub host or URL (`ghes.example.com`,
@@ -105,7 +106,8 @@ export function githubApiBase(host: string): string {
 }
 
 /** OAuth device-flow endpoints, on the web origin for every host kind. */
-export const githubDeviceCodeUrl = (host: string): string => `${githubWebBase(host)}/login/device/code`
+export const githubDeviceCodeUrl = (host: string): string =>
+  `${githubWebBase(host)}/login/device/code`
 export const githubAccessTokenUrl = (host: string): string =>
   `${githubWebBase(host)}/login/oauth/access_token`
 

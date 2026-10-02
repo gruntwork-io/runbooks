@@ -1,6 +1,6 @@
-import { AlertTriangle } from 'lucide-react'
-import { formatVariableLabel } from '../lib/formatVariableLabel'
-import type { InputName, BlockOutput } from '@/lib/templateUtils'
+import { AlertTriangle } from "lucide-react"
+import { formatVariableLabel } from "../lib/formatVariableLabel"
+import type { InputName, BlockOutput } from "@/lib/templateUtils"
 
 interface UnmetDependenciesWarningProps {
   /** The type of block (used in the help text) */
@@ -33,23 +33,25 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
       <div>
         {unmetInputDeps.length > 0 && (
           <div>
-            <strong>Waiting for input values:</strong>{' '}
+            <strong>Waiting for input values:</strong>{" "}
             {unmetInputDeps.map((varName, i) => (
               <span key={varName}>
-                {i > 0 && ', '}
-                <code className="bg-warning-muted px-1 rounded text-xs">{formatVariableLabel(varName)}</code>
+                {i > 0 && ", "}
+                <code className="bg-warning-muted px-1 rounded text-xs">
+                  {formatVariableLabel(varName)}
+                </code>
               </span>
             ))}
           </div>
         )}
         {unmetOutputDeps.length > 0 && (
-          <div className={unmetInputDeps.length > 0 ? 'mt-1' : ''}>
-            <strong>Waiting for outputs from:</strong>{' '}
+          <div className={unmetInputDeps.length > 0 ? "mt-1" : ""}>
+            <strong>Waiting for outputs from:</strong>{" "}
             {unmetOutputDeps.map((dep, i) => (
               <span key={dep.blockId}>
-                {i > 0 && ', '}
-                <code className="bg-warning-muted px-1 rounded text-xs">{dep.blockId}</code>
-                {' '}({dep.outputNames.join(', ')})
+                {i > 0 && ", "}
+                <code className="bg-warning-muted px-1 rounded text-xs">{dep.blockId}</code> (
+                {dep.outputNames.join(", ")})
               </span>
             ))}
           </div>
@@ -59,8 +61,7 @@ export const UnmetDependenciesWarning: React.FC<UnmetDependenciesWarningProps> =
             ? `Fill in the required values and run the required blocks to use this ${blockType}.`
             : unmetInputDeps.length > 0
               ? `Fill in the above variable(s) to use this ${blockType}.`
-              : `Run the above block(s) first to produce the required outputs.`
-          }
+              : `Run the above block(s) first to produce the required outputs.`}
         </div>
       </div>
     </div>

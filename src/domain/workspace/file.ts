@@ -26,21 +26,58 @@ export const VCS_DIRS = new Set([".git", ".svn", ".hg"])
  */
 export const BINARY_EXTENSIONS_BASE = [
   // Archives
-  ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
-  ".rar", ".jar", ".war", ".ear",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bz2",
+  ".xz",
+  ".7z",
+  ".rar",
+  ".jar",
+  ".war",
+  ".ear",
   // Executables / object files
-  ".exe", ".dll", ".so", ".dylib",
-  ".bin", ".dat", ".o", ".a",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".bin",
+  ".dat",
+  ".o",
+  ".a",
   // Bytecode / compiled
-  ".wasm", ".class", ".pyc", ".pyo",
+  ".wasm",
+  ".class",
+  ".pyc",
+  ".pyo",
   // Fonts
-  ".ico", ".ttf", ".woff", ".woff2", ".eot", ".otf",
+  ".ico",
+  ".ttf",
+  ".woff",
+  ".woff2",
+  ".eot",
+  ".otf",
   // Office documents
-  ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
   // Media -- audio
-  ".mp3", ".wav", ".flac", ".ogg", ".m4a",
+  ".mp3",
+  ".wav",
+  ".flac",
+  ".ogg",
+  ".m4a",
   // Media -- video
-  ".mp4", ".avi", ".mov", ".mkv", ".flv", ".wmv",
+  ".mp4",
+  ".avi",
+  ".mov",
+  ".mkv",
+  ".flv",
+  ".wmv",
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -233,9 +270,7 @@ export const readFileMetadata = (
 
     const buffer = yield* fs.readFileBuffer(filePath)
 
-    const contentBytes = isTruncated
-      ? buffer.subarray(0, MAX_FILE_CONTENT_SIZE)
-      : buffer
+    const contentBytes = isTruncated ? buffer.subarray(0, MAX_FILE_CONTENT_SIZE) : buffer
     const content = contentBytes.toString("utf-8")
 
     const language = getLanguageFromExtension(path.basename(filePath))
@@ -273,9 +308,7 @@ export const resolveRunbookPath = (
       const exists = yield* fs.exists(fullPath)
 
       if (!exists) {
-        return yield* Effect.fail(
-          new FileNotFoundError({ path: fullPath }),
-        )
+        return yield* Effect.fail(new FileNotFoundError({ path: fullPath }))
       }
 
       return fullPath

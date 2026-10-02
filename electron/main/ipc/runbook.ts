@@ -70,7 +70,10 @@ export function supersedeRunbookLoads(): void {
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }) => {
+    async (
+      _event,
+      params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" },
+    ) => {
       const generation = ++loadGeneration
       const superseded = () => generation !== loadGeneration
 
@@ -94,15 +97,17 @@ export function registerRunbookHandlers(): void {
         runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
       } catch (err) {
         log.debug("failed to resolve runbook path", params.path, err)
-        throw new Error(describeRunbookOpenError(params.path))
+        throw new Error(describeRunbookOpenError(params.path), { cause: err })
       }
       if (superseded()) return SUPERSEDED
       const config: RunbookConfig = {
         localPath: runbookPath,
-        remoteSourceURL: params.remoteSource,
+        ...(params.remoteSource !== undefined ? { remoteSourceURL: params.remoteSource } : {}),
         // The renderer doesn't send watchMode; keep what --watch set at launch.
         isWatchMode: params.watchMode ?? runbookConfig.isWatchMode,
-        disableLiveFileReload: runbookConfig.disableLiveFileReload,
+        ...(runbookConfig.disableLiveFileReload !== undefined
+          ? { disableLiveFileReload: runbookConfig.disableLiveFileReload }
+          : {}),
       }
       setRunbookConfig(config)
 
@@ -205,13 +210,10 @@ export function registerRunbookHandlers(): void {
   // Clones and resolves the runbook, but leaves opening it to the renderer:
   // the Open from URL modal only opens the result if the user hasn't cancelled
   // while the clone was running.
-  ipcMain.handle(
-    "runbook:open-remote",
-    async (_event, params: { url: string }) => {
-      const result = await resolveRemoteRunbook(params.url)
-      return { path: result.localPath, remoteSource: result.remoteSource }
-    },
-  )
+  ipcMain.handle("runbook:open-remote", async (_event, params: { url: string }) => {
+    const result = await resolveRemoteRunbook(params.url)
+    return { path: result.localPath, remoteSource: result.remoteSource }
+  })
 
   ipcMain.handle("runbook:executables", async () => {
     if (!executableRegistry) {

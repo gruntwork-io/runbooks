@@ -1,9 +1,9 @@
-import { AlertTriangle, Copy, Loader2, LogIn } from 'lucide-react'
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { formatGcloudAdcLoginCommand } from '../constants'
-import type { DetectedGoogleCredentials } from '../types'
-import { getSourceLabel } from '../utils'
+import { AlertTriangle, Copy, Loader2, LogIn } from "lucide-react"
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { formatGcloudAdcLoginCommand } from "../constants"
+import type { DetectedGoogleCredentials } from "../types"
+import { getSourceLabel } from "../utils"
 
 interface InsufficientScopesPromptProps {
   credentials: DetectedGoogleCredentials
@@ -49,12 +49,11 @@ export function InsufficientScopesPrompt({
         <div className="flex items-start gap-3 mb-3">
           <AlertTriangle className="size-5 text-warning mt-0.5 flex-shrink-0" />
           <div>
-            <div className="font-semibold text-foreground">
-              Credentials missing required scopes
-            </div>
+            <div className="font-semibold text-foreground">Credentials missing required scopes</div>
             <div className="text-sm text-muted-foreground">
-              Found credentials from {(getSourceLabel(credentials.source) ?? 'auto-detection').toLowerCase()},
-              but they do not include every scope this runbook needs.
+              Found credentials from{" "}
+              {(getSourceLabel(credentials.source) ?? "auto-detection").toLowerCase()}, but they do
+              not include every scope this runbook needs.
             </div>
           </div>
         </div>
@@ -63,7 +62,9 @@ export function InsufficientScopesPrompt({
           {credentials.principal && (
             <div className="flex items-start gap-2">
               <span className="text-muted-foreground min-w-[80px]">Principal:</span>
-              <span className="font-mono text-xs text-foreground break-all">{credentials.principal}</span>
+              <span className="font-mono text-xs text-foreground break-all">
+                {credentials.principal}
+              </span>
             </div>
           )}
           <div className="flex items-start gap-2">
@@ -91,7 +92,7 @@ export function InsufficientScopesPrompt({
               ) : (
                 <LogIn className="size-4 mr-2" />
               )}
-              {recovering ? 'Starting sign-in…' : 'Sign in with required scopes'}
+              {recovering ? "Starting sign-in…" : "Sign in with required scopes"}
             </Button>
             <Button onClick={onReject} disabled={recovering} variant="outline" size="sm">
               Use Different Credentials
@@ -110,7 +111,7 @@ export function InsufficientScopesPrompt({
               </code>
               <Button type="button" variant="outline" size="sm" onClick={() => void copyCommand()}>
                 <Copy className="size-3.5 mr-1" />
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? "Copied" : "Copy"}
               </Button>
             </div>
             <div className="flex items-center gap-3 flex-wrap">

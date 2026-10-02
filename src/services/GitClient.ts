@@ -14,7 +14,7 @@ export interface CloneOptions {
    * checked out with everything under it; a file brings its whole parent
    * directory.
    */
-  readonly sparse?: string
+  readonly sparse?: string | undefined
 }
 
 export interface PushOptions {
@@ -31,7 +31,7 @@ export interface DiffEntry {
   readonly additions: number
   readonly deletions: number
   /** The file's content at HEAD; undefined when it has none (new file, unborn branch, binary). */
-  readonly originalContent?: string
+  readonly originalContent?: string | undefined
   readonly isBinary: boolean
 }
 
@@ -41,7 +41,7 @@ export interface StatusEntry {
   /** Porcelain v1 XY code, trimmed (e.g. "M", "??", "R"). */
   readonly status: string
   /** For a rename/copy (R/C), the path it came from. */
-  readonly origPath?: string
+  readonly origPath?: string | undefined
 }
 
 export interface GitInfo {
@@ -51,8 +51,8 @@ export interface GitInfo {
    */
   readonly branch: string
   readonly refType: "branch" | "tag" | "detached"
-  readonly remoteUrl?: string
-  readonly commitSha?: string
+  readonly remoteUrl?: string | undefined
+  readonly commitSha?: string | undefined
 }
 
 /** A git author/committer identity (name + email). */
@@ -72,13 +72,25 @@ export interface CommitOptions {
    * configured an identity (local or global), theirs is respected and this is
    * ignored.
    */
-  readonly author?: GitIdentity
+  readonly author?: GitIdentity | undefined
 }
 
 export interface GitClientShape {
-  readonly cloneSimple: (url: string, dest: string, options?: CloneOptions) => Effect.Effect<void, GitError | SpawnError>
-  readonly push: (repoPath: string, remote: string, branch: string, options?: PushOptions) => Effect.Effect<void, GitError | SpawnError>
-  readonly deleteBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
+  readonly cloneSimple: (
+    url: string,
+    dest: string,
+    options?: CloneOptions,
+  ) => Effect.Effect<void, GitError | SpawnError>
+  readonly push: (
+    repoPath: string,
+    remote: string,
+    branch: string,
+    options?: PushOptions,
+  ) => Effect.Effect<void, GitError | SpawnError>
+  readonly deleteBranch: (
+    repoPath: string,
+    branch: string,
+  ) => Effect.Effect<void, GitError | SpawnError>
   readonly getCurrentBranch: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
   /** Absolute path of the repository root containing `repoPath` (`git rev-parse --show-toplevel`). */
   readonly getRepoRoot: (repoPath: string) => Effect.Effect<string, GitError | SpawnError>
@@ -89,7 +101,10 @@ export interface GitClientShape {
    * HEAD content for text files. Omit `filePath` to diff the whole worktree in
    * one pass. On an unborn branch it falls back to worktree vs index.
    */
-  readonly diff: (repoPath: string, filePath?: string) => Effect.Effect<DiffEntry[], GitError | SpawnError>
+  readonly diff: (
+    repoPath: string,
+    filePath?: string,
+  ) => Effect.Effect<DiffEntry[], GitError | SpawnError>
   readonly status: (repoPath: string) => Effect.Effect<StatusEntry[], GitError | SpawnError>
   /**
    * Whether HEAD resolves to a commit. False only for an unborn HEAD (a fresh
@@ -100,18 +115,37 @@ export interface GitClientShape {
    * Whether HEAD has commits that `ref` (a full refname, `refs/…`) doesn't
    * (`git rev-list <ref>..HEAD`). Fails when either can't be resolved.
    */
-  readonly hasCommitsNotIn: (repoPath: string, ref: string) => Effect.Effect<boolean, GitError | SpawnError>
+  readonly hasCommitsNotIn: (
+    repoPath: string,
+    ref: string,
+  ) => Effect.Effect<boolean, GitError | SpawnError>
   /**
    * Whether HEAD has commits that no remote-tracking branch of `remote` has
    * (`git rev-list HEAD --not --remotes=<remote>`): commits that, as far as
    * the last fetch or push knows, were never pushed there. Fails when HEAD
    * can't be resolved.
    */
-  readonly hasCommitsNotOnRemote: (repoPath: string, remote: string) => Effect.Effect<boolean, GitError | SpawnError>
-  readonly checkIgnored: (repoPath: string, paths: string[]) => Effect.Effect<Set<string>, GitError | SpawnError>
-  readonly createBranch: (repoPath: string, branch: string) => Effect.Effect<void, GitError | SpawnError>
-  readonly stageAll: (repoPath: string, excludePaths?: string[]) => Effect.Effect<void, GitError | SpawnError>
-  readonly commit: (repoPath: string, message: string, options?: CommitOptions) => Effect.Effect<void, GitError | SpawnError>
+  readonly hasCommitsNotOnRemote: (
+    repoPath: string,
+    remote: string,
+  ) => Effect.Effect<boolean, GitError | SpawnError>
+  readonly checkIgnored: (
+    repoPath: string,
+    paths: string[],
+  ) => Effect.Effect<Set<string>, GitError | SpawnError>
+  readonly createBranch: (
+    repoPath: string,
+    branch: string,
+  ) => Effect.Effect<void, GitError | SpawnError>
+  readonly stageAll: (
+    repoPath: string,
+    excludePaths?: string[],
+  ) => Effect.Effect<void, GitError | SpawnError>
+  readonly commit: (
+    repoPath: string,
+    message: string,
+    options?: CommitOptions,
+  ) => Effect.Effect<void, GitError | SpawnError>
 }
 
 export class GitClient extends Context.Tag("GitClient")<GitClient, GitClientShape>() {}

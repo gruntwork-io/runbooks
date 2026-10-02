@@ -49,15 +49,10 @@ export function compilePatterns(raw: string | undefined): CompiledPattern[] {
     })
 }
 
-const PATTERNS = compilePatterns(
-  typeof process !== "undefined" ? process.env.DEBUG : undefined,
-)
+const PATTERNS = compilePatterns(typeof process !== "undefined" ? process.env.DEBUG : undefined)
 
 /** Exposed for unit tests. */
-export function matchesPatterns(
-  tag: string,
-  patterns: CompiledPattern[],
-): boolean {
+export function matchesPatterns(tag: string, patterns: CompiledPattern[]): boolean {
   let enabled = false
   for (const pattern of patterns) {
     if (pattern.match(tag)) {

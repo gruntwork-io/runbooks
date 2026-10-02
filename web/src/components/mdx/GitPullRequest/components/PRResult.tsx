@@ -18,8 +18,17 @@ interface PRResultDisplayProps {
   onCreateAnother: () => void
 }
 
-export function PRResultDisplay({ noun, refSymbol, result, status, pushError, changeSummary, onPush, onCreateAnother }: PRResultDisplayProps) {
-  const isPushing = status === 'pushing'
+export function PRResultDisplay({
+  noun,
+  refSymbol,
+  result,
+  status,
+  pushError,
+  changeSummary,
+  onPush,
+  onCreateAnother,
+}: PRResultDisplayProps) {
+  const isPushing = status === "pushing"
   const [whatFilesExpanded, setWhatFilesExpanded] = useState(false)
 
   return (
@@ -28,7 +37,8 @@ export function PRResultDisplay({ noun, refSymbol, result, status, pushError, ch
       <div className="bg-success-muted border border-success/30 rounded-md p-4 space-y-2">
         <div className="flex items-center gap-2 text-success font-medium">
           <CheckCircle className="size-5 text-success" />
-          {noun.abbrev} {refSymbol}{result.prNumber} opened successfully
+          {noun.abbrev} {refSymbol}
+          {result.prNumber} opened successfully
         </div>
 
         <div className="space-y-1">
@@ -43,7 +53,10 @@ export function PRResultDisplay({ noun, refSymbol, result, status, pushError, ch
             <ExternalLink className="size-3.5 shrink-0" />
           </a>
           <div className="text-xs text-success">
-            Branch: <code className="bg-success-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>
+            Branch:{" "}
+            <code className="bg-success-muted px-1 py-0.5 rounded font-mono">
+              {result.branchName}
+            </code>
           </div>
         </div>
       </div>
@@ -61,19 +74,14 @@ export function PRResultDisplay({ noun, refSymbol, result, status, pushError, ch
 
       {/* Git Push button + "create another" link */}
       <div className="flex items-center gap-3">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onPush}
-          disabled={isPushing}
-        >
+        <Button size="sm" variant="outline" onClick={onPush} disabled={isPushing}>
           {isPushing ? (
             <>
               <Loader2 className="size-4 mr-1 animate-spin" />
               Pushing...
             </>
           ) : (
-            'Git Push'
+            "Git Push"
           )}
         </Button>
         <button
@@ -96,30 +104,36 @@ export function PRResultDisplay({ noun, refSymbol, result, status, pushError, ch
         <div className="mt-1.5 ml-5 text-xs text-muted-foreground leading-relaxed">
           {changeSummary && changeSummary.fileCount > 0 ? (
             <p className="m-0">
-              Git Push will commit and push{' '}
-              <span className="font-medium">{changeSummary.fileCount}</span>{' '}
-              {changeSummary.fileCount === 1 ? 'file' : 'files'}
+              Git Push will commit and push{" "}
+              <span className="font-medium">{changeSummary.fileCount}</span>{" "}
+              {changeSummary.fileCount === 1 ? "file" : "files"}
               {(changeSummary.additions > 0 || changeSummary.deletions > 0) && (
                 <>
-                  {' '}(
+                  {" "}
+                  (
                   {changeSummary.additions > 0 && (
                     <span className="text-success font-medium">+{changeSummary.additions}</span>
                   )}
-                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ', '}
+                  {changeSummary.additions > 0 && changeSummary.deletions > 0 && ", "}
                   {changeSummary.deletions > 0 && (
-                    <span className="text-destructive font-medium">&minus;{changeSummary.deletions}</span>
+                    <span className="text-destructive font-medium">
+                      &minus;{changeSummary.deletions}
+                    </span>
                   )}
                   )
                 </>
-              )}
-              {' '}to the <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
-              Review your changes in the <span className="font-semibold">Changed files</span> tab of the workspace panel.
+              )}{" "}
+              to the{" "}
+              <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
+              branch. Review your changes in the{" "}
+              <span className="font-semibold">Changed files</span> tab of the workspace panel.
             </p>
           ) : (
             <p className="m-0">
               No new file changes detected. If you make additional changes to the cloned repository,
-              use Git Push to add them to the existing {noun.lower} on
-              the <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code> branch.
+              use Git Push to add them to the existing {noun.lower} on the{" "}
+              <code className="bg-muted px-1 py-0.5 rounded font-mono">{result.branchName}</code>{" "}
+              branch.
             </p>
           )}
         </div>

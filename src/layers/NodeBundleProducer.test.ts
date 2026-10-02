@@ -22,12 +22,17 @@ async function until(condition: () => boolean, timeoutMs = 2000): Promise<void> 
   const deadline = Date.now() + timeoutMs
   while (!condition()) {
     if (Date.now() > deadline) throw new Error("timed out waiting for condition")
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5)
+    })
   }
 }
 
 /** Give any fiber that is about to spawn a chance to do so. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+const settle = () =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 20)
+  })
 
 function makeProducer() {
   const spawner = makeControlledSpawner()
@@ -73,7 +78,7 @@ describe("NodeBundleProducer", () => {
     await settle()
     expect(spawner.processes).toHaveLength(1)
 
-    spawner.processes[0].finish(0, inputsMapOutput(VPC))
+    spawner.processes[0]!.finish(0, inputsMapOutput(VPC))
     const artifact = await Effect.runPromise(Fiber.join(latest))
     expect(artifact.templatePath).toBe(VPC)
 
@@ -91,7 +96,7 @@ describe("NodeBundleProducer", () => {
     await until(() => spawner.processes.length === 1)
 
     await Effect.runPromise(producer.invalidate("vpc"))
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
 
     // Interrupt-only, so boilerplate:render reports the render as superseded
     // rather than as a failure.
@@ -101,8 +106,8 @@ describe("NodeBundleProducer", () => {
     // The next get starts a fresh build from the new path.
     const next = Effect.runFork(producer.get("vpc", DB))
     await until(() => spawner.processes.length === 2)
-    expect(spawner.processes[1].args).toContain(DB)
-    spawner.processes[1].finish(0, inputsMapOutput(DB))
+    expect(spawner.processes[1]!.args).toContain(DB)
+    spawner.processes[1]!.finish(0, inputsMapOutput(DB))
     const artifact = await Effect.runPromise(Fiber.join(next))
     expect(artifact.templatePath).toBe(DB)
   })
@@ -142,11 +147,11 @@ describe("NodeBundleProducer", () => {
     if (Either.isLeft(result)) {
       expect(result.left.message).toBe("boilerplate inputs map timed out after 3m")
     }
-    expect(spawner.processes[0].killed()).toBe(true)
+    expect(spawner.processes[0]!.killed()).toBe(true)
 
     const retry = Effect.runFork(producer.get("vpc", VPC))
     await until(() => spawner.processes.length === 2)
-    spawner.processes[1].finish(0, inputsMapOutput(VPC))
+    spawner.processes[1]!.finish(0, inputsMapOutput(VPC))
     const artifact = await Effect.runPromise(Fiber.join(retry))
     expect(artifact.templatePath).toBe(VPC)
   })
@@ -156,16 +161,18 @@ describe("NodeBundleProducer", () => {
 
     const failed = Effect.runPromise(Effect.either(producer.get("vpc", VPC)))
     await until(() => spawner.processes.length === 1)
-    spawner.processes[0].finish(1, [{ line: "template not found", source: "stderr" }])
+    spawner.processes[0]!.finish(1, [{ line: "template not found", source: "stderr" }])
     const result = await failed
     expect(Either.isLeft(result)).toBe(true)
     if (Either.isLeft(result)) {
-      expect(result.left.message).toBe("boilerplate inputs map exited with code 1: template not found")
+      expect(result.left.message).toBe(
+        "boilerplate inputs map exited with code 1: template not found",
+      )
     }
 
     const retry = Effect.runFork(producer.get("vpc", VPC))
     await until(() => spawner.processes.length === 2)
-    spawner.processes[1].finish(0, inputsMapOutput(VPC))
+    spawner.processes[1]!.finish(0, inputsMapOutput(VPC))
     const artifact = await Effect.runPromise(Fiber.join(retry))
     expect(artifact.templatePath).toBe(VPC)
   })

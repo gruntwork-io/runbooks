@@ -20,6 +20,7 @@ import type {
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { refreshSystemTrust } from "../system-trust.ts"
 import { getMainWindow } from "../window.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 /**
  * Record a successful session-env credential write and push the
@@ -57,7 +58,7 @@ export async function appendSessionEnvAndRecord(
   try {
     await runtime.runPromise(sessionManager.appendToEnv(env, generation))
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errorMessage(err)
     return `Authenticated, but the credential could not be saved to the session (${redactSecrets(message)}). Blocks that consume it may not see it.`
   }
   if (!sessionManager.isCurrentGeneration(generation)) return undefined
@@ -65,9 +66,8 @@ export async function appendSessionEnvAndRecord(
   return undefined
 }
 
-export const withVcs = <A>(
-  use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>,
-): Promise<A> => runtime.runPromise(Effect.flatMap(VcsCredentials, use))
+export const withVcs = <A>(use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>): Promise<A> =>
+  runtime.runPromise(Effect.flatMap(VcsCredentials, use))
 
 /**
  * Run a detection/validation step with the TLS recovery ladder:

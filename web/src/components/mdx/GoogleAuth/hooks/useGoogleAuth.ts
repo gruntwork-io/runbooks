@@ -59,7 +59,7 @@ const NO_PROJECT_WARNING =
 interface EnvDetectionPayload {
   projectId?: string
   projectName?: string
-  account?: { principal: string; accountType: 'service_account' | 'user'; scopes?: string[] }
+  account?: { principal: string; accountType: "service_account" | "user"; scopes?: string[] }
   credentialType?: GoogleCredentialType
   envVar?: string
   path?: string
@@ -84,10 +84,20 @@ interface DetectionAttemptResult {
   error?: string
 }
 
+/**
+ * Where a walk of the detection sources ended. The walk only computes this;
+ * applyDetectionOutcome writes it to state.
+ */
+type DetectionOutcome =
+  | { kind: "detected"; credentials: DetectedGoogleCredentials }
+  /** Paused on a block source that has not run; `remaining` follow it. */
+  | { kind: "waiting"; blockId: string; remaining: GoogleCredentialSource[] }
+  | { kind: "done"; warnings: string[]; isRetry: boolean }
+
 /** Identity metadata carried from a completed auth into project selection. */
 interface PendingAccount {
   principal?: string
-  accountType?: 'service_account' | 'user'
+  accountType?: "service_account" | "user"
   credentialType?: GoogleCredentialType
   scopes?: string[]
   credentialsPath?: string
@@ -108,17 +118,17 @@ interface AuthCompletion extends PendingAccount {
 
 export interface UseGoogleAuthOptions {
   id: string
-  project?: string
-  scopes?: string[]
-  oauthClientId?: string
-  oauthClientSecret?: string
-  oauthClientFile?: string
-  defaultRegion?: string
-  defaultZone?: string
-  gcloudConfiguration?: string
-  detectCredentials?: false | GoogleCredentialSource[]
+  project?: string | undefined
+  scopes?: string[] | undefined
+  oauthClientId?: string | undefined
+  oauthClientSecret?: string | undefined
+  oauthClientFile?: string | undefined
+  defaultRegion?: string | undefined
+  defaultZone?: string | undefined
+  gcloudConfiguration?: string | undefined
+  detectCredentials?: false | GoogleCredentialSource[] | undefined
   /** Tab to open on; validated by resolveDefaultAuthMethod. */
-  defaultTab?: string
+  defaultTab?: string | undefined
 }
 
 export interface UseGoogleAuthReturn {
@@ -244,7 +254,7 @@ export function useGoogleAuth({
   defaultRegion,
   defaultZone,
   gcloudConfiguration,
-  detectCredentials = ['env', 'adc'],
+  detectCredentials = ["env", "adc"],
   defaultTab,
 }: UseGoogleAuthOptions): UseGoogleAuthReturn {
   const api = useApi()
@@ -255,17 +265,21 @@ export function useGoogleAuth({
   // The starting tab is the author's `defaultTab` (validated), not a constant.
   // Only the initial value comes from the prop — the user's tab clicks own it
   // from then on.
-  const [authMethod, setAuthMethod] = useState<GoogleAuthMethod>(() => resolveDefaultAuthMethod(defaultTab))
-  const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>('pending')
+  const [authMethod, setAuthMethod] = useState<GoogleAuthMethod>(() =>
+    resolveDefaultAuthMethod(defaultTab),
+  )
+  const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>("pending")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [accountInfo, setAccountInfo] = useState<GoogleAccountInfo | null>(null)
 
   // ---- Detection state ------------------------------------------------------
   const [detectionStatus, setDetectionStatus] = useState<GoogleDetectionStatus>(
-    detectCredentials === false ? 'done' : 'pending'
+    detectCredentials === false ? "done" : "pending",
   )
-  const [detectedCredentials, setDetectedCredentials] = useState<DetectedGoogleCredentials | null>(null)
+  const [detectedCredentials, setDetectedCredentials] = useState<DetectedGoogleCredentials | null>(
+    null,
+  )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [retryFoundNothing, setRetryFoundNothing] = useState(false)
   // Counter that re-arms the detection effect for "Try auto-detection again".
@@ -278,7 +292,7 @@ export function useGoogleAuth({
   const remainingSourcesRef = useRef<GoogleCredentialSource[]>([])
 
   // ---- Service-account tab --------------------------------------------------
-  const [serviceAccountKey, setServiceAccountKey] = useState('')
+  const [serviceAccountKey, setServiceAccountKey] = useState("")
   const [showServiceAccountKey, setShowServiceAccountKey] = useState(false)
   // Absolute path of a key file the user chose. The renderer holds the PATH and
   // never the contents — MAIN reads and validates the file itself (D12).
@@ -287,16 +301,16 @@ export function useGoogleAuth({
   // null until the user edits the field. Until then it follows the `project`
   // prop, which can be a template that only resolves (or changes) after mount.
   const [projectIdOverride, setProjectIdOverride] = useState<string | null>(null)
-  const projectIdInput = projectIdOverride ?? project ?? ''
+  const projectIdInput = projectIdOverride ?? project ?? ""
 
   // ---- Region (secondary) ---------------------------------------------------
-  const [selectedRegion, setSelectedRegion] = useState(defaultRegion ?? '')
+  const [selectedRegion, setSelectedRegion] = useState(defaultRegion ?? "")
 
   // ---- gcloud tab -----------------------------------------------------------
   const [gcloudConfigs, setGcloudConfigs] = useState<GcloudConfigInfo[]>([])
   const [selectedConfig, setSelectedConfig] = useState<GcloudConfigInfo | null>(null)
   const [loadingConfigs, setLoadingConfigs] = useState(false)
-  const [configSearch, setConfigSearch] = useState('')
+  const [configSearch, setConfigSearch] = useState("")
   const [adcInfo, setAdcInfo] = useState<AdcInfo | null>(null)
   const [gcloudConfigRoot, setGcloudConfigRoot] = useState<string | null>(null)
 
@@ -305,8 +319,8 @@ export function useGoogleAuth({
   const [oauthAuthUrl, setOauthAuthUrl] = useState<string | null>(null)
   // Seeded from a MAIN capability probe on mount (see the effect below), NOT
   // discovered after a failed click: an author who supplies their own client id
-  // is available by definition and needs no round trip.
-  const [oauthUnavailable, setOauthUnavailable] = useState(false)
+  // is available by definition and needs no round trip (see oauthUnavailable).
+  const [oauthReportedUnavailable, setOauthUnavailable] = useState(false)
   // Operator-chosen Desktop OAuth client JSON (path only — same custody rule as
   // the SA key picker). Author `oauthClientFile` wins when both are set.
   const [oauthClientFilePath, setOauthClientFilePath] = useState<string | null>(null)
@@ -323,12 +337,13 @@ export function useGoogleAuth({
   const oauthFlowIdRef = useRef<string | null>(null)
 
   const effectiveOauthClientFile = oauthClientFile || oauthClientFilePath || undefined
+  const oauthUnavailable = oauthReportedUnavailable && !oauthClientId && !effectiveOauthClientFile
 
   // ---- Project selection ----------------------------------------------------
   const [projects, setProjects] = useState<GoogleProjectInfo[]>([])
   const [selectedProject, setSelectedProject] = useState<GoogleProjectInfo | null>(null)
   const [loadingProjects, setLoadingProjects] = useState(false)
-  const [projectSearch, setProjectSearch] = useState('')
+  const [projectSearch, setProjectSearch] = useState("")
 
   // Credentials file MAIN materialised for the in-flight authentication. Held
   // across the `select_project` detour so the outputs published after the user
@@ -364,38 +379,44 @@ export function useGoogleAuth({
    * path (cancel, re-auth, unmount) goes through here — an abandoned flow
    * otherwise holds a listening socket until its server-side TTL expires.
    */
-  const stopOAuthPolling = useCallback((opts?: { cancelFlow?: boolean }) => {
-    oauthPollGenerationRef.current++
-    if (oauthPollTimeoutRef.current) {
-      clearTimeout(oauthPollTimeoutRef.current)
-      oauthPollTimeoutRef.current = null
-    }
-    const flowId = oauthFlowIdRef.current
-    oauthFlowIdRef.current = null
-    if (flowId && opts?.cancelFlow !== false) {
-      void api.invoke('google:oauth-cancel', { flowId }).catch(() => {
-        /* the flow's TTL cleans it up regardless */
-      })
-    }
-  }, [api])
+  const stopOAuthPolling = useCallback(
+    (opts?: { cancelFlow?: boolean }) => {
+      oauthPollGenerationRef.current++
+      if (oauthPollTimeoutRef.current) {
+        clearTimeout(oauthPollTimeoutRef.current)
+        oauthPollTimeoutRef.current = null
+      }
+      const flowId = oauthFlowIdRef.current
+      oauthFlowIdRef.current = null
+      if (flowId && opts?.cancelFlow !== false) {
+        void api.invoke("google:oauth-cancel", { flowId }).catch(() => {
+          /* the flow's TTL cleans it up regardless */
+        })
+      }
+    },
+    [api],
+  )
 
   /**
    * Confirm the project is readable with the credential we just registered.
    * Advisory only — the analogue of AwsAuth's region check, never fatal.
    */
-  const checkProjectStatus = useCallback(async (projectId: string) => {
-    if (!projectId) return
-    try {
-      // blockId: MAIN checks against THIS block's credential, not whichever
-      // GoogleAuth block authenticated most recently.
-      const data = await api.invoke('google:check-project', { blockId: id, projectId })
-      if (data.warning) {
-        appendWarning(data.warning)
+  const checkProjectStatus = useCallback(
+    async (projectId: string) => {
+      if (!projectId) return
+      try {
+        // blockId: MAIN checks against THIS block's credential, not whichever
+        // GoogleAuth block authenticated most recently.
+        const data = await api.invoke("google:check-project", { blockId: id, projectId })
+        if (data.warning) {
+          appendWarning(data.warning)
+        }
+      } catch (error) {
+        console.error("Failed to check Google Cloud project status:", error)
       }
-    } catch (error) {
-      console.error('Failed to check Google Cloud project status:', error)
-    }
-  }, [api, id, appendWarning])
+    },
+    [api, id, appendWarning],
+  )
 
   /**
    * Withdraw this block's authentication contract, and drop the credential path
@@ -418,7 +439,7 @@ export function useGoogleAuth({
    */
   const invalidateBlockOutputs = useCallback(() => {
     changingProjectRef.current = false
-    registerOutputs(id, { __AUTHENTICATED: 'false' })
+    registerOutputs(id, { __AUTHENTICATED: "false" })
   }, [id, registerOutputs])
 
   /**
@@ -427,80 +448,87 @@ export function useGoogleAuth({
    * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
    * what makes multi-project `googleAuthId` routing work.
    */
-  const registerBlockOutputs = useCallback((result: AuthCompletion) => {
-    registerOutputs(id, {
-      GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? '',
-      // Bridges the gcloud CLI's own credential store to this same file — see
-      // MAIN's buildGoogleSessionEnv. Blank for a bare access-token credential,
-      // which has no file to bridge with.
-      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: result.credentialsPath ?? '',
-      GOOGLE_CLOUD_PROJECT: result.projectId,
-      CLOUDSDK_CORE_PROJECT: result.projectId,
-      GOOGLE_PROJECT: result.projectId,
-      CLOUDSDK_CORE_ACCOUNT: result.principal ?? '',
-      GOOGLE_CLOUD_REGION: result.region ?? '',
-      CLOUDSDK_COMPUTE_REGION: result.region ?? '',
-      GOOGLE_REGION: result.region ?? '',
-      CLOUDSDK_COMPUTE_ZONE: result.zone ?? '',
-      GOOGLE_ZONE: result.zone ?? '',
-      GOOGLE_AUTH_TYPE: result.credentialType ?? '',
-      __AUTHENTICATED: 'true',
-    })
+  const registerBlockOutputs = useCallback(
+    (result: AuthCompletion) => {
+      registerOutputs(id, {
+        GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? "",
+        // Bridges the gcloud CLI's own credential store to this same file — see
+        // MAIN's buildGoogleSessionEnv. Blank for a bare access-token credential,
+        // which has no file to bridge with.
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: result.credentialsPath ?? "",
+        GOOGLE_CLOUD_PROJECT: result.projectId,
+        CLOUDSDK_CORE_PROJECT: result.projectId,
+        GOOGLE_PROJECT: result.projectId,
+        CLOUDSDK_CORE_ACCOUNT: result.principal ?? "",
+        GOOGLE_CLOUD_REGION: result.region ?? "",
+        CLOUDSDK_COMPUTE_REGION: result.region ?? "",
+        GOOGLE_REGION: result.region ?? "",
+        CLOUDSDK_COMPUTE_ZONE: result.zone ?? "",
+        GOOGLE_ZONE: result.zone ?? "",
+        GOOGLE_AUTH_TYPE: result.credentialType ?? "",
+        __AUTHENTICATED: "true",
+      })
 
-    // The path above is now the one steps will use, so whatever it superseded is
-    // finally safe for MAIN to zero. Fire-and-forget: this is key-material
-    // hygiene, never a precondition for the block being usable, and MAIN's
-    // will-quit sweep is the backstop if it never lands.
-    void api
-      .invoke('google:credential-committed', {
-        blockId: id,
-        ...(result.credentialsPath ? { credentialsPath: result.credentialsPath } : {}),
-      })
-      .catch(() => {
-        /* superseded files fall through to the will-quit sweep */
-      })
-  }, [api, id, registerOutputs])
+      // The path above is now the one steps will use, so whatever it superseded is
+      // finally safe for MAIN to zero. Fire-and-forget: this is key-material
+      // hygiene, never a precondition for the block being usable, and MAIN's
+      // will-quit sweep is the backstop if it never lands.
+      void api
+        .invoke("google:credential-committed", {
+          blockId: id,
+          ...(result.credentialsPath ? { credentialsPath: result.credentialsPath } : {}),
+        })
+        .catch(() => {
+          /* superseded files fall through to the will-quit sweep */
+        })
+    },
+    [api, id, registerOutputs],
+  )
 
   /**
    * The single success epilogue: every tab and the detection-confirm path end
    * here. MAIN has already written the session env by this point; the renderer
    * only records what happened and publishes the outputs.
    */
-  const completeAuthentication = useCallback(async (result: AuthCompletion) => {
-    if (result.credentialsPath) {
-      pendingCredentialsPathRef.current = result.credentialsPath
-    }
-    const credentialsPath = result.credentialsPath ?? pendingCredentialsPathRef.current ?? undefined
+  const completeAuthentication = useCallback(
+    async (result: AuthCompletion) => {
+      if (result.credentialsPath) {
+        pendingCredentialsPathRef.current = result.credentialsPath
+      }
+      const credentialsPath =
+        result.credentialsPath ?? pendingCredentialsPathRef.current ?? undefined
 
-    setAccountInfo({
-      ...(result.projectId ? { projectId: result.projectId } : {}),
-      ...(result.projectName ? { projectName: result.projectName } : {}),
-      ...(result.principal ? { principal: result.principal } : {}),
-      ...(result.accountType ? { accountType: result.accountType } : {}),
-      ...(result.credentialType ? { credentialType: result.credentialType } : {}),
-      ...(result.scopes && result.scopes.length > 0 ? { scopes: result.scopes } : {}),
-      ...(credentialsPath ? { credentialsPath } : {}),
-    })
+      setAccountInfo({
+        ...(result.projectId ? { projectId: result.projectId } : {}),
+        ...(result.projectName ? { projectName: result.projectName } : {}),
+        ...(result.principal ? { principal: result.principal } : {}),
+        ...(result.accountType ? { accountType: result.accountType } : {}),
+        ...(result.credentialType ? { credentialType: result.credentialType } : {}),
+        ...(result.scopes && result.scopes.length > 0 ? { scopes: result.scopes } : {}),
+        ...(credentialsPath ? { credentialsPath } : {}),
+      })
 
-    registerBlockOutputs({ ...result, credentialsPath })
+      registerBlockOutputs(credentialsPath === undefined ? result : { ...result, credentialsPath })
 
-    setAuthStatus('authenticated')
-    setDetectionStatus('done')
-    setErrorMessage(null)
-    appendWarning(result.sessionEnvWarning)
+      setAuthStatus("authenticated")
+      setDetectionStatus("done")
+      setErrorMessage(null)
+      appendWarning(result.sessionEnvWarning)
 
-    // A credential can authenticate without resolving a project (a gcloud
-    // configuration with no `core/project`, an authorized_user document with no
-    // quota project, a principal that cannot enumerate projects). The outputs
-    // are still published — the credential is real — but the success card has
-    // to say the project is missing, or every later `gcloud`/`terraform` call
-    // fails on "The project property must be set" with nothing to point at.
-    if (!result.projectId) {
-      appendWarning(NO_PROJECT_WARNING)
-    }
+      // A credential can authenticate without resolving a project (a gcloud
+      // configuration with no `core/project`, an authorized_user document with no
+      // quota project, a principal that cannot enumerate projects). The outputs
+      // are still published — the credential is real — but the success card has
+      // to say the project is missing, or every later `gcloud`/`terraform` call
+      // fails on "The project property must be set" with nothing to point at.
+      if (!result.projectId) {
+        appendWarning(NO_PROJECT_WARNING)
+      }
 
-    await checkProjectStatus(result.projectId)
-  }, [registerBlockOutputs, appendWarning, checkProjectStatus])
+      await checkProjectStatus(result.projectId)
+    },
+    [registerBlockOutputs, appendWarning, checkProjectStatus],
+  )
 
   /**
    * Region/zone actually in force. The picker is seeded from `defaultRegion`,
@@ -508,7 +536,7 @@ export function useGoogleAuth({
    * to the prop. The zone has no picker, so it comes from `defaultZone` only.
    */
   const effectiveRegion = selectedRegion
-  const effectiveZone = defaultZone ?? ''
+  const effectiveZone = defaultZone ?? ""
 
   /**
    * Pin a project (picker click, single-project auto-select, or the `project`
@@ -518,55 +546,55 @@ export function useGoogleAuth({
    * ones the block authenticated with (a gcloud configuration's compute
    * defaults as MAIN read them, say) and echoes them.
    */
-  const selectProject = useCallback(async (
-    projectInfo: GoogleProjectInfo,
-    account?: PendingAccount,
-  ) => {
-    // Any commit attempt ends a "Change project" detour: success publishes new
-    // outputs, and failure closes the picker.
-    changingProjectRef.current = false
-    setSelectedProject(projectInfo)
-    setAuthStatus('authenticating')
-    setErrorMessage(null)
+  const selectProject = useCallback(
+    async (projectInfo: GoogleProjectInfo, account?: PendingAccount) => {
+      // Any commit attempt ends a "Change project" detour: success publishes new
+      // outputs, and failure closes the picker.
+      changingProjectRef.current = false
+      setSelectedProject(projectInfo)
+      setAuthStatus("authenticating")
+      setErrorMessage(null)
 
-    try {
-      const data = await api.invoke('google:set-project', {
-        blockId: id,
-        projectId: projectInfo.projectId,
-        ...(effectiveRegion ? { region: effectiveRegion } : {}),
-        ...(effectiveZone ? { zone: effectiveZone } : {}),
-      })
+      try {
+        const data = await api.invoke("google:set-project", {
+          blockId: id,
+          projectId: projectInfo.projectId,
+          ...(effectiveRegion ? { region: effectiveRegion } : {}),
+          ...(effectiveZone ? { zone: effectiveZone } : {}),
+        })
 
-      if (!data.ok) {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || `Failed to select project "${projectInfo.projectId}"`)
-        return
+        if (!data.ok) {
+          setAuthStatus("failed")
+          setErrorMessage(data.error || `Failed to select project "${projectInfo.projectId}"`)
+          return
+        }
+
+        const identity: PendingAccount = account ?? {
+          ...(accountInfo?.principal ? { principal: accountInfo.principal } : {}),
+          ...(accountInfo?.accountType ? { accountType: accountInfo.accountType } : {}),
+          ...(accountInfo?.credentialType ? { credentialType: accountInfo.credentialType } : {}),
+          ...(accountInfo?.scopes ? { scopes: accountInfo.scopes } : {}),
+          ...(accountInfo?.credentialsPath ? { credentialsPath: accountInfo.credentialsPath } : {}),
+        }
+
+        await completeAuthentication({
+          ...identity,
+          projectId: projectInfo.projectId,
+          projectName: data.projectName || projectInfo.displayName,
+          // MAIN's answer, not the request: with nothing requested ("Change
+          // project" after the gcloud tab) it keeps the region/zone this block
+          // authenticated with, and the outputs must say the same.
+          region: data.region ?? effectiveRegion,
+          zone: data.zone ?? effectiveZone,
+          ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
+        })
+      } catch (error) {
+        setAuthStatus("failed")
+        setErrorMessage(error instanceof Error ? error.message : "Failed to select project")
       }
-
-      const identity: PendingAccount = account ?? {
-        ...(accountInfo?.principal ? { principal: accountInfo.principal } : {}),
-        ...(accountInfo?.accountType ? { accountType: accountInfo.accountType } : {}),
-        ...(accountInfo?.credentialType ? { credentialType: accountInfo.credentialType } : {}),
-        ...(accountInfo?.scopes ? { scopes: accountInfo.scopes } : {}),
-        ...(accountInfo?.credentialsPath ? { credentialsPath: accountInfo.credentialsPath } : {}),
-      }
-
-      await completeAuthentication({
-        ...identity,
-        projectId: projectInfo.projectId,
-        projectName: data.projectName || projectInfo.displayName,
-        // MAIN's answer, not the request: with nothing requested ("Change
-        // project" after the gcloud tab) it keeps the region/zone this block
-        // authenticated with, and the outputs must say the same.
-        region: data.region ?? effectiveRegion,
-        zone: data.zone ?? effectiveZone,
-        ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
-      })
-    } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to select project')
-    }
-  }, [api, id, effectiveRegion, effectiveZone, accountInfo, completeAuthentication])
+    },
+    [api, id, effectiveRegion, effectiveZone, accountInfo, completeAuthentication],
+  )
 
   /**
    * Fetch the projects visible to the current credential. A listing failure
@@ -578,7 +606,7 @@ export function useGoogleAuth({
     try {
       // A LIVE loopback flow resolves main-side by flowId; after completion the
       // session env carries the credential and no handle is needed.
-      const data = await api.invoke('google:projects', {
+      const data = await api.invoke("google:projects", {
         blockId: id,
         ...(oauthFlowIdRef.current ? { flowId: oauthFlowIdRef.current } : {}),
       })
@@ -588,7 +616,9 @@ export function useGoogleAuth({
       }
     } catch (error) {
       setProjects([])
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load Google Cloud projects')
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to load Google Cloud projects",
+      )
     } finally {
       setLoadingProjects(false)
     }
@@ -604,275 +634,324 @@ export function useGoogleAuth({
    * that order; the project falls back to the block's project vars and finally
    * to the `project` prop.
    */
-  const getBlockCredentials = useCallback((blockId: string): {
-    found: boolean
-    creds?: { keyPath?: string; keyJson?: string; accessToken?: string; projectId?: string }
-    credentialType?: GoogleCredentialType
-    error?: string
-  } => {
-    const normalizedId = normalizeBlockId(blockId)
-    const values = blockOutputs[normalizedId]?.values
+  const getBlockCredentials = useCallback(
+    (
+      blockId: string,
+    ): {
+      found: boolean
+      creds?: { keyPath?: string; keyJson?: string; accessToken?: string; projectId?: string }
+      credentialType?: GoogleCredentialType
+      error?: string
+    } => {
+      const normalizedId = normalizeBlockId(blockId)
+      const values = blockOutputs[normalizedId]?.values
 
-    if (!values) {
-      return { found: false, error: `Block "${blockId}" has not been executed yet or has no outputs` }
-    }
+      if (!values) {
+        return {
+          found: false,
+          error: `Block "${blockId}" has not been executed yet or has no outputs`,
+        }
+      }
 
-    // The script may have marked the credential sensitive; GoogleAuth needs its real value
-    const outputs: Partial<Record<string, string>> = revealOutputs(values)
-    const projectId =
-      outputs.CLOUDSDK_CORE_PROJECT ||
-      outputs.GOOGLE_CLOUD_PROJECT ||
-      outputs.GOOGLE_PROJECT ||
-      project ||
-      undefined
+      // The script may have marked the credential sensitive; GoogleAuth needs its real value
+      const outputs: Partial<Record<string, string>> = revealOutputs(values)
+      const projectId =
+        outputs.CLOUDSDK_CORE_PROJECT ||
+        outputs.GOOGLE_CLOUD_PROJECT ||
+        outputs.GOOGLE_PROJECT ||
+        project ||
+        undefined
 
-    const keyPath = outputs.GOOGLE_APPLICATION_CREDENTIALS
-    if (keyPath) {
-      return { found: true, creds: { keyPath, ...(projectId ? { projectId } : {}) }, credentialType: 'service_account' }
-    }
+      const keyPath = outputs.GOOGLE_APPLICATION_CREDENTIALS
+      if (keyPath) {
+        return {
+          found: true,
+          creds: { keyPath, ...(projectId ? { projectId } : {}) },
+          credentialType: "service_account",
+        }
+      }
 
-    const keyJson = outputs.GOOGLE_CREDENTIALS
-    if (keyJson) {
-      return { found: true, creds: { keyJson, ...(projectId ? { projectId } : {}) }, credentialType: 'service_account' }
-    }
+      const keyJson = outputs.GOOGLE_CREDENTIALS
+      if (keyJson) {
+        return {
+          found: true,
+          creds: { keyJson, ...(projectId ? { projectId } : {}) },
+          credentialType: "service_account",
+        }
+      }
 
-    const accessToken = outputs.GOOGLE_OAUTH_ACCESS_TOKEN || outputs.CLOUDSDK_AUTH_ACCESS_TOKEN
-    if (accessToken) {
-      return { found: true, creds: { accessToken, ...(projectId ? { projectId } : {}) }, credentialType: 'access_token' }
-    }
+      const accessToken = outputs.GOOGLE_OAUTH_ACCESS_TOKEN || outputs.CLOUDSDK_AUTH_ACCESS_TOKEN
+      if (accessToken) {
+        return {
+          found: true,
+          creds: { accessToken, ...(projectId ? { projectId } : {}) },
+          credentialType: "access_token",
+        }
+      }
 
-    return {
-      found: false,
-      error: `Block "${blockId}" did not output GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CREDENTIALS, or an access token`,
-    }
-  }, [blockOutputs, project])
+      return {
+        found: false,
+        error: `Block "${blockId}" did not output GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CREDENTIALS, or an access token`,
+      }
+    },
+    [blockOutputs, project],
+  )
 
   /** Turn a `google:env-credentials` payload into a confirmation card. */
-  const toDetectedCredentials = useCallback((
-    data: EnvDetectionPayload,
-    source: 'env' | 'adc' | 'gcloud',
-    envPrefix?: string,
-  ): DetectedGoogleCredentials => ({
-    projectId: data.projectId ?? '',
-    ...(data.projectName ? { projectName: data.projectName } : {}),
-    principal: data.account?.principal ?? '',
-    credentialType: data.credentialType ?? 'authorized_user',
-    source,
-    ...(data.quotaProjectId ? { quotaProjectId: data.quotaProjectId } : {}),
-    ...(data.envVar ? { envVar: data.envVar } : {}),
-    ...(envPrefix ? { envPrefix } : {}),
-    ...(data.path ? { path: data.path } : {}),
-    ...(data.configuration ? { configuration: data.configuration } : {}),
-  }), [])
+  const toDetectedCredentials = useCallback(
+    (
+      data: EnvDetectionPayload,
+      source: "env" | "adc" | "gcloud",
+      envPrefix?: string,
+    ): DetectedGoogleCredentials => ({
+      projectId: data.projectId ?? "",
+      ...(data.projectName ? { projectName: data.projectName } : {}),
+      principal: data.account?.principal ?? "",
+      credentialType: data.credentialType ?? "authorized_user",
+      source,
+      ...(data.quotaProjectId ? { quotaProjectId: data.quotaProjectId } : {}),
+      ...(data.envVar ? { envVar: data.envVar } : {}),
+      ...(envPrefix ? { envPrefix } : {}),
+      ...(data.path ? { path: data.path } : {}),
+      ...(data.configuration ? { configuration: data.configuration } : {}),
+    }),
+    [],
+  )
 
   /**
    * READ-ONLY detection against the environment, the well-known ADC file, or
    * the active gcloud configuration. Nothing is written to the session and no
    * outputs are registered until the user confirms (plan §8.3).
    */
-  const tryEnvCredentials = useCallback(async (options?: {
-    source?: 'env' | 'adc' | 'gcloud'
-    prefix?: string
-  }): Promise<DetectionAttemptResult> => {
-    const source = options?.source ?? 'env'
-    try {
-      const data = await api.invoke('google:env-credentials', {
-        ...(options?.prefix ? { prefix: options.prefix } : {}),
-        ...(project ? { defaultProject: project } : {}),
-        source,
-        ...(scopes && scopes.length > 0 ? { scopes } : {}),
-      })
+  const tryEnvCredentials = useCallback(
+    async (options?: {
+      source?: "env" | "adc" | "gcloud"
+      prefix?: string
+    }): Promise<DetectionAttemptResult> => {
+      const source = options?.source ?? "env"
+      try {
+        const data = await api.invoke("google:env-credentials", {
+          ...(options?.prefix ? { prefix: options.prefix } : {}),
+          ...(project ? { defaultProject: project } : {}),
+          source,
+          ...(scopes && scopes.length > 0 ? { scopes } : {}),
+        })
 
-      if (!data.found) {
-        return { success: false, ...(data.error ? { error: data.error } : {}) }
-      }
+        if (!data.found) {
+          return { success: false, ...(data.error ? { error: data.error } : {}) }
+        }
 
-      // Valid identity but missing author-required scopes — stop walking sources
-      // and show recovery rather than silently trying the next credential.
-      if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+        // Valid identity but missing author-required scopes — stop walking sources
+        // and show recovery rather than silently trying the next credential.
+        if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+          return {
+            success: true,
+            detected: {
+              ...toDetectedCredentials(data, source, options?.prefix),
+              missingScopes: data.missingScopes,
+              ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+            },
+          }
+        }
+
+        if (!data.valid) {
+          // MAIN sends the underlying failure as `warning` on this branch.
+          const reason = data.warning ?? data.error
+          return { success: false, foundButInvalid: true, ...(reason ? { reason } : {}) }
+        }
+
         return {
           success: true,
-          detected: {
-            ...toDetectedCredentials(data, source, options?.prefix),
-            missingScopes: data.missingScopes,
-            ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
-          },
+          detected: toDetectedCredentials(data, source, options?.prefix),
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error:
+            error instanceof Error ? error.message : "Failed to check Google Cloud credentials",
         }
       }
-
-      if (!data.valid) {
-        // MAIN sends the underlying failure as `warning` on this branch.
-        const reason = data.warning ?? data.error
-        return { success: false, foundButInvalid: true, ...(reason ? { reason } : {}) }
-      }
-
-      return {
-        success: true,
-        detected: toDetectedCredentials(data, source, options?.prefix),
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to check Google Cloud credentials',
-      }
-    }
-  }, [api, project, scopes, toDetectedCredentials])
+    },
+    [api, project, scopes, toDetectedCredentials],
+  )
 
   /**
    * READ-ONLY validation of credentials found in another block's outputs.
    * `registerSession: false` keeps this a probe — confirmation is what makes
    * the credential this block's.
    */
-  const tryBlockCredentials = useCallback(async (blockId: string): Promise<DetectionAttemptResult> => {
-    const result = getBlockCredentials(blockId)
+  const tryBlockCredentials = useCallback(
+    async (blockId: string): Promise<DetectionAttemptResult> => {
+      const result = getBlockCredentials(blockId)
 
-    if (!result.found || !result.creds) {
-      return { success: false, error: result.error || 'Could not read Google Cloud credentials from block' }
-    }
-
-    try {
-      const data = await api.invoke('google:validate-credentials', {
-        blockId: id,
-        ...result.creds,
-        registerSession: false,
-        ...(scopes && scopes.length > 0 ? { scopes } : {}),
-      })
-
-      if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+      if (!result.found || !result.creds) {
         return {
-          success: true,
-          detected: {
-            projectId: data.projectId ?? result.creds.projectId ?? '',
-            ...(data.projectName ? { projectName: data.projectName } : {}),
-            principal: data.account?.principal ?? '',
-            credentialType: data.credentialType ?? result.credentialType ?? 'service_account',
-            source: 'block',
-            missingScopes: data.missingScopes,
-            ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
-          },
+          success: false,
+          error: result.error || "Could not read Google Cloud credentials from block",
         }
       }
 
-      if (!data.valid) {
-        return { success: false, error: data.error || 'Block credentials are invalid' }
-      }
+      try {
+        const data = await api.invoke("google:validate-credentials", {
+          blockId: id,
+          ...result.creds,
+          registerSession: false,
+          ...(scopes && scopes.length > 0 ? { scopes } : {}),
+        })
 
-      return {
-        success: true,
-        detected: {
-          projectId: data.projectId ?? result.creds.projectId ?? '',
-          ...(data.projectName ? { projectName: data.projectName } : {}),
-          principal: data.account?.principal ?? '',
-          credentialType: data.credentialType ?? result.credentialType ?? 'service_account',
-          source: 'block',
-        },
+        if (data.insufficientScopes && data.missingScopes && data.missingScopes.length > 0) {
+          return {
+            success: true,
+            detected: {
+              projectId: data.projectId ?? result.creds.projectId ?? "",
+              ...(data.projectName ? { projectName: data.projectName } : {}),
+              principal: data.account?.principal ?? "",
+              credentialType: data.credentialType ?? result.credentialType ?? "service_account",
+              source: "block",
+              missingScopes: data.missingScopes,
+              ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
+            },
+          }
+        }
+
+        if (!data.valid) {
+          return { success: false, error: data.error || "Block credentials are invalid" }
+        }
+
+        return {
+          success: true,
+          detected: {
+            projectId: data.projectId ?? result.creds.projectId ?? "",
+            ...(data.projectName ? { projectName: data.projectName } : {}),
+            principal: data.account?.principal ?? "",
+            credentialType: data.credentialType ?? result.credentialType ?? "service_account",
+            source: "block",
+          },
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to validate block credentials",
+        }
       }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to validate block credentials',
-      }
-    }
-  }, [api, id, scopes, getBlockCredentials])
+    },
+    [api, id, scopes, getBlockCredentials],
+  )
 
   /**
    * Walk the author's credential sources in order, stopping at the first
    * success. A block source that has NOT executed pauses the walk rather than
-   * skipping ahead — the author's ordering is the priority order.
+   * skipping ahead — the author's ordering is the priority order. Returns where
+   * the walk ended without touching state; callers hand it to
+   * applyDetectionOutcome once the walk has settled.
    */
-  const trySourcesInOrder = useCallback(async (
-    sources: GoogleCredentialSource[],
-    isRetry: boolean,
-  ) => {
-    const warnings: string[] = []
+  const trySourcesInOrder = useCallback(
+    async (sources: GoogleCredentialSource[], isRetry: boolean): Promise<DetectionOutcome> => {
+      const warnings: string[] = []
 
-    const succeed = (result: DetectionAttemptResult) => {
-      setDetectedCredentials(result.detected!)
-      setDetectionStatus('detected')
-    }
+      const succeed = (detected: DetectedGoogleCredentials): DetectionOutcome => ({
+        kind: "detected",
+        credentials: detected,
+      })
 
-    // The block owns the per-source copy; MAIN's reason follows it, so a
-    // missing file and a revoked token do not read the same.
-    const pushInvalid = (copy: string, result: DetectionAttemptResult) => {
-      warnings.push(result.reason ? `${copy} (${result.reason})` : copy)
-    }
+      // The block owns the per-source copy; MAIN's reason follows it, so a
+      // missing file and a revoked token do not read the same.
+      const pushInvalid = (copy: string, result: DetectionAttemptResult) => {
+        warnings.push(result.reason ? `${copy} (${result.reason})` : copy)
+      }
 
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i]
+      for (let i = 0; i < sources.length; i++) {
+        const source = sources[i]
 
-      // 'env' — the unprefixed Google credential env vars
-      if (source === 'env') {
-        const result = await tryEnvCredentials({ source: 'env' })
-        if (result.success && result.detected) {
-          succeed(result)
-          return
+        // 'env' — the unprefixed Google credential env vars
+        if (source === "env") {
+          const result = await tryEnvCredentials({ source: "env" })
+          if (result.success && result.detected) {
+            return succeed(result.detected)
+          }
+          if (result.foundButInvalid) {
+            pushInvalid(
+              "Google Cloud credentials in the environment are invalid or expired",
+              result,
+            )
+          }
         }
-        if (result.foundButInvalid) {
-          pushInvalid('Google Cloud credentials in the environment are invalid or expired', result)
+        // 'adc' — the well-known application_default_credentials.json
+        else if (source === "adc") {
+          const result = await tryEnvCredentials({ source: "adc" })
+          if (result.success && result.detected) {
+            return succeed(result.detected)
+          }
+          if (result.foundButInvalid) {
+            pushInvalid("Application Default Credentials are invalid or expired", result)
+          }
+        }
+        // 'gcloud' — the ACTIVE gcloud configuration
+        else if (source === "gcloud") {
+          const result = await tryEnvCredentials({ source: "gcloud" })
+          if (result.success && result.detected) {
+            return succeed(result.detected)
+          }
+          if (result.foundButInvalid) {
+            pushInvalid(
+              "The active gcloud configuration's credentials are invalid or expired",
+              result,
+            )
+          }
+        }
+        // { env: { prefix: 'PREFIX_' } } — prefixed env vars
+        else if (typeof source === "object" && "env" in source) {
+          const prefix = source.env?.prefix
+          const result = await tryEnvCredentials({ source: "env", ...(prefix ? { prefix } : {}) })
+          if (result.success && result.detected) {
+            return succeed(result.detected)
+          }
+          if (result.foundButInvalid) {
+            pushInvalid(`${prefix ?? ""}Google Cloud credentials are invalid or expired`, result)
+          }
+        }
+        // { block: 'id' } — another block's outputs
+        else if (typeof source === "object" && "block" in source) {
+          const result = await tryBlockCredentials(source.block)
+          if (result.success && result.detected) {
+            return succeed(result.detected)
+          }
+          // "Has it executed?" is `values !== undefined` — `found: false` alone
+          // conflates "never ran" with "ran, but produced nothing usable".
+          const normalizedBlockId = normalizeBlockId(source.block)
+          const blockHasExecuted = blockOutputs[normalizedBlockId]?.values !== undefined
+          if (!blockHasExecuted) {
+            return { kind: "waiting", blockId: source.block, remaining: sources.slice(i + 1) }
+          }
+          // Executed but unusable — fall through to the next source.
         }
       }
-      // 'adc' — the well-known application_default_credentials.json
-      else if (source === 'adc') {
-        const result = await tryEnvCredentials({ source: 'adc' })
-        if (result.success && result.detected) {
-          succeed(result)
-          return
-        }
-        if (result.foundButInvalid) {
-          pushInvalid('Application Default Credentials are invalid or expired', result)
-        }
-      }
-      // 'gcloud' — the ACTIVE gcloud configuration
-      else if (source === 'gcloud') {
-        const result = await tryEnvCredentials({ source: 'gcloud' })
-        if (result.success && result.detected) {
-          succeed(result)
-          return
-        }
-        if (result.foundButInvalid) {
-          pushInvalid("The active gcloud configuration's credentials are invalid or expired", result)
-        }
-      }
-      // { env: { prefix: 'PREFIX_' } } — prefixed env vars
-      else if (typeof source === 'object' && 'env' in source) {
-        const prefix = source.env?.prefix
-        const result = await tryEnvCredentials({ source: 'env', ...(prefix ? { prefix } : {}) })
-        if (result.success && result.detected) {
-          succeed(result)
-          return
-        }
-        if (result.foundButInvalid) {
-          pushInvalid(`${prefix ?? ''}Google Cloud credentials are invalid or expired`, result)
-        }
-      }
-      // { block: 'id' } — another block's outputs
-      else if (typeof source === 'object' && 'block' in source) {
-        const result = await tryBlockCredentials(source.block)
-        if (result.success && result.detected) {
-          succeed(result)
-          return
-        }
-        // "Has it executed?" is `values !== undefined` — `found: false` alone
-        // conflates "never ran" with "ran, but produced nothing usable".
-        const normalizedBlockId = normalizeBlockId(source.block)
-        const blockHasExecuted = blockOutputs[normalizedBlockId]?.values !== undefined
-        if (!blockHasExecuted) {
-          remainingSourcesRef.current = sources.slice(i + 1)
-          setWaitingForBlockId(source.block)
-          return
-        }
-        // Executed but unusable — fall through to the next source.
-      }
-    }
 
-    if (warnings.length > 0) {
-      setDetectionWarning(warnings.join('; '))
+      return { kind: "done", warnings, isRetry }
+    },
+    [tryEnvCredentials, tryBlockCredentials, blockOutputs],
+  )
+
+  const applyDetectionOutcome = useCallback((outcome: DetectionOutcome) => {
+    switch (outcome.kind) {
+      case "detected":
+        setDetectedCredentials(outcome.credentials)
+        setDetectionStatus("detected")
+        return
+      case "waiting":
+        remainingSourcesRef.current = outcome.remaining
+        setWaitingForBlockId(outcome.blockId)
+        return
+      case "done":
+        if (outcome.warnings.length > 0) {
+          setDetectionWarning(outcome.warnings.join("; "))
+        }
+        if (outcome.isRetry) {
+          setRetryFoundNothing(true)
+        }
+        setDetectionStatus("done")
     }
-    if (isRetry) {
-      setRetryFoundNothing(true)
-    }
-    setDetectionStatus('done')
-  }, [tryEnvCredentials, tryBlockCredentials, blockOutputs])
+  }, [])
 
   // Effect #1 — run detection once the session is ready.
   useEffect(() => {
@@ -888,12 +967,15 @@ export function useGoogleAuth({
     // MDX authors must write detectCredentials={false}; the string "false"
     // would arrive truthy. Anything that is neither `false` nor an array is
     // treated as "no sources" rather than iterated as a string.
-    void trySourcesInOrder(Array.isArray(detectCredentials) ? detectCredentials : [], detectionAttempt > 0)
-  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt])
+    void trySourcesInOrder(
+      Array.isArray(detectCredentials) ? detectCredentials : [],
+      detectionAttempt > 0,
+    ).then(applyDetectionOutcome)
+  }, [detectCredentials, sessionReady, trySourcesInOrder, detectionAttempt, applyDetectionOutcome])
 
   // Effect #2 — resume the walk once the block we paused on has run.
   useEffect(() => {
-    if (!waitingForBlockId || detectionStatus === 'detected' || authStatus === 'authenticated') {
+    if (!waitingForBlockId || detectionStatus === "detected" || authStatus === "authenticated") {
       return
     }
 
@@ -903,27 +985,22 @@ export function useGoogleAuth({
       return // still waiting
     }
 
-    const resume = async () => {
-      const result = await tryBlockCredentials(waitingForBlockId)
-      if (result.success && result.detected) {
-        setDetectedCredentials(result.detected)
-        setDetectionStatus('detected')
-        setWaitingForBlockId(null)
-        return
-      }
-
+    // Resume at the block's source, so an unusable block falls through to the
+    // sources stashed at the pause exactly as it would in the walk.
+    const remaining = remainingSourcesRef.current
+    remainingSourcesRef.current = []
+    void trySourcesInOrder([{ block: waitingForBlockId }, ...remaining], false).then((outcome) => {
       setWaitingForBlockId(null)
-      const remaining = remainingSourcesRef.current
-      remainingSourcesRef.current = []
-      if (remaining.length > 0) {
-        await trySourcesInOrder(remaining, false)
-      } else {
-        setDetectionStatus('done')
-      }
-    }
-
-    void resume()
-  }, [waitingForBlockId, detectionStatus, authStatus, blockOutputs, tryBlockCredentials, trySourcesInOrder])
+      applyDetectionOutcome(outcome)
+    })
+  }, [
+    waitingForBlockId,
+    detectionStatus,
+    authStatus,
+    blockOutputs,
+    trySourcesInOrder,
+    applyDetectionOutcome,
+  ])
 
   // ---------------------------------------------------------------------------
   // Detection handlers
@@ -938,20 +1015,22 @@ export function useGoogleAuth({
   const handleConfirmDetected = useCallback(async () => {
     if (!detectedCredentials) return
 
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
     invalidateBlockOutputs()
 
     const source = detectedCredentials.source
-    const resolvedProjectId = project || detectedCredentials.projectId || ''
+    const resolvedProjectId = project || detectedCredentials.projectId || ""
 
     try {
-      if (source === 'env' || source === 'adc' || source === 'gcloud') {
-        const data = await api.invoke('google:env-credentials-confirm', {
+      if (source === "env" || source === "adc" || source === "gcloud") {
+        const data = await api.invoke("google:env-credentials-confirm", {
           blockId: id,
           ...(detectedCredentials.envPrefix ? { prefix: detectedCredentials.envPrefix } : {}),
           source,
-          ...(detectedCredentials.configuration ? { configuration: detectedCredentials.configuration } : {}),
+          ...(detectedCredentials.configuration
+            ? { configuration: detectedCredentials.configuration }
+            : {}),
           ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
           ...(effectiveRegion ? { region: effectiveRegion } : {}),
           ...(effectiveZone ? { zone: effectiveZone } : {}),
@@ -965,18 +1044,20 @@ export function useGoogleAuth({
               missingScopes: data.missingScopes,
               ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
             })
-            setAuthStatus('pending')
+            setAuthStatus("pending")
             setErrorMessage(null)
             return
           }
-          setAuthStatus('failed')
-          setErrorMessage(data.error || 'Failed to register the detected credentials')
+          setAuthStatus("failed")
+          setErrorMessage(data.error || "Failed to register the detected credentials")
           return
         }
 
         await completeAuthentication({
           projectId: data.projectId ?? resolvedProjectId,
-          ...(detectedCredentials.projectName ? { projectName: detectedCredentials.projectName } : {}),
+          ...(detectedCredentials.projectName
+            ? { projectName: detectedCredentials.projectName }
+            : {}),
           ...(data.account?.principal ? { principal: data.account.principal } : {}),
           ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
           credentialType: data.credentialType ?? detectedCredentials.credentialType,
@@ -992,18 +1073,20 @@ export function useGoogleAuth({
         return
       }
 
-      if (source === 'block') {
+      if (source === "block") {
         // Only ONE { block: … } source is allowed per block (the component
         // reports a configuration error otherwise), which is what makes this
         // `find` unambiguous.
         const blockSource = Array.isArray(detectCredentials)
-          ? (detectCredentials.find((s) => typeof s === 'object' && 'block' in s) as { block: string } | undefined)
+          ? (detectCredentials.find((s) => typeof s === "object" && "block" in s) as
+              | { block: string }
+              | undefined)
           : undefined
 
         if (blockSource) {
           const blockResult = getBlockCredentials(blockSource.block)
           if (blockResult.found && blockResult.creds) {
-            const data = await api.invoke('google:validate-credentials', {
+            const data = await api.invoke("google:validate-credentials", {
               blockId: id,
               ...blockResult.creds,
               ...(resolvedProjectId ? { projectId: resolvedProjectId } : {}),
@@ -1020,12 +1103,12 @@ export function useGoogleAuth({
                   missingScopes: data.missingScopes,
                   ...(data.grantedScopes ? { grantedScopes: data.grantedScopes } : {}),
                 })
-                setAuthStatus('pending')
+                setAuthStatus("pending")
                 setErrorMessage(null)
                 return
               }
-              setAuthStatus('failed')
-              setErrorMessage(data.error || 'Failed to register the detected credentials')
+              setAuthStatus("failed")
+              setErrorMessage(data.error || "Failed to register the detected credentials")
               return
             }
 
@@ -1047,13 +1130,15 @@ export function useGoogleAuth({
         }
       }
     } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to register the detected credentials')
+      setAuthStatus("failed")
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to register the detected credentials",
+      )
       return
     }
 
-    setAuthStatus('failed')
-    setErrorMessage('Failed to confirm the detected credentials')
+    setAuthStatus("failed")
+    setErrorMessage("Failed to confirm the detected credentials")
   }, [
     api,
     id,
@@ -1077,8 +1162,8 @@ export function useGoogleAuth({
   const handleRejectDetected = useCallback(() => {
     setDetectedCredentials(null)
     setDetectionWarning(null)
-    setDetectionStatus('done')
-    setAuthStatus('pending')
+    setDetectionStatus("done")
+    setAuthStatus("pending")
   }, [])
 
   /**
@@ -1098,8 +1183,8 @@ export function useGoogleAuth({
     setOauthAuthUrl(null)
     setDetectedCredentials(null)
     setDetectionWarning(null)
-    setDetectionStatus('pending')
-    setAuthStatus('pending')
+    setDetectionStatus("pending")
+    setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
     setRetryFoundNothing(false)
@@ -1126,11 +1211,11 @@ export function useGoogleAuth({
    */
   const loadKeyFromFile = useCallback(async () => {
     try {
-      const result = await api.invoke('native:show-open-dialog', {
-        properties: ['openFile'],
+      const result = await api.invoke("native:show-open-dialog", {
+        properties: ["openFile"],
         filters: [
-          { name: 'Service Account Key', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] },
+          { name: "Service Account Key", extensions: ["json"] },
+          { name: "All Files", extensions: ["*"] },
         ],
       })
 
@@ -1139,13 +1224,13 @@ export function useGoogleAuth({
 
       // A chosen file replaces anything pasted, so exactly one credential is
       // ever in play.
-      setServiceAccountKey('')
+      setServiceAccountKey("")
       setKeyFilePath(filePath)
       setKeyFileName(filePath.split(/[\\/]/).pop() || filePath)
       setErrorMessage(null)
     } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to open the file picker')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to open the file picker")
     }
   }, [api])
 
@@ -1162,7 +1247,7 @@ export function useGoogleAuth({
   }, [])
 
   const submitServiceAccountKey = useCallback(async () => {
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
     invalidateBlockOutputs()
@@ -1172,7 +1257,7 @@ export function useGoogleAuth({
     const requestedProject = projectIdInput.trim()
 
     try {
-      const data = await api.invoke('google:validate-credentials', {
+      const data = await api.invoke("google:validate-credentials", {
         blockId: id,
         // A chosen file is sent as a PATH; only a pasted key travels as JSON.
         ...(keyFilePath ? { keyPath: keyFilePath } : { keyJson: serviceAccountKey }),
@@ -1183,8 +1268,8 @@ export function useGoogleAuth({
       })
 
       if (!data.valid) {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to validate the service account key')
+        setAuthStatus("failed")
+        setErrorMessage(data.error || "Failed to validate the service account key")
         return
       }
 
@@ -1195,7 +1280,7 @@ export function useGoogleAuth({
       const identity: PendingAccount = {
         ...(data.account?.principal ? { principal: data.account.principal } : {}),
         ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
-        credentialType: data.credentialType ?? 'service_account',
+        credentialType: data.credentialType ?? "service_account",
         ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
@@ -1218,7 +1303,7 @@ export function useGoogleAuth({
       }
 
       if (visibleProjects.length === 1) {
-        await selectProject(visibleProjects[0], identity)
+        await selectProject(visibleProjects[0]!, identity)
         return
       }
 
@@ -1231,7 +1316,7 @@ export function useGoogleAuth({
           ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
         })
         appendWarning(data.sessionEnvWarning)
-        setAuthStatus('select_project')
+        setAuthStatus("select_project")
         return
       }
 
@@ -1239,14 +1324,14 @@ export function useGoogleAuth({
       // authenticated, just without a project to pin.
       await completeAuthentication({
         ...identity,
-        projectId: '',
+        projectId: "",
         region: effectiveRegion,
         zone: effectiveZone,
         ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
   }, [
     api,
@@ -1264,8 +1349,8 @@ export function useGoogleAuth({
 
   const handleServiceAccountSubmit = useCallback(() => {
     if (!serviceAccountKey.trim() && !keyFilePath) {
-      setAuthStatus('failed')
-      setErrorMessage('A service account key JSON is required')
+      setAuthStatus("failed")
+      setErrorMessage("A service account key JSON is required")
       return
     }
     void submitServiceAccountKey()
@@ -1279,70 +1364,74 @@ export function useGoogleAuth({
    * Finish an OAuth login. The poll result is METADATA-ONLY: MAIN has already
    * exchanged the code, materialised the ADC file, and written the session env.
    */
-  const finishOAuth = useCallback(async (data: {
-    account?: { principal: string; accountType: 'service_account' | 'user'; scopes?: string[] }
-    projectId?: string
-    credentialsPath?: string
-    projects?: GoogleProjectInfo[]
-    scopes?: string[]
-    region?: string
-    zone?: string
-    sessionEnvWarning?: string
-  }) => {
-    const visibleProjects = (data.projects ?? []) as GoogleProjectInfo[]
-    setProjects(visibleProjects)
-    pendingCredentialsPathRef.current = data.credentialsPath ?? null
+  const finishOAuth = useCallback(
+    async (data: {
+      account?: { principal: string; accountType: "service_account" | "user"; scopes?: string[] }
+      projectId?: string
+      credentialsPath?: string
+      projects?: GoogleProjectInfo[]
+      scopes?: string[]
+      region?: string
+      zone?: string
+      sessionEnvWarning?: string
+    }) => {
+      const visibleProjects = (data.projects ?? []) as GoogleProjectInfo[]
+      setProjects(visibleProjects)
+      pendingCredentialsPathRef.current = data.credentialsPath ?? null
 
-    // The loopback listener is finished; only a LIVE flow keeps an id.
-    oauthFlowIdRef.current = null
-    setOauthFlowId(null)
-    setOauthAuthUrl(null)
+      // The loopback listener is finished; only a LIVE flow keeps an id.
+      oauthFlowIdRef.current = null
+      setOauthFlowId(null)
+      setOauthAuthUrl(null)
 
-    const identity: PendingAccount = {
-      ...(data.account?.principal ? { principal: data.account.principal } : {}),
-      ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
-      credentialType: 'authorized_user',
-      ...(data.scopes ?? data.account?.scopes ? { scopes: data.scopes ?? data.account?.scopes } : {}),
-      ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
-    }
-
-    if (project) {
-      const pinned = visibleProjects.find((p) => p.projectId === project) ?? {
-        projectId: project,
-        displayName: project,
+      const grantedScopes = data.scopes ?? data.account?.scopes
+      const identity: PendingAccount = {
+        ...(data.account?.principal ? { principal: data.account.principal } : {}),
+        ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
+        credentialType: "authorized_user",
+        ...(grantedScopes ? { scopes: grantedScopes } : {}),
+        ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
-      await selectProject(pinned, identity)
-      return
-    }
 
-    if (visibleProjects.length === 1) {
-      await selectProject(visibleProjects[0], identity)
-      return
-    }
+      if (project) {
+        const pinned = visibleProjects.find((p) => p.projectId === project) ?? {
+          projectId: project,
+          displayName: project,
+        }
+        await selectProject(pinned, identity)
+        return
+      }
 
-    if (visibleProjects.length > 1) {
-      setAccountInfo({
-        ...(identity.principal ? { principal: identity.principal } : {}),
-        ...(identity.accountType ? { accountType: identity.accountType } : {}),
-        ...(identity.credentialType ? { credentialType: identity.credentialType } : {}),
-        ...(identity.scopes ? { scopes: identity.scopes } : {}),
-        ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
+      if (visibleProjects.length === 1) {
+        await selectProject(visibleProjects[0]!, identity)
+        return
+      }
+
+      if (visibleProjects.length > 1) {
+        setAccountInfo({
+          ...(identity.principal ? { principal: identity.principal } : {}),
+          ...(identity.accountType ? { accountType: identity.accountType } : {}),
+          ...(identity.credentialType ? { credentialType: identity.credentialType } : {}),
+          ...(identity.scopes ? { scopes: identity.scopes } : {}),
+          ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
+        })
+        appendWarning(data.sessionEnvWarning)
+        setAuthStatus("select_project")
+        return
+      }
+
+      // No project list to choose from — MAIN's resolved project (if any) stands,
+      // and so do the region/zone it wrote on completion.
+      await completeAuthentication({
+        ...identity,
+        projectId: data.projectId ?? "",
+        region: data.region ?? "",
+        zone: data.zone ?? "",
+        ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
-      appendWarning(data.sessionEnvWarning)
-      setAuthStatus('select_project')
-      return
-    }
-
-    // No project list to choose from — MAIN's resolved project (if any) stands,
-    // and so do the region/zone it wrote on completion.
-    await completeAuthentication({
-      ...identity,
-      projectId: data.projectId ?? '',
-      region: data.region ?? '',
-      zone: data.zone ?? '',
-      ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
-    })
-  }, [project, selectProject, completeAuthentication, appendWarning])
+    },
+    [project, selectProject, completeAuthentication, appendWarning],
+  )
 
   /**
    * Poll the loopback flow. The loop's generation is checked before AND after
@@ -1350,73 +1439,78 @@ export function useGoogleAuth({
    * block never writes state or leaves MAIN's listener open, and a superseded
    * loop can never fail or cancel the flow that replaced it.
    */
-  const pollOAuthCompletion = useCallback((flowId: string, generation: number) => {
-    let attempts = 0
-    const superseded = () => generation !== oauthPollGenerationRef.current
+  const pollOAuthCompletion = useCallback(
+    (flowId: string, generation: number) => {
+      let attempts = 0
+      const superseded = () => generation !== oauthPollGenerationRef.current
 
-    /**
-     * Every terminal renderer path goes through `stopOAuthPolling`, which is
-     * what actually issues `google:oauth-cancel`. Abandoning the flow without
-     * it leaves MAIN's loopback listener bound for the rest of its TTL — and if
-     * the user then finishes consent in the still-open browser tab, the
-     * exchanged refresh token sits in main-process memory with nothing left to
-     * collect or reap it.
-     *
-     * Only a current loop gets here (every caller checks `superseded()` after
-     * its last await), so the flow `stopOAuthPolling` cancels is this one.
-     */
-    const fail = (message: string) => {
-      stopOAuthPolling()
-      setOauthFlowId(null)
-      setOauthAuthUrl(null)
-      setAuthStatus('failed')
-      setErrorMessage(message)
-    }
+      /**
+       * Every terminal renderer path goes through `stopOAuthPolling`, which is
+       * what actually issues `google:oauth-cancel`. Abandoning the flow without
+       * it leaves MAIN's loopback listener bound for the rest of its TTL — and if
+       * the user then finishes consent in the still-open browser tab, the
+       * exchanged refresh token sits in main-process memory with nothing left to
+       * collect or reap it.
+       *
+       * Only a current loop gets here (every caller checks `superseded()` after
+       * its last await), so the flow `stopOAuthPolling` cancels is this one.
+       */
+      const fail = (message: string) => {
+        stopOAuthPolling()
+        setOauthFlowId(null)
+        setOauthAuthUrl(null)
+        setAuthStatus("failed")
+        setErrorMessage(message)
+      }
 
-    const poll = async () => {
-      if (superseded()) return
-
-      try {
-        // The region/zone ride along because MAIN writes them on completion:
-        // with no project to pick, no set-project follows to write them.
-        const data = await api.invoke('google:oauth-poll', {
-          flowId,
-          blockId: id,
-          ...(effectiveRegion ? { region: effectiveRegion } : {}),
-          ...(effectiveZone ? { zone: effectiveZone } : {}),
-        })
-
+      const poll = async () => {
         if (superseded()) return
 
-        if (data.status === 'pending') {
-          if (attempts >= OAUTH_POLL_MAX_ATTEMPTS) {
-            fail('Google sign-in timed out. Please try again.')
+        try {
+          // The region/zone ride along because MAIN writes them on completion:
+          // with no project to pick, no set-project follows to write them.
+          const data = await api.invoke("google:oauth-poll", {
+            flowId,
+            blockId: id,
+            ...(effectiveRegion ? { region: effectiveRegion } : {}),
+            ...(effectiveZone ? { zone: effectiveZone } : {}),
+          })
+
+          if (superseded()) return
+
+          if (data.status === "pending") {
+            if (attempts >= OAUTH_POLL_MAX_ATTEMPTS) {
+              fail("Google sign-in timed out. Please try again.")
+              return
+            }
+            attempts++
+            oauthPollTimeoutRef.current = setTimeout(() => {
+              void poll()
+            }, OAUTH_POLL_INTERVAL_MS)
             return
           }
-          attempts++
-          oauthPollTimeoutRef.current = setTimeout(() => { void poll() }, OAUTH_POLL_INTERVAL_MS)
-          return
-        }
 
-        if (data.status === 'complete') {
-          await finishOAuth(data as Parameters<typeof finishOAuth>[0])
-          return
-        }
+          if (data.status === "complete") {
+            await finishOAuth(data as Parameters<typeof finishOAuth>[0])
+            return
+          }
 
-        if (data.status === 'expired') {
-          fail('Authorization request expired. Please try again.')
-          return
-        }
+          if (data.status === "expired") {
+            fail("Authorization request expired. Please try again.")
+            return
+          }
 
-        fail(data.error || 'Google sign-in failed')
-      } catch (error) {
-        if (superseded()) return
-        fail(error instanceof Error ? error.message : 'Failed to check the sign-in status')
+          fail(data.error || "Google sign-in failed")
+        } catch (error) {
+          if (superseded()) return
+          fail(error instanceof Error ? error.message : "Failed to check the sign-in status")
+        }
       }
-    }
 
-    void poll()
-  }, [api, id, effectiveRegion, effectiveZone, finishOAuth, stopOAuthPolling])
+      void poll()
+    },
+    [api, id, effectiveRegion, effectiveZone, finishOAuth, stopOAuthPolling],
+  )
 
   /**
    * Choose a Desktop-app OAuth client JSON (`{ "installed": { client_id,
@@ -1425,11 +1519,11 @@ export function useGoogleAuth({
    */
   const loadOAuthClientFromFile = useCallback(async () => {
     try {
-      const result = await api.invoke('native:show-open-dialog', {
-        properties: ['openFile'],
+      const result = await api.invoke("native:show-open-dialog", {
+        properties: ["openFile"],
         filters: [
-          { name: 'Desktop OAuth client JSON', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] },
+          { name: "Desktop OAuth client JSON", extensions: ["json"] },
+          { name: "All Files", extensions: ["*"] },
         ],
       })
 
@@ -1441,8 +1535,8 @@ export function useGoogleAuth({
       setOauthUnavailable(false)
       setErrorMessage(null)
     } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to open the file picker')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to open the file picker")
     }
   }, [api])
 
@@ -1458,7 +1552,7 @@ export function useGoogleAuth({
     // Taken BEFORE oauth-start, so a stop while it is in flight (unmount,
     // re-authenticate) still keeps this flow's poll loop from starting.
     const generation = ++oauthPollGenerationRef.current
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
     // Withdrawn up front, not on completion: consent happens in a browser and the
@@ -1470,7 +1564,7 @@ export function useGoogleAuth({
       // and owns scopes defaults; only author/operator overrides are sent, so a
       // build's registered client never round-trips the renderer. A clientFile
       // path is read in MAIN — its secret never enters the renderer.
-      const data = await api.invoke('google:oauth-start', {
+      const data = await api.invoke("google:oauth-start", {
         ...(oauthClientId ? { clientId: oauthClientId } : {}),
         ...(oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
         ...(effectiveOauthClientFile ? { clientFile: effectiveOauthClientFile } : {}),
@@ -1478,11 +1572,11 @@ export function useGoogleAuth({
       })
 
       if (!data.flowId || !data.authUrl) {
-        if (OAUTH_NOT_CONFIGURED_PATTERN.test(data.error ?? '')) {
+        if (OAUTH_NOT_CONFIGURED_PATTERN.test(data.error ?? "")) {
           setOauthUnavailable(true)
         }
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to start Google sign-in')
+        setAuthStatus("failed")
+        setErrorMessage(data.error || "Failed to start Google sign-in")
         return
       }
 
@@ -1491,24 +1585,32 @@ export function useGoogleAuth({
       setOauthAuthUrl(data.authUrl)
 
       try {
-        await api.invoke('native:open-external', { url: data.authUrl })
+        await api.invoke("native:open-external", { url: data.authUrl })
       } catch (error) {
         // Not fatal — the card renders the URL so the user can open it manually.
-        console.error('Failed to open the Google sign-in URL:', error)
+        console.error("Failed to open the Google sign-in URL:", error)
       }
 
       pollOAuthCompletion(data.flowId, generation)
     } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
-  }, [api, oauthClientId, oauthClientSecret, effectiveOauthClientFile, scopes, pollOAuthCompletion, invalidateBlockOutputs])
+  }, [
+    api,
+    oauthClientId,
+    oauthClientSecret,
+    effectiveOauthClientFile,
+    scopes,
+    pollOAuthCompletion,
+    invalidateBlockOutputs,
+  ])
 
   const handleCancelOAuth = useCallback(() => {
     stopOAuthPolling()
     setOauthFlowId(null)
     setOauthAuthUrl(null)
-    setAuthStatus('pending')
+    setAuthStatus("pending")
     setErrorMessage(null)
   }, [stopOAuthPolling])
 
@@ -1524,10 +1626,15 @@ export function useGoogleAuth({
     if (oauthUnavailable && !oauthClientId && !effectiveOauthClientFile) {
       return
     }
-    setAuthMethod('oauth')
+    setAuthMethod("oauth")
     await handleOAuthLogin()
-  }, [handleRejectDetected, oauthUnavailable, oauthClientId, effectiveOauthClientFile, handleOAuthLogin])
-
+  }, [
+    handleRejectDetected,
+    oauthUnavailable,
+    oauthClientId,
+    effectiveOauthClientFile,
+    handleOAuthLogin,
+  ])
 
   // Cleanup on unmount: stop polling and release MAIN's loopback listener.
   useEffect(() => {
@@ -1546,13 +1653,12 @@ export function useGoogleAuth({
    */
   useEffect(() => {
     if (oauthClientId || oauthClientFile || oauthClientFilePath) {
-      setOauthUnavailable(false)
       return
     }
 
     let cancelled = false
     void api
-      .invoke('google:oauth-available', {})
+      .invoke("google:oauth-available", {})
       .then((data) => {
         if (!cancelled) setOauthUnavailable(data?.available !== true)
       })
@@ -1574,7 +1680,7 @@ export function useGoogleAuth({
   const loadGcloudConfigs = useCallback(async () => {
     setLoadingConfigs(true)
     try {
-      const data = await api.invoke('google:gcloud-configurations', {})
+      const data = await api.invoke("google:gcloud-configurations", {})
       const list = (data.configurations ?? []) as GcloudConfigInfo[]
       setGcloudConfigs(list)
       setAdcInfo((data.adc as AdcInfo | undefined) ?? null)
@@ -1582,19 +1688,27 @@ export function useGoogleAuth({
 
       // A configuration without Application Default Credentials cannot
       // authenticate, so it is listed but never auto-selected.
-      const usable = (c: GcloudConfigInfo) => c.authType !== 'config-only' && c.authType !== 'unsupported'
-      const pinned = gcloudConfiguration ? list.find((c) => c.name === gcloudConfiguration) : undefined
+      const usable = (c: GcloudConfigInfo) =>
+        c.authType !== "config-only" && c.authType !== "unsupported"
+      const pinned = gcloudConfiguration
+        ? list.find((c) => c.name === gcloudConfiguration)
+        : undefined
       const active = list.find((c) => c.isActive && usable(c))
       const firstUsable = list.find(usable)
       // "Refresh configurations" keeps the user's pick while it is still listed
       // and usable, taking the FRESH entry (its ADC state may have changed).
       // Otherwise the default choice applies, and when there is none the
       // selection clears rather than keeping a configuration that is gone.
-      setSelectedConfig((prev) =>
-        (prev && list.find((c) => c.name === prev.name && usable(c))) ??
-        pinned ?? active ?? firstUsable ?? null)
+      setSelectedConfig(
+        (prev) =>
+          (prev && list.find((c) => c.name === prev.name && usable(c))) ??
+          pinned ??
+          active ??
+          firstUsable ??
+          null,
+      )
     } catch (error) {
-      console.error('Failed to load gcloud configurations:', error)
+      console.error("Failed to load gcloud configurations:", error)
       setGcloudConfigs([])
       setSelectedConfig(null)
     } finally {
@@ -1604,31 +1718,31 @@ export function useGoogleAuth({
 
   const handleGcloudAuth = useCallback(async () => {
     if (!selectedConfig) {
-      setAuthStatus('failed')
-      setErrorMessage('Please select a gcloud configuration')
+      setAuthStatus("failed")
+      setErrorMessage("Please select a gcloud configuration")
       return
     }
 
-    if (selectedConfig.authType === 'config-only') {
-      setAuthStatus('failed')
+    if (selectedConfig.authType === "config-only") {
+      setAuthStatus("failed")
       setErrorMessage(
-        'Configuration found, but no Application Default Credentials — run `gcloud auth application-default login`.'
+        "Configuration found, but no Application Default Credentials — run `gcloud auth application-default login`.",
       )
       return
     }
 
-    if (selectedConfig.authType === 'unsupported') {
-      setAuthStatus('failed')
-      setErrorMessage('This authentication method is not supported')
+    if (selectedConfig.authType === "unsupported") {
+      setAuthStatus("failed")
+      setErrorMessage("This authentication method is not supported")
       return
     }
 
-    setAuthStatus('authenticating')
+    setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
     invalidateBlockOutputs()
 
-    const requestedProject = project || selectedConfig.project || ''
+    const requestedProject = project || selectedConfig.project || ""
 
     try {
       // Only the user's explicit region/zone is sent, never this listing's. With
@@ -1636,7 +1750,7 @@ export function useGoogleAuth({
       // reads them now (the listing may predate a `gcloud config set
       // compute/region`), keeps them on the block's credential for any
       // set-project that follows, and echoes what it wrote.
-      const data = await api.invoke('google:gcloud-auth', {
+      const data = await api.invoke("google:gcloud-auth", {
         blockId: id,
         configuration: selectedConfig.name,
         ...(requestedProject ? { projectId: requestedProject } : {}),
@@ -1646,8 +1760,10 @@ export function useGoogleAuth({
       })
 
       if (!data.valid) {
-        setAuthStatus('failed')
-        setErrorMessage(data.error || 'Failed to authenticate with the selected gcloud configuration')
+        setAuthStatus("failed")
+        setErrorMessage(
+          data.error || "Failed to authenticate with the selected gcloud configuration",
+        )
         return
       }
 
@@ -1660,7 +1776,7 @@ export function useGoogleAuth({
         ...(data.account?.principal ? { principal: data.account.principal } : {}),
         ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
         credentialType:
-          selectedConfig.authType === 'adc-service-account' ? 'service_account' : 'authorized_user',
+          selectedConfig.authType === "adc-service-account" ? "service_account" : "authorized_user",
         ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
@@ -1675,8 +1791,8 @@ export function useGoogleAuth({
           ...identity,
           projectId: resolvedProjectId,
           // MAIN's answer, not the request.
-          region: data.region ?? '',
-          zone: data.zone ?? '',
+          region: data.region ?? "",
+          zone: data.zone ?? "",
           ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         return
@@ -1685,7 +1801,7 @@ export function useGoogleAuth({
       // Both project routes below end in a set-project, which sends only the
       // explicit region/zone too, so MAIN's stay in force through the picker.
       if (visibleProjects.length === 1) {
-        await selectProject(visibleProjects[0], identity)
+        await selectProject(visibleProjects[0]!, identity)
         return
       }
 
@@ -1698,7 +1814,7 @@ export function useGoogleAuth({
           ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
         })
         appendWarning(data.sessionEnvWarning)
-        setAuthStatus('select_project')
+        setAuthStatus("select_project")
         return
       }
 
@@ -1706,14 +1822,14 @@ export function useGoogleAuth({
       // says so on the success card instead of pretending the block is ready.
       await completeAuthentication({
         ...identity,
-        projectId: '',
-        region: data.region ?? '',
-        zone: data.zone ?? '',
+        projectId: "",
+        region: data.region ?? "",
+        zone: data.zone ?? "",
         ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
-      setAuthStatus('failed')
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to server')
+      setAuthStatus("failed")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to connect to server")
     }
   }, [
     api,
@@ -1733,16 +1849,19 @@ export function useGoogleAuth({
   // Project selection + reset
   // ---------------------------------------------------------------------------
 
-  const handleProjectSelect = useCallback(async (p: GoogleProjectInfo) => {
-    await selectProject(p)
-  }, [selectProject])
+  const handleProjectSelect = useCallback(
+    async (p: GoogleProjectInfo) => {
+      await selectProject(p)
+    },
+    [selectProject],
+  )
 
   /** From the success card: go back to the picker, loading it if it is empty. */
   const handleChangeProject = useCallback(async () => {
     setErrorMessage(null)
-    setProjectSearch('')
+    setProjectSearch("")
     changingProjectRef.current = true
-    setAuthStatus('select_project')
+    setAuthStatus("select_project")
     if (projects.length === 0) {
       await loadProjects()
     }
@@ -1754,18 +1873,18 @@ export function useGoogleAuth({
     // The card going blue has to take the block's outputs with it, or steps keep
     // injecting the credential this reset exists to replace.
     invalidateBlockOutputs()
-    setAuthStatus('pending')
+    setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
     setAccountInfo(null)
     setProjects([])
     setSelectedProject(null)
-    setProjectSearch('')
+    setProjectSearch("")
     setOauthFlowId(null)
     setOauthAuthUrl(null)
     setDetectedCredentials(null)
     setDetectionWarning(null)
-    setDetectionStatus('done')
+    setDetectionStatus("done")
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
     pendingCredentialsPathRef.current = null
@@ -1780,9 +1899,9 @@ export function useGoogleAuth({
   const handleCancelProjectSelect = useCallback(() => {
     if (changingProjectRef.current) {
       changingProjectRef.current = false
-      setProjectSearch('')
+      setProjectSearch("")
       setErrorMessage(null)
-      setAuthStatus('authenticated')
+      setAuthStatus("authenticated")
       return
     }
     handleManualAuth()

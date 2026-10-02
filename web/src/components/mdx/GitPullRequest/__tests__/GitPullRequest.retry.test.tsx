@@ -61,7 +61,7 @@ function emit(channel: string, data: unknown) {
 function renderBlock(handlers: Record<string, Handler>) {
   listeners = new Map()
   invoke = vi.fn(async (channel: string, args: Record<string, unknown>) =>
-    channel in handlers ? handlers[channel](args) : { labels: [] },
+    channel in handlers ? handlers[channel]!(args) : { labels: [] },
   )
   const api = {
     invoke,
@@ -109,16 +109,22 @@ describe("GitPullRequest failure recovery", () => {
   it("'Delete branch and retry' deletes the conflicting branch, then creates again", async () => {
     let attempts = 0
     renderBlock({
-      "git:pull-request": () => (++attempts === 1 ? fail(LOCAL_CONFLICT, "branch_exists") : succeed()),
+      "git:pull-request": () =>
+        ++attempts === 1 ? fail(LOCAL_CONFLICT, "branch_exists") : succeed(),
       "git:delete-branch": () => ({ ok: true }),
     })
 
     fireEvent.click(await screen.findByRole("button", { name: "Submit" }))
-    fireEvent.click(await screen.findByRole("button", { name: 'Delete branch "runbook/1" and retry' }))
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Delete branch "runbook/1" and retry' }),
+    )
 
     expect(await screen.findByText(`Opened ${PR_URL}`)).toBeInTheDocument()
     expect(actionCalls()).toEqual(["git:pull-request", "git:delete-branch", "git:pull-request"])
-    expect(invoke).toHaveBeenCalledWith("git:delete-branch", { worktreePath: "/work/infra", branch: "runbook/1" })
+    expect(invoke).toHaveBeenCalledWith("git:delete-branch", {
+      worktreePath: "/work/infra",
+      branch: "runbook/1",
+    })
   })
 
   it("does not retry when the delete is refused", async () => {
@@ -130,14 +136,17 @@ describe("GitPullRequest failure recovery", () => {
     })
 
     fireEvent.click(await screen.findByRole("button", { name: "Submit" }))
-    fireEvent.click(await screen.findByRole("button", { name: 'Delete branch "runbook/1" and retry' }))
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Delete branch "runbook/1" and retry' }),
+    )
 
     expect(await screen.findByText(/not fully merged/)).toBeInTheDocument()
     expect(actionCalls()).toEqual(["git:pull-request", "git:delete-branch"])
   })
 
   it("does not offer a local branch delete for a remote 'pull request already exists' conflict", async () => {
-    const remoteConflict = 'Validation Failed: {"message":"A pull request already exists for acme:runbook/1."}'
+    const remoteConflict =
+      'Validation Failed: {"message":"A pull request already exists for acme:runbook/1."}'
     // Resolve without a git:error event, so only the invoke's return value can
     // classify the failure.
     renderBlock({ "git:pull-request": () => ({ error: remoteConflict }) })

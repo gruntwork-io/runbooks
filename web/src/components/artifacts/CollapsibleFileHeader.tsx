@@ -1,6 +1,6 @@
-import type { ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import type { ReactNode } from "react"
+import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
 interface CollapsibleFileHeaderProps {
   isCollapsed: boolean
@@ -37,7 +37,7 @@ export function CollapsibleFileHeader({
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return // keys from the nested copy button must not toggle
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === "Enter" || e.key === " ") {
           e.preventDefault() // stop Space from scrolling the pane
           onToggle()
         }
@@ -49,11 +49,12 @@ export function CollapsibleFileHeader({
         <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
       )}
       {icon}
-      <span className="font-mono text-xs text-foreground truncate">
-        {path}
-      </span>
+      <span className="font-mono text-xs text-foreground truncate">{path}</span>
       <button
-        onClick={(e) => { e.stopPropagation(); copy(path) }}
+        onClick={(e) => {
+          e.stopPropagation()
+          void copy(path)
+        }}
         className="p-0.5 text-muted-foreground hover:text-foreground rounded flex-shrink-0"
         title="Copy file path"
       >

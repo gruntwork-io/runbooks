@@ -4,7 +4,17 @@ import { Admonition } from "@/components/mdx/Admonition"
 import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { ViewSourceCode, ViewLogs, ViewOutputs, useScriptExecution, InlineMarkdown, UnmetDependenciesWarning, UnmetAuthDependencyWarning, BlockIdLabel, Instruction } from "@/components/mdx/_shared"
+import {
+  ViewSourceCode,
+  ViewLogs,
+  ViewOutputs,
+  useScriptExecution,
+  InlineMarkdown,
+  UnmetDependenciesWarning,
+  UnmetAuthDependencyWarning,
+  BlockIdLabel,
+  Instruction,
+} from "@/components/mdx/_shared"
 import { DuplicateIdError } from "./DuplicateIdError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -25,7 +35,7 @@ export interface ScriptBlockVariant {
   /** componentType forwarded to useScriptExecution. */
   componentType: ComponentType
   /** Registry/telemetry/error-reporting name and the `<Name>` shown in messages. */
-  name: 'Command' | 'Check'
+  name: "Command" | "Check"
   /** Primary action button label. */
   runLabel: string
   /** runningMessage used when the author doesn't provide one. */
@@ -54,30 +64,30 @@ export interface ScriptBlockVariant {
 
 export interface ScriptBlockProps {
   id: string
-  title?: string
-  description?: string
-  path?: string
-  command?: string
+  title?: string | undefined
+  description?: string | undefined
+  path?: string | undefined
+  command?: string | undefined
   /** Reference to one or more Inputs by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
-  inputsId?: string | string[]
+  inputsId?: string | string[] | undefined
   /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
-  awsAuthId?: string
+  awsAuthId?: string | undefined
   /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
-  githubAuthId?: string
+  githubAuthId?: string | undefined
   /** Reference to a GitAuth block by ID (GitHub or GitLab). The block's credentials (GITHUB_TOKEN/GITHUB_USER or GITLAB_TOKEN/GITLAB_USER) will be passed as environment variables. */
-  gitAuthId?: string
+  gitAuthId?: string | undefined
   /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
-  googleAuthId?: string
-  successMessage?: string
+  googleAuthId?: string | undefined
+  successMessage?: string | undefined
   /** Warning message (Check only — Command never reaches the warn state). */
-  warnMessage?: string
-  failMessage?: string
-  runningMessage?: string
+  warnMessage?: string | undefined
+  failMessage?: string | undefined
+  runningMessage?: string | undefined
   children?: ReactNode // For inline Inputs component
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY or when simpler output handling is preferred. */
-  usePty?: boolean
+  usePty?: boolean | undefined
   /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
-  timeoutMs?: number
+  timeoutMs?: number | undefined
   /** Distinguishes the Command vs Check presentation. */
   variant: ScriptBlockVariant
 }
@@ -112,14 +122,17 @@ export function ScriptBlock({
     if (!id) {
       return {
         message: `The <${variant.name}> component requires a non-empty 'id' prop.`,
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
   }, [id, variant.name])
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, variant.name)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    variant.name,
+  )
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -173,21 +186,21 @@ export function ScriptBlock({
 
   // Clone children and add variant="embedded" prop if it's an Inputs component
   const childrenWithVariant = useMemo(() => {
-    if (!children) return null;
+    if (!children) return null
 
     // If children is a valid React element, clone it with variant prop
     if (isValidElement(children)) {
-      return cloneElement(children, { variant: 'embedded' } as Record<string, unknown>);
+      return cloneElement(children, { variant: "embedded" } as Record<string, unknown>)
     }
 
-    return children;
-  }, [children]);
+    return children
+  }, [children])
 
   // State for controlling ViewSourceCode
-  const [showSourceCode, setShowSourceCode] = useState(false);
+  const [showSourceCode, setShowSourceCode] = useState(false)
 
   // Ref for scrolling to ViewSourceCode section
-  const viewSourceCodeRef = useRef<HTMLDivElement>(null);
+  const viewSourceCodeRef = useRef<HTMLDivElement>(null)
 
   // Determine if we should display the command inline
   const displayCommand = useMemo(() => {
@@ -196,7 +209,7 @@ export function ScriptBlock({
 
     // Display inline command if present
     if (command) {
-      const isMultiLine = command.includes('\n')
+      const isMultiLine = command.includes("\n")
       return { content: sourceCode, isMultiLine } // Use sourceCode (may be rendered with variables)
     }
 
@@ -207,26 +220,45 @@ export function ScriptBlock({
   const scriptMetadata = useMemo(() => {
     if (!path || command) return null
 
-    const lines = sourceCode.split('\n').length
-    const languageDisplay = language || 'shell'
+    const lines = sourceCode.split("\n").length
+    const languageDisplay = language || "shell"
 
     return { lines, language: languageDisplay }
   }, [path, command, sourceCode, language])
 
   // Resolve display string props using template context
-  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateContext) : title, [title, templateContext])
-  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateContext) : description, [description, templateContext])
-  const resolvedSuccessMessage = useMemo(() => resolveTemplateReferences(successMessage, templateContext), [successMessage, templateContext])
-  const resolvedWarnMessage = useMemo(() => resolveTemplateReferences(warnMessage, templateContext), [warnMessage, templateContext])
-  const resolvedFailMessage = useMemo(() => resolveTemplateReferences(failMessage, templateContext), [failMessage, templateContext])
-  const resolvedRunningMessage = useMemo(() => resolveTemplateReferences(runningMessage ?? variant.defaultRunningMessage, templateContext), [runningMessage, variant.defaultRunningMessage, templateContext])
+  const resolvedTitle = useMemo(
+    () => (title ? resolveTemplateReferences(title, templateContext) : title),
+    [title, templateContext],
+  )
+  const resolvedDescription = useMemo(
+    () => (description ? resolveTemplateReferences(description, templateContext) : description),
+    [description, templateContext],
+  )
+  const resolvedSuccessMessage = useMemo(
+    () => resolveTemplateReferences(successMessage, templateContext),
+    [successMessage, templateContext],
+  )
+  const resolvedWarnMessage = useMemo(
+    () => resolveTemplateReferences(warnMessage, templateContext),
+    [warnMessage, templateContext],
+  )
+  const resolvedFailMessage = useMemo(
+    () => resolveTemplateReferences(failMessage, templateContext),
+    [failMessage, templateContext],
+  )
+  const resolvedRunningMessage = useMemo(
+    () =>
+      resolveTemplateReferences(runningMessage ?? variant.defaultRunningMessage, templateContext),
+    [runningMessage, variant.defaultRunningMessage, templateContext],
+  )
 
   // The ID label is pinned to the block's top-right corner. Without a title
   // row beside it, the full-width command box (or, with `path`, the separator)
   // can be the first row: a pending Check has no placeholder line. Keep both
   // clear of the label, as the drift Admonition does. Keyed on the title alone
   // so the width stays put as status lines come and go.
-  const clearIdLabel = resolvedTitle ? '' : 'mr-12'
+  const clearIdLabel = resolvedTitle ? "" : "mr-12"
 
   // Check if component requires variables but none are configured. Only Inputs
   // blocks supply `.inputs` values; an auth block reference never does.
@@ -244,31 +276,39 @@ export function ScriptBlock({
       reportError({
         componentId: id,
         componentType: variant.name,
-        severity: 'error',
-        message: `Duplicate component ID: ${id}`
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
       })
     } else if (getFileError) {
       reportError({
         componentId: id,
         componentType: variant.name,
-        severity: 'error',
-        message: getFileError.message
+        severity: "error",
+        message: getFileError.message,
       })
     } else if (missingInputsConfig) {
       reportError({
         componentId: id,
         componentType: variant.name,
-        severity: 'warning',
-        message: `Missing Inputs configuration for variables: ${inputDependencies.join(', ')}`
+        severity: "warning",
+        message: `Missing Inputs configuration for variables: ${inputDependencies.join(", ")}`,
       })
     } else {
       // No error, clear any previously reported error
       clearError(id)
     }
-  }, [id, isDuplicate, getFileError, missingInputsConfig, inputDependencies, reportError, clearError, variant.name])
+  }, [
+    id,
+    isDuplicate,
+    getFileError,
+    missingInputsConfig,
+    inputDependencies,
+    reportError,
+    clearError,
+    variant.name,
+  ])
 
   const statusClasses = variant.statusStyles.getStatusClasses(status)
-  const IconComponent = variant.statusStyles.getStatusIcon(status)
   const iconClasses = variant.statusStyles.getStatusIconClasses(status)
 
   // Early return for validation errors (e.g. missing id prop)
@@ -296,9 +336,15 @@ export function ScriptBlock({
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>{variant.fileErrorHeading}:</strong><br />
+            <strong>{variant.fileErrorHeading}:</strong>
+            <br />
             {getFileError.message}
-            {path && <span>. Failed to load file at {path}. Does the file exist? Do you have permission to read it?</span>}
+            {path && (
+              <span>
+                . Failed to load file at {path}. Does the file exist? Do you have permission to read
+                it?
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -312,12 +358,19 @@ export function ScriptBlock({
         <div className="flex items-center text-warning-foreground">
           <AlertTriangle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Configuration Required:</strong><br />
-            This {variant.missingInputsSubject} requires variables ({inputDependencies.join(', ')}) but no Inputs component is configured.
-            Please add either:
+            <strong>Configuration Required:</strong>
+            <br />
+            This {variant.missingInputsSubject} requires variables ({inputDependencies.join(", ")})
+            but no Inputs component is configured. Please add either:
             <ul className="list-disc ml-6 mt-2">
-              <li>An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code> component as a child</li>
-              <li>An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing an existing Inputs</li>
+              <li>
+                An inline <code className="bg-warning-muted px-1 rounded">{"<Inputs>"}</code>{" "}
+                component as a child
+              </li>
+              <li>
+                An <code className="bg-warning-muted px-1 rounded">inputsId</code> prop referencing
+                an existing Inputs
+              </li>
             </ul>
           </div>
         </div>
@@ -335,7 +388,9 @@ export function ScriptBlock({
       <Instruction
         id={id}
         icon={variant.instructionIcon}
-        title={resolvedTitle || (path ? variant.instructionPathTitle : variant.instructionInlineTitle)}
+        title={
+          resolvedTitle || (path ? variant.instructionPathTitle : variant.instructionInlineTitle)
+        }
         description={resolvedDescription}
         command={path ? undefined : rawScriptContent}
         source={
@@ -351,17 +406,20 @@ export function ScriptBlock({
 
   // Determine if the action button should be disabled
   const isRunDisabled =
-    status === 'running' ||
+    status === "running" ||
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies ||
     !hasAwsAuthDependency ||
     !hasGitHubAuthDependency ||
-    !hasGoogleAuthDependency;
+    !hasGoogleAuthDependency
 
   // Main render
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -370,23 +428,47 @@ export function ScriptBlock({
       {/* Script drift warning - mr-12 leaves room for the ID label */}
       {hasScriptDrift && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
-          <p>This script has changed since the runbook was loaded. Although the <em>UI</em> shows the latest version, for security reasons, Runbooks will <em>execute</em> the version that was present when the runbook was last opened or reloaded, or, if Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, when it was opened in this app session (opening another runbook and coming back rebuilds it).</p>
-          <p>To execute the latest version, close and reopen the runbook (in watch mode, saving <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also reloads it). If Runbooks was started with <code className="bg-warning-muted px-1 rounded text-xs">--disable-live-file-reload</code>, quit and restart the app instead. If reloading doesn't resolve this, check for escape sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in inline commands that may be interpreted differently by the browser and backend.</p>
+          <p>
+            This script has changed since the runbook was loaded. Although the <em>UI</em> shows the
+            latest version, for security reasons, Runbooks will <em>execute</em> the version that
+            was present when the runbook was last opened or reloaded, or, if Runbooks was started
+            with{" "}
+            <code className="bg-warning-muted px-1 rounded text-xs">
+              --disable-live-file-reload
+            </code>
+            , when it was opened in this app session (opening another runbook and coming back
+            rebuilds it).
+          </p>
+          <p>
+            To execute the latest version, close and reopen the runbook (in watch mode, saving{" "}
+            <code className="bg-warning-muted px-1 rounded text-xs">runbook.mdx</code> also reloads
+            it). If Runbooks was started with{" "}
+            <code className="bg-warning-muted px-1 rounded text-xs">
+              --disable-live-file-reload
+            </code>
+            , quit and restart the app instead. If reloading doesn't resolve this, check for escape
+            sequences (e.g. <code className="bg-warning-muted px-1 rounded text-xs">\n</code>) in
+            inline commands that may be interpreted differently by the browser and backend.
+          </p>
         </Admonition>
       )}
 
       {/* Main container */}
       <div className="flex @container">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <IconComponent data-testid={`icon-${status}`} className={`size-6 ${iconClasses} ${status === 'running' ? 'animate-spin' : ''}`} />
+          <variant.statusStyles.StatusIcon
+            status={status}
+            data-testid={`icon-${status}`}
+            className={`size-6 ${iconClasses} ${status === "running" ? "animate-spin" : ""}`}
+          />
         </div>
 
         {/* Main body */}
         <div className="flex-1 min-w-0 space-y-2">
-          {variant.showPendingPlaceholder && status === 'pending' && command && !title && (
+          {variant.showPendingPlaceholder && status === "pending" && command && !title && (
             <div className="text-muted-foreground font-semibold text-sm">Run a command</div>
           )}
-          {variant.showPendingPlaceholder && status === 'pending' && !command && path && !title && (
+          {variant.showPendingPlaceholder && status === "pending" && !command && path && !title && (
             <div className="text-muted-foreground font-semibold text-sm">Run a script</div>
           )}
 
@@ -402,33 +484,29 @@ export function ScriptBlock({
             </div>
           )}
 
-          {status === 'success' && resolvedSuccessMessage && (
+          {status === "success" && resolvedSuccessMessage && (
             <div className="text-success font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedSuccessMessage}</InlineMarkdown>
             </div>
           )}
-          {status === 'warn' && resolvedWarnMessage && (
+          {status === "warn" && resolvedWarnMessage && (
             <div className="text-warning font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedWarnMessage}</InlineMarkdown>
             </div>
           )}
-          {status === 'fail' && resolvedFailMessage && (
+          {status === "fail" && resolvedFailMessage && (
             <div className="text-destructive font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedFailMessage}</InlineMarkdown>
             </div>
           )}
-          {status === 'running' && resolvedRunningMessage && (
+          {status === "running" && resolvedRunningMessage && (
             <div className="text-info font-semibold text-sm mb-3">
               <InlineMarkdown>{resolvedRunningMessage}</InlineMarkdown>
             </div>
           )}
 
           {/* Render inline Inputs children if present */}
-          {childrenWithVariant && (
-            <div className="mb-4">
-              {childrenWithVariant}
-            </div>
-          )}
+          {childrenWithVariant && <div className="mb-4">{childrenWithVariant}</div>}
 
           {/* Display script metadata for file-based scripts */}
           {variant.showScriptMetadata && scriptMetadata && (
@@ -444,7 +522,9 @@ export function ScriptBlock({
               {path && (
                 <span className="inline-flex items-center gap-1 text-muted-foreground">
                   <span className="font-semibold">Path:</span>
-                  <span className="font-mono truncate max-w-xs" title={path}>{path}</span>
+                  <span className="font-mono truncate max-w-xs" title={path}>
+                    {path}
+                  </span>
                 </span>
               )}
               <button
@@ -453,8 +533,8 @@ export function ScriptBlock({
                   // Scroll to ViewSourceCode section with a slight delay to ensure it's open
                   setTimeout(() => {
                     viewSourceCodeRef.current?.scrollIntoView({
-                      behavior: 'smooth',
-                      block: 'nearest'
+                      behavior: "smooth",
+                      block: "nearest",
                     })
                   }, 100)
                 }}
@@ -467,7 +547,9 @@ export function ScriptBlock({
 
           {/* Display inline command if present */}
           {displayCommand && (
-            <div className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}>
+            <div
+              className={`font-mono text-xs mb-3 bg-gray-900 rounded p-3 text-gray-100 whitespace-pre-wrap ${clearIdLabel}`}
+            >
               {displayCommand.content}
             </div>
           )}
@@ -516,7 +598,9 @@ export function ScriptBlock({
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
                 <strong>{variant.renderErrorLabel}:</strong> {renderError.message}
-                {renderError.details && <div className="text-xs mt-1 text-destructive">{renderError.details}</div>}
+                {renderError.details && (
+                  <div className="text-xs mt-1 text-destructive">{renderError.details}</div>
+                )}
               </div>
             </div>
           )}
@@ -526,7 +610,9 @@ export function ScriptBlock({
               <XCircle className="size-4 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
                 <strong>{execError.message}</strong>
-                {execError.details && <div className="text-xs mt-1 text-destructive">{execError.details}</div>}
+                {execError.details && (
+                  <div className="text-xs mt-1 text-destructive">{execError.details}</div>
+                )}
               </div>
             </div>
           )}
@@ -545,7 +631,7 @@ export function ScriptBlock({
                 variant="outline"
                 size="sm"
                 onClick={() => cancel()}
-                disabled={status !== 'running'}
+                disabled={status !== "running"}
                 className="text-destructive hover:text-destructive hover:bg-destructive-muted disabled:text-muted-foreground disabled:hover:bg-transparent"
               >
                 <Square className="size-4 mr-1" />
@@ -559,29 +645,29 @@ export function ScriptBlock({
       {/* Expandable sections inside the main box */}
       <div className="mt-4 space-y-2">
         <ViewLogs
-            logs={logs}
-            status={status}
-            autoOpen={status === 'running'}
-            blockId={id}
-            logFilePath={logFilePath}
-          />
-          <ViewOutputs
-            outputs={outputs}
-            autoOpen={outputs !== null && Object.keys(outputs).length > 0}
-          />
-          {/* Only show ViewSourceCode if path is used */}
-          {path && (
-            <div ref={viewSourceCodeRef}>
-              <ViewSourceCode
-                sourceCode={sourceCode}
-                path={path}
-                language={language}
-                fileName={variant.fileName}
-                isOpen={showSourceCode}
-                onToggle={setShowSourceCode}
-              />
-            </div>
-          )}
+          logs={logs}
+          status={status}
+          autoOpen={status === "running"}
+          blockId={id}
+          logFilePath={logFilePath}
+        />
+        <ViewOutputs
+          outputs={outputs}
+          autoOpen={outputs !== null && Object.keys(outputs).length > 0}
+        />
+        {/* Only show ViewSourceCode if path is used */}
+        {path && (
+          <div ref={viewSourceCodeRef}>
+            <ViewSourceCode
+              sourceCode={sourceCode}
+              path={path}
+              language={language}
+              fileName={variant.fileName}
+              isOpen={showSourceCode}
+              onToggle={setShowSourceCode}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

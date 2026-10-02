@@ -83,14 +83,14 @@ export type VcsTransportErrorKind = "tls" | "server-cert" | "network"
 export class GitHubApiError extends Data.TaggedError("GitHubApiError")<{
   readonly status: number
   readonly message: string
-  readonly kind?: VcsTransportErrorKind
+  readonly kind?: VcsTransportErrorKind | undefined
 }> {}
 
 // GitLab
 export class GitLabApiError extends Data.TaggedError("GitLabApiError")<{
   readonly status: number
   readonly message: string
-  readonly kind?: VcsTransportErrorKind
+  readonly kind?: VcsTransportErrorKind | undefined
 }> {}
 
 // Git
@@ -106,7 +106,13 @@ export class GitError extends Data.TaggedError("GitError")<{
  * crosses IPC or hits a log.
  */
 export class VcsCliError extends Data.TaggedError("VcsCliError")<{
-  readonly kind: "not-installed" | "not-authenticated" | "keyring-blocked" | "spawn" | "timeout" | "api"
+  readonly kind:
+    | "not-installed"
+    | "not-authenticated"
+    | "keyring-blocked"
+    | "spawn"
+    | "timeout"
+    | "api"
   readonly stderr: string
 }> {}
 

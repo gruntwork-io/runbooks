@@ -3,9 +3,9 @@ import type { GitLabApiError } from "../errors/index.ts"
 
 export interface GitLabUser {
   readonly login: string
-  readonly name?: string
-  readonly avatarUrl?: string
-  readonly email?: string
+  readonly name?: string | undefined
+  readonly avatarUrl?: string | undefined
+  readonly email?: string | undefined
 }
 
 export interface GitLabTokenValidation {
@@ -17,7 +17,7 @@ export interface GitLabTokenValidation {
    * scopes can't be determined (e.g. a project/group token or an introspection
    * failure).
    */
-  readonly scopes?: string[]
+  readonly scopes?: string[] | undefined
 }
 
 export type GitLabTokenType = "pat" | "oauth" | "unknown"
@@ -34,10 +34,10 @@ export interface CreateMRParams {
   readonly owner: string
   readonly repo: string
   readonly title: string
-  readonly body?: string
+  readonly body?: string | undefined
   readonly baseBranch: string
   readonly headBranch: string
-  readonly labels?: string[]
+  readonly labels?: string[] | undefined
   /**
    * GitLab instance origin to target (e.g. `https://gitlab.example.com`).
    * Defaults to gitlab.com when omitted; one that is given but doesn't parse
@@ -66,10 +66,21 @@ export interface GitLabClientShape {
    * omitted. One that is given but doesn't parse fails with status 400 — never
    * a fallback to gitlab.com, which would send another instance's token there.
    */
-  readonly validateToken: (token: string, baseUrl?: string) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
-  readonly createMergeRequest: (token: string, params: CreateMRParams) => Effect.Effect<MergeRequestResult, GitLabApiError>
+  readonly validateToken: (
+    token: string,
+    baseUrl?: string,
+  ) => Effect.Effect<GitLabTokenValidation, GitLabApiError>
+  readonly createMergeRequest: (
+    token: string,
+    params: CreateMRParams,
+  ) => Effect.Effect<MergeRequestResult, GitLabApiError>
   /** `baseUrl` is the instance origin (bare host or full URL); see validateToken. */
-  readonly listLabels: (token: string, owner: string, repo: string, baseUrl?: string) => Effect.Effect<string[], GitLabApiError>
+  readonly listLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    baseUrl?: string,
+  ) => Effect.Effect<string[], GitLabApiError>
 }
 
 export class GitLabClient extends Context.Tag("GitLabClient")<GitLabClient, GitLabClientShape>() {}

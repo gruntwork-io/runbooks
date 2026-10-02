@@ -1,28 +1,28 @@
 // API response for an individual boilerplate variable
 export interface BoilerplateVariable {
-  name: string;
-  description: string;
-  type: BoilerplateVariableType | string;
-  default?: unknown;
-  required?: boolean;
-  options?: string[];
-  validations?: ValidationRule[];
-  sensitive?: boolean;
+  name: string
+  description: string
+  type: BoilerplateVariableType | string
+  default?: unknown
+  required?: boolean
+  options?: string[]
+  validations?: ValidationRule[]
+  sensitive?: boolean
   // Runbooks extensions (x- prefixed in YAML, ignored by Boilerplate)
-  schema?: Record<string, string>; // For structured maps: field name -> type mapping (YAML: x-schema)
-  schemaInstanceLabel?: string; // Custom label for schema instances (YAML: x-schema-instance-label)
+  schema?: Record<string, string> // For structured maps: field name -> type mapping (YAML: x-schema)
+  schemaInstanceLabel?: string // Custom label for schema instances (YAML: x-schema-instance-label)
   // Which section this variable belongs to. See also: BoilerplateConfig.sections for ordered groupings.
-  sectionName?: string; // (YAML: x-section)
+  sectionName?: string // (YAML: x-section)
 }
 
 export enum BoilerplateVariableType {
   String = "string",
-  Int = "int", 
+  Int = "int",
   Float = "float",
   Bool = "bool",
   List = "list",
   Map = "map",
-  Enum = "enum"
+  Enum = "enum",
 }
 
 // Validation rule for a boilerplate variable
@@ -44,5 +44,5 @@ export enum BoilerplateValidationType {
   Semver = "semver",
   Length = "length",
   Regex = "regex",
-  Custom = "custom"
+  Custom = "custom",
 }

@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createElement, type ReactNode } from 'react'
-import { renderHook, act, waitFor } from '@testing-library/react'
-import { ApiProvider, type RunbooksAPI } from '@/contexts/ApiContext'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
-import { useRunbookContext } from '@/contexts/useRunbook'
-import { normalizeBlockId } from '@/lib/utils'
-import { PR_PROVIDERS, type PRProviderConfig } from '../../providers'
-import { CANCELED_RUN_WAIT_MS, useGitPullRequest } from '../useGitPullRequest'
+import { describe, it, expect, vi, afterEach } from "vitest"
+import { createElement, type ReactNode } from "react"
+import { renderHook, act, waitFor } from "@testing-library/react"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { RunbookContextProvider } from "@/contexts/RunbookContext"
+import { useRunbookContext } from "@/contexts/useRunbook"
+import { normalizeBlockId } from "@/lib/utils"
+import { PR_PROVIDERS, type PRProviderConfig } from "../../providers"
+import { CANCELED_RUN_WAIT_MS, useGitPullRequest } from "../useGitPullRequest"
 
 /**
  * `useGitPullRequest` under test with the IPC surface as the only fake. The
@@ -22,7 +22,7 @@ import { CANCELED_RUN_WAIT_MS, useGitPullRequest } from '../useGitPullRequest'
 type Listener = (data: unknown) => void
 
 /** Channels whose invoke stays pending until a test settles it. */
-const OPERATION_CHANNELS = new Set(['git:pull-request', 'git:merge-request', 'git:push'])
+const OPERATION_CHANNELS = new Set(["git:pull-request", "git:merge-request", "git:push"])
 
 function createEmittingApi() {
   const listeners = new Map<string, Set<Listener>>()
@@ -55,8 +55,8 @@ function createEmittingApi() {
     invoke,
     emit,
     /** Settle the nth operation invoke (0-based, in call order). */
-    resolve: (n: number, value: unknown) => pending[n].resolve(value),
-    reject: (n: number, error: Error) => pending[n].reject(error),
+    resolve: (n: number, value: unknown) => pending[n]!.resolve(value),
+    reject: (n: number, error: Error) => pending[n]!.reject(error),
     /** Total subscribed listeners across every channel. */
     listenerCount: () => [...listeners.values()].reduce((sum, set) => sum + set.size, 0),
 
@@ -64,29 +64,29 @@ function createEmittingApi() {
 
     /** respondToGitPrExit on success: pr-result, outputs, status, then return. */
     createSucceeds(n: number, pr: TestPR) {
-      emit('git:log', { line: `Opened ${pr.url}`, timestamp: '2026-01-01T00:00:00Z' })
-      emit('git:pr-result', { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
-      emit('git:outputs', { outputs: pr.outputs })
-      emit('git:status', { status: 'success', exitCode: 0 })
-      pending[n].resolve({ url: pr.url, number: pr.number })
+      emit("git:log", { line: `Opened ${pr.url}`, timestamp: "2026-01-01T00:00:00Z" })
+      emit("git:pr-result", { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
+      emit("git:outputs", { outputs: pr.outputs })
+      emit("git:status", { status: "success", exitCode: 0 })
+      pending[n]!.resolve({ url: pr.url, number: pr.number })
     },
     /** respondToGitPrExit on failure: error (with any code), status, then return. */
     createFails(n: number, message: string, code?: { code: string; branchName: string }) {
-      emit('git:error', { message, ...code })
-      emit('git:status', { status: 'fail', exitCode: 1 })
-      pending[n].resolve({ error: message })
+      emit("git:error", { message, ...code })
+      emit("git:status", { status: "fail", exitCode: 1 })
+      pending[n]!.resolve({ error: message })
     },
     /** The git:push handler on success: status, then return. */
     pushSucceeds(n: number) {
-      emit('git:log', { line: 'Push complete.', timestamp: '2026-01-01T00:00:01Z' })
-      emit('git:status', { status: 'success', exitCode: 0 })
-      pending[n].resolve({ ok: true })
+      emit("git:log", { line: "Push complete.", timestamp: "2026-01-01T00:00:01Z" })
+      emit("git:status", { status: "success", exitCode: 0 })
+      pending[n]!.resolve({ ok: true })
     },
     /** The git:push handler on failure: error, status, then return. */
     pushFails(n: number, message: string) {
-      emit('git:error', { message })
-      emit('git:status', { status: 'fail', exitCode: 1 })
-      pending[n].resolve({ error: message })
+      emit("git:error", { message })
+      emit("git:status", { status: "fail", exitCode: 1 })
+      pending[n]!.resolve({ error: message })
     },
   }
 }
@@ -102,35 +102,41 @@ interface TestPR {
 // process's contract, so they are opaque here.
 function testPR(number: number, branch: string): TestPR {
   const url = `https://example.com/acme/infra/pull/${number}`
-  return { url, number, branch, outputs: { pr_url: url, pr_number: String(number), pr_branch: branch } }
+  return {
+    url,
+    number,
+    branch,
+    outputs: { pr_url: url, pr_number: String(number), pr_branch: branch },
+  }
 }
 
-const BLOCK_ID = 'open-pr'
-const WORKTREE = '/tmp/worktrees/infra'
+const BLOCK_ID = "open-pr"
+const WORKTREE = "/tmp/worktrees/infra"
 
 const CREATE_PARAMS = {
-  owner: 'acme',
-  repo: 'infra',
-  baseBranch: 'main',
-  headBranch: 'runbook/add-vpc',
-  title: 'Add VPC',
-  body: 'Adds a VPC.',
-  commitMessage: 'Add VPC',
-  labels: ['infra'],
+  owner: "acme",
+  repo: "infra",
+  baseBranch: "main",
+  headBranch: "runbook/add-vpc",
+  title: "Add VPC",
+  body: "Adds a VPC.",
+  commitMessage: "Add VPC",
+  labels: ["infra"],
   worktreePath: WORKTREE,
 }
 
-const WAITING_LINE = 'Waiting for the canceled operation to finish…'
+const WAITING_LINE = "Waiting for the canceled operation to finish…"
 const STILL_RUNNING_LINE =
-  'The canceled operation is still running in the background. Starting anyway; its output may still appear here.'
+  "The canceled operation is still running in the background. Starting anyway; its output may still appear here."
 
 function renderPR(cfg: PRProviderConfig) {
   const fake = createEmittingApi()
   const wrapper = ({ children }: { children: ReactNode }) =>
-    createElement(ApiProvider, {
-      api: fake.api,
-      children: createElement(RunbookContextProvider, { runbookName: 'test', children }),
-    })
+    createElement(
+      ApiProvider,
+      { api: fake.api },
+      createElement(RunbookContextProvider, { runbookName: "test" }, children),
+    )
   const view = renderHook(
     () => ({ pr: useGitPullRequest({ id: BLOCK_ID, cfg }), runbook: useRunbookContext() }),
     { wrapper },
@@ -138,7 +144,8 @@ function renderPR(cfg: PRProviderConfig) {
   const state = () => view.result.current.pr
   const outputs = () => view.result.current.runbook.blockOutputs[normalizeBlockId(BLOCK_ID)]?.values
   const logLines = () => state().logs.map((entry) => entry.line)
-  const operationCalls = () => fake.invoke.mock.calls.filter(([channel]) => OPERATION_CHANNELS.has(channel))
+  const operationCalls = () =>
+    fake.invoke.mock.calls.filter(([channel]) => OPERATION_CHANNELS.has(channel))
 
   /** Start a create; returns its promise without waiting on it. */
   const create = (params = CREATE_PARAMS) => {
@@ -163,14 +170,14 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($label)', (cfg) => {
-  describe('create', () => {
-    it('streams the result, registers outputs and ends in success', async () => {
+describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($label)", (cfg) => {
+  describe("create", () => {
+    it("streams the result, registers outputs and ends in success", async () => {
       const { fake, state, outputs, logLines, create } = renderPR(cfg)
       const pr = testPR(42, CREATE_PARAMS.headBranch)
 
       const done = create()
-      expect(state().status).toBe('creating')
+      expect(state().status).toBe("creating")
       expect(fake.invoke).toHaveBeenCalledWith(cfg.channels.create, CREATE_PARAMS)
 
       await act(async () => {
@@ -178,26 +185,29 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await done
       })
 
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().prResult).toEqual({ prUrl: pr.url, prNumber: 42, branchName: pr.branch })
       expect(state().errorMessage).toBeNull()
       expect(outputs()).toEqual(pr.outputs)
       expect(logLines()).toEqual([`Opened ${pr.url}`])
     })
 
-    it('surfaces branch_exists and the conflicting branch from the git:error event', async () => {
+    it("surfaces branch_exists and the conflicting branch from the git:error event", async () => {
       const { fake, state, create } = renderPR(cfg)
 
       const done = create()
       await act(async () => {
-        fake.createFails(0, 'remote branch conflicts', { code: 'branch_exists', branchName: 'runbook/other' })
+        fake.createFails(0, "remote branch conflicts", {
+          code: "branch_exists",
+          branchName: "runbook/other",
+        })
         await done
       })
 
-      expect(state().status).toBe('fail')
-      expect(state().errorMessage).toBe('remote branch conflicts')
-      expect(state().errorCode).toBe('branch_exists')
-      expect(state().conflictBranchName).toBe('runbook/other')
+      expect(state().status).toBe("fail")
+      expect(state().errorMessage).toBe("remote branch conflicts")
+      expect(state().errorCode).toBe("branch_exists")
+      expect(state().conflictBranchName).toBe("runbook/other")
       expect(state().prResult).toBeNull()
     })
 
@@ -211,29 +221,29 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await done
       })
 
-      expect(state().status).toBe('fail')
+      expect(state().status).toBe("fail")
       expect(state().errorMessage).toBe(message)
-      expect(state().errorCode).toBe('branch_exists')
+      expect(state().errorCode).toBe("branch_exists")
       expect(state().conflictBranchName).toBe(CREATE_PARAMS.headBranch)
     })
 
-    it('fails with a logged error when the invoke rejects, and stops listening', async () => {
+    it("fails with a logged error when the invoke rejects, and stops listening", async () => {
       const { fake, state, logLines, create } = renderPR(cfg)
 
       const done = create()
       await act(async () => {
-        fake.reject(0, new Error('IPC channel closed'))
+        fake.reject(0, new Error("IPC channel closed"))
         await done
       })
 
-      expect(state().status).toBe('fail')
-      expect(state().errorMessage).toBe('IPC channel closed')
-      expect(logLines()).toEqual(['Error: IPC channel closed'])
+      expect(state().status).toBe("fail")
+      expect(state().errorMessage).toBe("IPC channel closed")
+      expect(logLines()).toEqual(["Error: IPC channel closed"])
       expect(fake.listenerCount()).toBe(0)
     })
   })
 
-  describe('push', () => {
+  describe("push", () => {
     async function renderCreated() {
       const harness = renderPR(cfg)
       const pr = testPR(7, CREATE_PARAMS.headBranch)
@@ -245,12 +255,12 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       return { ...harness, pr }
     }
 
-    it('pushes on the provider-aware channel and returns to success', async () => {
+    it("pushes on the provider-aware channel and returns to success", async () => {
       const { fake, state, logLines, push } = await renderCreated()
 
       const done = push()
-      expect(state().status).toBe('pushing')
-      expect(fake.invoke).toHaveBeenLastCalledWith('git:push', {
+      expect(state().status).toBe("pushing")
+      expect(fake.invoke).toHaveBeenLastCalledWith("git:push", {
         worktreePath: WORKTREE,
         branchName: CREATE_PARAMS.headBranch,
         provider: cfg.id,
@@ -261,14 +271,14 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await done
       })
 
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().pushError).toBeNull()
-      expect(logLines()).toContain('Push complete.')
+      expect(logLines()).toContain("Push complete.")
     })
 
-    it('keeps the created PR on screen and reports a failed push inline', async () => {
+    it("keeps the created PR on screen and reports a failed push inline", async () => {
       const { fake, state, pr, push } = await renderCreated()
-      const message = 'rejected: non-fast-forward'
+      const message = "rejected: non-fast-forward"
 
       const done = push()
       await act(async () => {
@@ -276,16 +286,16 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await done
       })
 
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().pushError).toBe(message)
       expect(state().errorMessage).toBeNull()
       expect(state().prResult?.prUrl).toBe(pr.url)
     })
 
-    it('keeps a failed push inline when its events arrive after the invoke resolves', async () => {
+    it("keeps a failed push inline when its events arrive after the invoke resolves", async () => {
       vi.useFakeTimers()
       const { fake, state, push } = await renderCreated()
-      const message = 'token expired'
+      const message = "token expired"
 
       const done = push()
       await act(async () => {
@@ -295,41 +305,41 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       // Still inside the 500 ms listener window, so the late events are heard.
       expect(fake.listenerCount()).toBe(5)
       act(() => {
-        fake.emit('git:error', { message })
-        fake.emit('git:status', { status: 'fail', exitCode: 1 })
+        fake.emit("git:error", { message })
+        fake.emit("git:status", { status: "fail", exitCode: 1 })
       })
 
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().pushError).toBe(message)
       expect(state().errorMessage).toBeNull()
     })
 
-    it('reports a rejected push invoke inline', async () => {
+    it("reports a rejected push invoke inline", async () => {
       const { fake, state, logLines, push } = await renderCreated()
 
       const done = push()
       await act(async () => {
-        fake.reject(1, new Error('IPC channel closed'))
+        fake.reject(1, new Error("IPC channel closed"))
         await done
       })
 
-      expect(state().status).toBe('success')
-      expect(state().pushError).toBe('IPC channel closed')
+      expect(state().status).toBe("success")
+      expect(state().pushError).toBe("IPC channel closed")
       expect(state().errorMessage).toBeNull()
-      expect(logLines()).toContain('Push error: IPC channel closed')
+      expect(logLines()).toContain("Push error: IPC channel closed")
     })
   })
 
-  describe('cancel', () => {
-    it('ignores the canceled run when it finishes late', async () => {
+  describe("cancel", () => {
+    it("ignores the canceled run when it finishes late", async () => {
       const { fake, state, outputs, logLines, create } = renderPR(cfg)
 
       const done = create()
       act(() => {
-        fake.emit('git:log', { line: 'Creating branch…', timestamp: '2026-01-01T00:00:00Z' })
+        fake.emit("git:log", { line: "Creating branch…", timestamp: "2026-01-01T00:00:00Z" })
         state().cancel()
       })
-      expect(state().status).toBe('ready')
+      expect(state().status).toBe("ready")
       expect(fake.listenerCount()).toBe(0)
 
       await act(async () => {
@@ -337,16 +347,16 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await done
       })
 
-      expect(state().status).toBe('ready')
+      expect(state().status).toBe("ready")
       expect(state().prResult).toBeNull()
       expect(outputs()).toBeUndefined()
-      expect(logLines()).toEqual(['Creating branch…', 'Canceled.'])
+      expect(logLines()).toEqual(["Creating branch…", "Canceled."])
     })
 
-    it('runs a retry only after the canceled run finishes, and keeps its result out of the retry', async () => {
+    it("runs a retry only after the canceled run finishes, and keeps its result out of the retry", async () => {
       const { fake, state, outputs, logLines, operationCalls, create } = renderPR(cfg)
       const stale = testPR(1, CREATE_PARAMS.headBranch)
-      const fresh = testPR(2, 'runbook/add-vpc-2')
+      const fresh = testPR(2, "runbook/add-vpc-2")
 
       const first = create()
       act(() => state().cancel())
@@ -354,7 +364,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
 
       // The retry waits: the canceled run still owns the worktree.
       expect(operationCalls()).toHaveLength(1)
-      expect(state().status).toBe('creating')
+      expect(state().status).toBe("creating")
       expect(logLines()).toEqual([WAITING_LINE])
 
       // The canceled run finishes; nothing of it reaches the retry.
@@ -363,7 +373,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await first
       })
       expect(operationCalls()).toHaveLength(2)
-      expect(state().status).toBe('creating')
+      expect(state().status).toBe("creating")
       expect(state().prResult).toBeNull()
       expect(outputs()).toBeUndefined()
 
@@ -371,12 +381,12 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         fake.createSucceeds(1, fresh)
         await second
       })
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().prResult?.prUrl).toBe(fresh.url)
       expect(outputs()).toEqual(fresh.outputs)
     })
 
-    it('abandons a retry that is canceled while it waits', async () => {
+    it("abandons a retry that is canceled while it waits", async () => {
       const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
 
       const first = create()
@@ -394,18 +404,18 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
 
       await waitFor(() => expect(secondSettled).toBe(true))
       expect(operationCalls()).toHaveLength(1)
-      expect(state().status).toBe('ready')
+      expect(state().status).toBe("ready")
       expect(state().prResult).toBeNull()
       expect(fake.listenerCount()).toBe(0)
       // The abandoned retry logs nothing after the cancel, not even the URL of
       // the PR/MR the first run opened.
-      expect(logLines()).toEqual([WAITING_LINE, 'Canceled.'])
+      expect(logLines()).toEqual([WAITING_LINE, "Canceled."])
     })
 
-    it('starts a retry anyway once the canceled run has run past the wait bound', async () => {
+    it("starts a retry anyway once the canceled run has run past the wait bound", async () => {
       vi.useFakeTimers()
       const { fake, state, outputs, logLines, operationCalls, create } = renderPR(cfg)
-      const fresh = testPR(2, 'runbook/add-vpc-2')
+      const fresh = testPR(2, "runbook/add-vpc-2")
 
       // The canceled run's invoke never settles.
       void create()
@@ -421,19 +431,19 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         await vi.advanceTimersByTimeAsync(1)
       })
       expect(operationCalls()).toHaveLength(2)
-      expect(state().status).toBe('creating')
+      expect(state().status).toBe("creating")
       expect(logLines()).toEqual([WAITING_LINE, STILL_RUNNING_LINE])
 
       await act(async () => {
         fake.createSucceeds(1, fresh)
         await second
       })
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().prResult?.prUrl).toBe(fresh.url)
       expect(outputs()).toEqual(fresh.outputs)
     })
 
-    it('still waits on a retry that started past the bound when the first canceled run finishes late', async () => {
+    it("still waits on a retry that started past the bound when the first canceled run finishes late", async () => {
       vi.useFakeTimers()
       const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
 
@@ -447,7 +457,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
 
       act(() => state().cancel())
       await act(async () => {
-        fake.createFails(0, 'first run failed late')
+        fake.createFails(0, "first run failed late")
       })
 
       // The retry's invoke is the one in flight now, so a third run waits on it.
@@ -456,7 +466,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       expect(logLines()).toEqual([WAITING_LINE])
     })
 
-    it('abandons a retry that is canceled while it waits on a canceled run that never finishes', async () => {
+    it("abandons a retry that is canceled while it waits on a canceled run that never finishes", async () => {
       vi.useFakeTimers()
       const { fake, state, logLines, operationCalls, create } = renderPR(cfg)
 
@@ -473,25 +483,28 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       })
       expect(secondSettled).toBe(true)
       expect(operationCalls()).toHaveLength(1)
-      expect(state().status).toBe('ready')
+      expect(state().status).toBe("ready")
       expect(fake.listenerCount()).toBe(0)
-      expect(logLines()).toEqual([WAITING_LINE, 'Canceled.'])
+      expect(logLines()).toEqual([WAITING_LINE, "Canceled."])
     })
 
-    it('logs the PR the canceled run opened, without adopting it in the retry', async () => {
+    it("logs the PR the canceled run opened, without adopting it in the retry", async () => {
       const { fake, state, outputs, logLines, create } = renderPR(cfg)
       const stale = testPR(1, CREATE_PARAMS.headBranch)
 
       const first = create()
       act(() => state().cancel())
-      void create({ ...CREATE_PARAMS, headBranch: 'runbook/add-vpc-2' })
+      void create({ ...CREATE_PARAMS, headBranch: "runbook/add-vpc-2" })
       await act(async () => {
         fake.createSucceeds(0, stale)
         await first
       })
 
-      expect(logLines()).toEqual([WAITING_LINE, `The canceled operation finished and opened ${stale.url}`])
-      expect(state().status).toBe('creating')
+      expect(logLines()).toEqual([
+        WAITING_LINE,
+        `The canceled operation finished and opened ${stale.url}`,
+      ])
+      expect(state().status).toBe("creating")
       expect(state().prResult).toBeNull()
       expect(outputs()).toBeUndefined()
     })
@@ -504,7 +517,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       act(() => state().cancel())
       const second = create()
       await act(async () => {
-        fake.createFails(0, 'canceled run failed')
+        fake.createFails(0, "canceled run failed")
         await first
       })
       expect(fake.listenerCount()).toBe(5)
@@ -519,7 +532,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         fake.createSucceeds(1, testPR(2, CREATE_PARAMS.headBranch))
         await second
       })
-      expect(state().status).toBe('ready')
+      expect(state().status).toBe("ready")
       expect(state().prResult).toBeNull()
     })
 
@@ -530,7 +543,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
       act(() => state().cancel())
       const second = create()
       await act(async () => {
-        fake.reject(0, new Error('canceled run crashed'))
+        fake.reject(0, new Error("canceled run crashed"))
         await first
       })
       // The retry subscribed before the canceled run's catch cleaned up.
@@ -543,32 +556,32 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         fake.createSucceeds(1, testPR(2, CREATE_PARAMS.headBranch))
         await second
       })
-      expect(state().status).toBe('ready')
+      expect(state().status).toBe("ready")
       expect(state().prResult).toBeNull()
     })
   })
 
-  describe('listener window', () => {
-    it('applies a git:pr-result that arrives within 500 ms of the invoke resolving, then unsubscribes', async () => {
+  describe("listener window", () => {
+    it("applies a git:pr-result that arrives within 500 ms of the invoke resolving, then unsubscribes", async () => {
       vi.useFakeTimers()
       const { fake, state, outputs, create } = renderPR(cfg)
       const pr = testPR(9, CREATE_PARAMS.headBranch)
 
       const done = create()
       await act(async () => {
-        fake.emit('git:status', { status: 'success', exitCode: 0 })
+        fake.emit("git:status", { status: "success", exitCode: 0 })
         fake.resolve(0, { url: pr.url, number: pr.number })
         await done
       })
-      expect(state().status).toBe('success')
+      expect(state().status).toBe("success")
       expect(state().prResult).toBeNull()
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(499)
       })
       act(() => {
-        fake.emit('git:pr-result', { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
-        fake.emit('git:outputs', { outputs: pr.outputs })
+        fake.emit("git:pr-result", { prUrl: pr.url, prNumber: pr.number, branchName: pr.branch })
+        fake.emit("git:outputs", { outputs: pr.outputs })
       })
       expect(state().prResult?.prUrl).toBe(pr.url)
       expect(outputs()).toEqual(pr.outputs)
@@ -588,7 +601,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
         fake.createSucceeds(0, testPR(3, CREATE_PARAMS.headBranch))
         await created
       })
-      push()
+      void push()
       expect(fake.listenerCount()).toBe(5)
 
       await act(async () => {
@@ -601,7 +614,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
     })
   })
 
-  describe('labels', () => {
+  describe("labels", () => {
     /** Hold every label request until the test settles it. */
     function holdLabelRequests(fake: ReturnType<typeof createEmittingApi>) {
       const requests: Array<(value: unknown) => void> = []
@@ -621,45 +634,45 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])('useGitPullRequest ($l
 
       // The active worktree switched while the first repo's labels loaded
       act(() => {
-        void state().fetchLabels('acme', 'old-repo')
+        void state().fetchLabels("acme", "old-repo")
       })
       act(() => {
-        void state().fetchLabels('acme', 'infra')
+        void state().fetchLabels("acme", "infra")
       })
       expect(labelRequests).toHaveLength(2)
 
       await act(async () => {
-        labelRequests[1]({ labels: ['infra-label'] })
+        labelRequests[1]!({ labels: ["infra-label"] })
       })
       await act(async () => {
-        labelRequests[0]({ labels: ['old-repo-label'] })
+        labelRequests[0]!({ labels: ["old-repo-label"] })
       })
-      expect(state().labels.map((label) => label.name)).toEqual(['infra-label'])
+      expect(state().labels.map((label) => label.name)).toEqual(["infra-label"])
       expect(state().labelsLoading).toBe(false)
     })
 
-    it('keeps the labels spinner until the latest request lands', async () => {
+    it("keeps the labels spinner until the latest request lands", async () => {
       const { fake, state } = renderPR(cfg)
       const labelRequests = holdLabelRequests(fake)
 
       act(() => {
-        void state().fetchLabels('acme', 'old-repo')
+        void state().fetchLabels("acme", "old-repo")
       })
       act(() => {
-        void state().fetchLabels('acme', 'infra')
+        void state().fetchLabels("acme", "infra")
       })
 
       await act(async () => {
-        labelRequests[0]({ labels: ['old-repo-label'] })
+        labelRequests[0]!({ labels: ["old-repo-label"] })
       })
       expect(state().labelsLoading).toBe(true)
       expect(state().labels).toEqual([])
 
       await act(async () => {
-        labelRequests[1]({ labels: ['infra-label'] })
+        labelRequests[1]!({ labels: ["infra-label"] })
       })
       expect(state().labelsLoading).toBe(false)
-      expect(state().labels.map((label) => label.name)).toEqual(['infra-label'])
+      expect(state().labels.map((label) => label.name)).toEqual(["infra-label"])
     })
   })
 })

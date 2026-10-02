@@ -55,7 +55,7 @@ vi.mock("@/components/mdx/GitAuth/components/GitHubLogo", () => ({
   GitHubLogo: () => <div>GitHub Logo</div>,
 }))
 
-import GitHubPullRequest from "../GitHubPullRequest"
+import { GitHubPullRequest } from "../GitHubPullRequest"
 
 function renderPR(props: Record<string, unknown> = {}) {
   return render(

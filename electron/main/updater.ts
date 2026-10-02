@@ -8,6 +8,7 @@
 import { autoUpdater } from "electron-updater"
 import { app, dialog } from "electron"
 import { makeLogger } from "./logger.ts"
+import { errorMessage } from "../../src/errors/message.ts"
 
 const log = makeLogger("updater")
 const isDev = !app.isPackaged
@@ -38,8 +39,9 @@ export function initAutoUpdater(): void {
         message: `A new version (${info.version}) is available. It will be downloaded in the background.`,
         buttons: ["OK"],
       })
-      .then(() => {
-        autoUpdater.downloadUpdate()
+      .then(() => autoUpdater.downloadUpdate())
+      .catch((err: unknown) => {
+        log.error("Download failed:", errorMessage(err))
       })
   })
 
@@ -65,6 +67,9 @@ export function initAutoUpdater(): void {
         if (result.response === 0) {
           autoUpdater.quitAndInstall()
         }
+      })
+      .catch((err: unknown) => {
+        log.error("Restart prompt failed:", errorMessage(err))
       })
   })
 

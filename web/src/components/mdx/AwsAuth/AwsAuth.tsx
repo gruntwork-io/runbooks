@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react"
 import { XCircle, AlertTriangle, Loader2 } from "lucide-react"
-import awsLogo from '@/assets/aws-logo.svg'
-import awsLogoLight from '@/assets/aws-logo-light.svg'
+import awsLogo from "@/assets/aws-logo.svg"
+import awsLogoLight from "@/assets/aws-logo-light.svg"
 import { InlineMarkdown } from "@/components/mdx/_shared/components/InlineMarkdown"
 import { BlockIdLabel } from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
@@ -18,7 +18,7 @@ import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateI
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
-import { getStatusClasses, getStatusIcon, getStatusIconClasses } from "./utils"
+import { getStatusClasses, StatusIcon, getStatusIconClasses } from "./utils"
 import { AuthTabs } from "./components/AuthTabs"
 import { AuthSuccess } from "./components/AuthSuccess"
 import { CredentialsForm } from "./components/CredentialsForm"
@@ -35,7 +35,7 @@ function AwsAuthInteractive({
   ssoAccountId,
   ssoRoleName,
   defaultRegion = "us-east-1",
-  detectCredentials = ['env'],  // Default: auto-detect from env vars
+  detectCredentials = ["env"], // Default: auto-detect from env vars
   defaultTab,
   inputsId,
 }: AwsAuthProps) {
@@ -43,7 +43,7 @@ function AwsAuthInteractive({
     if (!id) {
       return {
         message: "The <AwsAuth> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
@@ -51,18 +51,24 @@ function AwsAuthInteractive({
 
   // Resolve template expressions in display props
   const templateCtx = useTemplateContext(inputsId)
-  const resolvedTitle = useMemo(() => title ? resolveTemplateReferences(title, templateCtx) : title, [title, templateCtx])
-  const resolvedDescription = useMemo(() => description ? resolveTemplateReferences(description, templateCtx) : description, [description, templateCtx])
+  const resolvedTitle = useMemo(
+    () => (title ? resolveTemplateReferences(title, templateCtx) : title),
+    [title, templateCtx],
+  )
+  const resolvedDescription = useMemo(
+    () => (description ? resolveTemplateReferences(description, templateCtx) : description),
+    [description, templateCtx],
+  )
 
   // Check for duplicate component IDs (including normalized collisions like "a-b" vs "a_b")
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'AwsAuth')
-  
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, "AwsAuth")
+
   // Validate detectCredentials configuration: only one { block: string } source allowed
-  const blockSources = Array.isArray(detectCredentials) 
-    ? detectCredentials.filter(s => typeof s === 'object' && 'block' in s) 
+  const blockSources = Array.isArray(detectCredentials)
+    ? detectCredentials.filter((s) => typeof s === "object" && "block" in s)
     : []
   const hasMultipleBlockSources = blockSources.length > 1
-  
+
   // Error reporting context (for configuration errors only)
   const { reportError, clearError } = useErrorReporting()
 
@@ -84,14 +90,14 @@ function AwsAuthInteractive({
 
   // Track block render on mount
   useEffect(() => {
-    trackBlockRender('AwsAuth')
+    trackBlockRender("AwsAuth")
   }, [trackBlockRender])
 
   // Load available profiles when profile tab is selected
   const { authMethod, profiles, loadAwsProfiles } = auth
   useEffect(() => {
-    if (authMethod === 'profile' && profiles.length === 0) {
-      loadAwsProfiles()
+    if (authMethod === "profile" && profiles.length === 0) {
+      void loadAwsProfiles()
     }
   }, [authMethod, profiles.length, loadAwsProfiles])
 
@@ -100,16 +106,16 @@ function AwsAuthInteractive({
     if (isDuplicate) {
       reportError({
         componentId: id,
-        componentType: 'AwsAuth',
-        severity: 'error',
-        message: `Duplicate component ID: ${id}`
+        componentType: "AwsAuth",
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
       })
     } else if (hasMultipleBlockSources) {
       reportError({
         componentId: id,
-        componentType: 'AwsAuth',
-        severity: 'error',
-        message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`
+        componentType: "AwsAuth",
+        severity: "error",
+        message: `Multiple block sources in detectCredentials: only one { block: string } is allowed`,
       })
     } else {
       clearError(id)
@@ -138,8 +144,11 @@ function AwsAuthInteractive({
         <div className="flex items-center text-destructive">
           <XCircle className="size-6 mr-4 flex-shrink-0" />
           <div className="text-md">
-            <strong>Invalid Configuration:</strong><br />
-            The <code className="bg-destructive-muted px-1 rounded">detectCredentials</code> prop contains multiple <code className="bg-destructive-muted px-1 rounded">{`{ block: "..." }`}</code> entries.
+            <strong>Invalid Configuration:</strong>
+            <br />
+            The <code className="bg-destructive-muted px-1 rounded">detectCredentials</code> prop
+            contains multiple{" "}
+            <code className="bg-destructive-muted px-1 rounded">{`{ block: "..." }`}</code> entries.
             Only one block source is allowed.
           </div>
         </div>
@@ -147,16 +156,18 @@ function AwsAuthInteractive({
     )
   }
 
-  const IconComponent = getStatusIcon(auth.authStatus)
   const statusClasses = getStatusClasses(auth.authStatus)
   const iconClasses = getStatusIconClasses(auth.authStatus)
 
-  const showTabs = auth.authStatus !== 'select_account' && auth.authStatus !== 'select_role'
-  const showSsoAccountSelector = auth.authStatus === 'select_account'
-  const showSsoRoleSelector = auth.authStatus === 'select_role' && auth.selectedSsoAccount
+  const showTabs = auth.authStatus !== "select_account" && auth.authStatus !== "select_role"
+  const showSsoAccountSelector = auth.authStatus === "select_account"
+  const showSsoRoleSelector = auth.authStatus === "select_role" && auth.selectedSsoAccount
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -165,18 +176,25 @@ function AwsAuthInteractive({
       {/* Header with AWS Logo */}
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-warning/30 pr-3 mr-0 self-stretch">
-          <IconComponent className={`size-6 ${iconClasses} ${auth.authStatus === 'authenticating' ? 'animate-spin' : ''}`} />
+          <StatusIcon
+            status={auth.authStatus}
+            className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
+          />
         </div>
 
         <div className="flex-1 min-w-0">
           {/* Title row with AWS logo */}
           <div className="flex items-center gap-3 mb-2">
-            <img src={resolvedTheme === 'dark' ? awsLogoLight : awsLogo} alt="AWS" className="h-6" />
+            <img
+              src={resolvedTheme === "dark" ? awsLogoLight : awsLogo}
+              alt="AWS"
+              className="h-6"
+            />
             <div className="text-md font-bold text-foreground">
               <InlineMarkdown>{resolvedTitle}</InlineMarkdown>
             </div>
           </div>
-          
+
           {resolvedDescription && (
             <div className="text-md text-muted-foreground mb-4">
               <InlineMarkdown>{resolvedDescription}</InlineMarkdown>
@@ -184,30 +202,30 @@ function AwsAuthInteractive({
           )}
 
           {/* Detection pending state - waiting for block or checking credentials */}
-          {auth.detectionStatus === 'pending' && (
+          {auth.detectionStatus === "pending" && (
             <div className="mb-4 text-info text-sm flex items-center gap-2">
               <Loader2 className="size-4 animate-spin" />
               <span>
-                {auth.waitingForBlockId 
+                {auth.waitingForBlockId
                   ? `Waiting for "${auth.waitingForBlockId}" to run...`
-                  : 'Checking for existing credentials...'}
+                  : "Checking for existing credentials..."}
               </span>
             </div>
           )}
 
           {/* Detected credentials confirmation prompt */}
-          {auth.detectionStatus === 'detected' && auth.detectedCredentials && (
+          {auth.detectionStatus === "detected" && auth.detectedCredentials && (
             <DetectedCredentialsPrompt
               credentials={auth.detectedCredentials}
               warning={auth.detectionWarning}
-              confirming={auth.authStatus === 'authenticating'}
+              confirming={auth.authStatus === "authenticating"}
               onConfirm={auth.handleConfirmDetected}
               onReject={auth.handleRejectDetected}
             />
           )}
 
           {/* Success state */}
-          {auth.authStatus === 'authenticated' && auth.accountInfo && (
+          {auth.authStatus === "authenticated" && auth.accountInfo && (
             <AuthSuccess
               accountInfo={auth.accountInfo}
               warningMessage={auth.warningMessage}
@@ -217,19 +235,23 @@ function AwsAuthInteractive({
           )}
 
           {/* Detection warning (found credentials but they're invalid) */}
-          {auth.detectionWarning && auth.detectionStatus === 'done' && auth.authStatus !== 'authenticated' && (
-            <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
-              <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-              <div className="min-w-0">
-                <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
-                <br />
-                <span className="text-warning-foreground">Please authenticate manually below.</span>
+          {auth.detectionWarning &&
+            auth.detectionStatus === "done" &&
+            auth.authStatus !== "authenticated" && (
+              <div className="mb-4 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
+                <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0">
+                  <strong>Invalid credentials detected:</strong> {auth.detectionWarning}
+                  <br />
+                  <span className="text-warning-foreground">
+                    Please authenticate manually below.
+                  </span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* Error state (for manual auth failures) */}
-          {auth.authStatus === 'failed' && auth.errorMessage && (
+          {auth.authStatus === "failed" && auth.errorMessage && (
             <div className="mb-4 text-destructive text-sm flex items-start gap-2">
               <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
@@ -239,7 +261,7 @@ function AwsAuthInteractive({
           )}
 
           {/* Authentication form (only show when not authenticated and detection is done) */}
-          {auth.authStatus !== 'authenticated' && auth.detectionStatus === 'done' && (
+          {auth.authStatus !== "authenticated" && auth.detectionStatus === "done" && (
             <>
               {/* Method tabs (hide during account/role selection) */}
               {showTabs && (
@@ -253,7 +275,7 @@ function AwsAuthInteractive({
               )}
 
               {/* Static Credentials Form */}
-              {auth.authMethod === 'credentials' && showTabs && (
+              {auth.authMethod === "credentials" && showTabs && (
                 <CredentialsForm
                   authStatus={auth.authStatus}
                   accessKeyId={auth.accessKeyId}
@@ -273,7 +295,7 @@ function AwsAuthInteractive({
               )}
 
               {/* SSO Authentication */}
-              {auth.authMethod === 'sso' && showTabs && (
+              {auth.authMethod === "sso" && showTabs && (
                 <SsoForm
                   authStatus={auth.authStatus}
                   ssoStartUrl={ssoStartUrl}
@@ -312,7 +334,7 @@ function AwsAuthInteractive({
               )}
 
               {/* Profile Selection */}
-              {auth.authMethod === 'profile' && showTabs && (
+              {auth.authMethod === "profile" && showTabs && (
                 <ProfileSelector
                   authStatus={auth.authStatus}
                   profiles={auth.profiles}
@@ -368,6 +390,6 @@ function AwsAuth(props: AwsAuthProps) {
 }
 
 // Set displayName for React DevTools and component detection
-AwsAuth.displayName = 'AwsAuth'
+AwsAuth.displayName = "AwsAuth"
 
 export default AwsAuth

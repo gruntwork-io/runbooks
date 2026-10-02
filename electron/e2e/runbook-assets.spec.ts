@@ -14,7 +14,13 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts 'runbook-assets\.spec'
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
@@ -85,22 +91,24 @@ interface MediaState {
  */
 function mediaState(page: Page, selector: string, seekTo?: number): Promise<MediaState> {
   return page.evaluate(
-    async ({ selector, seekTo }) => {
-      const el = document.querySelector(selector) as HTMLMediaElement
+    async ({ selector: mediaSelector, seekTo: seekTarget }) => {
+      const el = document.querySelector(mediaSelector) as HTMLMediaElement
       const settle = (event: string) =>
         new Promise<void>((resolve) => {
           el.addEventListener(event, () => resolve(), { once: true })
           el.addEventListener("error", () => resolve(), { once: true })
           setTimeout(resolve, 20_000)
         })
-      if (el.readyState < HTMLMediaElement.HAVE_METADATA && !el.error) await settle("loadedmetadata")
-      if (seekTo !== undefined && !el.error) {
+      if (el.readyState < HTMLMediaElement.HAVE_METADATA && !el.error)
+        await settle("loadedmetadata")
+      if (seekTarget !== undefined && !el.error) {
         const seeked = settle("seeked")
-        el.currentTime = seekTo
+        el.currentTime = seekTarget
         await seeked
       }
       const seekable: [number, number][] = []
-      for (let i = 0; i < el.seekable.length; i++) seekable.push([el.seekable.start(i), el.seekable.end(i)])
+      for (let i = 0; i < el.seekable.length; i++)
+        seekable.push([el.seekable.start(i), el.seekable.end(i)])
       return {
         readyState: el.readyState,
         error: el.error ? `${el.error.code} ${el.error.message}` : null,
@@ -145,7 +153,9 @@ test.describe("Runbook assets", () => {
     })
     const page = await app.firstWindow()
     await page.waitForLoadState("domcontentloaded")
-    await expect(page.getByRole("heading", { name: "Runbook assets" })).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByRole("heading", { name: "Runbook assets" })).toBeVisible({
+      timeout: 60_000,
+    })
     return { app, page }
   }
 
@@ -183,7 +193,10 @@ test.describe("Runbook assets", () => {
   test("seeks within audio and video", async () => {
     const { app, page } = await launch()
     try {
-      for (const [selector, seconds] of [["audio", WAV_SECONDS], ["video", 4]] as const) {
+      for (const [selector, seconds] of [
+        ["audio", WAV_SECONDS],
+        ["video", 4],
+      ] as const) {
         const target = seconds - 1.5
         const state = await mediaState(page, selector, target)
         expect(state.error, selector).toBeNull()

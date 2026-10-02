@@ -11,11 +11,7 @@ import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner, collectOutput } from "../../services/ProcessSpawner.ts"
 import { detectCliToken, buildCliEnv } from "../git/cli-token.ts"
 import type { CliEnvOverrides } from "../git/cli-token.ts"
-import {
-  DEFAULT_GITHUB_HOST,
-  githubHostKind,
-  tryNormalizeGitHubHost,
-} from "../git/github-host.ts"
+import { DEFAULT_GITHUB_HOST, githubHostKind, tryNormalizeGitHubHost } from "../git/github-host.ts"
 import { ENV_PREFIX_PATTERN } from "../env-prefix.ts"
 
 // ---------------------------------------------------------------------------
@@ -153,7 +149,10 @@ export interface GitHubEnvCredential {
 export const GITHUB_TOKEN_ENV_VARS = ["GITHUB_TOKEN", "GH_TOKEN"] as const
 
 /** The GHES token vars, in gh's own precedence order. */
-export const GITHUB_ENTERPRISE_TOKEN_ENV_VARS = ["GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"] as const
+export const GITHUB_ENTERPRISE_TOKEN_ENV_VARS = [
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+] as const
 
 /** A blank env var counts as unset (as in gh). */
 const isSetEnvVar = (value: string | undefined): value is string =>
@@ -243,15 +242,18 @@ export const githubEnvCredentialForHost = (
 ): GitHubEnvCredential | undefined => {
   const names = githubEnvTokenVarsForHost(host, env, prefix)
   const index = names.findIndex((name) => isSetEnvVar(env[name]))
-  if (index === -1) return undefined
   const envVar = names[index]
+  if (envVar === undefined) return undefined
   const token = env[envVar] as string
   // The GITHUB_TOKEN-vs-GH_TOKEN divergence hint is for the unprefixed
   // github.com-family pair only (the enterprise pair follows gh's own order).
   const loser = names[index + 1]
   const shadowed =
-    prefix === "" && envVar === "GITHUB_TOKEN" && loser === "GH_TOKEN" &&
-    isSetEnvVar(env[loser]) && env[loser] !== token
+    prefix === "" &&
+    envVar === "GITHUB_TOKEN" &&
+    loser === "GH_TOKEN" &&
+    isSetEnvVar(env[loser]) &&
+    env[loser] !== token
       ? loser
       : undefined
   return { token, envVar, ...(shadowed ? { shadowedVar: shadowed } : {}) }
@@ -299,7 +301,8 @@ export const githubSessionCredential = (
   host: string | undefined,
   authHost?: string,
 ): { token: string; host: string } | undefined => {
-  if (authHost !== undefined && tryNormalizeGitHubHost(env.GITHUB_HOST) !== authHost) return undefined
+  if (authHost !== undefined && tryNormalizeGitHubHost(env.GITHUB_HOST) !== authHost)
+    return undefined
   const boundAuthHost = authHost
   const bindings = githubEnvBindings(env)
   const target =
@@ -344,12 +347,7 @@ export const detectEnvCredentials = (host: string = DEFAULT_GITHUB_HOST, prefix?
  * or times out.
  */
 export const detectCliCredentials = (host: string = DEFAULT_GITHUB_HOST) =>
-  detectCliToken(
-    "gh",
-    ["auth", "token", "--hostname", host],
-    GH_CLI_TIMEOUT_MS,
-    GH_ENV_OVERRIDES,
-  )
+  detectCliToken("gh", ["auth", "token", "--hostname", host], GH_CLI_TIMEOUT_MS, GH_ENV_OVERRIDES)
 
 // ---------------------------------------------------------------------------
 // gh CLI scopes (supplemental, advisory)
@@ -367,9 +365,14 @@ const GH_CLI_SCOPE_PATTERN = /Token scopes?:\s*(.+)/
 export function parseGhCliScopes(statusOutput: string): string[] | undefined {
   const match = GH_CLI_SCOPE_PATTERN.exec(statusOutput)
   if (!match) return undefined
-  const scopes = match[1]
+  const scopes = match[1]!
     .split(",")
-    .map((scope) => scope.trim().replace(/^['"]|['"]$/g, "").trim())
+    .map((scope) =>
+      scope
+        .trim()
+        .replace(/^['"]|['"]$/g, "")
+        .trim(),
+    )
     .filter((scope) => scope.length > 0)
   return scopes.length > 0 ? scopes : undefined
 }
@@ -389,11 +392,9 @@ export const cliScopes = (host: string = DEFAULT_GITHUB_HOST) =>
     const result = yield* Effect.either(
       Effect.gen(function* () {
         const childEnv = buildCliEnv(yield* environment.getAll(), GH_ENV_OVERRIDES)
-        const proc = yield* spawner.spawn(
-          "gh",
-          ["auth", "status", "--hostname", host],
-          { env: childEnv },
-        )
+        const proc = yield* spawner.spawn("gh", ["auth", "status", "--hostname", host], {
+          env: childEnv,
+        })
         const { lines } = yield* collectOutput(proc, GH_STATUS_TIMEOUT_MS)
         return parseGhCliScopes(lines.map((line) => line.line).join("\n"))
       }),
@@ -443,7 +444,9 @@ interface GhHostEntry {
 const nonBlank = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
 
-const parseGhHostsYaml = (yamlContent: string): Record<string, GhHostEntry | null | undefined> | undefined => {
+const parseGhHostsYaml = (
+  yamlContent: string,
+): Record<string, GhHostEntry | null | undefined> | undefined => {
   try {
     const parsed = YAML.parse(yamlContent, { logLevel: "silent" }) as unknown
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)

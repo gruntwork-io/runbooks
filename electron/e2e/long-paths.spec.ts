@@ -21,7 +21,14 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts long-paths.spec.ts
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Locator,
+  type Page,
+} from "@playwright/test"
 import { execFileSync } from "node:child_process"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -205,7 +212,11 @@ function findOverflows(): Overflow[] {
       range.selectNodeContents(node)
       const rect = range.getBoundingClientRect()
       if (rect.width > 0 && rect.right > limit) {
-        out.push({ block: blockName, node: `text in ${describe(parent)}`, overBy: Math.round(rect.right - limit) })
+        out.push({
+          block: blockName,
+          node: `text in ${describe(parent)}`,
+          overBy: Math.round(rect.right - limit),
+        })
       }
     }
   }
@@ -247,7 +258,10 @@ test("long paths and URLs stay inside their blocks at a narrow window", async ()
     expect(await code.evaluate((el) => el.getClientRects().length), id).toBe(1)
   }
 
-  const widths = await content.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
+  const widths = await content.evaluate((el) => ({
+    scroll: el.scrollWidth,
+    client: el.clientWidth,
+  }))
   expect(widths.scroll).toBe(widths.client)
 })
 
@@ -262,8 +276,10 @@ async function rowLayout(blockId: string, row: Locator) {
   const box = await row.boundingBox()
   if (!label || !box) throw new Error(`${blockId}: ID label or row not rendered`)
   const underLabel =
-    box.x < label.x + label.width && label.x < box.x + box.width &&
-    box.y < label.y + label.height && label.y < box.y + box.height
+    box.x < label.x + label.width &&
+    label.x < box.x + box.width &&
+    box.y < label.y + label.height &&
+    label.y < box.y + box.height
   const rightGap = await row.evaluate(
     (el) => el.parentElement!.getBoundingClientRect().right - el.getBoundingClientRect().right,
   )
@@ -291,13 +307,19 @@ test("the command box and separator never sit under the block ID label", async (
   // Untitled Command: a status line ("Run a command", then "Success") sits
   // above the box, which keeps one width across those states.
   const pending = await commandBox("cmd-untitled", "echo untitled")
-  expect.soft(pending.underLabel, "pending untitled Command: command box under the ID label").toBe(false)
+  expect
+    .soft(pending.underLabel, "pending untitled Command: command box under the ID label")
+    .toBe(false)
   const block = page.getByTestId("cmd-untitled")
   await block.getByRole("button", { name: "Run" }).click()
   await expect(block.getByTestId("icon-success")).toBeVisible({ timeout: 30_000 })
   const ran = await commandBox("cmd-untitled", "echo untitled")
-  expect.soft(ran.underLabel, "untitled Command after a run: command box under the ID label").toBe(false)
-  expect.soft(ran.rightGap, "untitled Command: box width changes once it has run").toBe(pending.rightGap)
+  expect
+    .soft(ran.underLabel, "untitled Command after a run: command box under the ID label")
+    .toBe(false)
+  expect
+    .soft(ran.rightGap, "untitled Command: box width changes once it has run")
+    .toBe(pending.rightGap)
 
   // Titled: the title row sits beside the label, and the box spans the column.
   const titled = await commandBox("cmd-described", "echo described")

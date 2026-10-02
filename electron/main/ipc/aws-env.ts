@@ -14,6 +14,7 @@ import {
   confirmEnvCredentials,
 } from "../../../src/domain/aws/auth.ts"
 import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 export type EnvCredentialsParams = { prefix?: string; defaultRegion?: string }
 
@@ -63,13 +64,13 @@ export async function handleEnvCredentials(params: EnvCredentialsParams = {}) {
       return {
         found: true,
         valid: false,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       }
     }
   } catch (err) {
     return {
       found: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     }
   }
 }
@@ -123,7 +124,7 @@ export async function handleEnvCredentialsConfirm(params: EnvCredentialsConfirmP
   } catch (err) {
     return {
       valid: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     }
   }
 }

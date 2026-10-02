@@ -31,9 +31,7 @@ describe("getWorkspaceDirs", () => {
       },
     })
 
-    const dirs = await Effect.runPromise(
-      getWorkspaceDirs("/workspace").pipe(Effect.provide(layer)),
-    )
+    const dirs = await Effect.runPromise(getWorkspaceDirs("/workspace").pipe(Effect.provide(layer)))
 
     expect(dirs).toEqual(["alpha", "beta"])
   })
@@ -46,9 +44,7 @@ describe("getWorkspaceDirs", () => {
       },
     })
 
-    const dirs = await Effect.runPromise(
-      getWorkspaceDirs("/workspace").pipe(Effect.provide(layer)),
-    )
+    const dirs = await Effect.runPromise(getWorkspaceDirs("/workspace").pipe(Effect.provide(layer)))
 
     expect(dirs).toEqual(["visible"])
   })
@@ -166,8 +162,7 @@ describe("getWorkspaceChanges", () => {
         "/workspace/new-file.txt": "new content",
       },
       git: {
-        status: () =>
-          Effect.succeed([{ path: "new-file.txt", status: "??" }]),
+        status: () => Effect.succeed([{ path: "new-file.txt", status: "??" }]),
       },
     })
 
@@ -176,8 +171,8 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].changeType).toBe("added")
-    expect(result.changes[0].newContent).toBe("new content")
+    expect(result.changes[0]!.changeType).toBe("added")
+    expect(result.changes[0]!.newContent).toBe("new content")
   })
 
   it("counts an added file's lines as git does, not counting the final newline as a line", async () => {
@@ -235,15 +230,14 @@ describe("getWorkspaceChanges", () => {
       getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
     )
 
-    expect(result.changes[0].deletions).toBe(2)
+    expect(result.changes[0]!.deletions).toBe(2)
   })
 
   it("categorizes deleted files correctly", async () => {
     const layer = makeTestLayer({
       files: {},
       git: {
-        status: () =>
-          Effect.succeed([{ path: "removed.txt", status: " D" }]),
+        status: () => Effect.succeed([{ path: "removed.txt", status: " D" }]),
         diff: () =>
           Effect.succeed([
             {
@@ -263,8 +257,8 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].changeType).toBe("deleted")
-    expect(result.changes[0].originalContent).toBe("old content")
+    expect(result.changes[0]!.changeType).toBe("deleted")
+    expect(result.changes[0]!.originalContent).toBe("old content")
   })
 
   it("categorizes modified files correctly", async () => {
@@ -273,8 +267,7 @@ describe("getWorkspaceChanges", () => {
         "/workspace/changed.txt": "new version",
       },
       git: {
-        status: () =>
-          Effect.succeed([{ path: "changed.txt", status: " M" }]),
+        status: () => Effect.succeed([{ path: "changed.txt", status: " M" }]),
         diff: () =>
           Effect.succeed([
             {
@@ -294,9 +287,9 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].changeType).toBe("modified")
-    expect(result.changes[0].newContent).toBe("new version")
-    expect(result.changes[0].originalContent).toBe("old version")
+    expect(result.changes[0]!.changeType).toBe("modified")
+    expect(result.changes[0]!.newContent).toBe("new version")
+    expect(result.changes[0]!.originalContent).toBe("old version")
   })
 
   it("handles renamed files", async () => {
@@ -306,9 +299,7 @@ describe("getWorkspaceChanges", () => {
       },
       git: {
         status: () =>
-          Effect.succeed([
-            { path: "new-name.txt", origPath: "old-name.txt", status: "R " },
-          ]),
+          Effect.succeed([{ path: "new-name.txt", origPath: "old-name.txt", status: "R " }]),
         diff: () => Effect.succeed([]),
       },
     })
@@ -318,7 +309,7 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].path).toBe("new-name.txt")
+    expect(result.changes[0]!.path).toBe("new-name.txt")
   })
 
   it.each<[string, string, number, number]>([
@@ -327,37 +318,53 @@ describe("getWorkspaceChanges", () => {
     ["a rename with a line changed", "one\n2\nthree", 1, 1],
     ["a rename with a line moved", "two\nthree\none\n", 1, 1],
     ["a rename with CRLF line ends", "one\r\ntwo\r\nthree\r\n", 0, 0],
-  ])("diffs %s against the old path's HEAD content", async (_label, onDisk, additions, deletions) => {
-    // git diffs without rename detection, so it reports the new path as added
-    // (no HEAD content, every line new) and the old path as deleted.
-    const layer = makeTestLayer({
-      files: { "/workspace/new-name.txt": onDisk },
-      git: {
-        status: () =>
-          Effect.succeed([{ path: "new-name.txt", origPath: "old-name.txt", status: "R" }]),
-        diff: () =>
-          Effect.succeed([
-            { path: "new-name.txt", additions: 3, deletions: 0, changeType: "modified", isBinary: false },
-            { path: "old-name.txt", originalContent: "one\ntwo\nthree", additions: 0, deletions: 3, changeType: "modified", isBinary: false },
-          ]),
-      },
-    })
+  ])(
+    "diffs %s against the old path's HEAD content",
+    async (_label, onDisk, additions, deletions) => {
+      // git diffs without rename detection, so it reports the new path as added
+      // (no HEAD content, every line new) and the old path as deleted.
+      const layer = makeTestLayer({
+        files: { "/workspace/new-name.txt": onDisk },
+        git: {
+          status: () =>
+            Effect.succeed([{ path: "new-name.txt", origPath: "old-name.txt", status: "R" }]),
+          diff: () =>
+            Effect.succeed([
+              {
+                path: "new-name.txt",
+                additions: 3,
+                deletions: 0,
+                changeType: "modified",
+                isBinary: false,
+              },
+              {
+                path: "old-name.txt",
+                originalContent: "one\ntwo\nthree",
+                additions: 0,
+                deletions: 3,
+                changeType: "modified",
+                isBinary: false,
+              },
+            ]),
+        },
+      })
 
-    const result = await Effect.runPromise(
-      getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
-    )
+      const result = await Effect.runPromise(
+        getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
+      )
 
-    expect(result.changes).toEqual([
-      expect.objectContaining({
-        path: "new-name.txt",
-        changeType: "modified",
-        originalContent: "one\ntwo\nthree",
-        newContent: onDisk,
-        additions,
-        deletions,
-      }),
-    ])
-  })
+      expect(result.changes).toEqual([
+        expect.objectContaining({
+          path: "new-name.txt",
+          changeType: "modified",
+          originalContent: "one\ntwo\nthree",
+          newContent: onDisk,
+          additions,
+          deletions,
+        }),
+      ])
+    },
+  )
 
   it("takes a renamed-then-deleted file's HEAD content from its old path", async () => {
     const layer = makeTestLayer({
@@ -366,7 +373,14 @@ describe("getWorkspaceChanges", () => {
           Effect.succeed([{ path: "new-name.txt", origPath: "old-name.txt", status: "RD" }]),
         diff: () =>
           Effect.succeed([
-            { path: "old-name.txt", originalContent: "one\ntwo", additions: 0, deletions: 2, changeType: "modified", isBinary: false },
+            {
+              path: "old-name.txt",
+              originalContent: "one\ntwo",
+              additions: 0,
+              deletions: 2,
+              changeType: "modified",
+              isBinary: false,
+            },
           ]),
       },
     })
@@ -399,7 +413,14 @@ describe("getWorkspaceChanges", () => {
         status: () => Effect.succeed([{ path: "f.txt", status }]),
         diff: () =>
           Effect.succeed([
-            { path: "f.txt", originalContent: "old", additions: 1, deletions: 1, changeType: "modified", isBinary: false },
+            {
+              path: "f.txt",
+              originalContent: "old",
+              additions: 1,
+              deletions: 1,
+              changeType: "modified",
+              isBinary: false,
+            },
           ]),
       },
     })
@@ -415,8 +436,7 @@ describe("getWorkspaceChanges", () => {
         "/workspace/image.exe": "binary",
       },
       git: {
-        status: () =>
-          Effect.succeed([{ path: "image.exe", status: "??" }]),
+        status: () => Effect.succeed([{ path: "image.exe", status: "??" }]),
       },
     })
 
@@ -425,8 +445,8 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].isBinary).toBe(true)
-    expect(result.changes[0].newContent).toBeUndefined()
+    expect(result.changes[0]!.isBinary).toBe(true)
+    expect(result.changes[0]!.newContent).toBeUndefined()
   })
 
   it("treats a trailing-slash entry as a directory without reading it", async () => {
@@ -445,7 +465,14 @@ describe("getWorkspaceChanges", () => {
           ]),
         diff: () =>
           Effect.succeed([
-            { path: "file.mdx", originalContent: "old", additions: 1, deletions: 1, changeType: "modified", isBinary: false },
+            {
+              path: "file.mdx",
+              originalContent: "old",
+              additions: 1,
+              deletions: 1,
+              changeType: "modified",
+              isBinary: false,
+            },
           ]),
       },
     })
@@ -468,20 +495,17 @@ describe("getWorkspaceChanges", () => {
     const layer = makeTestLayer({
       files: {},
       git: {
-        status: () =>
-          Effect.succeed([{ path: "embedded-repo/", status: "??" }]),
+        status: () => Effect.succeed([{ path: "embedded-repo/", status: "??" }]),
       },
     })
 
     const result = await Effect.runPromise(
-      getWorkspaceChanges("/workspace", "embedded-repo/").pipe(
-        Effect.provide(layer),
-      ),
+      getWorkspaceChanges("/workspace", "embedded-repo/").pipe(Effect.provide(layer)),
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].isDirectory).toBe(true)
-    expect(result.changes[0].newContent).toBeUndefined()
+    expect(result.changes[0]!.isDirectory).toBe(true)
+    expect(result.changes[0]!.newContent).toBeUndefined()
   })
 
   it("degrades gracefully when an added file cannot be read", async () => {
@@ -491,8 +515,7 @@ describe("getWorkspaceChanges", () => {
     const layer = makeTestLayer({
       files: {},
       git: {
-        status: () =>
-          Effect.succeed([{ path: "vanished.txt", status: "??" }]),
+        status: () => Effect.succeed([{ path: "vanished.txt", status: "??" }]),
       },
     })
 
@@ -501,9 +524,9 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(1)
-    expect(result.changes[0].changeType).toBe("added")
-    expect(result.changes[0].additions).toBe(0)
-    expect(result.changes[0].newContent).toBeUndefined()
+    expect(result.changes[0]!.changeType).toBe("added")
+    expect(result.changes[0]!.additions).toBe(0)
+    expect(result.changes[0]!.newContent).toBeUndefined()
   })
 
   it("diffs the whole batch with one git.diff call, not one per file", async () => {
@@ -523,9 +546,30 @@ describe("getWorkspaceChanges", () => {
         diff: (_repoPath, filePath) => {
           diffCalls.push(filePath)
           return Effect.succeed([
-            { path: "a.txt", originalContent: "a1", additions: 1, deletions: 1, changeType: "modified", isBinary: false },
-            { path: "b.txt", originalContent: "b1", additions: 2, deletions: 3, changeType: "modified", isBinary: false },
-            { path: "gone.txt", originalContent: "g1\ng2", additions: 0, deletions: 2, changeType: "modified", isBinary: false },
+            {
+              path: "a.txt",
+              originalContent: "a1",
+              additions: 1,
+              deletions: 1,
+              changeType: "modified",
+              isBinary: false,
+            },
+            {
+              path: "b.txt",
+              originalContent: "b1",
+              additions: 2,
+              deletions: 3,
+              changeType: "modified",
+              isBinary: false,
+            },
+            {
+              path: "gone.txt",
+              originalContent: "g1\ng2",
+              additions: 0,
+              deletions: 2,
+              changeType: "modified",
+              isBinary: false,
+            },
           ])
         },
       },
@@ -537,7 +581,9 @@ describe("getWorkspaceChanges", () => {
 
     // One whole-worktree diff (no filePath), shared by every entry.
     expect(diffCalls).toEqual([undefined])
-    expect(result.changes.map((c) => [c.path, c.originalContent, c.additions, c.deletions])).toEqual([
+    expect(
+      result.changes.map((c) => [c.path, c.originalContent, c.additions, c.deletions]),
+    ).toEqual([
       ["a.txt", "a1", 1, 1],
       ["b.txt", "b1", 2, 3],
       ["gone.txt", "g1\ng2", 0, 2],
@@ -557,8 +603,22 @@ describe("getWorkspaceChanges", () => {
           ]),
         diff: () =>
           Effect.succeed([
-            { path: "was-empty.txt", originalContent: "", additions: 1, deletions: 0, changeType: "modified", isBinary: false },
-            { path: "empty-gone.txt", originalContent: "", additions: 0, deletions: 0, changeType: "modified", isBinary: false },
+            {
+              path: "was-empty.txt",
+              originalContent: "",
+              additions: 1,
+              deletions: 0,
+              changeType: "modified",
+              isBinary: false,
+            },
+            {
+              path: "empty-gone.txt",
+              originalContent: "",
+              additions: 0,
+              deletions: 0,
+              changeType: "modified",
+              isBinary: false,
+            },
           ]),
       },
     })
@@ -567,9 +627,9 @@ describe("getWorkspaceChanges", () => {
       getWorkspaceChanges("/workspace").pipe(Effect.provide(layer)),
     )
 
-    expect(result.changes[0].originalContent).toBe("")
-    expect(result.changes[1].originalContent).toBe("")
-    expect(result.changes[1].deletions).toBe(0)
+    expect(result.changes[0]!.originalContent).toBe("")
+    expect(result.changes[1]!.originalContent).toBe("")
+    expect(result.changes[1]!.deletions).toBe(0)
   })
 
   it("degrades a deleted file when git diff fails instead of failing the batch", async () => {
@@ -591,9 +651,13 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(result.changes).toHaveLength(2)
-    expect(result.changes[0]).toMatchObject({ path: "gone.txt", changeType: "deleted", deletions: 0 })
-    expect(result.changes[0].originalContent).toBeUndefined()
-    expect(result.changes[1].newContent).toBe("hello")
+    expect(result.changes[0]).toMatchObject({
+      path: "gone.txt",
+      changeType: "deleted",
+      deletions: 0,
+    })
+    expect(result.changes[0]!.originalContent).toBeUndefined()
+    expect(result.changes[1]!.newContent).toBe("hello")
   })
 
   it("diffs each path alone when the whole-worktree diff fails, so only the failing one degrades", async () => {
@@ -602,8 +666,22 @@ describe("getWorkspaceChanges", () => {
     // the whole-worktree diff but not a diff of any other path.
     const diffCalls: Array<string | undefined> = []
     const perPath: Record<string, DiffEntry> = {
-      "a.txt": { path: "a.txt", originalContent: "a1", additions: 1, deletions: 1, changeType: "modified", isBinary: false },
-      "gone.txt": { path: "gone.txt", originalContent: "g1\ng2", additions: 0, deletions: 2, changeType: "modified", isBinary: false },
+      "a.txt": {
+        path: "a.txt",
+        originalContent: "a1",
+        additions: 1,
+        deletions: 1,
+        changeType: "modified",
+        isBinary: false,
+      },
+      "gone.txt": {
+        path: "gone.txt",
+        originalContent: "g1\ng2",
+        additions: 0,
+        deletions: 2,
+        changeType: "modified",
+        isBinary: false,
+      },
     }
     const layer = makeTestLayer({
       files: {
@@ -622,7 +700,13 @@ describe("getWorkspaceChanges", () => {
           const entry = filePath === undefined ? undefined : perPath[filePath]
           return entry
             ? Effect.succeed([entry])
-            : Effect.fail(new GitError({ command: "diff", stderr: "fatal: could not fetch abc123 from promisor remote", exitCode: 128 }))
+            : Effect.fail(
+                new GitError({
+                  command: "diff",
+                  stderr: "fatal: could not fetch abc123 from promisor remote",
+                  exitCode: 128,
+                }),
+              )
         },
       },
     })
@@ -632,7 +716,15 @@ describe("getWorkspaceChanges", () => {
     )
 
     expect(diffCalls).toEqual([undefined, "a.txt", "outside.txt", "gone.txt"])
-    expect(result.changes.map((c) => [c.path, c.originalContent, c.additions, c.deletions, c.newContent])).toEqual([
+    expect(
+      result.changes.map((c) => [
+        c.path,
+        c.originalContent,
+        c.additions,
+        c.deletions,
+        c.newContent,
+      ]),
+    ).toEqual([
       ["a.txt", "a1", 1, 1, "a2"],
       ["outside.txt", undefined, 0, 0, "o2"],
       ["gone.txt", "g1\ng2", 0, 2, undefined],
@@ -669,7 +761,15 @@ describe("getWorkspaceChanges (real repo)", () => {
   const gitIn = (cwd: string, ...args: string[]) =>
     execFileSync(
       "git",
-      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", ...args],
+      [
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "commit.gpgsign=false",
+        ...args,
+      ],
       { cwd, stdio: "pipe", env: process.env },
     )
   const git = (...args: string[]) => gitIn(repoPath, ...args)
@@ -802,7 +902,7 @@ describe("getWorkspaceChanges (real repo)", () => {
     // side of the rename. new.tf and renamed.tf cost nothing.
     const shownPaths = gitCalls
       .filter((args) => args[0] === "show")
-      .map((args) => args[1].slice(args[1].indexOf(":") + 1))
+      .map((args) => args[1]!.slice(args[1]!.indexOf(":") + 1))
     expect(shownPaths.sort()).toEqual(["mod.tf", "old.tf"])
   })
 
@@ -839,7 +939,7 @@ describe("getWorkspaceChanges (real repo)", () => {
     const single = await Effect.runPromise(
       getWorkspaceChanges(repoPath, "new name.tf").pipe(Effect.provide(liveLayer)),
     )
-    expect(single.changes[0]).toMatchObject(byPath["new name.tf"])
+    expect(single.changes[0]!).toMatchObject(byPath["new name.tf"]!)
   })
 
   it("diffs a staged change since put back in the worktree as unchanged", async () => {
@@ -856,7 +956,9 @@ describe("getWorkspaceChanges (real repo)", () => {
     write("edited.tf", "e2\n")
     // status lists back.tf and crlf.tf, but they match HEAD again, so the
     // whole-worktree diff against HEAD has no record of them.
-    expect(git("status", "--porcelain=v1").toString()).toBe("MM back.tf\nMM crlf.tf\n M edited.tf\n")
+    expect(git("status", "--porcelain=v1").toString()).toBe(
+      "MM back.tf\nMM crlf.tf\n M edited.tf\n",
+    )
 
     const result = await Effect.runPromise(
       getWorkspaceChanges(repoPath).pipe(Effect.provide(liveLayer)),
@@ -899,7 +1001,9 @@ describe("getWorkspaceChanges (real repo)", () => {
     gitIn(origin, "add", ".")
     gitIn(origin, "commit", "-m", "initial")
     const work = nodePath.join(root, "work")
-    const steps = Either.getOrThrow(buildCloneSteps(`file://${origin}`, work, { repoPath: "modules/vpc" }))
+    const steps = Either.getOrThrow(
+      buildCloneSteps(`file://${origin}`, work, { repoPath: "modules/vpc" }),
+    )
     for (const step of steps) gitIn(root, ...step.args)
     nodeFs.renameSync(origin, nodePath.join(root, "origin-gone"))
 
@@ -926,7 +1030,7 @@ describe("getWorkspaceChanges (real repo)", () => {
       deletions: 0,
       newContent: "# eks, edited\n",
     })
-    expect(byPath["modules/eks/main.tf"].originalContent).toBeUndefined()
+    expect(byPath["modules/eks/main.tf"]!.originalContent).toBeUndefined()
   })
 })
 

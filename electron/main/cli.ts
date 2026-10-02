@@ -71,15 +71,16 @@ export function parseCliArgs(
   let sawPositional = false
 
   for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    const flagName = arg.split("=", 1)[0]
+    const arg = args[i]!
+    const next = args[i + 1]
+    const flagName = arg.split("=", 1)[0]!
 
-    if (arg === "--runbook" && i + 1 < args.length) {
-      const val = args[++i]
-      if (isRemoteSource(val)) {
-        config.remoteUrl = val
+    if (arg === "--runbook" && next !== undefined) {
+      i++
+      if (isRemoteSource(next)) {
+        config.remoteUrl = next
       } else {
-        config.runbookPath = path.resolve(cwd, val)
+        config.runbookPath = path.resolve(cwd, next)
       }
     } else if (arg === "--watch") {
       config.watch = true
@@ -89,7 +90,7 @@ export function parseCliArgs(
       config.disableLiveFileReload = true
     } else if (UNSUPPORTED_VALUE_FLAGS.has(flagName)) {
       // `--flag value` form: skip the value too (the `--flag=value` form is one arg).
-      if (arg === flagName && i + 1 < args.length && !args[i + 1].startsWith("-")) i++
+      if (arg === flagName && next !== undefined && !next.startsWith("-")) i++
       log.warn(
         `${flagName} is no longer supported and was ignored: the working directory starts ` +
           "in the runbook's folder, and generated files are written inside that folder.",

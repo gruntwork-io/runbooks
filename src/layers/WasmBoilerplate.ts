@@ -72,9 +72,7 @@ export function resolveBoilerplateBinary(): Effect.Effect<string, RenderError> {
  * package handle all primitives + nested maps/arrays. The file is written to
  * a unique path under `os.tmpdir()` and is the caller's responsibility to rm.
  */
-function writeVarFile(
-  variables: Record<string, unknown>,
-) {
+function writeVarFile(variables: Record<string, unknown>) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
     const YAML = yield* Effect.promise(() => import("yaml"))
@@ -140,9 +138,7 @@ export function runBoilerplateCli(
           else stderr.push(l.line)
         }
 
-        const code = yield* proc.exitCode.pipe(
-          Effect.catchAll(() => Effect.succeed(1)),
-        )
+        const code = yield* proc.exitCode.pipe(Effect.catchAll(() => Effect.succeed(1)))
         const dExec = Date.now() - tExec
         console.log("[boilerplate subprocess] timing(ms)", {
           command: label,
@@ -155,9 +151,10 @@ export function runBoilerplateCli(
           const stderrText = stderr.join("\n").trim()
           return yield* Effect.fail(
             new RenderError({
-              message: stderrText.length > 0
-                ? `${label} exited with code ${code}: ${stderrText}`
-                : `${label} exited with code ${code}`,
+              message:
+                stderrText.length > 0
+                  ? `${label} exited with code ${code}: ${stderrText}`
+                  : `${label} exited with code ${code}`,
             }),
           )
         }
@@ -186,9 +183,7 @@ export function runBoilerplateCli(
             }),
         ),
         Effect.flatMap((proc) =>
-          restore(awaitExit(proc, Date.now() - tSpawn)).pipe(
-            Effect.onInterrupt(() => proc.kill),
-          ),
+          restore(awaitExit(proc, Date.now() - tSpawn)).pipe(Effect.onInterrupt(() => proc.kill)),
         ),
       ),
     )
@@ -198,16 +193,15 @@ export function runBoilerplateCli(
 /**
  * Shell out to the boilerplate CLI to render a template tree.
  */
-function runBoilerplate(
-  templateDir: string,
-  outputDir: string,
-  varFilePath: string,
-) {
+function runBoilerplate(templateDir: string, outputDir: string, varFilePath: string) {
   return runBoilerplateCli(
     [
-      "--template-url", templateDir,
-      "--output-folder", outputDir,
-      "--var-file", varFilePath,
+      "--template-url",
+      templateDir,
+      "--output-folder",
+      outputDir,
+      "--var-file",
+      varFilePath,
       "--non-interactive",
       "--disable-dependency-prompt",
     ],
@@ -237,33 +231,25 @@ export const WasmBoilerplateLive = Layer.effect(
 
     const impl: BoilerplateRendererShape = {
       renderFile: (templateContent: string, variables: Record<string, unknown>) =>
-        wasm
-          .renderTemplate(templateContent, JSON.stringify(variables ?? {}))
-          .pipe(
-            // The WASM build hard-codes `OnMissingKey=ExitWithError`. Surface
-            // missing-key / parse-time failures inline rather than blanking
-            // the whole preview — matches the permissive UX the hand-rolled
-            // engine used to provide for previews. Never use this for
-            // content that runs: see renderFileStrict.
-            Effect.catchTag("WasmError", (err) =>
-              err.kind === "internal"
-                ? Effect.succeed(`[template error: ${err.message}]`)
-                : Effect.fail(
-                    new RenderError({ message: err.message, cause: err }),
-                  ),
-            ),
+        wasm.renderTemplate(templateContent, JSON.stringify(variables ?? {})).pipe(
+          // The WASM build hard-codes `OnMissingKey=ExitWithError`. Surface
+          // missing-key / parse-time failures inline rather than blanking
+          // the whole preview — matches the permissive UX the hand-rolled
+          // engine used to provide for previews. Never use this for
+          // content that runs: see renderFileStrict.
+          Effect.catchTag("WasmError", (err) =>
+            err.kind === "internal"
+              ? Effect.succeed(`[template error: ${err.message}]`)
+              : Effect.fail(new RenderError({ message: err.message, cause: err })),
           ),
+        ),
 
       renderFileStrict: (templateContent: string, variables: Record<string, unknown>) =>
-        wasm
-          .renderTemplate(templateContent, JSON.stringify(variables ?? {}))
-          .pipe(
-            // No inline fallback: the caller executes the result, so a
-            // template error must fail rather than become the script text.
-            Effect.mapError(
-              (err) => new RenderError({ message: err.message, cause: err }),
-            ),
-          ),
+        wasm.renderTemplate(templateContent, JSON.stringify(variables ?? {})).pipe(
+          // No inline fallback: the caller executes the result, so a
+          // template error must fail rather than become the script text.
+          Effect.mapError((err) => new RenderError({ message: err.message, cause: err })),
+        ),
 
       renderTemplate: (
         templateDir: string,
@@ -292,7 +278,9 @@ export const WasmBoilerplateLive = Layer.effect(
           const tSub = Date.now()
           yield* runBoilerplate(templateDir, outputDir, varFilePath).pipe(
             // Best-effort cleanup — never let a cleanup failure mask a render error.
-            Effect.ensuring(fs.rm(varFileDir, { recursive: true, force: true }).pipe(Effect.ignore)),
+            Effect.ensuring(
+              fs.rm(varFileDir, { recursive: true, force: true }).pipe(Effect.ignore),
+            ),
           )
           const dSub = Date.now() - tSub
           console.log("[boilerplate renderTemplate] timing(ms)", {

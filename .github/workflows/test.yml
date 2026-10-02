@@ -22,7 +22,13 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Lint (oxlint)
-        run: oxlint .
+        run: bun run lint
+
+      - name: Format check (oxfmt)
+        run: bun run fmt:check
+
+      - name: Unused code (knip)
+        run: bun run knip
 
       - name: Typecheck
         run: tsc -b

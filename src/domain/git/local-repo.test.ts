@@ -20,10 +20,7 @@ const lsFiles = (names: string[]) => ({
  * stubbed FileSystem reports them as directories (it only knows about
  * directories that were mkdir'd).
  */
-const inspect = (
-  dir: string,
-  options: TestLayerOptions & { dirs?: string[] } = {},
-) => {
+const inspect = (dir: string, options: TestLayerOptions & { dirs?: string[] } = {}) => {
   const { dirs = [], ...layerOptions } = options
   const layer = makeTestLayer(layerOptions)
   return Effect.runPromise(
@@ -129,9 +126,7 @@ describe("inspectLocalRepo", () => {
       git: {
         getRepoRoot: () => Effect.succeed("/home/me/fresh"),
         getInfo: () =>
-          Effect.fail(
-            new GitError({ command: "git rev-parse", stderr: "no HEAD", exitCode: 128 }),
-          ),
+          Effect.fail(new GitError({ command: "git rev-parse", stderr: "no HEAD", exitCode: 128 })),
         hasCommits: () => Effect.succeed(false),
       },
     })
@@ -152,9 +147,7 @@ describe("inspectLocalRepo", () => {
         getRepoRoot: () => Effect.succeed("/home/me/odd"),
         getInfo: () => Effect.succeed({ branch: "main", refType: "branch" as const }),
         hasCommits: () =>
-          Effect.fail(
-            new GitError({ command: "git rev-parse", stderr: "boom", exitCode: 1 }),
-          ),
+          Effect.fail(new GitError({ command: "git rev-parse", stderr: "boom", exitCode: 1 })),
       },
     })
 
@@ -288,9 +281,7 @@ describe("inspectLocalRepo", () => {
   })
 
   it("fails when the directory does not exist", async () => {
-    expect(await inspectFailure("/home/me/missing")).toBe(
-      "Directory not found: /home/me/missing",
-    )
+    expect(await inspectFailure("/home/me/missing")).toBe("Directory not found: /home/me/missing")
   })
 
   it("fails when the path is a file", async () => {

@@ -55,16 +55,30 @@ function makeInvoke() {
     if (channel !== "boilerplate:render-inline" || !params) {
       return Promise.resolve({ ok: true })
     }
-    const inputs = (params.inputs.find((i) => i.name === "inputs")?.value ?? {}) as Record<string, unknown>
+    const inputs = (params.inputs.find((i) => i.name === "inputs")?.value ?? {}) as Record<
+      string,
+      unknown
+    >
     const renderedFiles = Object.fromEntries(
       Object.entries(params.templateFiles).map(([name, content]) => [
         name,
-        { name, path: name, content: content.replace("{{ .inputs.name }}", String(inputs.name)), language: "" },
+        {
+          name,
+          path: name,
+          content: content.replace("{{ .inputs.name }}", String(inputs.name)),
+          language: "",
+        },
       ]),
     )
     return Promise.resolve(
       params.generateFile
-        ? { renderedFiles, fileTree: GENERATED_TREE, totalFiles: 1, truncatedTree: false, heavyDirs: [] }
+        ? {
+            renderedFiles,
+            fileTree: GENERATED_TREE,
+            totalFiles: 1,
+            truncatedTree: false,
+            heavyDirs: [],
+          }
         : { renderedFiles },
     )
   })
@@ -116,25 +130,45 @@ type BlockProps = {
 
 function renderBlock(initial: BlockProps = {}) {
   const invoke = makeInvoke()
-  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<typeof ApiProvider>[0]["api"]
+  const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<
+    typeof ApiProvider
+  >[0]["api"]
   const ui = ({ generateFile, target, values, mintOutputs, template = TEMPLATE }: BlockProps) => (
     <ApiProvider api={api}>
       <TestWrapper>
         <InstructionModeToggle />
         {values && <RegisterInputs values={values} />}
         {mintOutputs && <RegisterOutputs blockId="mint" values={mintOutputs} />}
-        <TemplateInline id="tpl" inputsId="form" outputPath="out.txt" generateFile={generateFile} target={target}>
-          <pre><code className="language-txt">{template}</code></pre>
+        <TemplateInline
+          id="tpl"
+          inputsId="form"
+          outputPath="out.txt"
+          generateFile={generateFile}
+          target={target}
+        >
+          <pre>
+            <code className="language-txt">{template}</code>
+          </pre>
         </TemplateInline>
       </TestWrapper>
     </ApiProvider>
   )
   const utils = render(ui(initial))
-  return { invoke, rerender: (next: BlockProps) => utils.rerender(ui(next)), unmount: utils.unmount }
+  return {
+    invoke,
+    rerender: (next: BlockProps) => utils.rerender(ui(next)),
+    unmount: utils.unmount,
+  }
 }
 
 /** Wait out the 300ms render debounce, so "no call" assertions mean something. */
-const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, DEBOUNCE_SETTLE_MS)))
+const settle = () =>
+  act(
+    () =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, DEBOUNCE_SETTLE_MS)
+      }),
+  )
 
 const WORLD = { name: "world", count: 3 }
 
@@ -152,7 +186,9 @@ describe("TemplateInline", () => {
     render(
       <TestWrapper>
         <TemplateInline id="" outputPath="out.txt">
-          <pre><code className="language-txt">template</code></pre>
+          <pre>
+            <code className="language-txt">template</code>
+          </pre>
         </TemplateInline>
       </TestWrapper>,
     )
@@ -168,7 +204,9 @@ describe("TemplateInline", () => {
 
     rerender({ values: WORLD })
 
-    await waitFor(() => expect(screen.getByTestId("code-file-out.txt")).toHaveTextContent("Hello world"))
+    await waitFor(() =>
+      expect(screen.getByTestId("code-file-out.txt")).toHaveTextContent("Hello world"),
+    )
     expect(screen.queryByText("Waiting for inputs from:")).not.toBeInTheDocument()
     const calls = renderInlineCalls(invoke)
     expect(calls).toHaveLength(1)
@@ -200,7 +238,9 @@ describe("TemplateInline", () => {
 
     rerender({ values: { ...WORLD, name: "there" } })
 
-    await waitFor(() => expect(screen.getByTestId("code-file-out.txt")).toHaveTextContent("Hello there"))
+    await waitFor(() =>
+      expect(screen.getByTestId("code-file-out.txt")).toHaveTextContent("Hello there"),
+    )
     expect(renderInlineCalls(invoke)).toHaveLength(2)
   })
 
@@ -215,7 +255,7 @@ describe("TemplateInline", () => {
     const { invoke } = renderBlock({ values: WORLD })
 
     await waitFor(() => expect(screen.getByTestId("code-file-out.txt")).toBeInTheDocument())
-    expect(renderInlineCalls(invoke)[0].generateFile).toBe(false)
+    expect(renderInlineCalls(invoke)[0]!.generateFile).toBe(false)
     expect(applyFileTreeUpdate).not.toHaveBeenCalled()
   })
 
@@ -223,7 +263,7 @@ describe("TemplateInline", () => {
     const { invoke } = renderBlock({ values: WORLD, generateFile: true })
 
     await waitFor(() => expect(applyFileTreeUpdate).toHaveBeenCalledTimes(1))
-    const call = renderInlineCalls(invoke)[0]
+    const call = renderInlineCalls(invoke)[0]!
     expect(call.generateFile).toBe(true)
     expect(call).not.toHaveProperty("target")
     // Main keys what each block last wrote by this id, to remove a file left
@@ -237,10 +277,13 @@ describe("TemplateInline", () => {
   // A sensitive output renders with its real value only when the render writes
   // a file, which needs it. A preview is only shown, so it gets <redacted>.
   it("preview only: renders a sensitive output as <redacted>", async () => {
-    const { invoke } = renderBlock({ values: WORLD, mintOutputs: { token: sensitiveOutput("s3cr3t"), user: "alice" } })
+    const { invoke } = renderBlock({
+      values: WORLD,
+      mintOutputs: { token: sensitiveOutput("s3cr3t"), user: "alice" },
+    })
 
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
-    const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
+    const outputs = renderInlineCalls(invoke)[0]!.inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "<redacted>", user: "alice" } })
   })
 
@@ -252,7 +295,11 @@ describe("TemplateInline", () => {
       invoke.mockRejectedValue(new Error('nil data; no entry for key "user"'))
 
     it("explains that the preview masks a sensitive output", async () => {
-      const { invoke } = renderBlock({ values: WORLD, template: FROM_JSON, mintOutputs: { creds: sensitiveOutput('{"user":"bob"}') } })
+      const { invoke } = renderBlock({
+        values: WORLD,
+        template: FROM_JSON,
+        mintOutputs: { creds: sensitiveOutput('{"user":"bob"}') },
+      })
       failRender(invoke)
 
       const error = await screen.findByTestId("component-error")
@@ -261,7 +308,11 @@ describe("TemplateInline", () => {
     })
 
     it("says nothing about sensitive outputs when the template uses none", async () => {
-      const { invoke } = renderBlock({ values: WORLD, template: FROM_JSON, mintOutputs: { creds: '{"user":"bob"}' } })
+      const { invoke } = renderBlock({
+        values: WORLD,
+        template: FROM_JSON,
+        mintOutputs: { creds: '{"user":"bob"}' },
+      })
       failRender(invoke)
 
       const error = await screen.findByTestId("component-error")
@@ -278,7 +329,7 @@ describe("TemplateInline", () => {
     })
 
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
-    const outputs = renderInlineCalls(invoke)[0].inputs.find((i) => i.name === "outputs")?.value
+    const outputs = renderInlineCalls(invoke)[0]!.inputs.find((i) => i.name === "outputs")?.value
     expect(outputs).toEqual({ mint: { token: "s3cr3t", user: "alice" } })
   })
 
@@ -303,10 +354,12 @@ describe("TemplateInline", () => {
     localStorage.setItem(INSTRUCTION_MODE_STORAGE_KEY, "true")
     const { invoke } = renderBlock({ values: WORLD, generateFile: true })
 
-    await waitFor(() => expect(screen.getByTestId("code-file-out.txt")).toHaveTextContent("Hello world"))
+    await waitFor(() =>
+      expect(screen.getByTestId("code-file-out.txt")).toHaveTextContent("Hello world"),
+    )
     await settle()
     expect(renderInlineCalls(invoke)).toHaveLength(1)
-    expect(renderInlineCalls(invoke)[0].generateFile).toBe(false)
+    expect(renderInlineCalls(invoke)[0]!.generateFile).toBe(false)
     expect(applyFileTreeUpdate).not.toHaveBeenCalled()
   })
 
@@ -324,6 +377,6 @@ describe("TemplateInline", () => {
     // Only the response that wrote files reaches the updater; the preview
     // response still held in state when the mode flipped does not.
     expect(applyFileTreeUpdate).toHaveBeenCalledTimes(1)
-    expect(applyFileTreeUpdate.mock.calls[0][0]).toMatchObject({ fileTree: GENERATED_TREE })
+    expect(applyFileTreeUpdate.mock.calls[0]![0]).toMatchObject({ fileTree: GENERATED_TREE })
   })
 })

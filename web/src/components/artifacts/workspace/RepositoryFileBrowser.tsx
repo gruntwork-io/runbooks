@@ -1,38 +1,46 @@
 /**
  * @fileoverview RepositoryFileBrowser Component
- * 
+ *
  * File browser for the "All files" tab showing a structure-only file tree
  * on the left and a single file viewer on the right with lazy content loading.
  */
 
-import { useState, useMemo, useRef, useEffect } from 'react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { coy } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { PRISM_LINE_NUMBER_STYLE } from '@/lib/prismStyles'
-import { FileTree } from '../code/FileTree'
-import { FolderOpen, Loader2, AlertTriangle, RefreshCw, ImageIcon, FileX, WrapText } from 'lucide-react'
-import { basename, cn, formatFileSize } from '@/lib/utils'
-import { useResizablePanel } from '@/hooks/useResizablePanel'
-import { ResizeHandle } from '@/components/ui/ResizeHandle'
-import { useFileContent } from '@/hooks/useFileContent'
-import { useGitFileChanges } from '@/hooks/useGitFileChanges'
-import { useGitWorkTree } from '@/contexts/useGitWorkTree'
-import type { WorkspaceTreeNode } from '@/hooks/useGitFileTree'
-import type { FileTreeNode } from '../code/FileTree'
+import { useState, useMemo, useRef, useEffect } from "react"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { coy } from "react-syntax-highlighter/dist/esm/styles/prism"
+import { PRISM_LINE_NUMBER_STYLE } from "@/lib/prismStyles"
+import { FileTree } from "../code/FileTree"
+import {
+  FolderOpen,
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
+  ImageIcon,
+  FileX,
+  WrapText,
+} from "lucide-react"
+import { basename, cn, formatFileSize } from "@/lib/utils"
+import { useResizablePanel } from "@/hooks/useResizablePanel"
+import { ResizeHandle } from "@/components/ui/ResizeHandle"
+import { useFileContent } from "@/hooks/useFileContent"
+import { useGitFileChanges } from "@/hooks/useGitFileChanges"
+import { useGitWorkTree } from "@/contexts/useGitWorkTree"
+import type { WorkspaceTreeNode } from "@/hooks/useGitFileTree"
+import type { FileTreeNode } from "../code/FileTree"
 
 interface RepositoryFileBrowserProps {
   /** Structure-only tree (no content) from useGitFileTree */
-  tree: WorkspaceTreeNode[] | null;
+  tree: WorkspaceTreeNode[] | null
   /** Whether the tree is loading */
-  isLoading: boolean;
+  isLoading: boolean
   /** Error message if tree failed to load */
-  error: string | null;
+  error: string | null
   /** Callback to retry loading */
-  onRetry: () => void;
+  onRetry: () => void
   /** Callback to lazy-load a folder's children by node ID */
-  onLazyExpand?: (nodeId: string) => void;
+  onLazyExpand?: (nodeId: string) => void
   /** Additional CSS classes */
-  className?: string;
+  className?: string
 }
 
 export const RepositoryFileBrowser = ({
@@ -45,9 +53,16 @@ export const RepositoryFileBrowser = ({
 }: RepositoryFileBrowserProps) => {
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
   const { treeWidth, isResizing, containerRef, treeRef, handleMouseDown } = useResizablePanel()
-  
+
   // Lazy file content loader
-  const { fetchFileContent, refetchFileContent, clearCache, fileContent, isLoading: contentLoading, error: contentError } = useFileContent()
+  const {
+    fetchFileContent,
+    refetchFileContent,
+    clearCache,
+    fileContent,
+    isLoading: contentLoading,
+    error: contentError,
+  } = useFileContent()
   const { changes } = useGitFileChanges()
   const { activeWorkTree, treeVersion } = useGitWorkTree()
 
@@ -70,7 +85,7 @@ export const RepositoryFileBrowser = ({
     const isChanged = (c: { path: string }) => c.path === selectedFilePath
     if (!changes.some(isChanged) && !prevChanges.some(isChanged)) return
     const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
-    refetchFileContent(absPath)
+    void refetchFileContent(absPath)
   }, [changes, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
 
   // When the worktree tree is invalidated (e.g. template wrote a file),
@@ -83,15 +98,15 @@ export const RepositoryFileBrowser = ({
     clearCache()
     if (!selectedFilePath || !activeWorkTree?.localPath) return
     const absPath = `${activeWorkTree.localPath}/${selectedFilePath}`
-    refetchFileContent(absPath)
+    void refetchFileContent(absPath)
   }, [treeVersion, selectedFilePath, activeWorkTree?.localPath, refetchFileContent, clearCache])
-  
+
   // Convert WorkspaceTreeNode to FileTreeNode for the existing FileTree component
   const fileTreeData = useMemo(() => {
     if (!tree) return []
     return convertToFileTreeNodes(tree)
   }, [tree])
-  
+
   // Loading state
   if (isLoading) {
     return (
@@ -103,7 +118,7 @@ export const RepositoryFileBrowser = ({
       </div>
     )
   }
-  
+
   // Error state
   if (error) {
     return (
@@ -123,31 +138,27 @@ export const RepositoryFileBrowser = ({
       </div>
     )
   }
-  
+
   // Empty state
   if (!tree || tree.length === 0) {
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
           <FolderOpen className="w-16 h-16 mx-auto mb-2 text-muted-foreground" />
-          <h3 className="text-lg font-medium mb-2 text-foreground">
-            No workspace files
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Clone a repository to see files here.
-          </p>
+          <h3 className="text-lg font-medium mb-2 text-foreground">No workspace files</h3>
+          <p className="text-sm text-muted-foreground">Clone a repository to see files here.</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className={cn("h-full flex overflow-hidden", isResizing && "select-none", className)}
     >
       {/* File Tree */}
-      <div 
+      <div
         ref={treeRef}
         className="flex-shrink-0 overflow-auto"
         style={{ width: `${treeWidth}px` }}
@@ -155,23 +166,23 @@ export const RepositoryFileBrowser = ({
         <FileTree
           items={fileTreeData}
           onItemClick={(item) => {
-            if (item.type === 'folder' && item.isLazyLoad && !item.children?.length) {
+            if (item.type === "folder" && item.isLazyLoad && !item.children?.length) {
               onLazyExpand?.(item.id)
             }
-            if (item.type === 'file') {
+            if (item.type === "file") {
               setSelectedFilePath(item.id)
               if (activeWorkTree?.localPath) {
                 const absPath = `${activeWorkTree.localPath}/${item.id}`
-                fetchFileContent(absPath)
+                void fetchFileContent(absPath)
               }
             }
           }}
           className="relative"
         />
       </div>
-      
+
       <ResizeHandle onMouseDown={handleMouseDown} />
-      
+
       {/* File Viewer */}
       <div className="flex-1 h-full overflow-y-auto">
         {selectedFilePath ? (
@@ -196,9 +207,24 @@ export const RepositoryFileBrowser = ({
 /**
  * File content viewer that handles text, images, binary, and too-large files.
  */
-function FileContentViewer({ filePath, fileContent, isLoading, error }: {
+function FileContentViewer({
+  filePath,
+  fileContent,
+  isLoading,
+  error,
+}: {
   filePath: string
-  fileContent: { path: string; content?: string; language: string; size: number; isImage?: boolean; mimeType?: string; dataUri?: string; isBinary?: boolean; isTooLarge?: boolean } | null
+  fileContent: {
+    path: string
+    content?: string
+    language: string
+    size: number
+    isImage?: boolean
+    mimeType?: string
+    dataUri?: string
+    isBinary?: boolean
+    isTooLarge?: boolean
+  } | null
   isLoading: boolean
   error: string | null
 }) {
@@ -245,7 +271,7 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
         </div>
         <img
           src={fileContent.dataUri}
-          alt={basename(fileContent.path) || 'Image'}
+          alt={basename(fileContent.path) || "Image"}
           className="max-w-full border border-border rounded"
         />
       </div>
@@ -259,7 +285,9 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
         <div className="text-center">
           <FileX className="w-12 h-12 mx-auto mb-2 text-muted-foreground" />
           <p className="text-sm text-foreground font-medium">Binary file</p>
-          <p className="text-xs text-muted-foreground mt-1">Cannot display content ({formatFileSize(fileContent.size)})</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Cannot display content ({formatFileSize(fileContent.size)})
+          </p>
         </div>
       </div>
     )
@@ -272,7 +300,9 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
         <div className="text-center">
           <FileX className="w-12 h-12 mx-auto mb-2 text-muted-foreground" />
           <p className="text-sm text-foreground font-medium">File too large to display</p>
-          <p className="text-xs text-muted-foreground mt-1">{formatFileSize(fileContent.size)} (max 1 MB)</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {formatFileSize(fileContent.size)} (max 1 MB)
+          </p>
         </div>
       </div>
     )
@@ -286,7 +316,10 @@ function FileContentViewer({ filePath, fileContent, isLoading, error }: {
  * Renders a text/code file with syntax highlighting. Defaults to no line
  * wrapping (horizontal scroll for long lines); a toggle switches to wrapping.
  */
-function TextFileViewer({ filePath, fileContent }: {
+function TextFileViewer({
+  filePath,
+  fileContent,
+}: {
   filePath: string
   fileContent: { path: string; content?: string; language: string; size: number }
 }) {
@@ -297,15 +330,17 @@ function TextFileViewer({ filePath, fileContent }: {
       <div className="px-3 py-2 bg-muted border-b border-border text-xs text-muted-foreground font-mono flex items-center justify-between gap-2">
         <span className="truncate">{basename(fileContent.path)}</span>
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-muted-foreground">{fileContent.language} • {formatFileSize(fileContent.size)}</span>
+          <span className="text-muted-foreground">
+            {fileContent.language} • {formatFileSize(fileContent.size)}
+          </span>
           <button
             type="button"
-            onClick={() => setWrap(w => !w)}
+            onClick={() => setWrap((w) => !w)}
             aria-pressed={wrap}
-            title={wrap ? 'Disable line wrap' : 'Enable line wrap'}
+            title={wrap ? "Disable line wrap" : "Enable line wrap"}
             className={cn(
-              'flex items-center gap-1 rounded-sm px-1.5 py-0.5 hover:bg-accent transition-colors',
-              wrap ? 'text-foreground' : 'text-muted-foreground'
+              "flex items-center gap-1 rounded-sm px-1.5 py-0.5 hover:bg-accent transition-colors",
+              wrap ? "text-foreground" : "text-muted-foreground",
             )}
           >
             <WrapText className="size-3.5" />
@@ -320,18 +355,18 @@ function TextFileViewer({ filePath, fileContent }: {
           showLineNumbers={true}
           wrapLongLines={wrap}
           customStyle={{
-            fontSize: '12px',
+            fontSize: "12px",
             margin: 0,
             borderRadius: 0,
-            border: 'none',
-            padding: '14px 0px',
-            background: 'transparent',
-            whiteSpace: wrap ? 'pre-wrap' : 'pre',
-            overflowX: 'auto',
+            border: "none",
+            padding: "14px 0px",
+            background: "transparent",
+            whiteSpace: wrap ? "pre-wrap" : "pre",
+            overflowX: "auto",
           }}
           lineNumberStyle={PRISM_LINE_NUMBER_STYLE}
         >
-          {fileContent.content || ''}
+          {fileContent.content || ""}
         </SyntaxHighlighter>
       </div>
     </div>
@@ -342,19 +377,22 @@ function TextFileViewer({ filePath, fileContent }: {
  * Convert WorkspaceTreeNode (structure only) to FileTreeNode for the existing FileTree component
  */
 function convertToFileTreeNodes(nodes: WorkspaceTreeNode[]): FileTreeNode[] {
-  return nodes.map(node => ({
+  return nodes.map((node) => ({
     id: node.id,
     name: node.name,
     type: node.type,
     children: node.children ? convertToFileTreeNodes(node.children) : undefined,
     isIgnored: node.isIgnored,
     isLazyLoad: node.isLazyLoad,
-    file: node.type === 'file' ? {
-      name: node.name,
-      path: node.id,
-      content: '',
-      language: node.language || 'text',
-      size: node.size || 0,
-    } : undefined,
+    file:
+      node.type === "file"
+        ? {
+            name: node.name,
+            path: node.id,
+            content: "",
+            language: node.language || "text",
+            size: node.size || 0,
+          }
+        : undefined,
   }))
 }

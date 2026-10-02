@@ -108,8 +108,12 @@ describe("GitLabAuth (GitLab-locked alias)", () => {
     }
     renderGitLabAuth()
     expect(screen.getByText('Missing "write_repository" scope')).toBeInTheDocument()
-    expect(screen.getByText(/Pushing branches and opening merge requests may fail\./)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Pushing branches and opening merge requests may fail\./),
+    ).toBeInTheDocument()
     expect(screen.getByTestId("test-gl")).not.toHaveTextContent(/\bPRs\b/)
-    expect(screen.getByRole("button", { name: "Re-authenticate with full permissions" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Re-authenticate with full permissions" }),
+    ).toBeInTheDocument()
   })
 })

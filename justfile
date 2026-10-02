@@ -291,15 +291,19 @@ test-docs:
 
 # Lint with oxlint
 lint:
-    mise x bun -- bunx oxlint . --ignore-pattern '**/*.astro' --ignore-pattern 'testdata/**'
+    mise x bun -- bun run lint
 
-# Format with oxfmt (when available, placeholder for now)
+# Format with oxfmt (config and ignored paths: .oxfmtrc.json)
 fmt:
-    @echo "oxfmt not yet available — skipping"
+    mise x bun -- bun run fmt
 
 # Check formatting without writing
 fmt-check:
-    @echo "oxfmt not yet available — skipping"
+    mise x bun -- bun run fmt:check
+
+# Find unused files, exports and dependencies (config: knip.json)
+knip:
+    mise x bun -- bun run knip
 
 # Type check with TypeScript compiler. The root tsconfig.json has no files of
 # its own, only project references, so it needs build mode (-b) to check them;
@@ -307,5 +311,5 @@ fmt-check:
 typecheck: _no-nested-node-modules
     mise x bun -- bunx tsc -b
 
-# Run all checks (lint + format check + typecheck)
-check: lint fmt-check typecheck
+# Run all checks (lint + format check + unused code + typecheck)
+check: lint fmt-check knip typecheck

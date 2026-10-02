@@ -1,30 +1,36 @@
-export type AuthMethod = 'credentials' | 'sso' | 'profile'
-export type AuthStatus = 'pending' | 'authenticating' | 'authenticated' | 'failed' | 'select_account' | 'select_role'
+export type AuthMethod = "credentials" | "sso" | "profile"
+export type AuthStatus =
+  | "pending"
+  | "authenticating"
+  | "authenticated"
+  | "failed"
+  | "select_account"
+  | "select_role"
 
 // =============================================================================
 // Credential Detection Types (new pattern matching GitHubAuth)
 // =============================================================================
 
 /** Status of credential detection process */
-export type AwsDetectionStatus = 'pending' | 'detected' | 'done'
+export type AwsDetectionStatus = "pending" | "detected" | "done"
 
 /** Source where credentials were detected from */
-export type AwsDetectionSource = 'env' | 'block' | null
+export type AwsDetectionSource = "env" | "block" | null
 
 /**
  * Credential source configuration for auto-detection.
  * Sources are tried in order until one succeeds.
- * 
+ *
  * Note: Profile-based authentication is available via the Profile tab in manual auth,
  * but is not included in auto-detection due to the complexity of AWS profile resolution
  * (which involves multiple files and config precedence rules).
- * 
- * IMPORTANT: Only one { block: string } source is allowed in the array. 
+ *
+ * IMPORTANT: Only one { block: string } source is allowed in the array.
  */
 export type AwsCredentialSource =
-  | 'env'                                                   // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
-  | { env: { prefix?: string } }                            // Check PREFIX_AWS_ACCESS_KEY_ID, etc.
-  | { block: string }                                       // From Command block output (only one allowed)
+  | "env" // Check AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.
+  | { env: { prefix?: string } } // Check PREFIX_AWS_ACCESS_KEY_ID, etc.
+  | { block: string } // From Command block output (only one allowed)
 
 /**
  * Detected credentials awaiting user confirmation.
@@ -33,14 +39,14 @@ export type AwsCredentialSource =
 export interface DetectedAwsCredentials {
   accountId: string
   /** Account alias, if available (best-effort) */
-  accountName?: string
+  accountName?: string | undefined
   arn: string
   region: string
   source: AwsDetectionSource
   /** Whether the credentials include a session token (temporary credentials) */
   hasSessionToken: boolean
   /** For env source: the prefix used to detect credentials (e.g., 'PROD_' for PROD_AWS_ACCESS_KEY_ID) */
-  envPrefix?: string
+  envPrefix?: string | undefined
 }
 
 // SSO account and role types
@@ -57,7 +63,7 @@ export interface SSORole {
 // Profile info from backend with auth type
 export interface ProfileInfo {
   name: string
-  authType: 'sso' | 'static' | 'assume_role' | 'unsupported'
+  authType: "sso" | "static" | "assume_role" | "unsupported"
 }
 
 export interface AwsAuthProps {
@@ -85,7 +91,7 @@ export interface AwsAuthProps {
    * - `false`: Disable auto-detection, show manual auth only
    * - Array of sources: Try each source in order until one succeeds
    * - Default: `['env']` - auto-detect from environment variables
-   * 
+   *
    * Unlike GitHubAuth, detected credentials require user confirmation before use
    * to prevent accidental operations against the wrong AWS account.
    */
@@ -95,10 +101,10 @@ export interface AwsAuthProps {
 }
 
 export interface AccountInfo {
-  accountId?: string
+  accountId?: string | undefined
   /** Account alias, if available (best-effort) */
-  accountName?: string
-  arn?: string
+  accountName?: string | undefined
+  arn?: string | undefined
 }
 
 export interface AwsCredentials {

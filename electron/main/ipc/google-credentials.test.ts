@@ -28,9 +28,7 @@ describe("materializeCredentialFile", () => {
     expect(path.basename(filePath)).toBe("adc.json")
     // The file lives one directory below the temp root; compare through
     // realpath because macOS' /var is a symlink into /private/var.
-    expect(fs.realpathSync(path.dirname(path.dirname(filePath)))).toBe(
-      fs.realpathSync(os.tmpdir()),
-    )
+    expect(fs.realpathSync(path.dirname(path.dirname(filePath)))).toBe(fs.realpathSync(os.tmpdir()))
     expect(path.basename(path.dirname(filePath)).startsWith("runbooks-gcp-")).toBe(true)
   })
 

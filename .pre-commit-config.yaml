@@ -15,3 +15,9 @@ repos:
         language: system
         files: \.(ts|tsx|js|jsx|mjs|cjs)$
         pass_filenames: false
+      - id: oxfmt
+        name: Format check (oxfmt)
+        entry: bun run fmt:check
+        language: system
+        files: \.(ts|tsx|js|jsx|mjs|cjs|json|css|html)$
+        pass_filenames: false

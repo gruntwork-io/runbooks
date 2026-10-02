@@ -8,8 +8,11 @@ import { BrowserWindow, nativeTheme, session, shell } from "electron"
 import fs from "fs"
 import path from "path"
 import { buildContentSecurityPolicy } from "./csp.ts"
+import { makeLogger } from "./logger.ts"
 import { readVcsAuthStore } from "./recent-hosts.ts"
 import { parseGhHosts, resolveGhHostsPath } from "../../src/domain/github/auth.ts"
+
+const log = makeLogger("window")
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
 
@@ -18,9 +21,13 @@ function openExternalIfAllowed(url: string): void {
   try {
     const parsed = new URL(url)
     if (ALLOWED_EXTERNAL_SCHEMES.has(parsed.protocol)) {
-      shell.openExternal(url)
+      shell.openExternal(url).catch((err: unknown) => {
+        log.error("Failed to open external URL:", err)
+      })
     }
-  } catch { /* ignore invalid URLs */ }
+  } catch {
+    /* ignore invalid URLs */
+  }
 }
 
 /**
@@ -34,7 +41,9 @@ function knownGitHubHosts(): string[] {
   try {
     const hostsPath = resolveGhHostsPath({ env: process.env })
     if (hostsPath) hosts.push(...parseGhHosts(fs.readFileSync(hostsPath, "utf8")))
-  } catch { /* no gh config */ }
+  } catch {
+    /* no gh config */
+  }
   const store = readVcsAuthStore()
   hosts.push(...store.recentGitHubHosts)
   if (store.lastSelectedGitHubHost) hosts.push(store.lastSelectedGitHubHost)
@@ -85,8 +94,7 @@ export function createMainWindow(): BrowserWindow {
         height: 64,
       },
     }),
-    backgroundColor:
-      TITLE_BAR_THEMES[nativeTheme.shouldUseDarkColors ? "dark" : "light"].color,
+    backgroundColor: TITLE_BAR_THEMES[nativeTheme.shouldUseDarkColors ? "dark" : "light"].color,
     show: false,
   })
 
@@ -103,7 +111,9 @@ export function createMainWindow(): BrowserWindow {
         (details.resourceType === "mainFrame" || details.resourceType === "subFrame") &&
         details.url.startsWith("file://")
       if (!isAppFrame) {
-        callback({ responseHeaders: details.responseHeaders })
+        callback(
+          details.responseHeaders !== undefined ? { responseHeaders: details.responseHeaders } : {},
+        )
         return
       }
       callback({
@@ -130,7 +140,9 @@ export function createMainWindow(): BrowserWindow {
       try {
         const devOrigin = new URL(process.env.ELECTRON_RENDERER_URL).origin
         if (new URL(url).origin === devOrigin) return
-      } catch { /* fall through to block */ }
+      } catch {
+        /* fall through to block */
+      }
     }
     // Production, or a cross-origin navigation in dev — open externally if
     // the scheme is allowed.
@@ -148,11 +160,12 @@ export function createMainWindow(): BrowserWindow {
   })
 
   // In dev, load from Vite dev server; in prod, load the built file.
-  if (process.env.ELECTRON_RENDERER_URL) {
-    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"))
-  }
+  const loaded = process.env.ELECTRON_RENDERER_URL
+    ? mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+    : mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"))
+  loaded.catch((err: unknown) => {
+    log.error("Failed to load the renderer:", err)
+  })
 
   return mainWindow
 }

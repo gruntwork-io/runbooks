@@ -25,7 +25,7 @@ function renderBrowser(host?: string) {
 
 async function pickRepo() {
   await screen.findByText("Select repository...")
-  const repoButton = screen.getAllByRole("combobox")[1]
+  const repoButton = screen.getAllByRole("combobox")[1]!
   await waitFor(() => expect(repoButton).not.toBeDisabled())
   fireEvent.click(repoButton)
   fireEvent.click(await screen.findByText("infra"))

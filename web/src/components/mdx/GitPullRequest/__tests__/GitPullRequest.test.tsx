@@ -42,7 +42,9 @@ describe("GitPullRequest (generic block)", () => {
         <GitPullRequest id="" __registryType="GitLabMergeRequest" />
       </TestWrapper>,
     )
-    expect(screen.getByText(/The <GitLabMergeRequest> component requires a non-empty 'id' prop/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/The <GitLabMergeRequest> component requires a non-empty 'id' prop/),
+    ).toBeInTheDocument()
   })
 
   it("derives the GitLab provider from a linked auth block's GIT_PROVIDER output (unlocked block)", async () => {

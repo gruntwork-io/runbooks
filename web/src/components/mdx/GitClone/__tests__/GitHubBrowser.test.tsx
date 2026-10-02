@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest"
 import { render, screen, waitFor, act } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // The IPC boundary is the only thing mocked — the real useGitClone fetchers
 // feed the real GitHubBrowser, so these tests cover the channel mapping too.
@@ -45,14 +45,26 @@ beforeAll(() => {
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: unknown) => void
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
   return { promise, resolve, reject }
 }
 
-const ORGS = [{ id: 1, login: "acme" }, { id: 2, login: "globex" }]
+const ORGS = [
+  { id: 1, login: "acme" },
+  { id: 2, login: "globex" },
+]
 
-const repo = (id: number, name: string, defaultBranch = "main") =>
-  ({ id, ownerId: 1, name, fullName: `acme/${name}`, private: false, defaultBranch })
+const repo = (id: number, name: string, defaultBranch = "main") => ({
+  id,
+  ownerId: 1,
+  name,
+  fullName: `acme/${name}`,
+  private: false,
+  defaultBranch,
+})
 
 /** Channel-shaped refs: the backend sends `ref`, not `name`. */
 const branches = (...names: string[]) => names.map((ref) => ({ ref, type: "branch" as const }))
@@ -70,8 +82,8 @@ function mockIpc({ repos, refs, orgs }: Handlers = {}) {
     if (channel === "session:get") return { workingDir: "/work" }
     // The first call is the block's token check, which shows the browser.
     if (channel === "github:orgs") return orgCalls++ === 0 || !orgs ? ORGS : orgs()
-    if (channel === "github:repos") return repos ? repos(params!.org) : []
-    if (channel === "github:refs") return refs ? refs(params!.owner, params!.repo) : []
+    if (channel === "github:repos") return repos ? repos(params!.org!) : []
+    if (channel === "github:refs") return refs ? refs(params!.owner!, params!.repo!) : []
     return {}
   })
 }
@@ -89,7 +101,7 @@ async function openBrowser(user: ReturnType<typeof userEvent.setup>) {
 }
 
 // Organization, Repository and Ref, in that order, once each is shown.
-const combobox = (index: number) => screen.getAllByRole("combobox")[index]
+const combobox = (index: number) => screen.getAllByRole("combobox")[index]!
 
 async function pick(user: ReturnType<typeof userEvent.setup>, index: number, option: string) {
   await waitFor(() => expect(combobox(index)).toBeEnabled())
@@ -107,7 +119,9 @@ describe("GitHubBrowser — errors", () => {
   it("shows why a repository list failed instead of an empty list", async () => {
     mockIpc({
       repos: async () => {
-        throw new Error("Error invoking remote method 'github:repos': Error: GitHub API error 403: SAML enforcement")
+        throw new Error(
+          "Error invoking remote method 'github:repos': Error: GitHub API error 403: SAML enforcement",
+        )
       },
     })
     const user = userEvent.setup()
@@ -174,7 +188,13 @@ describe("GitHubBrowser — refs", () => {
     await waitFor(() => expect(refField()).toHaveValue("main"))
 
     await pick(user, 1, "fresh")
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "fresh", host: "github.com" }))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("github:refs", {
+        owner: "acme",
+        repo: "fresh",
+        host: "github.com",
+      }),
+    )
     await act(async () => {})
 
     expect(refField()).toHaveValue("")
@@ -206,20 +226,25 @@ describe("GitHubBrowser — refs", () => {
     })
     renderGitClone({ prefilledUrl: "https://github.com/acme/infra", prefilledRef: "v1.2.0" })
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("github:refs", { owner: "acme", repo: "infra", host: "github.com" }))
-    await act(async () => { refs.resolve(branches("main", "v1.2.0-hotfix")) })
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("github:refs", {
+        owner: "acme",
+        repo: "infra",
+        host: "github.com",
+      }),
+    )
+    await act(async () => {
+      refs.resolve(branches("main", "v1.2.0-hotfix"))
+    })
 
     expect(refField()).toHaveValue("v1.2.0")
   })
 
   it("drops a slower earlier repo's refs when another repo was picked", async () => {
-    const pending: Record<string, ReturnType<typeof deferred<unknown>>> = {
-      alpha: deferred(),
-      beta: deferred(),
-    }
+    const pending = { alpha: deferred<unknown>(), beta: deferred<unknown>() }
     mockIpc({
       repos: async () => [repo(1, "alpha", "main"), repo(2, "beta", "master")],
-      refs: (_owner, name) => pending[name].promise,
+      refs: (_owner, name) => pending[name as keyof typeof pending].promise,
     })
     const user = userEvent.setup()
     renderGitClone({ prefilledLocalPath: "out" })
@@ -229,8 +254,12 @@ describe("GitHubBrowser — refs", () => {
     await pick(user, 1, "alpha")
     await pick(user, 1, "beta")
 
-    await act(async () => { pending.beta.resolve(branches("master", "beta-work")) })
-    await act(async () => { pending.alpha.resolve(branches("main", "alpha-work")) })
+    await act(async () => {
+      pending.beta.resolve(branches("master", "beta-work"))
+    })
+    await act(async () => {
+      pending.alpha.resolve(branches("main", "alpha-work"))
+    })
 
     expect(refField()).toHaveValue("master")
     await user.click(combobox(2))
@@ -252,7 +281,9 @@ describe("GitHubBrowser — refs", () => {
     await pick(user, 1, "alpha")
     await pick(user, 0, "globex")
 
-    await act(async () => { alphaRefs.resolve(branches("main")) })
+    await act(async () => {
+      alphaRefs.resolve(branches("main"))
+    })
 
     expect(refField()).toHaveValue("")
   })
@@ -260,19 +291,20 @@ describe("GitHubBrowser — refs", () => {
 
 describe("GitHubBrowser — repos", () => {
   it("drops a switched-away org's slower repo list", async () => {
-    const pending: Record<string, ReturnType<typeof deferred<unknown>>> = {
-      acme: deferred(),
-      globex: deferred(),
-    }
-    mockIpc({ repos: (org) => pending[org].promise })
+    const pending = { acme: deferred<unknown>(), globex: deferred<unknown>() }
+    mockIpc({ repos: (org) => pending[org as keyof typeof pending].promise })
     const user = userEvent.setup()
     renderGitClone({ prefilledUrl: "https://github.com/acme/infra" })
 
     await openBrowser(user)
     await pick(user, 0, "globex")
 
-    await act(async () => { pending.globex.resolve([repo(2, "gamma")]) })
-    await act(async () => { pending.acme.resolve([repo(1, "alpha")]) })
+    await act(async () => {
+      pending.globex.resolve([repo(2, "gamma")])
+    })
+    await act(async () => {
+      pending.acme.resolve([repo(1, "alpha")])
+    })
 
     await user.click(combobox(1))
     expect(await screen.findByRole("option", { name: "gamma" })).toBeInTheDocument()

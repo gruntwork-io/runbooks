@@ -1,49 +1,54 @@
-import { useMemo, useState, useEffect, useRef, useCallback, startTransition } from 'react'
-import { BoilerplateInputsForm } from '../_shared/components/BoilerplateInputsForm'
-import { ErrorDisplay } from '../_shared/components/ErrorDisplay'
-import { LoadingDisplay } from '../_shared/components/LoadingDisplay'
-import type { AppError } from '@/types/error'
-import { useApiGetBoilerplateConfig } from '@/hooks/useApiGetBoilerplateConfig'
-import { useApiBoilerplateRender } from '@/hooks/useApiBoilerplateRender'
-import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from '@/contexts/useRunbook'
-import { useComponentIdRegistry } from '@/contexts/ComponentIdRegistry'
-import { useErrorReporting } from '@/contexts/useErrorReporting'
-import { useTelemetry } from '@/contexts/useTelemetry'
-import { buildRenderVariables, computeUnmetOutputDependencies, flattenBlockOutputs, revealTemplateOutputs } from '@/lib/templateUtils'
-import { computeChangeKey } from '@/lib/changeDetection'
-import { markStage } from '@/lib/renderPerf'
-import { XCircle } from 'lucide-react'
-import { useInstructionMode } from '@/contexts/useInstructionMode'
-import { TemplateInstruction } from './TemplateInstruction'
-import { useSharedTemplateVars } from './useSharedTemplateVars'
+import { useMemo, useState, useEffect, useRef, useCallback, startTransition } from "react"
+import { BoilerplateInputsForm } from "../_shared/components/BoilerplateInputsForm"
+import { ErrorDisplay } from "../_shared/components/ErrorDisplay"
+import { LoadingDisplay } from "../_shared/components/LoadingDisplay"
+import type { AppError } from "@/types/error"
+import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
+import { useApiBoilerplateRender } from "@/hooks/useApiBoilerplateRender"
+import { useRunbookContext, useInputs, useAllOutputs, flattenInputs } from "@/contexts/useRunbook"
+import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
+import { useTelemetry } from "@/contexts/useTelemetry"
+import {
+  buildRenderVariables,
+  computeUnmetOutputDependencies,
+  flattenBlockOutputs,
+  revealTemplateOutputs,
+} from "@/lib/templateUtils"
+import { computeChangeKey } from "@/lib/changeDetection"
+import { markStage } from "@/lib/renderPerf"
+import { XCircle } from "lucide-react"
+import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { TemplateInstruction } from "./TemplateInstruction"
+import { useSharedTemplateVars } from "./useSharedTemplateVars"
 
 /**
  * Template component - generates files from a boilerplate template directory.
- * 
+ *
  * This component loads a boilerplate configuration, renders a form for any
  * variables defined in the template, and generates files to the workspace.
- * 
+ *
  * ## Variable Categories
- * 
+ *
  * When a Template references external inputs via `inputsId`, variables fall into three categories:
- * 
+ *
  * 1. **Local-only Variables** - exist only in the template's boilerplate.yml.
  *    These are editable in the form.
- * 
+ *
  * 2. **Imported-only Variables** - exist only in imported sources (not in template's boilerplate.yml).
  *    These are not shown in the form but are passed through to the template engine.
- *  
+ *
  * 3. **Shared Variables** - exist in BOTH the template's boilerplate.yml AND imported sources.
  *    These are read-only in the form and stay live-synced to imported values.
- * 
+ *
  * @param props.id - Unique identifier for this component (required)
  * @param props.path - Path to the boilerplate template directory (required)
  * @param props.inputsId - Optional ID(s) of Inputs components to import variable values from
- * 
+ *
  * @example
  * // Standalone template with its own form
  * <Template id="vpc-setup" path="templates/vpc" />
- * 
+ *
  * @example
  * // Template importing variables from an Inputs block
  * <Inputs id="config">...</Inputs>
@@ -55,60 +60,55 @@ interface TemplateProps {
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[]
   /** Where template output is written. "generated" (default) writes to $GENERATED_FILES. "worktree" writes to the active git worktree ($REPO_FILES). */
-  target?: 'generated' | 'worktree'
+  target?: "generated" | "worktree"
 }
 
-function TemplateInteractive({
-  id,
-  path,
-  inputsId,
-  target
-}: TemplateProps) {
+function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   // Register with ID registry to detect duplicates (including normalized collisions like "a-b" vs "a_b")
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, 'Template')
-  
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, "Template")
+
   const { reportError, clearError } = useErrorReporting()
 
   const { trackBlockRender } = useTelemetry()
-  
+
   // Track block render on mount
   useEffect(() => {
-    trackBlockRender('Template')
+    trackBlockRender("Template")
   }, [trackBlockRender])
-  
-  const [shouldRender, setShouldRender] = useState(false);
-  const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({});
+
+  const [shouldRender, setShouldRender] = useState(false)
+  const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({})
   // Bumped on every Generate click so the auto-render effect re-runs (see handleGenerate)
-  const [generateNonce, setGenerateNonce] = useState(0);
+  const [generateNonce, setGenerateNonce] = useState(0)
 
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
-  const hasEverGeneratedRef = useRef(false);
-  
+  const [hasEverGenerated, setHasEverGenerated] = useState(false)
+
   // (Worktree/file tree updates are handled by useApiBoilerplateRender via useFileTreeUpdater)
-  
+
   // Get the runbook context to register our config
-  const { registerInputs } = useRunbookContext();
-  
+  const { registerInputs } = useRunbookContext()
+
   // Get inputs from referenced Inputs components (if any) and convert to values map
-  const inputs = useInputs(inputsId);
-  const inputValues = useMemo(() => flattenInputs(inputs), [inputs]);
-  
+  const inputs = useInputs(inputsId)
+  const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
+
   // Get all block outputs to check dependencies and pass to template rendering
-  const allOutputs = useAllOutputs();
+  const allOutputs = useAllOutputs()
 
   // Validate props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
         message: "The <Template> component requires a non-empty 'id' prop.",
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
 
     if (!path) {
       return {
         message: "The <Template> component requires a 'path' prop.",
-        details: "Please specify the path to the boilerplate template directory."
+        details: "Please specify the path to the boilerplate template directory.",
       }
     }
 
@@ -116,11 +116,15 @@ function TemplateInteractive({
   }, [id, path])
 
   // Load boilerplate config from the template path
-  const { data: boilerplateConfig, isLoading, error: apiError } = useApiGetBoilerplateConfig(
-    path, 
-    '', // No inline YAML for Template
-    !validationError
-  );
+  const {
+    data: boilerplateConfig,
+    isLoading,
+    error: apiError,
+  } = useApiGetBoilerplateConfig(
+    path,
+    "", // No inline YAML for Template
+    !validationError,
+  )
 
   // Report errors to the error reporting context
   useEffect(() => {
@@ -128,23 +132,23 @@ function TemplateInteractive({
     if (isDuplicate) {
       reportError({
         componentId: id,
-        componentType: 'Template',
-        severity: 'error',
-        message: `Duplicate component ID: ${id}`
+        componentType: "Template",
+        severity: "error",
+        message: `Duplicate component ID: ${id}`,
       })
     } else if (validationError) {
       reportError({
         componentId: id,
-        componentType: 'Template',
-        severity: 'error',
-        message: validationError.message
+        componentType: "Template",
+        severity: "error",
+        message: validationError.message,
       })
     } else if (apiError) {
       reportError({
         componentId: id,
-        componentType: 'Template',
-        severity: 'error',
-        message: apiError.message
+        componentType: "Template",
+        severity: "error",
+        message: apiError.message,
       })
     } else {
       // No error, clear any previously reported error
@@ -155,153 +159,196 @@ function TemplateInteractive({
   // Shared variables (in BOTH imported sources AND this template's boilerplate.yml),
   // their live imported values, and the form's initial data.
   // This must be before early returns to maintain hook order
-  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(boilerplateConfig, inputValues);
+  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(
+    boilerplateConfig,
+    inputValues,
+  )
 
   // Compute unmet output dependencies - outputs from other blocks that this template needs
   // but which haven't been produced yet
   const unmetOutputDependencies = useMemo(
     () => computeUnmetOutputDependencies(boilerplateConfig?.outputDependencies ?? [], allOutputs),
-    [boilerplateConfig?.outputDependencies, allOutputs]
-  );
-  
+    [boilerplateConfig?.outputDependencies, allOutputs],
+  )
+
   // Check if all output dependencies are satisfied
-  const hasAllOutputDependencies = unmetOutputDependencies.length === 0;
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0
 
   // Track the latest local form data for registration (without causing re-renders)
-  const localVarValuesRef = useRef<Record<string, unknown>>({});
+  const localVarValuesRef = useRef<Record<string, unknown>>({})
 
   // Register merged values when imported values or config changes
   useEffect(() => {
     if (boilerplateConfig && id) {
       // Shared vars are read-only and live-synced, so the imported (live) value
       // overrides the local copy, which may not be synced yet when this effect runs.
-      const mergedData = { ...inputValues, ...localVarValuesRef.current, ...liveVarValues };
-      registerInputs(id, mergedData, boilerplateConfig);
+      const mergedData = { ...inputValues, ...localVarValuesRef.current, ...liveVarValues }
+      registerInputs(id, mergedData, boilerplateConfig)
     }
-  }, [id, boilerplateConfig, inputValues, liveVarValues, registerInputs]);
+  }, [id, boilerplateConfig, inputValues, liveVarValues, registerInputs])
 
   // Render API call - only triggered when shouldRender is true
   // Pass the component id as templateId to enable smart file cleanup when outputs change
-  const { data: renderResult, isLoading: isGenerating, error: renderError, isAutoRendering, autoRender } = useApiBoilerplateRender(
-    path,
-    id,
-    renderFormData,
-    shouldRender,
-    target
-  )
+  const {
+    data: renderResult,
+    isLoading: isGenerating,
+    error: renderError,
+    isAutoRendering,
+    autoRender,
+  } = useApiBoilerplateRender(path, id, renderFormData, shouldRender, target)
+
+  if (renderResult && !hasEverGenerated) {
+    setHasEverGenerated(true)
+  }
 
   // Track successful generation (file tree updates are handled by useApiBoilerplateRender).
   // Marks render-committed and painted stages; the gap between IPC response and this
   // effect firing captures React scheduler + reconciliation + commit + passive-effect flush.
   useEffect(() => {
-    if (!renderResult) return;
-    hasEverGeneratedRef.current = true;
-    markStage('Template:render-committed', { id });
-    const raf = requestAnimationFrame(() => markStage('Template:painted', { id }));
-    return () => cancelAnimationFrame(raf);
-  }, [renderResult, id]);
+    if (!renderResult) return
+    markStage("Template:render-committed", { id })
+    const raf = requestAnimationFrame(() => markStage("Template:painted", { id }))
+    return () => cancelAnimationFrame(raf)
+  }, [renderResult, id])
 
   // Check if form data has all required values filled
-  const hasAllRequiredValues = useCallback((localVarValues: Record<string, unknown>): boolean => {
-    if (!boilerplateConfig) return false;
-    return boilerplateConfig.variables.every(variable => {
-      const isRequired = variable.validations?.some(v => v.type === 'required');
-      if (!isRequired) return true;
-      
-      const value = localVarValues[variable.name];
-      return value !== undefined && value !== null && value !== '';
-    });
-  }, [boilerplateConfig]);
+  const hasAllRequiredValues = useCallback(
+    (localVarValues: Record<string, unknown>): boolean => {
+      if (!boilerplateConfig) return false
+      return boilerplateConfig.variables.every((variable) => {
+        const isRequired = variable.validations?.some((v) => v.type === "required")
+        if (!isRequired) return true
+
+        const value = localVarValues[variable.name]
+        return value !== undefined && value !== null && value !== ""
+      })
+    },
+    [boilerplateConfig],
+  )
 
   // Flatten block outputs for template rendering (used in the outputs namespace).
   // A Template writes files, so sensitive outputs render with their real
   // values. That also keeps them in the dedupe key below, so a new value
   // re-renders.
-  const flattenedOutputs = useMemo(() => revealTemplateOutputs(flattenBlockOutputs(allOutputs)), [allOutputs]);
+  const flattenedOutputs = useMemo(
+    () => revealTemplateOutputs(flattenBlockOutputs(allOutputs)),
+    [allOutputs],
+  )
 
-  const lastRenderedKeyRef = useRef<string | null>(null);
+  const lastRenderedKeyRef = useRef<string | null>(null)
 
   // Dispatch the IPC inline rather than waiting for an effect — RunbookContext
   // reconciliation between commit and effect-flush added ~200 ms otherwise.
   // The effect below handles upstream-driven changes (inputValues, outputs).
-  const handleAutoRender = useCallback((localVarValues: Record<string, unknown>) => {
-    markStage('Template:handleAutoRender', { id });
-    localVarValuesRef.current = localVarValues;
+  const handleAutoRender = useCallback(
+    (localVarValues: Record<string, unknown>) => {
+      markStage("Template:handleAutoRender", { id })
+      localVarValuesRef.current = localVarValues
 
-    if (shouldRender && boilerplateConfig && hasAllOutputDependencies && hasAllRequiredValues(localVarValues)) {
-      const key = computeChangeKey(inputValues, localVarValues, flattenedOutputs);
-      if (key !== lastRenderedKeyRef.current) {
-        lastRenderedKeyRef.current = key;
-        const mergedData = buildRenderVariables(
-          { ...inputValues, ...localVarValues },
-          flattenedOutputs,
-        );
-        markStage('Template:inline-autoRender-call', { id });
-        autoRender(path, mergedData);
+      if (
+        shouldRender &&
+        boilerplateConfig &&
+        hasAllOutputDependencies &&
+        hasAllRequiredValues(localVarValues)
+      ) {
+        const key = computeChangeKey(inputValues, localVarValues, flattenedOutputs)
+        if (key !== lastRenderedKeyRef.current) {
+          lastRenderedKeyRef.current = key
+          const mergedData = buildRenderVariables(
+            { ...inputValues, ...localVarValues },
+            flattenedOutputs,
+          )
+          markStage("Template:inline-autoRender-call", { id })
+          autoRender(path, mergedData)
+        }
       }
-    }
 
-    // Deprioritize RunbookContext churn so the IPC dispatched above isn't
-    // blocked by reconciliation.
-    startTransition(() => {
-      if (boilerplateConfig && id) {
-        const mergedData = { ...inputValues, ...localVarValues };
-        registerInputs(id, mergedData, boilerplateConfig);
-      }
-    });
-  }, [id, boilerplateConfig, inputValues, registerInputs, shouldRender, hasAllOutputDependencies, flattenedOutputs, hasAllRequiredValues, autoRender, path]);
+      // Deprioritize RunbookContext churn so the IPC dispatched above isn't
+      // blocked by reconciliation.
+      startTransition(() => {
+        if (boilerplateConfig && id) {
+          const mergedData = { ...inputValues, ...localVarValues }
+          registerInputs(id, mergedData, boilerplateConfig)
+        }
+      })
+    },
+    [
+      id,
+      boilerplateConfig,
+      inputValues,
+      registerInputs,
+      shouldRender,
+      hasAllOutputDependencies,
+      flattenedOutputs,
+      hasAllRequiredValues,
+      autoRender,
+      path,
+    ],
+  )
 
   // Upstream-only auto-render: fires when imported values or other-block outputs
   // change, and on every Generate click (generateNonce). Local form-input changes
   // are handled inline by handleAutoRender above; the lastRenderedKeyRef dedupe
   // guards against a redundant IPC if both fire for the same key.
   useEffect(() => {
-    if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return;
+    if (!shouldRender || !boilerplateConfig || !hasAllOutputDependencies) return
 
     // When an imported shared var changes, this effect runs before the form's
     // live-sync has refreshed localVarValuesRef, so overlay the live values.
     // Key, required-values check and render payload must all use this same
     // object; a stale ref in any one of them renders the previous value or
     // stores a key for a render that never happened.
-    const effectiveLocal = { ...localVarValuesRef.current, ...liveVarValues };
-    const key = computeChangeKey(inputValues, effectiveLocal, flattenedOutputs);
-    if (key === lastRenderedKeyRef.current) return;
-    lastRenderedKeyRef.current = key;
+    const effectiveLocal = { ...localVarValuesRef.current, ...liveVarValues }
+    const key = computeChangeKey(inputValues, effectiveLocal, flattenedOutputs)
+    if (key === lastRenderedKeyRef.current) return
+    lastRenderedKeyRef.current = key
 
-    if (!hasAllRequiredValues(effectiveLocal)) return;
+    if (!hasAllRequiredValues(effectiveLocal)) return
 
-    const mergedData = buildRenderVariables(
-      { ...inputValues, ...effectiveLocal },
-      flattenedOutputs,
-    );
-    markStage('Template:effect-autoRender-call', { id });
-    autoRender(path, mergedData);
-  }, [shouldRender, generateNonce, boilerplateConfig, hasAllOutputDependencies, inputValues, liveVarValues, flattenedOutputs, hasAllRequiredValues, autoRender, path, id]);
+    const mergedData = buildRenderVariables({ ...inputValues, ...effectiveLocal }, flattenedOutputs)
+    markStage("Template:effect-autoRender-call", { id })
+    autoRender(path, mergedData)
+  }, [
+    shouldRender,
+    generateNonce,
+    boilerplateConfig,
+    hasAllOutputDependencies,
+    inputValues,
+    liveVarValues,
+    flattenedOutputs,
+    hasAllRequiredValues,
+    autoRender,
+    path,
+    id,
+  ])
 
   // Handle form submission / generation
-  const handleGenerate = useCallback((localVarValues: Record<string, unknown>) => {
-    // Store latest form data
-    localVarValuesRef.current = localVarValues;
+  const handleGenerate = useCallback(
+    (localVarValues: Record<string, unknown>) => {
+      // Store latest form data
+      localVarValuesRef.current = localVarValues
 
-    const mergedData = buildRenderVariables(
-      { ...inputValues, ...localVarValues },
-      flattenedOutputs,
-    );
+      const mergedData = buildRenderVariables(
+        { ...inputValues, ...localVarValues },
+        flattenedOutputs,
+      )
 
-    // Register our variables in the block context
-    if (boilerplateConfig) {
-      const registrationData = { ...inputValues, ...localVarValues };
-      registerInputs(id, registrationData, boilerplateConfig);
-    }
+      // Register our variables in the block context
+      if (boilerplateConfig) {
+        const registrationData = { ...inputValues, ...localVarValues }
+        registerInputs(id, registrationData, boilerplateConfig)
+      }
 
-    // Trigger the render with merged data. The effect above dispatches it;
-    // clearing the dedupe key and bumping the nonce makes every click dispatch,
-    // so Generate retries a render that failed with unchanged values.
-    setRenderFormData(mergedData);
-    setShouldRender(true);
-    lastRenderedKeyRef.current = null;
-    setGenerateNonce(n => n + 1);
-  }, [id, path, boilerplateConfig, registerInputs, inputValues, flattenedOutputs])
+      // Trigger the render with merged data. The effect above dispatches it;
+      // clearing the dedupe key and bumping the nonce makes every click dispatch,
+      // so Generate retries a render that failed with unchanged values.
+      setRenderFormData(mergedData)
+      setShouldRender(true)
+      lastRenderedKeyRef.current = null
+      setGenerateNonce((n) => n + 1)
+    },
+    [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs],
+  )
 
   // Early return for duplicate ID error
   if (isDuplicate) {
@@ -312,15 +359,18 @@ function TemplateInteractive({
           <div className="text-md">
             {isNormalizedCollision ? (
               <>
-                <strong>ID Collision:</strong><br />
-                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code> collides with <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code> because
-                hyphens are converted to underscores for template access.
-                Use different IDs to avoid this collision.
+                <strong>ID Collision:</strong>
+                <br />
+                The ID <code className="bg-destructive-muted px-1 rounded">{`"${id}"`}</code>{" "}
+                collides with{" "}
+                <code className="bg-destructive-muted px-1 rounded">{`"${collidingId}"`}</code>{" "}
+                because hyphens are converted to underscores for template access. Use different IDs
+                to avoid this collision.
               </>
             ) : (
               <>
-                <strong>Duplicate ID Error:</strong> Another Template component already uses id="{id}".
-                Each Template must have a unique id.
+                <strong>Duplicate ID Error:</strong> Another Template component already uses id="
+                {id}". Each Template must have a unique id.
               </>
             )}
           </div>
@@ -333,7 +383,7 @@ function TemplateInteractive({
   if (isLoading) {
     return <LoadingDisplay message="Loading template configuration..." />
   }
-  
+
   // Early return for validation errors
   if (validationError) {
     return <ErrorDisplay error={validationError} />
@@ -348,10 +398,8 @@ function TemplateInteractive({
   return (
     <div data-testid={id}>
       {/* Show render errors inline (don't unmount the form) */}
-      {renderError && (
-        <ErrorDisplay error={renderError} />
-      )}
-      
+      {renderError && <ErrorDisplay error={renderError} />}
+
       <BoilerplateInputsForm
         id={id}
         boilerplateConfig={boilerplateConfig}
@@ -361,7 +409,7 @@ function TemplateInteractive({
         isGenerating={isGenerating}
         isAutoRendering={isAutoRendering}
         enableAutoRender={true}
-        hasGeneratedSuccessfully={hasEverGeneratedRef.current || Boolean(renderResult)}
+        hasGeneratedSuccessfully={hasEverGenerated}
         hasRenderError={Boolean(renderError)}
         variant="standard"
         isInlineMode={false}
@@ -388,6 +436,6 @@ function Template(props: TemplateProps) {
   return <TemplateInteractive {...props} />
 }
 
-Template.displayName = 'Template';
+Template.displayName = "Template"
 
-export default Template;
+export default Template

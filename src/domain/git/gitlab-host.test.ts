@@ -20,7 +20,9 @@ describe("normalizeGitLabBaseUrl", () => {
   it("keeps a full https URL's origin and drops path/query/trailing slash", () => {
     expect(normalizeGitLabBaseUrl("https://gitlab.example.com")).toBe("https://gitlab.example.com")
     expect(normalizeGitLabBaseUrl("https://gitlab.example.com/")).toBe("https://gitlab.example.com")
-    expect(normalizeGitLabBaseUrl("https://gitlab.example.com/api/v4")).toBe("https://gitlab.example.com")
+    expect(normalizeGitLabBaseUrl("https://gitlab.example.com/api/v4")).toBe(
+      "https://gitlab.example.com",
+    )
     expect(normalizeGitLabBaseUrl("https://gitlab.example.com:8443/foo?x=1")).toBe(
       "https://gitlab.example.com:8443",
     )
@@ -28,7 +30,9 @@ describe("normalizeGitLabBaseUrl", () => {
 
   it("assumes https when the scheme is missing", () => {
     expect(normalizeGitLabBaseUrl("gitlab.example.com")).toBe("https://gitlab.example.com")
-    expect(normalizeGitLabBaseUrl("gitlab.example.com:8443")).toBe("https://gitlab.example.com:8443")
+    expect(normalizeGitLabBaseUrl("gitlab.example.com:8443")).toBe(
+      "https://gitlab.example.com:8443",
+    )
   })
 
   it("preserves an explicit http scheme", () => {
@@ -68,9 +72,7 @@ describe("gitHostFromRemoteUrl", () => {
       "gitlab.example.com",
     )
     // Any SSH user, not just `git` (self-managed GitLab)
-    expect(gitHostFromRemoteUrl("gitlab@gitlab.corp.net:group/project.git")).toBe(
-      "gitlab.corp.net",
-    )
+    expect(gitHostFromRemoteUrl("gitlab@gitlab.corp.net:group/project.git")).toBe("gitlab.corp.net")
   })
 
   it("does not read a host out of an option-like string", () => {
@@ -146,7 +148,9 @@ describe("gitlabBaseUrlFromRemoteUrl", () => {
       "https://gitlab.example.com:8443",
     )
     expect(
-      gitlabBaseUrlFromRemoteUrl("https://oauth2:glpat-secret@gitlab.example.com/group/project.git"),
+      gitlabBaseUrlFromRemoteUrl(
+        "https://oauth2:glpat-secret@gitlab.example.com/group/project.git",
+      ),
     ).toBe("https://gitlab.example.com")
   })
 

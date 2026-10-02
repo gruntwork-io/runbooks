@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // Only the IPC boundary is mocked: the real block and useGitClone build the
 // destination preview from the session's working directory.
