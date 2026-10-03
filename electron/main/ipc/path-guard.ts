@@ -29,9 +29,10 @@ function resolveAgainstRunbook(p: string): string {
 }
 
 /**
- * Validate that a path is within the session working directory, a registered
- * worktree, or the runbook directory. Relative paths are resolved against the
- * runbook directory. Returns the resolved absolute path.
+ * Validate that a path is within the session working directory, the
+ * session's own directory, a registered worktree, or the runbook directory.
+ * Relative paths are resolved against the runbook directory. Returns the
+ * resolved absolute path.
  */
 export const validateSessionPath = (p: string) =>
   Effect.gen(function* () {
@@ -60,6 +61,13 @@ export const validateSessionPath = (p: string) =>
 
     // Allow paths contained within the session working directory
     if (yield* Effect.promise(() => isContainedInReal(resolved, session.workingDir))) {
+      return resolved
+    }
+
+    // Allow paths contained within the session's own directory, which holds
+    // its generated files: a script's `cd` moves the working directory away
+    // from it.
+    if (yield* Effect.promise(() => isContainedInReal(resolved, session.initialWorkDir))) {
       return resolved
     }
 

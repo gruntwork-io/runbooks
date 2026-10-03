@@ -86,6 +86,35 @@ describe("validateSessionPath", () => {
     expect((await validate(path.join(outside, "secret.txt")))._tag).toBe("Right")
   })
 
+  it("accepts the session's own directory after a script moved the working directory out of it", async () => {
+    // A saved session's directory is apart from the runbook's, and holds its
+    // generated files.
+    const sessionDir = path.join(root, "sessions", "s1")
+    const release = path.join(sessionDir, "release")
+    fs.mkdirSync(release, { recursive: true })
+    fs.symlinkSync(outside, path.join(sessionDir, "escape"))
+    sessionManager.deleteSession()
+    await Effect.runPromise(
+      sessionManager.createSession(sessionDir, runbook).pipe(Effect.provide(makeTestEnvironment())),
+    )
+    const start = await Effect.runPromise(sessionManager.getExecContext())
+    await Effect.runPromise(
+      sessionManager.applyCapturedEnv({
+        before: start.env,
+        after: start.env,
+        startWorkDir: start.workDir,
+        pwd: release,
+        generation: start.generation,
+      }),
+    )
+
+    const generated = await validate(path.join(sessionDir, "generated"))
+
+    expect(generated._tag).toBe("Right")
+    expect((await validate(path.join(sessionDir, "escape", "secret.txt")))._tag).toBe("Left")
+    expect((await validate(path.join(root, "sessions", "s2")))._tag).toBe("Left")
+  })
+
   it("resolves a relative path against the runbook directory and returns it", async () => {
     // Callers must use the returned path: the raw relative path would be
     // resolved against the process cwd ("/" for a Finder-launched app).
