@@ -416,6 +416,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
         sharedVarNames={sharedVarNames}
         liveVarValues={liveVarValues}
         unmetOutputDependencies={unmetOutputDependencies}
+        importedValues={inputValues}
       />
     </div>
   )

@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import { FormControl } from "../FormControls"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
+import { RunbookContext, type RunbookContextType } from "@/contexts/RunbookContext"
 
 // Each select must display the value that is actually in form state, so the
 // user never sees a choice that downstream blocks don't receive.
@@ -525,20 +526,90 @@ describe("FormControls template-valued values", () => {
 
   it.each([
     ["not resolved yet", undefined],
-    ["unresolvable", "{{ .outputs.account.id }}"],
+    ["unresolvable", "{{ now }}"],
     ["empty", ""],
   ])("keeps the tokens when what the value comes to is %s", (_case, resolvedValue) => {
     render(
       <FormControl
         id="f"
         variable={stringVar()}
-        value="{{ .outputs.account.id }}"
+        value="{{ now }}"
         resolvedValue={resolvedValue}
         onChange={vi.fn()}
       />,
     )
 
     expect(screen.getByRole("button", { name: /Set automatically/ })).toBeInTheDocument()
+  })
+
+  // A value built from a block's output can't be known until that block runs.
+  describe("waiting on a block that hasn't run", () => {
+    const withOutputs = (ui: React.ReactNode, blockOutputs: RunbookContextType["blockOutputs"]) => (
+      <RunbookContext.Provider value={{ blockOutputs } as RunbookContextType}>
+        {ui}
+      </RunbookContext.Provider>
+    )
+    const accountIdField = (props: Partial<React.ComponentProps<typeof FormControl>> = {}) => (
+      <FormControl
+        id="f"
+        variable={stringVar()}
+        value="{{ .outputs.make_account.account_id }}"
+        onChange={vi.fn()}
+        {...props}
+      />
+    )
+
+    it("shows its token in yellow, naming the block on hover", () => {
+      render(withOutputs(accountIdField(), {}))
+
+      const token = screen.getByTitle("Waiting for make_account to run")
+      expect(token).toHaveTextContent("Set automatically")
+      expect(token.className).toContain("bg-warning-muted")
+    })
+
+    it("shows the token in yellow for a sensitive value too", () => {
+      render(withOutputs(accountIdField({ variable: stringVar({ sensitive: true }) }), {}))
+
+      expect(screen.getByTitle("Waiting for make_account to run").className).toContain(
+        "bg-warning-muted",
+      )
+    })
+
+    it("shows a yellow token, not an earlier value, once the output is gone", () => {
+      render(withOutputs(accountIdField({ resolvedValue: "123456789012" }), {}))
+
+      expect(screen.queryByText("123456789012")).toBeNull()
+      expect(screen.getByTitle("Waiting for make_account to run")).toBeInTheDocument()
+    })
+
+    it("stops being yellow once the block has produced the output", () => {
+      const outputs = { make_account: { values: { account_id: "123456789012" }, timestamp: "" } }
+      const { rerender } = render(withOutputs(accountIdField(), outputs))
+
+      expect(screen.queryByTitle(/Waiting for/)).toBeNull()
+      expect(screen.getByText("Set automatically").className).toContain("bg-muted")
+
+      rerender(withOutputs(accountIdField({ resolvedValue: "123456789012" }), outputs))
+      expect(screen.getByText("123456789012")).toBeInTheDocument()
+    })
+
+    it("shows a yellow list entry", () => {
+      const variable: BoilerplateVariable = { name: "Accounts", type: "list", description: "" }
+      render(
+        withOutputs(
+          <FormControl
+            id="f"
+            variable={variable}
+            value={["111111111111", "{{ .outputs.make_account.account_id }}"]}
+            onChange={vi.fn()}
+          />,
+          {},
+        ),
+      )
+
+      expect(screen.getByText("111111111111")).toBeInTheDocument()
+      expect(screen.getByTitle("Waiting for make_account to run")).toBeInTheDocument()
+    })
   })
 
   it.each([false, true])(

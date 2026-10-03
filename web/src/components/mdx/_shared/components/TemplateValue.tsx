@@ -1,6 +1,12 @@
 import React from "react"
 import { Link2, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAllOutputs } from "@/contexts/useRunbook"
+import {
+  extractTemplateDependenciesFromString,
+  splitDependencies,
+} from "@/lib/extractTemplateDependencies"
+import { computeUnmetOutputDependencies } from "@/lib/templateUtils"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
 import {
   isTemplateValue,
@@ -9,13 +15,44 @@ import {
   summarizeTemplateValue,
 } from "../lib/templateValue"
 
-/** A pill naming a variable (or summarising a computed expression) that a value is linked to. */
-const TemplateToken: React.FC<{ label: string }> = ({ label }) => (
-  <span className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded border border-border bg-muted px-1.5 py-px align-middle text-xs font-medium text-foreground">
-    <Link2 className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-    {label}
-  </span>
-)
+/**
+ * A pill naming a variable (or summarising a computed expression) that a value
+ * is linked to. Yellow while the value waits on blocks that haven't run.
+ */
+const TemplateToken: React.FC<{ label: string; waitingFor: readonly string[] }> = ({
+  label,
+  waitingFor,
+}) => {
+  const waiting = waitingFor.length > 0
+  return (
+    <span
+      title={waiting ? `Waiting for ${waitingFor.join(", ")} to run` : undefined}
+      className={cn(
+        "mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px align-middle text-xs font-medium",
+        waiting
+          ? "border-warning/40 bg-warning-muted text-warning-foreground"
+          : "border-border bg-muted text-foreground",
+      )}
+    >
+      <Link2
+        className={cn("size-3 shrink-0", waiting ? "text-warning" : "text-muted-foreground")}
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  )
+}
+
+/**
+ * The blocks whose outputs a template value uses but haven't produced them
+ * yet. Until they run, the value can't be known.
+ */
+function useWaitingForBlocks(value: unknown): string[] {
+  const allOutputs = useAllOutputs()
+  if (!isTemplateValue(value)) return []
+  const { outputs } = splitDependencies(extractTemplateDependenciesFromString(value))
+  return computeUnmetOutputDependencies(outputs, allOutputs).map((block) => block.blockId)
+}
 
 interface TemplateValueTextProps {
   value: unknown
@@ -36,7 +73,8 @@ interface TemplateValueTextProps {
  * known, with a link icon. Otherwise it becomes its literal text with a token
  * for each referenced variable; a computed one (conditionals, functions)
  * becomes a single "Based on …" token. Hovering shows the raw expression.
- * Anything else is shown as String(value).
+ * While the value uses an output a block hasn't produced yet, its tokens are
+ * yellow. Anything else is shown as String(value).
  */
 export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
   value,
@@ -45,17 +83,19 @@ export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
   className,
   masked,
 }) => {
+  const waitingFor = useWaitingForBlocks(value)
   if (!isTemplateValue(value)) return <>{String(value)}</>
 
   if (masked) {
     return (
       <span id={id} className={className}>
-        <TemplateToken label={summarizeTemplateValue(value)} />
+        <TemplateToken label={summarizeTemplateValue(value)} waitingFor={waitingFor} />
       </span>
     )
   }
 
-  const resolvedText = resolvedValueText(resolved)
+  // A missing output means any resolved value is from before it went away.
+  const resolvedText = waitingFor.length > 0 ? undefined : resolvedValueText(resolved)
   if (resolvedText !== undefined) {
     return (
       <span id={id} title={value} className={className}>
@@ -76,11 +116,15 @@ export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
           segment.kind === "text" ? (
             <React.Fragment key={i}>{segment.text}</React.Fragment>
           ) : (
-            <TemplateToken key={i} label={formatVariableLabel(segment.name)} />
+            <TemplateToken
+              key={i}
+              label={formatVariableLabel(segment.name)}
+              waitingFor={waitingFor}
+            />
           ),
         )
       ) : (
-        <TemplateToken label={summarizeTemplateValue(value)} />
+        <TemplateToken label={summarizeTemplateValue(value)} waitingFor={waitingFor} />
       )}
     </span>
   )

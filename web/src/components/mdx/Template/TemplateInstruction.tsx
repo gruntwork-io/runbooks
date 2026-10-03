@@ -121,6 +121,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
             variant="standard"
             sharedVarNames={sharedVarNames}
             liveVarValues={liveVarValues}
+            importedValues={inputValues}
           />
 
           <CodeBlock>

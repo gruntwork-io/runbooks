@@ -187,14 +187,22 @@ describe("BoilerplateInputsForm resolved linked values", () => {
 
   function renderWithResolver(
     boilerplateConfig: BoilerplateConfig,
-    blockOutputs: RunbookContextType["blockOutputs"] = {},
+    {
+      blockOutputs = {},
+      blockInputs = {},
+      importedValues = {},
+    }: {
+      blockOutputs?: RunbookContextType["blockOutputs"]
+      blockInputs?: RunbookContextType["blockInputs"]
+      importedValues?: Record<string, unknown>
+    } = {},
   ) {
     const invoke = vi.fn(async (channel: string, request: ResolveRequest) => {
       if (channel !== "boilerplate:resolve-inputs") throw new Error(`unexpected ${channel}`)
       return { inputs: fakeResolve(request) }
     })
     const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
-    const runbook = { blockOutputs } as RunbookContextType
+    const runbook = { blockOutputs, blockInputs } as RunbookContextType
     const utils = render(
       <ApiProvider api={api}>
         <RunbookContext.Provider value={runbook}>
@@ -203,6 +211,7 @@ describe("BoilerplateInputsForm resolved linked values", () => {
             boilerplateConfig={boilerplateConfig}
             enableAutoRender={false}
             variant="standard"
+            importedValues={importedValues}
           />
         </RunbookContext.Provider>
       </ApiProvider>,
@@ -313,9 +322,11 @@ describe("BoilerplateInputsForm resolved linked values", () => {
         ],
       },
       {
-        make_account: {
-          values: { account_id: "123456789012", token: sensitiveOutput("s3cr3t") },
-          timestamp: "",
+        blockOutputs: {
+          make_account: {
+            values: { account_id: "123456789012", token: sensitiveOutput("s3cr3t") },
+            timestamp: "",
+          },
         },
       },
     )
@@ -326,6 +337,58 @@ describe("BoilerplateInputsForm resolved linked values", () => {
     expect(screen.getByLabelText("Token")).toHaveTextContent("Set automatically")
     for (const request of requests()) {
       expect(request.outputs).toEqual({ make_account: { account_id: "123456789012" } })
+    }
+  })
+
+  // A Template's defaults can use the values it imports through inputsId.
+  const upstreamConfig: BoilerplateConfig = {
+    variables: [
+      { name: "OrgName", type: "string", description: "" },
+      { name: "ApiToken", type: "string", description: "", sensitive: true },
+    ],
+  }
+
+  it("resolves against imported values, with the form's own values winning", async () => {
+    const { requests } = renderWithResolver(
+      {
+        variables: [
+          { name: "RepoName", type: "string", description: "", default: "{{ .OrgName }}-infra" },
+          { name: "Region", type: "string", description: "", default: "{{ .UpstreamRegion }}" },
+          { name: "UpstreamRegion", type: "string", description: "", default: "us-east-1" },
+        ],
+      },
+      { importedValues: { OrgName: "acme", UpstreamRegion: "eu-west-1" } },
+    )
+
+    await waitFor(() => expect(screen.getByLabelText("Repo Name")).toHaveTextContent("acme-infra"))
+    expect(screen.getByLabelText("Region")).toHaveTextContent("us-east-1")
+    expect(requests()[0]!.inputs).toMatchObject({ OrgName: "acme", UpstreamRegion: "us-east-1" })
+  })
+
+  it("never sends an imported value that its own block marks sensitive", async () => {
+    const { requests } = renderWithResolver(
+      {
+        variables: [
+          { name: "RepoName", type: "string", description: "", default: "{{ .OrgName }}-infra" },
+          {
+            name: "AuthHeader",
+            type: "string",
+            description: "",
+            default: "Bearer {{ .ApiToken }}",
+          },
+        ],
+      },
+      {
+        importedValues: { OrgName: "acme", ApiToken: "ghp_s3cr3t" },
+        blockInputs: { upstream: { values: {}, config: upstreamConfig } },
+      },
+    )
+
+    await waitFor(() => expect(screen.getByLabelText("Repo Name")).toHaveTextContent("acme-infra"))
+    expect(screen.getByLabelText("Auth Header")).toHaveTextContent("Bearer API Token")
+    expect(screen.getByTestId("field-AuthHeader").innerHTML).not.toContain("ghp_s3cr3t")
+    for (const request of requests()) {
+      expect(request.inputs).not.toHaveProperty("ApiToken")
     }
   })
 

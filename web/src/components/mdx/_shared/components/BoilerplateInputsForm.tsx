@@ -14,6 +14,7 @@ import { BlockIdLabel } from "./BlockIdLabel"
 import type { BlockOutput } from "@/lib/templateUtils"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
+const NO_VALUES: Record<string, unknown> = {}
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -63,6 +64,12 @@ interface BoilerplateInputsFormProps {
   liveVarValues?: Record<string, unknown>
   /** Unmet output dependencies - shows warning and disables Generate button */
   unmetOutputDependencies?: BlockOutput[]
+  /**
+   * Values the block imports through `inputsId`. A linked default can use
+   * them; the form's own values win, as they do in a render. Only used to
+   * work out what linked values come to.
+   */
+  importedValues?: Record<string, unknown>
 }
 
 /**
@@ -156,6 +163,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   sharedVarNames = new Set(),
   liveVarValues = {},
   unmetOutputDependencies = [],
+  importedValues = NO_VALUES,
 }) => {
   // Default button text depends on mode
   const effectiveButtonText = submitButtonText ?? (isInlineMode ? "Submit" : "Generate")
@@ -187,6 +195,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const resolvedValues = useResolvedTemplateValues(
     formData,
     boilerplateConfig?.variables ?? NO_VARIABLES,
+    importedValues,
   )
 
   // Sync live variable values when they change (for shared variables)
