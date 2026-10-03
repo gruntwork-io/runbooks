@@ -21,7 +21,13 @@ interface ScriptChangeNoticeProps {
  * loaded it, shows the change, and offers to reload the script. Until they
  * do, Run executes the loaded version.
  */
-export function ScriptChangeNotice({ path, change, onReload, isReloading, reloadError }: ScriptChangeNoticeProps) {
+export function ScriptChangeNotice({
+  path,
+  change,
+  onReload,
+  isReloading,
+  reloadError,
+}: ScriptChangeNoticeProps) {
   const diffLines = useMemo(
     () => diffDiskContents(change.registeredContent, change.diskContent),
     [change.registeredContent, change.diskContent],
@@ -33,9 +39,10 @@ export function ScriptChangeNotice({ path, change, onReload, isReloading, reload
     <Admonition type="warning" title="Script changed" className="mr-12">
       <div className="space-y-2">
         <p>
-          <code className="bg-warning-muted px-1 rounded text-xs">{path}</code> has changed on disk since Runbooks loaded it.
-          Run still executes the version Runbooks loaded, which is the one under <em>View Source Code</em>.
-          Review the change, then reload the script to run the new version.
+          <code className="bg-warning-muted px-1 rounded text-xs">{path}</code> has changed on disk
+          since Runbooks loaded it. Run still executes the version Runbooks loaded, which is the one
+          under <em>View Source Code</em>. Review the change, then reload the script to run the new
+          version.
         </p>
 
         {hasChangedLines ? (

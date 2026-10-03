@@ -3,9 +3,9 @@ import type { Cause } from "effect"
 import type { SpawnError } from "../errors/index.ts"
 
 export interface SpawnOptions {
-  readonly cwd?: string
+  readonly cwd?: string | undefined
   readonly env?: Record<string, string | undefined>
-  readonly stdin?: string
+  readonly stdin?: string | undefined
   /**
    * When set, combined stdout/stderr lines are appended to this file (in arrival
    * order) as the process runs, producing a durable, tailable log on disk. The
@@ -29,7 +29,7 @@ export interface SpawnOptions {
 export interface SpawnLogChannel {
   readonly path: string
   /** Maps each line read from the file to the line to emit, e.g. to tag its level. */
-  readonly formatLine?: (line: string) => string
+  readonly formatLine?: ((line: string) => string) | undefined
 }
 
 export interface OutputLine {
@@ -52,7 +52,10 @@ export interface ProcessSpawnerShape {
   ) => Effect.Effect<SpawnedProcess, SpawnError>
 }
 
-export class ProcessSpawner extends Context.Tag("ProcessSpawner")<ProcessSpawner, ProcessSpawnerShape>() {}
+export class ProcessSpawner extends Context.Tag("ProcessSpawner")<
+  ProcessSpawner,
+  ProcessSpawnerShape
+>() {}
 
 /** Everything a short-lived process wrote, in arrival order, plus its exit code. */
 export interface CollectedOutput {

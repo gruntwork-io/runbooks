@@ -27,7 +27,7 @@ export interface SpawnResponse {
 export interface RecordedSpawn {
   readonly command: string
   readonly args: string[]
-  readonly env?: Record<string, string | undefined>
+  readonly env?: Record<string, string | undefined> | undefined
 }
 
 export const makeRecordingSpawner = (
@@ -134,8 +134,7 @@ export const makeTestSpawner = (expectations: SpawnExpectation[] = []) =>
     spawn: (command, args, _options?) => {
       const match = expectations.find((e) => {
         if (e.command !== command) return false
-        if (e.args && JSON.stringify(e.args) !== JSON.stringify(args))
-          return false
+        if (e.args && JSON.stringify(e.args) !== JSON.stringify(args)) return false
         return true
       })
 

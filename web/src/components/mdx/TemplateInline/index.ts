@@ -1,3 +1,1 @@
-export { default as TemplateInline } from './TemplateInline'
-
-
+export { default as TemplateInline } from "./TemplateInline"

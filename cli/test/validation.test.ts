@@ -120,9 +120,7 @@ describe("parseTemplateBlocks", () => {
   })
 
   it("captures container Template blocks", () => {
-    const p = writeRunbook(
-      `<Template id="t2" path="./tpls/bar"></Template>`,
-    )
+    const p = writeRunbook(`<Template id="t2" path="./tpls/bar"></Template>`)
     expect(parseTemplateBlocks(p).get("t2")?.templatePath).toBe("./tpls/bar")
   })
 
@@ -201,9 +199,7 @@ describe("parseAuthDependencies", () => {
 
   it("ignores auth references inside fenced code blocks", () => {
     const p = writeRunbook(
-      "```mdx\n" +
-        `<Command id="cmd-in-fence" awsAuthId="aws1">echo</Command>\n` +
-        "```\n",
+      "```mdx\n" + `<Command id="cmd-in-fence" awsAuthId="aws1">echo</Command>\n` + "```\n",
     )
     expect(parseAuthDependencies(p).has("cmd-in-fence")).toBe(false)
   })
@@ -257,7 +253,7 @@ describe("InputValidator", () => {
   })
 
   it("ignores unknown blocks inside fenced code", () => {
-    const p = writeRunbook("```mdx\n<MysteryBlock id=\"x\" />\n```\n")
+    const p = writeRunbook('```mdx\n<MysteryBlock id="x" />\n```\n')
     const v = new InputValidator(p)
     v.init()
     const errs = v.getConfigErrors().filter((e) => e.componentType === "MysteryBlock")
@@ -268,9 +264,9 @@ describe("InputValidator", () => {
     const p = writeRunbook(`<Inputs id="i1" />`)
     const v = new InputValidator(p)
     v.init()
-    const err = v.getConfigErrors().find(
-      (e) => e.componentType === "Inputs" && e.componentId === "i1",
-    )
+    const err = v
+      .getConfigErrors()
+      .find((e) => e.componentType === "Inputs" && e.componentId === "i1")
     expect(err?.message).toContain("Either 'path' prop or inline YAML content is required")
   })
 
@@ -290,7 +286,7 @@ variables:
     expect(v.hasConfigErrors()).toBe(false)
     const errs = v.validateInputValues({ "i1.env": "production" })
     expect(errs).toHaveLength(1)
-    expect(errs[0].message).toContain("not in enum options")
+    expect(errs[0]!.message).toContain("not in enum options")
 
     const ok = v.validateInputValues({ "i1.env": "dev" })
     expect(ok).toHaveLength(0)
@@ -299,27 +295,38 @@ variables:
   // The app's Inputs block rejects these: MDX turns unfenced YAML on its own
   // lines into paragraphs and lists, with or without a wrapper element.
   it.each([
-    ["multi-line YAML", "<Inputs id=\"i1\">\nvariables:\n  - name: Region\n    type: string\n</Inputs>\n"],
-    ["YAML inside a wrapper element", "<Inputs id=\"i1\">\n<div>\nvariables:\n  - name: Region\n</div>\n</Inputs>\n"],
-    ["one line of YAML between the tags", "<Inputs id=\"i1\">\nvariables: []\n</Inputs>\n"],
-  ])("reports unfenced inline YAML (%s) as the app's code-fence config error", (_label, runbook) => {
-    const v = new InputValidator(writeRunbook(runbook))
-    v.init()
-    const err = v.getConfigErrors().find((e) => e.componentId === "i1")
-    expect(err?.message).toContain("Invalid inline boilerplate configuration format")
-    expect(err?.message).toContain("code fence")
-    expect(v.getAllSchemas().get("i1")?.variables.size).toBe(0)
-  })
+    [
+      "multi-line YAML",
+      '<Inputs id="i1">\nvariables:\n  - name: Region\n    type: string\n</Inputs>\n',
+    ],
+    [
+      "YAML inside a wrapper element",
+      '<Inputs id="i1">\n<div>\nvariables:\n  - name: Region\n</div>\n</Inputs>\n',
+    ],
+    ["one line of YAML between the tags", '<Inputs id="i1">\nvariables: []\n</Inputs>\n'],
+  ])(
+    "reports unfenced inline YAML (%s) as the app's code-fence config error",
+    (_label, runbook) => {
+      const v = new InputValidator(writeRunbook(runbook))
+      v.init()
+      const err = v.getConfigErrors().find((e) => e.componentId === "i1")
+      expect(err?.message).toContain("Invalid inline boilerplate configuration format")
+      expect(err?.message).toContain("code fence")
+      expect(v.getAllSchemas().get("i1")?.variables.size).toBe(0)
+    },
+  )
 
   it("accepts inline YAML on the same line as the tags, which the app passes through as text", () => {
-    const v = new InputValidator(writeRunbook("<Inputs id=\"i1\">variables: []</Inputs>\n"))
+    const v = new InputValidator(writeRunbook('<Inputs id="i1">variables: []</Inputs>\n'))
     v.init()
     expect(v.getConfigErrors()).toEqual([])
   })
 
   it("accepts inline YAML in a fence with any language hint, as the app does", () => {
     const v = new InputValidator(
-      writeRunbook("<Inputs id=\"i1\">\n```json\n{\"variables\": [{\"name\": \"Region\"}]}\n```\n</Inputs>\n"),
+      writeRunbook(
+        '<Inputs id="i1">\n```json\n{"variables": [{"name": "Region"}]}\n```\n</Inputs>\n',
+      ),
     )
     v.init()
     expect(v.getConfigErrors()).toEqual([])
@@ -382,7 +389,9 @@ describe("InputValidator.validateInputValues", () => {
       - type: regex
         regex: "^[A-Z]{3}$"`)
     const errs = v.validateInputValues({ "i1.code": "abc-lower" })
-    expect(errs).toEqual([{ inputKey: "i1.code", message: 'Must match pattern: ^[A-Z]{3}$ (got "abc-lower")' }])
+    expect(errs).toEqual([
+      { inputKey: "i1.code", message: 'Must match pattern: ^[A-Z]{3}$ (got "abc-lower")' },
+    ])
     expect(v.validateInputValues({ "i1.code": "ABC" })).toEqual([])
   })
 
@@ -400,7 +409,12 @@ describe("InputValidator.validateInputValues", () => {
         min: 2
         max: 4`)
     const errs = v.validateInputValues({ "i1.short": "waytoolongvalue" })
-    expect(errs).toEqual([{ inputKey: "i1.short", message: 'Must be between 2 and 4 characters (got "waytoolongvalue")' }])
+    expect(errs).toEqual([
+      {
+        inputKey: "i1.short",
+        message: 'Must be between 2 and 4 characters (got "waytoolongvalue")',
+      },
+    ])
     expect(v.validateInputValues({ "i1.short": "abc" })).toEqual([])
     // The form checks the length of "42", not the number itself.
     expect(v.validateInputValues({ "i1.port": 42 })).toEqual([])
@@ -412,7 +426,9 @@ describe("InputValidator.validateInputValues", () => {
     validations:
       - alpha`)
     const errs = v.validateInputValues({ "i1.letters": "123" })
-    expect(errs).toEqual([{ inputKey: "i1.letters", message: 'Must contain only letters (got "123")' }])
+    expect(errs).toEqual([
+      { inputKey: "i1.letters", message: 'Must contain only letters (got "123")' },
+    ])
     expect(v.validateInputValues({ "i1.letters": "abc" })).toEqual([])
   })
 
@@ -424,8 +440,8 @@ describe("InputValidator.validateInputValues", () => {
         message: Owner is required`)
     const errs = v.validateInputValues({ "i1.owner": "" })
     expect(errs).toHaveLength(1)
-    expect(errs[0].inputKey).toBe("i1.owner")
-    expect(errs[0].message).toContain("is required")
+    expect(errs[0]!.inputKey).toBe("i1.owner")
+    expect(errs[0]!.message).toContain("is required")
     expect(v.validateInputValues({ "i1.owner": "team-a" })).toEqual([])
   })
 
@@ -440,7 +456,10 @@ describe("InputValidator.validateInputValues", () => {
         message: Must be an http(s) URL`)
     // Contains "@" and "." but has no domain dot after the "@".
     expect(v.validateInputValues({ "i1.email": "first.last@localhost" })).toEqual([
-      { inputKey: "i1.email", message: 'Must be a valid email address (got "first.last@localhost")' },
+      {
+        inputKey: "i1.email",
+        message: 'Must be a valid email address (got "first.last@localhost")',
+      },
     ])
     expect(v.validateInputValues({ "i1.email": "first.last@example.com" })).toEqual([])
     // new URL() accepts any scheme; the form only accepts http(s).
@@ -479,7 +498,7 @@ describe("InputValidator.validateInputValues", () => {
   })
 
   it("reports malformed inline YAML as a config error", () => {
-    const p = writeRunbook("<Inputs id=\"i1\">\n```yaml\nvariables: [\n```\n</Inputs>\n")
+    const p = writeRunbook('<Inputs id="i1">\n```yaml\nvariables: [\n```\n</Inputs>\n')
     const v = new InputValidator(p)
     v.init()
     const err = v.getConfigErrors().find((e) => e.componentId === "i1")

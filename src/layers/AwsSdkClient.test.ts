@@ -31,7 +31,9 @@ import type { AwsClientShape } from "../services/AwsClient.ts"
  */
 const SSO_REGION = "ap-southeast-4"
 
-const run = <A, E>(f: (client: AwsClientShape) => Effect.Effect<A, E>): Promise<Either.Either<A, E>> =>
+const run = <A, E>(
+  f: (client: AwsClientShape) => Effect.Effect<A, E>,
+): Promise<Either.Either<A, E>> =>
   Effect.runPromise(Effect.provide(Effect.either(Effect.flatMap(AwsClient, f)), AwsSdkClientLive))
 
 const exception = <T>(Ctor: new (opts: { message: string; $metadata: object }) => T) =>
@@ -78,8 +80,8 @@ describe("AwsSdkClient.pollSsoToken", () => {
 
     expect(result).toEqual(Either.right({ accessToken: "sso-token" }))
     expect(sent).toHaveLength(1)
-    expect(sent[0].region).toBe(SSO_REGION)
-    expect(sent[0].command).toBeInstanceOf(CreateTokenCommand)
+    expect(sent[0]!.region).toBe(SSO_REGION)
+    expect(sent[0]!.command).toBeInstanceOf(CreateTokenCommand)
   })
 
   it("is pending while authorization is pending", async () => {
@@ -102,7 +104,9 @@ describe("AwsSdkClient.pollSsoToken", () => {
     })
     const result = await run((c) => c.pollSsoToken(POLL))
     expect(Either.isLeft(result) && result.left._tag).toBe("AwsSsoError")
-    expect(Either.isLeft(result) && result.left.message).toBe("SSO sign-in was denied or cancelled in the browser")
+    expect(Either.isLeft(result) && result.left.message).toBe(
+      "SSO sign-in was denied or cancelled in the browser",
+    )
   })
 
   it("explains an expired sign-in request", async () => {
@@ -110,7 +114,9 @@ describe("AwsSdkClient.pollSsoToken", () => {
       throw exception(ExpiredTokenException)
     })
     const result = await run((c) => c.pollSsoToken(POLL))
-    expect(Either.isLeft(result) && result.left.message).toBe("The SSO sign-in request expired. Please try again.")
+    expect(Either.isLeft(result) && result.left.message).toBe(
+      "The SSO sign-in request expired. Please try again.",
+    )
   })
 
   it("keeps the SDK's text for any other failure", async () => {
@@ -127,7 +133,10 @@ describe("AwsSdkClient.listSsoAccounts", () => {
   it("lists every page from the SSO region", async () => {
     const sent = stub(SSOClient, (_command, index) =>
       index === 0
-        ? { accountList: [{ accountId: "111111111111", accountName: "prod", emailAddress: "p@x" }], nextToken: "page-2" }
+        ? {
+            accountList: [{ accountId: "111111111111", accountName: "prod", emailAddress: "p@x" }],
+            nextToken: "page-2",
+          }
         : { accountList: [{ accountId: "222222222222", accountName: "dev" }] },
     )
 
@@ -140,8 +149,11 @@ describe("AwsSdkClient.listSsoAccounts", () => {
       ]),
     )
     expect(sent.map((s) => s.region)).toEqual([SSO_REGION, SSO_REGION])
-    expect(sent[0].command).toBeInstanceOf(ListAccountsCommand)
-    expect((sent[1].command as ListAccountsCommand).input).toEqual({ accessToken: "sso-token", nextToken: "page-2" })
+    expect(sent[0]!.command).toBeInstanceOf(ListAccountsCommand)
+    expect((sent[1]!.command as ListAccountsCommand).input).toEqual({
+      accessToken: "sso-token",
+      nextToken: "page-2",
+    })
   })
 })
 
@@ -162,8 +174,8 @@ describe("AwsSdkClient.listSsoRoles", () => {
       ]),
     )
     expect(sent.map((s) => s.region)).toEqual([SSO_REGION, SSO_REGION])
-    expect(sent[0].command).toBeInstanceOf(ListAccountRolesCommand)
-    expect((sent[1].command as ListAccountRolesCommand).input).toEqual({
+    expect(sent[0]!.command).toBeInstanceOf(ListAccountRolesCommand)
+    expect((sent[1]!.command as ListAccountRolesCommand).input).toEqual({
       accessToken: "sso-token",
       accountId: "111111111111",
       nextToken: "page-2",
@@ -203,7 +215,9 @@ describe("AwsSdkClient local profiles", () => {
 
   describe("listProfiles", () => {
     it("merges the region in config with the keys in credentials (the `aws configure` layout)", async () => {
-      writeConfig("[default]\nregion = us-west-2\n\n[profile staging]\nregion = eu-west-1\noutput = json\n")
+      writeConfig(
+        "[default]\nregion = us-west-2\n\n[profile staging]\nregion = eu-west-1\noutput = json\n",
+      )
       writeCredentials(`[default]\n${keys("AKIA_DEFAULT")}\n[staging]\n${keys("AKIA_STAGING")}`)
 
       expect(await run((c) => c.listProfiles())).toEqual(
@@ -339,7 +353,7 @@ describe("AwsSdkClient.checkRegion", () => {
     const spy = stubAccount(() => Promise.resolve({ RegionOptStatus: "DISABLED" }))
 
     expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Either.right(false))
-    const command = spy.mock.calls[0][0] as unknown as GetRegionOptStatusCommand
+    const command = spy.mock.calls[0]![0] as unknown as GetRegionOptStatusCommand
     expect(command).toBeInstanceOf(GetRegionOptStatusCommand)
     expect(command.input).toEqual({ RegionName: "ap-east-1" })
   })

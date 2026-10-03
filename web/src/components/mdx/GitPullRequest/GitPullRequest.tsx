@@ -1,15 +1,45 @@
-import { CheckCircle, XCircle, Loader2, AlertTriangle, Trash2, GitPullRequest as GitPullRequestIcon } from "lucide-react"
+import {
+  CheckCircle,
+  XCircle,
+  Loader2,
+  AlertTriangle,
+  Trash2,
+  GitPullRequest as GitPullRequestIcon,
+} from "lucide-react"
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel, UnmetDependenciesWarning } from "@/components/mdx/_shared"
+import {
+  ViewLogs,
+  ViewOutputs,
+  InlineMarkdown,
+  BlockIdLabel,
+  UnmetDependenciesWarning,
+} from "@/components/mdx/_shared"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import { useRunbookContext, useTemplateContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
-import { resolveTemplateReferences, computeUnmetInputDependencies, computeUnmetOutputDependencies, filterUnmetOutputDeps } from "@/lib/templateUtils"
-import { extractTemplateDependenciesFromString, splitDependencies } from "@/lib/extractTemplateDependencies"
-import { deriveProviderFromAuth, deriveProviderFromRepoUrl, hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
+import {
+  useRunbookContext,
+  useTemplateContext,
+  useAllOutputs,
+  useOutputs,
+} from "@/contexts/useRunbook"
+import {
+  resolveTemplateReferences,
+  computeUnmetInputDependencies,
+  computeUnmetOutputDependencies,
+} from "@/lib/templateUtils"
+import {
+  extractTemplateDependenciesFromString,
+  requireAllOutputs,
+  splitDependencies,
+} from "@/lib/extractTemplateDependencies"
+import {
+  deriveProviderFromAuth,
+  deriveProviderFromRepoUrl,
+  hostFromRepoUrl,
+} from "@/components/mdx/_shared/lib/gitProvider"
 import { useGitFileChanges } from "@/hooks/useGitFileChanges"
 import { PR_PROVIDERS } from "./providers"
 import { useGitPullRequest } from "./hooks/useGitPullRequest"
@@ -24,47 +54,72 @@ import type { GitPullRequestProps, PRBlockStatus } from "./types"
 
 type GitPullRequestInternalProps = GitPullRequestProps & { __registryType?: BlockComponentType }
 
-const STATUS_CONFIG: Record<string, { bg: string; icon: typeof GitPullRequestIcon; iconColor: string }> = {
-  success:  { bg: 'bg-success-muted border-success/30', icon: CheckCircle,    iconColor: 'text-success' },
-  fail:     { bg: 'bg-destructive-muted border-destructive/30',     icon: XCircle,        iconColor: 'text-destructive' },
-  creating: { bg: 'bg-info-muted border-info/40',    icon: Loader2,        iconColor: 'text-info' },
-  pushing:  { bg: 'bg-info-muted border-info/40',    icon: Loader2,        iconColor: 'text-info' },
-  pending:  { bg: 'bg-muted border-border',   icon: GitPullRequestIcon, iconColor: 'text-muted-foreground' },
-  ready:    { bg: 'bg-muted border-border',   icon: GitPullRequestIcon, iconColor: 'text-muted-foreground' },
+const STATUS_CONFIG: Record<
+  PRBlockStatus,
+  { bg: string; icon: typeof GitPullRequestIcon; iconColor: string }
+> = {
+  success: {
+    bg: "bg-success-muted border-success/30",
+    icon: CheckCircle,
+    iconColor: "text-success",
+  },
+  fail: {
+    bg: "bg-destructive-muted border-destructive/30",
+    icon: XCircle,
+    iconColor: "text-destructive",
+  },
+  creating: { bg: "bg-info-muted border-info/40", icon: Loader2, iconColor: "text-info" },
+  pushing: { bg: "bg-info-muted border-info/40", icon: Loader2, iconColor: "text-info" },
+  pending: {
+    bg: "bg-muted border-border",
+    icon: GitPullRequestIcon,
+    iconColor: "text-muted-foreground",
+  },
+  ready: {
+    bg: "bg-muted border-border",
+    icon: GitPullRequestIcon,
+    iconColor: "text-muted-foreground",
+  },
 }
 
 /** Resolve template expressions and process escape sequences (\n → newline). */
-function resolveAndUnescape(template: string, ctx: import('@/lib/templateUtils').TemplateContext): string {
-  return resolveTemplateReferences(template, ctx).replace(/\\n/g, '\n')
+function resolveAndUnescape(
+  template: string,
+  ctx: import("@/lib/templateUtils").TemplateContext,
+): string {
+  return resolveTemplateReferences(template, ctx).replace(/\\n/g, "\n")
 }
 
 function GitPullRequestInteractive({
   id,
   title,
   description,
-  prefilledPullRequestTitle = '',
-  prefilledPullRequestDescription = '',
+  prefilledPullRequestTitle = "",
+  prefilledPullRequestDescription = "",
   prefilledPullRequestLabels = [],
-  prefilledBranchName = '',
-  prefilledCommitMessage = '',
+  prefilledBranchName = "",
+  prefilledCommitMessage = "",
   inputsId,
   githubAuthId,
   gitAuthId,
   provider: propProvider,
-  __registryType = 'GitPullRequest',
+  __registryType = "GitPullRequest",
 }: GitPullRequestInternalProps) {
   // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
         message: `The <${__registryType}> component requires a non-empty 'id' prop.`,
-        details: "Please provide a unique 'id' for this component instance."
+        details: "Please provide a unique 'id' for this component instance.",
       }
     }
     return null
   }, [id, __registryType])
 
-  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(id, __registryType)
+  const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
+    id,
+    __registryType,
+  )
   const { reportError, clearError } = useErrorReporting()
   const { trackBlockRender } = useTelemetry()
   const { activeWorkTree } = useGitWorkTree()
@@ -81,50 +136,46 @@ function GitPullRequestInteractive({
   const authId = gitAuthId ?? githubAuthId
   const authDerivedProvider = deriveProviderFromAuth(authId, rawOutputs)
   const repoUrlDerivedProvider = deriveProviderFromRepoUrl(activeWorkTree?.gitInfo?.repoUrl)
-  const effectiveProvider = propProvider ?? authDerivedProvider ?? repoUrlDerivedProvider ?? 'github'
+  const effectiveProvider =
+    propProvider ?? authDerivedProvider ?? repoUrlDerivedProvider ?? "github"
   const cfg = PR_PROVIDERS[effectiveProvider]
 
   // Provider-aware display defaults
   const titleText = title ?? cfg.defaultTitle
   const descriptionText = description ?? `Open a ${cfg.noun.lower} with your changes`
 
-  // Extract and check template dependencies from props that support template expressions
-  // Blocking dependencies (functional props): prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName, prefilledCommitMessage
-  const blockingDeps = useMemo(() => [
-    ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ''),
-    ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ''),
-    ...extractTemplateDependenciesFromString(prefilledBranchName ?? ''),
-    ...extractTemplateDependenciesFromString(prefilledCommitMessage ?? ''),
-  ], [prefilledPullRequestTitle, prefilledPullRequestDescription, prefilledBranchName, prefilledCommitMessage])
-
-  // Non-blocking dependencies (display props): title, description
-  const nonBlockingDeps = useMemo(() => [
-    ...extractTemplateDependenciesFromString(titleText ?? ''),
-    ...extractTemplateDependenciesFromString(descriptionText ?? ''),
-  ], [titleText, descriptionText])
-
-  // Combine all dependencies for resolution context
-  const allDeps = useMemo(() => [...blockingDeps, ...nonBlockingDeps], [blockingDeps, nonBlockingDeps])
-  const { inputs: allInputDeps, outputs: allOutputDeps } = useMemo(() => splitDependencies(allDeps), [allDeps])
-
-  const allUnmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(allInputDeps, templateCtx.inputs),
-    [allInputDeps, templateCtx.inputs]
+  // Extract and check template dependencies from the functional props, which
+  // gate the block: prefilledPullRequestTitle, prefilledPullRequestDescription,
+  // prefilledBranchName, prefilledCommitMessage. The display props (title,
+  // description) resolve too, but never block. These props resolve
+  // client-side, which can't evaluate a `hasKey` guard, so every output they
+  // reference is required.
+  const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = useMemo(
+    () =>
+      splitDependencies(
+        requireAllOutputs([
+          ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ""),
+          ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ""),
+          ...extractTemplateDependenciesFromString(prefilledBranchName ?? ""),
+          ...extractTemplateDependenciesFromString(prefilledCommitMessage ?? ""),
+        ]),
+      ),
+    [
+      prefilledPullRequestTitle,
+      prefilledPullRequestDescription,
+      prefilledBranchName,
+      prefilledCommitMessage,
+    ],
   )
 
-  const allUnmetOutputDeps = useMemo(
-    () => computeUnmetOutputDependencies(allOutputDeps, rawOutputs),
-    [allOutputDeps, rawOutputs]
+  const unmetInputDeps = useMemo(
+    () => computeUnmetInputDependencies(blockingInputDeps, templateCtx.inputs),
+    [blockingInputDeps, templateCtx.inputs],
   )
-
-  // Compute unmet dependencies for BLOCKING props only
-  const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
-    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = splitDependencies(blockingDeps)
-    return {
-      unmetInputDeps: allUnmetInputDeps.filter(dep => blockingInputDeps.includes(dep)),
-      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps)
-    }
-  }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
+  const unmetOutputDeps = useMemo(
+    () => computeUnmetOutputDependencies(blockingOutputDeps, rawOutputs),
+    [blockingOutputDeps, rawOutputs],
+  )
 
   const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
@@ -165,41 +216,49 @@ function GitPullRequestInteractive({
   }, [workspaceChanges])
 
   // Resolve prefilled values with template expressions ({{ .inputs.X }} and {{ .outputs.X.Y }})
-  const resolvedTitle = useMemo(() =>
-    prefilledPullRequestTitle ? resolveAndUnescape(prefilledPullRequestTitle, templateCtx) : '',
-    [prefilledPullRequestTitle, templateCtx]
+  const resolvedTitle = useMemo(
+    () =>
+      prefilledPullRequestTitle ? resolveAndUnescape(prefilledPullRequestTitle, templateCtx) : "",
+    [prefilledPullRequestTitle, templateCtx],
   )
-  const resolvedDescription = useMemo(() =>
-    prefilledPullRequestDescription ? resolveAndUnescape(prefilledPullRequestDescription, templateCtx) : '',
-    [prefilledPullRequestDescription, templateCtx]
+  const resolvedDescription = useMemo(
+    () =>
+      prefilledPullRequestDescription
+        ? resolveAndUnescape(prefilledPullRequestDescription, templateCtx)
+        : "",
+    [prefilledPullRequestDescription, templateCtx],
   )
-  const resolvedBranchName = useMemo(() =>
-    prefilledBranchName ? resolveAndUnescape(prefilledBranchName, templateCtx) : '',
-    [prefilledBranchName, templateCtx]
+  const resolvedBranchName = useMemo(
+    () => (prefilledBranchName ? resolveAndUnescape(prefilledBranchName, templateCtx) : ""),
+    [prefilledBranchName, templateCtx],
   )
-  const resolvedCommitMessage = useMemo(() =>
-    prefilledCommitMessage ? resolveAndUnescape(prefilledCommitMessage, templateCtx) : '',
-    [prefilledCommitMessage, templateCtx]
+  const resolvedCommitMessage = useMemo(
+    () => (prefilledCommitMessage ? resolveAndUnescape(prefilledCommitMessage, templateCtx) : ""),
+    [prefilledCommitMessage, templateCtx],
   )
 
   // Resolve display props (title and description support template expressions too)
-  const resolvedDisplayTitle = useMemo(() =>
-    titleText ? resolveTemplateReferences(titleText, templateCtx) : titleText,
-    [titleText, templateCtx]
+  const resolvedDisplayTitle = useMemo(
+    () => (titleText ? resolveTemplateReferences(titleText, templateCtx) : titleText),
+    [titleText, templateCtx],
   )
-  const resolvedDisplayDescription = useMemo(() =>
-    descriptionText ? resolveTemplateReferences(descriptionText, templateCtx) : descriptionText,
-    [descriptionText, templateCtx]
+  const resolvedDisplayDescription = useMemo(
+    () =>
+      descriptionText ? resolveTemplateReferences(descriptionText, templateCtx) : descriptionText,
+    [descriptionText, templateCtx],
   )
 
   // Prefer an author-provided commit message; otherwise include the runbook name.
-  const defaultCommitMessage = resolvedCommitMessage
-    || (runbookName ? `Changes from runbook "${runbookName}"` : "Changes from runbook")
+  const defaultCommitMessage =
+    resolvedCommitMessage ||
+    (runbookName ? `Changes from runbook "${runbookName}"` : "Changes from runbook")
 
   // Form state
   const [prTitle, setPRTitle] = useState(resolvedTitle)
   const [prDescription, setPRDescription] = useState(resolvedDescription)
-  const [branchName, setBranchName] = useState(() => resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`)
+  const [branchName, setBranchName] = useState(
+    () => resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`,
+  )
   const [commitMessage, setCommitMessage] = useState(defaultCommitMessage)
   const [selectedLabels, setSelectedLabels] = useState<string[]>(prefilledPullRequestLabels)
 
@@ -209,35 +268,48 @@ function GitPullRequestInteractive({
   const [userEditedBranch, setUserEditedBranch] = useState(false)
   const [userEditedCommitMessage, setUserEditedCommitMessage] = useState(false)
 
-  // Update form state when resolved values change (unless user has edited)
-  useEffect(() => {
-    if (!userEditedTitle && resolvedTitle) {
+  // Update form state during render when resolved values change, unless the
+  // user has edited the field
+  const [prevResolved, setPrevResolved] = useState({
+    title: resolvedTitle,
+    description: resolvedDescription,
+    branchName: resolvedBranchName,
+    commitMessage: defaultCommitMessage,
+  })
+  if (
+    prevResolved.title !== resolvedTitle ||
+    prevResolved.description !== resolvedDescription ||
+    prevResolved.branchName !== resolvedBranchName ||
+    prevResolved.commitMessage !== defaultCommitMessage
+  ) {
+    if (prevResolved.title !== resolvedTitle && !userEditedTitle && resolvedTitle) {
       setPRTitle(resolvedTitle)
     }
-  }, [resolvedTitle, userEditedTitle])
-
-  useEffect(() => {
-    if (!userEditedDescription && resolvedDescription) {
+    if (
+      prevResolved.description !== resolvedDescription &&
+      !userEditedDescription &&
+      resolvedDescription
+    ) {
       setPRDescription(resolvedDescription)
     }
-  }, [resolvedDescription, userEditedDescription])
-
-  useEffect(() => {
-    if (!userEditedBranch && resolvedBranchName) {
+    if (prevResolved.branchName !== resolvedBranchName && !userEditedBranch && resolvedBranchName) {
       setBranchName(resolvedBranchName)
     }
-  }, [resolvedBranchName, userEditedBranch])
-
-  useEffect(() => {
-    if (!userEditedCommitMessage) {
+    if (prevResolved.commitMessage !== defaultCommitMessage && !userEditedCommitMessage) {
       setCommitMessage(defaultCommitMessage)
     }
-  }, [defaultCommitMessage, userEditedCommitMessage])
+    setPrevResolved({
+      title: resolvedTitle,
+      description: resolvedDescription,
+      branchName: resolvedBranchName,
+      commitMessage: defaultCommitMessage,
+    })
+  }
 
   // Determine effective status (override pending → ready when deps met)
   const effectiveStatus: PRBlockStatus = useMemo(() => {
-    if (status === 'pending' && authMet && activeWorkTree && !wrongProvider) {
-      return 'ready'
+    if (status === "pending" && authMet && activeWorkTree && !wrongProvider) {
+      return "ready"
     }
     return status
   }, [status, authMet, activeWorkTree, wrongProvider])
@@ -246,14 +318,24 @@ function GitPullRequestInteractive({
   // GitHub Enterprise repo's labels are fetched from its own instance, not
   // gitlab.com / github.com.
   useEffect(() => {
-    if (effectiveStatus === 'ready' && activeWorkTree?.gitInfo?.repoOwner && activeWorkTree?.gitInfo?.repoName) {
-      fetchLabels(
+    if (
+      effectiveStatus === "ready" &&
+      activeWorkTree?.gitInfo?.repoOwner &&
+      activeWorkTree?.gitInfo?.repoName
+    ) {
+      void fetchLabels(
         activeWorkTree.gitInfo.repoOwner,
         activeWorkTree.gitInfo.repoName,
         hostFromRepoUrl(activeWorkTree?.gitInfo?.repoUrl),
       )
     }
-  }, [effectiveStatus, activeWorkTree?.gitInfo?.repoOwner, activeWorkTree?.gitInfo?.repoName, activeWorkTree?.gitInfo?.repoUrl, fetchLabels])
+  }, [
+    effectiveStatus,
+    activeWorkTree?.gitInfo?.repoOwner,
+    activeWorkTree?.gitInfo?.repoName,
+    activeWorkTree?.gitInfo?.repoUrl,
+    fetchLabels,
+  ])
 
   // Report configuration errors
   useEffect(() => {
@@ -261,14 +343,14 @@ function GitPullRequestInteractive({
       reportError({
         componentId: id,
         componentType: __registryType,
-        severity: 'error',
+        severity: "error",
         message: `Duplicate ${__registryType} block ID: "${id}"`,
       })
     } else if (isNormalizedCollision) {
       reportError({
         componentId: id,
         componentType: __registryType,
-        severity: 'error',
+        severity: "error",
         message: `${__registryType} ID "${id}" collides with "${collidingId}" after normalization`,
       })
     } else {
@@ -278,7 +360,7 @@ function GitPullRequestInteractive({
 
   const handleCreatePR = useCallback(() => {
     if (!activeWorkTree) return
-    createPullRequest({
+    void createPullRequest({
       owner: activeWorkTree.gitInfo.repoOwner,
       repo: activeWorkTree.gitInfo.repoName,
       // The ref the worktree was cloned at is the base/target branch.
@@ -290,25 +372,46 @@ function GitPullRequestInteractive({
       labels: selectedLabels,
       worktreePath: activeWorkTree.localPath,
     })
-  }, [activeWorkTree, prTitle, prDescription, selectedLabels, branchName, commitMessage, defaultCommitMessage, createPullRequest])
+  }, [
+    activeWorkTree,
+    prTitle,
+    prDescription,
+    selectedLabels,
+    branchName,
+    commitMessage,
+    defaultCommitMessage,
+    createPullRequest,
+  ])
 
   const handlePush = useCallback(() => {
     if (!activeWorkTree || !prResult) return
-    pushChanges(activeWorkTree.localPath, prResult.branchName)
+    void pushChanges(activeWorkTree.localPath, prResult.branchName)
   }, [activeWorkTree, prResult, pushChanges])
 
   const handleCreateAnother = useCallback(() => {
     reset()
     setPRTitle(resolvedTitle)
     setPRDescription(resolvedDescription)
-    setBranchName(`runbook/${Math.floor(Date.now() / 1000)}`)
+    setBranchName(
+      userEditedBranch && resolvedBranchName
+        ? resolvedBranchName
+        : `runbook/${Math.floor(Date.now() / 1000)}`,
+    )
     setCommitMessage(defaultCommitMessage)
     setSelectedLabels(prefilledPullRequestLabels)
     setUserEditedTitle(false)
     setUserEditedDescription(false)
     setUserEditedBranch(false)
     setUserEditedCommitMessage(false)
-  }, [reset, resolvedTitle, resolvedDescription, prefilledPullRequestLabels, defaultCommitMessage])
+  }, [
+    reset,
+    resolvedTitle,
+    resolvedDescription,
+    resolvedBranchName,
+    userEditedBranch,
+    prefilledPullRequestLabels,
+    defaultCommitMessage,
+  ])
 
   const [deletingBranch, setDeletingBranch] = useState(false)
   const handleDeleteBranch = useCallback(async () => {
@@ -321,8 +424,12 @@ function GitPullRequestInteractive({
     if (deleted) handleCreatePR()
   }, [activeWorkTree, conflictBranchName, deleteBranch, handleCreatePR])
 
-  const { bg: statusClasses, icon: IconComponent, iconColor: iconClasses } = STATUS_CONFIG[effectiveStatus] ?? STATUS_CONFIG.pending
-  const isSpinning = effectiveStatus === 'creating' || effectiveStatus === 'pushing'
+  const {
+    bg: statusClasses,
+    icon: IconComponent,
+    iconColor: iconClasses,
+  } = STATUS_CONFIG[effectiveStatus]
+  const isSpinning = effectiveStatus === "creating" || effectiveStatus === "pushing"
   const isFormDisabled = wrongProvider || !authMet || !activeWorkTree || !hasAllBlockingDependencies
 
   // Block outputs for ViewOutputs: what MAIN actually registered (git:outputs),
@@ -331,7 +438,7 @@ function GitPullRequestInteractive({
   const registeredOutputs = useOutputs(id)
   const outputValues = useMemo(() => {
     if (!prResult || !registeredOutputs?.length) return null
-    return Object.fromEntries(registeredOutputs.map(o => [o.name, o.value]))
+    return Object.fromEntries(registeredOutputs.map((o) => [o.name, o.value]))
   }, [prResult, registeredOutputs])
 
   // Early return for validation errors (e.g. missing id prop)
@@ -345,7 +452,10 @@ function GitPullRequestInteractive({
   }
 
   return (
-    <div data-testid={id} className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}>
+    <div
+      data-testid={id}
+      className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
+    >
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
@@ -354,7 +464,7 @@ function GitPullRequestInteractive({
       {/* Main container with left icon column */}
       <div className="flex @container">
         <div className="border-r border-border pr-2 mr-4 flex flex-col items-center">
-          <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? 'animate-spin' : ''}`} />
+          <IconComponent className={`size-6 ${iconClasses} ${isSpinning ? "animate-spin" : ""}`} />
         </div>
 
         <div className="flex-1 min-w-0 space-y-2">
@@ -377,7 +487,9 @@ function GitPullRequestInteractive({
             <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">Waiting for {cfg.label} authentication</p>
+                <p className="text-sm font-medium text-warning-foreground m-0">
+                  Waiting for {cfg.label} authentication
+                </p>
                 <p className="text-xs text-warning-foreground m-0 mt-0.5">
                   Complete the &apos;{authId}&apos; {cfg.label} authentication block above.
                 </p>
@@ -389,7 +501,9 @@ function GitPullRequestInteractive({
             <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
               <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
               <div>
-                <p className="text-sm font-medium text-warning-foreground m-0">No repository available</p>
+                <p className="text-sm font-medium text-warning-foreground m-0">
+                  No repository available
+                </p>
                 <p className="text-xs text-warning-foreground m-0 mt-0.5">
                   Clone a repository using a GitClone block first.
                 </p>
@@ -409,13 +523,15 @@ function GitPullRequestInteractive({
           )}
 
           {/* Error message */}
-          {errorMessage && effectiveStatus === 'fail' && (
+          {errorMessage && effectiveStatus === "fail" && (
             <div className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2">
               <XCircle className="size-4 text-destructive mt-0.5 shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-destructive m-0">{cfg.noun.singular} creation failed</p>
+                <p className="text-sm font-medium text-destructive m-0">
+                  {cfg.noun.singular} creation failed
+                </p>
                 <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
-                {errorCode === 'branch_exists' && conflictBranchName && (
+                {errorCode === "branch_exists" && conflictBranchName && (
                   <button
                     type="button"
                     onClick={handleDeleteBranch}
@@ -423,7 +539,9 @@ function GitPullRequestInteractive({
                     className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-destructive bg-destructive-muted hover:bg-destructive-muted/80 border border-destructive/30 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="size-3" />
-                    {deletingBranch ? 'Deleting...' : `Delete branch "${conflictBranchName}" and retry`}
+                    {deletingBranch
+                      ? "Deleting..."
+                      : `Delete branch "${conflictBranchName}" and retry`}
                   </button>
                 )}
               </div>
@@ -431,7 +549,7 @@ function GitPullRequestInteractive({
           )}
 
           {/* Success state */}
-          {(effectiveStatus === 'success' || effectiveStatus === 'pushing') && prResult ? (
+          {(effectiveStatus === "success" || effectiveStatus === "pushing") && prResult ? (
             <PRResultDisplay
               noun={cfg.noun}
               refSymbol={cfg.refSymbol}
@@ -448,13 +566,25 @@ function GitPullRequestInteractive({
               noun={cfg.noun}
               providerLabel={cfg.label}
               prTitle={prTitle}
-              setPRTitle={(v) => { setPRTitle(v); setUserEditedTitle(true) }}
+              setPRTitle={(v) => {
+                setPRTitle(v)
+                setUserEditedTitle(true)
+              }}
               prDescription={prDescription}
-              setPRDescription={(v) => { setPRDescription(v); setUserEditedDescription(true) }}
+              setPRDescription={(v) => {
+                setPRDescription(v)
+                setUserEditedDescription(true)
+              }}
               branchName={branchName}
-              setBranchName={(v) => { setBranchName(v); setUserEditedBranch(true) }}
+              setBranchName={(v) => {
+                setBranchName(v)
+                setUserEditedBranch(true)
+              }}
               commitMessage={commitMessage}
-              setCommitMessage={(v) => { setCommitMessage(v); setUserEditedCommitMessage(true) }}
+              setCommitMessage={(v) => {
+                setCommitMessage(v)
+                setUserEditedCommitMessage(true)
+              }}
               defaultCommitMessage={defaultCommitMessage}
               selectedLabels={selectedLabels}
               setSelectedLabels={setSelectedLabels}
@@ -475,7 +605,15 @@ function GitPullRequestInteractive({
         <div className="mt-4 space-y-2">
           <ViewLogs
             logs={logs}
-            status={isSpinning ? 'running' : effectiveStatus === 'success' ? 'success' : effectiveStatus === 'fail' ? 'fail' : 'pending'}
+            status={
+              isSpinning
+                ? "running"
+                : effectiveStatus === "success"
+                  ? "success"
+                  : effectiveStatus === "fail"
+                    ? "fail"
+                    : "pending"
+            }
             autoOpen={isSpinning}
             blockId={id}
           />
@@ -485,10 +623,7 @@ function GitPullRequestInteractive({
       {/* View Outputs */}
       {outputValues && (
         <div className="mt-2">
-          <ViewOutputs
-            outputs={outputValues}
-            autoOpen={effectiveStatus === 'success'}
-          />
+          <ViewOutputs outputs={outputValues} autoOpen={effectiveStatus === "success"} />
         </div>
       )}
     </div>
@@ -509,7 +644,7 @@ function GitPullRequest(props: GitPullRequestInternalProps) {
   return <GitPullRequestInteractive {...props} />
 }
 
-GitPullRequest.displayName = 'GitPullRequest'
+GitPullRequest.displayName = "GitPullRequest"
 
 export { GitPullRequest }
 export default GitPullRequest

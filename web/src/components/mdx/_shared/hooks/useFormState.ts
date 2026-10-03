@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import type { BoilerplateConfig } from '@/types/boilerplateConfig'
-import type { BoilerplateVariable } from '@/types/boilerplateVariable'
-import { markStage } from '@/lib/renderPerf'
-import { untouchedValue } from '../lib/untouchedValue'
+import { useState, useEffect, useCallback, useRef } from "react"
+import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import type { BoilerplateVariable } from "@/types/boilerplateVariable"
+import { markStage } from "@/lib/renderPerf"
+import { untouchedValue } from "../lib/untouchedValue"
 
 // Below typical typing cadence (~200 ms/char). The warm path + fiber-interrupt
 // supersession reclaims work the user supersedes, so we err on the responsive
@@ -12,7 +12,7 @@ const AUTO_RENDER_DEBOUNCE_MS = 50
 
 /**
  * Custom hook for managing form state and data flow
- * 
+ *
  * @param boilerplateConfig - The boilerplate configuration containing variable definitions
  * @param initialData - Initial form data values (only used on first mount)
  * @param onFormChange - Optional callback when form data changes
@@ -25,20 +25,20 @@ export const useFormState = (
   initialData: Record<string, unknown> = {},
   onFormChange?: (formData: Record<string, unknown>) => void,
   onAutoRender?: (formData: Record<string, unknown>) => void,
-  enableAutoRender: boolean = true
+  enableAutoRender: boolean = true,
 ) => {
   const [formData, setFormData] = useState<Record<string, unknown>>({})
 
   // Store latest callback references to avoid stale closures
   const onFormChangeRef = useRef(onFormChange)
   const onAutoRenderRef = useRef(onAutoRender)
-  
+
   // Track if we've done initial setup
   const hasInitialized = useRef(false)
-  
+
   // Store initialData at mount time (for initial setup only)
   const initialDataRef = useRef(initialData)
-  
+
   // Ref for debounce timer + leading-edge bookkeeping.
   // `autoRenderTimerRef` tracks a pending trailing-edge fire.
   // `lastFireAtRef` is the wall-clock time of the most recent fire (leading
@@ -55,7 +55,7 @@ export const useFormState = (
   useEffect(() => {
     onAutoRenderRef.current = onAutoRender
   }, [onAutoRender])
-  
+
   // Cleanup debounce timer on unmount
   useEffect(() => {
     return () => {
@@ -69,16 +69,16 @@ export const useFormState = (
   // This only runs when boilerplateConfig first becomes available
   useEffect(() => {
     if (!boilerplateConfig || hasInitialized.current) return
-    
+
     const formDataInit: Record<string, unknown> = {}
-    
+
     // With no initial value or default, start from what the control shows
     // (false for a bool, the displayed elements for a tuple), so that value is sent.
     boilerplateConfig.variables.forEach((variable: BoilerplateVariable) => {
       formDataInit[variable.name] =
         initialDataRef.current[variable.name] ?? variable.default ?? untouchedValue(variable)
     })
-    
+
     setFormData(formDataInit)
     hasInitialized.current = true
   }, [boilerplateConfig])
@@ -118,7 +118,7 @@ export const useFormState = (
       const sinceLastFire = now - lastFireAtRef.current
       const fire = () => {
         lastFireAtRef.current = Date.now()
-        markStage('useFormState:debounce-fire')
+        markStage("useFormState:debounce-fire")
         if (onAutoRenderRef.current) {
           onAutoRenderRef.current(formData)
         }
@@ -148,10 +148,13 @@ export const useFormState = (
    * @param updates - Object with field names as keys and new values
    */
   const updateFields = useCallback((updates: Record<string, unknown>) => {
-    setFormData(prev => {
+    setFormData((prev) => {
       let changed = false
       for (const k of Object.keys(updates)) {
-        if (prev[k] !== updates[k]) { changed = true; break }
+        if (prev[k] !== updates[k]) {
+          changed = true
+          break
+        }
       }
       return changed ? { ...prev, ...updates } : prev
     })
@@ -162,9 +165,12 @@ export const useFormState = (
    * @param fieldName - Name of the field to update
    * @param value - New value for the field
    */
-  const updateField = useCallback((fieldName: string, value: unknown) => {
-    updateFields({ [fieldName]: value })
-  }, [updateFields])
+  const updateField = useCallback(
+    (fieldName: string, value: unknown) => {
+      updateFields({ [fieldName]: value })
+    },
+    [updateFields],
+  )
 
   return {
     formData,

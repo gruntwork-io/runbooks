@@ -124,19 +124,34 @@ describe("Check", () => {
   })
 
   it("shows success icon on success", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "success", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "success",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck()
     expect(screen.getByTestId("icon-success")).toBeInTheDocument()
   })
 
   it("shows warn icon on warn status (exit code 2)", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "warn", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "warn",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck()
     expect(screen.getByTestId("icon-warn")).toBeInTheDocument()
   })
 
   it("shows fail icon on failure", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "fail", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "fail",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck()
     expect(screen.getByTestId("icon-fail")).toBeInTheDocument()
   })
@@ -144,25 +159,45 @@ describe("Check", () => {
   // --- Status messages ---
 
   it("shows success message on success", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "success", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "success",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck({ successMessage: "All good!" })
     expect(screen.getByText("All good!")).toBeInTheDocument()
   })
 
   it("shows warn message on warn", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "warn", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "warn",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck({ warnMessage: "Needs attention" })
     expect(screen.getByText("Needs attention")).toBeInTheDocument()
   })
 
   it("shows fail message on failure", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "fail", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "fail",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck({ failMessage: "Check failed!" })
     expect(screen.getByText("Check failed!")).toBeInTheDocument()
   })
 
   it("shows running message while checking", () => {
-    mockScriptExecution = { ...defaultScriptExecution, status: "running", execute: vi.fn(), cancel: vi.fn() }
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      status: "running",
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
     renderCheck({ runningMessage: "Verifying..." })
     expect(screen.getByText("Verifying...")).toBeInTheDocument()
   })

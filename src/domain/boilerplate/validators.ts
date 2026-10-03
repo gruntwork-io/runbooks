@@ -75,7 +75,8 @@ export const isAlphanumeric = (value: string): boolean => {
 export const isSemver = (value: string): boolean => {
   // Semver regex from https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
   // Modified to allow optional "v" or "V" prefix
-  const semverRegex = /^[vV]?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
+  const semverRegex =
+    /^[vV]?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/
   return semverRegex.test(value)
 }
 
@@ -103,7 +104,10 @@ export const isCountryCode2 = (value: string): boolean => {
  * @param rule - The validation rule to apply
  * @returns Error message if validation fails, undefined if passes
  */
-export const applyValidationRule = (value: string, rule: ValidationRuleLike): string | undefined => {
+export const applyValidationRule = (
+  value: string,
+  rule: ValidationRuleLike,
+): string | undefined => {
   // Skip validation for empty values (required check handles that separately)
   if (value === "" || value === undefined || value === null) {
     return undefined
@@ -207,22 +211,26 @@ export const validateVariableValue = (
   // Required field validation (checked first)
   if (variable.required) {
     const isBlank = (v: unknown) => v === "" || v === undefined || v === null
-    const isEmpty = isBlank(value)
+    const isEmpty =
+      isBlank(value) ||
       // For arrays (list/tuple), check if empty or all elements are empty. A
       // tuple's bool element starts as false (what its select shows), so false
       // next to blank elements doesn't fill it (['', false]). A tuple of only
       // bools ([false, false]) holds a complete value, and a scalar false is a value.
-      || (Array.isArray(value) && (
-        value.length === 0 || (value.some(isBlank) && value.every(v => isBlank(v) || v === false))
-      ))
+      (Array.isArray(value) &&
+        (value.length === 0 ||
+          (value.some(isBlank) && value.every((v) => isBlank(v) || v === false)))) ||
       // For objects (map), check if no keys
-      || (typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 0)
+      (typeof value === "object" &&
+        value !== null &&
+        !Array.isArray(value) &&
+        Object.keys(value).length === 0)
     if (isEmpty) {
       return `${label} is required`
     }
   }
 
-  const stringValue = value === undefined || value === null ? "" : String(value)
+  const stringValue = stringForm(value)
 
   // Apply additional validation rules from the variable definition
   for (const rule of variable.validations ?? []) {
@@ -233,4 +241,20 @@ export const validateVariableValue = (
   }
 
   return undefined
+}
+
+/**
+ * The string the validation rules check: empty for a missing value, a list
+ * joined with commas (as `String()` joins it), a map as JSON rather than
+ * "[object Object]".
+ */
+function stringForm(value: unknown): string {
+  if (value === undefined || value === null) return ""
+  if (Array.isArray(value)) return value.join(",")
+  if (typeof value === "object") return JSON.stringify(value)
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value)
+  }
+  return ""
 }

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { MDX_COMPONENTS } from '@/components/MDXContainer'
+import { describe, it, expect } from "vitest"
+import { existsSync, readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { MDX_COMPONENTS } from "@/components/MDXContainer"
 
 /**
  * Docs-completeness guard for the blocks reference (docs/.../authoring/blocks).
@@ -13,9 +13,9 @@ import { MDX_COMPONENTS } from '@/components/MDXContainer'
  */
 
 // Non-block element overrides (not runbook blocks) — no docs page expected.
-const ELEMENT_OVERRIDES = new Set(['a', 'pre', 'input'])
+const ELEMENT_OVERRIDES = new Set(["a", "pre", "input"])
 
-const BLOCKS_DOCS_DIR = resolve(process.cwd(), '../docs/src/content/docs/authoring/blocks')
+const BLOCKS_DOCS_DIR = resolve(process.cwd(), "../docs/src/content/docs/authoring/blocks")
 
 const blockNames = Object.keys(MDX_COMPONENTS).filter((name) => !ELEMENT_OVERRIDES.has(name))
 
@@ -27,24 +27,24 @@ const docsPathFor = (name: string): string | undefined => {
   return undefined
 }
 
-describe('docs coverage — MDX block registry', () => {
-  it.each(blockNames)('%s has a docs page under authoring/blocks', (name) => {
+describe("docs coverage — MDX block registry", () => {
+  it.each(blockNames)("%s has a docs page under authoring/blocks", (name) => {
     expect(
       docsPathFor(name),
       `Expected a docs page for <${name}> at docs/src/content/docs/authoring/blocks/${name}.mdx (or .md)`,
     ).toBeDefined()
   })
 
-  it.each(blockNames)('%s docs page declares a matching title', (name) => {
+  it.each(blockNames)("%s docs page declares a matching title", (name) => {
     const path = docsPathFor(name)
     if (!path) return // already reported by the previous test
 
-    const source = readFileSync(path, 'utf8')
-    expect(source).toMatch(new RegExp(`^title:\\s*<${name}>\\s*$`, 'm'))
+    const source = readFileSync(path, "utf8")
+    expect(source).toMatch(new RegExp(`^title:\\s*<${name}>\\s*$`, "m"))
   })
 
-  it('every block is linked from the blocks index', () => {
-    const index = readFileSync(resolve(BLOCKS_DOCS_DIR, 'index.md'), 'utf8')
+  it("every block is linked from the blocks index", () => {
+    const index = readFileSync(resolve(BLOCKS_DOCS_DIR, "index.md"), "utf8")
     const missing = blockNames.filter(
       (name) => !index.includes(`(/authoring/blocks/${name.toLowerCase()})`),
     )

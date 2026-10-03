@@ -25,7 +25,13 @@ describe("partitionHomeRegion", () => {
   })
 
   it("maps every commercial region to us-east-1", () => {
-    for (const region of ["us-east-1", "us-west-2", "ap-southeast-4", "me-central-1", "il-central-1"]) {
+    for (const region of [
+      "us-east-1",
+      "us-west-2",
+      "ap-southeast-4",
+      "me-central-1",
+      "il-central-1",
+    ]) {
       expect(partitionHomeRegion(region)).toBe("us-east-1")
     }
   })

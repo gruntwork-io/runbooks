@@ -24,7 +24,13 @@ import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
 function runFs<A>(effect: Effect.Effect<A, any, any>, files: Record<string, string> = {}) {
-  return Effect.runPromise(effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<A, any, never>)
+  return Effect.runPromise(
+    effect.pipe(Effect.provide(makeTestFileSystem(files))) as unknown as Effect.Effect<
+      A,
+      any,
+      never
+    >,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -41,7 +47,10 @@ describe("detectInterpreter", () => {
   })
 
   it("detects #!/usr/bin/env with args", () => {
-    expect(detectInterpreter("#!/usr/bin/env -S node --experimental\nconsole.log(1)", "")).toEqual(["-S", ["node", "--experimental"]])
+    expect(detectInterpreter("#!/usr/bin/env -S node --experimental\nconsole.log(1)", "")).toEqual([
+      "-S",
+      ["node", "--experimental"],
+    ])
   })
 
   it("detects #!/bin/bash", () => {
@@ -70,27 +79,19 @@ describe("detectInterpreter", () => {
 // ---------------------------------------------------------------------------
 
 describe("isBashInterpreter", () => {
-  it.each([
-    "bash",
-    "sh",
-    "/bin/bash",
-    "/bin/sh",
-    "/usr/bin/bash",
-    "/usr/bin/sh",
-  ])("returns true for %s", (interp) => {
-    expect(isBashInterpreter(interp)).toBe(true)
-  })
+  it.each(["bash", "sh", "/bin/bash", "/bin/sh", "/usr/bin/bash", "/usr/bin/sh"])(
+    "returns true for %s",
+    (interp) => {
+      expect(isBashInterpreter(interp)).toBe(true)
+    },
+  )
 
-  it.each([
-    "python3",
-    "node",
-    "ruby",
-    "zsh",
-    "/usr/bin/python3",
-    "",
-  ])("returns false for %s", (interp) => {
-    expect(isBashInterpreter(interp)).toBe(false)
-  })
+  it.each(["python3", "node", "ruby", "zsh", "/usr/bin/python3", ""])(
+    "returns false for %s",
+    (interp) => {
+      expect(isBashInterpreter(interp)).toBe(false)
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -197,13 +198,10 @@ describe("wrapBashScript", () => {
 
 describe("parseEnvCapture", () => {
   it("parses NUL-delimited env output", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "HOME=/home/user\0PATH=/usr/bin\0LANG=en_US.UTF-8\0",
-        "/pwd.txt": "/work/dir\n",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "HOME=/home/user\0PATH=/usr/bin\0LANG=en_US.UTF-8\0",
+      "/pwd.txt": "/work/dir\n",
+    })
     expect(result.env).toEqual({
       HOME: "/home/user",
       PATH: "/usr/bin",
@@ -213,25 +211,19 @@ describe("parseEnvCapture", () => {
   })
 
   it("handles multiline values in NUL-delimited format", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "KEY=line1\nline2\nline3\0OTHER=val\0",
-        "/pwd.txt": "/work",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "KEY=line1\nline2\nline3\0OTHER=val\0",
+      "/pwd.txt": "/work",
+    })
     expect(result.env!.KEY).toBe("line1\nline2\nline3")
     expect(result.env!.OTHER).toBe("val")
   })
 
   it("falls back to newline-delimited parsing", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "HOME=/home/user\nPATH=/usr/bin\n",
-        "/pwd.txt": "/work",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "HOME=/home/user\nPATH=/usr/bin\n",
+      "/pwd.txt": "/work",
+    })
     expect(result.env).toEqual({
       HOME: "/home/user",
       PATH: "/usr/bin",
@@ -239,40 +231,31 @@ describe("parseEnvCapture", () => {
   })
 
   it("handles multiline values in newline fallback", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      {
-        "/env.txt": "SSH_KEY=-----BEGIN RSA-----\nbase64data\n-----END RSA-----\nPATH=/usr/bin\n",
-        "/pwd.txt": "/work",
-      },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "SSH_KEY=-----BEGIN RSA-----\nbase64data\n-----END RSA-----\nPATH=/usr/bin\n",
+      "/pwd.txt": "/work",
+    })
     expect(result.env!.SSH_KEY).toBe("-----BEGIN RSA-----\nbase64data\n-----END RSA-----")
     expect(result.env!.PATH).toBe("/usr/bin")
   })
 
   it("returns undefined env when env file is missing", async () => {
-    const result = await runFs(
-      parseEnvCapture("/nonexistent", "/pwd.txt"),
-      { "/pwd.txt": "/work" },
-    )
+    const result = await runFs(parseEnvCapture("/nonexistent", "/pwd.txt"), { "/pwd.txt": "/work" })
     expect(result.env).toBeUndefined()
     expect(result.pwd).toBe("/work")
   })
 
   it("returns empty pwd when pwd file is missing", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/nonexistent"),
-      { "/env.txt": "A=1\0" },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/nonexistent"), { "/env.txt": "A=1\0" })
     expect(result.env).toEqual({ A: "1" })
     expect(result.pwd).toBe("")
   })
 
   it("returns undefined env for empty env file", async () => {
-    const result = await runFs(
-      parseEnvCapture("/env.txt", "/pwd.txt"),
-      { "/env.txt": "", "/pwd.txt": "/work" },
-    )
+    const result = await runFs(parseEnvCapture("/env.txt", "/pwd.txt"), {
+      "/env.txt": "",
+      "/pwd.txt": "/work",
+    })
     expect(result.env).toBeUndefined()
   })
 })
@@ -295,10 +278,9 @@ describe("parseEnvCaptureContent", () => {
 
 describe("parseBlockOutputs", () => {
   it("parses key=value pairs", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "CLUSTER_NAME=my-cluster\nREGION=us-east-1\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "CLUSTER_NAME=my-cluster\nREGION=us-east-1\n",
+    })
     expect(result).toEqual({
       CLUSTER_NAME: "my-cluster",
       REGION: "us-east-1",
@@ -306,27 +288,24 @@ describe("parseBlockOutputs", () => {
   })
 
   it("preserves leading whitespace in values (trailing stripped by line trim)", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "MSG= hello world \n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "MSG= hello world \n",
+    })
     // The line is trimmed before parsing, so trailing space is removed
     expect(result.MSG).toBe(" hello world")
   })
 
   it("skips invalid keys", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "VALID=yes\n123INVALID=no\n-bad=no\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "VALID=yes\n123INVALID=no\n-bad=no\n",
+    })
     expect(result).toEqual({ VALID: "yes" })
   })
 
   it("skips lines without equals sign", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "GOOD=val\nno-equals-here\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "GOOD=val\nno-equals-here\n",
+    })
     expect(result).toEqual({ GOOD: "val" })
   })
 
@@ -336,34 +315,28 @@ describe("parseBlockOutputs", () => {
   })
 
   it("returns empty object for empty file", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), { "/output.txt": "" })
     expect(result).toEqual({})
   })
 
   it("handles values containing equals signs", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "CONFIG=key=value=extra\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "CONFIG=key=value=extra\n",
+    })
     expect(result.CONFIG).toBe("key=value=extra")
   })
 
   it("accepts underscore-prefixed keys", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "_PRIVATE=yes\n__DOUBLE=also\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "_PRIVATE=yes\n__DOUBLE=also\n",
+    })
     expect(result).toEqual({ _PRIVATE: "yes", __DOUBLE: "also" })
   })
 
   it("wraps a value the sensitive: prefix marks", async () => {
-    const result = await runFs(
-      parseBlockOutputs("/output.txt"),
-      { "/output.txt": "AWS_REGION=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc/123\n" },
-    )
+    const result = await runFs(parseBlockOutputs("/output.txt"), {
+      "/output.txt": "AWS_REGION=us-west-2\nsensitive:AWS_SECRET_ACCESS_KEY=abc/123\n",
+    })
     expect(encodeOutputs(result)).toEqual({
       AWS_REGION: { value: "us-west-2", sensitive: false },
       AWS_SECRET_ACCESS_KEY: { value: "abc/123", sensitive: true },
@@ -373,7 +346,10 @@ describe("parseBlockOutputs", () => {
 
 describe("parseBlockOutputsContent", () => {
   it("keeps value whitespace and skips invalid or empty keys", () => {
-    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({ MSG: " hi", OK: "1" })
+    expect(parseBlockOutputsContent("MSG= hi\n=no-key\nbad-key=x\nOK=1\n")).toEqual({
+      MSG: " hi",
+      OK: "1",
+    })
   })
 
   describe("sensitive: prefix", () => {
@@ -384,7 +360,7 @@ describe("parseBlockOutputsContent", () => {
     it("stores the value under the plain key, wrapped as sensitive", () => {
       const outputs = parseBlockOutputsContent("sensitive:TOKEN=s3cr3t\nUSER=alice\n")
       expect(Object.keys(outputs)).toEqual(["TOKEN", "USER"])
-      expect(isSensitiveOutput(outputs.TOKEN)).toBe(true)
+      expect(isSensitiveOutput(outputs.TOKEN!)).toBe(true)
       expect(revealOutput(outputs.TOKEN)).toBe("s3cr3t")
       expect(outputs.USER).toBe("alice")
     })
@@ -397,15 +373,21 @@ describe("parseBlockOutputsContent", () => {
     })
 
     it("trims whitespace between the prefix and the key", () => {
-      expect(parse("sensitive: TOKEN =s3cr3t\n")).toEqual({ TOKEN: { value: "s3cr3t", sensitive: true } })
+      expect(parse("sensitive: TOKEN =s3cr3t\n")).toEqual({
+        TOKEN: { value: "s3cr3t", sensitive: true },
+      })
     })
 
     it("keeps the value's leading whitespace, as for a plain key", () => {
-      expect(parse("sensitive:TOKEN= s3cr3t\n")).toEqual({ TOKEN: { value: " s3cr3t", sensitive: true } })
+      expect(parse("sensitive:TOKEN= s3cr3t\n")).toEqual({
+        TOKEN: { value: " s3cr3t", sensitive: true },
+      })
     })
 
     it("skips an invalid or empty key after the prefix", () => {
-      expect(parseBlockOutputsContent("sensitive:bad-key=x\nsensitive:=y\nsensitive:1ABC=z\n")).toEqual({})
+      expect(
+        parseBlockOutputsContent("sensitive:bad-key=x\nsensitive:=y\nsensitive:1ABC=z\n"),
+      ).toEqual({})
     })
 
     it("recognises only the exact lowercase prefix", () => {
@@ -413,7 +395,9 @@ describe("parseBlockOutputsContent", () => {
     })
 
     it("doesn't treat sensitive: inside a value as a marker", () => {
-      expect(parse("NOTE=sensitive:TOKEN=x\n")).toEqual({ NOTE: { value: "sensitive:TOKEN=x", sensitive: false } })
+      expect(parse("NOTE=sensitive:TOKEN=x\n")).toEqual({
+        NOTE: { value: "sensitive:TOKEN=x", sensitive: false },
+      })
     })
 
     it("keeps a key sensitive when a later plain line rewrites it", () => {
@@ -436,10 +420,7 @@ describe("captureFilesFromDir", () => {
       "/src/file1.txt": "hello",
       "/src/file2.json": '{"a":1}',
     }
-    const result = await runFs(
-      captureFilesFromDir("/src", "/dest"),
-      files,
-    )
+    const result = await runFs(captureFilesFromDir("/src", "/dest"), files)
     expect(result).toHaveLength(2)
     expect(result.map((f) => f.path).sort()).toEqual(["file1.txt", "file2.json"])
     // Files should be copied to dest
@@ -457,20 +438,14 @@ describe("captureFilesFromDir", () => {
     const files: Record<string, string> = {
       "/src/sub/deep/file.txt": "nested",
     }
-    const result = await runFs(
-      captureFilesFromDir("/src", "/dest"),
-      files,
-    )
+    const result = await runFs(captureFilesFromDir("/src", "/dest"), files)
     expect(result).toHaveLength(1)
-    expect(result[0].path).toBe("sub/deep/file.txt")
+    expect(result[0]!.path).toBe("sub/deep/file.txt")
   })
 
   it("reports file sizes", async () => {
-    const result = await runFs(
-      captureFilesFromDir("/src", "/dest"),
-      { "/src/file.txt": "12345" },
-    )
-    expect(result[0].size).toBe(5)
+    const result = await runFs(captureFilesFromDir("/src", "/dest"), { "/src/file.txt": "12345" })
+    expect(result[0]!.size).toBe(5)
   })
 })
 
@@ -479,18 +454,12 @@ describe("captureFilesFromDir", () => {
 // ---------------------------------------------------------------------------
 
 describe("isValidEnvVarName", () => {
-  it.each([
-    "PATH",
-    "HOME",
-    "_PRIVATE",
-    "__DOUBLE",
-    "FOO_BAR_BAZ",
-    "x",
-    "A1",
-    "_",
-  ])("accepts %s", (name) => {
-    expect(isValidEnvVarName(name)).toBe(true)
-  })
+  it.each(["PATH", "HOME", "_PRIVATE", "__DOUBLE", "FOO_BAR_BAZ", "x", "A1", "_"])(
+    "accepts %s",
+    (name) => {
+      expect(isValidEnvVarName(name)).toBe(true)
+    },
+  )
 
   it.each([
     "", // empty
@@ -515,8 +484,7 @@ describe("isValidEnvVarName", () => {
 // depend on. Skipped on Windows (no /bin/bash) and when bash isn't on PATH.
 // ---------------------------------------------------------------------------
 
-const bashAvailable =
-  process.platform !== "win32" && nodeFs.existsSync("/bin/bash")
+const bashAvailable = process.platform !== "win32" && nodeFs.existsSync("/bin/bash")
 
 const skipIfNoBash = bashAvailable ? describe : describe.skip
 
@@ -703,24 +671,22 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
     expect(result.capturedEnv!.MY_VAR).toBe("hello")
   })
 
-  it.each([
-    "trap EXIT",
-    "trap 0",
-    "trap -- - EXIT",
-    "trap 0 INT",
-  ])("'%s' resets the user's EXIT handler and still runs env capture", (reset) => {
-    const result = runWrapped(
-      `trap 'echo SHOULD_NOT_RUN' EXIT
+  it.each(["trap EXIT", "trap 0", "trap -- - EXIT", "trap 0 INT"])(
+    "'%s' resets the user's EXIT handler and still runs env capture",
+    (reset) => {
+      const result = runWrapped(
+        `trap 'echo SHOULD_NOT_RUN' EXIT
        ${reset}
        export AFTER_RESET=yes
        echo done`,
-    )
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("done")
-    expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
-    expect(result.capturedEnv).not.toBeNull()
-    expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
-  })
+      )
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain("done")
+      expect(result.stdout).not.toContain("SHOULD_NOT_RUN")
+      expect(result.capturedEnv).not.toBeNull()
+      expect(result.capturedEnv!.AFTER_RESET).toBe("yes")
+    },
+  )
 
   it("the trap override works under set -euo pipefail", () => {
     const result = runWrapped(
@@ -821,10 +787,13 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   // that every line does and drops it, so tests can compare whole lines.
   const LOG_TIMESTAMP = /^\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] /
   const logLines = (text: string) =>
-    text.split("\n").filter(Boolean).map((line) => {
-      expect(line).toMatch(LOG_TIMESTAMP)
-      return line.replace(LOG_TIMESTAMP, "")
-    })
+    text
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        expect(line).toMatch(LOG_TIMESTAMP)
+        return line.replace(LOG_TIMESTAMP, "")
+      })
 
   it("log_info/warn/error append timestamped lines to RUNBOOK_LOG, never stdout or stderr", () => {
     const result = runWrapped(
@@ -957,10 +926,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
       "[DEBUG] debug-msg",
     ]
     const unwritable = { RUNBOOK_LOG: "/nonexistent-runbooks-log-dir/runbook.log" }
-    const loggingSh = nodePath.resolve(
-      import.meta.dirname,
-      "../../../scripts/logging.sh",
-    )
+    const loggingSh = nodePath.resolve(import.meta.dirname, "../../../scripts/logging.sh")
     const tmp = makeTmp()
     try {
       const logFiles = makeLogFiles(tmp)
@@ -1005,9 +971,7 @@ skipIfNoBash("wrapBashScript (real bash)", () => {
   })
 
   it("captures the working directory the user cd'd into", () => {
-    const tmp = nodeFs.realpathSync(
-      nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "pwd-test-")),
-    )
+    const tmp = nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "pwd-test-")))
     try {
       const result = runWrapped(`cd ${JSON.stringify(tmp)}\necho here`)
       expect(result.exitCode).toBe(0)

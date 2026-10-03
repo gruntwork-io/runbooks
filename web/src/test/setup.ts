@@ -1,6 +1,6 @@
-import '@testing-library/jest-dom'
-import { expect, vi } from 'vitest'
-import { Equal, Redacted } from 'effect'
+import "@testing-library/jest-dom"
+import { expect, vi } from "vitest"
+import { Equal, Redacted } from "effect"
 
 // A Redacted (a sensitive block output) keeps its value outside the object, so
 // structural equality would call any two of them equal, whatever they hold.

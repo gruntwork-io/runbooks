@@ -3,15 +3,15 @@ import type { GitHubApiError } from "../errors/index.ts"
 
 export interface GitHubUser {
   readonly login: string
-  readonly name?: string
-  readonly avatarUrl?: string
-  readonly email?: string
+  readonly name?: string | undefined
+  readonly avatarUrl?: string | undefined
+  readonly email?: string | undefined
 }
 
 export interface GitHubTokenValidation {
   readonly user: GitHubUser
   /** Scopes parsed from the X-OAuth-Scopes response header. Undefined for fine-grained PATs and GitHub App tokens. */
-  readonly scopes?: string[]
+  readonly scopes?: string[] | undefined
 }
 
 export interface DeviceFlowStart {
@@ -24,19 +24,19 @@ export interface DeviceFlowStart {
 }
 
 export interface OAuthPollResult {
-  readonly token?: string
+  readonly token?: string | undefined
   readonly pending?: boolean
   /** GitHub answered slow_down: poll less often (RFC 8628 §3.5). */
   readonly slowDown?: boolean
   /** The minimum poll interval in seconds GitHub sent with slow_down. */
-  readonly interval?: number
+  readonly interval?: number | undefined
 }
 
 export interface GitHubOrg {
   /** GitHub numeric database ID — stable across renames. */
   readonly id: number
   readonly login: string
-  readonly name?: string
+  readonly name?: string | undefined
 }
 
 export interface GitHubRepo {
@@ -59,7 +59,7 @@ export interface CreatePRParams {
   readonly owner: string
   readonly repo: string
   readonly title: string
-  readonly body?: string
+  readonly body?: string | undefined
   readonly baseBranch: string
   readonly headBranch: string
 }
@@ -70,7 +70,12 @@ export interface PullRequestResult {
   readonly branch: string
 }
 
-export type GitHubTokenType = "classic_pat" | "fine_grained_pat" | "oauth" | "github_app" | "unknown"
+export type GitHubTokenType =
+  | "classic_pat"
+  | "fine_grained_pat"
+  | "oauth"
+  | "github_app"
+  | "unknown"
 
 /**
  * Every method takes an optional trailing `host` — the GitHub host to target
@@ -80,16 +85,59 @@ export type GitHubTokenType = "classic_pat" | "fine_grained_pat" | "oauth" | "gi
  * sent to a host other than the one the caller named.
  */
 export interface GitHubClientShape {
-  readonly validateToken: (token: string, host?: string) => Effect.Effect<GitHubTokenValidation, GitHubApiError>
-  readonly startOAuthDeviceFlow: (clientId: string, scopes: string[], host?: string) => Effect.Effect<DeviceFlowStart, GitHubApiError>
-  readonly pollOAuthToken: (clientId: string, deviceCode: string, host?: string) => Effect.Effect<OAuthPollResult, GitHubApiError>
+  readonly validateToken: (
+    token: string,
+    host?: string,
+  ) => Effect.Effect<GitHubTokenValidation, GitHubApiError>
+  readonly startOAuthDeviceFlow: (
+    clientId: string,
+    scopes: string[],
+    host?: string,
+  ) => Effect.Effect<DeviceFlowStart, GitHubApiError>
+  readonly pollOAuthToken: (
+    clientId: string,
+    deviceCode: string,
+    host?: string,
+  ) => Effect.Effect<OAuthPollResult, GitHubApiError>
   readonly listOrgs: (token: string, host?: string) => Effect.Effect<GitHubOrg[], GitHubApiError>
-  readonly listRepos: (token: string, owner: string, query?: string, host?: string) => Effect.Effect<GitHubRepo[], GitHubApiError>
-  readonly getRepo: (token: string, owner: string, repo: string, host?: string) => Effect.Effect<GitHubRepo, GitHubApiError>
-  readonly listRefs: (token: string, owner: string, repo: string, query?: string, host?: string) => Effect.Effect<GitHubRef[], GitHubApiError>
-  readonly listLabels: (token: string, owner: string, repo: string, host?: string) => Effect.Effect<string[], GitHubApiError>
-  readonly createPullRequest: (token: string, params: CreatePRParams, host?: string) => Effect.Effect<PullRequestResult, GitHubApiError>
-  readonly addLabels: (token: string, owner: string, repo: string, prNumber: number, labels: string[], host?: string) => Effect.Effect<void, GitHubApiError>
+  readonly listRepos: (
+    token: string,
+    owner: string,
+    query?: string,
+    host?: string,
+  ) => Effect.Effect<GitHubRepo[], GitHubApiError>
+  readonly getRepo: (
+    token: string,
+    owner: string,
+    repo: string,
+    host?: string,
+  ) => Effect.Effect<GitHubRepo, GitHubApiError>
+  readonly listRefs: (
+    token: string,
+    owner: string,
+    repo: string,
+    query?: string,
+    host?: string,
+  ) => Effect.Effect<GitHubRef[], GitHubApiError>
+  readonly listLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    host?: string,
+  ) => Effect.Effect<string[], GitHubApiError>
+  readonly createPullRequest: (
+    token: string,
+    params: CreatePRParams,
+    host?: string,
+  ) => Effect.Effect<PullRequestResult, GitHubApiError>
+  readonly addLabels: (
+    token: string,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    labels: string[],
+    host?: string,
+  ) => Effect.Effect<void, GitHubApiError>
 }
 
 export class GitHubClient extends Context.Tag("GitHubClient")<GitHubClient, GitHubClientShape>() {}

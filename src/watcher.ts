@@ -26,9 +26,7 @@ const DEBOUNCE_MS = 300
  * (e.g. "Runbook.mdx").
  */
 const isSameFile = (a: string, b: string, platform: NodeJS.Platform): boolean =>
-  platform === "darwin" || platform === "win32"
-    ? a.toLowerCase() === b.toLowerCase()
-    : a === b
+  platform === "darwin" || platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -85,7 +83,10 @@ export const createScriptWatcher = (
 ): Effect.Effect<Stream.Stream<string[], FileWatchError>, never, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-    const scripts = scriptPaths.map((scriptPath) => ({ scriptPath, file: path.resolve(scriptPath) }))
+    const scripts = scriptPaths.map((scriptPath) => ({
+      scriptPath,
+      file: path.resolve(scriptPath),
+    }))
     const watchDirs = [...new Set(scripts.map((script) => path.dirname(script.file)))]
 
     // The debounce keeps only the last event of a burst, so the scripts

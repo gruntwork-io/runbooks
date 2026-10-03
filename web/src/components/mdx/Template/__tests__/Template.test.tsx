@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, act, fireEvent } from "@testing-library/react"
+import { useEffect } from "react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
@@ -55,7 +56,10 @@ function renderTemplate(props: Record<string, unknown> = {}) {
 // Captures the live RunbookContext so tests can play the part of an upstream <Inputs> block.
 let ctx: RunbookContextType
 function CaptureContext() {
-  ctx = useRunbookContext()
+  const value = useRunbookContext()
+  useEffect(() => {
+    ctx = value
+  })
   return null
 }
 
@@ -71,7 +75,12 @@ function setUpstreamRegion(region: string) {
 
 // Long enough for useFormState's 50 ms trailing debounce to fire.
 async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, 120)))
+  await act(
+    () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 120)
+      }),
+  )
 }
 
 function renderedRegions() {
@@ -88,7 +97,9 @@ describe("Template", () => {
   beforeEach(() => {
     mockConfigReturn = {
       data: {
-        variables: [{ name: "region", type: "string", description: "AWS region", default: "us-east-1" }],
+        variables: [
+          { name: "region", type: "string", description: "AWS region", default: "us-east-1" },
+        ],
         outputDependencies: [],
       },
       isLoading: false,
@@ -148,7 +159,13 @@ describe("Template", () => {
         ...mockConfigReturn,
         data: {
           variables: [
-            { name: "region", type: "string", description: "", default: "tpl-default", validations: [{ type: "required" }] },
+            {
+              name: "region",
+              type: "string",
+              description: "",
+              default: "tpl-default",
+              validations: [{ type: "required" }],
+            },
             { name: "name", type: "string", description: "", default: "app" },
           ],
           outputDependencies: [],
@@ -201,7 +218,8 @@ describe("Template", () => {
   describe("sensitive outputs", () => {
     function renderedTokens() {
       return renderMock.autoRender.mock.calls.map(
-        ([, vars]) => (vars as { outputs: Record<string, Record<string, unknown>> }).outputs.mint?.token,
+        ([, vars]) =>
+          (vars as { outputs: Record<string, Record<string, unknown>> }).outputs.mint?.token,
       )
     }
 

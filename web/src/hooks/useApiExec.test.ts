@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
-import { useApiExec } from './useApiExec'
-import { isSensitiveOutput, revealOutputs } from '@/lib/outputValues'
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { renderHook, act, waitFor } from "@testing-library/react"
+import { useApiExec } from "./useApiExec"
+import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 
 // =============================================================================
 // useApiExec IPC State Machine Tests
@@ -35,7 +35,7 @@ function createMockWindowApi() {
     invoke: vi.fn((channel: string, ..._args: unknown[]) => {
       // Fire-and-forget channels (e.g. exec:cancel) resolve immediately so they
       // don't clobber the pending exec:run resolver the tests drive by hand.
-      if (channel !== 'exec:run') {
+      if (channel !== "exec:run") {
         return Promise.resolve({ ok: true })
       }
       return new Promise<unknown>((resolve, reject) => {
@@ -79,7 +79,7 @@ function createMockWindowApi() {
   }
 }
 
-describe('useApiExec state machine', () => {
+describe("useApiExec state machine", () => {
   let mock: ReturnType<typeof createMockWindowApi>
   let originalApi: typeof window.api
 
@@ -94,30 +94,30 @@ describe('useApiExec state machine', () => {
     vi.restoreAllMocks()
   })
 
-  it('starts in pending state', () => {
+  it("starts in pending state", () => {
     const { result } = renderHook(() => useApiExec())
 
-    expect(result.current.state.status).toBe('pending')
+    expect(result.current.state.status).toBe("pending")
     expect(result.current.state.logs).toEqual([])
     expect(result.current.state.exitCode).toBeNull()
     expect(result.current.state.error).toBeNull()
   })
 
-  it('happy path: pending -> running -> logs arrive -> success', async () => {
+  it("happy path: pending -> running -> logs arrive -> success", async () => {
     const { result } = renderHook(() => useApiExec())
 
     // Execute
     act(() => {
-      result.current.execute('test-executable', { region: 'us-west-2' })
+      result.current.execute("test-executable", { region: "us-west-2" })
     })
 
     // Should transition to running immediately
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
 
     // Verify invoke was called with correct payload (plus a generated executionId)
-    expect(mock.api.invoke).toHaveBeenCalledWith('exec:run', {
-      executableId: 'test-executable',
-      templateVarValues: { region: 'us-west-2' },
+    expect(mock.api.invoke).toHaveBeenCalledWith("exec:run", {
+      executableId: "test-executable",
+      templateVarValues: { region: "us-west-2" },
       envVarsOverride: undefined,
       usePty: undefined,
       timeoutMs: undefined,
@@ -126,82 +126,82 @@ describe('useApiExec state machine', () => {
 
     // Simulate IPC events from main process
     act(() => {
-      mock.emit('exec:log', { line: 'Starting...', timestamp: '2024-01-01T00:00:00Z' })
-      mock.emit('exec:log', { line: 'Done!', timestamp: '2024-01-01T00:00:01Z' })
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit("exec:log", { line: "Starting...", timestamp: "2024-01-01T00:00:00Z" })
+      mock.emit("exec:log", { line: "Done!", timestamp: "2024-01-01T00:00:01Z" })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
 
     expect(result.current.state.exitCode).toBe(0)
     expect(result.current.state.error).toBeNull()
     expect(result.current.state.logs).toHaveLength(2)
-    expect(result.current.state.logs[0].line).toBe('Starting...')
-    expect(result.current.state.logs[1].line).toBe('Done!')
+    expect(result.current.state.logs[0]!.line).toBe("Starting...")
+    expect(result.current.state.logs[1]!.line).toBe("Done!")
   })
 
-  it('status fail event: running -> fail with exit code', async () => {
+  it("status fail event: running -> fail with exit code", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('failing-script')
+      result.current.execute("failing-script")
     })
 
     act(() => {
-      mock.emit('exec:log', { line: 'Running...', timestamp: '2024-01-01T00:00:00Z' })
-      mock.emit('exec:status', { status: 'fail', exitCode: 1 })
+      mock.emit("exec:log", { line: "Running...", timestamp: "2024-01-01T00:00:00Z" })
+      mock.emit("exec:status", { status: "fail", exitCode: 1 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('fail'))
+    await waitFor(() => expect(result.current.state.status).toBe("fail"))
     expect(result.current.state.exitCode).toBe(1)
   })
 
-  it('IPC error: invoke rejection -> fail with error', async () => {
+  it("IPC error: invoke rejection -> fail with error", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
 
     act(() => {
-      mock.rejectInvoke(new Error('IPC channel not found'))
+      mock.rejectInvoke(new Error("IPC channel not found"))
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('fail'))
+    await waitFor(() => expect(result.current.state.status).toBe("fail"))
     expect(result.current.state.error).not.toBeNull()
-    expect(result.current.state.error!.message).toContain('An unexpected error occurred')
+    expect(result.current.state.error!.message).toContain("An unexpected error occurred")
   })
 
-  it('cancel: running -> pending with cancellation log', async () => {
+  it("cancel: running -> pending with cancellation log", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('long-running-script')
+      result.current.execute("long-running-script")
     })
 
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
 
     // Cancel the execution
     act(() => {
       result.current.cancel()
     })
 
-    expect(result.current.state.status).toBe('pending')
-    const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
-    expect(lastLog.line).toContain('cancelled')
+    expect(result.current.state.status).toBe("pending")
+    const lastLog = result.current.state.logs.at(-1)
+    expect(lastLog?.line).toContain("cancelled")
   })
 
-  it('cancel sends exec:cancel targeting the running execution id', async () => {
+  it("cancel sends exec:cancel targeting the running execution id", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('long-running-script')
+      result.current.execute("long-running-script")
     })
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
 
     act(() => {
       result.current.cancel()
@@ -209,29 +209,29 @@ describe('useApiExec state machine', () => {
 
     // Cancel must name an executionId so the backend interrupts *this* run,
     // rather than blindly cancelling whatever is currently active.
-    expect(mock.api.invoke).toHaveBeenCalledWith('exec:cancel', {
+    expect(mock.api.invoke).toHaveBeenCalledWith("exec:cancel", {
       executionId: expect.any(String),
     })
-    expect(result.current.state.status).toBe('pending')
+    expect(result.current.state.status).toBe("pending")
   })
 
-  it('reconciles final status from the invoke result when the status event is dropped', async () => {
+  it("reconciles final status from the invoke result when the status event is dropped", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('long-running-script')
+      result.current.execute("long-running-script")
     })
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
 
     // No exec:status event is emitted (it was dropped: detached listeners, a
     // newer run claimed activeExecId, or the main process suppressed sends). The
     // invoke still resolves with the authoritative result, which must move the UI
     // off "running" — this is the fix for a finished block stuck on "running".
     await act(async () => {
-      mock.resolveInvoke({ status: { status: 'success', exitCode: 0 } })
+      mock.resolveInvoke({ status: { status: "success", exitCode: 0 } })
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
     expect(result.current.state.exitCode).toBe(0)
   })
 
@@ -244,50 +244,50 @@ describe('useApiExec state machine', () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('long-running-script')
+      result.current.execute("long-running-script")
     })
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
 
     await act(async () => {
       mock.resolveInvoke({ status: null, cancelled: true })
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('pending'))
-    const lastLog = result.current.state.logs[result.current.state.logs.length - 1]
-    expect(lastLog.line).toContain('another block was run')
+    await waitFor(() => expect(result.current.state.status).toBe("pending"))
+    const lastLog = result.current.state.logs.at(-1)
+    expect(lastLog?.line).toContain("another block was run")
   })
 
-  it('a block interrupted by a second block does not stay stuck on running', async () => {
+  it("a block interrupted by a second block does not stay stuck on running", async () => {
     const first = renderHook(() => useApiExec())
     const second = renderHook(() => useApiExec())
 
     act(() => {
-      first.result.current.execute('slow-script')
+      first.result.current.execute("slow-script")
     })
-    expect(first.result.current.state.status).toBe('running')
+    expect(first.result.current.state.status).toBe("running")
 
     // Second block starts before the first finishes. The main process aborts
     // the first run and kills its process group, then resolves its invoke with
     // no status — and the first block's listeners are already ignoring events
     // because the newer run owns activeExecId.
     act(() => {
-      second.result.current.execute('other-script')
+      second.result.current.execute("other-script")
     })
-    expect(second.result.current.state.status).toBe('running')
+    expect(second.result.current.state.status).toBe("running")
 
     await act(async () => {
       mock.resolveInvokeNth(0, { status: null, cancelled: true })
     })
 
-    await waitFor(() => expect(first.result.current.state.status).toBe('pending'))
-    expect(second.result.current.state.status).toBe('running')
+    await waitFor(() => expect(first.result.current.state.status).toBe("pending"))
+    expect(second.result.current.state.status).toBe("running")
   })
 
-  it('does not explain the stop twice when the user cancelled it', async () => {
+  it("does not explain the stop twice when the user cancelled it", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('long-running-script')
+      result.current.execute("long-running-script")
     })
     act(() => {
       result.current.cancel()
@@ -298,21 +298,21 @@ describe('useApiExec state machine', () => {
     })
 
     const lines = result.current.state.logs.map((l) => l.line)
-    expect(lines.filter((l) => l.includes('cancelled by user'))).toHaveLength(1)
-    expect(lines.some((l) => l.includes('another block was run'))).toBe(false)
+    expect(lines.filter((l) => l.includes("cancelled by user"))).toHaveLength(1)
+    expect(lines.some((l) => l.includes("another block was run"))).toBe(false)
   })
 
-  it('cancel still targets this run after its invoke has already resolved', async () => {
+  it("cancel still targets this run after its invoke has already resolved", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('long-running-script')
+      result.current.execute("long-running-script")
     })
     const runCalls = vi
       .mocked(mock.api.invoke)
-      .mock.calls.filter(([channel]) => channel === 'exec:run')
+      .mock.calls.filter(([channel]) => channel === "exec:run")
     expect(runCalls).toHaveLength(1)
-    const { executionId } = runCalls[0][1] as { executionId: string }
+    const { executionId } = runCalls[0]![1] as { executionId: string }
 
     // The invoke settles (aborted by a newer run) — which used to clear the id
     // Stop depends on, leaving the button wired to nothing.
@@ -324,23 +324,23 @@ describe('useApiExec state machine', () => {
       result.current.cancel()
     })
 
-    expect(mock.api.invoke).toHaveBeenCalledWith('exec:cancel', { executionId })
+    expect(mock.api.invoke).toHaveBeenCalledWith("exec:cancel", { executionId })
   })
 
-  it('reset: clears all state back to initial', async () => {
+  it("reset: clears all state back to initial", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
     act(() => {
-      mock.emit('exec:log', { line: 'Output', timestamp: '2024-01-01T00:00:00Z' })
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit("exec:log", { line: "Output", timestamp: "2024-01-01T00:00:00Z" })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
     expect(result.current.state.logs).toHaveLength(1)
 
     // Reset
@@ -348,86 +348,89 @@ describe('useApiExec state machine', () => {
       result.current.reset()
     })
 
-    expect(result.current.state.status).toBe('pending')
+    expect(result.current.state.status).toBe("pending")
     expect(result.current.state.logs).toEqual([])
     expect(result.current.state.exitCode).toBeNull()
     expect(result.current.state.error).toBeNull()
     expect(result.current.state.outputs).toBeNull()
   })
 
-  it('outputs event: captures block outputs and invokes callback', async () => {
+  it("outputs event: captures block outputs and invokes callback", async () => {
     const onOutputsCaptured = vi.fn()
     const { result } = renderHook(() => useApiExec({ onOutputsCaptured }))
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
     act(() => {
-      mock.emit('exec:outputs', {
+      mock.emit("exec:outputs", {
         outputs: {
-          account_id: { value: '123', sensitive: false },
-          region: { value: 'us-west-2', sensitive: false },
+          account_id: { value: "123", sensitive: false },
+          region: { value: "us-west-2", sensitive: false },
         },
       })
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
 
-    expect(result.current.state.outputs).toEqual({ account_id: '123', region: 'us-west-2' })
-    expect(onOutputsCaptured).toHaveBeenCalledWith({ account_id: '123', region: 'us-west-2' })
+    expect(result.current.state.outputs).toEqual({ account_id: "123", region: "us-west-2" })
+    expect(onOutputsCaptured).toHaveBeenCalledWith({ account_id: "123", region: "us-west-2" })
   })
 
-  it('outputs event: wraps a sensitive output again, keeping its real value for downstream blocks', async () => {
+  it("outputs event: wraps a sensitive output again, keeping its real value for downstream blocks", async () => {
     const onOutputsCaptured = vi.fn()
     const { result } = renderHook(() => useApiExec({ onOutputsCaptured }))
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
     act(() => {
-      mock.emit('exec:outputs', {
+      mock.emit("exec:outputs", {
         outputs: {
-          AWS_SECRET_ACCESS_KEY: { value: 'topsecret', sensitive: true },
-          region: { value: 'us-west-2', sensitive: false },
+          AWS_SECRET_ACCESS_KEY: { value: "topsecret", sensitive: true },
+          region: { value: "us-west-2", sensitive: false },
         },
       })
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
 
     const outputs = result.current.state.outputs ?? {}
-    expect(isSensitiveOutput(outputs.AWS_SECRET_ACCESS_KEY)).toBe(true)
-    expect(outputs.region).toBe('us-west-2')
-    expect(JSON.stringify(outputs)).not.toContain('topsecret')
+    expect(isSensitiveOutput(outputs.AWS_SECRET_ACCESS_KEY!)).toBe(true)
+    expect(outputs.region).toBe("us-west-2")
+    expect(JSON.stringify(outputs)).not.toContain("topsecret")
     // Downstream blocks get the same wrapped outputs, and read the real value
     // through revealOutput
     expect(onOutputsCaptured).toHaveBeenCalledWith(outputs)
-    expect(revealOutputs(outputs)).toEqual({ AWS_SECRET_ACCESS_KEY: 'topsecret', region: 'us-west-2' })
+    expect(revealOutputs(outputs)).toEqual({
+      AWS_SECRET_ACCESS_KEY: "topsecret",
+      region: "us-west-2",
+    })
   })
 
-  it('files-captured event: passes the backend payload, tree and truncation fields, to the callback', async () => {
+  it("files-captured event: passes the backend payload, tree and truncation fields, to the callback", async () => {
     // The exact shape src/domain/exec/executor.ts emits for a step that wrote
     // main.tf to $GENERATED_FILES.
     const payload = {
-      files: [{ path: 'main.tf', size: 19 }],
+      files: [{ path: "main.tf", size: 19 }],
       count: 1,
       fileTree: [
         {
-          id: 'main.tf',
-          name: 'main.tf',
-          type: 'file',
+          id: "main.tf",
+          name: "main.tf",
+          type: "file",
           children: [],
           file: {
-            name: 'main.tf',
-            path: 'main.tf',
+            name: "main.tf",
+            path: "main.tf",
             content: 'resource "x" "y" {}',
-            language: 'hcl',
+            language: "hcl",
             size: 19,
             isTruncated: false,
           },
@@ -441,90 +444,93 @@ describe('useApiExec state machine', () => {
     const { result } = renderHook(() => useApiExec({ onFilesCaptured }))
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
     act(() => {
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
-      mock.emit('exec:files-captured', payload)
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
+      mock.emit("exec:files-captured", payload)
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
     expect(onFilesCaptured).toHaveBeenCalledTimes(1)
     expect(onFilesCaptured).toHaveBeenCalledWith(payload)
   })
 
-  it('files-captured event without a tree still reaches the callback', async () => {
+  it("files-captured event without a tree still reaches the callback", async () => {
     // Main omits fileTree when it could not read the output dir; the step
     // still captured files, so the git tree must still refresh.
     const onFilesCaptured = vi.fn()
     const { result } = renderHook(() => useApiExec({ onFilesCaptured }))
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
     act(() => {
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
-      mock.emit('exec:files-captured', { files: [{ path: 'main.tf', size: 19 }], count: 1 })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
+      mock.emit("exec:files-captured", { files: [{ path: "main.tf", size: 19 }], count: 1 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
-    expect(onFilesCaptured).toHaveBeenCalledWith({ files: [{ path: 'main.tf', size: 19 }], count: 1 })
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
+    expect(onFilesCaptured).toHaveBeenCalledWith({
+      files: [{ path: "main.tf", size: 19 }],
+      count: 1,
+    })
   })
 
-  it('warn status: exit code 2 sets warn status', async () => {
+  it("warn status: exit code 2 sets warn status", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('warn-script')
+      result.current.execute("warn-script")
     })
 
     act(() => {
-      mock.emit('exec:status', { status: 'warn', exitCode: 2 })
+      mock.emit("exec:status", { status: "warn", exitCode: 2 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('warn'))
+    await waitFor(() => expect(result.current.state.status).toBe("warn"))
     expect(result.current.state.exitCode).toBe(2)
   })
 
-  it('cleans up event subscriptions on next execution', async () => {
+  it("cleans up event subscriptions on next execution", async () => {
     const { result } = renderHook(() => useApiExec())
 
     act(() => {
-      result.current.execute('test-executable')
+      result.current.execute("test-executable")
     })
 
     // Event subscriptions should be registered
-    expect(mock.api.on).toHaveBeenCalledWith('exec:log', expect.any(Function))
-    expect(mock.api.on).toHaveBeenCalledWith('exec:status', expect.any(Function))
-    expect(mock.api.on).toHaveBeenCalledWith('exec:outputs', expect.any(Function))
-    expect(mock.api.on).toHaveBeenCalledWith('exec:files-captured', expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith("exec:log", expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith("exec:status", expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith("exec:outputs", expect.any(Function))
+    expect(mock.api.on).toHaveBeenCalledWith("exec:files-captured", expect.any(Function))
 
     act(() => {
-      mock.emit('exec:status', { status: 'success', exitCode: 0 })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.resolveInvoke()
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe('success'))
+    await waitFor(() => expect(result.current.state.status).toBe("success"))
 
     // After the invoke resolves, listeners are cleaned up on the next
     // macrotask (setTimeout(0)). By the time waitFor settles above, that
     // cleanup has already run, so late events are no longer accepted.
     const logCountAfter = result.current.state.logs.length
     act(() => {
-      mock.emit('exec:log', { line: 'late arriving', timestamp: '2024-01-01T00:00:00Z' })
+      mock.emit("exec:log", { line: "late arriving", timestamp: "2024-01-01T00:00:00Z" })
     })
     expect(result.current.state.logs.length).toBe(logCountAfter)
 
     // Starting a new execution cleans up old listeners
     act(() => {
-      result.current.execute('second-run')
+      result.current.execute("second-run")
     })
-    expect(result.current.state.status).toBe('running')
+    expect(result.current.state.status).toBe("running")
     expect(result.current.state.logs).toEqual([]) // Fresh state
   })
 })

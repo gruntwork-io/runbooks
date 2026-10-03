@@ -1,175 +1,341 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from "vitest"
+import { createElement } from "react"
 import {
+  extractTemplateDependencies,
   extractTemplateDependenciesFromString,
+  requireAllOutputs,
   splitDependencies,
-} from './extractTemplateDependencies'
+} from "./extractTemplateDependencies"
 
-describe('extractTemplateDependenciesFromString', () => {
-  it('should return empty array for empty or null-ish content', () => {
-    expect(extractTemplateDependenciesFromString('')).toEqual([])
+describe("extractTemplateDependenciesFromString", () => {
+  it("should return empty array for empty or null-ish content", () => {
+    expect(extractTemplateDependenciesFromString("")).toEqual([])
     expect(extractTemplateDependenciesFromString(null as unknown as string)).toEqual([])
     expect(extractTemplateDependenciesFromString(undefined as unknown as string)).toEqual([])
   })
 
-  it('should return empty array for content without template expressions', () => {
-    expect(extractTemplateDependenciesFromString('plain text')).toEqual([])
-    expect(extractTemplateDependenciesFromString('no templates here')).toEqual([])
+  it("should return empty array for content without template expressions", () => {
+    expect(extractTemplateDependenciesFromString("plain text")).toEqual([])
+    expect(extractTemplateDependenciesFromString("no templates here")).toEqual([])
   })
 
-  it('should extract input dependencies', () => {
-    const deps = extractTemplateDependenciesFromString('{{ .inputs.region }}')
-    expect(deps).toEqual([
-      { type: 'input', name: 'region' },
-    ])
+  it("should extract input dependencies", () => {
+    const deps = extractTemplateDependenciesFromString("{{ .inputs.region }}")
+    expect(deps).toEqual([{ type: "input", name: "region" }])
   })
 
-  it('should extract multiple input dependencies', () => {
+  it("should extract multiple input dependencies", () => {
     const deps = extractTemplateDependenciesFromString(
-      'deploy --region {{ .inputs.region }} --env {{ .inputs.environment }}'
+      "deploy --region {{ .inputs.region }} --env {{ .inputs.environment }}",
     )
     expect(deps).toEqual([
-      { type: 'input', name: 'region' },
-      { type: 'input', name: 'environment' },
+      { type: "input", name: "region" },
+      { type: "input", name: "environment" },
     ])
   })
 
-  it('should extract output dependencies', () => {
+  it("should extract output dependencies", () => {
+    const deps = extractTemplateDependenciesFromString("{{ .outputs.create_account.account_id }}")
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "create_account",
+        outputName: "account_id",
+        fullPath: "outputs.create_account.account_id",
+      },
+    ])
+  })
+
+  it("should extract mixed input and output dependencies", () => {
     const deps = extractTemplateDependenciesFromString(
-      '{{ .outputs.create_account.account_id }}'
+      "deploy --region {{ .inputs.region }} --account {{ .outputs.create_account.account_id }}",
     )
     expect(deps).toEqual([
-      { type: 'output', blockId: 'create_account', outputName: 'account_id', fullPath: 'outputs.create_account.account_id' },
+      { type: "input", name: "region" },
+      {
+        type: "output",
+        blockId: "create_account",
+        outputName: "account_id",
+        fullPath: "outputs.create_account.account_id",
+      },
     ])
   })
 
-  it('should extract mixed input and output dependencies', () => {
+  it("should handle whitespace trimming markers", () => {
+    const deps = extractTemplateDependenciesFromString("{{- .inputs.region -}}")
+    expect(deps).toEqual([{ type: "input", name: "region" }])
+  })
+
+  it("should handle pipe functions", () => {
     const deps = extractTemplateDependenciesFromString(
-      'deploy --region {{ .inputs.region }} --account {{ .outputs.create_account.account_id }}'
+      "{{ .inputs.name | upper }} {{ .outputs.block.key | lower }}",
     )
     expect(deps).toEqual([
-      { type: 'input', name: 'region' },
-      { type: 'output', blockId: 'create_account', outputName: 'account_id', fullPath: 'outputs.create_account.account_id' },
+      { type: "input", name: "name" },
+      { type: "output", blockId: "block", outputName: "key", fullPath: "outputs.block.key" },
     ])
   })
 
-  it('should handle whitespace trimming markers', () => {
-    const deps = extractTemplateDependenciesFromString('{{- .inputs.region -}}')
-    expect(deps).toEqual([
-      { type: 'input', name: 'region' },
-    ])
-  })
-
-  it('should handle pipe functions', () => {
+  it("should handle expressions inside function calls", () => {
     const deps = extractTemplateDependenciesFromString(
-      '{{ .inputs.name | upper }} {{ .outputs.block.key | lower }}'
+      "{{- range (fromJson .outputs.create_account.json_data) -}}",
     )
     expect(deps).toEqual([
-      { type: 'input', name: 'name' },
-      { type: 'output', blockId: 'block', outputName: 'key', fullPath: 'outputs.block.key' },
+      {
+        type: "output",
+        blockId: "create_account",
+        outputName: "json_data",
+        fullPath: "outputs.create_account.json_data",
+      },
     ])
   })
 
-  it('should handle expressions inside function calls', () => {
-    const deps = extractTemplateDependenciesFromString(
-      '{{- range (fromJson .outputs.create_account.json_data) -}}'
-    )
-    expect(deps).toEqual([
-      { type: 'output', blockId: 'create_account', outputName: 'json_data', fullPath: 'outputs.create_account.json_data' },
-    ])
+  it("should deduplicate identical dependencies", () => {
+    const deps = extractTemplateDependenciesFromString("{{ .inputs.region }} {{ .inputs.region }}")
+    expect(deps).toEqual([{ type: "input", name: "region" }])
   })
 
-  it('should deduplicate identical dependencies', () => {
-    const deps = extractTemplateDependenciesFromString(
-      '{{ .inputs.region }} {{ .inputs.region }}'
-    )
-    expect(deps).toEqual([
-      { type: 'input', name: 'region' },
-    ])
-  })
-
-  it('should normalize block IDs with hyphens for deduplication', () => {
-    const deps = extractTemplateDependenciesFromString(
-      '{{ .outputs.create-account.account_id }}'
-    )
+  it("should normalize block IDs with hyphens for deduplication", () => {
+    const deps = extractTemplateDependenciesFromString("{{ .outputs.create-account.account_id }}")
     expect(deps).toHaveLength(1)
     expect(deps[0]).toEqual({
-      type: 'output',
-      blockId: 'create-account',
-      outputName: 'account_id',
-      fullPath: 'outputs.create_account.account_id',
+      type: "output",
+      blockId: "create-account",
+      outputName: "account_id",
+      fullPath: "outputs.create_account.account_id",
     })
   })
 
-  it('should deduplicate hyphenated and underscored block IDs', () => {
+  it("should deduplicate hyphenated and underscored block IDs", () => {
     const deps = extractTemplateDependenciesFromString(
-      '{{ .outputs.create-account.account_id }} {{ .outputs.create_account.account_id }}'
+      "{{ .outputs.create-account.account_id }} {{ .outputs.create_account.account_id }}",
     )
     // Both resolve to the same normalized path, so only one dep
     expect(deps).toHaveLength(1)
   })
 
-  it('should ignore references outside template delimiters', () => {
+  it("should ignore references outside template delimiters", () => {
     const deps = extractTemplateDependenciesFromString(
-      '// .inputs.region is just a comment\n{{ .inputs.actual }}'
+      "// .inputs.region is just a comment\n{{ .inputs.actual }}",
     )
-    expect(deps).toEqual([
-      { type: 'input', name: 'actual' },
-    ])
+    expect(deps).toEqual([{ type: "input", name: "actual" }])
   })
 
-  it('should handle multiline template content', () => {
+  it("should handle multiline template content", () => {
     const deps = extractTemplateDependenciesFromString(
       `line1 {{ .inputs.region }}
 line2 {{ .outputs.deploy.result }}
-line3 {{ .inputs.env }}`
+line3 {{ .inputs.env }}`,
     )
     expect(deps).toHaveLength(3)
-    expect(deps[0]).toEqual({ type: 'input', name: 'region' })
-    expect(deps[1]).toEqual({ type: 'output', blockId: 'deploy', outputName: 'result', fullPath: 'outputs.deploy.result' })
-    expect(deps[2]).toEqual({ type: 'input', name: 'env' })
+    expect(deps[0]).toEqual({ type: "input", name: "region" })
+    expect(deps[1]).toEqual({
+      type: "output",
+      blockId: "deploy",
+      outputName: "result",
+      fullPath: "outputs.deploy.result",
+    })
+    expect(deps[2]).toEqual({ type: "input", name: "env" })
   })
 
-  it('should not match old-style bare variable syntax', () => {
-    const deps = extractTemplateDependenciesFromString('{{ .region }}')
+  it("should not match old-style bare variable syntax", () => {
+    const deps = extractTemplateDependenciesFromString("{{ .region }}")
     expect(deps).toEqual([])
   })
 
-  it('should not match old-style _blocks syntax', () => {
+  it("should not match old-style _blocks syntax", () => {
     const deps = extractTemplateDependenciesFromString(
-      '{{ ._blocks.create_account.outputs.account_id }}'
+      "{{ ._blocks.create_account.outputs.account_id }}",
     )
     expect(deps).toEqual([])
   })
 
-  it('should ignore output references without an output name', () => {
-    const deps = extractTemplateDependenciesFromString('{{ .outputs.block_only }}')
+  it("should ignore output references without an output name", () => {
+    const deps = extractTemplateDependenciesFromString("{{ .outputs.block_only }}")
     expect(deps).toEqual([])
+  })
+
+  it("should mark an output guarded with hasKey as optional", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("should match a guard on a parenthesized map and backquoted key", () => {
+    const deps = extractTemplateDependenciesFromString(
+      "{{ if hasKey (.outputs.clone_repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "repo_id",
+        fullPath: "outputs.clone_repo.repo_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("should leave outputs the guard does not name required", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }} {{ .outputs.clone_repo.repo_owner }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "repo_owner",
+        fullPath: "outputs.clone_repo.repo_owner",
+      },
+    ])
+  })
+
+  it("should keep an output required when the content also reads it outside the guard", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}a={{ .outputs.clone_repo.org_id }}{{ end }}\nb={{ .outputs.clone_repo.org_id }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
+  })
+
+  it("should ignore references inside a template comment", () => {
+    expect(
+      extractTemplateDependenciesFromString("{{/* needs .outputs.clone_repo.org_id */}}"),
+    ).toEqual([])
+  })
+
+  it("should ignore a hasKey guard outside template delimiters", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '# hasKey .outputs.clone_repo "org_id" is explained here\n{{ .outputs.clone_repo.org_id }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
   })
 })
 
-describe('splitDependencies', () => {
-  it('should split empty array', () => {
+describe("splitDependencies", () => {
+  it("should split empty array", () => {
     const result = splitDependencies([])
     expect(result).toEqual({ inputs: [], outputs: [] })
   })
 
-  it('should split mixed dependencies', () => {
+  it("should split mixed dependencies", () => {
     const deps = extractTemplateDependenciesFromString(
-      '{{ .inputs.region }} {{ .outputs.block.key }}'
+      "{{ .inputs.region }} {{ .outputs.block.key }}",
     )
     const { inputs, outputs } = splitDependencies(deps)
-    expect(inputs).toEqual(['region'])
+    expect(inputs).toEqual(["region"])
     expect(outputs).toEqual([
-      { blockId: 'block', outputName: 'key', fullPath: 'outputs.block.key' },
+      { blockId: "block", outputName: "key", fullPath: "outputs.block.key" },
     ])
   })
 
-  it('should deduplicate within groups', () => {
+  it("should deduplicate within groups", () => {
     const deps = [
-      ...extractTemplateDependenciesFromString('{{ .inputs.region }}'),
-      ...extractTemplateDependenciesFromString('{{ .inputs.region }}'),
+      ...extractTemplateDependenciesFromString("{{ .inputs.region }}"),
+      ...extractTemplateDependenciesFromString("{{ .inputs.region }}"),
     ]
     const { inputs } = splitDependencies(deps)
-    expect(inputs).toEqual(['region'])
+    expect(inputs).toEqual(["region"])
+  })
+
+  it("should keep an output optional only when every reference guards it", () => {
+    const guarded =
+      '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}'
+    const optional = splitDependencies(extractTemplateDependenciesFromString(guarded))
+    expect(optional.outputs).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+
+    const required = splitDependencies([
+      ...extractTemplateDependenciesFromString(guarded),
+      ...extractTemplateDependenciesFromString("{{ .outputs.clone_repo.org_id }}"),
+    ])
+    expect(required.outputs).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+})
+
+describe("extractTemplateDependencies", () => {
+  const guarded =
+    '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}'
+
+  it("should keep an output optional when every string guards it", () => {
+    const children = [createElement("pre", null, guarded), createElement("pre", null, guarded)]
+    expect(extractTemplateDependencies(children)).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("should make an output required when a later string reads it unguarded", () => {
+    const children = [
+      createElement("pre", null, guarded),
+      createElement("pre", null, "{{ .outputs.clone_repo.org_id }}"),
+    ]
+    expect(extractTemplateDependencies(children)).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
+  })
+})
+
+describe("requireAllOutputs", () => {
+  it("should drop the optional flag and leave everything else", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ .inputs.env }}{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}',
+    )
+    expect(requireAllOutputs(deps)).toEqual([
+      { type: "input", name: "env" },
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
   })
 })

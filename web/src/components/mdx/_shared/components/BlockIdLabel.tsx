@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 interface BlockIdLabelProps {
   id: string
   /** Size variant - 'small' for icon column, 'large' for top-right corner */
-  size?: 'small' | 'large'
+  size?: "small" | "large"
 }
 
 /**
@@ -25,13 +25,13 @@ const HOVER_INTENT_MS = 200
  * Callers pin it to the block's top-right corner, so it grows leftward over
  * the block without reflowing anything.
  */
-export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
+export function BlockIdLabel({ id, size = "small" }: BlockIdLabelProps) {
   const { didCopy, copy } = useCopyToClipboard(2000)
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const expanded = hovered || focused
-  const iconSize = size === 'large' ? 'size-3.5' : 'size-2.5'
+  const iconSize = size === "large" ? "size-3.5" : "size-2.5"
 
   useEffect(() => () => clearTimeout(hoverTimer.current), [])
 
@@ -78,26 +78,26 @@ export function BlockIdLabel({ id, size = 'small' }: BlockIdLabelProps) {
       onBlur={() => setFocused(false)}
       // The name stays fixed so name queries like /run/i never match an ID
       // such as "run-setup"; the description lets a screen reader read the ID.
-      aria-label={didCopy ? 'Copied block ID' : 'Copy block ID'}
+      aria-label={didCopy ? "Copied block ID" : "Copy block ID"}
       aria-description={id}
       className={cn(
-        'relative z-20 flex w-fit items-center gap-1.5 whitespace-nowrap rounded font-mono text-muted-foreground select-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-        size === 'large' ? 'text-xs px-1.5 py-0.5' : 'text-[9px] mt-1',
+        "relative z-20 flex w-fit items-center gap-1.5 whitespace-nowrap rounded font-mono text-muted-foreground select-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        size === "large" ? "text-xs px-1.5 py-0.5" : "text-[9px] mt-1",
         // Opaque while expanded: the pill grows leftward over the block header.
-        expanded
-          ? 'bg-popover shadow-sm ring-1 ring-border'
-          : size === 'large' && 'bg-accent/50',
+        expanded ? "bg-popover shadow-sm ring-1 ring-border" : size === "large" && "bg-accent/50",
       )}
     >
       ID
       {expanded && (
         <>
           {/* Long IDs are cut short on screen; a click still copies all of it. */}
-          <span className="min-w-0 max-w-96 truncate font-medium text-popover-foreground">{id}</span>
+          <span className="min-w-0 max-w-96 truncate font-medium text-popover-foreground">
+            {id}
+          </span>
           {didCopy ? (
-            <Check className={cn(iconSize, 'shrink-0 text-success')} />
+            <Check className={cn(iconSize, "shrink-0 text-success")} />
           ) : (
-            <Copy className={cn(iconSize, 'shrink-0')} />
+            <Copy className={cn(iconSize, "shrink-0")} />
           )}
         </>
       )}

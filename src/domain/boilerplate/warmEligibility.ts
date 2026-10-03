@@ -31,9 +31,7 @@ const GLOB_CHARS = /[*?[\]{}]/
  * template directory, so one file under the glob's directory is proof the
  * directory was captured.
  */
-export function partialsOutsideBundle(
-  files: Record<string, string>,
-): string[] {
+export function partialsOutsideBundle(files: Record<string, string>): string[] {
   const missing: string[] = []
 
   for (const [configPath, content] of Object.entries(files)) {
@@ -59,10 +57,7 @@ export function partialsOutsideBundle(
  * precedes the first glob segment. A glob at the bundle root is trusted,
  * since the root template's own files are always captured.
  */
-function globDirectoryCaptured(
-  files: Record<string, string>,
-  resolvedGlob: string,
-): boolean {
+function globDirectoryCaptured(files: Record<string, string>, resolvedGlob: string): boolean {
   const segments = resolvedGlob.split("/")
   const firstGlob = segments.findIndex((s) => GLOB_CHARS.test(s))
   const dir = segments.slice(0, firstGlob).join("/")

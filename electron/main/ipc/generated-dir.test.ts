@@ -129,7 +129,11 @@ describe("generated-files directory", () => {
       absoluteOutputPath: string
       fileCount: number
     }
-    expect(checked).toMatchObject({ hasFiles: true, absoluteOutputPath: generatedDir, fileCount: 1 })
+    expect(checked).toMatchObject({
+      hasFiles: true,
+      absoluteOutputPath: generatedDir,
+      fileCount: 1,
+    })
 
     const deleted = (await invoke("generated-files:delete", {})) as { deletedCount: number }
     expect(deleted.deletedCount).toBe(1)

@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { copyTextToClipboard } from '@/lib/utils'
+import { useState, useCallback, useRef, useEffect } from "react"
+import { copyTextToClipboard } from "@/lib/utils"
 
 /**
  * Hook that manages copy-to-clipboard with a temporary "copied" feedback state.
@@ -11,15 +11,18 @@ export function useCopyToClipboard(duration = 1500) {
   const [didCopy, setDidCopy] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const copy = useCallback(async (text: string) => {
-    const ok = await copyTextToClipboard(text)
-    if (ok) {
-      setDidCopy(true)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setDidCopy(false), duration)
-    }
-    return ok
-  }, [duration])
+  const copy = useCallback(
+    async (text: string) => {
+      const ok = await copyTextToClipboard(text)
+      if (ok) {
+        setDidCopy(true)
+        if (timerRef.current) clearTimeout(timerRef.current)
+        timerRef.current = setTimeout(() => setDidCopy(false), duration)
+      }
+      return ok
+    },
+    [duration],
+  )
 
   // Cleanup on unmount
   useEffect(() => {

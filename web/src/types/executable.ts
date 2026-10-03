@@ -1,8 +1,8 @@
 export interface Executable {
   id: string
-  type: 'inline' | 'file'
+  type: "inline" | "file"
   componentId: string
-  componentType: 'check' | 'command'
+  componentType: "check" | "command"
   contentHash: string
   path?: string
   templateVars?: string[]

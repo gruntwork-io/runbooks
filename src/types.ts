@@ -41,14 +41,7 @@ export interface FileTreeResult {
 // Boilerplate types
 // ---------------------------------------------------------------------------
 
-export type BoilerplateVarType =
-  | "string"
-  | "int"
-  | "float"
-  | "bool"
-  | "list"
-  | "map"
-  | "enum"
+export type BoilerplateVarType = "string" | "int" | "float" | "bool" | "list" | "map" | "enum"
 
 export type BoilerplateValidationType =
   | "required"
@@ -93,6 +86,11 @@ export interface OutputDependency {
   blockId: string
   outputName: string
   fullPath: string
+  /**
+   * The template guards this output with `hasKey`, so the block must have
+   * run but the output itself may be absent.
+   */
+  optional?: boolean
 }
 
 export interface SkipFileRule {
@@ -142,18 +140,6 @@ export interface RenderRequest {
   outputPath?: string
   target?: "generated" | "worktree"
   perf?: RenderPerfContext
-}
-
-export interface RenderResponse extends Partial<FileTreeMeta> {
-  message: string
-  outputDir: string
-  templatePath: string
-  /** Omitted when nothing was written (the no-change shortcut). */
-  fileTree?: FileTreeNode[]
-  deletedFiles: string[]
-  createdFiles: string[]
-  modifiedFiles: string[]
-  skippedFiles: string[]
 }
 
 export interface InputValue {
@@ -208,7 +194,7 @@ export interface GeneratedFilesDeleteResponse {
 export interface ExecRequest {
   executableId?: string
   templateVarValues?: Record<string, unknown>
-  envVarsOverride?: Record<string, string>
+  envVarsOverride?: Record<string, string> | undefined
   /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
   usePty?: boolean
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
@@ -332,9 +318,9 @@ export interface ParsedRemoteSource {
   /** What `git clone` fetches: https, or the transport a git source named. */
   cloneURL: string
   /** Branch, tag or commit. Undefined means the remote's default branch. */
-  ref?: string
+  ref?: string | undefined
   /** Repo-relative path to a runbook directory or file. Undefined means the repo root. */
-  path?: string
+  path?: string | undefined
   /**
    * Browser URLs only: `<ref>/<path>` as the URL spells it. A ref can contain
    * slashes, so resolveRef splits it against the remote's refs.
@@ -361,12 +347,14 @@ export interface WorkspaceTreeNode {
 export interface WorkspaceTreeResponse {
   tree: WorkspaceTreeNode[]
   totalFiles: number
-  gitInfo?: {
-    ref: string
-    refType: string
-    remoteUrl?: string
-    commitSha?: string
-  }
+  gitInfo?:
+    | {
+        ref: string
+        refType: string
+        remoteUrl?: string | undefined
+        commitSha?: string | undefined
+      }
+    | undefined
 }
 
 export interface WorkspaceFileResponse {

@@ -41,7 +41,9 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (pred()) return true
-    await new Promise((r) => setTimeout(r, 50))
+    await new Promise((r) => {
+      setTimeout(r, 50)
+    })
   }
   return pred()
 }
@@ -71,7 +73,7 @@ describe("cancelAllExecutions", () => {
       ),
     )
     setExecutableRegistry(registry)
-    ;[executableId] = Object.keys(registry.getAllExecutables())
+    executableId = Object.keys(registry.getAllExecutables())[0]!
   })
 
   afterEach(() => {
@@ -99,13 +101,19 @@ describe("cancelAllExecutions", () => {
   /** Start long.sh via exec:run and wait until it has recorded its pids. */
   async function startLongRun(executionId: string) {
     fs.rmSync(pidFile, { force: true })
-    const run = handlers.get("exec:run")!({ sender: { send: () => {} } }, { executableId, executionId })
+    const run = handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId },
+    )
     const started = await waitUntil(
-      () => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
+      () =>
+        fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").trim().split(" ").length === 2,
       8000,
     )
     expect(started).toBe(true)
-    const [leaderPid, childPid] = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const pids = fs.readFileSync(pidFile, "utf8").trim().split(" ").map(Number)
+    const leaderPid = pids[0]!
+    const childPid = pids[1]!
     grandchildPids.push(childPid)
     expect(isAlive(childPid)).toBe(true)
     return { run, leaderPid, childPid }
@@ -170,7 +178,10 @@ describe("exec:outputs", () => {
 
     const sent: { channel: string; payload: unknown }[] = []
     const sender = { send: (channel: string, payload: unknown) => sent.push({ channel, payload }) }
-    const result = await handlers.get("exec:run")!({ sender }, { executableId, executionId: "outputs-test" })
+    const result = await handlers.get("exec:run")!(
+      { sender },
+      { executableId, executionId: "outputs-test" },
+    )
 
     expect(result).toEqual({ status: { status: "success", exitCode: 0 } })
     const outputs = sent.filter((s) => s.channel === "exec:outputs").map((s) => s.payload)

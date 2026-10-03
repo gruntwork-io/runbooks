@@ -8,22 +8,25 @@
  */
 import { runtime } from "./runtime.ts"
 import { pollSsoFlow, listSsoRoles } from "../../../src/domain/aws/auth.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 
 export type SsoPollRequest = {
   clientId: string
   clientSecret: string
   deviceCode: string
-  region?: string
+  region?: string | undefined
   accountId?: string
   roleName?: string
 }
 
-export type SsoRolesRequest = { accessToken: string; accountId: string; region?: string }
+export type SsoRolesRequest = {
+  accessToken: string
+  accountId: string
+  region?: string | undefined
+}
 
 /** Every SSO call must go to the region the device flow was started in. */
 const MISSING_REGION = "SSO region is required"
-
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 /**
  * aws:sso-poll — one poll of the device flow. `pending` until the user

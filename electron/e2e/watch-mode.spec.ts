@@ -15,7 +15,13 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts 'watch-mode\.spec'
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
@@ -50,7 +56,12 @@ test.describe("Watch mode", () => {
   async function launch(flags: string[]): Promise<{ app: ElectronApplication; page: Page }> {
     const app = await electron.launch({
       // --user-data-dir isolates the single-instance lock and trust state.
-      args: [MAIN_ENTRY, `--user-data-dir=${path.join(tmpDir, "user-data")}`, ...flags, path.dirname(runbookPath)],
+      args: [
+        MAIN_ENTRY,
+        `--user-data-dir=${path.join(tmpDir, "user-data")}`,
+        ...flags,
+        path.dirname(runbookPath),
+      ],
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
@@ -59,7 +70,9 @@ test.describe("Watch mode", () => {
     })
     const page = await app.firstWindow()
     await page.waitForLoadState("domcontentloaded")
-    await expect(page.getByRole("heading", { name: "Before edit" })).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByRole("heading", { name: "Before edit" })).toBeVisible({
+      timeout: 60_000,
+    })
 
     const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
     if (await trustButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -76,7 +89,9 @@ test.describe("Watch mode", () => {
   async function editRunbook(page: Page): Promise<void> {
     await expect(async () => {
       fs.writeFileSync(runbookPath, runbook("After edit", "watch-after"))
-      await expect(page.getByRole("heading", { name: "After edit" })).toBeVisible({ timeout: 2_000 })
+      await expect(page.getByRole("heading", { name: "After edit" })).toBeVisible({
+        timeout: 2_000,
+      })
     }).toPass({ timeout: 15_000 })
   }
 

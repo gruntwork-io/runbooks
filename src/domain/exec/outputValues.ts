@@ -61,7 +61,7 @@ export function revealOutput(value: OutputValue | undefined): string | undefined
  */
 export function maskOutput(value: OutputValue): string {
   if (!isSensitiveOutput(value)) return value
-  return revealOutput(value) === "" ? "" : String(value)
+  return revealOutput(value) === "" ? "" : "<redacted>"
 }
 
 /** `revealOutput` for each of a block's outputs. */
@@ -94,7 +94,10 @@ export type EncodedOutputValues = Record<string, EncodedOutputValue>
 
 /** Flatten outputs to send over IPC. */
 export function encodeOutputs(values: OutputValues): EncodedOutputValues {
-  return mapValues(values, (value) => ({ value: revealOutput(value), sensitive: isSensitiveOutput(value) }))
+  return mapValues(values, (value) => ({
+    value: revealOutput(value),
+    sensitive: isSensitiveOutput(value),
+  }))
 }
 
 /** Rebuild outputs received over IPC, wrapping the sensitive ones again. */

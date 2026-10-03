@@ -47,7 +47,11 @@ import {
   appendSessionEnvAndRecord,
 } from "./vcs-tristate.ts"
 import { registerSecret } from "../../../src/domain/vcs/redact.ts"
-import { readVcsAuthStore, addRecentGitLabHost, setLastSelectedGitLabHost } from "../recent-hosts.ts"
+import {
+  readVcsAuthStore,
+  addRecentGitLabHost,
+  setLastSelectedGitLabHost,
+} from "../recent-hosts.ts"
 
 type HostSource = "glab" | "env" | "session" | "recent"
 
@@ -74,17 +78,16 @@ async function buildMergedHosts(): Promise<{
   defaultHost: string
 }> {
   // These three sources are independent — resolve them concurrently.
-  const [{ hosts: glabHosts, defaultHost: glabDefault }, allEnv, sessionHost] =
-    await Promise.all([
-      withVcs((vcs) => vcs.enumerateGitLabHosts()),
-      runtime.runPromise(Effect.flatMap(Environment, (environment) => environment.getAll())),
-      runtime.runPromise(
-        sessionManager.getSession().pipe(
-          Effect.map((session) => session.env.get("GITLAB_HOST")),
-          Effect.orElseSucceed(() => undefined),
-        ),
+  const [{ hosts: glabHosts, defaultHost: glabDefault }, allEnv, sessionHost] = await Promise.all([
+    withVcs((vcs) => vcs.enumerateGitLabHosts()),
+    runtime.runPromise(Effect.flatMap(Environment, (environment) => environment.getAll())),
+    runtime.runPromise(
+      sessionManager.getSession().pipe(
+        Effect.map((session) => session.env.get("GITLAB_HOST")),
+        Effect.orElseSucceed(() => undefined),
       ),
-    ])
+    ),
+  ])
   // An unparseable env host yields NO entry — never a silent gitlab.com rebind.
   const envHost = tryNormalizeGitLabHost(configuredEnvHost(allEnv))
   const store = readVcsAuthStore()
@@ -207,11 +210,17 @@ export function registerGitLabHandlers(): void {
       if (result.outcome === "valid") {
         let sessionEnvWarning: string | undefined
         if (params.registerSession && !params.useSessionToken && result.user) {
-          sessionEnvWarning = await appendSessionEnvAndRecord("gitlab", host, "manual", {
-            GITLAB_TOKEN: token,
-            GITLAB_USER: result.user.login,
-            GITLAB_HOST: host,
-          }, generation)
+          sessionEnvWarning = await appendSessionEnvAndRecord(
+            "gitlab",
+            host,
+            "manual",
+            {
+              GITLAB_TOKEN: token,
+              GITLAB_USER: result.user.login,
+              GITLAB_HOST: host,
+            },
+            generation,
+          )
         }
         // every successful GitLab auth persists the pick; a
         // manually-typed instance URL additionally enters the recents.
@@ -268,11 +277,17 @@ export function registerGitLabHandlers(): void {
 
       let sessionEnvWarning: string | undefined
       if (result.outcome === "valid" && result.token) {
-        sessionEnvWarning = await appendSessionEnvAndRecord("gitlab", host, result.source, {
-          GITLAB_TOKEN: result.token,
-          GITLAB_HOST: host,
-          ...(result.user ? { GITLAB_USER: result.user.login } : {}),
-        }, generation)
+        sessionEnvWarning = await appendSessionEnvAndRecord(
+          "gitlab",
+          host,
+          result.source,
+          {
+            GITLAB_TOKEN: result.token,
+            GITLAB_HOST: host,
+            ...(result.user ? { GITLAB_USER: result.user.login } : {}),
+          },
+          generation,
+        )
         setLastSelectedGitLabHost(host)
       }
 
@@ -303,11 +318,17 @@ export function registerGitLabHandlers(): void {
 
       let sessionEnvWarning: string | undefined
       if (result.outcome === "valid" && result.token) {
-        sessionEnvWarning = await appendSessionEnvAndRecord("gitlab", host, result.source, {
-          GITLAB_TOKEN: result.token,
-          GITLAB_HOST: host,
-          ...(result.user ? { GITLAB_USER: result.user.login } : {}),
-        }, generation)
+        sessionEnvWarning = await appendSessionEnvAndRecord(
+          "gitlab",
+          host,
+          result.source,
+          {
+            GITLAB_TOKEN: result.token,
+            GITLAB_HOST: host,
+            ...(result.user ? { GITLAB_USER: result.user.login } : {}),
+          },
+          generation,
+        )
         setLastSelectedGitLabHost(host)
       }
 
@@ -332,7 +353,9 @@ export function registerGitLabHandlers(): void {
         // A bare host or a URL normalizes to the API origin. One that doesn't
         // parse returns no labels rather than asking gitlab.com, as the client
         // itself would refuse it.
-        const baseUrl = tryNormalizeGitLabBaseUrl(params.host ?? (yield* getGitLabSessionBoundHost()))
+        const baseUrl = tryNormalizeGitLabBaseUrl(
+          params.host ?? (yield* getGitLabSessionBoundHost()),
+        )
         if (!baseUrl) {
           return yield* Effect.fail(new Error("No GitLab instance to list labels from"))
         }

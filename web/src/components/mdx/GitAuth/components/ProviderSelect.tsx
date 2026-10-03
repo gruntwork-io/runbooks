@@ -6,7 +6,7 @@ interface ProviderSelectProps {
   onSelect: (provider: GitProvider) => void
 }
 
-const ORDER: readonly GitProvider[] = ['github', 'gitlab'] as const
+const ORDER: readonly GitProvider[] = ["github", "gitlab"] as const
 
 /**
  * A small segmented control to pick the git provider (GitHub / GitLab),
@@ -32,8 +32,8 @@ export function ProviderSelect({ provider, onSelect }: ProviderSelectProps) {
             onClick={() => onSelect(p)}
             className={`px-4 py-2 text-sm font-medium flex items-center gap-2 transition-colors cursor-pointer ${
               active
-                ? 'text-foreground border-b-2 border-primary -mb-px'
-                : 'text-muted-foreground hover:text-foreground'
+                ? "text-foreground border-b-2 border-primary -mb-px"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <cfg.Logo className="size-4" />

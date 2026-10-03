@@ -11,12 +11,16 @@
  */
 export interface GitCloneArgsOptions {
   /** Branch or tag to check out (`--branch`). */
-  readonly ref?: string
+  readonly ref?: string | undefined
   /** Clone blobless and without a checkout, ready for `git sparse-checkout`. */
   readonly sparse?: boolean
 }
 
-export function gitCloneArgs(url: string, dest: string, options: GitCloneArgsOptions = {}): string[] {
+export function gitCloneArgs(
+  url: string,
+  dest: string,
+  options: GitCloneArgsOptions = {},
+): string[] {
   const args = ["clone", "--progress"]
   if (options.sparse) args.push("--filter=blob:none", "--no-checkout")
   if (options.ref) args.push("--branch", options.ref)

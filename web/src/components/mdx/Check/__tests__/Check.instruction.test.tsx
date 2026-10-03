@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
-import { TestWrapper } from '@/test/test-utils'
-import Check from '../Check'
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { render, screen, within } from "@testing-library/react"
+import { TestWrapper } from "@/test/test-utils"
+import Check from "../Check"
 
 const baseExecution = {
-  sourceCode: '',
-  rawScriptContent: 'test -f /etc/hosts',
-  language: 'bash',
+  sourceCode: "",
+  rawScriptContent: "test -f /etc/hosts",
+  language: "bash",
   fileError: null,
   inputValues: {},
   inputDependencies: [] as string[],
@@ -25,7 +25,7 @@ const baseExecution = {
   hasGoogleAuthDependency: true,
   isRendering: false,
   renderError: null,
-  status: 'pending' as string,
+  status: "pending" as string,
   logs: [],
   execError: null,
   execute: vi.fn(),
@@ -39,16 +39,16 @@ const baseExecution = {
 }
 
 let mockExecution = { ...baseExecution }
-vi.mock('@/components/mdx/_shared/hooks/useScriptExecution', () => ({
+vi.mock("@/components/mdx/_shared/hooks/useScriptExecution", () => ({
   useScriptExecution: () => mockExecution,
 }))
 
-vi.mock('@/contexts/useLogs', () => ({
+vi.mock("@/contexts/useLogs", () => ({
   useLogs: () => ({ registerLogs: vi.fn() }),
 }))
 
 let mockEnabled = true
-vi.mock('@/contexts/useInstructionMode', () => ({
+vi.mock("@/contexts/useInstructionMode", () => ({
   useInstructionMode: () => ({ enabled: mockEnabled, setEnabled: vi.fn() }),
 }))
 
@@ -60,19 +60,19 @@ function renderCheck(props: Partial<React.ComponentProps<typeof Check>> = {}) {
   )
 }
 
-describe('Check — instruction mode', () => {
+describe("Check — instruction mode", () => {
   beforeEach(() => {
     mockExecution = { ...baseExecution }
     mockEnabled = true
   })
 
-  it('renders a copyable command and no Check button when the flag is on', () => {
+  it("renders a copyable command and no Check button when the flag is on", () => {
     renderCheck()
-    expect(screen.getByText('test -f /etc/hosts')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^check$/i })).toBeNull()
+    expect(screen.getByText("test -f /etc/hosts")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^check$/i })).toBeNull()
   })
 
-  it('keeps a nested Inputs child, embedded, inside the instruction', () => {
+  it("keeps a nested Inputs child, embedded, inside the instruction", () => {
     const FakeInputs = ({ variant }: { variant?: string }) => (
       <div data-testid="inline-inputs" data-variant={variant} />
     )
@@ -83,13 +83,13 @@ describe('Check — instruction mode', () => {
         </Check>
       </TestWrapper>,
     )
-    const child = within(screen.getByTestId('instruction-test-check')).getByTestId('inline-inputs')
-    expect(child).toHaveAttribute('data-variant', 'embedded')
+    const child = within(screen.getByTestId("instruction-test-check")).getByTestId("inline-inputs")
+    expect(child).toHaveAttribute("data-variant", "embedded")
   })
 
-  it('renders the interactive Check button when the flag is off', () => {
+  it("renders the interactive Check button when the flag is off", () => {
     mockEnabled = false
     renderCheck()
-    expect(screen.getByRole('button', { name: /^check$/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^check$/i })).toBeInTheDocument()
   })
 })

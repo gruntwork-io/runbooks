@@ -12,11 +12,36 @@ import {
 describe("LOG_CHANNELS", () => {
   it("names RUNBOOK_LOG, for the helpers, and then one RUNBOOK_<LEVEL>_LOG file per level", () => {
     expect(logChannelFiles("/tmp/logs", LOG_CHANNELS)).toEqual([
-      { level: null, envVar: "RUNBOOK_LOG", fileName: "runbook.log", path: "/tmp/logs/runbook.log" },
-      { level: "INFO", envVar: "RUNBOOK_INFO_LOG", fileName: "info.log", path: "/tmp/logs/info.log" },
-      { level: "WARN", envVar: "RUNBOOK_WARN_LOG", fileName: "warn.log", path: "/tmp/logs/warn.log" },
-      { level: "ERROR", envVar: "RUNBOOK_ERROR_LOG", fileName: "error.log", path: "/tmp/logs/error.log" },
-      { level: "DEBUG", envVar: "RUNBOOK_DEBUG_LOG", fileName: "debug.log", path: "/tmp/logs/debug.log" },
+      {
+        level: null,
+        envVar: "RUNBOOK_LOG",
+        fileName: "runbook.log",
+        path: "/tmp/logs/runbook.log",
+      },
+      {
+        level: "INFO",
+        envVar: "RUNBOOK_INFO_LOG",
+        fileName: "info.log",
+        path: "/tmp/logs/info.log",
+      },
+      {
+        level: "WARN",
+        envVar: "RUNBOOK_WARN_LOG",
+        fileName: "warn.log",
+        path: "/tmp/logs/warn.log",
+      },
+      {
+        level: "ERROR",
+        envVar: "RUNBOOK_ERROR_LOG",
+        fileName: "error.log",
+        path: "/tmp/logs/error.log",
+      },
+      {
+        level: "DEBUG",
+        envVar: "RUNBOOK_DEBUG_LOG",
+        fileName: "debug.log",
+        path: "/tmp/logs/debug.log",
+      },
     ])
     expect(LOG_CHANNELS).toEqual([RUNBOOK_LOG_CHANNEL, ...LEVEL_LOG_CHANNELS])
   })
@@ -116,7 +141,11 @@ describe("orderLogChannelLines", () => {
           text: "[2026-09-30T12:00:00Z] [INFO]  start\n[2026-09-30T12:00:09Z] [INFO]  done\n",
         },
         // No helper lines at all, and a last line with no newline.
-        { level: "ERROR", text: "raw one\nraw two", lastWritten: new Date("2026-09-30T12:00:04.700Z") },
+        {
+          level: "ERROR",
+          text: "raw one\nraw two",
+          lastWritten: new Date("2026-09-30T12:00:04.700Z"),
+        },
       ]),
     ).toEqual([
       "[2026-09-30T12:00:00Z] [INFO]  start",

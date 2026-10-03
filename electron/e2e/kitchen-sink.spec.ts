@@ -11,7 +11,13 @@
  * Run with:
  *   bunx playwright test --config electron/e2e/playwright.config.ts kitchen-sink
  */
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
+import {
+  test,
+  expect,
+  _electron as electron,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test"
 import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
@@ -544,11 +550,15 @@ test.describe("Error-Free Rendering", () => {
   })
 
   test("no 'Path outside allowed directories' errors", async () => {
-    await expect(page.getByText("Path outside allowed directories", { exact: false })).toHaveCount(0)
+    await expect(page.getByText("Path outside allowed directories", { exact: false })).toHaveCount(
+      0,
+    )
   })
 
   test("no 'path is outside session working directory' errors", async () => {
-    await expect(page.getByText("path is outside session working directory", { exact: false })).toHaveCount(0)
+    await expect(
+      page.getByText("path is outside session working directory", { exact: false }),
+    ).toHaveCount(0)
   })
 
   test("no MDX compilation errors", async () => {

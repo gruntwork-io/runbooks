@@ -17,10 +17,10 @@ import type { AwsClient, AwsClientShape } from "../../../src/services/AwsClient.
 /** This test's AwsClient; each test replaces the calls it cares about. */
 let aws: { -readonly [K in keyof AwsClientShape]?: AwsClientShape[K] } = {}
 
-const runPromise = spyOn(runtime, "runPromise").mockImplementation(
-  (<A, E>(effect: Effect.Effect<A, E, AwsClient>) =>
-    Effect.runPromise(Effect.provide(effect, makeTestAwsClient(aws)))) as typeof runtime.runPromise,
-)
+const runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+  effect: Effect.Effect<A, E, AwsClient>,
+) =>
+  Effect.runPromise(Effect.provide(effect, makeTestAwsClient(aws)))) as typeof runtime.runPromise)
 
 afterAll(() => {
   runPromise.mockRestore()

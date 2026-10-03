@@ -8,6 +8,8 @@ import { Effect } from "effect"
 import YAML from "yaml"
 
 import { BoilerplateConfigError } from "../../errors/index.js"
+import { errorMessage } from "../../errors/message.ts"
+import { scanGuardedCode } from "./outputGuards.ts"
 import type {
   BoilerplateConfig,
   BoilerplateVariable,
@@ -91,9 +93,7 @@ function mapValidationType(raw: string): BoilerplateValidationType {
   return VALIDATION_TYPE_MAP[lower] ?? "custom"
 }
 
-function extractValidations(
-  rawValidations: (RawValidation | string)[] | undefined,
-): {
+function extractValidations(rawValidations: (RawValidation | string)[] | undefined): {
   validations: ValidationRule[]
   isRequired: boolean
 } {
@@ -108,8 +108,7 @@ function extractValidations(
     // Accept the YAML shorthand form (`- required`) alongside the long form
     // (`- type: required`). The upstream gruntwork-io/boilerplate library
     // supports both; the Go parser on main inherited that via delegation.
-    const normalized: RawValidation =
-      typeof rv === "string" ? { type: rv } : rv
+    const normalized: RawValidation = typeof rv === "string" ? { type: rv } : rv
 
     const typeName = normalized.type ?? ""
     const mapped = mapValidationType(typeName)
@@ -161,9 +160,7 @@ function coerceVarType(raw: string | undefined): BoilerplateVarType {
 // Section grouping
 // ---------------------------------------------------------------------------
 
-function buildSections(
-  rawVars: RawVariable[],
-): Section[] {
+function buildSections(rawVars: RawVariable[]): Section[] {
   const sectionVars = new Map<string, string[]>()
   const sectionOrder: string[] = []
   const seen = new Set<string>()
@@ -210,9 +207,7 @@ function buildSections(
 function parseSkipFiles(raw: unknown): SkipFileRule[] {
   if (raw === undefined || raw === null) return []
   if (!Array.isArray(raw)) {
-    console.warn(
-      `[boilerplate config] skip_files must be a list, got ${typeof raw}; ignoring.`,
-    )
+    console.warn(`[boilerplate config] skip_files must be a list, got ${typeof raw}; ignoring.`)
     return []
   }
 
@@ -220,9 +215,7 @@ function parseSkipFiles(raw: unknown): SkipFileRule[] {
   for (let idx = 0; idx < raw.length; idx++) {
     const entry = raw[idx] as RawSkipFile | null | undefined
     if (!entry || typeof entry !== "object") {
-      console.warn(
-        `[boilerplate config] skip_files[${idx}] is not an object; dropping entry.`,
-      )
+      console.warn(`[boilerplate config] skip_files[${idx}] is not an object; dropping entry.`)
       continue
     }
     const pathVal = entry.path
@@ -258,14 +251,16 @@ function parseSkipFiles(raw: unknown): SkipFileRule[] {
  * This is a pure function wrapped in Effect so callers get typed errors via
  * `BoilerplateConfigError`.
  */
-export function parseBoilerplateConfig(yamlContent: string): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
+export function parseBoilerplateConfig(
+  yamlContent: string,
+): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
   return Effect.gen(function* () {
     let raw: RawConfig
     try {
       raw = YAML.parse(yamlContent) as RawConfig
     } catch (err) {
       return yield* new BoilerplateConfigError({
-        message: `Failed to parse boilerplate YAML: ${err instanceof Error ? err.message : String(err)}`,
+        message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
         cause: err,
       })
     }
@@ -351,54 +346,42 @@ export function parseBoilerplateConfig(yamlContent: string): Effect.Effect<Boile
 // ---------------------------------------------------------------------------
 
 /**
- * Regex pair for output dependency extraction. Uses a two-pass approach:
- * blockRegex finds all {{ }} template blocks, then depRegex scans within each
- * block for `.outputs.X.Y` references.
- *
- * Keep in sync with the frontend extractor in
+ * An `.outputs.X.Y` reference. Keep in sync with the frontend extractor in
  * web/src/lib/extractTemplateDependencies.ts.
  */
-const OUTPUT_DEP_BLOCK_REGEX = /\{\{-?([\s\S]*?)-?\}\}/g
 const OUTPUT_DEP_REGEX = /\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)/g
 
 /**
  * Extract `.outputs.blockId.outputName` references from template content.
  * Returns deduplicated dependencies found inside `{{ }}` template blocks.
+ *
+ * An output is optional when every reference to it sits behind a `hasKey`
+ * guard (see scanGuardedCode): the block still has to run, but the Generate
+ * gate no longer waits for that output to exist.
  */
 export function extractOutputDependencies(content: string): OutputDependency[] {
-  const dependencies: OutputDependency[] = []
-  const seen = new Set<string>()
+  const dependencies = new Map<string, OutputDependency>()
 
-  // Reset regex state
-  OUTPUT_DEP_BLOCK_REGEX.lastIndex = 0
+  for (const { code, guarded } of scanGuardedCode(content)) {
+    for (const [, originalBlockId, outputName] of code.matchAll(OUTPUT_DEP_REGEX)) {
+      if (!originalBlockId || !outputName) continue
+      const fullPath = `outputs.${normalizeBlockID(originalBlockId)}.${outputName}`
+      const optional = guarded.has(fullPath)
 
-  let blockMatch: RegExpExecArray | null
-  while ((blockMatch = OUTPUT_DEP_BLOCK_REGEX.exec(content)) !== null) {
-    if (!blockMatch[1]) continue
-    const blockContent = blockMatch[1]
-
-    // Reset inner regex for each block
-    OUTPUT_DEP_REGEX.lastIndex = 0
-
-    let depMatch: RegExpExecArray | null
-    while ((depMatch = OUTPUT_DEP_REGEX.exec(blockContent)) !== null) {
-      if (!depMatch[1] || !depMatch[2]) continue
-
-      const originalBlockId = depMatch[1]
-      const normalizedBlockId = normalizeBlockID(originalBlockId)
-      const outputName = depMatch[2]
-      const fullPath = `outputs.${normalizedBlockId}.${outputName}`
-
-      if (!seen.has(fullPath)) {
-        seen.add(fullPath)
-        dependencies.push({
-          blockId: originalBlockId,
-          outputName,
-          fullPath,
-        })
+      const existing = dependencies.get(fullPath)
+      if (existing) {
+        // One unguarded reference makes the output required.
+        if (!optional) delete existing.optional
+        continue
       }
+      dependencies.set(fullPath, {
+        blockId: originalBlockId,
+        outputName,
+        fullPath,
+        ...(optional ? { optional: true } : {}),
+      })
     }
   }
 
-  return dependencies
+  return [...dependencies.values()]
 }

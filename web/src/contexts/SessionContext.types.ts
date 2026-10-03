@@ -1,4 +1,4 @@
-import { createContext } from 'react'
+import { createContext } from "react"
 
 export interface SessionContextType {
   /** True once the session is established and ready for use */

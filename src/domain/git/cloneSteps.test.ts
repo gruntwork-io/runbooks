@@ -31,7 +31,15 @@ describe("buildCloneSteps", () => {
 
   it("keeps the ref on a sparse clone", () => {
     expect(steps({ ref: "release", repoPath: "modules/vpc" })[0]?.args).toEqual([
-      "clone", "--progress", "--filter=blob:none", "--no-checkout", "--branch", "release", "--", URL, DEST,
+      "clone",
+      "--progress",
+      "--filter=blob:none",
+      "--no-checkout",
+      "--branch",
+      "release",
+      "--",
+      URL,
+      DEST,
     ])
   })
 

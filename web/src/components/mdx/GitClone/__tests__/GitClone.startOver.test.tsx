@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
-import GitClone from ".."
+import { GitClone } from ".."
 
 // Only the IPC boundary and the worktree context are mocked, so the real
 // useGitClone drives the block: these tests cover what starting over withdraws
@@ -110,9 +110,13 @@ describe("GitClone — stopping use of a local checkout", () => {
     // The action sits on the status line the user reads, not in a separate
     // control below the panel, and says what it does: undo the choice.
     expect(
-      within(headerRowOf("Using local checkout")).getByRole("button", { name: /Stop using this repo/i }),
+      within(headerRowOf("Using local checkout")).getByRole("button", {
+        name: /Stop using this repo/i,
+      }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /Choose a different repo/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Choose a different repo/i }),
+    ).not.toBeInTheDocument()
   })
 
   it("withdraws the checkout and returns to the directory form", async () => {

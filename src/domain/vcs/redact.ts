@@ -50,11 +50,7 @@ export function clearRegisteredSecrets(): void {
 }
 
 const URL_CREDENTIAL_PATTERN = /(?:x-access-token|oauth2):[^@\s]+@/g
-const SHAPE_PATTERNS = [
-  /gh[pousr]_[A-Za-z0-9_]{20,}/g,
-  /github_pat_\w{20,}/g,
-  /glpat-[\w-]{15,}/g,
-]
+const SHAPE_PATTERNS = [/gh[pousr]_[A-Za-z0-9_]{20,}/g, /github_pat_\w{20,}/g, /glpat-[\w-]{15,}/g]
 
 export function redactSecrets(input: string): string {
   let output = input

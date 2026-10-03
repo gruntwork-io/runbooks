@@ -155,17 +155,23 @@ export const validateRelativePath = (p: string) =>
   Effect.gen(function* () {
     if (!p) return
     if (isAbsolutePath(p)) {
-      return yield* Effect.fail(new PathValidationError({ path: p, message: "path must be relative" }))
+      return yield* Effect.fail(
+        new PathValidationError({ path: p, message: "path must be relative" }),
+      )
     }
     if (containsPathTraversal(p)) {
-      return yield* Effect.fail(new PathTraversalError({ path: p, message: "path contains '..' traversal" }))
+      return yield* Effect.fail(
+        new PathTraversalError({ path: p, message: "path contains '..' traversal" }),
+      )
     }
   })
 
 export const validateRelativePathIn = (p: string, dir: string) =>
   Effect.gen(function* () {
     if (!p) {
-      return yield* Effect.fail(new PathValidationError({ path: p, message: "path must not be empty" }))
+      return yield* Effect.fail(
+        new PathValidationError({ path: p, message: "path must not be empty" }),
+      )
     }
     yield* validateRelativePath(p)
     const resolved = path.resolve(dir, p)

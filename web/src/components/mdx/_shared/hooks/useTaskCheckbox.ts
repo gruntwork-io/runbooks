@@ -1,6 +1,6 @@
-import { useState, useCallback, useContext } from 'react'
-import { RunbookContext } from '@/contexts/RunbookContext'
-import { runbookStorageKey } from '../lib/runbookStorageKey'
+import { useState, useCallback, useContext } from "react"
+import { RunbookContext } from "@/contexts/RunbookContext"
+import { runbookStorageKey } from "../lib/runbookStorageKey"
 
 /**
  * Tracks the checked state of a GitHub-flavored-markdown task-list checkbox
@@ -16,13 +16,13 @@ import { runbookStorageKey } from '../lib/runbookStorageKey'
  */
 export function useTaskCheckbox(taskKey: string, initialChecked: boolean) {
   const storageScope = useContext(RunbookContext)?.storageScope
-  const key = runbookStorageKey('task-checkbox', storageScope, taskKey)
+  const key = runbookStorageKey("task-checkbox", storageScope, taskKey)
 
   const [checked, setChecked] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem(key)
-      if (stored === 'true') return true
-      if (stored === 'false') return false
+      if (stored === "true") return true
+      if (stored === "false") return false
     } catch {
       /* localStorage unavailable — fall back to the markdown's initial state */
     }

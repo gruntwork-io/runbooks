@@ -79,7 +79,8 @@ describe("reportToFile", () => {
 
 describe("JUnitReporter", () => {
   it("strips ANSI sequences and XML-invalid characters from script output", () => {
-    const error = "Command block 'x' failed\n\n--- Script Output ---\n\x1b[31mboom\x1b[0m\x07\x00 & <done>"
+    const error =
+      "Command block 'x' failed\n\n--- Script Output ---\n\x1b[31mboom\x1b[0m\x07\x00 & <done>"
     const xml = new JUnitReporter().render([makeSuite([{ status: "failed", error }])])
 
     expect(xml).toContain("boom")

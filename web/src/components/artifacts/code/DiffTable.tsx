@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
-import { UnfoldVertical, ArrowUpToLine, ArrowDownToLine } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { buildDiffSections, getExpandedLines, type DiffLine } from '@/lib/unifiedDiff'
+import { useState, useMemo } from "react"
+import { UnfoldVertical, ArrowUpToLine, ArrowDownToLine } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { buildDiffSections, getExpandedLines, type DiffLine } from "@/lib/unifiedDiff"
 
 interface DiffTableProps {
-  diffLines: DiffLine[];
+  diffLines: DiffLine[]
 }
 
 /**
@@ -22,7 +22,7 @@ export const DiffTable = ({ diffLines }: DiffTableProps) => {
   const sections = useMemo(() => buildDiffSections(diffLines), [diffLines])
 
   const toggleSection = (index: number) => {
-    setExpandedSections(prev => {
+    setExpandedSections((prev) => {
       const next = new Set(prev)
       if (next.has(index)) {
         next.delete(index)
@@ -38,7 +38,7 @@ export const DiffTable = ({ diffLines }: DiffTableProps) => {
       <table className="table w-full border-collapse">
         <tbody>
           {sections.map((section, sectionIndex) => {
-            if (section.type === 'collapsed') {
+            if (section.type === "collapsed") {
               const isExpanded = expandedSections.has(sectionIndex)
 
               if (isExpanded) {
@@ -50,12 +50,13 @@ export const DiffTable = ({ diffLines }: DiffTableProps) => {
               }
 
               // Show the expand bar with position-aware icons
-              const position = section.position || 'middle'
-              const ExpandIcon = position === 'top'
-                ? ArrowUpToLine
-                : position === 'bottom'
-                ? ArrowDownToLine
-                : UnfoldVertical
+              const position = section.position || "middle"
+              const ExpandIcon =
+                position === "top"
+                  ? ArrowUpToLine
+                  : position === "bottom"
+                    ? ArrowDownToLine
+                    : UnfoldVertical
 
               return (
                 <tr key={`collapsed-${sectionIndex}`} className="border-0 bg-info-muted">
@@ -86,33 +87,55 @@ export const DiffTable = ({ diffLines }: DiffTableProps) => {
 }
 
 interface DiffLineRowProps {
-  line: DiffLine;
+  line: DiffLine
 }
 
-const diffLineStyles: Record<string, { bg: string; prefix: string; prefixColor: string; lineNumBg: string }> = {
-  addition: { bg: 'bg-success-muted', prefix: '+', prefixColor: 'text-success', lineNumBg: 'bg-success-muted' },
-  deletion: { bg: 'bg-destructive-muted', prefix: '-', prefixColor: 'text-destructive', lineNumBg: 'bg-destructive-muted' },
-  context:  { bg: 'bg-transparent', prefix: ' ', prefixColor: 'text-muted-foreground', lineNumBg: 'bg-muted' },
+const diffLineStyles: Record<
+  DiffLine["type"],
+  { bg: string; prefix: string; prefixColor: string; lineNumBg: string }
+> = {
+  addition: {
+    bg: "bg-success-muted",
+    prefix: "+",
+    prefixColor: "text-success",
+    lineNumBg: "bg-success-muted",
+  },
+  deletion: {
+    bg: "bg-destructive-muted",
+    prefix: "-",
+    prefixColor: "text-destructive",
+    lineNumBg: "bg-destructive-muted",
+  },
+  context: {
+    bg: "bg-transparent",
+    prefix: " ",
+    prefixColor: "text-muted-foreground",
+    lineNumBg: "bg-muted",
+  },
 }
 
 const DiffLineRow = ({ line }: DiffLineRowProps) => {
-  const { bg: bgColor, prefix, prefixColor, lineNumBg } = diffLineStyles[line.type] ?? diffLineStyles.context
+  const { bg: bgColor, prefix, prefixColor, lineNumBg } = diffLineStyles[line.type]
 
   return (
     <tr className={cn("border-0", bgColor)}>
       {/* Old line number */}
-      <td className={cn(
-        "w-12 px-2 py-0 text-right text-muted-foreground select-none border-0 border-r border-border",
-        lineNumBg
-      )}>
-        {line.type !== 'addition' ? line.oldLineNum : ''}
+      <td
+        className={cn(
+          "w-12 px-2 py-0 text-right text-muted-foreground select-none border-0 border-r border-border",
+          lineNumBg,
+        )}
+      >
+        {line.type !== "addition" ? line.oldLineNum : ""}
       </td>
       {/* New line number */}
-      <td className={cn(
-        "w-12 px-2 py-0 text-right text-muted-foreground select-none border-0 border-r border-border",
-        lineNumBg
-      )}>
-        {line.type !== 'deletion' ? line.newLineNum : ''}
+      <td
+        className={cn(
+          "w-12 px-2 py-0 text-right text-muted-foreground select-none border-0 border-r border-border",
+          lineNumBg,
+        )}
+      >
+        {line.type !== "deletion" ? line.newLineNum : ""}
       </td>
       {/* Prefix (+/-/space) */}
       <td className={cn("w-6 border-0 px-1 py-0 text-center select-none font-bold", prefixColor)}>
@@ -120,11 +143,13 @@ const DiffLineRow = ({ line }: DiffLineRowProps) => {
       </td>
       {/* Content */}
       <td className="border-0 px-2 py-0 whitespace-pre">
-        <code className={cn(
-          "rounded-none bg-transparent p-0 text-xs whitespace-pre",
-          line.type === 'addition' && 'text-success',
-          line.type === 'deletion' && 'text-destructive'
-        )}>
+        <code
+          className={cn(
+            "rounded-none bg-transparent p-0 text-xs whitespace-pre",
+            line.type === "addition" && "text-success",
+            line.type === "deletion" && "text-destructive",
+          )}
+        >
           {line.content}
         </code>
       </td>

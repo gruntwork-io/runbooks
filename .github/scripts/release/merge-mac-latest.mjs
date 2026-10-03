@@ -23,34 +23,32 @@
 // both-arch `electron-builder --mac` run would emit. The output path may be the
 // same as one of the inputs -- all inputs are read before anything is written.
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { parse, stringify, Scalar } from "yaml";
+import { readFileSync, writeFileSync } from "node:fs"
+import { parse, stringify, Scalar } from "yaml"
 
-const [output, ...inputs] = process.argv.slice(2);
+const [output, ...inputs] = process.argv.slice(2)
 if (!output || inputs.length === 0) {
-  console.error(
-    "Usage: merge-mac-latest.mjs <output.yml> <input1.yml> [input2.yml ...]",
-  );
-  process.exit(1);
+  console.error("Usage: merge-mac-latest.mjs <output.yml> <input1.yml> [input2.yml ...]")
+  process.exit(1)
 }
 
-const docs = inputs.map((path) => ({ path, doc: parse(readFileSync(path, "utf8")) }));
+const docs = inputs.map((path) => ({ path, doc: parse(readFileSync(path, "utf8")) }))
 
-const base = docs[0].doc;
-const merged = { ...base, files: [] };
-const seen = new Set();
+const base = docs[0].doc
+const merged = { ...base, files: [] }
+const seen = new Set()
 
 for (const { path, doc } of docs) {
   if (doc.version !== base.version) {
     console.error(
       `Version mismatch: ${path} is ${doc.version}, expected ${base.version} (from ${docs[0].path})`,
-    );
-    process.exit(1);
+    )
+    process.exit(1)
   }
   for (const file of doc.files ?? []) {
-    if (seen.has(file.url)) continue;
-    seen.add(file.url);
-    merged.files.push(file);
+    if (seen.has(file.url)) continue
+    seen.add(file.url)
+    merged.files.push(file)
   }
 }
 
@@ -60,9 +58,9 @@ for (const { path, doc } of docs) {
 if (typeof merged.releaseDate === "string") {
   merged.releaseDate = Object.assign(new Scalar(merged.releaseDate), {
     type: Scalar.QUOTE_SINGLE,
-  });
+  })
 }
 
-writeFileSync(output, stringify(merged));
-console.log(`Merged ${inputs.length} manifest(s) into ${output}:`);
-for (const f of merged.files) console.log(`  - ${f.url}`);
+writeFileSync(output, stringify(merged))
+console.log(`Merged ${inputs.length} manifest(s) into ${output}:`)
+for (const f of merged.files) console.log(`  - ${f.url}`)

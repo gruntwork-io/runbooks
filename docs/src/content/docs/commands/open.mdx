@@ -30,7 +30,7 @@ Because `open` is the command name, write a folder that is named `open` as a pat
 
 ### Remote sources
 
-You can open a runbook directly from a GitHub or GitLab repo without cloning it first. The source can point at the repo root, at a directory containing a `runbook.mdx`, or at a runbook file. The same sources work in the desktop app's **Open from URL** dialog.
+You can open a runbook directly from a GitHub or GitLab repo, or from a repo on any other git host, without cloning it first. The source can point at the repo root, at a directory containing a `runbook.mdx`, or at a runbook file. The same sources work in the desktop app's **Open from URL** dialog.
 
 #### Browser URLs
 
@@ -50,11 +50,18 @@ runbooks open https://gitlab.com/group/subgroup/repo/-/tree/main/runbooks/setup-
 | GitLab file | `https://gitlab.com/group/repo/-/blob/main/runbooks/setup-vpc/runbook.mdx` |
 | Repo root | `https://github.com/org/repo` |
 
-The branch, tag or commit in the URL is used. Branch names that contain slashes (`release/v1`) work. So do commit permalinks (`/blob/<sha>/...`) and query strings or anchors the browser adds, such as GitLab's `?ref_type=heads`. GitHub Enterprise and self-hosted GitLab URLs work too, and the `https://` prefix is optional.
+The branch, tag or commit in the URL is used. Branch names that contain slashes (`release/v1`) work. So do commit permalinks (`/blob/<sha>/...`) and query strings or anchors the browser adds, such as GitLab's `?ref_type=heads`. For `github.com` and `gitlab.com`, the `https://` prefix is optional.
 
-#### go-getter sources
+Directory and file URLs from GitHub Enterprise and self-hosted GitLab work too, and need the `https://` prefix. A repo root URL on one of those hosts works only when Runbooks can tell which kind of host it is:
 
-Runbooks also accepts [go-getter](https://github.com/hashicorp/go-getter) sources, the syntax OpenTofu and Terraform use for module sources. A double slash (`//`) separates the repo from the path inside it. `?ref=` picks a branch, tag or commit. Without `?ref=`, Runbooks uses the repo's default branch.
+- A GitHub Enterprise Cloud host on `ghe.com`, or a GitHub Enterprise Server host you logged in to with `gh auth login` or named in `GH_HOST`.
+- A GitLab host with `gitlab` as a dot- or hyphen-separated part of its name, such as `gitlab.example.com` or `gitlab-ce.corp.net`.
+
+For a repo root on any other host, use a `git::` source.
+
+#### Git sources in go-getter syntax
+
+Runbooks also accepts git sources written in [go-getter](https://github.com/hashicorp/go-getter) syntax, the syntax of a Terragrunt `source` and of an OpenTofu or Terraform module source. A double slash (`//`) separates the repo from the path inside it. `?ref=` picks a branch, tag or commit. Without `?ref=`, Runbooks uses the repo's default branch.
 
 ```bash
 runbooks open github.com/org/repo//runbooks/setup-vpc?ref=v1.0
@@ -71,10 +78,18 @@ runbooks open "git@github.com:org/repo.git//runbooks/setup-vpc?ref=v1.0"
 | Any git host over HTTPS | `git::https://git.example.com/org/repo.git//runbooks/setup-vpc?ref=main` |
 | SSH | `git::ssh://git@github.com/org/repo.git//runbooks/setup-vpc` or `git@github.com:org/repo.git//runbooks/setup-vpc` |
 
-As in go-getter, `github.com/org/repo/runbooks/setup-vpc` (without the `//`) also works, because a GitHub repo is always `owner/repo`. GitLab projects can sit under nested groups, so GitLab shorthand needs the `//` to mark where the path starts. `?ref=` is the only go-getter query parameter Runbooks reads. A `+` in it stays a `+` (`?ref=v1.0.0+build.1`), where go-getter would read it as a space. Quote sources that contain `?` or `&` so your shell leaves them alone.
+As in go-getter, `github.com/org/repo/runbooks/setup-vpc` (without the `//`) also works, because a GitHub repo is always `owner/repo`. GitLab projects can sit under nested groups, so GitLab shorthand needs the `//` to mark where the path starts. Quote sources that contain `?` or `&` so your shell leaves them alone.
+
+Runbooks parses these sources itself and fetches them with git. It doesn't use the go-getter library, so it differs from go-getter in a few places:
+
+- Runbooks recognizes scheme-less shorthand for `github.com` and `gitlab.com` only. `runbooks open` reads any other scheme-less source, `bitbucket.org/org/repo` included, as a local path. For other hosts, use `git::https://`.
+- `git::` takes a full `https://`, `http://` or `ssh://` URL, or a `git@host:path` address. Runbooks rejects `git::github.com/org/repo`.
+- Git over HTTPS, HTTP or SSH is the only way Runbooks fetches. go-getter's other getters (`s3::`, `gcs::`, `hg::`) and archive URLs such as `https://example.com/runbook.zip` don't work, and Runbooks rejects `git::file://`.
+- `?ref=` is the only query parameter Runbooks reads. It ignores `depth`, `sshkey` and any others.
+- A `+` in `?ref=` stays a `+` (`?ref=v1.0.0+build.1`), where go-getter reads it as a space.
 
 <Aside type="note">
-When you open a remote runbook, Runbooks clones it into a temporary directory. The runbook's folder inside that clone becomes the working directory: scripts start there, and generated files are saved inside it. The temporary directory is deleted when you quit Runbooks.
+When you open a remote runbook, Runbooks clones the whole repository into a temporary directory, as go-getter does for a `//` subdirectory. The runbook's folder inside that clone becomes the working directory: scripts start there, and generated files are saved inside it. Because the rest of the repository is there too, a runbook can use files outside its own folder, such as templates elsewhere in the repo. The temporary directory is deleted when you quit Runbooks.
 </Aside>
 
 ### Authentication for private repos
@@ -96,7 +111,7 @@ These tokens are used only for HTTPS sources. SSH sources (`git@...` or `ssh://.
 
 When you run `runbooks open`, the command gives you your prompt back right away without printing anything, like `code .`, and Runbooks carries on in the background:
 
-1. **Downloads (if remote)** - If given a remote URL, downloads just the runbook directory via sparse git clone. If the download fails (for example, a private repo with no token), the app shows an error dialog that explains why.
+1. **Downloads (if remote)** - If given a remote URL, clones the repository that holds the runbook. If the download fails (for example, a private repo with no token), the app shows an error dialog that explains why.
 2. **Launches the app** - Opens the Runbooks desktop window and loads the specified runbook
 3. **Renders the runbook** - The app parses and renders the `runbook.mdx` file, providing an interactive UI for the runbook's steps, scripts, and forms
 4. **Keeps running** - The app keeps running until you quit it, even if you close the terminal you started it from
@@ -116,7 +131,7 @@ The command doesn't show the app's output, so a launch that fails is silent. Run
 The `runbooks` command records where Runbooks is installed. If you moved or reinstalled Runbooks, open it and [install the command again](/intro/installation/#installing-the-runbooks-command).
 
 **Runbook not found:**
-Make sure the path points to a valid `runbook.mdx` file or a directory containing one. For a remote source, check that the path exists at the branch, tag or commit you named. A go-getter source without `?ref=` reads the repo's default branch.
+Make sure the path points to a valid `runbook.mdx` file or a directory containing one. For a remote source, check that the path exists at the branch, tag or commit you named. A source in go-getter syntax without `?ref=` reads the repo's default branch.
 
 **Authentication errors for remote runbooks:**
 If you see "authentication required", make sure you have set the appropriate token for the git host. See the Authentication section above.

@@ -12,7 +12,7 @@ const RUNBOOK = "/work/my-runbook/runbook.mdx"
  * flush its pending event without waiting on the clock.
  */
 function replayingFs(events: FileChangeEvent[]) {
-  const watched: Array<{ paths: string[]; options?: WatchOptions }> = []
+  const watched: Array<{ paths: string[]; options?: WatchOptions | undefined }> = []
   const layer = Layer.effect(
     FileSystem,
     Effect.map(FileSystem, (fs) => ({
@@ -128,33 +128,46 @@ describe("createScriptWatcher", () => {
   })
 
   it("emits the script that was written, including by an editor's save by rename", async () => {
-    expect((await collectScripts([SETUP, DEPLOY], [{ type: "change", path: SETUP }])).emitted).toEqual([[SETUP]])
-    expect((await collectScripts([SETUP, DEPLOY], [{ type: "add", path: DEPLOY }])).emitted).toEqual([[DEPLOY]])
+    expect(
+      (await collectScripts([SETUP, DEPLOY], [{ type: "change", path: SETUP }])).emitted,
+    ).toEqual([[SETUP]])
+    expect(
+      (await collectScripts([SETUP, DEPLOY], [{ type: "add", path: DEPLOY }])).emitted,
+    ).toEqual([[DEPLOY]])
   })
 
   it("emits once per burst, with every script written during it", async () => {
-    const { emitted } = await collectScripts([SETUP, DEPLOY, CHECK], [
-      { type: "change", path: SETUP },
-      { type: "change", path: DEPLOY },
-      { type: "change", path: SETUP },
-    ])
+    const { emitted } = await collectScripts(
+      [SETUP, DEPLOY, CHECK],
+      [
+        { type: "change", path: SETUP },
+        { type: "change", path: DEPLOY },
+        { type: "change", path: SETUP },
+      ],
+    )
     expect(emitted).toEqual([[SETUP, DEPLOY]])
   })
 
   it("ignores the other files in the scripts' directories, and deletions", async () => {
-    const { emitted } = await collectScripts([SETUP, CHECK], [
-      { type: "change", path: "/work/my-runbook/runbook.mdx" },
-      { type: "add", path: "/work/my-runbook/scripts/setup.sh.swp" },
-      { type: "unlink", path: SETUP },
-    ])
+    const { emitted } = await collectScripts(
+      [SETUP, CHECK],
+      [
+        { type: "change", path: "/work/my-runbook/runbook.mdx" },
+        { type: "add", path: "/work/my-runbook/scripts/setup.sh.swp" },
+        { type: "unlink", path: SETUP },
+      ],
+    )
     expect(emitted).toEqual([])
   })
 
   it("keeps a script change that is followed by unrelated writes in the same burst", async () => {
-    const { emitted } = await collectScripts([SETUP], [
-      { type: "change", path: SETUP },
-      { type: "add", path: "/work/my-runbook/scripts/notes.txt" },
-    ])
+    const { emitted } = await collectScripts(
+      [SETUP],
+      [
+        { type: "change", path: SETUP },
+        { type: "add", path: "/work/my-runbook/scripts/notes.txt" },
+      ],
+    )
     expect(emitted).toEqual([[SETUP]])
   })
 

@@ -18,15 +18,15 @@ import type { Environment } from "../../../src/services/Environment.ts"
 let processEnv: Record<string, string> = {}
 let validateCredentials: AwsClientShape["validateCredentials"]
 
-const runPromise = spyOn(runtime, "runPromise").mockImplementation(
-  (<A, E>(effect: Effect.Effect<A, E, Environment | AwsClient>) =>
-    Effect.runPromise(
-      Effect.provide(
-        effect,
-        Layer.merge(makeTestEnvironment(processEnv), makeTestAwsClient({ validateCredentials })),
-      ),
-    )) as typeof runtime.runPromise,
-)
+const runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+  effect: Effect.Effect<A, E, Environment | AwsClient>,
+) =>
+  Effect.runPromise(
+    Effect.provide(
+      effect,
+      Layer.merge(makeTestEnvironment(processEnv), makeTestAwsClient({ validateCredentials })),
+    ),
+  )) as typeof runtime.runPromise)
 
 afterAll(() => {
   runPromise.mockRestore()
@@ -48,9 +48,13 @@ beforeEach(() => {
   validateCredentials = () => Effect.succeed(IDENTITY)
   // A session left over from an earlier SSO sign-in in another block.
   Effect.runSync(
-    sessionManager.createSession("/tmp").pipe(
-      Effect.provide(makeTestEnvironment({ AWS_SESSION_TOKEN: "stale-sso-token", PATH: "/usr/bin" })),
-    ),
+    sessionManager
+      .createSession("/tmp")
+      .pipe(
+        Effect.provide(
+          makeTestEnvironment({ AWS_SESSION_TOKEN: "stale-sso-token", PATH: "/usr/bin" }),
+        ),
+      ),
   )
 })
 
@@ -124,7 +128,9 @@ describe("aws:env-credentials", () => {
   it("reads only the prefixed variables for a prefixed source", async () => {
     processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
 
-    expect(await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })).toEqual({ found: false })
+    expect(await handleEnvCredentials({ prefix: "PROD_", defaultRegion: "us-west-2" })).toEqual({
+      found: false,
+    })
 
     const validated: string[] = []
     validateCredentials = (creds) => {

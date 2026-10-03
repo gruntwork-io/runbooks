@@ -3,11 +3,18 @@
  * Used by Template, TemplateInline, useScriptExecution, GitClone, and other blocks.
  */
 
-import type { BlockOutputs, TemplateValue } from '@/contexts/RunbookContext'
-import { BoilerplateVariableType } from '@/types/boilerplateVariable'
-import type { OutputDependency } from '@/lib/extractTemplateDependencies'
-import { normalizeBlockId } from '@/lib/utils'
-import { isSensitiveOutput, maskOutputs, maskOutput, revealOutputs, type OutputValue } from '@/lib/outputValues'
+import type { BlockOutputs, TemplateValue } from "@/contexts/RunbookContext"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
+import type { OutputDependency } from "@/lib/extractTemplateDependencies"
+import { normalizeBlockId } from "@/lib/utils"
+import {
+  isSensitiveOutput,
+  maskOutputs,
+  maskOutput,
+  revealOutputs,
+  type OutputValue,
+  type OutputValues,
+} from "@/lib/outputValues"
 
 export type { OutputValue }
 
@@ -57,12 +64,16 @@ export interface PlainTemplateContext {
 
 /** Every output with its real value, for a render whose result is run or written to a file. */
 export function revealTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
-  return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, revealOutputs(values)]))
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [blockId, revealOutputs(values)]),
+  )
 }
 
 /** Every output as it may be shown: sensitive ones as `<redacted>`. For a render that is only displayed. */
 export function maskTemplateOutputs(outputs: TemplateOutputs): PlainTemplateOutputs {
-  return Object.fromEntries(Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]))
+  return Object.fromEntries(
+    Object.entries(outputs).map(([blockId, values]) => [blockId, maskOutputs(values)]),
+  )
 }
 
 /**
@@ -75,7 +86,9 @@ export function omitSensitiveTemplateOutputs(outputs: TemplateOutputs): PlainTem
     Object.entries(outputs).map(([blockId, values]) => [
       blockId,
       Object.fromEntries(
-        Object.entries(values).filter((entry): entry is [OutputName, string] => !isSensitiveOutput(entry[1])),
+        Object.entries(values).filter(
+          (entry): entry is [OutputName, string] => !isSensitiveOutput(entry[1]),
+        ),
       ),
     ]),
   )
@@ -127,8 +140,8 @@ export function buildRenderVariables(
  */
 export function buildTemplatePayload(ctx: PlainTemplateContext): TemplateValue[] {
   return [
-    { name: 'inputs', type: BoilerplateVariableType.Map, value: ctx.inputs },
-    { name: 'outputs', type: BoilerplateVariableType.Map, value: ctx.outputs },
+    { name: "inputs", type: BoilerplateVariableType.Map, value: ctx.inputs },
+    { name: "outputs", type: BoilerplateVariableType.Map, value: ctx.outputs },
   ]
 }
 
@@ -143,7 +156,9 @@ export function buildTemplatePayload(ctx: PlainTemplateContext): TemplateValue[]
  */
 export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
   return inputs.some(
-    i => (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) && i.value === ''
+    (i) =>
+      (i.type === BoilerplateVariableType.Int || i.type === BoilerplateVariableType.Float) &&
+      i.value === "",
   )
 }
 
@@ -151,32 +166,45 @@ export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
  * Compute which output dependencies are not yet satisfied.
  * Groups dependencies by block, normalizes IDs for lookup, and returns
  * the list of blocks/outputs that haven't been produced yet.
+ *
+ * An optional dependency (one the template reads only behind a `hasKey`
+ * guard) needs its block to have published outputs, not the output itself.
+ * It isn't listed by name, since the block may never produce it: a block
+ * waited on only for optional outputs is reported with no output names.
  */
 export function computeUnmetOutputDependencies(
   outputDependencies: OutputDependency[],
-  allOutputs: Record<string, BlockOutputs>
+  allOutputs: Record<string, BlockOutputs>,
 ): BlockOutput[] {
   if (outputDependencies.length === 0) return []
 
   const byBlock = groupDependenciesByBlock(outputDependencies)
   const unmet: BlockOutput[] = []
 
-  for (const [blockId, outputNames] of byBlock) {
-    const normalizedId = normalizeBlockId(blockId)
-    const blockData = allOutputs[normalizedId]
-
-    if (!blockData) {
-      // Block hasn't produced any outputs yet - preserve original blockId for display
-      unmet.push({ blockId, outputNames })
-    } else {
-      const missingOutputs = outputNames.filter(name => !(name in blockData.values))
-      if (missingOutputs.length > 0) {
-        unmet.push({ blockId, outputNames: missingOutputs })
-      }
+  for (const [blockId, outputs] of byBlock) {
+    const values = allOutputs[normalizeBlockId(blockId)]?.values
+    const required = [...outputs].filter(([, optional]) => !optional).map(([name]) => name)
+    const missingOutputs = required.filter((name) => !values || !(name in values))
+    const waitsOnBlock = required.length < outputs.size && !hasPublishedOutputs(values)
+    if (missingOutputs.length > 0 || waitsOnBlock) {
+      // Preserve the original blockId for display
+      unmet.push({ blockId, outputNames: missingOutputs })
     }
   }
 
   return unmet
+}
+
+/**
+ * Whether a block has published outputs. Blocks withdraw their outputs by
+ * publishing an empty map (a failed Command, a reset GitClone, a cleared
+ * DirPicker) or only internal `__` markers (a signed-out AwsAuth or
+ * GoogleAuth publishes `__AUTHENTICATED: "false"`), so neither counts. A
+ * Command that succeeded without writing any outputs also leaves an empty
+ * map, and can't be told apart from a failed one.
+ */
+function hasPublishedOutputs(values: OutputValues | undefined): boolean {
+  return values !== undefined && Object.keys(values).some((key) => !key.startsWith("__"))
 }
 
 /**
@@ -185,9 +213,7 @@ export function computeUnmetOutputDependencies(
  * Used inside useTemplateDependencies to provide callers with the flat format
  * matching {{ .outputs.*.* }} template expressions.
  */
-export function flattenBlockOutputs(
-  allOutputs: Record<string, BlockOutputs>
-): TemplateOutputs {
+export function flattenBlockOutputs(allOutputs: Record<string, BlockOutputs>): TemplateOutputs {
   const result: TemplateOutputs = {}
   for (const [blockId, data] of Object.entries(allOutputs)) {
     result[blockId] = data.values
@@ -203,12 +229,12 @@ export function flattenBlockOutputs(
  * member.
  */
 function resolveNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const segments = path.split('.')
+  const segments = path.split(".")
   let current: unknown = obj
   for (const segment of segments) {
     if (
       current === null ||
-      typeof current !== 'object' ||
+      typeof current !== "object" ||
       Array.isArray(current) ||
       !Object.hasOwn(current, segment)
     ) {
@@ -236,32 +262,14 @@ export function resolveInputPath(inputs: TemplateInputs, path: InputName): unkno
  */
 export function computeUnmetInputDependencies(
   deps: InputName[],
-  inputs: TemplateInputs
+  inputs: TemplateInputs,
 ): InputName[] {
-  return deps.filter(name => {
-    const value = name.includes('.') ? resolveNestedValue(inputs as Record<string, unknown>, name) : inputs[name]
-    return value === undefined || value === null || value === ''
+  return deps.filter((name) => {
+    const value = name.includes(".")
+      ? resolveNestedValue(inputs as Record<string, unknown>, name)
+      : inputs[name]
+    return value === undefined || value === null || value === ""
   })
-}
-
-/**
- * Filter unmet output dependencies to only those matching specific output-level deps.
- * Used by blocks that distinguish blocking vs non-blocking dependencies (GitClone,
- * GitHubPullRequest) to narrow the unmet list to only outputs referenced by blocking props.
- */
-export function filterUnmetOutputDeps(
-  allUnmetOutputDeps: BlockOutput[],
-  targetOutputDeps: OutputDependency[]
-): BlockOutput[] {
-  return allUnmetOutputDeps
-    .map(dep => {
-      const blockingNames = targetOutputDeps
-        .filter(bd => bd.blockId === dep.blockId)
-        .map(bd => bd.outputName)
-      const matchedNames = dep.outputNames.filter(n => blockingNames.includes(n))
-      return matchedNames.length > 0 ? { ...dep, outputNames: matchedNames } : null
-    })
-    .filter((dep): dep is NonNullable<typeof dep> => dep !== null)
 }
 
 /**
@@ -280,7 +288,8 @@ const VALUE_REFERENCE_PATTERN =
 export function extractInputValueReferences(text: string): InputName[] {
   const names = new Set<InputName>()
   for (const [, namespace, path] of text.matchAll(VALUE_REFERENCE_PATTERN)) {
-    if (namespace === 'inputs') names.add(path)
+    // Both groups are required by the pattern.
+    if (namespace === "inputs") names.add(path!)
   }
   return [...names]
 }
@@ -294,47 +303,47 @@ export function extractInputValueReferences(text: string): InputName[] {
  * where a secret doesn't belong (a PR title or body), so a sensitive output
  * resolves to `<redacted>`, never its real value.
  */
-export function resolveTemplateReferences(
-  text: string,
-  ctx: TemplateContext
-): string {
+export function resolveTemplateReferences(text: string, ctx: TemplateContext): string {
   if (!text) return text
-  return text.replace(
-    VALUE_REFERENCE_PATTERN,
-    (match, namespace, path) => {
-      if (namespace === 'inputs') {
-        // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
-        // through nested objects, like computeUnmetInputDependencies.
-        const value = resolveInputPath(ctx.inputs, path)
-        return value != null ? String(value) : `\`${match}\``
-      }
-      if (namespace === 'outputs') {
-        const dotIdx = path.indexOf('.')
-        if (dotIdx > 0) {
-          const blockId = normalizeBlockId(path.slice(0, dotIdx))
-          const outputName = path.slice(dotIdx + 1)
-          const value = ctx.outputs[blockId]?.[outputName]
-          return value !== undefined ? maskOutput(value) : `\`${match}\``
-        }
-      }
-      return `\`${match}\``
+  return text.replace(VALUE_REFERENCE_PATTERN, (match, namespace, path) => {
+    if (namespace === "inputs") {
+      // A dotted path (e.g. a Map input's `{{ .inputs.tags.env }}`) resolves
+      // through nested objects, like computeUnmetInputDependencies.
+      const value = resolveInputPath(ctx.inputs, path)
+      if (value == null) return `\`${match}\``
+      if (typeof value === "string") return value
+      if (typeof value === "number" || typeof value === "boolean") return String(value)
+      // A whole List or Map input, which would otherwise print as "[object Object]"
+      return JSON.stringify(value)
     }
-  )
+    if (namespace === "outputs") {
+      const dotIdx = path.indexOf(".")
+      if (dotIdx > 0) {
+        const blockId = normalizeBlockId(path.slice(0, dotIdx))
+        const outputName = path.slice(dotIdx + 1)
+        const value = ctx.outputs[blockId]?.[outputName]
+        return value !== undefined ? maskOutput(value) : `\`${match}\``
+      }
+    }
+    return `\`${match}\``
+  })
 }
 
 // --- Internal helpers ---
 
 /**
- * Group output dependencies by block ID.
+ * Group output dependencies by block ID, mapping each output name to whether
+ * it is optional. An output referenced both guarded and unguarded is
+ * required.
  */
-function groupDependenciesByBlock(dependencies: OutputDependency[]): Map<string, string[]> {
-  const grouped = new Map<string, string[]>()
+function groupDependenciesByBlock(
+  dependencies: OutputDependency[],
+): Map<string, Map<string, boolean>> {
+  const grouped = new Map<string, Map<string, boolean>>()
 
   for (const dep of dependencies) {
-    const existing = grouped.get(dep.blockId) || []
-    if (!existing.includes(dep.outputName)) {
-      existing.push(dep.outputName)
-    }
+    const existing = grouped.get(dep.blockId) ?? new Map<string, boolean>()
+    existing.set(dep.outputName, (existing.get(dep.outputName) ?? true) && dep.optional === true)
     grouped.set(dep.blockId, existing)
   }
 

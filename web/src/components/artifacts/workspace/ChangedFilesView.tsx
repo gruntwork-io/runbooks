@@ -1,13 +1,13 @@
 /**
  * @fileoverview ChangedFilesView Component
- * 
+ *
  * Displays file changes in a GitHub pull request style view.
  * Shows all changed files in a vertical list with collapsible file bars.
  */
 
-import type React from 'react'
-import { useState, useMemo, forwardRef } from 'react'
-import { useCollapsibleFileList } from '@/hooks/useCollapsibleFileList'
+import type React from "react"
+import { useState, useMemo, forwardRef } from "react"
+import { useCollapsibleFileList } from "@/hooks/useCollapsibleFileList"
 import {
   ChevronDown,
   ChevronRight,
@@ -18,49 +18,50 @@ import {
   FilePlus,
   FileMinus,
   type LucideIcon,
-} from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { SHOW_MORE_INCREMENT } from '@/lib/fileListDisplay'
-import { ShowMoreBanner } from '@/lib/ShowMoreBanner'
-import { CollapsibleFileHeader } from '@/components/artifacts/CollapsibleFileHeader'
-import { FILE_TREE_INDENT } from '@/components/artifacts/code/FileTree'
-import { Loader2, Download } from 'lucide-react'
-import { useResizablePanel } from '@/hooks/useResizablePanel'
-import { ResizeHandle } from '@/components/ui/ResizeHandle'
-import type { WorkspaceFileChange } from '@/hooks/useGitFileChanges'
-import { ChangeProportionBar } from './ChangeProportionBar'
-import { generateUnifiedDiff } from '@/lib/unifiedDiff'
-import { DiffTable } from '@/components/artifacts/code/DiffTable'
+} from "lucide-react"
+import { cn } from "@/lib/utils"
+import { SHOW_MORE_INCREMENT } from "@/lib/fileListDisplay"
+import { ShowMoreBanner } from "@/lib/ShowMoreBanner"
+import { CollapsibleFileHeader } from "@/components/artifacts/CollapsibleFileHeader"
+import { FILE_TREE_INDENT } from "@/components/artifacts/code/FileTree"
+import { Loader2, Download } from "lucide-react"
+import { useResizablePanel } from "@/hooks/useResizablePanel"
+import { ResizeHandle } from "@/components/ui/ResizeHandle"
+import type { WorkspaceFileChange } from "@/hooks/useGitFileChanges"
+import { ChangeProportionBar } from "./ChangeProportionBar"
+import { generateUnifiedDiff } from "@/lib/unifiedDiff"
+import { DiffTable } from "@/components/artifacts/code/DiffTable"
 
-type ChangeType = WorkspaceFileChange['changeType']
+type ChangeType = WorkspaceFileChange["changeType"]
 
 /** Maps change types to their icon and color */
 const changeTypeConfig: Record<string, { icon: LucideIcon; color: string }> = {
-  added:    { icon: FilePlus,  color: 'text-success' },
-  deleted:  { icon: FileMinus, color: 'text-destructive' },
-  modified: { icon: FileDiff,  color: 'text-muted-foreground' },
+  added: { icon: FilePlus, color: "text-success" },
+  deleted: { icon: FileMinus, color: "text-destructive" },
+  modified: { icon: FileDiff, color: "text-muted-foreground" },
 }
 
-const defaultChangeConfig = { icon: FileDiff, color: 'text-muted-foreground' }
+const defaultChangeConfig = { icon: FileDiff, color: "text-muted-foreground" }
 
-function getChangeTypeIcon(changeType: ChangeType): LucideIcon {
-  return (changeTypeConfig[changeType] ?? defaultChangeConfig).icon
+/** File icon for a change type (FilePlus/FileDiff/FileMinus), in its color. */
+const ChangeTypeIcon = ({ changeType }: { changeType: ChangeType }) => {
+  const { icon: Icon, color } = changeTypeConfig[changeType] ?? defaultChangeConfig
+  return <Icon className={cn("w-4 h-4 flex-shrink-0", color)} />
 }
-
 
 interface ChangedFilesViewProps {
   /** List of file changes from useGitFileChanges */
-  changes: WorkspaceFileChange[];
+  changes: WorkspaceFileChange[]
   /** Whether there are too many changes to display */
-  tooManyChanges?: boolean;
+  tooManyChanges?: boolean
   /** Total number of changes */
-  totalChanges?: number;
+  totalChanges?: number
   /** Whether changes are still loading */
-  isLoading?: boolean;
+  isLoading?: boolean
   /** Callback to load the full diff for a truncated file */
-  onLoadDiff?: (filePath: string) => Promise<void>;
+  onLoadDiff?: (filePath: string) => Promise<void>
   /** Additional CSS classes */
-  className?: string;
+  className?: string
 }
 
 export const ChangedFilesView = ({
@@ -91,7 +92,10 @@ export const ChangedFilesView = ({
 
   const handleFileSelect = (filePath: string) => {
     setFocusedPath(filePath)
-    expandAndJump(filePath, changes.findIndex(c => c.path === filePath))
+    expandAndJump(
+      filePath,
+      changes.findIndex((c) => c.path === filePath),
+    )
   }
 
   // Loading state
@@ -112,12 +116,11 @@ export const ChangedFilesView = ({
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
           <FileCode className="w-16 h-16 mx-auto mb-2 text-warning" />
-          <h3 className="text-lg font-medium mb-2 text-foreground">
-            Too many changes to display
-          </h3>
+          <h3 className="text-lg font-medium mb-2 text-foreground">Too many changes to display</h3>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-            {totalChanges ?? 0} files changed. This may be caused by a command that
-            generated a large number of files (e.g. <code className="text-xs bg-muted px-1 py-0.5 rounded">npm install</code>).
+            {totalChanges ?? 0} files changed. This may be caused by a command that generated a
+            large number of files (e.g.{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">npm install</code>).
           </p>
           <p className="text-xs text-muted-foreground mt-2">
             Consider revising the runbook to reduce the number of changed files.
@@ -133,12 +136,8 @@ export const ChangedFilesView = ({
       <div className={cn("flex items-center justify-center h-full", className)}>
         <div className="text-center">
           <FileCode className="w-16 h-16 mx-auto mb-2 text-muted-foreground" />
-          <h3 className="text-lg font-medium mb-2 text-foreground">
-            No changes detected
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Modified files will appear here.
-          </p>
+          <h3 className="text-lg font-medium mb-2 text-foreground">No changes detected</h3>
+          <p className="text-sm text-muted-foreground">Modified files will appear here.</p>
         </div>
       </div>
     )
@@ -169,7 +168,7 @@ export const ChangedFilesView = ({
         {/* All Files Diff View */}
         <div className="flex-1 overflow-y-auto p-3">
           <div className="flex flex-col gap-3">
-            {displayedChanges.map(change => (
+            {displayedChanges.map((change) => (
               <CollapsibleFileDiff
                 key={change.path}
                 change={change}
@@ -202,89 +201,75 @@ export const ChangedFilesView = ({
 // ============================================================================
 
 interface TreeNode {
-  name: string;
-  path: string;
-  type: 'file' | 'folder';
-  children?: TreeNode[];
-  change?: WorkspaceFileChange;
+  name: string
+  path: string
+  type: "file" | "folder"
+  children?: TreeNode[]
+  change?: WorkspaceFileChange
 }
 
 function buildFileTree(changes: WorkspaceFileChange[]): TreeNode[] {
   const root: TreeNode[] = []
-  
+
   for (const change of changes) {
     // Strip trailing slashes (git may report directories as "docs/")
-    const cleanPath = change.path.replace(/\/+$/, '')
+    const cleanPath = change.path.replace(/\/+$/, "")
     if (!cleanPath) continue // Skip empty paths
-    const parts = cleanPath.split('/')
+    const parts = cleanPath.split("/")
     let current = root
-    let currentPath = ''
-    
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i]
+    let currentPath = ""
+
+    for (const [i, part] of parts.entries()) {
       currentPath = currentPath ? `${currentPath}/${part}` : part
       const isFile = i === parts.length - 1
-      
-      let node = current.find(n => n.name === part)
-      
+
+      let node = current.find((n) => n.name === part)
+
       if (!node) {
-        node = {
-          name: part,
-          path: currentPath,
-          type: isFile ? 'file' : 'folder',
-          children: isFile ? undefined : [],
-          change: isFile ? change : undefined,
-        }
+        node = isFile
+          ? { name: part, path: currentPath, type: "file", change }
+          : { name: part, path: currentPath, type: "folder", children: [] }
         current.push(node)
       }
-      
+
       if (!isFile && node.children) {
         current = node.children
       }
     }
   }
-  
+
   // Sort: folders first, then files, alphabetically
   const sortTree = (nodes: TreeNode[]): TreeNode[] => {
     return nodes
       .sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
+        if (a.type !== b.type) return a.type === "folder" ? -1 : 1
         return a.name.localeCompare(b.name)
       })
-      .map(node => ({
-        ...node,
-        children: node.children ? sortTree(node.children) : undefined,
-      }))
+      .map((node) => (node.children ? { ...node, children: sortTree(node.children) } : node))
   }
-  
+
   return sortTree(root)
 }
 
 interface ChangedFileTreeProps {
-  tree: TreeNode[];
-  focusedPath: string | null;
-  onFileSelect: (filePath: string) => void;
+  tree: TreeNode[]
+  focusedPath: string | null
+  onFileSelect: (filePath: string) => void
 }
 
 /** Max tree nodes to render before collapsing all folders by default */
 const MAX_TREE_NODES_EXPANDED = 200
 
-const ChangedFileTree = ({
-  tree,
-  focusedPath,
-  onFileSelect,
-}: ChangedFileTreeProps) => {
+const ChangedFileTree = ({ tree, focusedPath, onFileSelect }: ChangedFileTreeProps) => {
   // For large trees, start with all folders collapsed to avoid rendering
   // thousands of nodes which can lock up the browser.
   const totalFileCount = useMemo(() => countTreeFiles(tree), [tree])
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() =>
-    totalFileCount > MAX_TREE_NODES_EXPANDED
-      ? new Set<string>()
-      : new Set(getAllFolderPaths(tree))
+    totalFileCount > MAX_TREE_NODES_EXPANDED ? new Set<string>() : new Set(getAllFolderPaths(tree)),
   )
 
   const toggleFolder = (path: string) => {
-    setExpandedFolders(prev => {
+    setExpandedFolders((prev) => {
       const next = new Set(prev)
       if (next.has(path)) {
         next.delete(path)
@@ -303,7 +288,7 @@ const ChangedFileTree = ({
     const isExpanded = expandedFolders.has(node.path)
     const isSelected = node.change?.path === focusedPath
 
-    if (node.type === 'folder') {
+    if (node.type === "folder") {
       return (
         <div key={node.path}>
           <button
@@ -311,7 +296,7 @@ const ChangedFileTree = ({
             onClick={() => toggleFolder(node.path)}
             className={cn(
               "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
-              "hover:bg-accent text-foreground"
+              "hover:bg-accent text-foreground",
             )}
             style={{ paddingLeft: `${8 + level * INDENT}px` }}
           >
@@ -328,9 +313,7 @@ const ChangedFileTree = ({
             <span className="truncate ml-1">{node.name}</span>
           </button>
           {isExpanded && node.children && (
-            <div>
-              {node.children.map(child => renderNode(child, level + 1))}
-            </div>
+            <div>{node.children.map((child) => renderNode(child, level + 1))}</div>
           )}
         </div>
       )
@@ -340,9 +323,6 @@ const ChangedFileTree = ({
     const change = node.change
     if (!change) return null
 
-    const Icon = getChangeTypeIcon(change.changeType)
-    const iconColor = getIconColor(change.changeType)
-
     return (
       <button
         key={node.path}
@@ -350,29 +330,25 @@ const ChangedFileTree = ({
         onClick={() => onFileSelect(change.path)}
         className={cn(
           "w-full flex items-center gap-0.5 py-px text-left text-sm transition-colors cursor-pointer",
-          isSelected ? "bg-info-muted text-primary" : "hover:bg-accent text-foreground"
+          isSelected ? "bg-info-muted text-primary" : "hover:bg-accent text-foreground",
         )}
         style={{ paddingLeft: `${8 + level * INDENT}px` }}
       >
         {/* Spacer (same width as chevron) to align file icons with folder icons */}
         <span className="w-4 flex-shrink-0" />
-        <Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />
+        <ChangeTypeIcon changeType={change.changeType} />
         <span className="truncate flex-1 ml-1">{node.name}</span>
       </button>
     )
   }
 
-  return (
-    <div className="py-1">
-      {tree.map(node => renderNode(node))}
-    </div>
-  )
+  return <div className="py-1">{tree.map((node) => renderNode(node))}</div>
 }
 
 function countTreeFiles(nodes: TreeNode[]): number {
   let count = 0
   for (const node of nodes) {
-    if (node.type === 'file') {
+    if (node.type === "file") {
       count++
     }
     if (node.children) {
@@ -384,9 +360,9 @@ function countTreeFiles(nodes: TreeNode[]): number {
 
 function getAllFolderPaths(nodes: TreeNode[]): string[] {
   const paths: string[] = []
-  const traverse = (nodes: TreeNode[]) => {
-    for (const node of nodes) {
-      if (node.type === 'folder') {
+  const traverse = (levelNodes: TreeNode[]) => {
+    for (const node of levelNodes) {
+      if (node.type === "folder") {
         paths.push(node.path)
         if (node.children) traverse(node.children)
       }
@@ -401,27 +377,24 @@ function getAllFolderPaths(nodes: TreeNode[]): string[] {
 // ============================================================================
 
 interface CollapsibleFileDiffProps {
-  change: WorkspaceFileChange;
-  isCollapsed: boolean;
-  isFocused: boolean;
-  onToggleCollapse: () => void;
-  onLoadDiff?: (filePath: string) => Promise<void>;
+  change: WorkspaceFileChange
+  isCollapsed: boolean
+  isFocused: boolean
+  onToggleCollapse: () => void
+  onLoadDiff?: ((filePath: string) => Promise<void>) | undefined
 }
 
 const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>(
   ({ change, isCollapsed, isFocused, onToggleCollapse, onLoadDiff }, ref) => {
     const [isLoadingDiff, setIsLoadingDiff] = useState(false)
 
-    const Icon = getChangeTypeIcon(change.changeType)
-    const iconColor = getIconColor(change.changeType)
-
     return (
-      <div 
+      <div
         ref={ref}
         data-testid={`diff-file-${change.path}`}
         className={cn(
           "border border-border rounded-md overflow-hidden bg-card",
-          isFocused && "ring-2 ring-ring"
+          isFocused && "ring-2 ring-ring",
         )}
       >
         {/* File Header Bar */}
@@ -429,7 +402,7 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
           isCollapsed={isCollapsed}
           onToggle={onToggleCollapse}
           path={change.path}
-          icon={<Icon className={cn("w-4 h-4 flex-shrink-0", iconColor)} />}
+          icon={<ChangeTypeIcon changeType={change.changeType} />}
           trailing={
             <div className="flex items-center gap-2 text-xs flex-shrink-0">
               {change.additions > 0 && (
@@ -444,8 +417,8 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
         />
 
         {/* Diff Content */}
-        {!isCollapsed && (
-          change.isDirectory ? (
+        {!isCollapsed &&
+          (change.isDirectory ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               Directory or embedded git repository — no inline diff to show.
             </div>
@@ -455,7 +428,9 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
             </div>
           ) : change.diffTruncated ? (
             <div className="p-4 text-center">
-              <p className="text-sm text-muted-foreground mb-2">Diff is too large to display inline.</p>
+              <p className="text-sm text-muted-foreground mb-2">
+                Diff is too large to display inline.
+              </p>
               <button
                 onClick={async () => {
                   if (onLoadDiff) {
@@ -471,9 +446,13 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-white rounded-md hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
               >
                 {isLoadingDiff ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...</>
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading...
+                  </>
                 ) : (
-                  <><Download className="w-3.5 h-3.5" /> Load diff</>
+                  <>
+                    <Download className="w-3.5 h-3.5" /> Load diff
+                  </>
                 )}
               </button>
             </div>
@@ -482,20 +461,19 @@ const CollapsibleFileDiff = forwardRef<HTMLDivElement, CollapsibleFileDiffProps>
               <SvgPreview change={change} />
               <DiffContent change={change} />
             </>
-          )
-        )}
+          ))}
       </div>
     )
-  }
+  },
 )
-CollapsibleFileDiff.displayName = 'CollapsibleFileDiff'
+CollapsibleFileDiff.displayName = "CollapsibleFileDiff"
 
 // ============================================================================
 // SVG Preview Component
 // ============================================================================
 
 function isSvgFile(path: string): boolean {
-  return path.toLowerCase().endsWith('.svg')
+  return path.toLowerCase().endsWith(".svg")
 }
 
 // Percent-encode rather than btoa(): btoa throws on any character above U+00FF
@@ -517,22 +495,38 @@ const SvgPreview = ({ change }: { change: WorkspaceFileChange }) => {
       {hasOriginal && hasNew ? (
         <>
           <div className="flex-1 text-center">
-            <span className="inline-block mb-2 text-xs font-medium text-destructive bg-destructive-muted border border-destructive/30 rounded px-2 py-0.5">Before</span>
+            <span className="inline-block mb-2 text-xs font-medium text-destructive bg-destructive-muted border border-destructive/30 rounded px-2 py-0.5">
+              Before
+            </span>
             <div className="flex justify-center">
-              <img src={svgToDataUri(change.originalContent!)} alt="Before" className="max-h-40 border border-border rounded bg-card p-2" />
+              <img
+                src={svgToDataUri(change.originalContent!)}
+                alt="Before"
+                className="max-h-40 border border-border rounded bg-card p-2"
+              />
             </div>
           </div>
           <div className="flex-1 text-center">
-            <span className="inline-block mb-2 text-xs font-medium text-success bg-success-muted border border-success/30 rounded px-2 py-0.5">After</span>
+            <span className="inline-block mb-2 text-xs font-medium text-success bg-success-muted border border-success/30 rounded px-2 py-0.5">
+              After
+            </span>
             <div className="flex justify-center">
-              <img src={svgToDataUri(change.newContent!)} alt="After" className="max-h-40 border border-border rounded bg-card p-2" />
+              <img
+                src={svgToDataUri(change.newContent!)}
+                alt="After"
+                className="max-h-40 border border-border rounded bg-card p-2"
+              />
             </div>
           </div>
         </>
       ) : (
         <div className="flex-1 text-center">
           <div className="flex justify-center">
-            <img src={svgToDataUri((change.newContent || change.originalContent)!)} alt={change.path} className="max-h-40 border border-border rounded bg-card p-2" />
+            <img
+              src={svgToDataUri((change.newContent || change.originalContent)!)}
+              alt={change.path}
+              className="max-h-40 border border-border rounded bg-card p-2"
+            />
           </div>
         </div>
       )}
@@ -545,7 +539,7 @@ const SvgPreview = ({ change }: { change: WorkspaceFileChange }) => {
 // ============================================================================
 
 interface DiffContentProps {
-  change: WorkspaceFileChange;
+  change: WorkspaceFileChange
 }
 
 const DiffContent = ({ change }: DiffContentProps) => {
@@ -561,21 +555,8 @@ const DiffContent = ({ change }: DiffContentProps) => {
   }
 
   if (diffLines.length === 0) {
-    return (
-      <div className="p-4 text-center text-sm text-muted-foreground">
-        Empty file
-      </div>
-    )
+    return <div className="p-4 text-center text-sm text-muted-foreground">Empty file</div>
   }
 
   return <DiffTable diffLines={diffLines} />
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-function getIconColor(type: ChangeType): string {
-  return (changeTypeConfig[type] ?? defaultChangeConfig).color
-}
-

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useApi } from '@/contexts/ApiContext'
-import { createAppError, type AppError } from '@/types/error'
-import type { ScriptFileChange } from '../../../../../../electron/shared/channels.ts'
+import { useCallback, useEffect, useRef, useState } from "react"
+import { useApi } from "@/contexts/ApiContext"
+import { createAppError, type AppError } from "@/types/error"
+import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 
 interface UseScriptFileChangeReturn {
   /** How the script file differs on disk from the registry's copy, or null when it doesn't. */
@@ -28,38 +28,42 @@ export function useScriptFileChange(
 
   // Tagged with the entry it was checked against: a result for an entry the
   // registry has since replaced says nothing about the current one.
-  const [checked, setChecked] = useState<{ executableId: string; change: ScriptFileChange | null } | null>(null)
+  const [checked, setChecked] = useState<{
+    executableId: string
+    change: ScriptFileChange | null
+  } | null>(null)
   const [isReloading, setIsReloading] = useState(false)
   const [reloadError, setReloadError] = useState<AppError | null>(null)
+  // Bumped to check the file again without a report from the watcher.
+  const [recheckCount, setRecheckCount] = useState(0)
 
   // Only the latest check may commit: IPC calls can't be cancelled.
   const checkSeqRef = useRef(0)
 
-  const check = useCallback(async () => {
-    if (!executableId) return
-    const seq = ++checkSeqRef.current
-    try {
-      const { change } = await api.invoke('runbook:script-change', { componentId })
-      if (seq !== checkSeqRef.current) return
-      setChecked({ executableId, change: change ?? null })
-    } catch (err) {
-      // runbook:script-change reports an unreadable file as "no change", so
-      // this is an IPC failure. The next check replaces the last result.
-      console.error('Failed to check the script file for changes:', err)
-    }
-  }, [api, componentId, executableId])
-
   useEffect(() => {
     if (!executableId) return
+    let active = true
+    const check = async () => {
+      const seq = ++checkSeqRef.current
+      try {
+        const { change } = await api.invoke("runbook:script-change", { componentId })
+        if (!active || seq !== checkSeqRef.current) return
+        setChecked({ executableId, change: change ?? null })
+      } catch (err) {
+        // runbook:script-change reports an unreadable file as "no change", so
+        // this is an IPC failure. The next check replaces the last result.
+        console.error("Failed to check the script file for changes:", err)
+      }
+    }
     void check()
-    const unsubscribe = api.on('watch:script-change', ({ componentIds }) => {
+    const unsubscribe = api.on("watch:script-change", ({ componentIds }) => {
       if (componentIds.includes(componentId)) void check()
     })
     return () => {
-      checkSeqRef.current++
+      active = false
       unsubscribe()
     }
-  }, [api, check, componentId, executableId])
+  }, [api, componentId, executableId, recheckCount])
 
   const change = checked && checked.executableId === executableId ? checked.change : null
 
@@ -71,22 +75,22 @@ export function useScriptFileChange(
 
     const reloadReviewed = async () => {
       try {
-        await api.invoke('runbook:reload-script', { componentId, contentHash: reviewedHash })
+        await api.invoke("runbook:reload-script", { componentId, contentHash: reviewedHash })
         // registry:updated gives the block a new entry, which is checked again.
         // Drop the reloaded change now so the notice doesn't outlive the click.
         checkSeqRef.current++
         setChecked(null)
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to reload the script'
+        const message = err instanceof Error ? err.message : "Failed to reload the script"
         setReloadError(createAppError(message))
         // The file may have changed again: show what is on disk now.
-        void check()
+        setRecheckCount((count) => count + 1)
       } finally {
         setIsReloading(false)
       }
     }
     void reloadReviewed()
-  }, [api, componentId, change, check])
+  }, [api, componentId, change])
 
   return { change, reload, isReloading, reloadError }
 }

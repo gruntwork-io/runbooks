@@ -1,60 +1,72 @@
-import React, { useState, useEffect, useMemo } from 'react'
-import type { Ref } from 'react'
-import { evaluate } from '@mdx-js/mdx'
-import * as runtime from 'react/jsx-runtime'
-import remarkGfm from 'remark-gfm'
-import type { AppError } from '@/types/error'
-import { remarkLiteralOnly } from '@/lib/remarkLiteralOnly'
-import { rewriteAssetUrl } from '@/lib/assetPaths'
+import React, { useState, useEffect, useMemo } from "react"
+import type { Ref } from "react"
+import { evaluate } from "@mdx-js/mdx"
+import * as runtime from "react/jsx-runtime"
+import remarkGfm from "remark-gfm"
+import type { AppError } from "@/types/error"
+import { remarkLiteralOnly } from "@/lib/remarkLiteralOnly"
+import { rewriteAssetUrl } from "@/lib/assetPaths"
+import { errorMessage } from "../../../src/errors/message"
 
 // Support MDX components
-import { Inputs } from '@/components/mdx/Inputs'
-import { Template } from '@/components/mdx/Template'
-import { TemplateInline } from '@/components/mdx/TemplateInline'
-import { ComponentIdRegistryProvider } from '@/contexts/ComponentIdRegistry'
-import { RunbookContextProvider } from '@/contexts/RunbookContext'
-import { Check } from '@/components/mdx/Check'
-import { Command } from '@/components/mdx/Command'
-import { Admonition } from '@/components/mdx/Admonition'
-import { AwsAuth } from '@/components/mdx/AwsAuth'
-import { GoogleAuth } from '@/components/mdx/GoogleAuth'
-import { GitAuth } from '@/components/mdx/GitAuth'
-import { GitHubAuth } from '@/components/mdx/GitHubAuth'
-import { GitLabAuth } from '@/components/mdx/GitLabAuth'
-import { GitClone } from '@/components/mdx/GitClone'
-import { GitPullRequest } from '@/components/mdx/GitPullRequest'
-import { GitHubPullRequest } from '@/components/mdx/GitHubPullRequest'
-import { GitLabMergeRequest } from '@/components/mdx/GitLabMergeRequest'
-import { DirPicker } from '@/components/mdx/DirPicker'
-import { SmartLink } from '@/components/mdx/_shared/components/SmartLink'
-import { CodeBlock } from '@/components/mdx/_shared/components/CodeBlock'
-import { InstructionModeBanner } from '@/components/mdx/_shared/components/InstructionModeBanner'
-import { TaskListCheckbox } from '@/components/mdx/_shared/components/TaskListCheckbox'
+import { Inputs } from "@/components/mdx/Inputs"
+import { Template } from "@/components/mdx/Template"
+import { TemplateInline } from "@/components/mdx/TemplateInline"
+import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
+import { RunbookContextProvider } from "@/contexts/RunbookContext"
+import { Check } from "@/components/mdx/Check"
+import { Command } from "@/components/mdx/Command"
+import { Admonition } from "@/components/mdx/Admonition"
+import { Iframe } from "@/components/mdx/Iframe"
+import { AwsAuth } from "@/components/mdx/AwsAuth"
+import { GoogleAuth } from "@/components/mdx/GoogleAuth"
+import { GitAuth } from "@/components/mdx/GitAuth"
+import { GitHubAuth } from "@/components/mdx/GitHubAuth"
+import { GitLabAuth } from "@/components/mdx/GitLabAuth"
+import { GitClone } from "@/components/mdx/GitClone"
+import { GitPullRequest } from "@/components/mdx/GitPullRequest"
+import { GitHubPullRequest } from "@/components/mdx/GitHubPullRequest"
+import { GitLabMergeRequest } from "@/components/mdx/GitLabMergeRequest"
+import { DirPicker } from "@/components/mdx/DirPicker"
+import { SmartLink } from "@/components/mdx/_shared/components/SmartLink"
+import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
+import { InstructionModeBanner } from "@/components/mdx/_shared/components/InstructionModeBanner"
+import { TaskListCheckbox } from "@/components/mdx/_shared/components/TaskListCheckbox"
 
 /**
  * This component renders a markdown/MDX document.
- * 
+ *
  * It takes raw markdown text (potentially containing JSX components) and compiles
- * it at runtime (vs. build time) into a React component. It handles both regular markdown syntax 
+ * it at runtime (vs. build time) into a React component. It handles both regular markdown syntax
  * (headings, lists, code blocks) and custom JSX components (like <Check />, <Command />, etc.).
- * 
+ *
  * @param props - The component props
  * @param props.content - The raw markdown/MDX content string to compile and render
  * @param props.runbookPath - The path to the runbook's directory
  * @param props.runbookFilePath - The path to the runbook's .mdx file
+ * @param props.assetHost - The host of the runbook's runbook-asset:// URLs, from runbook:get
  * @param props.className - Optional additional CSS classes for styling the container
  * @param props.ref - Receives the scroll container that wraps the rendered document
  */
 interface MDXContainerProps {
   content: string
-  className?: string
-  runbookPath?: string
-  runbookFilePath?: string
-  remoteSource?: string
-  ref?: Ref<HTMLDivElement>
+  className?: string | undefined
+  runbookPath?: string | undefined
+  runbookFilePath?: string | undefined
+  remoteSource?: string | undefined
+  assetHost?: string | undefined
+  ref?: Ref<HTMLDivElement> | undefined
 }
 
-function MDXContainer({ content, runbookPath, runbookFilePath, remoteSource, className, ref }: MDXContainerProps) {
+function MDXContainer({
+  content,
+  runbookPath,
+  runbookFilePath,
+  remoteSource,
+  assetHost,
+  className,
+  ref,
+}: MDXContainerProps) {
   const [CustomMDXComponent, setCustomMDXComponent] = useState<React.ComponentType | null>(null)
   const [error, setError] = useState<AppError | null>(null)
 
@@ -62,7 +74,7 @@ function MDXContainer({ content, runbookPath, runbookFilePath, remoteSource, cla
   // e.g., "testdata/feature-demos/github-pull-request" → "github-pull-request"
   const runbookName = useMemo(() => {
     if (!runbookPath) return undefined
-    const segments = runbookPath.replace(/[\\/]+$/, '').split(/[\\/]/)
+    const segments = runbookPath.replace(/[\\/]+$/, "").split(/[\\/]/)
     return segments[segments.length - 1] || undefined
   }, [runbookPath])
 
@@ -71,25 +83,29 @@ function MDXContainer({ content, runbookPath, runbookFilePath, remoteSource, cla
     const createMDXComponent = async () => {
       try {
         setError(null)
-        const compiledComponent = await compileMDX(content)
+        const compiledComponent = await compileMDX(content, assetHost)
         setCustomMDXComponent(() => compiledComponent)
       } catch (err) {
-        console.error('Error processing MDX content:', err)
-        const errorMessage = err instanceof Error ? err.message : String(err)
+        console.error("Error processing MDX content:", err)
         setError({
-          message: 'Error processing MDX content',
-          details: errorMessage
+          message: "Error processing MDX content",
+          details: errorMessage(err),
         })
       }
     }
 
-    createMDXComponent()
-  }, [content])
+    void createMDXComponent()
+  }, [content, assetHost])
 
   if (error) {
     return (
-      <div className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
-        <div data-testid="mdx-error" className="text-destructive p-4 border border-destructive/30 rounded-lg">
+      <div
+        className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
+      >
+        <div
+          data-testid="mdx-error"
+          className="text-destructive p-4 border border-destructive/30 rounded-lg"
+        >
           <h3 className="font-semibold mb-2">{error.message}</h3>
           <pre className="text-sm whitespace-pre-wrap">{error.details}</pre>
         </div>
@@ -99,19 +115,29 @@ function MDXContainer({ content, runbookPath, runbookFilePath, remoteSource, cla
 
   if (!CustomMDXComponent) {
     return (
-      <div className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+      <div
+        className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
+      >
         <div className="p-4 text-muted-foreground">Loading MDX content...</div>
       </div>
     )
   }
 
   return (
-    <div ref={ref} data-testid="runbook-content" className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}>
+    <div
+      ref={ref}
+      data-testid="runbook-content"
+      className={`markdown-body border border-border rounded-lg shadow-md overflow-y-auto ${className}`}
+    >
       <ComponentIdRegistryProvider>
-        <RunbookContextProvider runbookName={runbookName} remoteSource={remoteSource} runbookFilePath={runbookFilePath} storageScope={remoteSource ?? runbookPath}>
-          <CustomMDXComponentErrorBoundary 
-            onError={(error) => setError(error)}
-          >
+        <RunbookContextProvider
+          runbookName={runbookName}
+          remoteSource={remoteSource}
+          runbookFilePath={runbookFilePath}
+          storageScope={remoteSource ?? runbookPath}
+          assetHost={assetHost}
+        >
+          <CustomMDXComponentErrorBoundary onError={setError}>
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
               <Admonition
@@ -119,9 +145,13 @@ function MDXContainer({ content, runbookPath, runbookFilePath, remoteSource, cla
                 title="**Make sure you trust this Runbook!**"
                 confirmationText="I trust this Runbook"
                 allowPermanentHide={true}
-                storageKey={`security-banner-${runbookPath || 'default'}`}
+                storageKey={`security-banner-${runbookPath || "default"}`}
               >
-                <p>Runbooks can execute <span className="italic">arbitrary code</span> directly in your environment. Please make sure you trust the author of this Runbook and carefully review embedded code snippets before running them.</p>
+                <p>
+                  Runbooks can execute <span className="italic">arbitrary code</span> directly in
+                  your environment. Please make sure you trust the author of this Runbook and
+                  carefully review embedded code snippets before running them.
+                </p>
                 <p>If you do not trust this Runbook, do not run it.</p>
               </Admonition>
             </div>
@@ -162,11 +192,11 @@ interface RehypeNode {
 }
 
 // Custom rehype plugin to transform asset paths for all media types.
-// Transforms ./assets/file.ext to runbook-asset://assets/file.ext so that
-// Electron's custom protocol handler can serve them from the local filesystem.
-// Which tags and attributes are rewritten is decided by rewriteAssetUrl, which
-// InlineMarkdown shares. Exported for tests.
-export function rehypeTransformAssetPaths() {
+// Transforms ./assets/file.ext to runbook-asset://<assetHost>/file.ext so
+// that Electron's custom protocol handler can serve them from the local
+// filesystem. Which tags and attributes are rewritten is decided by
+// rewriteAssetUrl, which InlineMarkdown shares. Exported for tests.
+export function rehypeTransformAssetPaths({ assetHost }: { assetHost?: string } = {}) {
   return (tree: RehypeNode) => {
     // Walk through the tree and transform asset references. Markdown syntax
     // (![alt](./assets/a.png), [text](./assets/a.pdf)) produces hast `element`
@@ -174,30 +204,30 @@ export function rehypeTransformAssetPaths() {
     // (<img>, <video>, <source>, ...) arrives instead as mdxJsxFlowElement
     // (block) or mdxJsxTextElement (inline) nodes with an `attributes` array.
     const visit = (node: RehypeNode) => {
-      if (node.type === 'element' && node.tagName && node.properties) {
+      if (node.type === "element" && node.tagName && node.properties) {
         const tagName = node.tagName
         for (const [key, value] of Object.entries(node.properties)) {
-          if (typeof value === 'string') {
-            node.properties[key] = rewriteAssetUrl(tagName, key, value)
+          if (typeof value === "string") {
+            node.properties[key] = rewriteAssetUrl(tagName, key, value, assetHost)
           } else if (Array.isArray(value)) {
             // hast stores comma-separated properties such as srcSet as a list
             node.properties[key] = value.map((item) =>
-              typeof item === 'string' ? rewriteAssetUrl(tagName, key, item) : item,
+              typeof item === "string" ? rewriteAssetUrl(tagName, key, item, assetHost) : item,
             )
           }
         }
       } else if (
-        (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') &&
-        typeof node.name === 'string'
+        (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") &&
+        typeof node.name === "string"
       ) {
         // Only string literals are rewritten; `src={expr}` is left as written.
         for (const attribute of node.attributes ?? []) {
           if (
-            attribute.type === 'mdxJsxAttribute' &&
+            attribute.type === "mdxJsxAttribute" &&
             attribute.name !== undefined &&
-            typeof attribute.value === 'string'
+            typeof attribute.value === "string"
           ) {
-            attribute.value = rewriteAssetUrl(node.name, attribute.name, attribute.value)
+            attribute.value = rewriteAssetUrl(node.name, attribute.name, attribute.value, assetHost)
           }
         }
       }
@@ -225,38 +255,38 @@ function rehypeTaskListIds() {
     const slugCounts = new Map<string, number>()
 
     const getText = (node: RehypeNode): string => {
-      if (node.type === 'text') return (node.value as string) || ''
-      if (node.children) return node.children.map(getText).join('')
-      return ''
+      if (node.type === "text") return (node.value as string) || ""
+      if (node.children) return node.children.map(getText).join("")
+      return ""
     }
 
     const slugify = (text: string): string =>
       text
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
         .slice(0, 64)
 
     // Walk the tree, tracking each node's parent so we can read a checkbox's
     // sibling label text (the checkbox is the first child of its paragraph).
     const visit = (node: RehypeNode, parent: RehypeNode | undefined) => {
       if (
-        node.type === 'element' &&
-        node.tagName === 'input' &&
-        node.properties?.type === 'checkbox'
+        node.type === "element" &&
+        node.tagName === "input" &&
+        node.properties?.type === "checkbox"
       ) {
         const labelText = parent
-          ? parent.children
+          ? (parent.children
               ?.filter((child) => child !== node)
               .map(getText)
-              .join('')
-              .trim() ?? ''
-          : ''
-        const slug = slugify(labelText) || 'task'
+              .join("")
+              .trim() ?? "")
+          : ""
+        const slug = slugify(labelText) || "task"
         const ordinal = slugCounts.get(slug) ?? 0
         slugCounts.set(slug, ordinal + 1)
         node.properties = node.properties || {}
-        node.properties['data-task-key'] = ordinal === 0 ? slug : `${slug}-${ordinal}`
+        node.properties["data-task-key"] = ordinal === 0 ? slug : `${slug}-${ordinal}`
       }
 
       if (node.children) {
@@ -280,19 +310,19 @@ function rehypeTaskListIds() {
 // match the runbook file.
 const stripFrontMatter = (content: string): string => {
   // Front matter must start at the beginning of the file with ---
-  if (!content.startsWith('---')) {
+  if (!content.startsWith("---")) {
     return content
   }
-  
+
   // Find the closing --- delimiter (must be on its own line)
   const endMatch = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
   if (!endMatch) {
     return content
   }
-  
+
   // Replace the front matter block with the same number of line breaks
-  const lineBreaks = endMatch[0].split('\n').length - 1
-  return '\n'.repeat(lineBreaks) + content.slice(endMatch[0].length)
+  const lineBreaks = endMatch[0].split("\n").length - 1
+  return "\n".repeat(lineBreaks) + content.slice(endMatch[0].length)
 }
 
 /**
@@ -323,6 +353,7 @@ export const MDX_COMPONENTS = {
   GitLabMergeRequest,
   // Utility components
   Admonition,
+  Iframe,
   a: SmartLink, // Handle links intelligently (external open in new tab, anchors smooth scroll)
   pre: CodeBlock, // Code blocks with copy-on-hover button
   input: TaskListCheckbox, // Make GFM task-list checkboxes interactive + persistent
@@ -330,7 +361,10 @@ export const MDX_COMPONENTS = {
 
 // Compiles MDX content into a custom React component that can render the MDX content.
 // Exported so tests can compile runbooks with the exact production options.
-export const compileMDX = async (content: string): Promise<React.ComponentType> => {
+export const compileMDX = async (
+  content: string,
+  assetHost?: string,
+): Promise<React.ComponentType> => {
   // Strip front matter before MDX compilation (front matter is metadata, not content)
   const mdxContent = stripFrontMatter(content)
 
@@ -343,7 +377,7 @@ export const compileMDX = async (content: string): Promise<React.ComponentType> 
       remarkGfm, // Enable GitHub Flavored Markdown (strikethrough, tables, etc.)
       remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
     ],
-    rehypePlugins: [rehypeTransformAssetPaths, rehypeTaskListIds],
+    rehypePlugins: [[rehypeTransformAssetPaths, { assetHost }], rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })
 
@@ -366,26 +400,32 @@ class CustomMDXComponentErrorBoundary extends React.Component<
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error) {
-    console.error('Runtime error in MDX component:', error.message)
+  override componentDidCatch(error: Error) {
+    console.error("Runtime error in MDX component:", error.message)
     const appError: AppError = {
       message: error.message,
-      details: error.stack || 'No additional details available'
+      details: error.stack || "No additional details available",
     }
-    if (error.message.includes('Expected component')) {
-      appError.message = 'Runtime error in MDX component'
-      appError.details = 'Your runbook contains a component that is not supported.\n\n' + error.message
+    if (error.message.includes("Expected component")) {
+      appError.message = "Runtime error in MDX component"
+      appError.details =
+        "Your runbook contains a component that is not supported.\n\n" + error.message
     }
     if (this.props.onError) {
       this.props.onError(appError)
     }
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
-        <div data-testid="mdx-error" className="text-destructive p-4 border border-destructive/30 rounded-lg bg-destructive-muted">
-          <h3 className="font-semibold mb-2">Runtime Error in MDX Component: {this.state.error?.message}</h3>
+        <div
+          data-testid="mdx-error"
+          className="text-destructive p-4 border border-destructive/30 rounded-lg bg-destructive-muted"
+        >
+          <h3 className="font-semibold mb-2">
+            Runtime Error in MDX Component: {this.state.error?.message}
+          </h3>
           <p className="text-sm">{this.state.error?.details}</p>
         </div>
       )
@@ -395,4 +435,4 @@ class CustomMDXComponentErrorBoundary extends React.Component<
   }
 }
 
-export default MDXContainer;
+export default MDXContainer

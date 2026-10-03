@@ -1,5 +1,5 @@
-import { useContext } from 'react'
-import { SessionContext, type SessionContextType } from './SessionContext.types'
+import { useContext } from "react"
+import { SessionContext, type SessionContextType } from "./SessionContext.types"
 
 /**
  * Hook to access the session context for persistent environment management.
@@ -13,10 +13,10 @@ import { SessionContext, type SessionContextType } from './SessionContext.types'
  */
 export function useSession(): SessionContextType {
   const context = useContext(SessionContext)
-  
+
   if (context === undefined) {
-    throw new Error('useSession must be used within a SessionProvider')
+    throw new Error("useSession must be used within a SessionProvider")
   }
-  
+
   return context
 }

@@ -65,7 +65,12 @@ export interface InputsMapResult {
   /** Output path → source template path (relative to bundle root in FS mode). */
   readonly sources: Record<string, string>
   /** Soft errors from analysis. A non-empty list is not necessarily fatal. */
-  readonly errors: ReadonlyArray<{ kind: string; message?: string; template?: string; file?: string }>
+  readonly errors: ReadonlyArray<{
+    kind: string
+    message?: string
+    template?: string
+    file?: string
+  }>
   /**
    * Present when `--include-bundle` was passed to the CLI. The dispatcher
    * needs this to feed back into the WASM render functions.
@@ -77,7 +82,10 @@ export interface InputsMapResult {
 export interface BundleSnapshot {
   readonly rootPath: string
   readonly files: Record<string, string>
-  readonly dependencies: Record<string, ReadonlyArray<{ name: string; bundlePath: string; outputFolder?: string }>>
+  readonly dependencies: Record<
+    string,
+    ReadonlyArray<{ name: string; bundlePath: string; outputFolder?: string }>
+  >
 }
 
 /**
@@ -105,9 +113,7 @@ export interface WasmRuntimeShape {
    * session). Costs are paid up-front (~30-50ms on a 500KB bundle); every
    * subsequent render skips the bundle JSON parse + MapFS construction.
    */
-  readonly prepareBundle: (
-    bundleJSON: string,
-  ) => Effect.Effect<string, WasmError>
+  readonly prepareBundle: (bundleJSON: string) => Effect.Effect<string, WasmError>
 
   /**
    * Render N paths against a previously prepared bundle. Per-render cost
@@ -127,9 +133,7 @@ export interface WasmRuntimeShape {
    * Release a handle. Idempotent — releasing an unknown handle is a no-op.
    * Callers don't need to track which handles they've already released.
    */
-  readonly releaseBundle: (
-    handle: string,
-  ) => Effect.Effect<void>
+  readonly releaseBundle: (handle: string) => Effect.Effect<void>
 
   /**
    * Render a single Go text/template string with a vars map. No bundle, no
@@ -154,7 +158,4 @@ export interface WasmRuntimeShape {
   readonly isReady: Effect.Effect<boolean>
 }
 
-export class WasmRuntime extends Context.Tag("WasmRuntime")<
-  WasmRuntime,
-  WasmRuntimeShape
->() {}
+export class WasmRuntime extends Context.Tag("WasmRuntime")<WasmRuntime, WasmRuntimeShape>() {}

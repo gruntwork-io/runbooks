@@ -6,17 +6,21 @@
  * and the generated files info bar.
  */
 
-import { Folder, Copy, Check } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { Folder, Copy, Check } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 
-export function LocalPathRow({ displayText, copyPath, className }: {
+export function LocalPathRow({
+  displayText,
+  copyPath,
+  className,
+}: {
   /** Text shown next to the folder icon (e.g. "./my-repo" or a relative path). */
-  displayText: string;
+  displayText: string
   /** Absolute path copied to clipboard. When omitted the copy button is hidden. */
-  copyPath?: string;
+  copyPath?: string | undefined
   /** Additional CSS classes (e.g. for top margin). */
-  className?: string;
+  className?: string | undefined
 }) {
   const { didCopy, copy } = useCopyToClipboard()
 
@@ -32,11 +36,7 @@ export function LocalPathRow({ displayText, copyPath, className }: {
           className="p-0.5 text-muted-foreground hover:text-foreground rounded cursor-pointer"
           title={`Copy full path: ${copyPath}`}
         >
-          {didCopy ? (
-            <Check className="w-3 h-3 text-success" />
-          ) : (
-            <Copy className="w-3 h-3" />
-          )}
+          {didCopy ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
         </button>
       )}
     </div>

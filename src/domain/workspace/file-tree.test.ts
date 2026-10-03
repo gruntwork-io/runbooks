@@ -9,30 +9,20 @@ import {
   HEAVY_DIR_THRESHOLD,
 } from "../../types.ts"
 
-const runTree = (
-  files: Record<string, string>,
-  rootPath = "/root",
-) =>
-  Effect.runPromise(
-    buildFileTree(rootPath).pipe(Effect.provide(makeTestFileSystem(files))),
-  )
+const runTree = (files: Record<string, string>, rootPath = "/root") =>
+  Effect.runPromise(buildFileTree(rootPath).pipe(Effect.provide(makeTestFileSystem(files))))
 
 /** Counts file nodes at every depth of the tree. */
 const countFiles = (nodes: FileTreeNode[]): number =>
-  nodes.reduce(
-    (n, node) => n + (node.type === "file" ? 1 : countFiles(node.children)),
-    0,
-  )
+  nodes.reduce((n, node) => n + (node.type === "file" ? 1 : countFiles(node.children)), 0)
 
 describe("isBinaryExt", () => {
-  it.each([".png", ".jpg", ".zip", ".exe", ".pdf", ".woff2"])(
-    "returns true for %s",
-    (ext) => expect(isBinaryExt(ext)).toBe(true),
+  it.each([".png", ".jpg", ".zip", ".exe", ".pdf", ".woff2"])("returns true for %s", (ext) =>
+    expect(isBinaryExt(ext)).toBe(true),
   )
 
-  it.each([".ts", ".md", ".txt", ".json", ".sh", ""])(
-    "returns false for %s",
-    (ext) => expect(isBinaryExt(ext)).toBe(false),
+  it.each([".ts", ".md", ".txt", ".json", ".sh", ""])("returns false for %s", (ext) =>
+    expect(isBinaryExt(ext)).toBe(false),
   )
 })
 
@@ -131,9 +121,7 @@ describe("buildFileTree", () => {
     const result = await runTree(files)
 
     expect(result.meta.truncatedTree).toBe(true)
-    expect(result.meta.heavyDirs).toEqual([
-      { path: "heavy", fileCount: HEAVY_DIR_THRESHOLD },
-    ])
+    expect(result.meta.heavyDirs).toEqual([{ path: "heavy", fileCount: HEAVY_DIR_THRESHOLD }])
   })
 
   it("reports no heavy dirs when the tree is not truncated", async () => {

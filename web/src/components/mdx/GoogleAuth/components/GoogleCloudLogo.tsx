@@ -68,7 +68,10 @@ interface GoogleCloudLogoProps {
  * Mark + wordmark lockup for the block header. Scales from a single height
  * class (`h-6` matches the `<img>` the AwsAuth header uses).
  */
-export function GoogleCloudLogo({ className = "h-6", ariaLabel = "Google Cloud" }: GoogleCloudLogoProps) {
+export function GoogleCloudLogo({
+  className = "h-6",
+  ariaLabel = "Google Cloud",
+}: GoogleCloudLogoProps) {
   return (
     <svg
       className={className}
@@ -80,14 +83,7 @@ export function GoogleCloudLogo({ className = "h-6", ariaLabel = "Google Cloud" 
         : { "aria-hidden": true, focusable: "false" })}
     >
       <MarkPaths />
-      <text
-        x="58"
-        y="33"
-        fill="currentColor"
-        fontSize="26"
-        fontWeight="500"
-        letterSpacing="0.2"
-      >
+      <text x="58" y="33" fill="currentColor" fontSize="26" fontWeight="500" letterSpacing="0.2">
         Google Cloud
       </text>
     </svg>

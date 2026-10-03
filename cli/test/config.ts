@@ -26,12 +26,12 @@ export interface TestSettings {
 
 export interface TestCase {
   name: string
-  description?: string
-  env?: Record<string, string>
-  inputs?: Record<string, InputValue>
-  steps?: TestStep[]
-  assertions?: TestAssertion[]
-  cleanup?: CleanupAction[]
+  description?: string | undefined
+  env?: Record<string, string> | undefined
+  inputs?: Record<string, InputValue> | undefined
+  steps?: TestStep[] | undefined
+  assertions?: TestAssertion[] | undefined
+  cleanup?: CleanupAction[] | undefined
 }
 
 export interface TestStep {
@@ -44,13 +44,7 @@ export interface TestStep {
   assertions?: TestAssertion[]
 }
 
-export type ExpectedStatus =
-  | "success"
-  | "fail"
-  | "warn"
-  | "blocked"
-  | "skip"
-  | "config_error"
+export type ExpectedStatus = "success" | "fail" | "warn" | "blocked" | "skip" | "config_error"
 
 export interface TestAssertion {
   type: AssertionType
@@ -216,13 +210,18 @@ function parseDuration(s: string): number {
   const match = s.match(/^(\d+)(ms|s|m|h)$/)
   if (!match) throw new Error(`Invalid duration format: ${s}`)
 
-  const value = Number.parseInt(match[1], 10)
-  switch (match[2]) {
-    case "ms": return value
-    case "s": return value * 1000
-    case "m": return value * 60 * 1000
-    case "h": return value * 60 * 60 * 1000
-    default: throw new Error(`Unknown duration unit: ${match[2]}`)
+  const value = Number.parseInt(match[1]!, 10)
+  switch (match[2]!) {
+    case "ms":
+      return value
+    case "s":
+      return value * 1000
+    case "m":
+      return value * 60 * 1000
+    case "h":
+      return value * 60 * 60 * 1000
+    default:
+      throw new Error(`Unknown duration unit: ${match[2]}`)
   }
 }
 
@@ -261,9 +260,7 @@ export function parseConfig(data: string): TestConfig {
       description: tc.description,
       env: tc.env,
       inputs: tc.inputs
-        ? Object.fromEntries(
-            Object.entries(tc.inputs).map(([k, v]) => [k, parseInputValue(v)]),
-          )
+        ? Object.fromEntries(Object.entries(tc.inputs).map(([k, v]) => [k, parseInputValue(v)]))
         : undefined,
       steps: tc.steps?.map((step) => ({
         ...step,
@@ -285,9 +282,7 @@ export function parseConfig(data: string): TestConfig {
 
 function validateConfig(config: TestConfig): void {
   if (config.version !== 1) {
-    throw new Error(
-      `Unsupported config version: ${config.version} (only version 1 is supported)`,
-    )
+    throw new Error(`Unsupported config version: ${config.version} (only version 1 is supported)`)
   }
 
   if (config.tests.length === 0) {
@@ -303,35 +298,36 @@ function validateConfig(config: TestConfig): void {
     }
   }
 
-  for (let i = 0; i < config.tests.length; i++) {
-    const tc = config.tests[i]
+  for (const [i, tc] of config.tests.entries()) {
     if (!tc.name) {
       throw new Error(`Test case ${i + 1}: name is required`)
     }
 
     // Validate steps
     if (tc.steps) {
-      for (let j = 0; j < tc.steps.length; j++) {
-        const step = tc.steps[j]
+      for (const [j, step] of tc.steps.entries()) {
         if (!step.block) {
           throw new Error(`Test "${tc.name}" step ${j + 1}: block is required`)
         }
 
         const validStatuses: ExpectedStatus[] = [
-          "success", "fail", "warn", "blocked", "skip", "config_error",
+          "success",
+          "fail",
+          "warn",
+          "blocked",
+          "skip",
+          "config_error",
         ]
         if (!validStatuses.includes(step.expect)) {
-          throw new Error(
-            `Test "${tc.name}" step ${j + 1}: invalid expect value "${step.expect}"`,
-          )
+          throw new Error(`Test "${tc.name}" step ${j + 1}: invalid expect value "${step.expect}"`)
         }
       }
     }
 
     // Validate assertions
     if (tc.assertions) {
-      for (let j = 0; j < tc.assertions.length; j++) {
-        validateAssertion(tc.name, j, tc.assertions[j])
+      for (const [j, assertion] of tc.assertions.entries()) {
+        validateAssertion(tc.name, j, assertion)
       }
     }
 
@@ -339,8 +335,8 @@ function validateConfig(config: TestConfig): void {
     if (tc.steps) {
       for (const step of tc.steps) {
         if (step.assertions) {
-          for (let j = 0; j < step.assertions.length; j++) {
-            validateAssertion(tc.name, j, step.assertions[j])
+          for (const [j, assertion] of step.assertions.entries()) {
+            validateAssertion(tc.name, j, assertion)
           }
         }
       }
@@ -348,11 +344,7 @@ function validateConfig(config: TestConfig): void {
   }
 }
 
-function validateAssertion(
-  testName: string,
-  index: number,
-  assertion: TestAssertion,
-): void {
+function validateAssertion(testName: string, index: number, assertion: TestAssertion): void {
   const i = index + 1
 
   switch (assertion.type) {
@@ -369,61 +361,87 @@ function validateAssertion(
       if (!assertion.path)
         throw new Error(`Test "${testName}" assertion ${i}: path is required for ${assertion.type}`)
       if (!assertion.contains)
-        throw new Error(`Test "${testName}" assertion ${i}: contains is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: contains is required for ${assertion.type}`,
+        )
       break
 
     case "file_matches":
       if (!assertion.path)
         throw new Error(`Test "${testName}" assertion ${i}: path is required for ${assertion.type}`)
       if (!assertion.pattern)
-        throw new Error(`Test "${testName}" assertion ${i}: pattern is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: pattern is required for ${assertion.type}`,
+        )
       break
 
     case "file_equals":
       if (!assertion.path)
         throw new Error(`Test "${testName}" assertion ${i}: path is required for ${assertion.type}`)
       if (assertion.value === undefined)
-        throw new Error(`Test "${testName}" assertion ${i}: value is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: value is required for ${assertion.type}`,
+        )
       break
 
     case "output_equals":
       if (!assertion.block)
-        throw new Error(`Test "${testName}" assertion ${i}: block is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: block is required for ${assertion.type}`,
+        )
       if (!assertion.output)
-        throw new Error(`Test "${testName}" assertion ${i}: output is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: output is required for ${assertion.type}`,
+        )
       break
 
     case "output_matches":
       if (!assertion.block)
-        throw new Error(`Test "${testName}" assertion ${i}: block is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: block is required for ${assertion.type}`,
+        )
       if (!assertion.output)
-        throw new Error(`Test "${testName}" assertion ${i}: output is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: output is required for ${assertion.type}`,
+        )
       if (!assertion.pattern)
-        throw new Error(`Test "${testName}" assertion ${i}: pattern is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: pattern is required for ${assertion.type}`,
+        )
       break
 
     case "output_exists":
       if (!assertion.block)
-        throw new Error(`Test "${testName}" assertion ${i}: block is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: block is required for ${assertion.type}`,
+        )
       if (!assertion.output)
-        throw new Error(`Test "${testName}" assertion ${i}: output is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: output is required for ${assertion.type}`,
+        )
       break
 
     case "files_generated":
       if (!assertion.block)
-        throw new Error(`Test "${testName}" assertion ${i}: block is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: block is required for ${assertion.type}`,
+        )
       break
 
     case "script":
       if (!assertion.command)
-        throw new Error(`Test "${testName}" assertion ${i}: command is required for ${assertion.type}`)
+        throw new Error(
+          `Test "${testName}" assertion ${i}: command is required for ${assertion.type}`,
+        )
       break
 
     case undefined:
       throw new Error(`Test "${testName}" assertion ${i}: type is required`)
 
     default:
-      throw new Error(`Test "${testName}" assertion ${i}: unknown assertion type "${assertion.type}"`)
+      throw new Error(
+        `Test "${testName}" assertion ${i}: unknown assertion type "${String(assertion.type)}"`,
+      )
   }
 }
 
