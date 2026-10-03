@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { ChevronDown, Download, Info, Pencil, RotateCcw, X } from "lucide-react"
+import { ChevronDown, Download, History, Info, Pencil, RotateCcw, X } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
@@ -21,6 +21,7 @@ import {
 } from "../ui/dropdown-menu"
 import { SessionDirButton } from "./SessionDirButton"
 import { SessionName } from "./SessionName"
+import { SessionsDialog } from "./SessionsDialog"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
 import { useLogs } from "@/contexts/useLogs"
@@ -61,10 +62,11 @@ export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProp
   const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
-  // Set by the menu's Rename Session item. The name's field opens once the
-  // menu has closed: opened sooner, it would lose the focus to the closing
-  // menu, and a field that loses focus cancels the rename.
-  const renameOnMenuClose = useRef(false)
+  const [isSessionsOpen, setIsSessionsOpen] = useState(false)
+  // Set by the menu's Rename Session and Switch Session items. What they open
+  // opens once the menu has closed: opened sooner, it would lose the focus to
+  // the closing menu, and a name field that loses focus cancels the rename.
+  const afterMenuClose = useRef<"rename" | "sessions" | null>(null)
   const { getAllLogs, hasLogs } = useLogs()
   const api = useApi()
   const { resolvedTheme } = useTheme()
@@ -86,6 +88,9 @@ export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProp
     })
     return cleanup
   }, [api, hasRunbookOpen])
+
+  // The native "Switch Session…" menu item.
+  useEffect(() => api.on("menu:switch-session", () => setIsSessionsOpen(true)), [api])
 
   const handleCloseRunbook = () => {
     api.invoke("native:close-runbook").catch((err: unknown) => {
@@ -160,11 +165,13 @@ export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProp
             <DropdownMenuContent
               align="end"
               onCloseAutoFocus={(event) => {
-                if (!renameOnMenuClose.current) return
-                renameOnMenuClose.current = false
-                // Keep the focus off the Menu button: the name's field takes it.
+                const open = afterMenuClose.current
+                if (open === null) return
+                afterMenuClose.current = null
+                // Keep the focus off the Menu button: what opens takes it.
                 event.preventDefault()
-                setIsRenaming(true)
+                if (open === "rename") setIsRenaming(true)
+                else setIsSessionsOpen(true)
               }}
             >
               <DropdownMenuItem
@@ -186,7 +193,15 @@ export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProp
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
-                  renameOnMenuClose.current = true
+                  afterMenuClose.current = "sessions"
+                }}
+              >
+                <History className="size-4" />
+                Switch Session…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  afterMenuClose.current = "rename"
                 }}
                 disabled={!hasRunbookOpen}
                 className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
@@ -223,6 +238,8 @@ export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProp
           </DropdownMenu>
         </div>
       </header>
+
+      <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
 
       <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
         <AlertDialogContent>

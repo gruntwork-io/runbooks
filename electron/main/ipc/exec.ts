@@ -45,10 +45,16 @@ function abortExecution(id: string): boolean {
   return true
 }
 
+/** Whether a script is running. exec:run runs one at a time. */
+export function isExecutionRunning(): boolean {
+  return activeExecutions.size > 0
+}
+
 /**
  * Cancel every running execution and wait until each has been interrupted,
  * i.e. its kill finalizer has sent SIGTERM to the script's process group.
- * Called on quit: scripts run detached, so nothing else stops them.
+ * Called on quit and before switching sessions: scripts run detached, so
+ * nothing else stops them.
  */
 export async function cancelAllExecutions(): Promise<void> {
   const pending = [...activeExecutions.values()]

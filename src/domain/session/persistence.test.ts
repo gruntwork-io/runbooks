@@ -598,6 +598,102 @@ describe("SessionPersistence", () => {
     })
   })
 
+  describe("listSessions", () => {
+    it("lists the saved sessions, marking the open one and those whose runbook file is gone", async () => {
+      const runbook = path.join(root, "runbook.mdx")
+      fs.writeFileSync(runbook, "# Runbook\n")
+      const app = startApp()
+      const here = await app.open({ runbook: { path: runbook, remoteSource: undefined } })
+      const gone = await app.open({ runbook: LOCAL })
+      const remote = await app.open({
+        runbook: {
+          path: "/tmp/deleted-clone/runbook.mdx",
+          remoteSource: "https://github.com/acme/r",
+        },
+      })
+
+      const listed = await run(app.persistence.listSessions())
+
+      const flags = Object.fromEntries(
+        listed.map((s) => [s.id, { isCurrent: s.isCurrent, runbookMissing: s.runbookMissing }]),
+      )
+      expect(flags).toEqual({
+        [here.id]: { isCurrent: false, runbookMissing: false },
+        [gone.id]: { isCurrent: false, runbookMissing: true },
+        [remote.id]: { isCurrent: true, runbookMissing: false },
+      })
+      expect(listed.find((s) => s.id === here.id)).toMatchObject({
+        name: here.name,
+        path: runbook,
+        remoteSource: undefined,
+        dir: here.dir,
+      })
+    })
+
+    it("is empty before any session was saved", async () => {
+      expect(await run(startApp().persistence.listSessions())).toEqual([])
+    })
+  })
+
+  describe("deleteSession", () => {
+    it("deletes another session with its history and its directory", async () => {
+      const app = startApp()
+      const old = await app.open()
+      fs.writeFileSync(path.join(old.dir, "generated.tf"), "x")
+      await run(app.persistence.recordEvent(old.id, { blockId: "b", kind: "inputs", payload: {} }))
+      const current = await app.open({ startNew: true })
+
+      await run(app.persistence.deleteSession(old.id))
+
+      expect(Effect.runSync(app.persistence.findSession(old.id))).toBeUndefined()
+      expect(fs.existsSync(old.dir)).toBe(false)
+      expect(fs.existsSync(current.dir)).toBe(true)
+      expect((await run(app.persistence.listSessions())).map((s) => s.id)).toEqual([current.id])
+    })
+
+    it("refuses to delete the open session, and says why", async () => {
+      const app = startApp()
+      const open = await app.open()
+
+      const result = await run(Effect.either(app.persistence.deleteSession(open.id)))
+
+      expect(result).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "SessionDeleteError",
+          message: "This session is open. Switch to another session before deleting it.",
+        },
+      })
+      expect(fs.existsSync(open.dir)).toBe(true)
+      expect(Effect.runSync(app.persistence.findSession(open.id))).toBeDefined()
+    })
+
+    it("leaves a directory that is not the session's own one under the sessions root", async () => {
+      const app = startApp()
+      const old = await app.open()
+      await app.open({ startNew: true })
+      const elsewhere = path.join(root, "not-a-session-dir")
+      fs.mkdirSync(elsewhere)
+      const db = openSqliteDatabase(dbFile)
+      db.prepare("UPDATE sessions SET dir = ? WHERE id = ?").run(elsewhere, old.id)
+      db.close()
+
+      await run(app.persistence.deleteSession(old.id))
+
+      expect(Effect.runSync(app.persistence.findSession(old.id))).toBeUndefined()
+      expect(fs.existsSync(elsewhere)).toBe(true)
+    })
+
+    it("does nothing for a session that does not exist", async () => {
+      const app = startApp()
+      const open = await app.open()
+
+      await run(app.persistence.deleteSession("01900000-0000-7000-8000-000000000000"))
+
+      expect((await run(app.persistence.listSessions())).map((s) => s.id)).toEqual([open.id])
+    })
+  })
+
   it("reports a cipher that throws and keeps the session running", async () => {
     const app = startApp({
       ...reversingCipher,

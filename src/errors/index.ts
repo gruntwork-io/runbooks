@@ -154,6 +154,11 @@ export class SessionError extends Data.TaggedError("SessionError")<{
 
 export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{}> {}
 
+/** A session can't be deleted. `message` says why, in words fit to show the user. */
+export class SessionDeleteError extends Data.TaggedError("SessionDeleteError")<{
+  readonly message: string
+}> {}
+
 /** A session can't take the name it was asked to. `message` says why, in words fit to show the user. */
 export class SessionNameError extends Data.TaggedError("SessionNameError")<{
   readonly message: string

@@ -87,7 +87,17 @@ Choose **File > Reset Session**, or **Reset Session** in the app's menu, to star
 
 A reset replaces the session with a new one, so the name in the title bar changes. The runbook resumes the new session from then on.
 
-Nothing is deleted. The session that was replaced keeps its directory, files and history on disk, but Runbooks can't open it again. See [Deleting sessions](#deleting-sessions) to remove it.
+Nothing is deleted. The session that was replaced keeps its directory, files and history on disk. [Switch to it](#switching-sessions) to pick it up again, or [delete it](#deleting-sessions).
+
+## Switching sessions
+
+Choose **File > Switch Session…**, or **Switch Session…** in the app's menu, to see the saved sessions. They are grouped by runbook, the open runbook first, and each shows when it was last used and how many scripts it ran. Type in the filter box to narrow the list by session name or runbook.
+
+Click a session to open its runbook in it. Its blocks, environment and working directory come back as [Resuming a session](#resuming-a-session) describes. A remote runbook is cloned again first. A session whose local runbook file has been deleted is listed but can't be opened.
+
+Only one script runs at a time. If one is running, Runbooks asks before switching, since the switch stops it.
+
+The session you switch to counts as launched again. Launching Runbooks from the dock resumes it next, and so does `runbooks` run in the directory it was last launched from.
 
 ## The session's history
 
@@ -146,13 +156,11 @@ The rest of the database is not encrypted, including which block each history en
 
 ## Deleting sessions
 
-Runbooks does not delete sessions. Their cloned repositories add up, and so do their histories, which get an entry with a log for every script run. To remove every session, quit Runbooks and delete the `sessions` folder.
+Runbooks keeps every session until you delete it. Their cloned repositories add up, and so do their histories, which get an entry with a log for every script run.
 
-To remove one session, quit Runbooks, delete its row, and then delete its folder under `dirs/`. Deleting the row deletes the session's history with it:
+To delete a session, open **Switch Session…**, click the trash icon next to it, and confirm. Its directory goes with it, including the files its blocks generated and the repositories they cloned, and so does its history. The open session can't be deleted: switch to another one first.
 
-```bash
-sqlite3 sessions/db/sessions.db "PRAGMA foreign_keys = ON; DELETE FROM sessions WHERE name = 'elegant-elephant'"
-```
+To remove every session, quit Runbooks and delete the `sessions` folder.
 
 <Aside type="caution">
 Uninstalling Runbooks on Windows deletes its data directory, sessions included. Push or copy out any work in a session's cloned repositories first.

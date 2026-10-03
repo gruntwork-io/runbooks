@@ -12,6 +12,16 @@ import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "..
 export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
 import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
+import type { ListedSession } from "../../src/domain/session/store.ts"
+
+/** What session:switch did. */
+export type SessionSwitchResult =
+  /** The renderer is opening the session's runbook in that session. */
+  | { status: "switched" }
+  /** Nothing was done: a script is running, and the request did not say to stop it. */
+  | { status: "script-running" }
+  /** Nothing was done, for `error`, a sentence fit to show the user. */
+  | { status: "failed"; error: string }
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -85,6 +95,22 @@ export interface IpcChannelMap {
    * sessionNameProblem) or is another session's.
    */
   "session:rename": { params: { name: string }; result: { name: string } }
+  /** The most recently used saved sessions, most recent first (SessionPersistence.listSessions). */
+  "session:list": { params: void; result: { sessions: ListedSession[] } }
+  /**
+   * Open saved session `id` in the window (session-switch.ts). Stops a running
+   * script only with `stopRunningScript`; without it, a running script makes
+   * the switch answer `script-running` and do nothing.
+   */
+  "session:switch": {
+    params: { id: string; stopRunningScript?: boolean }
+    result: SessionSwitchResult
+  }
+  /**
+   * Delete saved session `id`, its history and its directory. Rejects with a
+   * sentence for the user when `id` is the open session.
+   */
+  "session:delete": { params: { id: string }; result: { ok: true } }
   /**
    * Add what the user did to a block to the history of session `sessionId`
    * (src/domain/session/history.ts). `payload` is the block's state after it,
@@ -926,6 +952,8 @@ export interface IpcEventMap {
   "menu:close-runbook": void
   /** File > Rename Session…: the title bar turns the session's name into a field. */
   "menu:rename-session": void
+  /** File > Switch Session…: the renderer shows the saved sessions. */
+  "menu:switch-session": void
   "menu:preferences": void
   "menu:find": { action: FindAction }
   "registry:updated": void

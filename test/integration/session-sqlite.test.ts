@@ -121,4 +121,32 @@ describe("SessionStore over node:sqlite", () => {
     expect(Effect.runSync(store.get("s1"))?.worktrees).toEqual(session.worktrees)
     Effect.runSync(store.close())
   })
+
+  it("deletes a session's history and worktrees with it, and lists what is left", () => {
+    const store = Effect.runSync(SessionStore.open(openSqliteDatabase(file)))
+    Effect.runSync(store.insert(session))
+    Effect.runSync(store.insert({ ...session, id: "s2", name: "brave-otter", worktrees: [] }))
+    Effect.runSync(
+      store.appendEvent(
+        {
+          sessionId: "s1",
+          at: "2026-01-04T00:00:00.000Z",
+          blockId: "b",
+          kind: "inputs",
+          payload: new Uint8Array([1]),
+        },
+        { replacePrevious: false },
+      ),
+    )
+
+    Effect.runSync(store.delete("s1"))
+
+    expect(Effect.runSync(store.list(10)).map((s) => s.id)).toEqual(["s2"])
+    Effect.runSync(store.close())
+    const db = openSqliteDatabase(file)
+    const count = (table: string) =>
+      (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
+    expect([count("session_events"), count("session_worktrees")]).toEqual([0, 0])
+    db.close()
+  })
 })

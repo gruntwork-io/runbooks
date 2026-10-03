@@ -115,8 +115,8 @@ let newSessionFor: string | null = null
  * File > Reset Session: replace the open runbook's session with a new one.
  * Its blocks start over in a new, empty session directory, under a new name,
  * with the environment the app was launched with. The session it replaces
- * stays on disk, but nothing opens it again. Does nothing while no runbook is
- * open.
+ * stays on disk, and only a switch to it (session:switch) opens it again.
+ * Does nothing while no runbook is open.
  */
 export function resetToNewSession(): void {
   const win = getMainWindow()

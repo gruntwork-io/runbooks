@@ -323,6 +323,106 @@ describe("SessionStore", () => {
     })
   })
 
+  describe("list", () => {
+    it("lists sessions by when they were last opened or changed, whichever is later", () => {
+      run(
+        store.insert(
+          record({
+            id: "launched",
+            lastLaunchedAt: "2026-01-05T00:00:00.000Z",
+            lastActivityAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ),
+      )
+      run(
+        store.insert(
+          record({
+            id: "changed",
+            lastLaunchedAt: "2026-01-02T00:00:00.000Z",
+            lastActivityAt: "2026-01-07T00:00:00.000Z",
+          }),
+        ),
+      )
+      run(store.insert(record({ id: "old" })))
+
+      expect(run(store.list(10)).map((s) => [s.id, s.lastUsedAt])).toEqual([
+        ["changed", "2026-01-07T00:00:00.000Z"],
+        ["launched", "2026-01-05T00:00:00.000Z"],
+        ["old", "2026-01-01T00:00:00.000Z"],
+      ])
+    })
+
+    it("lists what a list of sessions shows of each", () => {
+      run(
+        store.insert(
+          record({
+            id: "r",
+            remoteSource: "https://github.com/acme/runbooks//deploy",
+            executionCount: 4,
+            createdAt: "2025-12-31T00:00:00.000Z",
+          }),
+        ),
+      )
+
+      expect(run(store.list(10))).toEqual([
+        {
+          id: "r",
+          name: "name-of-r",
+          path: "/repo/runbook.mdx",
+          remoteSource: "https://github.com/acme/runbooks//deploy",
+          dir: "/sessions/dirs/s1",
+          createdAt: "2025-12-31T00:00:00.000Z",
+          lastUsedAt: "2026-01-01T00:00:00.000Z",
+          executionCount: 4,
+        },
+      ])
+    })
+
+    it("lists the most recent first among sessions last used at the same time, and stops at the limit", () => {
+      for (const id of ["a", "b", "c"]) run(store.insert(record({ id })))
+
+      expect(run(store.list(2)).map((s) => s.id)).toEqual(["c", "b"])
+    })
+  })
+
+  describe("delete", () => {
+    it("deletes a session with its history and worktrees, and leaves the others", () => {
+      run(store.insert(record({ id: "gone", worktrees: ["/w"] })))
+      run(store.insert(record({ id: "kept", worktrees: ["/k"] })))
+      for (const sessionId of ["gone", "kept"]) {
+        run(
+          store.appendEvent(
+            {
+              sessionId,
+              at: "2026-01-01T00:00:00.000Z",
+              blockId: "b",
+              kind: "inputs",
+              payload: new Uint8Array([1]),
+            },
+            { replacePrevious: false },
+          ),
+        )
+      }
+
+      run(store.delete("gone"))
+
+      expect(run(store.get("gone"))).toBeUndefined()
+      expect(run(store.get("kept"))?.worktrees).toEqual(["/k"])
+      const rows = (table: string) =>
+        database.prepare(`SELECT session_id FROM ${table}`).all() as Array<{ session_id: string }>
+      expect(rows("session_events").map((r) => r.session_id)).toEqual(["kept"])
+      expect(rows("session_worktrees").map((r) => r.session_id)).toEqual(["kept"])
+    })
+
+    it("does nothing for a session that does not exist", () => {
+      run(store.insert(record()))
+
+      run(store.delete("missing"))
+
+      expect(run(store.list(10)).map((s) => s.id)).toEqual(["s1"])
+    })
+  })
+
   describe("markLaunched", () => {
     it("makes the session the latest and records where it was launched from", () => {
       run(store.insert(record({ id: "a", lastLaunchedAt: "2026-01-01T00:00:00.000Z" })))

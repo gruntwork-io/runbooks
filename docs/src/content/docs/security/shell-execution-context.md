@@ -71,7 +71,7 @@ Runbooks captures the environment in its own `EXIT` handler, so it intercepts `t
 
 ### One session per runbook
 
-The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To reset the environment, use the session controls in the UI. To start the runbook over, choose **File > Reset Session**.
+The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To reset the environment, use the session controls in the UI. To start the runbook over, choose **File > Reset Session**. To go back to an earlier session, choose **File > Switch Session…**.
 
 ### Starting environment
 
@@ -96,6 +96,8 @@ When a Bash script exits with code 0 or 2, Runbooks applies only what that scrip
 Everything else in the session is left as it is. If the session changed while the script was running, for example because an auth block added credentials, those changes are kept and the script's changes are applied on top of them. If the script and something else both changed the same variable, the script's value wins.
 
 If you open a different runbook while a script is running, the finished script's changes are discarded. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
+
+[Switching sessions](/commands/sessions/#switching-sessions) with **File > Switch Session…** stops a running script instead. Runbooks asks first.
 
 ### Running scripts at the same time
 

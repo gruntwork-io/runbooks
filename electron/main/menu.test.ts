@@ -41,22 +41,26 @@ describe("File menu", () => {
     return template.find((m) => m.label === "File")!.submenu as MenuItemConstructorOptions[]
   }
 
-  it("has Rename Session and Reset Session, with no shortcut that could reset by accident", () => {
-    const items = fileItems().filter((i) => i.id === "rename-session" || i.id === "reset-session")
+  it("has Switch, Rename and Reset Session, with no shortcut that could reset by accident", () => {
+    const items = fileItems().filter((i) => i.id?.endsWith("-session"))
 
     expect(items.map(({ label, accelerator }) => ({ label, accelerator }))).toEqual([
+      { label: "Switch Session…", accelerator: undefined },
       { label: "Rename Session…", accelerator: undefined },
       { label: "Reset Session", accelerator: undefined },
     ])
   })
 
-  it("sends menu:rename-session to the renderer's title bar", () => {
-    const rename = fileItems().find((i) => i.id === "rename-session")!
+  it.each([
+    ["switch-session", "menu:switch-session"],
+    ["rename-session", "menu:rename-session"],
+  ])("sends %s to the renderer", (id, channel) => {
+    const item = fileItems().find((i) => i.id === id)!
     sent.length = 0
 
-    ;(rename.click as () => void)()
+    ;(item.click as () => void)()
 
-    expect(sent).toEqual([{ channel: "menu:rename-session", payload: undefined }])
+    expect(sent).toEqual([{ channel, payload: undefined }])
   })
 
   it("does nothing on Reset Session while no runbook is open", () => {

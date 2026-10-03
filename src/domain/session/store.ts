@@ -69,6 +69,28 @@ export interface SessionRecord extends StoredSessionState, RunbookSource {
   vcsBindings: VcsBindings
 }
 
+/** What a list of sessions shows of each (SessionStore.list). */
+export interface SessionSummary extends RunbookSource {
+  id: string
+  name: string
+  dir: string
+  createdAt: string
+  /** When the session was last opened, or a block last changed it, whichever is later. */
+  lastUsedAt: string
+  executionCount: number
+}
+
+/** A saved session as a list of sessions shows it (SessionPersistence.listSessions). */
+export interface ListedSession extends SessionSummary {
+  /** Whether this is the session the app has open. */
+  isCurrent: boolean
+  /**
+   * Whether the session's local runbook file is gone, so it can't be opened.
+   * Never true for a remote runbook, which is cloned again when it opens.
+   */
+  runbookMissing: boolean
+}
+
 /** One event of a session's history (history.ts), as the database has it. */
 export interface StoredSessionEvent {
   sessionId: string
@@ -348,6 +370,47 @@ export class SessionStore {
         kind: row.kind,
         payload: row.payload,
       }))
+    })
+  }
+
+  /** The `limit` most recently used sessions, most recent first. */
+  list(limit: number): Effect.Effect<SessionSummary[], SessionStoreError> {
+    return attempt("list the sessions", () => {
+      const rows = this.db
+        .prepare(
+          `SELECT id, name, runbook_path, remote_source, dir, created_at, execution_count,
+             MAX(last_launched_at, last_activity_at) AS last_used_at
+           FROM sessions ORDER BY last_used_at DESC, rowid DESC LIMIT ?`,
+        )
+        .all(limit) as Array<
+        Pick<
+          SessionRow,
+          | "id"
+          | "name"
+          | "runbook_path"
+          | "remote_source"
+          | "dir"
+          | "created_at"
+          | "execution_count"
+        > & { last_used_at: string }
+      >
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        path: row.runbook_path,
+        remoteSource: row.remote_source ?? undefined,
+        dir: row.dir,
+        createdAt: row.created_at,
+        lastUsedAt: row.last_used_at,
+        executionCount: row.execution_count,
+      }))
+    })
+  }
+
+  /** Delete a session with its history and worktrees. Deleting one that does not exist does nothing. */
+  delete(id: string): Effect.Effect<void, SessionStoreError> {
+    return attempt("delete a session", () => {
+      this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id)
     })
   }
 

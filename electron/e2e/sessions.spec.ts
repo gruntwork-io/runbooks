@@ -36,6 +36,14 @@ const RUNBOOK = `# Session runbook
 <Command id="save" path="save.sh" />
 
 <Command id="show" path="show.sh" />
+
+<Command id="wait" path="wait.sh" />
+`
+
+// A script still running when the user switches sessions.
+const WAIT_SCRIPT = `#!/bin/bash
+echo waiting
+sleep 60
 `
 
 // What a block leaves in its session: an exported variable and a `cd`.
@@ -97,6 +105,7 @@ test.describe("Saved sessions", () => {
     fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), RUNBOOK)
     fs.writeFileSync(path.join(runbookDir, "save.sh"), SAVE_SCRIPT)
     fs.writeFileSync(path.join(runbookDir, "show.sh"), SHOW_SCRIPT)
+    fs.writeFileSync(path.join(runbookDir, "wait.sh"), WAIT_SCRIPT)
   })
 
   test.afterEach(() => {
@@ -197,7 +206,12 @@ test.describe("Saved sessions", () => {
       await second.app.close()
     }
     // The runbook's folder got nothing but what the test put there.
-    expect(fs.readdirSync(runbookDir).sort()).toEqual(["runbook.mdx", "save.sh", "show.sh"])
+    expect(fs.readdirSync(runbookDir).sort()).toEqual([
+      "runbook.mdx",
+      "save.sh",
+      "show.sh",
+      "wait.sh",
+    ])
   })
 
   test("with no arguments, resumes the session last launched from that directory", async () => {
@@ -495,6 +509,67 @@ test.describe("Saved sessions", () => {
       expect(await showSession(second.page, "unset")).toBe(secondDir)
     } finally {
       await second.app.close()
+    }
+  })
+
+  test("switches between saved sessions from the header menu, and deletes one", async () => {
+    const { app, page } = await launch(terminalDir("project"), [runbookDir])
+    try {
+      await expectRunbook(page)
+      const firstName = await sessionName(page)
+      const firstDir = await showSession(page, "unset")
+      await run(page, "save")
+
+      await runInMain(
+        app,
+        ({ Menu }) => {
+          Menu.getApplicationMenu()?.getMenuItemById("reset-session")?.click()
+        },
+        undefined,
+      )
+      await expect(page.getByTestId("session-name")).not.toHaveText(firstName)
+      const secondName = await sessionName(page)
+      const secondDir = await showSession(page, "unset")
+
+      /** Open the Sessions dialog from the header's menu. */
+      const openSessions = async () => {
+        await page.getByRole("button", { name: "Menu" }).click()
+        await page.getByRole("menuitem", { name: "Switch Session…" }).click()
+        const dialog = page.getByRole("dialog", { name: "Sessions" })
+        await expect(dialog).toBeVisible()
+        return dialog
+      }
+      const sessionButton = (dialog: ReturnType<Page["getByRole"]>, name: string) =>
+        dialog.getByRole("button", { name: new RegExp(`^${name}`) })
+
+      // Back to the first session: its env and its directory come back.
+      let dialog = await openSessions()
+      await expect(sessionButton(dialog, secondName)).toBeDisabled()
+      await sessionButton(dialog, firstName).click()
+      await expect(page.getByTestId("session-name")).toHaveText(firstName)
+      expect(await showSession(page, "from-first-run")).toBe(path.join(firstDir, "work"))
+
+      // A running script makes the switch ask first.
+      const wait = page.locator('[data-testid="wait"]')
+      await wait.getByRole("button", { name: "Run" }).click()
+      await expect(wait.getByText("waiting", { exact: true })).toBeVisible({ timeout: 30_000 })
+      dialog = await openSessions()
+      await sessionButton(dialog, secondName).click()
+      const confirm = page.getByRole("alertdialog")
+      await expect(confirm).toContainText("Stop the running script?")
+      await confirm.getByRole("button", { name: "Stop and switch" }).click()
+      await expect(page.getByTestId("session-name")).toHaveText(secondName)
+      expect(await showSession(page, "unset")).toBe(secondDir)
+
+      // Delete the first session: it leaves the list, and its directory goes.
+      dialog = await openSessions()
+      await dialog.getByRole("button", { name: `Delete ${firstName}` }).click()
+      await dialog.getByRole("button", { name: "Delete", exact: true }).click()
+      await expect(sessionButton(dialog, firstName)).toHaveCount(0)
+      expect(fs.existsSync(firstDir)).toBe(false)
+      expect(fs.existsSync(secondDir)).toBe(true)
+    } finally {
+      await app.close()
     }
   })
 })

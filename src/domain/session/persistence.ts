@@ -10,7 +10,7 @@
 import { randomUUIDv7 } from "node:crypto"
 import path from "node:path"
 import { Cause, Effect } from "effect"
-import { SessionNameError, SessionNotFoundError } from "../../errors/index.ts"
+import { SessionDeleteError, SessionNameError, SessionNotFoundError } from "../../errors/index.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import {
   isSessionEventKind,
@@ -21,7 +21,16 @@ import {
 } from "./history.ts"
 import type { SessionManager, EnvChanges, SessionState } from "./manager.ts"
 import { sessionNameCandidates, sessionNameProblem } from "./names.ts"
-import type { RunbookSource, SessionRecord, SessionStore, VcsBindings } from "./store.ts"
+import type {
+  ListedSession,
+  RunbookSource,
+  SessionRecord,
+  SessionStore,
+  VcsBindings,
+} from "./store.ts"
+
+/** The most sessions listSessions returns: the most recently used ones. */
+const MAX_LISTED_SESSIONS = 500
 
 /**
  * Encrypts the session env and the payloads of the session's history for the
@@ -92,6 +101,55 @@ export class SessionPersistence {
     return launchDir === undefined
       ? this.options.store.latest()
       : this.options.store.latestForLaunchDir(launchDir)
+  }
+
+  /** The saved session with this id, or undefined when there is none. */
+  findSession(id: string) {
+    return this.options.store.get(id)
+  }
+
+  /** The most recently used saved sessions, at most MAX_LISTED_SESSIONS, most recent first. */
+  listSessions() {
+    return Effect.gen(this, function* () {
+      const fs = yield* FileSystem
+      const listed: ListedSession[] = []
+      for (const session of yield* this.options.store.list(MAX_LISTED_SESSIONS)) {
+        listed.push({
+          ...session,
+          isCurrent: session.id === this.current?.id,
+          runbookMissing: session.remoteSource === undefined && !(yield* fs.exists(session.path)),
+        })
+      }
+      return listed
+    })
+  }
+
+  /**
+   * Delete a saved session: its row, its history, and its directory with the
+   * files its blocks wrote and the repositories they cloned. A directory that
+   * is not the session's own one under `dirsRoot` is left alone. Deleting a
+   * session that does not exist does nothing.
+   *
+   * Fails with a SessionDeleteError for the current session, whose scripts may
+   * be running in that directory.
+   */
+  deleteSession(id: string) {
+    return Effect.gen(this, function* () {
+      if (id === this.current?.id) {
+        return yield* new SessionDeleteError({
+          message: "This session is open. Switch to another session before deleting it.",
+        })
+      }
+      const saved = yield* this.options.store.get(id)
+      if (saved === undefined) return
+      yield* this.options.store.delete(id)
+      const fs = yield* FileSystem
+      const root = yield* fs.realpath(this.options.dirsRoot).pipe(Effect.option)
+      // The path comes from the database: remove it only where a session's
+      // directory would be.
+      if (root._tag === "None" || saved.dir !== path.join(root.value, saved.id)) return
+      yield* fs.rm(saved.dir, { recursive: true, force: true })
+    })
   }
 
   /**

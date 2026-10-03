@@ -12,6 +12,7 @@ import {
   sessionPersistence,
   vcsSessionMeta,
 } from "./runtime.ts"
+import { switchToSession } from "./session-switch.ts"
 
 export function registerSessionHandlers(): void {
   ipcMain.handle("session:get", async () => {
@@ -40,6 +41,30 @@ export function registerSessionHandlers(): void {
     if (!persistence) throw new Error("session persistence is not initialized")
     const requested = typeof params?.name === "string" ? params.name : ""
     return { name: await runtime.runPromise(persistence.renameCurrent(requested)) }
+  })
+
+  ipcMain.handle("session:list", async () => {
+    const persistence = sessionPersistence
+    if (!persistence) throw new Error("session persistence is not initialized")
+    return { sessions: await runtime.runPromise(persistence.listSessions()) }
+  })
+
+  ipcMain.handle(
+    "session:switch",
+    async (_event, params?: { id?: unknown; stopRunningScript?: unknown }) => {
+      if (typeof params?.id !== "string") throw new Error("a session switch needs a session id")
+      return switchToSession(params.id, params.stopRunningScript === true)
+    },
+  )
+
+  // Rejects with a sentence for the user when the session is the open one
+  // (see SessionPersistence.deleteSession).
+  ipcMain.handle("session:delete", async (_event, params?: { id?: unknown }) => {
+    const persistence = sessionPersistence
+    if (!persistence) throw new Error("session persistence is not initialized")
+    if (typeof params?.id !== "string") throw new Error("a session delete needs a session id")
+    await runtime.runPromise(persistence.deleteSession(params.id))
+    return { ok: true as const }
   })
 
   ipcMain.handle(

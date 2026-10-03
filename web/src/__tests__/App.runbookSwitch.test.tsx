@@ -77,6 +77,8 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
           return {}
         case "session:rename":
           return { name: params?.name }
+        case "session:list":
+          return { sessions: [] }
         case "runbook:get": {
           // A runbook's directory or its runbook.mdx, like resolveRunbookPath
           const fixture = params?.path
@@ -353,6 +355,24 @@ describe("App runbook switching", () => {
     )
     expect(screen.getByRole("menuitem", { name: "Reset Session" })).toHaveAttribute("data-disabled")
     expect(screen.getByRole("menuitem", { name: "Close Runbook" })).toHaveAttribute("data-disabled")
+  })
+
+  it("shows the saved sessions from the header menu and the native menu, with no runbook open too", async () => {
+    const { emit, invoke } = renderApp()
+
+    await emit("menu:switch-session")
+    expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeInTheDocument()
+    expect(await screen.findByText("No saved sessions yet.")).toBeInTheDocument()
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+    await openRunbook(emit, "/work/a", "Runbook A")
+    await emit("menu:preferences")
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Switch Session…" }))
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox", { name: "Filter sessions" })).toHaveFocus(),
+    )
+    expect(invoke.mock.calls.filter(([channel]) => channel === "session:list")).toHaveLength(2)
   })
 
   it("forgets a rename asked for while no runbook was open", async () => {

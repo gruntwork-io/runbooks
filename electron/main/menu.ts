@@ -186,6 +186,13 @@ function buildTemplate(): MenuItemConstructorOptions[] {
       },
       { type: "separator" },
       {
+        id: "switch-session",
+        label: "Switch Session…",
+        click: () => {
+          getMainWindow()?.webContents.send("menu:switch-session")
+        },
+      },
+      {
         id: "rename-session",
         label: "Rename Session…",
         click: () => {
