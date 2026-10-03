@@ -13,6 +13,7 @@ import {
   maskOutput,
   revealOutputs,
   type OutputValue,
+  type OutputValues,
 } from "@/lib/outputValues"
 
 export type { OutputValue }
@@ -166,8 +167,10 @@ export function hasEmptyNumericInputs(inputs: TemplateValue[]): boolean {
  * Groups dependencies by block, normalizes IDs for lookup, and returns
  * the list of blocks/outputs that haven't been produced yet.
  *
- * An optional dependency (one the template guards with `hasKey`) is unmet
- * only while its block has produced nothing at all.
+ * An optional dependency (one the template reads only behind a `hasKey`
+ * guard) needs its block to have published outputs, not the output itself.
+ * It isn't listed by name, since the block may never produce it: a block
+ * waited on only for optional outputs is reported with no output names.
  */
 export function computeUnmetOutputDependencies(
   outputDependencies: OutputDependency[],
@@ -179,23 +182,29 @@ export function computeUnmetOutputDependencies(
   const unmet: BlockOutput[] = []
 
   for (const [blockId, outputs] of byBlock) {
-    const normalizedId = normalizeBlockId(blockId)
-    const blockData = allOutputs[normalizedId]
-
-    if (!blockData) {
-      // Block hasn't produced any outputs yet - preserve original blockId for display
-      unmet.push({ blockId, outputNames: [...outputs.keys()] })
-    } else {
-      const missingOutputs = [...outputs]
-        .filter(([name, optional]) => !optional && !(name in blockData.values))
-        .map(([name]) => name)
-      if (missingOutputs.length > 0) {
-        unmet.push({ blockId, outputNames: missingOutputs })
-      }
+    const values = allOutputs[normalizeBlockId(blockId)]?.values
+    const required = [...outputs].filter(([, optional]) => !optional).map(([name]) => name)
+    const missingOutputs = required.filter((name) => !values || !(name in values))
+    const waitsOnBlock = required.length < outputs.size && !hasPublishedOutputs(values)
+    if (missingOutputs.length > 0 || waitsOnBlock) {
+      // Preserve the original blockId for display
+      unmet.push({ blockId, outputNames: missingOutputs })
     }
   }
 
   return unmet
+}
+
+/**
+ * Whether a block has published outputs. Blocks withdraw their outputs by
+ * publishing an empty map (a failed Command, a reset GitClone, a cleared
+ * DirPicker) or only internal `__` markers (a signed-out AwsAuth or
+ * GoogleAuth publishes `__AUTHENTICATED: "false"`), so neither counts. A
+ * Command that succeeded without writing any outputs also leaves an empty
+ * map, and can't be told apart from a failed one.
+ */
+function hasPublishedOutputs(values: OutputValues | undefined): boolean {
+  return values !== undefined && Object.keys(values).some((key) => !key.startsWith("__"))
 }
 
 /**
@@ -261,26 +270,6 @@ export function computeUnmetInputDependencies(
       : inputs[name]
     return value === undefined || value === null || value === ""
   })
-}
-
-/**
- * Filter unmet output dependencies to only those matching specific output-level deps.
- * Used by blocks that distinguish blocking vs non-blocking dependencies (GitClone,
- * GitHubPullRequest) to narrow the unmet list to only outputs referenced by blocking props.
- */
-export function filterUnmetOutputDeps(
-  allUnmetOutputDeps: BlockOutput[],
-  targetOutputDeps: OutputDependency[],
-): BlockOutput[] {
-  return allUnmetOutputDeps
-    .map((dep) => {
-      const blockingNames = targetOutputDeps
-        .filter((bd) => bd.blockId === dep.blockId)
-        .map((bd) => bd.outputName)
-      const matchedNames = dep.outputNames.filter((n) => blockingNames.includes(n))
-      return matchedNames.length > 0 ? { ...dep, outputNames: matchedNames } : null
-    })
-    .filter((dep): dep is NonNullable<typeof dep> => dep !== null)
 }
 
 /**

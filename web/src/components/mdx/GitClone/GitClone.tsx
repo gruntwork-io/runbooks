@@ -21,10 +21,10 @@ import { EmptyRepoWarning } from "./components/EmptyRepoWarning"
 import { CollapsibleToggle } from "@/components/mdx/GitPullRequest/components/CollapsibleToggle"
 import {
   extractTemplateDependenciesFromString,
-  splitDependencies,
+  requireAllOutputs,
 } from "@/lib/extractTemplateDependencies"
 import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
-import { resolveTemplateReferences, filterUnmetOutputDeps } from "@/lib/templateUtils"
+import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -74,51 +74,33 @@ function GitCloneInteractive({
 
   // --- Template dependency resolution (resolve inputs/outputs expressions) ---
 
-  // 1. EXTRACT — discover dependencies from template-capable props
-  // Blocking dependencies (functional props): prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir
+  // 1. EXTRACT — discover dependencies from the functional props, which gate the
+  // block: prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath,
+  // prefilledRepoDir. The display props (title, description) resolve too, but
+  // never block. These props resolve client-side, which can't evaluate a
+  // `hasKey` guard, so every output they reference is required.
   const blockingDeps = useMemo(
     () =>
-      extractTemplateDependenciesFromString(
-        [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir]
-          .filter(Boolean)
-          .join("\n"),
+      requireAllOutputs(
+        extractTemplateDependenciesFromString(
+          [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir]
+            .filter(Boolean)
+            .join("\n"),
+        ),
       ),
     [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir],
   )
 
-  // Non-blocking dependencies (display props): title, description
-  const nonBlockingDeps = useMemo(
-    () => extractTemplateDependenciesFromString([title, description].filter(Boolean).join("\n")),
-    [title, description],
-  )
-
-  // Combine for resolution context
-  const allDeps = useMemo(
-    () => [...blockingDeps, ...nonBlockingDeps],
-    [blockingDeps, nonBlockingDeps],
-  )
-
-  // 2. RESOLVE — check context for each dependency (use all deps for context)
+  // 2. RESOLVE — check context for each blocking dependency
   const {
-    unmetInputDeps: allUnmetInputDeps,
-    unmetOutputDeps: allUnmetOutputDeps,
+    unmetInputDeps,
+    unmetOutputDeps,
+    hasAllDependencies: hasAllBlockingDependencies,
     inputs,
     outputs,
-  } = useTemplateDependencies(allDeps, inputsId)
+  } = useTemplateDependencies(blockingDeps, inputsId)
 
-  // 3. Compute unmet dependencies for BLOCKING props only
-  const { unmetInputDeps, unmetOutputDeps } = useMemo(() => {
-    const { inputs: blockingInputDeps, outputs: blockingOutputDeps } =
-      splitDependencies(blockingDeps)
-    return {
-      unmetInputDeps: allUnmetInputDeps.filter((dep) => blockingInputDeps.includes(dep)),
-      unmetOutputDeps: filterUnmetOutputDeps(allUnmetOutputDeps, blockingOutputDeps),
-    }
-  }, [blockingDeps, allUnmetInputDeps, allUnmetOutputDeps])
-
-  const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
-
-  // 4. Resolve template expressions client-side (resolve ALL props, blocking + non-blocking)
+  // 3. Resolve template expressions client-side (resolve ALL props, blocking + non-blocking)
   const ctx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
   const resolvedUrl = useMemo(
     () => resolveTemplateReferences(prefilledUrl, ctx),

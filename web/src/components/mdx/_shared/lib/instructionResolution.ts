@@ -40,6 +40,12 @@ export interface ManualFieldSpec {
   outputName: string
   /** Human label, e.g. "account_id — output of step create-account" (PRD Q3 default). */
   label: string
+  /**
+   * The commands read this output only behind a `hasKey` guard, so the block
+   * may not have produced it. Left empty, it stays absent rather than getting
+   * a placeholder, so the guard skips it as it would at run time.
+   */
+  optional?: boolean
 }
 
 /**
@@ -48,34 +54,28 @@ export interface ManualFieldSpec {
  * NOT collected — those come from the still-functional Inputs forms (§6.5.1).
  */
 export function detectManualFields(command: string | string[] | undefined): ManualFieldSpec[] {
-  const texts = normalizeCommandList(command)
-  const seen = new Set<string>()
-  const fields: ManualFieldSpec[] = []
-
-  for (const text of texts) {
-    const deps = extractTemplateDependenciesFromString(text)
-    const { outputs } = splitDependencies(deps)
-    for (const dep of outputs) {
-      if (seen.has(dep.fullPath)) continue
-      seen.add(dep.fullPath)
-      fields.push({
-        id: dep.fullPath,
-        blockId: dep.blockId,
-        outputName: dep.outputName,
-        label: `${dep.outputName} — output of step ${dep.blockId}`,
-      })
-    }
-  }
-
-  return fields
+  // One split across every command: an output any of them reads unguarded is
+  // required.
+  const { outputs } = splitDependencies(
+    normalizeCommandList(command).flatMap((text) => extractTemplateDependenciesFromString(text)),
+  )
+  return outputs.map((dep) => ({
+    id: dep.fullPath,
+    blockId: dep.blockId,
+    outputName: dep.outputName,
+    label: `${dep.outputName} — output of step ${dep.blockId}${dep.optional ? " (optional)" : ""}`,
+    ...(dep.optional ? { optional: true } : {}),
+  }))
 }
 
 /**
  * Build the `outputs` namespace from the user's manual entries. When a field is
  * still empty we substitute a `<key>` placeholder so the output reference never
- * shows as a raw `{{ … }}` yet still reads as a clear "fill me in" slot. Each
- * value is stored under both the normalized and original block id
- * so the resolver finds it regardless of which form the command used.
+ * shows as a raw `{{ … }}` yet still reads as a clear "fill me in" slot. An
+ * empty optional field is left out instead, so its `hasKey` guard skips it;
+ * its block still gets an entry, which the guard needs to look the key up in.
+ * Each value is stored under both the normalized and original block id so
+ * the resolver finds it regardless of which form the command used.
  */
 export function buildManualOutputs(
   fields: ManualFieldSpec[],
@@ -83,14 +83,19 @@ export function buildManualOutputs(
 ): TemplateOutputs {
   const outputs: TemplateOutputs = {}
 
-  const put = (blockId: string, outputName: string, value: string) => {
+  const put = (blockId: string, outputName: string, value: string | undefined) => {
     if (!outputs[blockId]) outputs[blockId] = {}
-    outputs[blockId][outputName] = value
+    if (value !== undefined) outputs[blockId][outputName] = value
   }
 
   for (const field of fields) {
     const entered = values[field.id]
-    const value = entered != null && entered !== "" ? entered : `<${field.outputName}>`
+    const value =
+      entered != null && entered !== ""
+        ? entered
+        : field.optional
+          ? undefined
+          : `<${field.outputName}>`
     const normalized = normalizeBlockId(field.blockId)
     put(normalized, field.outputName, value)
     if (field.blockId !== normalized) {

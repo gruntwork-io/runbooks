@@ -147,7 +147,7 @@ steps:
 | `block` | string | Yes | ID of the block to execute. |
 | `expect` | string | No | Expected execution status. Default: `success`. See Expected Status values below. |
 | `outputs` | array | No | Output names to capture from the block. |
-| `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). Write each one as templates reference it, with hyphens in the block ID turned into underscores: `outputs.create_account.account_id` for block `create-account`. |
+| `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). Write each one as templates reference it, with hyphens in the block ID turned into underscores: `outputs.create_account.account_id` for block `create-account`. Don't list an output the block reads only behind a [`hasKey` guard](/authoring/inputs-and-outputs/#outputs-a-block-emits-only-sometimes): once its block has run, the app doesn't wait for it, but the test would still report the block as blocked. |
 | `error_contains` | string | No | Expected error message substring (used with `config_error` status). |
 | `assertions` | array | No | Assertions to run immediately after this step completes. |
 

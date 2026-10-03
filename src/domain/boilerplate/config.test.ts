@@ -436,9 +436,9 @@ describe("extractOutputDependencies", () => {
     ])
   })
 
-  it("matches a guard on a hyphenated block ID, parenthesized map and backquoted key", () => {
+  it("matches a guard on a parenthesized map and backquoted key", () => {
     const deps = extractOutputDependencies(
-      "{{ if hasKey (.outputs.clone-repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
+      "{{ if hasKey (.outputs.clone_repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
     )
     expect(deps).toEqual([
       {
@@ -465,6 +465,41 @@ describe("extractOutputDependencies", () => {
         blockId: "clone_repo",
         outputName: "repo_owner",
         fullPath: "outputs.clone_repo.repo_owner",
+      },
+    ])
+  })
+
+  it("keeps an output required when the content also reads it outside the guard", () => {
+    const deps = extractOutputDependencies(
+      `{{ if hasKey .outputs.clone_repo "org_id" }}a={{ .outputs.clone_repo.org_id }}{{ end }}
+b={{ .outputs.clone_repo.org_id }}`,
+    )
+    expect(deps).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+
+  it("keeps an output required behind a negated or commented-out guard", () => {
+    for (const content of [
+      `{{ if not (hasKey .outputs.clone_repo "org_id") }}{{ fail "need org" }}{{ end }}{{ .outputs.clone_repo.org_id }}`,
+      `{{/* use hasKey .outputs.clone_repo "org_id" */}}{{ .outputs.clone_repo.org_id }}`,
+    ]) {
+      expect(extractOutputDependencies(content)).toEqual([
+        { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+      ])
+    }
+  })
+
+  it("marks an output optional behind a guard on the root map inside range", () => {
+    const deps = extractOutputDependencies(
+      `{{ range .inputs.envs }}{{ if hasKey $.outputs.clone_repo "org_id" }}{{ $.outputs.clone_repo.org_id }}{{ end }}{{ end }}`,
+    )
+    expect(deps).toEqual([
+      {
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
       },
     ])
   })

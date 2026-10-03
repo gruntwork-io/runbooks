@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest"
+import { createElement } from "react"
 import {
+  extractTemplateDependencies,
   extractTemplateDependenciesFromString,
+  requireAllOutputs,
   splitDependencies,
 } from "./extractTemplateDependencies"
 
@@ -167,9 +170,9 @@ line3 {{ .inputs.env }}`,
     ])
   })
 
-  it("should match a guard on a hyphenated block ID, parenthesized map and backquoted key", () => {
+  it("should match a guard on a parenthesized map and backquoted key", () => {
     const deps = extractTemplateDependenciesFromString(
-      "{{ if hasKey (.outputs.clone-repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
+      "{{ if hasKey (.outputs.clone_repo) `repo_id` }}{{ .outputs.clone_repo.repo_id }}{{ end }}",
     )
     expect(deps).toEqual([
       {
@@ -201,6 +204,26 @@ line3 {{ .inputs.env }}`,
         fullPath: "outputs.clone_repo.repo_owner",
       },
     ])
+  })
+
+  it("should keep an output required when the content also reads it outside the guard", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ if hasKey .outputs.clone_repo "org_id" }}a={{ .outputs.clone_repo.org_id }}{{ end }}\nb={{ .outputs.clone_repo.org_id }}',
+    )
+    expect(deps).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
+  })
+
+  it("should ignore references inside a template comment", () => {
+    expect(
+      extractTemplateDependenciesFromString("{{/* needs .outputs.clone_repo.org_id */}}"),
+    ).toEqual([])
   })
 
   it("should ignore a hasKey guard outside template delimiters", () => {
@@ -263,6 +286,56 @@ describe("splitDependencies", () => {
     ])
     expect(required.outputs).toEqual([
       { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+})
+
+describe("extractTemplateDependencies", () => {
+  const guarded =
+    '{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}'
+
+  it("should keep an output optional when every string guards it", () => {
+    const children = [createElement("pre", null, guarded), createElement("pre", null, guarded)]
+    expect(extractTemplateDependencies(children)).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+        optional: true,
+      },
+    ])
+  })
+
+  it("should make an output required when a later string reads it unguarded", () => {
+    const children = [
+      createElement("pre", null, guarded),
+      createElement("pre", null, "{{ .outputs.clone_repo.org_id }}"),
+    ]
+    expect(extractTemplateDependencies(children)).toEqual([
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
+    ])
+  })
+})
+
+describe("requireAllOutputs", () => {
+  it("should drop the optional flag and leave everything else", () => {
+    const deps = extractTemplateDependenciesFromString(
+      '{{ .inputs.env }}{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}',
+    )
+    expect(requireAllOutputs(deps)).toEqual([
+      { type: "input", name: "env" },
+      {
+        type: "output",
+        blockId: "clone_repo",
+        outputName: "org_id",
+        fullPath: "outputs.clone_repo.org_id",
+      },
     ])
   })
 })

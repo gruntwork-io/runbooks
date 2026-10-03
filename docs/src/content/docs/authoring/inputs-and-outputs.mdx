@@ -260,6 +260,33 @@ After a block runs, you can click **"View Outputs"** below the log viewer to ins
 Block outputs are stored in browser memory and cleared on page refresh.
 </Aside>
 
+### Outputs a Block Emits Only Sometimes
+
+Some outputs exist only some of the time. `<GitClone>` publishes `org_id` and `repo_id` only when it can look the repository up on GitHub, and a script can write an output only when it has something to report. Templates treat a missing key as an error, so a block that reads such an output waits until the output exists, which may be never.
+
+To read an output that may be missing, check for it with `hasKey` and read it only inside that branch:
+
+```
+{{ if hasKey .outputs.clone_repo "org_id" }}
+org_id = "{{ .outputs.clone_repo.org_id }}"
+{{ end }}
+```
+
+When every reference to an output sits inside such a branch, the block waits for the upstream block to run, but not for that output. The branch is skipped when the output is missing. If the upstream block later withdraws its outputs, for example when a `<GitClone>` is reset or a `<Command>` fails, the block waits again.
+
+A guard covers only the branch it opens. A reference anywhere else makes the block wait for the output again, whether it comes after `{{ end }}`, in an `{{ else }}` branch, or in another file of the same template. These forms count as a guard:
+
+- `{{ if hasKey .outputs.<block_id> "<output>" }}`, or `$.outputs` in place of `.outputs` inside `range` or `with`
+- `{{ if and (hasKey .outputs.<block_id> "<output>") ... }}`, which also guards the arguments of `and` that follow it
+- The `{{ else }}` branch of `{{ if not (hasKey .outputs.<block_id> "<output>") }}`
+
+Other forms aren't recognized, such as a guard on a variable (`{{ if hasKey $repo "org_id" }}`), so the block waits for the output.
+
+<Aside type="caution">
+- **The upstream block has to publish at least one output.** A `<Command>` that succeeded without writing any outputs looks the same as one that failed, so a block that reads its outputs only behind guards keeps waiting.
+- **Guards work only where the template engine renders.** That covers `<Command>` and `<Check>` scripts, `<Template>` files and `<TemplateInline>` content. Props the app fills in itself can't evaluate `if`, so every output they reference is required: the `prefilled*` props of `<GitClone>` and `<GitPullRequest>`, and the `outputPath` of `<TemplateInline>`.
+</Aside>
+
 ### Combining Inputs and Outputs
 
 You can use both standard inputs and block outputs in the same template:
