@@ -314,16 +314,6 @@ export class SessionManager {
   }
 
   /**
-   * Move the session back to the directory it started in, undoing any `cd` a
-   * script made. Called when the open runbook is opened again.
-   */
-  resetWorkingDir(): void {
-    if (this.session === null) return
-    this.session.workingDir = this.session.initialWorkDir
-    this.notifyChange(this.session)
-  }
-
-  /**
    * Reset the session to its initial environment and working directory.
    */
   resetSession() {

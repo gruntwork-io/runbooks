@@ -3,7 +3,12 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
-import { SessionStore, type SessionRecord } from "./store.ts"
+import {
+  SessionStore,
+  type SessionRecord,
+  type SqlDatabase,
+  type StoredSessionEvent,
+} from "./store.ts"
 import { openSqliteDatabase } from "../../layers/NodeSqlite.ts"
 
 const run = Effect.runSync
@@ -26,16 +31,46 @@ function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
     createdAt: "2026-01-01T00:00:00.000Z",
     lastLaunchedAt: "2026-01-01T00:00:00.000Z",
     lastActivityAt: "2026-01-01T00:00:00.000Z",
+    vcsBindings: {},
+    ...overrides,
+  }
+}
+
+/** An event of session s1. Its payload is the text of `payload`. */
+function event(
+  blockId: string,
+  kind: string,
+  payload: string,
+  overrides: Partial<StoredSessionEvent> = {},
+): StoredSessionEvent {
+  return {
+    sessionId: "s1",
+    at: "2026-01-01T00:00:00.000Z",
+    blockId,
+    kind,
+    payload: new TextEncoder().encode(payload),
     ...overrides,
   }
 }
 
 describe("SessionStore", () => {
+  let database: SqlDatabase
   let store: SessionStore
 
   beforeEach(() => {
-    store = run(SessionStore.open(openSqliteDatabase(":memory:")))
+    database = openSqliteDatabase(":memory:")
+    store = run(SessionStore.open(database))
   })
+
+  /** Every event in the database as `block kind payload`, oldest first. */
+  function history(sessionId = "s1"): string[] {
+    const rows = database
+      .prepare(
+        "SELECT block_id, kind, payload FROM session_events WHERE session_id = ? ORDER BY seq",
+      )
+      .all(sessionId) as Array<{ block_id: string; kind: string; payload: Uint8Array }>
+    return rows.map((row) => `${row.block_id} ${row.kind} ${new TextDecoder().decode(row.payload)}`)
+  }
 
   it("returns a session as it was inserted", () => {
     const session = record({
@@ -145,6 +180,38 @@ describe("SessionStore", () => {
       )
 
       expect(run(store.get("s1"))?.env).toBeUndefined()
+    })
+  })
+
+  describe("saveVcsBindings", () => {
+    it("replaces a session's git host bindings and leaves the rest of the session alone", () => {
+      run(store.insert(record({ vcsBindings: { gitlab: { host: "gitlab.com" } } })))
+
+      run(
+        store.saveVcsBindings("s1", {
+          github: { host: "ghe.example.com", source: "oauth" },
+        }),
+      )
+
+      expect(run(store.get("s1"))).toEqual(
+        record({ vcsBindings: { github: { host: "ghe.example.com", source: "oauth" } } }),
+      )
+    })
+
+    it("leaves out a saved binding that isn't one", () => {
+      run(store.insert(record()))
+      database
+        .prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = 's1'")
+        .run(JSON.stringify({ github: { host: 42 }, gitlab: { host: "gitlab.com", source: 1 } }))
+
+      expect(run(store.get("s1"))?.vcsBindings).toEqual({ gitlab: { host: "gitlab.com" } })
+    })
+
+    it("reads bindings that aren't JSON as none", () => {
+      run(store.insert(record()))
+      database.prepare("UPDATE sessions SET vcs_bindings = '{' WHERE id = 's1'").run()
+
+      expect(run(store.get("s1"))?.vcsBindings).toEqual({})
     })
   })
 
@@ -272,6 +339,85 @@ describe("SessionStore", () => {
       )
 
       expect(run(store.get("s1"))?.launchDir).toBe("/home/me/project")
+    })
+  })
+
+  describe("history", () => {
+    const APPEND = { replacePrevious: false }
+    const REPLACE = { replacePrevious: true }
+
+    beforeEach(() => {
+      run(store.insert(record()))
+    })
+
+    it("keeps every event in the order it was added", () => {
+      run(store.appendEvent(event("deploy", "run", "started"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "failed"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "started"), APPEND))
+
+      expect(history()).toEqual(["deploy run started", "deploy run failed", "deploy run started"])
+    })
+
+    it("replaces the event before it when asked to and both are the same block's and kind", () => {
+      run(store.appendEvent(event("config", "inputs", "a"), REPLACE))
+      run(
+        store.appendEvent(
+          event("config", "inputs", "ab", { at: "2026-01-02T00:00:00.000Z" }),
+          REPLACE,
+        ),
+      )
+
+      expect(history()).toEqual(["config inputs ab"])
+      expect(run(store.latestEvents("s1"))).toEqual([
+        event("config", "inputs", "ab", { at: "2026-01-02T00:00:00.000Z" }),
+      ])
+    })
+
+    it("adds an event that follows another block's, or another kind, whatever it was asked", () => {
+      run(store.appendEvent(event("config", "inputs", "a"), REPLACE))
+      run(store.appendEvent(event("deploy", "run", "ok"), APPEND))
+      run(store.appendEvent(event("config", "inputs", "b"), REPLACE))
+      run(store.appendEvent(event("other", "inputs", "c"), REPLACE))
+      run(store.appendEvent(event("other", "run", "ok"), REPLACE))
+
+      expect(history()).toEqual([
+        "config inputs a",
+        "deploy run ok",
+        "config inputs b",
+        "other inputs c",
+        "other run ok",
+      ])
+    })
+
+    it("returns the newest event of each kind for each block, oldest first", () => {
+      run(store.appendEvent(event("config", "inputs", "a"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "failed"), APPEND))
+      run(store.appendEvent(event("config", "inputs", "b"), APPEND))
+      run(store.appendEvent(event("deploy", "inputs", "x"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "ok"), APPEND))
+
+      const latest = run(store.latestEvents("s1")).map(
+        (e) => `${e.blockId} ${e.kind} ${new TextDecoder().decode(e.payload)}`,
+      )
+
+      expect(latest).toEqual(["config inputs b", "deploy inputs x", "deploy run ok"])
+    })
+
+    it("keeps each session's events to itself", () => {
+      run(store.insert(record({ id: "s2" })))
+      run(store.appendEvent(event("config", "inputs", "one"), REPLACE))
+      run(store.appendEvent(event("config", "inputs", "two", { sessionId: "s2" }), REPLACE))
+
+      expect(history("s1")).toEqual(["config inputs one"])
+      expect(history("s2")).toEqual(["config inputs two"])
+      expect(run(store.latestEvents("s2"))).toHaveLength(1)
+      expect(run(store.latestEvents("missing"))).toEqual([])
+    })
+
+    it("refuses an event of a session that does not exist", () => {
+      expect(() =>
+        run(store.appendEvent(event("config", "inputs", "a", { sessionId: "missing" }), APPEND)),
+      ).toThrow(/failed to save a session event/)
     })
   })
 

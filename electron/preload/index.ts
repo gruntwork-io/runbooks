@@ -17,6 +17,7 @@ const INVOKE_CHANNELS = {
   "session:reset": true,
   "session:set-env": true,
   "session:rename": true,
+  "session:record-event": true,
   "exec:run": true,
   "exec:cancel": true,
   "boilerplate:variables": true,

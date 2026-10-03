@@ -5,7 +5,13 @@
  * All handlers are process-local and trusted.
  */
 import { ipcMain } from "electron"
-import { runtime, sessionManager, sessionPersistence, vcsSessionMeta } from "./runtime.ts"
+import {
+  runtime,
+  saveVcsSessionMeta,
+  sessionManager,
+  sessionPersistence,
+  vcsSessionMeta,
+} from "./runtime.ts"
 
 export function registerSessionHandlers(): void {
   ipcMain.handle("session:get", async () => {
@@ -15,8 +21,9 @@ export function registerSessionHandlers(): void {
   ipcMain.handle("session:reset", async () => {
     await runtime.runPromise(sessionManager.resetSession())
     // The reset restores the initial env, dropping every credential an auth
-    // block wrote — drop their host bindings with them.
+    // block wrote, so drop their host bindings with them.
     vcsSessionMeta.clear()
+    saveVcsSessionMeta()
     return { ok: true as const }
   })
 
@@ -34,4 +41,26 @@ export function registerSessionHandlers(): void {
     const requested = typeof params?.name === "string" ? params.name : ""
     return { name: await runtime.runPromise(persistence.renameCurrent(requested)) }
   })
+
+  ipcMain.handle(
+    "session:record-event",
+    async (
+      _event,
+      params?: { sessionId?: unknown; blockId?: unknown; kind?: unknown; payload?: unknown },
+    ) => {
+      const persistence = sessionPersistence
+      if (!persistence) throw new Error("session persistence is not initialized")
+      if (typeof params?.sessionId !== "string") {
+        throw new Error("a session event needs the id of its session")
+      }
+      await runtime.runPromise(
+        persistence.recordEvent(params.sessionId, {
+          blockId: params.blockId,
+          kind: params.kind,
+          payload: params.payload,
+        }),
+      )
+      return { ok: true as const }
+    },
+  )
 }

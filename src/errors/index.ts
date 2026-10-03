@@ -40,6 +40,8 @@ export class PathValidationError extends Data.TaggedError("PathValidationError")
 export class AwsAuthError extends Data.TaggedError("AwsAuthError")<{
   readonly message: string
   readonly cause?: unknown
+  /** AWS gave no answer about the credentials (no network, DNS, a 5xx). */
+  readonly unreachable?: boolean
 }> {}
 
 export class AwsConfigError extends Data.TaggedError("AwsConfigError")<{
@@ -154,6 +156,11 @@ export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError
 
 /** A session can't take the name it was asked to. `message` says why, in words fit to show the user. */
 export class SessionNameError extends Data.TaggedError("SessionNameError")<{
+  readonly message: string
+}> {}
+
+/** A block reported an event that can't go in the session's history. `message` says why. */
+export class SessionEventError extends Data.TaggedError("SessionEventError")<{
   readonly message: string
 }> {}
 

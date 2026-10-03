@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react"
+import { Check } from "lucide-react"
 import { useApi } from "@/contexts/ApiContext"
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { cn } from "@/lib/utils"
 import { errorMessage } from "../../../../src/errors/message"
 import { SESSION_NAME_MAX_LENGTH, sessionNameProblem } from "../../../../src/domain/session/names"
@@ -20,24 +22,13 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties
 const PILL = "rounded-full border px-2 py-0.5 text-xs text-foreground font-mono font-normal"
 
 /**
- * The session's name in the title bar. Clicking it turns it into a field:
- * Enter renames the session, and Escape or clicking elsewhere leaves the name
- * as it was.
+ * The session's name in the title bar. A click copies the name. A shift-click
+ * turns it into a field: Enter renames the session, and Escape or clicking
+ * elsewhere leaves the name as it was.
  */
 export function SessionName({ name, isRenaming, onRenamingChange, onRenamed }: SessionNameProps) {
   if (!isRenaming) {
-    return (
-      <button
-        type="button"
-        className={cn(PILL, "flex-shrink-0 border-border cursor-pointer hover:bg-accent")}
-        style={NO_DRAG}
-        title="Rename session"
-        data-testid="session-name"
-        onClick={() => onRenamingChange(true)}
-      >
-        {name}
-      </button>
-    )
+    return <SessionNameLabel name={name} onRename={() => onRenamingChange(true)} />
   }
   return (
     <SessionNameField
@@ -50,6 +41,32 @@ export function SessionName({ name, isRenaming, onRenamingChange, onRenamed }: S
       }}
       onCancel={() => onRenamingChange(false)}
     />
+  )
+}
+
+function SessionNameLabel({ name, onRename }: { name: string; onRename: () => void }) {
+  const { didCopy, copy } = useCopyToClipboard()
+  return (
+    <button
+      type="button"
+      className={cn(
+        PILL,
+        "flex flex-shrink-0 items-center gap-1 border-border cursor-pointer hover:bg-accent",
+      )}
+      style={NO_DRAG}
+      title="Click to copy the session name. Shift-click to rename the session."
+      data-testid="session-name"
+      onClick={(event) => {
+        if (event.shiftKey) {
+          onRename()
+          return
+        }
+        void copy(name)
+      }}
+    >
+      {name}
+      {didCopy && <Check className="size-3 text-success" aria-label="Copied" />}
+    </button>
   )
 }
 

@@ -11,6 +11,7 @@
 import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "../../src/types.ts"
 export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
+import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -20,8 +21,6 @@ export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
     /**
-     * `reload: "watch"` marks a reload for a watch-mode change: it keeps the
-     * session's working dir, which any other load of the same runbook resets.
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
      * which useIpc ignores. `assetHost` is the host of the runbook's
      * runbook-asset:// URLs, the only one the protocol handler serves.
@@ -29,8 +28,10 @@ export interface IpcChannelMap {
      * Session reloads the same runbook under a new one. `sessionName` is what
      * the title bar shows it as, e.g. `elegant-elephant`, and `sessionDir` is
      * the session's own directory, which the title bar's folder button copies.
+     * `blockStates` is what the session's history says each block was left as,
+     * which the blocks start from.
      */
-    params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
+    params: { path: string; watchMode?: boolean; remoteSource?: string }
     result: {
       path: string
       content: string
@@ -44,6 +45,7 @@ export interface IpcChannelMap {
       sessionId: string
       sessionName: string
       sessionDir: string
+      blockStates: SavedBlockState[]
     }
   }
   "runbook:open-remote": {
@@ -83,6 +85,16 @@ export interface IpcChannelMap {
    * sessionNameProblem) or is another session's.
    */
   "session:rename": { params: { name: string }; result: { name: string } }
+  /**
+   * Add what the user did to a block to the history of session `sessionId`
+   * (src/domain/session/history.ts). `payload` is the block's state after it,
+   * as JSON. An event for a session that is no longer the open one is dropped.
+   * Rejects when the event is not one, e.g. its payload is too long.
+   */
+  "session:record-event": {
+    params: { sessionId: string; blockId: string; kind: SessionEventKind; payload: unknown }
+    result: { ok: true }
+  }
 
   // Execution
   "exec:run": {
@@ -137,12 +149,14 @@ export interface IpcChannelMap {
       region?: string
       credentials?: AwsCredentials
     }
+    // `unreachable`: AWS gave no answer, so `valid: false` says nothing about the credentials.
     result: {
       valid: boolean
       accountId?: string
       accountName?: string
       arn?: string
       error?: string
+      unreachable?: boolean
     }
   }
   "aws:profiles": {
@@ -782,7 +796,21 @@ export interface IpcChannelMap {
   "workspace:set-active": { params: { worktreePath: string }; result: { ok: true } }
 
   // Generated Files
-  "generated-files:check": { params: void; result: { hasFiles: boolean; fileCount: number } }
+  /**
+   * Whether the session's generated directory has files. When it has, `fileTree`
+   * and its truncation fields are that directory's tree, as a render returns it.
+   */
+  "generated-files:check": {
+    params: void
+    result: {
+      hasFiles: boolean
+      fileCount: number
+      fileTree?: WorkspaceTreeNode[]
+      truncatedTree?: boolean
+      totalFiles?: number
+      heavyDirs?: Array<{ path: string; fileCount: number }>
+    }
+  }
   "generated-files:delete": {
     params: void
     result: { ok: true; success?: boolean; deletedCount?: number; message?: string }

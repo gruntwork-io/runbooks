@@ -19,11 +19,9 @@ export interface UseIpcGetRunbookReturn extends UseIpcReturn<GetFileReturn> {
    */
   openRunbook: (path: string, remoteSource?: string) => void
   /**
-   * Reload after a watch-mode change. The request carries `reload: 'watch'`,
-   * so main keeps the session's working dir, which an open of the same path
-   * resets. Without a path, silently re-sends the current request; with one,
-   * makes that runbook (the displayed one, after a failed open) the current
-   * request, so later reloads re-send it too.
+   * Reload after a watch-mode change. Without a path, silently re-sends the
+   * current request; with one, makes that runbook (the displayed one, after a
+   * failed open) the current request, so later reloads re-send it too.
    */
   reloadForWatch: (path?: string, remoteSource?: string) => void
 }
@@ -49,37 +47,22 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   const [remoteSource, setRemoteSource] = useState<string | undefined>(undefined)
   // Bumped on every open so a repeat open of the current path still changes
   // the useIpc params (and so fetches again). runbook:get ignores the field.
-  // A same-path open is therefore a reload: main resets the session's working
-  // dir to the session's own directory (block state here is kept, unless main
-  // answers with a new sessionId, as it does for Reset Session).
+  // A same-path open is therefore a reload: block state here is kept, unless
+  // main answers with a new sessionId, as it does for Reset Session.
   const [openNonce, setOpenNonce] = useState(0)
-  // 'watch' while the current request is a watch-mode reload (see reloadForWatch)
-  const [reload, setReload] = useState<"watch" | undefined>(undefined)
   const [isClosed, setIsClosed] = useState(false)
 
-  const load = useCallback(
-    (path: string, source: string | undefined, reloadKind: "watch" | undefined) => {
-      setRunbookPath(path)
-      setRemoteSource(source)
-      setReload(reloadKind)
-      setOpenNonce((n) => n + 1)
-      setIsClosed(false)
-    },
-    [],
-  )
-
-  const openRunbook = useCallback(
-    (path: string, source?: string) => {
-      load(path, source, undefined)
-    },
-    [load],
-  )
+  const openRunbook = useCallback((path: string, source?: string) => {
+    setRunbookPath(path)
+    setRemoteSource(source)
+    setOpenNonce((n) => n + 1)
+    setIsClosed(false)
+  }, [])
 
   // Fetch CLI config on mount to get the initial runbook path. Main sends no
-  // file:open-runbook for it: a second open of the same path would reset the
-  // working dir of a resumed session. Remote URLs are handled by the main
-  // process (index.ts) which sends file:open-runbook after resolving, so we
-  // only handle local paths here.
+  // file:open-runbook for it, which would load the runbook twice. Remote URLs
+  // are handled by the main process (index.ts) which sends file:open-runbook
+  // after resolving, so we only handle local paths here.
   useEffect(() => {
     api
       .invoke("native:get-cli-config")
@@ -113,7 +96,7 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // Call runbook:get with the path once we have it
   const result = useIpc<GetFileReturn>(
     "runbook:get",
-    runbookPath ? { path: runbookPath, remoteSource, openNonce, reload } : undefined,
+    runbookPath ? { path: runbookPath, remoteSource, openNonce } : undefined,
     { disabled: !runbookPath },
   )
 
@@ -121,12 +104,12 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   const reloadForWatch = useCallback(
     (path?: string, source?: string) => {
       if (path === undefined) {
-        silentRefetch({ reload: "watch" })
+        silentRefetch()
       } else {
-        load(path, source, "watch")
+        openRunbook(path, source)
       }
     },
-    [silentRefetch, load],
+    [silentRefetch, openRunbook],
   )
 
   // When closed, override stale data/error from the underlying useIpc so

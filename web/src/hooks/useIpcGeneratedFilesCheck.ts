@@ -1,10 +1,12 @@
 import { useIpc } from "./useIpc"
 import type { UseIpcReturn } from "./useIpc"
+import type { FileTreeResponse } from "@/contexts/GeneratedFilesContext.types"
 
 /**
- * Response from the generated files check IPC channel
+ * Response from the generated files check IPC channel. When the directory has
+ * files, it also has their tree (the FileTreeResponse fields).
  */
-export interface GeneratedFilesCheckResult {
+export interface GeneratedFilesCheckResult extends Partial<FileTreeResponse> {
   hasFiles: boolean
   absoluteOutputPath: string
   relativeOutputPath: string

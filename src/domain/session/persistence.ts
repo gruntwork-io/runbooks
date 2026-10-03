@@ -12,16 +12,25 @@ import path from "node:path"
 import { Cause, Effect } from "effect"
 import { SessionNameError, SessionNotFoundError } from "../../errors/index.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
+import {
+  isSessionEventKind,
+  parseSessionEvent,
+  replacesPreviousEvent,
+  type SavedBlockState,
+  type SessionEventRequest,
+} from "./history.ts"
 import type { SessionManager, EnvChanges, SessionState } from "./manager.ts"
 import { sessionNameCandidates, sessionNameProblem } from "./names.ts"
-import type { RunbookSource, SessionRecord, SessionStore } from "./store.ts"
+import type { RunbookSource, SessionRecord, SessionStore, VcsBindings } from "./store.ts"
 
 /**
- * Encrypts the session env for the database. The env holds whatever the
- * session's auth blocks and scripts exported, including cloud credentials.
+ * Encrypts the session env and the payloads of the session's history for the
+ * database. The env holds whatever the session's auth blocks and scripts
+ * exported, including cloud credentials, and the history holds what the user
+ * typed into forms and what scripts printed.
  */
 export interface SessionCipher {
-  /** Undefined when the OS offers no encryption; the env is then not saved. */
+  /** Undefined when the OS offers no encryption; the plaintext is then not saved. */
   encrypt(plaintext: string): Uint8Array | undefined
   /** Undefined when `ciphertext` can't be decrypted, e.g. the OS key changed. */
   decrypt(ciphertext: Uint8Array): string | undefined
@@ -60,6 +69,8 @@ export interface OpenedSession {
   /** What the app shows the session as, e.g. `elegant-elephant`. */
   name: string
   dir: string
+  /** The git host bindings of the session's credentials, as saved with it */
+  vcsBindings: VcsBindings
 }
 
 export class SessionPersistence {
@@ -122,9 +133,10 @@ export class SessionPersistence {
           createdAt: now.toISOString(),
           lastLaunchedAt: now.toISOString(),
           lastActivityAt: now.toISOString(),
+          vcsBindings: {},
         })
         yield* manager.createSession(dir, request.runbook.path)
-        opened = { id, name, dir }
+        opened = { id, name, dir, vcsBindings: {} }
       } else {
         const dir = yield* this.ensureDir(saved.dir)
         yield* manager.resumeSession({
@@ -138,7 +150,7 @@ export class SessionPersistence {
           runbookPath: request.runbook.path,
           launchDir: request.launchDir,
         })
-        opened = { id: saved.id, name: saved.name, dir }
+        opened = { id: saved.id, name: saved.name, dir, vcsBindings: saved.vcsBindings }
       }
 
       this.current = opened
@@ -188,6 +200,84 @@ export class SessionPersistence {
       yield* this.options.store.rename(current.id, name)
       this.current = { ...current, name }
       return name
+    })
+  }
+
+  /**
+   * Save the git host bindings of the current session's credentials, so a
+   * resumed session releases each credential only to its host again. Never
+   * throws: a failed save is reported to `onSaveError` (see save).
+   */
+  saveVcsBindings(bindings: VcsBindings): void {
+    const current = this.current
+    if (current === undefined) return
+    this.current = { ...current, vcsBindings: bindings }
+    Effect.runSync(
+      this.options.store
+        .saveVcsBindings(current.id, bindings)
+        .pipe(
+          Effect.catchAllCause((cause) =>
+            Effect.sync(() => this.options.onSaveError(Cause.squash(cause))),
+          ),
+        ),
+    )
+  }
+
+  /**
+   * Add what the user did to a block to the history of session `sessionId`.
+   *
+   * The event is dropped when that session is not the current one (a block
+   * of a session that has since been replaced reported it) or when the
+   * payload can't be encrypted: it holds what the user typed and what scripts
+   * printed, either of which can be a credential. A failed save is reported
+   * to `onSaveError` and does not fail the block (see save).
+   *
+   * Fails with a SessionEventError when `request` is not an event
+   * (parseSessionEvent).
+   */
+  recordEvent(sessionId: string, request: SessionEventRequest) {
+    return Effect.gen(this, function* () {
+      const event = yield* parseSessionEvent(request)
+      if (this.current?.id !== sessionId) return
+      const { store, cipher, onSaveError } = this.options
+
+      const saved = Effect.suspend(() => {
+        const payload = cipher.encrypt(event.payload)
+        if (payload === undefined) return Effect.void
+        return store.appendEvent(
+          {
+            sessionId,
+            at: new Date().toISOString(),
+            blockId: event.blockId,
+            kind: event.kind,
+            payload,
+          },
+          { replacePrevious: replacesPreviousEvent(event.kind) },
+        )
+      })
+      yield* saved.pipe(
+        Effect.catchAllCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause)))),
+      )
+    })
+  }
+
+  /**
+   * What each block of the current session was left as: the payload of its
+   * latest event of each kind. An event that can't be decrypted or parsed is
+   * left out, and its block starts over.
+   */
+  blockStates() {
+    return Effect.gen(this, function* () {
+      const states: SavedBlockState[] = []
+      if (this.current === undefined) return states
+      for (const event of yield* this.options.store.latestEvents(this.current.id)) {
+        // A newer version of the app wrote a kind this one doesn't know.
+        if (!isSessionEventKind(event.kind)) continue
+        const payload = this.decryptJson(event.payload)
+        if (payload === undefined) continue
+        states.push({ blockId: event.blockId, kind: event.kind, payload })
+      }
+      return states
     })
   }
 
@@ -258,15 +348,19 @@ export class SessionPersistence {
   private decryptEnv(encrypted: Uint8Array | undefined): EnvChanges {
     const none: EnvChanges = { set: {}, unset: [] }
     if (encrypted === undefined) return none
-    const plaintext = this.options.cipher.decrypt(encrypted)
-    if (plaintext === undefined) return none
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(plaintext)
-    } catch {
-      return none
-    }
+    const parsed = this.decryptJson(encrypted)
     return isEnvChanges(parsed) ? parsed : none
+  }
+
+  /** The JSON value `encrypted` holds, or undefined when it can't be decrypted or parsed. */
+  private decryptJson(encrypted: Uint8Array): unknown {
+    const plaintext = this.options.cipher.decrypt(encrypted)
+    if (plaintext === undefined) return undefined
+    try {
+      return JSON.parse(plaintext)
+    } catch {
+      return undefined
+    }
   }
 
   /**

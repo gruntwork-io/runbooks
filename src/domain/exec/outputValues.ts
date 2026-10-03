@@ -82,7 +82,9 @@ export function maskOutputs(values: OutputValues): Record<string, string> {
  * One output as it crosses IPC. Structured clone copies only an object's own
  * properties, and a `Redacted` keeps its value elsewhere, so a `Redacted` sent
  * as is arrives as `{}`. The main process sends this flat form instead, and
- * the renderer rebuilds the `Redacted` on receipt.
+ * the renderer rebuilds the `Redacted` on receipt. The renderer sends a run's
+ * outputs back in the same form for the session's history, which the main
+ * process encrypts (web/src/lib/sessionHistory.ts).
  */
 export interface EncodedOutputValue {
   value: string

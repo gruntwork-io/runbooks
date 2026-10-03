@@ -72,6 +72,50 @@ afterEach(() => {
 
 const POLL = { clientId: "cid", clientSecret: "csecret", deviceCode: "dc-1", region: SSO_REGION }
 
+describe("AwsSdkClient.validateCredentials", () => {
+  const CREDS = { accessKeyId: "AKIA", secretAccessKey: "secret", region: "us-east-1" }
+
+  /** Validate CREDS with STS failing with `error`; resolves to whether AWS was unreachable. */
+  async function unreachableWhen(error: unknown) {
+    const spy = spyOn(STSClient.prototype, "send").mockImplementation((async () => {
+      throw error
+    }) as never)
+    spies.push(spy)
+    const result = await run((c) => c.validateCredentials(CREDS, "us-east-1"))
+    if (Either.isRight(result)) throw new Error("validation succeeded")
+    return result.left.unreachable
+  }
+
+  it("blames the credentials when AWS refuses them", async () => {
+    const refused = Object.assign(
+      new Error("The security token included in the request is invalid."),
+      {
+        name: "InvalidClientTokenId",
+        $metadata: { httpStatusCode: 403 },
+      },
+    )
+
+    expect(await unreachableWhen(refused)).toBe(false)
+  })
+
+  it("says AWS was unreachable when no answer came back", async () => {
+    const offline = Object.assign(new Error("getaddrinfo ENOTFOUND sts.amazonaws.com"), {
+      code: "ENOTFOUND",
+      $metadata: { attempts: 3 },
+    })
+
+    expect(await unreachableWhen(offline)).toBe(true)
+  })
+
+  it("says AWS was unreachable when AWS itself failed", async () => {
+    const outage = Object.assign(new Error("Service Unavailable"), {
+      $metadata: { httpStatusCode: 503 },
+    })
+
+    expect(await unreachableWhen(outage)).toBe(true)
+  })
+})
+
 describe("AwsSdkClient.pollSsoToken", () => {
   it("sends CreateToken to the SSO region and returns the token", async () => {
     const sent = stub(SSOOIDCClient, () => ({ accessToken: "sso-token" }))

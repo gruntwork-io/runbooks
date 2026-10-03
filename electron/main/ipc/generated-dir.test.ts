@@ -140,4 +140,32 @@ describe("generated-files directory", () => {
     expect(fs.readdirSync(generatedDir)).toEqual([])
     expect(fs.existsSync(path.join(elsewhereDir, DEFAULT_GENERATED_DIR, "not-ours.txt"))).toBe(true)
   })
+
+  it("check returns the tree of the generated files, so a resumed session can show them", async () => {
+    fs.mkdirSync(path.join(generatedDir, "modules"), { recursive: true })
+    fs.writeFileSync(path.join(generatedDir, "main.tf"), "terraform {}\n")
+    fs.writeFileSync(path.join(generatedDir, "modules", "vpc.tf"), "module {}\n")
+
+    const checked = (await invoke("generated-files:check", {})) as {
+      hasFiles: boolean
+      fileCount: number
+      fileTree?: Array<{ name: string; type: string; children?: Array<{ name: string }> }>
+      totalFiles?: number
+      truncatedTree?: boolean
+    }
+
+    expect(checked).toMatchObject({ hasFiles: true, fileCount: 2, totalFiles: 2 })
+    expect(checked.truncatedTree).toBe(false)
+    expect(checked.fileTree?.map((node) => node.name)).toEqual(["modules", "main.tf"])
+    const modules = checked.fileTree?.find((node) => node.name === "modules")
+    expect(modules?.type).toBe("folder")
+    expect(modules?.children?.map((node) => node.name)).toEqual(["vpc.tf"])
+  })
+
+  it("check returns no tree when the generated directory has no files", async () => {
+    const checked = (await invoke("generated-files:check", {})) as Record<string, unknown>
+
+    expect(checked.hasFiles).toBe(false)
+    expect(checked.fileTree).toBeUndefined()
+  })
 })

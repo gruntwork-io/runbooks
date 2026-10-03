@@ -10,7 +10,9 @@ import {
   type TemplateValue,
 } from "@/contexts/useRunbook"
 import { useApiExec } from "@/hooks/useApiExec"
-import type { FilesCapturedEvent, LogEntry } from "@/hooks/useApiExec"
+import type { ExecState, FilesCapturedEvent, LogEntry } from "@/hooks/useApiExec"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { restoreRun, runEnded, runStarted } from "@/lib/sessionHistory"
 import { useExecutableRegistry } from "@/hooks/useExecutableRegistry"
 import { useGeneratedFiles } from "@/hooks/useGeneratedFiles"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
@@ -292,6 +294,9 @@ export function useScriptExecution({
 
   // Get runbook context for registering outputs and getting template context
   const { registerOutputs, getTemplateContext } = useRunbookContext()
+
+  // Get the session's history, which keeps this block's runs
+  const history = useSessionHistory()
 
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback(
@@ -603,6 +608,25 @@ export function useScriptExecution({
   const sourceCode =
     !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
 
+  // The block's last run, from the session's history. The block starts from
+  // it, and its outputs go back in the runbook context for the blocks that
+  // read them.
+  const [restoredRun] = useState(() => restoreRun(history.saved(componentId, "run")))
+  useEffect(() => {
+    if (restoredRun?.outputs) registerOutputs(componentId, restoredRun.outputs)
+  }, [restoredRun, componentId, registerOutputs])
+
+  const handleRunStarted = useCallback(() => {
+    history.record(componentId, "run", runStarted())
+  }, [history, componentId])
+
+  const handleRunEnded = useCallback(
+    (state: ExecState) => {
+      history.record(componentId, "run", runEnded(state))
+    },
+    [history, componentId],
+  )
+
   // Files written to $GENERATED_FILES are auto-captured after successful execution:
   // onFilesCaptured updates the file tree, onOutputsCaptured registers outputs.
   const {
@@ -612,6 +636,9 @@ export function useScriptExecution({
   } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
     onOutputsCaptured: handleOutputsCaptured,
+    initialState: restoredRun,
+    onRunStarted: handleRunStarted,
+    onRunEnded: handleRunEnded,
   })
 
   // Map exec state to our status type, handling warn status for Check components

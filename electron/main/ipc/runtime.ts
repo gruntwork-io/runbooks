@@ -51,6 +51,14 @@ export type GitProvider = "github" | "gitlab"
 export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: string | undefined }>()
 
 /**
+ * Save vcsSessionMeta with the current session, so resuming it binds each
+ * credential to its host again. Call after every change to the map.
+ */
+export function saveVcsSessionMeta(): void {
+  sessionPersistence?.saveVcsBindings(Object.fromEntries(vcsSessionMeta))
+}
+
+/**
  * Resolve the GitHub session credential for `host` (undefined = the
  * session's GitHub host), HOST-BOUND: a token is released only for the host
  * it belongs to (githubSessionCredential), so a github.com token never

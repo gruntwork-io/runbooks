@@ -21,6 +21,7 @@ import {
 import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
+import { execFileSync } from "child_process"
 import { fileURLToPath } from "url"
 import { MOCK_KEYCHAIN } from "./launch.ts"
 import { runInMain } from "./main-process.ts"
@@ -47,6 +48,34 @@ cd work
 const SHOW_SCRIPT = `#!/bin/bash
 echo "saved=\${SAVED:-unset}"
 echo "pwd=$PWD"
+`
+
+// A form, a script that reads it and publishes an output, and a script that
+// reads that output.
+const HISTORY_RUNBOOK = `# History runbook
+
+<Inputs id="config">
+\`\`\`yaml
+variables:
+  - name: Greeting
+    type: string
+    description: What the script says
+    default: hello
+\`\`\`
+</Inputs>
+
+<Command id="greet" path="greet.sh" inputsId="config" />
+
+<Command id="reply" path="reply.sh" />
+`
+
+const GREET_SCRIPT = `#!/bin/bash
+echo "{{ .inputs.Greeting }} from greet"
+echo "greeting={{ .inputs.Greeting }}" >> "$RUNBOOK_OUTPUT"
+`
+
+const REPLY_SCRIPT = `#!/bin/bash
+echo "reply to {{ .outputs.greet.greeting }}"
 `
 
 test.describe("Saved sessions", () => {
@@ -219,7 +248,7 @@ test.describe("Saved sessions", () => {
       sessionDir = await showSession(first.page, "unset")
       const field = first.page.getByRole("textbox", { name: "Session name" })
 
-      await first.page.getByTestId("session-name").click()
+      await first.page.getByTestId("session-name").click({ modifiers: ["Shift"] })
       await expect(field).toBeFocused()
       // Typed over the selected name, and lowercased as it is typed.
       await first.page.keyboard.type("Prod Deploy")
@@ -253,6 +282,171 @@ test.describe("Saved sessions", () => {
       expect(await showSession(second.page, "unset")).toBe(sessionDir)
     } finally {
       await second.app.close()
+    }
+  })
+
+  test("shows the blocks as they were left on the next launch, and starts them over after a reset", async () => {
+    const historyDir = path.join(tmpDir, "history-runbook")
+    fs.mkdirSync(historyDir)
+    fs.writeFileSync(path.join(historyDir, "runbook.mdx"), HISTORY_RUNBOOK)
+    fs.writeFileSync(path.join(historyDir, "greet.sh"), GREET_SCRIPT)
+    fs.writeFileSync(path.join(historyDir, "reply.sh"), REPLY_SCRIPT)
+
+    const expectHistoryRunbook = async (page: Page) => {
+      await expect(page.getByRole("heading", { name: "History runbook" })).toBeVisible({
+        timeout: 60_000,
+      })
+      const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
+      if (await trustButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await trustButton.click()
+        await expect(trustButton).not.toBeVisible({ timeout: 5_000 })
+      }
+    }
+    const greetingField = (page: Page) =>
+      page.locator('[data-testid="config"] [data-testid="field-Greeting"] input')
+
+    const first = await launch(terminalDir("project"), [historyDir])
+    try {
+      await expectHistoryRunbook(first.page)
+      const reply = first.page.locator('[data-testid="reply"]')
+      // Nothing has published the output the second script reads.
+      await expect(reply.getByRole("button", { name: "Run" })).toBeDisabled()
+
+      await greetingField(first.page).fill("bonjour")
+      await first.page
+        .locator('[data-testid="config"]')
+        .getByRole("button", { name: "Submit" })
+        .click()
+      const greet = await run(first.page, "greet")
+      await expect(greet.getByText("bonjour from greet", { exact: true })).toBeVisible()
+    } finally {
+      await first.app.close()
+    }
+
+    const second = await launch(terminalDir("project"), [historyDir])
+    try {
+      await expectHistoryRunbook(second.page)
+      // The form has what was typed, and is still submitted.
+      await expect(greetingField(second.page)).toHaveValue("bonjour")
+      await expect(
+        second.page.locator('[data-testid="config"]').getByRole("button", { name: "Submit" }),
+      ).toHaveCount(0)
+
+      // The script shows as run, with its log and its output.
+      const greet = second.page.locator('[data-testid="greet"]')
+      await expect(greet.locator('[data-testid="icon-success"]')).toBeVisible()
+      await greet.getByRole("button", { name: "View Logs" }).click()
+      await expect(greet.getByText("bonjour from greet", { exact: true })).toBeVisible()
+      await expect(greet.getByText("greeting", { exact: true })).toBeVisible()
+
+      // The script that reads the output runs without the first running again.
+      const reply = await run(second.page, "reply")
+      await expect(reply.getByText("reply to bonjour", { exact: true })).toBeVisible()
+
+      await runInMain(
+        second.app,
+        ({ Menu }) => {
+          const item = Menu.getApplicationMenu()?.getMenuItemById("reset-session")
+          if (!item) throw new Error("no Reset Session menu item")
+          item.click()
+        },
+        undefined,
+      )
+
+      // A reset session has no history: the form and the scripts start over.
+      await expect(greetingField(second.page)).toHaveValue("hello")
+      await expect(greet.locator('[data-testid="icon-success"]')).toHaveCount(0)
+      await expect(
+        second.page.locator('[data-testid="reply"]').getByRole("button", { name: "Run" }),
+      ).toBeDisabled()
+    } finally {
+      await second.app.close()
+    }
+  })
+
+  test("keeps a selected repository on the next launch, and starts the block over once it is gone", async () => {
+    // A local checkout outside the session, with one commit
+    const repo = path.join(tmpDir, "checkout")
+    fs.mkdirSync(repo)
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: repo,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.com",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.com",
+        },
+      })
+    git("init", "-q", "-b", "main")
+    fs.writeFileSync(path.join(repo, "README.md"), "hello\n")
+    git("add", "README.md")
+    git("commit", "-q", "-m", "first")
+
+    const cloneDir = path.join(tmpDir, "clone-runbook")
+    fs.mkdirSync(cloneDir)
+    fs.writeFileSync(
+      path.join(cloneDir, "runbook.mdx"),
+      `# Clone runbook
+
+<GitClone id="repo" source="local" hideSourceSelect prefilledRepoDir="${repo}" />
+
+<Command id="where" command="echo repo={{ .outputs.repo.clone_path }}" />
+`,
+    )
+    const expectCloneRunbook = async (page: Page) => {
+      await expect(page.getByRole("heading", { name: "Clone runbook" })).toBeVisible({
+        timeout: 60_000,
+      })
+      const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
+      if (await trustButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await trustButton.click()
+        await expect(trustButton).not.toBeVisible({ timeout: 5_000 })
+      }
+    }
+
+    const first = await launch(terminalDir("project"), [cloneDir])
+    try {
+      await expectCloneRunbook(first.page)
+      const block = first.page.locator('[data-testid="repo"]')
+      const use = block.getByRole("button", { name: "Use This Repo" })
+      await expect(use).toBeEnabled({ timeout: 30_000 })
+      await use.click()
+      await expect(block.getByRole("button", { name: "Stop using this repo" })).toBeVisible({
+        timeout: 30_000,
+      })
+    } finally {
+      await first.app.close()
+    }
+
+    const second = await launch(terminalDir("project"), [cloneDir])
+    try {
+      await expectCloneRunbook(second.page)
+      // The checkout is still in use, and its outputs are there for the next block.
+      const block = second.page.locator('[data-testid="repo"]')
+      await expect(block.getByRole("button", { name: "Stop using this repo" })).toBeVisible()
+      const where = await run(second.page, "where")
+      await expect(where.getByText(`repo=${fs.realpathSync(repo)}`, { exact: true })).toBeVisible()
+    } finally {
+      await second.app.close()
+    }
+
+    fs.rmSync(repo, { recursive: true, force: true })
+    const third = await launch(terminalDir("project"), [cloneDir])
+    try {
+      await expectCloneRunbook(third.page)
+      const block = third.page.locator('[data-testid="repo"]')
+      await expect(block.getByText("This block's repository is gone")).toBeVisible({
+        timeout: 30_000,
+      })
+      await expect(block.getByRole("button", { name: "Stop using this repo" })).toHaveCount(0)
+      // Its outputs went with it.
+      await expect(
+        third.page.locator('[data-testid="where"]').getByRole("button", { name: "Run" }),
+      ).toBeDisabled()
+    } finally {
+      await third.app.close()
     }
   })
 

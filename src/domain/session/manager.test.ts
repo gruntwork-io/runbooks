@@ -275,27 +275,6 @@ describe("SessionManager", () => {
     })
   })
 
-  describe("resetWorkingDir", () => {
-    it("moves the session back to the directory it started in", async () => {
-      await run(mgr.createSession("/work"), {})
-      const start = await run(mgr.getExecContext())
-      await run(
-        mgr.applyCapturedEnv({
-          before: start.env,
-          after: { ...start.env, KEPT: "1" },
-          startWorkDir: start.workDir,
-          pwd: "/work/sub",
-          generation: start.generation,
-        }),
-      )
-
-      mgr.resetWorkingDir()
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx).toMatchObject({ workDir: "/work", env: { KEPT: "1" } })
-    })
-  })
-
   describe("setChangeListener", () => {
     it("reports the state after each change, with the env as changes since the session started", async () => {
       await run(mgr.createSession("/work"), { HOME: "/home", DROP: "x" })
@@ -334,9 +313,8 @@ describe("SessionManager", () => {
       mgr.setChangeListener((state) => states.push(state))
 
       await run(mgr.resetSession())
-      mgr.resetWorkingDir()
 
-      expect(states).toHaveLength(2)
+      expect(states).toHaveLength(1)
       expect(states.at(-1)).toMatchObject({ workingDir: "/work", env: { set: {}, unset: [] } })
     })
 

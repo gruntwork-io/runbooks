@@ -17,7 +17,7 @@ mockElectron({
 })
 
 const { registerSessionHandlers } = await import("./session.ts")
-const { runtime, sessionManager } = await import("./runtime.ts")
+const { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } = await import("./runtime.ts")
 const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
 
 registerSessionHandlers()
@@ -57,11 +57,16 @@ describe("session IPC handlers", () => {
     expect((await sessionEnv()).RUNBOOKS_TEST_VAR).toBeUndefined()
   })
 
-  describe("session:rename", () => {
+  describe("on the open runbook's saved session", () => {
     let sessions: ReturnType<typeof installTestSessionPersistence>
 
     const rename = (params?: unknown) =>
       handlers.get("session:rename")!(undefined, params) as Promise<{ name: string }>
+
+    const recordEvent = (params?: unknown) =>
+      handlers.get("session:record-event")!(undefined, params)
+
+    const blockStates = () => runtime.runPromise(sessions.persistence.blockStates())
 
     /** Open a runbook's session the way runbook:get does. */
     const openSession = (runbookPath: string) =>
@@ -82,7 +87,18 @@ describe("session IPC handlers", () => {
       sessions.cleanup()
     })
 
-    it("renames the open session and returns its new name", async () => {
+    it("session:reset drops the session's git host bindings, saved ones included", async () => {
+      const session = await openSession("/repo/runbook.mdx")
+      vcsSessionMeta.set("gitlab", { host: "gitlab.com", source: "manual" })
+      saveVcsSessionMeta()
+
+      await handlers.get("session:reset")!(undefined)
+
+      expect(vcsSessionMeta.size).toBe(0)
+      expect((await runtime.runPromise(sessions.store.get(session.id)))?.vcsBindings).toEqual({})
+    })
+
+    it("session:rename renames the open session and returns its new name", async () => {
       const session = await openSession("/repo/runbook.mdx")
 
       expect(await rename({ name: " prod-deploy " })).toEqual({ name: "prod-deploy" })
@@ -91,7 +107,7 @@ describe("session IPC handlers", () => {
       expect((await runtime.runPromise(sessions.store.get(session.id)))?.name).toBe("prod-deploy")
     })
 
-    it("rejects a name that is not allowed with the reason, and keeps the old name", async () => {
+    it("session:rename rejects a name that is not allowed with the reason, and keeps the old name", async () => {
       const session = await openSession("/repo/runbook.mdx")
 
       await expect(rename({ name: "Prod Deploy" })).rejects.toThrow(
@@ -105,13 +121,60 @@ describe("session IPC handlers", () => {
       expect(sessions.persistence.currentSession()?.name).toBe(session.name)
     })
 
-    it("rejects another session's name", async () => {
+    it("session:rename rejects another session's name", async () => {
       const other = await openSession("/other/runbook.mdx")
       await openSession("/repo/runbook.mdx")
 
       await expect(rename({ name: other.name })).rejects.toThrow(
         `Another session is already named ${other.name}.`,
       )
+    })
+
+    it("session:record-event adds the event to the session's history and returns { ok: true }", async () => {
+      const session = await openSession("/repo/runbook.mdx")
+      const payload = { values: { region: "us-east-1" }, submitted: true }
+
+      const result = await recordEvent({
+        sessionId: session.id,
+        blockId: "config",
+        kind: "inputs",
+        payload,
+      })
+
+      expect(result).toEqual({ ok: true })
+      expect(await blockStates()).toEqual([{ blockId: "config", kind: "inputs", payload }])
+    })
+
+    it("session:record-event drops an event of a session that is not the open one", async () => {
+      const other = await openSession("/other/runbook.mdx")
+      await openSession("/repo/runbook.mdx")
+
+      const result = await recordEvent({
+        sessionId: other.id,
+        blockId: "config",
+        kind: "inputs",
+        payload: { values: {}, submitted: false },
+      })
+
+      expect(result).toEqual({ ok: true })
+      expect(await blockStates()).toEqual([])
+    })
+
+    it("session:record-event rejects what is not an event, and saves nothing", async () => {
+      const session = await openSession("/repo/runbook.mdx")
+
+      await expect(recordEvent(undefined)).rejects.toThrow(/the id of its session/)
+      await expect(recordEvent({ blockId: "config", kind: "inputs", payload: {} })).rejects.toThrow(
+        /the id of its session/,
+      )
+      await expect(
+        recordEvent({ sessionId: session.id, blockId: "config", kind: "env", payload: {} }),
+      ).rejects.toThrow(/must be one of inputs, run, render, clone, pull-request, auth/)
+      await expect(
+        recordEvent({ sessionId: session.id, blockId: "config", kind: "inputs" }),
+      ).rejects.toThrow(/a payload that is not JSON/)
+
+      expect(await blockStates()).toEqual([])
     })
   })
 })

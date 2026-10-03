@@ -4,6 +4,9 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs } from "@/lib/outputValues"
+import { omitUndefined } from "@/lib/omitUndefined"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedGoogleAuth, type GoogleSignIn, type SavedGoogleAuth } from "@/lib/sessionHistory"
 import type {
   AdcInfo,
   DetectedGoogleCredentials,
@@ -45,6 +48,10 @@ const OAUTH_NOT_CONFIGURED_PATTERN = /not configured/i
  */
 const NO_PROJECT_WARNING =
   'Authenticated, but no Google Cloud project is set. Commands that need a project will fail until one is chosen — set the block\'s `project` prop, set `core/project` in your gcloud configuration, or use "Change project".'
+
+/** Shown by a resumed session's block whose sign-in can't be done again. */
+const NOT_RESUMABLE_MESSAGE =
+  "The sign-in from the last time this session was open can't be resumed: Runbooks deletes the Google credentials it saves for a pasted key or a Google sign-in when it quits. Sign in again."
 
 // ---------------------------------------------------------------------------
 // Local structural types
@@ -101,6 +108,22 @@ interface PendingAccount {
   credentialType?: GoogleCredentialType
   scopes?: string[]
   credentialsPath?: string
+}
+
+/**
+ * What doing a restored sign-in again returns: the common part of the
+ * `google:*` results it can come from.
+ */
+interface ReplayResult {
+  valid: boolean
+  account?: { principal?: string; accountType?: "service_account" | "user"; scopes?: string[] }
+  projectId?: string
+  credentialsPath?: string
+  credentialType?: GoogleCredentialType
+  region?: string
+  zone?: string
+  error?: string
+  sessionEnvWarning?: string
 }
 
 /** Everything needed to finish an authentication and publish block outputs. */
@@ -261,6 +284,21 @@ export function useGoogleAuth({
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
+  // ---- Session history ------------------------------------------------------
+  // The sign-in the session's history has for this block. One that can be
+  // done again starts as signed in, and is done again below; one that can't
+  // starts over, saying why.
+  const history = useSessionHistory()
+  const [restored] = useState(() => {
+    const saved = parseSavedGoogleAuth(history.saved(id, "auth"))
+    return saved?.status === "signed-in" ? saved : undefined
+  })
+  const resumes = restored !== undefined && restored.signIn.kind !== "none"
+  // How the current sign-in was made: set by each sign-in, kept with it in the
+  // history. Every sign-in sets a new object, which is how the restore below
+  // tells that the user has moved on.
+  const signInRef = useRef<GoogleSignIn>(restored?.signIn ?? { kind: "none" })
+
   // ---- Core auth state ------------------------------------------------------
   // The starting tab is the author's `defaultTab` (validated), not a constant.
   // Only the initial value comes from the prop — the user's tab clicks own it
@@ -268,14 +306,27 @@ export function useGoogleAuth({
   const [authMethod, setAuthMethod] = useState<GoogleAuthMethod>(() =>
     resolveDefaultAuthMethod(defaultTab),
   )
-  const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>("pending")
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [authStatus, setAuthStatus] = useState<GoogleAuthStatus>(() => {
+    if (restored === undefined) return "pending"
+    return resumes ? "authenticated" : "failed"
+  })
+  const [errorMessage, setErrorMessage] = useState<string | null>(() =>
+    restored !== undefined && !resumes ? NOT_RESUMABLE_MESSAGE : null,
+  )
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
-  const [accountInfo, setAccountInfo] = useState<GoogleAccountInfo | null>(null)
+  const [accountInfo, setAccountInfo] = useState<GoogleAccountInfo | null>(() =>
+    resumes && restored
+      ? omitUndefined({
+          ...restored.account,
+          projectId: restored.projectId || undefined,
+          projectName: restored.projectName,
+        })
+      : null,
+  )
 
   // ---- Detection state ------------------------------------------------------
   const [detectionStatus, setDetectionStatus] = useState<GoogleDetectionStatus>(
-    detectCredentials === false ? "done" : "pending",
+    detectCredentials === false || resumes ? "done" : "pending",
   )
   const [detectedCredentials, setDetectedCredentials] = useState<DetectedGoogleCredentials | null>(
     null,
@@ -284,7 +335,7 @@ export function useGoogleAuth({
   const [retryFoundNothing, setRetryFoundNothing] = useState(false)
   // Counter that re-arms the detection effect for "Try auto-detection again".
   const [detectionAttempt, setDetectionAttempt] = useState(0)
-  const detectionAttemptedRef = useRef(false)
+  const detectionAttemptedRef = useRef(resumes)
   // For block-based detection, which block we paused the walk on.
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
   // Sources listed AFTER the block source we paused on. Detection resumes here
@@ -304,7 +355,9 @@ export function useGoogleAuth({
   const projectIdInput = projectIdOverride ?? project ?? ""
 
   // ---- Region (secondary) ---------------------------------------------------
-  const [selectedRegion, setSelectedRegion] = useState(defaultRegion ?? "")
+  const [selectedRegion, setSelectedRegion] = useState(
+    resumes && restored ? restored.region : (defaultRegion ?? ""),
+  )
 
   // ---- gcloud tab -----------------------------------------------------------
   const [gcloudConfigs, setGcloudConfigs] = useState<GcloudConfigInfo[]>([])
@@ -486,6 +539,22 @@ export function useGoogleAuth({
   )
 
   /**
+   * Keep a sign-in, or a sign-out, in the session's history. Nothing is
+   * recorded when it is what the history already has, as when a restored
+   * sign-in is done again.
+   */
+  const lastSavedAuthRef = useRef(restored ? JSON.stringify(restored) : undefined)
+  const recordAuth = useCallback(
+    (saved: SavedGoogleAuth) => {
+      const json = JSON.stringify(parseSavedGoogleAuth(saved))
+      if (json === lastSavedAuthRef.current) return
+      lastSavedAuthRef.current = json
+      history.record(id, "auth", saved)
+    },
+    [history, id],
+  )
+
+  /**
    * The single success epilogue: every tab and the detection-confirm path end
    * here. MAIN has already written the session env by this point; the renderer
    * only records what happened and publishes the outputs.
@@ -509,6 +578,21 @@ export function useGoogleAuth({
       })
 
       registerBlockOutputs(credentialsPath === undefined ? result : { ...result, credentialsPath })
+      recordAuth({
+        status: "signed-in",
+        block: "google",
+        signIn: signInRef.current,
+        account: omitUndefined({
+          principal: result.principal,
+          accountType: result.accountType,
+          credentialType: result.credentialType,
+          scopes: result.scopes,
+        }),
+        projectId: result.projectId,
+        ...(result.projectName ? { projectName: result.projectName } : {}),
+        region: result.region ?? "",
+        zone: result.zone ?? "",
+      })
 
       setAuthStatus("authenticated")
       setDetectionStatus("done")
@@ -527,7 +611,7 @@ export function useGoogleAuth({
 
       await checkProjectStatus(result.projectId)
     },
-    [registerBlockOutputs, appendWarning, checkProjectStatus],
+    [registerBlockOutputs, recordAuth, appendWarning, checkProjectStatus],
   )
 
   /**
@@ -1024,6 +1108,12 @@ export function useGoogleAuth({
 
     try {
       if (source === "env" || source === "adc" || source === "gcloud") {
+        signInRef.current = omitUndefined({
+          kind: "detected" as const,
+          source,
+          prefix: detectedCredentials.envPrefix,
+          configuration: detectedCredentials.configuration,
+        })
         const data = await api.invoke("google:env-credentials-confirm", {
           blockId: id,
           ...(detectedCredentials.envPrefix ? { prefix: detectedCredentials.envPrefix } : {}),
@@ -1084,6 +1174,7 @@ export function useGoogleAuth({
           : undefined
 
         if (blockSource) {
+          signInRef.current = { kind: "block", blockId: blockSource.block }
           const blockResult = getBlockCredentials(blockSource.block)
           if (blockResult.found && blockResult.creds) {
             const data = await api.invoke("google:validate-credentials", {
@@ -1178,6 +1269,7 @@ export function useGoogleAuth({
    * credential the user abandoned.
    */
   const handleRetryDetection = useCallback(() => {
+    signInRef.current = { kind: "none" }
     stopOAuthPolling()
     setOauthFlowId(null)
     setOauthAuthUrl(null)
@@ -1247,6 +1339,8 @@ export function useGoogleAuth({
   }, [])
 
   const submitServiceAccountKey = useCallback(async () => {
+    // A key file can be read again in a resumed session; a pasted key can't.
+    signInRef.current = keyFilePath ? { kind: "key-file", keyPath: keyFilePath } : { kind: "none" }
     setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1552,6 +1646,7 @@ export function useGoogleAuth({
     // Taken BEFORE oauth-start, so a stop while it is in flight (unmount,
     // re-authenticate) still keeps this flow's poll loop from starting.
     const generation = ++oauthPollGenerationRef.current
+    signInRef.current = { kind: "none" }
     setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1737,6 +1832,7 @@ export function useGoogleAuth({
       return
     }
 
+    signInRef.current = { kind: "gcloud", configuration: selectedConfig.name }
     setAuthStatus("authenticating")
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1869,10 +1965,12 @@ export function useGoogleAuth({
 
   /** "Re-authenticate": clear everything and land back on the manual tabs. */
   const handleManualAuth = useCallback(() => {
+    signInRef.current = { kind: "none" }
     stopOAuthPolling()
     // The card going blue has to take the block's outputs with it, or steps keep
     // injecting the credential this reset exists to replace.
     invalidateBlockOutputs()
+    recordAuth({ status: "signed-out" })
     setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1888,7 +1986,7 @@ export function useGoogleAuth({
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
     pendingCredentialsPathRef.current = null
-  }, [stopOAuthPolling, invalidateBlockOutputs])
+  }, [stopOAuthPolling, invalidateBlockOutputs, recordAuth])
 
   /**
    * The project picker's Cancel. Backing out of "Change project" returns to the
@@ -1906,6 +2004,198 @@ export function useGoogleAuth({
     }
     handleManualAuth()
   }, [handleManualAuth])
+
+  // ---------------------------------------------------------------------------
+  // Resuming a session
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Do the restored sign-in again, the way it was first made: the session's
+   * history says it worked when the session was last open, and the credential
+   * it named is still where it was, but MAIN has to read it again to write the
+   * session env, materialise its file and know the block's credential. The
+   * card shows the sign-in meanwhile, and the outputs follow once it is done.
+   *
+   * A read-only check of the credential comes first, so a credential that now
+   * signs in as someone else never reaches the session env. That sign-in is
+   * recorded as signed out. Any other failure sends the block back to sign-in
+   * but keeps the history as it was, since a network failure or a missing file
+   * may pass, and the next resume tries again.
+   *
+   * One from another block's outputs waits for that block to have its outputs
+   * back. One that can't be done again is recorded as signed out, so the next
+   * resume starts over without saying so again.
+   */
+  const [restoredAtMount] = useState(restored)
+  const replayStartedRef = useRef(false)
+  useEffect(() => {
+    if (restoredAtMount === undefined || replayStartedRef.current) return
+    const signIn = restoredAtMount.signIn
+    if (signIn.kind === "none") {
+      replayStartedRef.current = true
+      recordAuth({ status: "signed-out" })
+      return
+    }
+    if (
+      signIn.kind === "block" &&
+      blockOutputs[normalizeBlockId(signIn.blockId)]?.values === undefined
+    ) {
+      return
+    }
+    replayStartedRef.current = true
+
+    // Any sign-in or reset since replaces signInRef's object.
+    const current = () => signInRef.current === signIn
+    const fail = (message: string) => {
+      if (!current()) return
+      signInRef.current = { kind: "none" }
+      invalidateBlockOutputs()
+      setAccountInfo(null)
+      setAuthStatus("failed")
+      setErrorMessage(message)
+    }
+    const failWith = (reason: string) =>
+      fail(
+        `The Google sign-in from the last time this session was open could not be done again (${reason}). Sign in again.`,
+      )
+
+    const projectId = restoredAtMount.projectId || project || ""
+    const placement = {
+      ...(projectId ? { projectId } : {}),
+      ...(restoredAtMount.region ? { region: restoredAtMount.region } : {}),
+      ...(restoredAtMount.zone ? { zone: restoredAtMount.zone } : {}),
+    }
+    const scopeParams = scopes && scopes.length > 0 ? { scopes } : {}
+
+    const blockCredentials = (blockId: string) => {
+      const fromBlock = getBlockCredentials(blockId)
+      if (!fromBlock.found || !fromBlock.creds) {
+        return fromBlock.error ?? `block "${blockId}" has no Google credentials`
+      }
+      return fromBlock.creds
+    }
+
+    // Who the credential signs in as now, with nothing written.
+    const check = async (): Promise<ReplayResult | string> => {
+      switch (signIn.kind) {
+        case "detected":
+        case "gcloud": {
+          const detected = await api.invoke("google:env-credentials", {
+            source: signIn.kind === "gcloud" ? "gcloud" : signIn.source,
+            ...(signIn.kind === "detected" && signIn.prefix ? { prefix: signIn.prefix } : {}),
+            ...(signIn.configuration ? { configuration: signIn.configuration } : {}),
+            ...scopeParams,
+          })
+          if (!detected.found) return detected.error ?? "the credential is no longer there"
+          return omitUndefined({
+            valid: detected.valid ?? false,
+            account: detected.account,
+            error: detected.error,
+          })
+        }
+        case "key-file":
+          return api.invoke("google:validate-credentials", {
+            keyPath: signIn.keyPath,
+            ...placement,
+          })
+        case "block": {
+          const creds = blockCredentials(signIn.blockId)
+          if (typeof creds === "string") return creds
+          return api.invoke("google:validate-credentials", {
+            ...creds,
+            ...placement,
+            ...scopeParams,
+          })
+        }
+      }
+    }
+
+    const signInAgain = async (): Promise<ReplayResult | string> => {
+      switch (signIn.kind) {
+        case "detected":
+          return api.invoke("google:env-credentials-confirm", {
+            blockId: id,
+            source: signIn.source,
+            ...(signIn.prefix ? { prefix: signIn.prefix } : {}),
+            ...(signIn.configuration ? { configuration: signIn.configuration } : {}),
+            ...placement,
+            ...scopeParams,
+          })
+        case "gcloud":
+          return api.invoke("google:gcloud-auth", {
+            blockId: id,
+            configuration: signIn.configuration,
+            ...placement,
+            ...scopeParams,
+          })
+        case "key-file":
+          return api.invoke("google:validate-credentials", {
+            blockId: id,
+            keyPath: signIn.keyPath,
+            ...placement,
+            registerSession: true,
+          })
+        case "block": {
+          const creds = blockCredentials(signIn.blockId)
+          if (typeof creds === "string") return creds
+          return api.invoke("google:validate-credentials", {
+            blockId: id,
+            ...creds,
+            ...placement,
+            registerSession: true,
+            ...scopeParams,
+          })
+        }
+      }
+    }
+
+    const savedPrincipal = restoredAtMount.account.principal
+    void (async () => {
+      const checked = await check()
+      if (!current()) return
+      if (typeof checked === "string") return failWith(checked)
+      if (!checked.valid) return failWith(checked.error ?? "the credential was refused")
+      const principal = checked.account?.principal
+      if (savedPrincipal && principal && principal !== savedPrincipal) {
+        recordAuth({ status: "signed-out" })
+        return fail(
+          `The Google credential this session signed in with now belongs to ${principal}, not ${savedPrincipal}. Sign in again.`,
+        )
+      }
+      const data = await signInAgain()
+      if (!current()) return
+      if (typeof data === "string") return failWith(data)
+      if (!data.valid) return failWith(data.error ?? "the credential was refused")
+      const account = data.account
+      await completeAuthentication({
+        ...omitUndefined({
+          principal: account?.principal ?? restoredAtMount.account.principal,
+          accountType: account?.accountType ?? restoredAtMount.account.accountType,
+          credentialType: data.credentialType ?? restoredAtMount.account.credentialType,
+          scopes: account?.scopes ?? restoredAtMount.account.scopes,
+          credentialsPath: data.credentialsPath,
+          projectName: restoredAtMount.projectName,
+          sessionEnvWarning: data.sessionEnvWarning,
+        }),
+        projectId: data.projectId ?? projectId,
+        region: data.region ?? restoredAtMount.region,
+        zone: data.zone ?? restoredAtMount.zone,
+      })
+    })().catch((error: unknown) => {
+      failWith(error instanceof Error ? error.message : "it could not be checked")
+    })
+  }, [
+    api,
+    id,
+    project,
+    scopes,
+    restoredAtMount,
+    blockOutputs,
+    getBlockCredentials,
+    invalidateBlockOutputs,
+    completeAuthentication,
+    recordAuth,
+  ])
 
   return {
     // Core state

@@ -10,6 +10,7 @@ Runbooks keeps a session for every runbook you open. A session is what the runbo
 - The environment variables that scripts exported and auth blocks set.
 - The directory the last script left off in.
 - The repositories its \<GitClone\> blocks cloned or opened.
+- Its history: what you did in its blocks. The values you typed into forms, every script run with its status, logs and outputs, the repositories you cloned or selected, the pull requests you opened, and the accounts you signed in to.
 
 Runbooks saves the session after every change, so quitting the app keeps it.
 
@@ -17,13 +18,13 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and nothing else about the runbook, neither its path nor its URL. The window title starts with the name too.
 
-The folder button next to the name copies the path of the session's directory. Hover over it to see the path. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+A click on the name copies it. The folder button next to the name copies the path of the session's directory. Hover over it to see the path. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
 
 Runbooks picks the name when it creates the session, and the session keeps it until you rename it. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
 
 ### Renaming a session
 
-Click the name in the title bar, or choose **File > Rename Session…** or **Rename Session** in the app's menu. Type the new name and press <kbd>Enter</kbd>. Press <kbd>Esc</kbd> or click elsewhere to keep the name as it was.
+Shift-click the name in the title bar, or choose **File > Rename Session…** or **Rename Session** in the app's menu. Type the new name and press <kbd>Enter</kbd>. Press <kbd>Esc</kbd> or click elsewhere to keep the name as it was.
 
 A name follows these rules:
 
@@ -38,9 +39,33 @@ Renaming changes only what the session is called. Its directory, files and envir
 
 ## Resuming a session
 
-Opening a runbook resumes its most recent session. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were.
+Opening a runbook resumes its most recent session. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were. That holds for a runbook you close and open again without quitting the app, too.
 
-The blocks themselves start over. The values you typed into forms, block outputs and logs are not saved, so a block that reads another block's output needs that block run again.
+The blocks come back as you left them. Each shows what the session's history has for it at once. A block whose state depends on something outside the app then checks it in the background, and starts over, saying why, if it no longer holds:
+
+| Block | What comes back | What is checked |
+|-------|-----------------|-----------------|
+| [\<Inputs\>](/authoring/blocks/inputs/) | The values you typed. A form you had submitted is still submitted. | |
+| [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) | The last run: its status, logs and outputs. A block that reads another block's output runs without that block running again. | |
+| [\<Template\>](/authoring/blocks/template/) | The values you typed, and whether you had generated its files. | |
+| [\<GitClone\>](/authoring/blocks/gitclone/) | The repository you cloned or selected, with its outputs. | That it is still a git repository on disk. |
+| [\<DirPicker\>](/authoring/blocks/dirpicker/) | The path, with a dropdown selection for each of its directories that is still there. | |
+| [\<GitPullRequest\>](/authoring/blocks/gitpullrequest/) | The pull or merge request you opened, with its outputs, and the form fields you edited. | |
+| [\<AwsAuth\>](/authoring/blocks/awsauth/) | The account you signed in to. | That its credentials still work. Temporary ones expire. |
+| [\<GitAuth\>](/authoring/blocks/gitauth/), [\<GitHubAuth\>](/authoring/blocks/githubauth/) and [\<GitLabAuth\>](/authoring/blocks/gitlabauth/) | The account you signed in to. The session's token is still sent only to the host you signed in to. | That the token still works for that host, and still belongs to that account. |
+| [\<GoogleAuth\>](/authoring/blocks/googleauth/) | The account you signed in to, when the sign-in can be done again. | That the credential still signs in as that account. Runbooks then signs in again the same way. |
+
+A check that can't reach AWS, GitHub or GitLab, because you are offline for example, leaves the sign-in as it is.
+
+A resumed \<Template\> or \<TemplateInline\> writes its files only when they would come out differently than it last wrote them. A change made to a generated file since stays until something the template uses changes.
+
+A script that was still running when Runbooks quit shows as not run, with a notice that its last run did not finish.
+
+\<GoogleAuth\> can sign in again from a gcloud configuration, from credentials it detected in the environment or in gcloud's application default credentials, from a key file you chose, or from another block's outputs. It can't from a key you pasted or from **Sign in with Google**: Runbooks deletes the credential files it writes for those when it quits. A block signed in that way says so and asks you to sign in again.
+
+A \<GoogleAuth\> credential that now signs in as another account is not used: the block asks you to sign in again, and later resumes start over. When signing in again fails for any other reason, such as a key file that was moved or no network, the block asks you to sign in, and the next resume tries again.
+
+See [The session's history](#the-sessions-history) for what is saved and when.
 
 Which session opens depends on how you launch Runbooks:
 
@@ -62,7 +87,24 @@ Choose **File > Reset Session**, or **Reset Session** in the app's menu, to star
 
 A reset replaces the session with a new one, so the name in the title bar changes. The runbook resumes the new session from then on.
 
-Nothing is deleted. The session that was replaced keeps its directory and files on disk, but Runbooks can't open it again. See [Deleting sessions](#deleting-sessions) to remove it.
+Nothing is deleted. The session that was replaced keeps its directory, files and history on disk, but Runbooks can't open it again. See [Deleting sessions](#deleting-sessions) to remove it.
+
+## The session's history
+
+Runbooks adds an entry to the session's history each time you act on a block:
+
+- You change a value in a form, submit the form, or generate its files. The entry has the form's values. Changes to one form that follow each other are one entry, so the history has the form as you left it and not every keystroke. The same goes for a \<DirPicker\> path and the fields of a \<GitPullRequest\> form.
+- A \<Command\> or \<Check\> script starts, and it ends. The entry for the end has the status, the exit code, the outputs, and the newest 500 lines of the log, up to 64 KiB of text. Outputs larger than 512 KiB in total are left out. The resumed block says so, and the blocks that read them wait until it runs again.
+- A \<Template\> or \<TemplateInline\> writes its files. The entry has a hash of what it wrote, not the files.
+- A \<GitClone\> block gets a repository, or you start it over.
+- A \<GitPullRequest\> block opens a pull or merge request, or you set it aside to open another.
+- An auth block signs in, or you sign it out.
+
+The history keeps every entry in order. The app reads only the latest entry of each block, which is what a resumed session shows.
+
+A block also resumes from its latest entry when the runbook is reloaded in [watch mode](/commands/watch/), or closed and opened again without quitting the app.
+
+A resumed session's **Generated** panel lists the files its blocks wrote, and Runbooks doesn't offer to delete them when the runbook opens: they are the session's own.
 
 ## Where sessions are stored
 
@@ -77,14 +119,14 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
 <FileTree>
 - sessions/
   - db/
-    - sessions.db A SQLite database with one row per session
+    - sessions.db A SQLite database of the sessions and their histories
   - dirs/
     - 0199a5c2-7e3b-7c4d-9a1f-3b2c4d5e6f70/ One directory per session
       - generated/
       - my-cloned-repo/
 </FileTree>
 
-The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, and its environment. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
 
 ```bash
 sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"
@@ -92,19 +134,25 @@ sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-
 
 ## What is encrypted
 
-The environment can hold credentials: cloud keys an auth block exported, or a token a script set. Runbooks encrypts it with the operating system's credential store before writing it to the database: Keychain on macOS, DPAPI on Windows, and a secret service such as GNOME Keyring or KWallet on Linux.
+The environment can hold credentials: cloud keys an auth block exported, or a token a script set. So can the history: a password typed into a form, a script's sensitive output, a secret a script printed to its log, or the keys and token an auth block signed in with. Runbooks encrypts the environment and the content of every history entry with the operating system's credential store before writing them to the database: Keychain on macOS, DPAPI on Windows, and a secret service such as GNOME Keyring or KWallet on Linux.
 
-On Linux without a secret service, Runbooks does not save the environment. A resumed session there starts from the environment Runbooks was launched with, and keeps its directory and files.
+On Linux without a secret service, Runbooks saves neither. A resumed session there starts from the environment Runbooks was launched with and with its blocks as new, and keeps its directory and files.
 
-The rest of the database and the files in a session's directory are not encrypted.
+The rest of the database is not encrypted, including which block each history entry belongs to and when it was added. Neither are the files in a session's directory.
 
 <Aside type="note">
-[\<GoogleAuth\>](/authoring/blocks/googleauth/) writes credentials to a temporary file that is deleted when Runbooks quits. A resumed session drops the variables that point to that file, so sign in again.
+[\<GoogleAuth\>](/authoring/blocks/googleauth/) writes credentials to a temporary file that is deleted when Runbooks quits, and the history keeps no Google credential. A resumed session drops the variables that point to that file. The block signs in again where it can, as [Resuming a session](#resuming-a-session) describes.
 </Aside>
 
 ## Deleting sessions
 
-Runbooks does not delete sessions, and their cloned repositories add up. To remove them, quit Runbooks and delete the `sessions` folder, or a single folder under `dirs/`.
+Runbooks does not delete sessions. Their cloned repositories add up, and so do their histories, which get an entry with a log for every script run. To remove every session, quit Runbooks and delete the `sessions` folder.
+
+To remove one session, quit Runbooks, delete its row, and then delete its folder under `dirs/`. Deleting the row deletes the session's history with it:
+
+```bash
+sqlite3 sessions/db/sessions.db "PRAGMA foreign_keys = ON; DELETE FROM sessions WHERE name = 'elegant-elephant'"
+```
 
 <Aside type="caution">
 Uninstalling Runbooks on Windows deletes its data directory, sessions included. Push or copy out any work in a session's cloned repositories first.

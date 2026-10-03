@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { SessionName } from "../SessionName"
@@ -33,11 +33,11 @@ function Harness({ onRenamed }: { onRenamed: (name: string) => void }) {
   )
 }
 
-/** Render the name and click it; returns the field and the onRenamed spy. */
+/** Render the name and shift-click it; returns the field and the onRenamed spy. */
 async function startRenaming() {
   const onRenamed = vi.fn()
   render(<Harness onRenamed={onRenamed} />)
-  await userEvent.click(screen.getByRole("button", { name: "elegant-elephant" }))
+  fireEvent.click(screen.getByRole("button", { name: "elegant-elephant" }), { shiftKey: true })
   return { field: screen.getByRole("textbox", { name: "Session name" }), onRenamed }
 }
 
@@ -46,7 +46,19 @@ describe("SessionName", () => {
     invoke.mockReset()
   })
 
-  it("turns into a field with the name selected when clicked", async () => {
+  it("copies the name when clicked, and stays a name", async () => {
+    const user = userEvent.setup()
+    render(<Harness onRenamed={vi.fn()} />)
+
+    await user.click(screen.getByRole("button", { name: "elegant-elephant" }))
+
+    expect(await navigator.clipboard.readText()).toBe("elegant-elephant")
+    expect(await screen.findByLabelText("Copied")).toBeInTheDocument()
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("turns into a field with the name selected when shift-clicked", async () => {
     const { field } = await startRenaming()
 
     expect(field).toHaveValue("elegant-elephant")

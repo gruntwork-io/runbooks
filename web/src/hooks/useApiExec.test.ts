@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
-import { useApiExec } from "./useApiExec"
+import { useApiExec, type ExecState } from "./useApiExec"
 import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 
 // =============================================================================
@@ -609,5 +609,95 @@ describe("useApiExec state machine", () => {
     })
     expect(result.current.state.status).toBe("running")
     expect(result.current.state.logs).toEqual([]) // Fresh state
+  })
+
+  it("starts from the state it is given", () => {
+    const initialState: ExecState = {
+      logs: [{ line: "done", timestamp: "2024-01-01T00:00:00Z" }],
+      status: "success",
+      exitCode: 0,
+      error: null,
+      outputs: { url: "https://x" },
+      logFilePath: null,
+    }
+
+    const { result } = renderExec({ initialState })
+
+    expect(result.current.state).toEqual(initialState)
+  })
+
+  it("reports a run when it starts, and once when it is over with the state it left", async () => {
+    const onRunStarted = vi.fn()
+    const onRunEnded = vi.fn()
+    const { result } = renderExec({ onRunStarted, onRunEnded })
+
+    act(() => {
+      result.current.execute("test-executable")
+    })
+    expect(onRunStarted).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      mock.emit("exec:log", { line: "Done!", timestamp: "2024-01-01T00:00:01Z" })
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
+    })
+    // The run is not over until exec:run resolves: more events can follow.
+    expect(onRunEnded).not.toHaveBeenCalled()
+    act(() => {
+      mock.emit("exec:log", { line: "Flushed", timestamp: "2024-01-01T00:00:02Z" })
+      mock.resolveInvoke({ status: { status: "success", exitCode: 0 } })
+    })
+
+    await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(1))
+    expect(onRunEnded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "success",
+        exitCode: 0,
+        logs: [
+          { line: "Done!", timestamp: "2024-01-01T00:00:01Z" },
+          { line: "Flushed", timestamp: "2024-01-01T00:00:02Z" },
+        ],
+      }),
+    )
+  })
+
+  it("reports a run that exec:run rejected as over, with the failure", async () => {
+    const onRunEnded = vi.fn()
+    const { result } = renderExec({ onRunEnded })
+
+    act(() => {
+      result.current.execute("test-executable")
+    })
+    act(() => {
+      mock.rejectInvoke(new Error("IPC channel not found"))
+    })
+
+    await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(1))
+    expect(onRunEnded.mock.calls[0]![0]).toMatchObject({
+      status: "fail",
+      error: { details: "IPC channel not found" },
+    })
+  })
+
+  it("reports only the newer run when a block is run again before its run is over", async () => {
+    const onRunStarted = vi.fn()
+    const onRunEnded = vi.fn()
+    const { result } = renderExec({ onRunStarted, onRunEnded })
+
+    act(() => {
+      result.current.execute("first-run")
+    })
+    act(() => {
+      result.current.execute("second-run")
+    })
+    // Main aborts the first run when the second starts.
+    await act(async () => mock.resolveInvokeNth(0, { status: null, cancelled: true }))
+    act(() => {
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
+      mock.resolveInvokeNth(1, { status: { status: "success", exitCode: 0 } })
+    })
+
+    await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(1))
+    expect(onRunStarted).toHaveBeenCalledTimes(2)
+    expect(onRunEnded.mock.calls[0]![0]).toMatchObject({ status: "success" })
   })
 })

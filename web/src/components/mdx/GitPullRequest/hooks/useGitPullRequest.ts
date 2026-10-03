@@ -84,6 +84,12 @@ interface UseGitPullRequestOptions {
    * never trip the wrong-provider guard.
    */
   authDerivedProvider?: GitProvider | undefined
+  /**
+   * The pull/merge request the block opened, from the session's history. The
+   * block shows it and publishes its outputs at once: what it opened stays
+   * opened, so there is nothing to check.
+   */
+  restored?: { result: PRResult; outputs: Record<string, string> } | undefined
 }
 
 export function useGitPullRequest({
@@ -91,14 +97,23 @@ export function useGitPullRequest({
   cfg,
   authId,
   authDerivedProvider,
+  restored,
 }: UseGitPullRequestOptions) {
   const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   // State
-  const [status, setStatus] = useState<PRBlockStatus>("pending")
+  const [status, setStatus] = useState<PRBlockStatus>(restored ? "success" : "pending")
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [prResult, setPRResult] = useState<PRResult | null>(null)
+  const [prResult, setPRResult] = useState<PRResult | null>(restored?.result ?? null)
+  // What main registered as the block's outputs (git:outputs) for the request shown
+  const [prOutputs, setPROutputs] = useState<Record<string, string> | null>(
+    restored?.outputs ?? null,
+  )
+  const [restoredAtMount] = useState(restored)
+  useEffect(() => {
+    if (restoredAtMount) registerOutputs(id, restoredAtMount.outputs)
+  }, [id, registerOutputs, restoredAtMount])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [conflictBranchName, setConflictBranchName] = useState<string | null>(null)
@@ -287,6 +302,7 @@ export function useGitPullRequest({
             const parsed = OutputsEventSchema.safeParse(data)
             if (parsed.success) {
               registerOutputs(id, parsed.data.outputs)
+              setPROutputs(parsed.data.outputs)
             }
           }),
           api.on("git:error", (data: unknown) => {
@@ -380,6 +396,7 @@ export function useGitPullRequest({
       setStatus("creating")
       setLogs([])
       setPRResult(null)
+      setPROutputs(null)
       setErrorMessage(null)
       setErrorCode(null)
       setConflictBranchName(null)
@@ -464,6 +481,7 @@ export function useGitPullRequest({
     setStatus("ready")
     setLogs([])
     setPRResult(null)
+    setPROutputs(null)
     setErrorMessage(null)
     setErrorCode(null)
     setConflictBranchName(null)
@@ -475,6 +493,7 @@ export function useGitPullRequest({
     status,
     logs,
     prResult,
+    prOutputs,
     errorMessage,
     errorCode,
     conflictBranchName,

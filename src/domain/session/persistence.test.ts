@@ -246,6 +246,43 @@ describe("SessionPersistence", () => {
     expect(saveErrors).toEqual([])
   })
 
+  describe("saveVcsBindings", () => {
+    it("binds a resumed session's git credentials to the hosts they were bound to", async () => {
+      const first = startApp()
+      await first.open()
+      first.persistence.saveVcsBindings({ github: { host: "ghe.example.com", source: "oauth" } })
+      expect(first.persistence.currentSession()?.vcsBindings).toEqual({
+        github: { host: "ghe.example.com", source: "oauth" },
+      })
+      first.quit()
+
+      const second = startApp()
+      const resumed = await second.open()
+
+      expect(resumed.vcsBindings).toEqual({ github: { host: "ghe.example.com", source: "oauth" } })
+      expect(saveErrors).toEqual([])
+    })
+
+    it("starts a new session without bindings", async () => {
+      const app = startApp()
+      await app.open()
+      app.persistence.saveVcsBindings({ gitlab: { host: "gitlab.com" } })
+
+      const fresh = await app.open({ startNew: true })
+
+      expect(fresh.vcsBindings).toEqual({})
+    })
+
+    it("saves nothing before a session is open", () => {
+      const app = startApp()
+
+      app.persistence.saveVcsBindings({ gitlab: { host: "gitlab.com" } })
+
+      expect(app.persistence.currentSession()).toBeUndefined()
+      expect(saveErrors).toEqual([])
+    })
+  })
+
   it("stores the env encrypted", async () => {
     const app = startApp()
     const session = await app.open()
@@ -507,5 +544,188 @@ describe("SessionPersistence", () => {
 
     expect(Effect.runSync(app.store.get(a.id))?.env).toBeUndefined()
     expect(Effect.runSync(app.store.get(b.id))?.env).toBeUndefined()
+  })
+
+  describe("history", () => {
+    type App = ReturnType<typeof startApp>
+
+    const FORM = { values: { region: "us-east-1" }, submitted: true }
+    const RUN = { status: "success", exitCode: 0, logs: [{ line: "done", timestamp: "t" }] }
+
+    const record = (app: App, sessionId: string, blockId: string, kind: string, payload: unknown) =>
+      run(app.persistence.recordEvent(sessionId, { blockId, kind, payload }))
+
+    /** Every event in the database as `block kind`, oldest first, read over a connection of its own. */
+    function storedEvents(): Array<{ event: string; payload: Uint8Array }> {
+      const db = openSqliteDatabase(dbFile)
+      const rows = db
+        .prepare("SELECT block_id, kind, payload FROM session_events ORDER BY seq")
+        .all() as Array<{ block_id: string; kind: string; payload: Uint8Array }>
+      db.close()
+      return rows.map((row) => ({ event: `${row.block_id} ${row.kind}`, payload: row.payload }))
+    }
+
+    it("gives each block back what it was left as, in a later run of the app", async () => {
+      const first = startApp()
+      const session = await first.open()
+      await record(first, session.id, "config", "inputs", FORM)
+      await record(first, session.id, "deploy", "run", { status: "running" })
+      await record(first, session.id, "deploy", "run", RUN)
+      first.quit()
+
+      const second = startApp()
+      await second.open()
+
+      expect(await run(second.persistence.blockStates())).toEqual([
+        { blockId: "config", kind: "inputs", payload: FORM },
+        { blockId: "deploy", kind: "run", payload: RUN },
+      ])
+      expect(saveErrors).toEqual([])
+    })
+
+    it("keeps a form as it was left and every run, in order", async () => {
+      const app = startApp()
+      const session = await app.open()
+
+      for (const region of ["u", "us", "us-east-1"]) {
+        await record(app, session.id, "config", "inputs", { values: { region }, submitted: false })
+      }
+      await record(app, session.id, "deploy", "run", { status: "running" })
+      await record(app, session.id, "deploy", "run", { ...RUN, status: "fail", exitCode: 1 })
+      await record(app, session.id, "config", "inputs", FORM)
+      await record(app, session.id, "deploy", "run", { status: "running" })
+      await record(app, session.id, "deploy", "run", RUN)
+
+      const stored = storedEvents()
+      expect(stored.map((row) => row.event)).toEqual([
+        "config inputs",
+        "deploy run",
+        "deploy run",
+        "config inputs",
+        "deploy run",
+        "deploy run",
+      ])
+      // The three edits before the first run are one event: the last of them.
+      expect(JSON.parse(reversingCipher.decrypt(stored[0]!.payload)!)).toEqual({
+        values: { region: "us-east-1" },
+        submitted: false,
+      })
+    })
+
+    it("stores the payload encrypted", async () => {
+      const app = startApp()
+      const session = await app.open()
+
+      await record(app, session.id, "login", "inputs", {
+        values: { password: "hunter2" },
+        submitted: true,
+      })
+
+      const [stored] = storedEvents()
+      expect(new TextDecoder().decode(stored!.payload)).not.toContain("hunter2")
+      expect(reversingCipher.decrypt(stored!.payload)).toContain("hunter2")
+    })
+
+    it("saves nothing where the payload can't be encrypted", async () => {
+      const app = startApp({ encrypt: () => undefined, decrypt: () => undefined })
+      const session = await app.open()
+
+      await record(app, session.id, "config", "inputs", FORM)
+
+      expect(storedEvents()).toEqual([])
+      expect(await run(app.persistence.blockStates())).toEqual([])
+      expect(saveErrors).toEqual([])
+    })
+
+    it("drops an event of a session that is no longer the current one", async () => {
+      const app = startApp()
+      const replaced = await app.open()
+      await app.open({ startNew: true })
+
+      await record(app, replaced.id, "config", "inputs", FORM)
+
+      expect(storedEvents()).toEqual([])
+    })
+
+    it("starts a block over when its state can't be decrypted or parsed", async () => {
+      const first = startApp()
+      const session = await first.open()
+      await record(first, session.id, "config", "inputs", FORM)
+      first.quit()
+
+      for (const decrypt of [() => undefined, () => "not json"]) {
+        const app = startApp({ ...reversingCipher, decrypt })
+        await app.open()
+        expect(await run(app.persistence.blockStates())).toEqual([])
+        app.quit()
+      }
+    })
+
+    it("leaves out an event of a kind this version does not know", async () => {
+      const app = startApp()
+      const session = await app.open()
+      await record(app, session.id, "config", "inputs", FORM)
+      Effect.runSync(
+        app.store.appendEvent(
+          {
+            sessionId: session.id,
+            at: "2030-01-01T00:00:00.000Z",
+            blockId: "config",
+            kind: "from-a-later-version",
+            payload: reversingCipher.encrypt("{}")!,
+          },
+          { replacePrevious: false },
+        ),
+      )
+
+      expect(await run(app.persistence.blockStates())).toEqual([
+        { blockId: "config", kind: "inputs", payload: FORM },
+      ])
+    })
+
+    it("fails for an event that is not one, and saves nothing", async () => {
+      const app = startApp()
+      const session = await app.open()
+
+      await expect(record(app, session.id, "config", "outputs", {})).rejects.toThrow(
+        /must be one of inputs, run, render, clone, pull-request, auth/,
+      )
+      await expect(record(app, session.id, "", "inputs", FORM)).rejects.toThrow(
+        /the id of its block/,
+      )
+
+      expect(storedEvents()).toEqual([])
+    })
+
+    it("reports a failed save, and a cipher that throws, without failing the block", async () => {
+      const failing = startApp({
+        ...reversingCipher,
+        encrypt: () => {
+          throw new Error("keychain access denied")
+        },
+      })
+      const session = await failing.open()
+
+      await record(failing, session.id, "config", "inputs", FORM)
+
+      expect(saveErrors).toHaveLength(1)
+      expect(String(saveErrors[0])).toContain("keychain access denied")
+      failing.quit()
+
+      const closed = startApp()
+      const reopened = await closed.open()
+      closed.quit()
+
+      await record(closed, reopened.id, "config", "inputs", FORM)
+
+      expect(saveErrors).toHaveLength(2)
+      expect(String(saveErrors[1])).toContain("failed to save a session event")
+    })
+
+    it("has no states before a session is open", async () => {
+      const app = startApp()
+
+      expect(await run(app.persistence.blockStates())).toEqual([])
+    })
   })
 })

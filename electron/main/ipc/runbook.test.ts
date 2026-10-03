@@ -48,6 +48,7 @@ type RunbookGetResult = {
   sessionId: string
   sessionName: string
   sessionDir: string
+  blockStates: unknown[]
 }
 /** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
 const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
@@ -294,9 +295,9 @@ describe("runbook IPC handlers", () => {
             setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
             const a = await getRunbook(dirA)
 
-            // A watch-mode reload of A that is still running when B is opened
+            // A reload of A that is still running when B is opened
             const hold = holdRunPromiseCall(heldCall)
-            const reloadA = getRunbook(dirA, { reload: "watch" })
+            const reloadA = getRunbook(dirA)
             await hold.held
             const b = await getRunbook(dirB)
             const registryB = runtimeModule.executableRegistry
@@ -402,23 +403,20 @@ describe("runbook IPC handlers", () => {
         expect(result.sessionDir).toBe(sessionDir)
       })
 
-      it("keeps a block's cd across a watch-mode reload, and resets it on a re-open", async () => {
+      it("keeps a block's cd when the runbook is loaded again, as after a restart", async () => {
         const { sessionId } = await getRunbook(dirA)
         const sessionDir = path.join(sessions.dirsRoot, sessionId)
         const sub = path.join(sessionDir, "sub")
         fs.mkdirSync(sub)
         await cdInSession(sessionDir, sub)
 
-        const reloaded = await getRunbook(dirA, { reload: "watch" })
+        // A watch-mode reload, or a re-open after a close
+        const reloaded = await getRunbook(dirA)
         expect(await workingDir()).toBe(sub)
         // The session's directory is where it started, wherever a block has moved to.
         expect(reloaded.sessionDir).toBe(sessionDir)
         // resetSession goes back to where the session started, not the cd.
         await runtimeModule.runtime.runPromise(sessionManager.resetSession())
-        expect(await workingDir()).toBe(sessionDir)
-
-        await cdInSession(sessionDir, sub)
-        await getRunbook(dirA)
         expect(await workingDir()).toBe(sessionDir)
       })
     })
@@ -486,6 +484,79 @@ describe("runbook IPC handlers", () => {
         await getRunbook(dirA)
 
         expect(redactSecrets(`token ${token}`)).not.toContain(token)
+      })
+
+      it("binds a resumed session's git credentials to the hosts they were bound to", async () => {
+        const { vcsSessionMeta, saveVcsSessionMeta } = runtimeModule
+        await getRunbook(dirA)
+        vcsSessionMeta.set("github", { host: "ghe.example.com", source: "oauth" })
+        saveVcsSessionMeta()
+
+        await getRunbook(dirB)
+        expect(vcsSessionMeta.size).toBe(0)
+        restartApp()
+
+        await getRunbook(dirA)
+        expect(Object.fromEntries(vcsSessionMeta)).toEqual({
+          github: { host: "ghe.example.com", source: "oauth" },
+        })
+      })
+
+      it("returns what the session's history says each block was left as", async () => {
+        const form = { values: { region: "us-east-1" }, submitted: true }
+        const record = (sessionId: string, payload: unknown) =>
+          runtimeModule.runtime.runPromise(
+            sessions.persistence.recordEvent(sessionId, {
+              blockId: "config",
+              kind: "inputs",
+              payload,
+            }),
+          )
+        const first = await getRunbook(dirA)
+        expect(first.blockStates).toEqual([])
+        await record(first.sessionId, form)
+
+        // Opening the runbook again, as after a close, reads the history as it is now.
+        const saved = [{ blockId: "config", kind: "inputs", payload: form }]
+        expect((await getRunbook(dirA)).blockStates).toEqual(saved)
+        restartApp()
+        expect((await getRunbook(dirA)).blockStates).toEqual(saved)
+
+        // Another runbook has a session, and so a history, of its own.
+        expect((await getRunbook(dirB)).blockStates).toEqual([])
+
+        // A reset session starts with none, and the next load resumes that one.
+        await getRunbook(dirA)
+        resetToNewSession()
+        const reset = await getRunbook(dirA)
+        expect(reset.blockStates).toEqual([])
+        await record(reset.sessionId, { values: { region: "eu-west-1" }, submitted: false })
+        restartApp()
+        expect((await getRunbook(dirA)).blockStates).toEqual([
+          {
+            blockId: "config",
+            kind: "inputs",
+            payload: { values: { region: "eu-west-1" }, submitted: false },
+          },
+        ])
+      })
+
+      it("opens the runbook with its blocks as new when the history can't be read", async () => {
+        const { sessionId } = await getRunbook(dirA)
+        const { Effect } = await import("effect")
+        const { SessionStoreError } = await import("../../../src/errors/index.ts")
+        const read = spyOn(sessions.store, "latestEvents").mockReturnValue(
+          Effect.fail(new SessionStoreError({ message: "disk I/O error" })),
+        )
+
+        try {
+          const result = await getRunbook(dirA)
+
+          expect(result.sessionId).toBe(sessionId)
+          expect(result.blockStates).toEqual([])
+        } finally {
+          read.mockRestore()
+        }
       })
 
       describe("resetToNewSession", () => {

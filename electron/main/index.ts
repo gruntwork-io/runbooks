@@ -573,8 +573,7 @@ app
     // then pushed to the renderer. openRunbookInWindow waits for the page to
     // load, so the clone can start right away. A local one needs nothing
     // here: the renderer asks for startupRunbookPath itself. Pushing it too
-    // would open the runbook twice, and the second open resets the working
-    // directory a resumed session was left in.
+    // would open the runbook twice.
     const remoteUrl = cliConfig.remoteUrl ?? resumedRemoteUrl
     if (remoteUrl) {
       const win = getMainWindow()

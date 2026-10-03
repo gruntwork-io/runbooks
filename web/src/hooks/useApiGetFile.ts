@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { useIpc } from "./useIpc"
 import type { UseIpcReturn } from "./useIpc"
+import type { SavedBlockState } from "../../../src/domain/session/history"
 
 // API response wrapper for hooks that specifically request file data
 export interface GetFileReturn {
@@ -21,6 +22,8 @@ export interface GetFileReturn {
   sessionName?: string
   /** That session's own directory, where its scripts start and its files are written (runbook:get only) */
   sessionDir?: string
+  /** What that session's history says each block was left as (runbook:get only) */
+  blockStates?: SavedBlockState[]
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {

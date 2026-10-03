@@ -1,5 +1,6 @@
 /**
- * The sessions database: one row per session, kept across app restarts.
+ * The sessions database: one row per session and one per event of its
+ * history, kept across app restarts.
  *
  * The store speaks SQL through SqlDatabase, the part of `node:sqlite` it
  * needs, so that this module imports no Node API. src/layers/NodeSqlite.ts
@@ -45,6 +46,16 @@ export interface StoredSessionState {
   lastActivityAt: string
 }
 
+/**
+ * The host each git provider's session credential belongs to, as the auth
+ * block that wrote it bound it. Not secret. The env has the credentials; this
+ * says which host each may go to, which the env's own variables can't be
+ * trusted to say.
+ */
+export type VcsBindings = Partial<
+  Record<"github" | "gitlab", { host: string; source?: string | undefined }>
+>
+
 export interface SessionRecord extends StoredSessionState, RunbookSource {
   id: string
   /** What the app shows the session as, e.g. `elegant-elephant` (names.ts). No two sessions share one. */
@@ -55,9 +66,21 @@ export interface SessionRecord extends StoredSessionState, RunbookSource {
   launchDir: string | undefined
   createdAt: string
   lastLaunchedAt: string
+  vcsBindings: VcsBindings
 }
 
-/** A `sessions` row. Both tables are STRICT, so each column has its declared type. */
+/** One event of a session's history (history.ts), as the database has it. */
+export interface StoredSessionEvent {
+  sessionId: string
+  /** When the event was recorded, or last replaced. */
+  at: string
+  blockId: string
+  kind: string
+  /** The event's payload: JSON, encrypted. */
+  payload: Uint8Array
+}
+
+/** A `sessions` row. Every table is STRICT, so each column has its declared type. */
 interface SessionRow {
   id: string
   name: string
@@ -72,6 +95,7 @@ interface SessionRow {
   created_at: string
   last_launched_at: string
   last_activity_at: string
+  vcs_bindings: string
 }
 
 const MIGRATIONS = [
@@ -88,15 +112,35 @@ const MIGRATIONS = [
      execution_count INTEGER NOT NULL,
      created_at TEXT NOT NULL,
      last_launched_at TEXT NOT NULL,
-     last_activity_at TEXT NOT NULL
+     last_activity_at TEXT NOT NULL,
+     vcs_bindings TEXT NOT NULL
    ) STRICT;
    CREATE TABLE session_worktrees (
      session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
      position INTEGER NOT NULL,
      path TEXT NOT NULL,
      PRIMARY KEY (session_id, position)
-   ) STRICT;`,
+   ) STRICT;
+   CREATE TABLE session_events (
+     seq INTEGER PRIMARY KEY,
+     session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+     at TEXT NOT NULL,
+     block_id TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     payload BLOB NOT NULL
+   ) STRICT;
+   CREATE INDEX session_events_by_session ON session_events (session_id, seq);`,
 ]
+
+/** A `session_events` row. */
+interface SessionEventRow {
+  seq: number
+  session_id: string
+  at: string
+  block_id: string
+  kind: string
+  payload: Uint8Array
+}
 
 // Timestamps are ISO 8601 in UTC, so they sort as text. rowid breaks a tie
 // between two sessions launched in the same millisecond.
@@ -135,8 +179,9 @@ export class SessionStore {
           .prepare(
             `INSERT INTO sessions (
                id, name, runbook_path, remote_source, dir, working_dir, launch_dir, env,
-               active_worktree, execution_count, created_at, last_launched_at, last_activity_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               active_worktree, execution_count, created_at, last_launched_at, last_activity_at,
+               vcs_bindings
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             record.id,
@@ -152,6 +197,7 @@ export class SessionStore {
             record.createdAt,
             record.lastLaunchedAt,
             record.lastActivityAt,
+            JSON.stringify(record.vcsBindings),
           )
         this.replaceWorktrees(record.id, record.worktrees)
       })
@@ -243,6 +289,76 @@ export class SessionStore {
     })
   }
 
+  /**
+   * Add `event` to the end of its session's history. With `replacePrevious`,
+   * an event that follows one of the same block and kind takes its place
+   * instead, and keeps its position.
+   */
+  appendEvent(
+    event: StoredSessionEvent,
+    options: { replacePrevious: boolean },
+  ): Effect.Effect<void, SessionStoreError> {
+    return attempt("save a session event", () => {
+      transaction(this.db, () => {
+        const previous = options.replacePrevious
+          ? (this.db
+              .prepare(
+                `SELECT seq, block_id, kind FROM session_events
+                  WHERE session_id = ? ORDER BY seq DESC LIMIT 1`,
+              )
+              .get(event.sessionId) as
+              | Pick<SessionEventRow, "seq" | "block_id" | "kind">
+              | undefined)
+          : undefined
+        if (previous?.block_id === event.blockId && previous.kind === event.kind) {
+          this.db
+            .prepare("UPDATE session_events SET at = ?, payload = ? WHERE seq = ?")
+            .run(event.at, event.payload, previous.seq)
+          return
+        }
+        this.db
+          .prepare(
+            `INSERT INTO session_events (session_id, at, block_id, kind, payload)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(event.sessionId, event.at, event.blockId, event.kind, event.payload)
+      })
+    })
+  }
+
+  /**
+   * The newest event of each kind for each of the session's blocks, oldest
+   * first: what each block was left as.
+   */
+  latestEvents(sessionId: string): Effect.Effect<StoredSessionEvent[], SessionStoreError> {
+    return attempt("read a session's history", () => {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM session_events
+            WHERE seq IN (
+              SELECT MAX(seq) FROM session_events WHERE session_id = ? GROUP BY block_id, kind
+            )
+            ORDER BY seq`,
+        )
+        .all(sessionId) as SessionEventRow[]
+      return rows.map((row) => ({
+        sessionId: row.session_id,
+        at: row.at,
+        blockId: row.block_id,
+        kind: row.kind,
+        payload: row.payload,
+      }))
+    })
+  }
+
+  saveVcsBindings(id: string, bindings: VcsBindings): Effect.Effect<void, SessionStoreError> {
+    return attempt("save a session's git host bindings", () => {
+      this.db
+        .prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = ?")
+        .run(JSON.stringify(bindings), id)
+    })
+  }
+
   close(): Effect.Effect<void, SessionStoreError> {
     return attempt("close the sessions database", () => {
       this.db.close()
@@ -286,9 +402,30 @@ export class SessionStore {
         createdAt: row.created_at,
         lastLaunchedAt: row.last_launched_at,
         lastActivityAt: row.last_activity_at,
+        vcsBindings: parseVcsBindings(row.vcs_bindings),
       }
     })
   }
+}
+
+/** The bindings a row has, leaving out any entry that isn't one. */
+function parseVcsBindings(json: string): VcsBindings {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return {}
+  }
+  const bindings: VcsBindings = {}
+  if (typeof parsed !== "object" || parsed === null) return bindings
+  for (const provider of ["github", "gitlab"] as const) {
+    const entry: unknown = (parsed as Record<string, unknown>)[provider]
+    if (typeof entry !== "object" || entry === null) continue
+    const { host, source } = entry as { host?: unknown; source?: unknown }
+    if (typeof host !== "string") continue
+    bindings[provider] = typeof source === "string" ? { host, source } : { host }
+  }
+  return bindings
 }
 
 function attempt<A>(action: string, run: () => A): Effect.Effect<A, SessionStoreError> {

@@ -25,6 +25,7 @@ import { useWheelScrollFallback } from "./hooks/useWheelScrollFallback"
 import { useErrorReporting } from "./contexts/useErrorReporting"
 import { useLogs } from "./contexts/useLogs"
 import { useApi } from "./contexts/ApiContext"
+import { IpcSessionHistoryProvider } from "./contexts/IpcSessionHistoryContext"
 import { cn } from "./lib/utils"
 import type { AppError } from "./types/error"
 
@@ -108,8 +109,7 @@ function App() {
   // process reports that the runbook it watches changed. A failed open leaves
   // the previous runbook on screen, and main keeps watching it, while the last
   // request is the failed one: re-sending that would raise its error again on
-  // every save, so reload the displayed runbook instead. Either way the reload
-  // keeps the session's working dir, unlike re-opening the runbook.
+  // every save, so reload the displayed runbook instead.
   const { data: displayedRunbook, error: runbookError, reloadForWatch } = getRunbookResult
   const handleRunbookFileChange = useCallback(
     (changedPath: string) => {
@@ -181,7 +181,11 @@ function App() {
   // 4. User hasn't dismissed it this session
   // 5. User hasn't checked "don't ask again" in localStorage
   // It then stays open until dismissed or the runbook changes.
+  // A session whose blocks resume from its history is not asked about: its
+  // files are what those blocks left, and its Generated panel shows them.
+  const resumesBlocks = (getRunbookResult.data?.blockStates?.length ?? 0) > 0
   const alertReady = Boolean(
+    !resumesBlocks &&
     !getRunbookResult.isLoading &&
     !generatedFilesCheck.isLoading &&
     generatedFilesCheck.data !== staleFilesCheck &&
@@ -211,13 +215,29 @@ function App() {
   // root, so they otherwise keep whatever the previously opened runbook left
   // there (a stale "active" repo, its file tree). Clear them on the same
   // changes as the alert above. The per-runbook block state is reset by
-  // keying MDXContainer on the same key below, and the logs store by
-  // ClearLogsOnRunbookChange. Both setters are stable, so only a change of the
-  // key re-runs this.
+  // keying MDXContainer's session history provider on the same key below, and
+  // the logs store by ClearLogsOnRunbookChange. Both setters are stable, so
+  // only a change of the key re-runs this.
   useEffect(() => {
     resetWorkTrees()
     updateGeneratedFileTree(null)
   }, [loadedSessionKey, resetWorkTrees, updateGeneratedFileTree])
+
+  // The files a resumed session's blocks wrote, once the check for this
+  // session has read them.
+  const resumedFiles =
+    resumesBlocks && generatedFilesCheck.data !== staleFilesCheck
+      ? generatedFilesCheck.data
+      : undefined
+  useEffect(() => {
+    if (!resumedFiles?.fileTree) return
+    updateGeneratedFileTree({
+      fileTree: resumedFiles.fileTree,
+      truncatedTree: resumedFiles.truncatedTree,
+      totalFiles: resumedFiles.totalFiles,
+      heavyDirs: resumedFiles.heavyDirs,
+    })
+  }, [resumedFiles, updateGeneratedFileTree])
 
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""
@@ -381,17 +401,23 @@ function App() {
                   {/* Keyed by the runbook's file path and session so opening
                       a different runbook, or starting a new session, starts
                       from fresh block inputs/outputs and trust banner, while
-                      same-path reloads keep them. */}
-                  <MDXContainer
+                      same-path reloads keep them. The blocks start from
+                      what the session's history says they were left as. */}
+                  <IpcSessionHistoryProvider
                     key={loadedSessionKey}
-                    ref={runbookScrollRef}
-                    content={content}
-                    runbookPath={runbookPath}
-                    runbookFilePath={getRunbookResult.data?.path}
-                    remoteSource={getRunbookResult.data?.remoteSource}
-                    assetHost={getRunbookResult.data?.assetHost}
-                    className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
-                  />
+                    sessionId={getRunbookResult.data?.sessionId}
+                    blockStates={getRunbookResult.data?.blockStates}
+                  >
+                    <MDXContainer
+                      ref={runbookScrollRef}
+                      content={content}
+                      runbookPath={runbookPath}
+                      runbookFilePath={getRunbookResult.data?.path}
+                      remoteSource={getRunbookResult.data?.remoteSource}
+                      assetHost={getRunbookResult.data?.assetHost}
+                      className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
+                    />
+                  </IpcSessionHistoryProvider>
 
                   {/* Show code icon button - desktop only, when artifacts panel is hidden */}
                   {showCodeButton && (
@@ -442,7 +468,7 @@ function App() {
         )}
       </div>
 
-      {/* Generated Files Alert Dialog. Keyed like MDXContainer so the delete
+      {/* Generated Files Alert Dialog. Keyed like the runbook's blocks so the delete
           result (success or failure) from the previous runbook doesn't
           replace the next runbook's Keep/Delete prompt. */}
       {generatedFilesCheck.data && (

@@ -8,6 +8,8 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedGitAuth } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GitAuthInstruction } from "./GitAuthInstruction"
 
@@ -105,8 +107,17 @@ function GitAuthInteractive({
 
   const { trackBlockRender } = useTelemetry()
 
+  // The sign-in the session's history has for this block. The block starts
+  // on its provider, when the picker lets the user choose one.
+  const history = useSessionHistory()
+  const [restored] = useState(() => {
+    const saved = parseSavedGitAuth(history.saved(id, "auth"))
+    if (saved?.status !== "signed-in") return undefined
+    return saved.provider === initialProvider || !hideProviderSelect ? saved : undefined
+  })
+
   // Selected provider (GitHub | GitLab)
-  const [provider, setProvider] = useState<GitProvider>(initialProvider)
+  const [provider, setProvider] = useState<GitProvider>(restored?.provider ?? initialProvider)
   // An invalid `provider` prop renders the validation error below, but the
   // hooks still run first — give them a real config instead of undefined.
   const providerConfig = isGitProvider(provider) ? PROVIDERS[provider] : PROVIDERS.github
@@ -132,6 +143,8 @@ function GitAuthInteractive({
     detectCredentials: configError ? false : detectCredentials,
     host: provider === initialProvider ? host : undefined,
     defaultTab,
+    // Behind a configuration error, nothing is restored either.
+    restored: configError ? undefined : restored,
   })
 
   // Switch providers: cancel any in-flight OAuth poll, drop the prior

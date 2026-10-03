@@ -145,10 +145,7 @@ function registerSessionSecrets(): Effect.Effect<void, SessionNotFoundError> {
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (
-      _event,
-      params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" },
-    ) => {
+    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
       const generation = ++loadGeneration
       const superseded = () => generation !== loadGeneration
 
@@ -218,6 +215,8 @@ export function registerRunbookHandlers(): void {
         // sessions.
         // Reloading the SAME runbook (watch mode, re-opening the same file)
         // must NOT do this — it would wipe env vars a script exported mid-run.
+        // It keeps the session as it is, working dir included, as the blocks
+        // resume from the session's history.
         const switched = !sameRunbook || startNew || resumesOtherSession
         if (switched) {
           // The previous runbook's executables must not stay runnable (or be
@@ -260,22 +259,24 @@ export function registerRunbookHandlers(): void {
         // previous runbook can't leak into this one.
         resetGoogleCredentialRegistry()
         vcsSessionMeta.clear()
+        // A resumed session's git credentials stay bound to the hosts they
+        // were bound to: the env's GITHUB_HOST and GH_HOST alone would let a
+        // GitHub Enterprise token go to github.com.
+        const bindings = persistence.currentSession()?.vcsBindings ?? {}
+        for (const provider of ["github", "gitlab"] as const) {
+          const binding = bindings[provider]
+          if (binding) vcsSessionMeta.set(provider, binding)
+        }
         // Template render state is keyed by the author-chosen Template id,
         // which the next runbook may reuse for a different template or
         // output dir. Drop the warm-render bundles, handles and vars
         // baselines, and the file manifests, so its first render starts clean.
         await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
         manifestStore.clear()
-      } else {
-        // Re-opening the runbook starts its blocks from the session's
-        // directory again. A watch-mode reload keeps the session as it is,
-        // env vars included: saving runbook.mdx must not undo a block's `cd`.
-        if (params.reload !== "watch") sessionManager.resetWorkingDir()
+      } else if (launch) {
         // `runbooks <this runbook>` run again, perhaps from another directory.
-        if (launch) {
-          await runtime.runPromise(persistence.recordLaunch(runbookPath, launch.launchDir))
-          pendingLaunch = null
-        }
+        await runtime.runPromise(persistence.recordLaunch(runbookPath, launch.launchDir))
+        pendingLaunch = null
       }
       // The new session's resets await: a newer load may have started.
       if (superseded()) return SUPERSEDED
@@ -307,6 +308,20 @@ export function registerRunbookHandlers(): void {
         }
       }
 
+      // Read on every load, not only when the session starts: the renderer
+      // remounts its blocks when the same runbook is opened again after a
+      // close, and they resume from the history as it is now. A history that
+      // can't be read leaves the blocks to start over: the runbook still opens.
+      const blockStates = await runtime.runPromise(
+        persistence.blockStates().pipe(
+          Effect.catchAll((err) => {
+            log.warn("failed to read the session's history:", err.message)
+            return Effect.succeed([])
+          }),
+        ),
+      )
+      if (superseded()) return SUPERSEDED
+
       // Watched with or without --watch, so a block can offer to reload a
       // script that changed on disk. A no-op when a reload of the runbook
       // leaves the same script files registered.
@@ -332,6 +347,7 @@ export function registerRunbookHandlers(): void {
         sessionId: session.id,
         sessionName: session.name,
         sessionDir: session.dir,
+        blockStates,
       }
     },
   )

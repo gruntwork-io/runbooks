@@ -9,7 +9,7 @@
  * service stays Bun-test-safe.
  */
 import { Effect, Exit } from "effect"
-import { runtime, sessionManager, vcsSessionMeta } from "./runtime.ts"
+import { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } from "./runtime.ts"
 import type { GitProvider } from "./runtime.ts"
 import { VcsCredentials } from "../../../src/services/VcsCredentials.ts"
 import type {
@@ -29,6 +29,7 @@ import { errorMessage } from "../../../src/errors/message.ts"
  */
 export function recordSessionAuth(provider: GitProvider, host: string, source?: string): void {
   vcsSessionMeta.set(provider, { host, source })
+  saveVcsSessionMeta()
   getMainWindow()?.webContents.send("vcs:session-changed", { provider, host, source })
 }
 

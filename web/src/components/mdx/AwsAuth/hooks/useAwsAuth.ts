@@ -5,6 +5,8 @@ import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
 import { omitUndefined } from "@/lib/omitUndefined"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedAwsAuth, type SavedAwsAuth } from "@/lib/sessionHistory"
 import type {
   AuthMethod,
   AuthStatus,
@@ -55,6 +57,14 @@ export function useAwsAuth({
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
 
+  // The sign-in the session's history has for this block. The block starts
+  // signed in to it, without detecting credentials, and checks it below.
+  const history = useSessionHistory()
+  const [restored] = useState(() => {
+    const saved = parseSavedAwsAuth(history.saved(id, "auth"))
+    return saved?.status === "signed-in" ? saved : undefined
+  })
+
   // Core auth state
   // The starting tab is the author's `defaultTab` (validated), not a constant.
   // Only the initial value is taken from the prop — the user's tab clicks own
@@ -62,20 +72,20 @@ export function useAwsAuth({
   const [authMethod, setAuthMethod] = useState<AuthMethod>(() =>
     resolveDefaultAuthMethod(defaultTab),
   )
-  const [authStatus, setAuthStatus] = useState<AuthStatus>("pending")
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(restored ? "authenticated" : "pending")
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
-  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null)
+  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(restored?.account ?? null)
 
   // Detection state (new pattern matching GitHubAuth)
   const [detectionStatus, setDetectionStatus] = useState<AwsDetectionStatus>(
-    detectCredentials === false ? "done" : "pending",
+    detectCredentials === false || restored ? "done" : "pending",
   )
   const [detectedCredentials, setDetectedCredentials] = useState<DetectedAwsCredentials | null>(
     null,
   )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
-  const detectionAttemptedRef = useRef(false)
+  const detectionAttemptedRef = useRef(restored !== undefined)
   // Counter to trigger detection re-run when user clicks "Try auto-detection again"
   const [detectionAttempt, setDetectionAttempt] = useState(0)
   // Track if the last retry found nothing (for showing feedback message)
@@ -204,9 +214,27 @@ export function useAwsAuth({
     [api],
   )
 
-  // Register credentials as outputs and set session environment
+  // Publish credentials as the block's outputs. The secret key and session
+  // token are sensitive outputs, whatever the credentials came from (including
+  // a block that marked them `sensitive:`), so a template that shows them shows
+  // <redacted>. Their readers (awsAuthId, a { block } source) reveal the real
+  // values.
+  const publishCredentials = useCallback(
+    (creds: AwsCredentials) => {
+      registerOutputs(id, {
+        AWS_ACCESS_KEY_ID: creds.accessKeyId,
+        AWS_SECRET_ACCESS_KEY: sensitiveOutput(creds.secretAccessKey),
+        AWS_REGION: creds.region,
+        AWS_SESSION_TOKEN: sensitiveOutput(creds.sessionToken || ""),
+      })
+    },
+    [id, registerOutputs],
+  )
+
+  // Register credentials as outputs, set the session environment, and keep
+  // the sign-in in the session's history
   const registerCredentials = useCallback(
-    async (creds: AwsCredentials) => {
+    async (creds: AwsCredentials, account: AccountInfo) => {
       const env = {
         AWS_ACCESS_KEY_ID: creds.accessKeyId,
         AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
@@ -214,15 +242,13 @@ export function useAwsAuth({
         AWS_SESSION_TOKEN: creds.sessionToken || "",
       } satisfies Record<string, string>
 
-      // The secret key and session token are published as sensitive outputs,
-      // whatever the credentials came from (including a block that marked them
-      // `sensitive:`), so a template that shows them shows <redacted>. Their
-      // readers (awsAuthId, a { block } source) reveal the real values.
-      registerOutputs(id, {
-        ...env,
-        AWS_SECRET_ACCESS_KEY: sensitiveOutput(env.AWS_SECRET_ACCESS_KEY),
-        AWS_SESSION_TOKEN: sensitiveOutput(env.AWS_SESSION_TOKEN),
-      })
+      publishCredentials(creds)
+      history.record(id, "auth", {
+        status: "signed-in",
+        block: "aws",
+        credentials: omitUndefined(creds),
+        account: omitUndefined(account),
+      } satisfies SavedAwsAuth)
 
       // Also set in session environment for blocks that don't specify awsAuthId
       try {
@@ -233,8 +259,38 @@ export function useAwsAuth({
 
       await checkRegionStatus(creds)
     },
-    [api, id, registerOutputs, checkRegionStatus],
+    [api, id, history, publishCredentials, checkRegionStatus],
   )
+
+  // A restored sign-in is published at once, and then checked: the session's
+  // history says the credentials worked when the session was last open, not
+  // that they still do (temporary credentials expire). Credentials that no
+  // longer work send the block back to sign-in. The session env already has
+  // them: it was restored with the session. When AWS can't be reached, the
+  // check says nothing about the credentials, so the sign-in stays.
+  const [restoredAtMount] = useState(restored)
+  useEffect(() => {
+    if (restoredAtMount === undefined) return
+    const credentials = omitUndefined(restoredAtMount.credentials)
+    publishCredentials(credentials)
+    const flow = authFlowRef.current
+    void api
+      .invoke("aws:validate", credentials)
+      .then((data) => {
+        // The user has started another sign-in, or signed out, since.
+        if (authFlowRef.current !== flow || data.valid || data.unreachable) return
+        authFlowRef.current++
+        registerOutputs(id, { __AUTHENTICATED: "false" })
+        setAccountInfo(null)
+        setAuthStatus("failed")
+        setErrorMessage(
+          `The credentials saved with this session no longer work (${data.error ?? "they were refused"}). Sign in again.`,
+        )
+        history.record(id, "auth", { status: "signed-out" } satisfies SavedAwsAuth)
+      })
+      // An IPC failure says nothing about the credentials: keep the sign-in.
+      .catch(() => {})
+  }, [api, id, history, registerOutputs, publishCredentials, restoredAtMount])
 
   // Try to detect credentials from environment variables
   // Returns metadata only - does NOT register credentials (user must confirm first)
@@ -557,6 +613,7 @@ export function useAwsAuth({
             sessionToken: data.sessionToken,
             region: data.region || defaultRegion,
           }),
+          { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
         )
         setAuthStatus("authenticated")
         setAccountInfo({
@@ -616,7 +673,11 @@ export function useAwsAuth({
           return
         }
 
-        await registerCredentials(result.creds)
+        await registerCredentials(result.creds, {
+          accountId: result.accountId,
+          accountName: result.accountName,
+          arn: result.arn,
+        })
         setAuthStatus("authenticated")
         setAccountInfo({
           accountId: result.accountId,
@@ -717,7 +778,11 @@ export function useAwsAuth({
             accountName: data.accountName,
             arn: data.arn,
           })
-          void registerCredentials(creds)
+          void registerCredentials(creds, {
+            accountId: data.accountId,
+            accountName: data.accountName,
+            arn: data.arn,
+          })
         } else {
           setAuthStatus("failed")
           setErrorMessage(data.error || "Failed to validate credentials")
@@ -796,6 +861,7 @@ export function useAwsAuth({
                 sessionToken: data.sessionToken,
                 region: selectedDefaultRegion,
               }),
+              { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
             )
           } else {
             setAuthStatus("failed")
@@ -928,6 +994,7 @@ export function useAwsAuth({
             sessionToken: data.sessionToken,
             region: selectedDefaultRegion,
           }),
+          { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
         )
       } else {
         setAuthStatus("failed")
@@ -993,6 +1060,7 @@ export function useAwsAuth({
             // The region main validated in: the profile's own, else the chosen one.
             region: data.region || selectedDefaultRegion,
           }),
+          { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
         )
       } else {
         setAuthStatus("failed")
@@ -1013,6 +1081,7 @@ export function useAwsAuth({
     // registerOutputs replaces the whole map. The session env keeps the old
     // AWS_* values until the next sign-in overwrites them.
     registerOutputs(id, { __AUTHENTICATED: "false" })
+    history.record(id, "auth", { status: "signed-out" } satisfies SavedAwsAuth)
     setAuthStatus("pending")
     setErrorMessage(null)
     setWarningMessage(null)
@@ -1029,7 +1098,7 @@ export function useAwsAuth({
     setDetectionStatus("done")
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
-  }, [stopSsoPolling, registerOutputs, id])
+  }, [stopSsoPolling, registerOutputs, id, history])
 
   // Cancel SSO authentication
   const handleCancelSsoAuth = useCallback(() => {
