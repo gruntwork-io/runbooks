@@ -107,12 +107,23 @@ describe("AwsSdkClient.validateCredentials", () => {
     expect(await unreachableWhen(offline)).toBe(true)
   })
 
-  it("says AWS was unreachable when AWS itself failed", async () => {
-    const outage = Object.assign(new Error("Service Unavailable"), {
-      $metadata: { httpStatusCode: 503 },
+  it.each([500, 503])(
+    "says AWS was unreachable when AWS itself failed with a %d",
+    async (status) => {
+      const outage = Object.assign(new Error("Service Unavailable"), {
+        $metadata: { httpStatusCode: status },
+      })
+
+      expect(await unreachableWhen(outage)).toBe(true)
+    },
+  )
+
+  it("blames the credentials for any answer below 500", async () => {
+    const throttled = Object.assign(new Error("Rate exceeded"), {
+      $metadata: { httpStatusCode: 499 },
     })
 
-    expect(await unreachableWhen(outage)).toBe(true)
+    expect(await unreachableWhen(throttled)).toBe(false)
   })
 })
 

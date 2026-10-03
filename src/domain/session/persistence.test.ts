@@ -281,6 +281,20 @@ describe("SessionPersistence", () => {
       expect(app.persistence.currentSession()).toBeUndefined()
       expect(saveErrors).toEqual([])
     })
+
+    it("reports a failed save and keeps the bindings for the open session", async () => {
+      const app = startApp()
+      await app.open()
+      app.quit()
+
+      app.persistence.saveVcsBindings({ gitlab: { host: "gitlab.com" } })
+
+      expect(saveErrors).toHaveLength(1)
+      expect(String(saveErrors[0])).toContain("save a session's git host bindings")
+      expect(app.persistence.currentSession()?.vcsBindings).toEqual({
+        gitlab: { host: "gitlab.com" },
+      })
+    })
   })
 
   it("stores the env encrypted", async () => {
@@ -315,12 +329,45 @@ describe("SessionPersistence", () => {
     await run(first.manager.appendToEnv({ GITHUB_TOKEN: "ghp_secret" }))
     first.quit()
 
-    for (const decrypt of [() => undefined, () => "not json", () => '{"set":{"A":1},"unset":[]}']) {
+    const notEnvChanges = [
+      "null",
+      "[]",
+      '"set"',
+      '{"unset":[]}',
+      '{"set":null,"unset":[]}',
+      '{"set":"A=1","unset":[]}',
+      '{"set":{"A":1},"unset":[]}',
+      '{"set":{"A":"1","B":2},"unset":[]}',
+      '{"set":{}}',
+      '{"set":{},"unset":"A"}',
+      // One bad name spoils the whole list, the good one included.
+      '{"set":{},"unset":["HOME",1]}',
+    ]
+    for (const decrypt of [
+      () => undefined,
+      () => "not json",
+      ...notEnvChanges.map((json) => () => json),
+    ]) {
       const app = startApp({ ...reversingCipher, decrypt })
       await app.open()
       expect((await run(app.manager.getExecContext())).env).toEqual({ HOME: "/home/me" })
       app.quit()
     }
+  })
+
+  it("resumes a saved env that unsets a variable the app was launched with", async () => {
+    const first = startApp()
+    await first.open()
+    await run(first.manager.removeFromEnv(["HOME"]))
+    first.quit()
+
+    const app = startApp({
+      ...reversingCipher,
+      decrypt: () => '{"set":{"A":"1"},"unset":["HOME"]}',
+    })
+    await app.open()
+
+    expect((await run(app.manager.getExecContext())).env).toEqual({ A: "1" })
   })
 
   it("drops an env var naming a credentials file that was deleted since", async () => {
@@ -377,8 +424,44 @@ describe("SessionPersistence", () => {
     await second.open()
 
     expect((await run(second.manager.getMetadata())).workingDir).toBe(session.dir)
+    expect([...(await run(second.manager.getSession())).registeredWorkTreePaths]).toEqual([kept])
     // The selected worktree is gone, so the last one still registered stands in.
     expect(second.manager.getActiveWorkTreePath()).toBe(kept)
+  })
+
+  it("saves a new session with nothing but its runbook, directory and times", async () => {
+    const app = startApp()
+
+    const session = await app.open({ launchDir: "/home/me/project" })
+
+    const saved = Effect.runSync(app.store.get(session.id))!
+    expect(saved).toEqual({
+      id: session.id,
+      name: session.name,
+      path: LOCAL.path,
+      remoteSource: undefined,
+      dir: session.dir,
+      workingDir: session.dir,
+      launchDir: "/home/me/project",
+      env: undefined,
+      worktrees: [],
+      activeWorktree: "",
+      executionCount: 0,
+      createdAt: saved.createdAt,
+      lastLaunchedAt: saved.createdAt,
+      lastActivityAt: saved.createdAt,
+      vcsBindings: {},
+    })
+    expect(Date.parse(saved.createdAt)).not.toBeNaN()
+  })
+
+  it("resumes the runbook's latest session when the named one does not exist", async () => {
+    const app = startApp()
+    const latest = await app.open()
+
+    const resumed = await app.open({ sessionId: "01900000-0000-7000-8000-000000000000" })
+
+    expect(resumed).toEqual(latest)
   })
 
   it("recreates a session directory that was deleted", async () => {
@@ -504,6 +587,14 @@ describe("SessionPersistence", () => {
 
       expect(Effect.runSync(app.persistence.findForLaunch("/b"))?.id).toBe(session.id)
       expect(Effect.runSync(app.persistence.findForLaunch("/a"))).toBeUndefined()
+    })
+
+    it("does nothing while no session is open", async () => {
+      const app = startApp()
+
+      await run(app.persistence.recordLaunch("/repo/runbook.mdx", "/b"))
+
+      expect(Effect.runSync(app.persistence.findForLaunch("/b"))).toBeUndefined()
     })
   })
 
@@ -726,6 +817,16 @@ describe("SessionPersistence", () => {
       const app = startApp()
 
       expect(await run(app.persistence.blockStates())).toEqual([])
+    })
+
+    it("drops an event while no session is open", async () => {
+      const app = startApp()
+
+      await run(
+        app.persistence.recordEvent("s1", { blockId: "inputs", kind: "inputs", payload: {} }),
+      )
+
+      expect(saveErrors).toEqual([])
     })
   })
 })

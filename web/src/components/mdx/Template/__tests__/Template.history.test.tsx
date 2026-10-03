@@ -22,7 +22,7 @@ const configReturn = vi.hoisted(() => ({
       { name: "name", type: "string", description: "", default: "app" },
     ],
     outputDependencies: [],
-  },
+  } as { variables: unknown[]; outputDependencies: unknown[]; contentHash?: string },
   isLoading: false,
   error: null,
   refetch: () => {},
@@ -130,6 +130,7 @@ describe("Template in a session", () => {
     invoke.mockClear()
     autoRender.mockClear()
     mode.instruction = false
+    delete configReturn.data.contentHash
   })
 
   it("starts from the values it was left with, and writes nothing until Generate is pressed", async () => {
@@ -203,6 +204,81 @@ describe("Template in a session", () => {
     expect(autoRender).toHaveBeenCalledTimes(1)
     expect(autoRender.mock.calls[0]![1]).toMatchObject({ inputs: { name: "payments" } })
     expect(recorded("render")).toHaveLength(1)
+  })
+
+  it("writes the files when the template's own files changed since, with the same values", async () => {
+    configReturn.data.contentHash = "files-v1"
+    const written = await generateOnce("billing")
+    configReturn.data.contentHash = "files-v2"
+
+    render(
+      <Session saved={{ values: { name: "billing" }, submitted: true }} written={written}>
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    await settle()
+
+    expect(autoRender).toHaveBeenCalledTimes(1)
+    expect(recorded("render")).toHaveLength(1)
+  })
+
+  it("writes the files when they were last written for another target", async () => {
+    const written = await generateOnce("billing")
+
+    render(
+      <Session saved={{ values: { name: "billing" }, submitted: true }} written={written}>
+        <Template id="vpc" path="templates/vpc" target="generated" />
+      </Session>,
+    )
+    await settle()
+
+    expect(autoRender).toHaveBeenCalledTimes(1)
+  })
+
+  it("writes the files when Generate is pressed, even when they would come out as they were written", async () => {
+    const written = await generateOnce("billing")
+
+    // Left with Generate not pressed since, on the values the files were written with.
+    render(
+      <Session saved={{ values: { name: "billing" }, submitted: false }} written={written}>
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    await settle()
+    expect(autoRender).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    await settle()
+
+    expect(autoRender).toHaveBeenCalledTimes(1)
+    expect(recorded("render")).toHaveLength(1)
+  })
+
+  it("in instruction mode, adds nothing on mount, and keeps whether the files were generated", async () => {
+    mode.instruction = true
+    const fresh = render(
+      <Session>
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    await settle()
+    expect(recorded()).toEqual([])
+
+    fireEvent.change(field(fresh.container, "name"), { target: { value: "billing" } })
+    await settle()
+    expect(recorded().at(-1)).toMatchObject({ values: { name: "billing" }, submitted: false })
+    fresh.unmount()
+    invoke.mockClear()
+
+    const generated = render(
+      <Session saved={{ values: { name: "billing" }, submitted: true }}>
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    await settle()
+    fireEvent.change(field(generated.container, "name"), { target: { value: "payments" } })
+    await settle()
+    expect(recorded().at(-1)).toMatchObject({ values: { name: "payments" }, submitted: true })
   })
 
   it("adds its own values to the history when they change or files are generated, and leaves imported ones out", async () => {

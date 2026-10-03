@@ -24,10 +24,12 @@ const config: BoilerplateConfig = {
   outputDependencies: [],
 }
 
+// Cleared by a test whose config is still loading when the block mounts.
+const loaded = vi.hoisted(() => ({ config: true }))
 vi.mock("@/hooks/useApiGetBoilerplateConfig", () => ({
   useApiGetBoilerplateConfig: () => ({
-    data: config,
-    isLoading: false,
+    data: loaded.config ? config : null,
+    isLoading: !loaded.config,
     error: null,
     refetch: vi.fn(),
     silentRefetch: vi.fn(),
@@ -89,6 +91,47 @@ describe("Inputs in a session", () => {
   beforeEach(() => {
     invoke.mockClear()
     runbook = undefined
+    loaded.config = true
+  })
+
+  it("registers the values it was left with as it mounts, falsy ones included", () => {
+    const saved = { region: "eu-west-1", count: 0, enable_logging: false }
+
+    render(
+      <Session saved={{ values: saved, submitted: true }}>
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </Session>,
+    )
+
+    // Before the form reports its values: a block that reads them never sees the defaults.
+    expect(registered()).toEqual(saved)
+  })
+
+  it("starts a variable the history saved as null from its default", () => {
+    render(
+      <Session saved={{ values: { region: "eu-west-1", count: null }, submitted: true }}>
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </Session>,
+    )
+
+    expect(field("count")).toHaveValue(3)
+    expect(registered()).toEqual({ ...DEFAULTS, region: "eu-west-1" })
+  })
+
+  it("resumes from the values it was left with once its config has loaded", async () => {
+    loaded.config = false
+    const tree = () => (
+      <Session saved={{ values: { region: "eu-west-1" }, submitted: true }}>
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </Session>
+    )
+    const { rerender } = render(tree())
+
+    loaded.config = true
+    rerender(tree())
+
+    await waitFor(() => expect(field("region")).toHaveValue("eu-west-1"))
+    expect(registered()).toEqual({ ...DEFAULTS, region: "eu-west-1" })
   })
 
   it("starts from the values it was left with and, when it was submitted, registers them", async () => {

@@ -15,7 +15,7 @@ import { MDX_COMPONENTS } from "@/components/MDXContainer"
 // Non-block element overrides (not runbook blocks) — no docs page expected.
 const ELEMENT_OVERRIDES = new Set(["a", "pre", "input"])
 
-const BLOCKS_DOCS_DIR = resolve(process.cwd(), "../docs/src/content/docs/authoring/blocks")
+const BLOCKS_DOCS_DIR = resolve(__dirname, "../../../../../docs/src/content/docs/authoring/blocks")
 
 const blockNames = Object.keys(MDX_COMPONENTS).filter((name) => !ELEMENT_OVERRIDES.has(name))
 

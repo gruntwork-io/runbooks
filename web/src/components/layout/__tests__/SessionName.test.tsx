@@ -142,6 +142,59 @@ describe("SessionName", () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
+  it("drops the spaces around a name before checking or sending it", async () => {
+    invoke.mockResolvedValue({ name: "prod-deploy" })
+    await startRenaming()
+
+    await userEvent.keyboard("  prod-deploy {Enter}")
+
+    expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  })
+
+  it("treats the name with spaces around it as unchanged", async () => {
+    const { field } = await startRenaming()
+
+    await userEvent.clear(field)
+    await userEvent.keyboard(" elegant-elephant {Enter}")
+
+    expect(screen.getByRole("button", { name: "elegant-elephant" })).toBeInTheDocument()
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("keeps the field, disabled, while the main process renames, even if it loses focus", async () => {
+    let finish!: (value: { name: string }) => void
+    invoke.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    const { field, onRenamed } = await startRenaming()
+    expect(field).toHaveAttribute("aria-invalid", "false")
+
+    await userEvent.keyboard("prod-deploy{Enter}")
+    expect(field).toBeDisabled()
+    fireEvent.blur(field)
+    expect(screen.getByRole("textbox", { name: "Session name" })).toBe(field)
+
+    finish({ name: "prod-deploy" })
+    expect(await screen.findByRole("button", { name: "prod-deploy" })).toBeInTheDocument()
+    expect(onRenamed).toHaveBeenCalledWith("prod-deploy")
+  })
+
+  it("lets the user edit again after the main process refuses the name", async () => {
+    invoke.mockRejectedValue(new Error("Another session is already named brave-otter."))
+    const { field } = await startRenaming()
+
+    await userEvent.keyboard("brave-otter{Enter}")
+
+    await screen.findByRole("alert")
+    expect(field).toBeEnabled()
+    expect(field).toHaveAttribute("aria-invalid", "true")
+    await userEvent.keyboard("{Backspace}")
+    expect(field).toHaveAttribute("aria-invalid", "false")
+  })
+
   it("closes the field without a rename when Enter is pressed on the unchanged name", async () => {
     await startRenaming()
 

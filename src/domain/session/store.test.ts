@@ -91,6 +91,21 @@ describe("SessionStore", () => {
     expect(run(store.get("missing"))).toBeUndefined()
   })
 
+  it("rolls back an insert that fails part way, and keeps working", () => {
+    // The session row goes in, then a worktree path the schema refuses.
+    const broken = record({ worktrees: [null as unknown as string] })
+
+    const failed = run(Effect.either(store.insert(broken)))
+
+    expect(failed).toMatchObject({ _tag: "Left", left: { _tag: "SessionStoreError" } })
+    expect(String((failed as { left: Error }).left.message)).toStartWith(
+      "failed to save a new session:",
+    )
+    expect(run(store.get("s1"))).toBeUndefined()
+    run(store.insert(record()))
+    expect(run(store.get("s1"))).toEqual(record())
+  })
+
   it("fails to insert a second session with the same id, leaving the first intact", () => {
     run(store.insert(record({ worktrees: ["/a"] })))
 
@@ -207,11 +222,13 @@ describe("SessionStore", () => {
       expect(run(store.get("s1"))?.vcsBindings).toEqual({ gitlab: { host: "gitlab.com" } })
     })
 
-    it("reads bindings that aren't JSON as none", () => {
+    it("reads bindings that aren't JSON, or aren't an object of objects, as none", () => {
       run(store.insert(record()))
-      database.prepare("UPDATE sessions SET vcs_bindings = '{' WHERE id = 's1'").run()
+      for (const json of ["{", "null", "42", '"github"', '{"github":null,"gitlab":"gitlab.com"}']) {
+        database.prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = 's1'").run(json)
 
-      expect(run(store.get("s1"))?.vcsBindings).toEqual({})
+        expect(run(store.get("s1"))?.vcsBindings).toEqual({})
+      }
     })
   })
 
@@ -442,6 +459,19 @@ describe("SessionStore", () => {
 
       expect(run(second.get("s1"))).toEqual(record({ worktrees: ["/a"] }))
       run(second.close())
+    })
+
+    it("writes ahead to a log, so a reader never waits on a writer", () => {
+      const file = path.join(dir, "sessions.db")
+      const fileStore = run(SessionStore.open(openSqliteDatabase(file)))
+      run(fileStore.close())
+
+      const db = openSqliteDatabase(file)
+      const { journal_mode: mode } = db.prepare("PRAGMA journal_mode").get() as {
+        journal_mode: string
+      }
+      db.close()
+      expect(mode).toBe("wal")
     })
 
     it("refuses a database written by a newer schema version", () => {

@@ -678,6 +678,36 @@ describe("useApiExec state machine", () => {
     })
   })
 
+  it("reports each run that is over, one after another, however it ended", async () => {
+    const onRunEnded = vi.fn()
+    const { result } = renderHook(() => useApiExec({ onRunEnded }))
+    const runEndingWith = async (end: () => void, reports: number) => {
+      act(() => {
+        result.current.execute("test-executable")
+      })
+      act(end)
+      await waitFor(() => expect(onRunEnded).toHaveBeenCalledTimes(reports))
+    }
+
+    await runEndingWith(() => {
+      mock.emit("exec:status", { status: "success", exitCode: 0 })
+      mock.resolveInvoke({ status: { status: "success", exitCode: 0 } })
+    }, 1)
+    await runEndingWith(() => mock.rejectInvoke(new Error("IPC channel not found")), 2)
+    await runEndingWith(() => mock.rejectInvoke(new Error("IPC channel not found")), 3)
+    await runEndingWith(() => {
+      mock.emit("exec:status", { status: "fail", exitCode: 1 })
+      mock.resolveInvoke({ status: { status: "fail", exitCode: 1 } })
+    }, 4)
+
+    expect(onRunEnded.mock.calls.map(([state]) => (state as { status: string }).status)).toEqual([
+      "success",
+      "fail",
+      "fail",
+      "fail",
+    ])
+  })
+
   it("reports only the newer run when a block is run again before its run is over", async () => {
     const onRunStarted = vi.fn()
     const onRunEnded = vi.fn()

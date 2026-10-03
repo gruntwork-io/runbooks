@@ -351,6 +351,63 @@ describe("App runbook switching", () => {
     expect(await screen.findByRole("menuitem", { name: "Rename Session" })).toHaveAttribute(
       "data-disabled",
     )
+    expect(screen.getByRole("menuitem", { name: "Reset Session" })).toHaveAttribute("data-disabled")
+    expect(screen.getByRole("menuitem", { name: "Close Runbook" })).toHaveAttribute("data-disabled")
+  })
+
+  it("forgets a rename asked for while no runbook was open", async () => {
+    const { emit } = renderApp()
+    await emit("menu:rename-session")
+
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
+  })
+
+  it("opens the name's field only when the menu closes on Rename Session", async () => {
+    const { emit } = renderApp()
+    await openRunbook(emit, "/work/a", "Runbook A")
+    const closeMenu = async () => {
+      await userEvent.keyboard("{Escape}")
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument())
+    }
+
+    await emit("menu:preferences")
+    await screen.findByRole("menu")
+    await closeMenu()
+    expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
+
+    await emit("menu:preferences")
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Rename Session" }))
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Session name" })).toHaveFocus())
+    await userEvent.keyboard("{Escape}")
+
+    // The next time the menu closes, nothing asked for a rename.
+    await emit("menu:preferences")
+    await screen.findByRole("menu")
+    await closeMenu()
+    expect(screen.queryByRole("textbox", { name: "Session name" })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["Reset Session", "native:reset-session", "Failed to reset the session:"],
+    ["Close Runbook", "native:close-runbook", "Failed to close the runbook:"],
+  ])("asks main to %s from the header menu, and logs a failure", async (item, channel, logged) => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    const { emit, invoke } = renderApp()
+    await openRunbook(emit, "/work/a", "Runbook A")
+    const fallback = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (c: string, params?: Record<string, string>) => {
+      if (c === channel) throw new Error("main is busy")
+      return fallback(c, params)
+    })
+
+    await emit("menu:preferences")
+    await userEvent.click(await screen.findByRole("menuitem", { name: item }))
+
+    expect(invoke).toHaveBeenCalledWith(channel)
+    await waitFor(() => expect(errors).toHaveBeenCalledWith(logged, expect.any(Error)))
+    errors.mockRestore()
   })
 
   it("copies the session's directory from the header, for a remote runbook too", async () => {

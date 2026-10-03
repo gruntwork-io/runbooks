@@ -30,45 +30,56 @@ vi.mock("@/components/layout/WelcomeScreen", () => ({
   WelcomeScreen: () => <div>Welcome</div>,
 }))
 
-const RUNBOOK = { path: "/work/a/runbook.mdx", content: "# Runbook A\n" }
-const GENERATED_TREE = [{ id: "main.tf", name: "main.tf", type: "file", children: [] }]
+/** Two runbooks, each with a session whose generated directory has one file. */
+const RUNBOOKS = {
+  "/work/a": { name: "A", session: "session-0", file: "main.tf" },
+  "/work/b": { name: "B", session: "session-1", file: "b.tf" },
+}
 const ALERT_TITLE = "Existing Generated Files Detected"
 
 /**
  * A preload api whose runbook:get answers with `blockStates` for the session,
- * and whose generated-files:check finds 1 file, with its tree.
+ * and whose generated-files:check finds the last opened runbook's file, with
+ * its tree. The check for runbook B waits for `bChecked`.
  */
-function makeApi(blockStates: unknown[]) {
+function makeApi(blockStates: unknown[], bChecked: Promise<void> = Promise.resolve()) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
-  const invoke = vi.fn(async (channel: string) => {
+  let current = RUNBOOKS["/work/a"]
+  const invoke = vi.fn(async (channel: string, params?: { path?: string }) => {
     switch (channel) {
       case "native:get-cli-config":
         return {}
-      case "runbook:get":
+      case "runbook:get": {
+        current = RUNBOOKS[params?.path as keyof typeof RUNBOOKS] ?? current
+        const content = `# Runbook ${current.name}\n`
         return {
-          path: RUNBOOK.path,
-          content: RUNBOOK.content,
-          contentHash: RUNBOOK.path,
+          path: `${params?.path}/runbook.mdx`,
+          content,
+          contentHash: current.name,
           language: "mdx",
-          size: RUNBOOK.content.length,
+          size: content.length,
           isWatchMode: false,
           warnings: [],
-          sessionId: "session-0",
+          sessionId: current.session,
           sessionName: "elegant-elephant",
-          sessionDir: "/sessions/dirs/session-0",
+          sessionDir: `/sessions/dirs/${current.session}`,
           blockStates,
         }
-      case "generated-files:check":
+      }
+      case "generated-files:check": {
+        const checking = current
+        if (checking === RUNBOOKS["/work/b"]) await bChecked
         return {
           hasFiles: true,
           fileCount: 1,
-          absoluteOutputPath: "/sessions/dirs/session-0/generated",
+          absoluteOutputPath: `/sessions/dirs/${checking.session}/generated`,
           relativeOutputPath: "generated",
-          fileTree: GENERATED_TREE,
+          fileTree: [{ id: checking.file, name: checking.file, type: "file", children: [] }],
           totalFiles: 1,
           truncatedTree: false,
           heavyDirs: [],
         }
+      }
       default:
         return undefined
     }
@@ -89,8 +100,8 @@ function makeApi(blockStates: unknown[]) {
 
 const originalApi = window.api
 
-async function openRunbook(blockStates: unknown[]) {
-  const { api, emit } = makeApi(blockStates)
+async function openRunbook(blockStates: unknown[], bChecked?: Promise<void>) {
+  const { api, emit } = makeApi(blockStates, bChecked)
   window.api = api
   render(
     <ApiProvider api={api}>
@@ -115,7 +126,12 @@ async function openRunbook(blockStates: unknown[]) {
   expect(
     await screen.findByRole("heading", { name: "Runbook A", hidden: true }),
   ).toBeInTheDocument()
+  return emit
 }
+
+const RESUMED = [{ blockId: "vpc", kind: "inputs", payload: { values: {}, submitted: true } }]
+
+const shownTrees = () => screen.getAllByTestId("generated-tree").map((tree) => tree.textContent)
 
 describe("App opening a session with generated files", () => {
   beforeEach(() => localStorage.clear())
@@ -132,6 +148,24 @@ describe("App opening a session with generated files", () => {
       expect(screen.getAllByTestId("generated-tree")[0]).toHaveTextContent("main.tf"),
     )
     expect(screen.queryByText(ALERT_TITLE)).not.toBeInTheDocument()
+  })
+
+  it("shows a resumed session's own files, never the previous session's", async () => {
+    let releaseB!: () => void
+    const bChecked = new Promise<void>((resolve) => {
+      releaseB = resolve
+    })
+    const emit = await openRunbook(RESUMED, bChecked)
+    await waitFor(() => expect(shownTrees()).toContain("main.tf"))
+
+    await emit("file:open-runbook", { path: "/work/b" })
+    await screen.findByRole("heading", { name: "Runbook B", hidden: true })
+    // B's files are still being read: A's must not stand in for them.
+    expect(shownTrees()).not.toContain("main.tf")
+
+    await act(async () => releaseB())
+    await waitFor(() => expect(shownTrees()).toContain("b.tf"))
+    expect(shownTrees()).not.toContain("main.tf")
   })
 
   it("asks about the generated files of a session with no history, and does not show them", async () => {

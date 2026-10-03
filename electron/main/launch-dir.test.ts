@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn, type Mock } from "bun:test"
+import * as os from "node:os"
+import * as path from "node:path"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import {
   launchDirContext,
@@ -246,5 +248,13 @@ describe("launchDirContext", () => {
     ["the app's own folder, where a Windows shortcut starts it", "/opt/Runbooks"],
   ])("is undefined for %s", (_label, dir) => {
     expect(launchDirContext(dir, desktop)).toBeUndefined()
+  })
+
+  it("knows this machine's home directory and the app's folder", () => {
+    expect(launchDirContext(os.homedir())).toBeUndefined()
+    expect(launchDirContext(path.dirname(process.execPath))).toBeUndefined()
+    expect(launchDirContext(path.join(os.homedir(), "project"))).toBe(
+      path.join(os.homedir(), "project"),
+    )
   })
 })

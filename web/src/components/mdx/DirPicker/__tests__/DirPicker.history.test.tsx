@@ -58,7 +58,7 @@ function CloneOutput({ clonePath }: { clonePath: string }) {
 }
 
 /** A session whose history says the picker was left with `path`. */
-function Session({ path, children }: { path?: string; children: ReactNode }) {
+function Session({ path, children }: { path?: unknown; children: ReactNode }) {
   const blockStates: SavedBlockState[] =
     path === undefined
       ? []
@@ -159,6 +159,105 @@ describe("DirPicker in a session", () => {
     expect(selects()[0]!.value).toBe("")
     expect(publishedValues()).toBeNull()
   })
+
+  it("starts with no path when the history's path isn't text", async () => {
+    render(
+      <Session path={42}>
+        <DirPicker id="dp" rootDir="/root" />
+      </Session>,
+    )
+
+    await waitFor(() => expect(selects()).toHaveLength(1))
+    expect(pathInput()).toHaveValue("")
+    expect(publishedValues()).toBeNull()
+  })
+
+  it("skips the empty parts of a saved path", async () => {
+    render(
+      <Session path="/prod//us-east-1/">
+        <DirPicker id="dp" rootDir="/root" />
+      </Session>,
+    )
+
+    await waitFor(() => expect(selects()).toHaveLength(3))
+    expect(selects().map((s) => s.value)).toEqual(["prod", "us-east-1", ""])
+    expect(pathInput()).toHaveValue("/prod//us-east-1/")
+  })
+
+  it("walks at most 32 levels of a saved path", async () => {
+    const deep = Array.from({ length: 40 }, (_, i) => `/deep${"/d".repeat(i)}`)
+    for (const dir of deep) TREE[dir] = ["d"]
+    try {
+      render(
+        <Session path={Array(40).fill("d").join("/")}>
+          <DirPicker id="dp" rootDir="/deep" />
+        </Session>,
+      )
+
+      await waitFor(() => expect(selects().length).toBeGreaterThan(1))
+      await act(async () => {})
+      // 32 selected levels, and the 33rd to pick from
+      expect(selects().map((s) => s.value)).toEqual([...Array(32).fill("d"), ""])
+    } finally {
+      for (const dir of deep) delete TREE[dir]
+    }
+  })
+
+  it("records only the levels above a dropdown the user changes", async () => {
+    render(
+      <Session path="prod/us-east-1">
+        <DirPicker id="dp" rootDir="/root" />
+      </Session>,
+    )
+    await waitFor(() => expect(selects()).toHaveLength(3))
+
+    await act(async () => {
+      fireEvent.change(selects()[0]!, { target: { value: "dev" } })
+    })
+
+    expect(recorded()).toEqual([{ values: { path: "dev" }, submitted: true }])
+    await waitFor(() => expect(selects().map((s) => s.value)).toEqual(["dev", ""]))
+  })
+
+  it("drops a saved path still being walked when the root changes", async () => {
+    let answerProd!: () => void
+    invoke.mockImplementation(async (channel: string, params?: { worktreePath: string }) => {
+      if (channel !== "workspace:dirs") return { ok: true }
+      if (params!.worktreePath === "/root/prod") {
+        await new Promise<void>((resolve) => {
+          answerProd = resolve
+        })
+      }
+      if (params!.worktreePath === "/other") return { dirs: ["x"] }
+      return { dirs: TREE[params!.worktreePath] ?? [] }
+    })
+    try {
+      const { rerender } = render(
+        <Session path="prod/us-east-1">
+          <DirPicker id="dp" rootDir="/root" />
+        </Session>,
+      )
+      await waitFor(() => expect(answerProd).toBeDefined())
+
+      rerender(
+        <Session path="prod/us-east-1">
+          <DirPicker id="dp" rootDir="/other" />
+        </Session>,
+      )
+      await waitFor(() => expect(selects()).toHaveLength(1))
+      await act(async () => answerProd())
+
+      expect(selects()).toHaveLength(1)
+      expect(screen.getByRole("option", { name: "x" })).toBeInTheDocument()
+      expect(pathInput()).toHaveValue("")
+      expect(publishedValues()).toBeNull()
+    } finally {
+      invoke.mockImplementation(async (channel: string, params?: { worktreePath: string }) => {
+        if (channel === "workspace:dirs") return { dirs: TREE[params!.worktreePath] ?? [] }
+        return { ok: true }
+      })
+    }
+  })
 })
 
 describe("DirPicker in instruction mode, in a session", () => {
@@ -181,5 +280,17 @@ describe("DirPicker in instruction mode, in a session", () => {
 
     expect(recorded()).toEqual([{ values: { path: "dev" }, submitted: true }])
     await waitFor(() => expect(publishedValues()).toEqual({ PATH: "dev" }))
+  })
+
+  it("starts with no path when the history's path isn't text", async () => {
+    render(
+      <Session path={42}>
+        <DirPickerInstruction id="dp" rootDir="/root" />
+      </Session>,
+    )
+
+    expect(pathInput()).toHaveValue("")
+    await act(async () => {})
+    expect(publishedValues()).toEqual({})
   })
 })

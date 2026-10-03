@@ -50,7 +50,7 @@ type RunbookGetResult = {
   sessionDir: string
   blockStates: unknown[]
 }
-/** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
+/** Call runbook:get as the renderer does; `extra` adds fields such as `remoteSource`. */
 const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
   handlers.get("runbook:get")!(undefined, {
     path: runbookPath,
@@ -284,10 +284,12 @@ describe("runbook IPC handlers", () => {
 
     describe("a load that a newer one overtakes", () => {
       // A same-path reload awaits resolving the path (call 1), reading the
-      // file (call 2), and building the registry (call 3).
+      // file (call 2), building the registry (call 3), and reading the
+      // session's history (call 4).
       for (const [awaiting, heldCall] of [
         ["resolving its path", 1],
         ["building its registry", 3],
+        ["reading the session's history", 4],
       ] as const) {
         it(
           `leaves the runbook opened after it in place (held while ${awaiting})`,
@@ -375,6 +377,30 @@ describe("runbook IPC handlers", () => {
         expect(sessionManager.getRunbookPath()).toBe(b.path)
         expect(sessions.persistence.currentSession()?.id).toBe(b.sessionId)
         expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+      })
+
+      it("starts no session for a load overtaken while it waits for its turn", async () => {
+        // Call 3 of opening B starts its session, in B's turn.
+        const hold = holdRunPromiseCall(3)
+        const openB = getRunbook(dirB)
+        await hold.held
+        // A reads its file and queues for a turn behind B's.
+        const openA = getRunbook(dirA)
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200)
+        })
+        // B again, overtaking A before A's turn comes.
+        const reopenB = getRunbook(dirB)
+        hold.release()
+
+        expect<unknown>(await openA).toEqual({ superseded: true })
+        expect<unknown>(await openB).toEqual({ superseded: true })
+        const b = await reopenB
+        expect(sessions.persistence.currentSession()?.id).toBe(b.sessionId)
+        const runbookA = { path: path.join(dirA, "runbook.mdx"), remoteSource: undefined }
+        expect(
+          await runtimeModule.runtime.runPromise(sessions.store.latestForRunbook(runbookA)),
+        ).toBeUndefined()
       })
     })
 
@@ -663,6 +689,37 @@ describe("runbook IPC handlers", () => {
           expect((await sessionEnv()).KEPT).toBe("1")
           expect(await launchDirOf(a.sessionId)).toBe("/second")
         })
+
+        it("keeps the open session as it is when the launch names it", async () => {
+          const a = await getRunbook(dirA)
+          const manifest = { templateId: "t", outputDir: "/out", files: [], timestamp: 0 }
+          runtimeModule.manifestStore.set("t", manifest as never)
+
+          expectLaunch({ source: dirA, launchDir: "/again", sessionId: a.sessionId })
+          const again = await getRunbook(dirA)
+
+          expect(again.sessionId).toBe(a.sessionId)
+          // Nothing a session switch resets was reset.
+          expect(runtimeModule.manifestStore.get("t")).toBe(manifest as never)
+          expect(await launchDirOf(a.sessionId)).toBe("/again")
+          runtimeModule.manifestStore.clear()
+        })
+
+        it("applies to one load: the next load of the runbook keeps the session it has", async () => {
+          const older = await getRunbook(dirA)
+          resetToNewSession()
+          const newer = await getRunbook(older.path)
+          expectLaunch({ source: older.path, launchDir: "/older", sessionId: older.sessionId })
+          expect((await getRunbook(older.path)).sessionId).toBe(older.sessionId)
+
+          resetToNewSession()
+          const newest = await getRunbook(older.path)
+          // A watch-mode reload, after the launch was used up.
+          const reloaded = await getRunbook(older.path)
+
+          expect(newest.sessionId).not.toBe(newer.sessionId)
+          expect(reloaded.sessionId).toBe(newest.sessionId)
+        })
       })
 
       describe("isSessionOpen", () => {
@@ -872,6 +929,21 @@ describe("runbook IPC handlers", () => {
         expect(runtimeModule.executableRegistry).not.toBe(registryB)
         expect(greetHash()).not.toBe(frozenHash)
         expect(registryUpdatesSince(from)).toBe(1)
+      })
+
+      it("with --disable-live-file-reload, keeps the registry when the runbook starts a new session", async () => {
+        setRunbookConfig({ ...originalRunbookConfig, disableLiveFileReload: true })
+        const first = await getRunbook(dirA)
+        const frozen = runtimeModule.executableRegistry
+        fs.writeFileSync(path.join(dirA, "runbook.mdx"), runbookWith("echo a-edited"))
+
+        resetToNewSession()
+        const from = sent.length
+        const second = await getRunbook(first.path)
+
+        expect(second.sessionId).not.toBe(first.sessionId)
+        expect(runtimeModule.executableRegistry).toBe(frozen)
+        expect(registryUpdatesSince(from)).toBe(0)
       })
 
       it("with --disable-live-file-reload, a load that overtakes a switch doesn't keep the previous runbook's registry", async () => {

@@ -77,6 +77,9 @@ describe("IpcSessionHistoryProvider", () => {
 
     expect(result.current.saved("login", "inputs")).toEqual(secret)
     await waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+    expect(warn.mock.calls[0]![0]).toBe(
+      `Could not save the inputs of block "login" to the session's history:`,
+    )
     expect(JSON.stringify(warn.mock.calls)).toContain("is too long")
     expect(JSON.stringify(warn.mock.calls)).not.toContain("hunter2")
   })

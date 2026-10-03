@@ -35,6 +35,40 @@ function editItems(): MenuItemConstructorOptions[] {
   return edit!.submenu as MenuItemConstructorOptions[]
 }
 
+describe("File menu", () => {
+  const fileItems = () => {
+    setupApplicationMenu()
+    return template.find((m) => m.label === "File")!.submenu as MenuItemConstructorOptions[]
+  }
+
+  it("has Rename Session and Reset Session, with no shortcut that could reset by accident", () => {
+    const items = fileItems().filter((i) => i.id === "rename-session" || i.id === "reset-session")
+
+    expect(items.map(({ label, accelerator }) => ({ label, accelerator }))).toEqual([
+      { label: "Rename Session…", accelerator: undefined },
+      { label: "Reset Session", accelerator: undefined },
+    ])
+  })
+
+  it("sends menu:rename-session to the renderer's title bar", () => {
+    const rename = fileItems().find((i) => i.id === "rename-session")!
+    sent.length = 0
+
+    ;(rename.click as () => void)()
+
+    expect(sent).toEqual([{ channel: "menu:rename-session", payload: undefined }])
+  })
+
+  it("does nothing on Reset Session while no runbook is open", () => {
+    const reset = fileItems().find((i) => i.id === "reset-session")!
+    sent.length = 0
+
+    ;(reset.click as () => void)()
+
+    expect(sent).toEqual([])
+  })
+})
+
 describe("Edit menu", () => {
   it("has Find, Find Next and Find Previous with the browser shortcuts", () => {
     const find = editItems().filter((item) => item.label?.startsWith("Find"))

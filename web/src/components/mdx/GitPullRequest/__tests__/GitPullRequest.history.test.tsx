@@ -152,13 +152,21 @@ function RegisterEnv({ env }: { env: string | undefined }) {
   return null
 }
 
-/** A session whose history has `blockStates` for the block. */
-function renderBlock(blockStates: SavedBlockState[] = [], env?: string) {
+/**
+ * A session whose history has `blockStates` for the block. `props` replaces
+ * the block's props; with `withholdOutputs`, opening a request sends no
+ * git:outputs, which a test then sends with `emit`.
+ */
+function renderBlock(
+  blockStates: SavedBlockState[] = [],
+  env?: string,
+  { props = {}, withholdOutputs = false }: { props?: object; withholdOutputs?: boolean } = {},
+) {
   listeners = new Map()
   invoke = vi.fn(async (channel: string) => {
     if (channel === "git:pull-request") {
       emit("git:pr-result", RESULT)
-      emit("git:outputs", { outputs: OUTPUTS })
+      if (!withholdOutputs) emit("git:outputs", { outputs: OUTPUTS })
       emit("git:status", { status: "success", exitCode: 0 })
       return { url: PR_URL, number: 42 }
     }
@@ -187,6 +195,7 @@ function renderBlock(blockStates: SavedBlockState[] = [], env?: string) {
             prefilledPullRequestTitle="Deploy {{ .inputs.env }}"
             prefilledPullRequestDescription="Changes for {{ .inputs.env }}"
             prefilledBranchName="runbook/1"
+            {...props}
           />
         </TestWrapper>
       </IpcSessionHistoryProvider>
@@ -194,6 +203,12 @@ function renderBlock(blockStates: SavedBlockState[] = [], env?: string) {
   )
   const utils = render(ui(env))
   return { ...utils, setEnv: (next: string) => utils.rerender(ui(next)) }
+}
+
+/** A branch and commit message that follow the Inputs block, as the title does. */
+const TEMPLATED_BRANCH_AND_COMMIT = {
+  prefilledBranchName: "deploy/{{ .inputs.env }}",
+  prefilledCommitMessage: "Deploy {{ .inputs.env }} changes",
 }
 
 const settle = () =>
@@ -271,5 +286,91 @@ describe("GitPullRequest in a session", () => {
     )
     expect(screen.getByLabelText("Title")).toHaveValue("Mine")
     expect(recorded("inputs")).toEqual([])
+  })
+
+  it("records the description, branch and commit message the user edited", async () => {
+    renderBlock()
+
+    fireEvent.change(await screen.findByLabelText("Description"), { target: { value: "Why" } })
+    fireEvent.change(screen.getByLabelText("Branch"), { target: { value: "fix/x" } })
+    fireEvent.change(screen.getByLabelText("Commit message"), { target: { value: "Fix x" } })
+
+    expect(recorded("inputs").at(-1)).toEqual({
+      values: { description: "Why", branchName: "fix/x", commitMessage: "Fix x" },
+      submitted: false,
+    })
+  })
+
+  it("restores the description, branch and commit message over template values that resolve later", async () => {
+    const values = { description: "Why", branchName: "fix/x", commitMessage: "Fix x" }
+    const { setEnv } = renderBlock(
+      [{ blockId: "pr", kind: "inputs", payload: { values, submitted: false } }],
+      undefined,
+      { props: TEMPLATED_BRANCH_AND_COMMIT },
+    )
+
+    setEnv("prod")
+
+    // The title was never edited, so it follows the resolved template.
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Deploy prod"))
+    expect(screen.getByLabelText("Description")).toHaveValue("Why")
+    expect(screen.getByLabelText("Branch")).toHaveValue("fix/x")
+    expect(screen.getByLabelText("Commit message")).toHaveValue("Fix x")
+    expect(recorded("inputs")).toEqual([])
+  })
+
+  it("lets the branch and commit message the user never edited follow their templates", async () => {
+    const { setEnv } = renderBlock(
+      [{ blockId: "pr", kind: "inputs", payload: { values: { title: "Mine" }, submitted: false } }],
+      undefined,
+      { props: TEMPLATED_BRANCH_AND_COMMIT },
+    )
+
+    setEnv("prod")
+
+    await waitFor(() => expect(screen.getByLabelText("Branch")).toHaveValue("deploy/prod"))
+    expect(screen.getByLabelText("Commit message")).toHaveValue("Deploy prod changes")
+    expect(screen.getByLabelText("Title")).toHaveValue("Mine")
+  })
+
+  it("ignores saved fields that aren't text, and labels that aren't all text", async () => {
+    renderBlock(
+      [
+        {
+          blockId: "pr",
+          kind: "inputs",
+          payload: { values: { title: 42, labels: ["bug", 3] }, submitted: false },
+        },
+      ],
+      "prod",
+      { props: { prefilledPullRequestLabels: ["infra"] } },
+    )
+
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Deploy prod"))
+    expect(screen.getByTestId("labels")).toHaveTextContent(/^infra$/)
+  })
+
+  it("starts on a blank form when the history says the request was set aside", async () => {
+    renderBlock([{ blockId: "pr", kind: "pull-request", payload: { status: "none" } }])
+
+    expect(await screen.findByRole("button", { name: "Submit" })).toBeInTheDocument()
+    expect(screen.queryByText(/^Opened /)).not.toBeInTheDocument()
+    await settle()
+    expect(runbook?.blockOutputs.pr?.values).toBeUndefined()
+  })
+
+  it("records a request it opens only once main has sent its outputs", async () => {
+    renderBlock([], "staging", { withholdOutputs: true })
+    const submit = await screen.findByRole("button", { name: "Submit" })
+    await waitFor(() => expect(submit).toBeEnabled())
+
+    fireEvent.click(submit)
+    expect(await screen.findByText(`Opened ${PR_URL}`)).toBeInTheDocument()
+    await settle()
+    expect(recorded("pull-request")).toEqual([])
+
+    act(() => emit("git:outputs", { outputs: OUTPUTS }))
+
+    await waitFor(() => expect(recorded("pull-request")).toEqual([CREATED]))
   })
 })

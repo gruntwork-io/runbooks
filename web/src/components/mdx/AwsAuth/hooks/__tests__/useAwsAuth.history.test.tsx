@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
@@ -14,9 +14,12 @@ import type { SavedBlockState } from "../../../../../../../src/domain/session/hi
 // state the hook reads.
 
 const registerOutputs = vi.fn()
+const runbookState: { blockOutputs: Record<string, { values: Record<string, string> }> } = {
+  blockOutputs: {},
+}
 
 vi.mock("@/contexts/useRunbook", () => ({
-  useRunbookContext: () => ({ registerOutputs, blockOutputs: {} }),
+  useRunbookContext: () => ({ registerOutputs, blockOutputs: runbookState.blockOutputs }),
 }))
 vi.mock("@/contexts/useSession", () => ({
   useSession: () => ({ isReady: true }),
@@ -29,6 +32,7 @@ let invoke: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   registerOutputs.mockClear()
+  runbookState.blockOutputs = {}
   replies = {
     "session:record-event": () => ({ ok: true }),
     "session:set-env": () => ({ ok: true }),
@@ -73,6 +77,7 @@ function renderAwsAuth(
   options: {
     saved?: unknown
     detectCredentials?: Parameters<typeof useAwsAuth>[0]["detectCredentials"]
+    sso?: { ssoStartUrl: string; ssoAccountId?: string; ssoRoleName?: string }
   } = {},
 ) {
   const blockStates: SavedBlockState[] =
@@ -85,6 +90,7 @@ function renderAwsAuth(
         ssoRegion: "us-east-1",
         defaultRegion: "us-west-2",
         detectCredentials: options.detectCredentials ?? false,
+        ...options.sso,
       }),
     {
       wrapper: ({ children }: { children: ReactNode }) => (
@@ -195,6 +201,101 @@ describe("useAwsAuth in a session — recording", () => {
     )
   })
 
+  it("records a sign-in confirmed from another block's outputs, with the account", async () => {
+    runbookState.blockOutputs = {
+      creds: {
+        values: {
+          AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
+          AWS_SECRET_ACCESS_KEY: "block-secret",
+          AWS_REGION: "eu-west-1",
+        },
+      },
+    }
+    replies["aws:validate"] = () => ({ valid: true, ...ACCOUNT })
+    const { result } = renderAwsAuth({ detectCredentials: [{ block: "creds" }] })
+    await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
+
+    await act(() => result.current.handleConfirmDetected())
+
+    await waitFor(() =>
+      expect(recorded()).toEqual([
+        {
+          status: "signed-in",
+          block: "aws",
+          credentials: {
+            accessKeyId: "AKIA_BLOCK",
+            secretAccessKey: "block-secret",
+            region: "eu-west-1",
+          },
+          account: ACCOUNT,
+        },
+      ]),
+    )
+  })
+
+  describe("with SSO", () => {
+    const SSO_CREDENTIALS = {
+      accessKeyId: "AKIA_SSO",
+      secretAccessKey: "sso-secret",
+      sessionToken: "sso-token",
+    }
+    const savedSso = {
+      status: "signed-in",
+      block: "aws",
+      credentials: { ...SSO_CREDENTIALS, region: "us-west-2" },
+      account: ACCOUNT,
+    }
+
+    let open: { mockRestore: () => void }
+    beforeEach(() => {
+      open = vi.spyOn(window, "open").mockReturnValue(null)
+      replies["aws:sso-start"] = () => ({
+        verificationUri: "https://device.sso.example/",
+        deviceCode: "dc",
+        clientId: "cid",
+        clientSecret: "cs",
+      })
+    })
+
+    afterEach(() => {
+      open.mockRestore()
+    })
+
+    it("records a sign-in to the account and role the block names", async () => {
+      replies["aws:sso-poll"] = () => ({ status: "success", ...ACCOUNT, ...SSO_CREDENTIALS })
+      const { result } = renderAwsAuth({
+        sso: {
+          ssoStartUrl: "https://acme.awsapps.com/start",
+          ssoAccountId: ACCOUNT.accountId,
+          ssoRoleName: "Admin",
+        },
+      })
+
+      await act(() => result.current.handleSsoAuth())
+
+      await waitFor(() => expect(recorded()).toEqual([savedSso]))
+    })
+
+    it("records a sign-in to the account and role the user picks", async () => {
+      replies["aws:sso-poll"] = () => ({
+        status: "select_account",
+        accessToken: "sso-access",
+        accounts: [{ accountId: ACCOUNT.accountId, accountName: "dev", emailAddress: "d@x" }],
+      })
+      replies["aws:sso-roles"] = () => ({ roles: [{ roleName: "Admin" }] })
+      replies["aws:sso-complete"] = () => ({ ...ACCOUNT, ...SSO_CREDENTIALS })
+      const { result } = renderAwsAuth({ sso: { ssoStartUrl: "https://acme.awsapps.com/start" } })
+
+      await act(() => result.current.handleSsoAuth())
+      await waitFor(() => expect(result.current.authStatus).toBe("select_account"))
+      await act(() => result.current.handleSsoAccountSelect(result.current.ssoAccounts[0]!))
+      await waitFor(() => expect(result.current.authStatus).toBe("select_role"))
+      await act(() => result.current.handleSsoComplete())
+
+      await waitFor(() => expect(recorded()).toEqual([savedSso]))
+    })
+  })
+
   it("records a sign-out when the user re-authenticates", async () => {
     replies["aws:validate"] = () => ({ valid: true, ...ACCOUNT })
     const { result } = renderAwsAuth({ saved: SAVED })
@@ -246,6 +347,25 @@ describe("useAwsAuth in a session — resuming", () => {
     expect(result.current.accountInfo).toBeNull()
     expect(registerOutputs.mock.calls.at(-1)).toEqual(["aws", { __AUTHENTICATED: "false" }])
     expect(recorded()).toEqual([{ status: "signed-out" }])
+  })
+
+  it("goes back to sign-in when the saved credentials are refused without a reason", async () => {
+    replies["aws:validate"] = () => ({ valid: false })
+    const { result } = renderAwsAuth({ saved: SAVED })
+
+    await waitFor(() => expect(result.current.authStatus).toBe("failed"))
+    expect(result.current.errorMessage).toBe(
+      "The credentials saved with this session no longer work (they were refused). Sign in again.",
+    )
+  })
+
+  it("starts at sign-in when the history says the block signed out", async () => {
+    const { result } = renderAwsAuth({ saved: { status: "signed-out" } })
+
+    expect(result.current.authStatus).toBe("pending")
+    expect(result.current.accountInfo).toBeNull()
+    await act(async () => {})
+    expect(invoke).not.toHaveBeenCalledWith("aws:validate", expect.anything())
   })
 
   it("keeps the sign-in when AWS can't be reached", async () => {

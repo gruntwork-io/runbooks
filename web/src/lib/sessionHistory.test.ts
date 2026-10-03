@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest"
 import type { ExecState, LogEntry } from "@/hooks/useApiExec"
-import { isSensitiveOutput, revealOutputs, sensitiveOutput } from "@/lib/outputValues"
+import {
+  encodeOutputs,
+  isSensitiveOutput,
+  revealOutputs,
+  sensitiveOutput,
+} from "@/lib/outputValues"
 import { parseSavedForm, restoreRun, runEnded, runStarted, savedFormValue } from "./sessionHistory"
 
 const line = (n: number, text = `line ${n}`): LogEntry => ({
@@ -83,6 +88,25 @@ describe("a saved run", () => {
     })
   })
 
+  it("saves a run whose state still says running as not run", () => {
+    expect(runEnded(execState({ status: "running", exitCode: null })).status).toBe("pending")
+  })
+
+  it("saves and gives back a run that logged nothing", () => {
+    const saved = runEnded(execState({ logs: [] }))
+
+    expect(saved).toMatchObject({ logs: [], omittedLogLines: 0 })
+    expect(restoreRun(stored(saved))?.logs).toEqual([])
+  })
+
+  it("says one earlier line was left out of a 501-line log", () => {
+    const logs = Array.from({ length: 501 }, (_, i) => line(i))
+
+    const restored = restoreRun(stored(runEnded(execState({ logs }))))
+
+    expect(restored?.logs[0]?.line).toBe("[1 earlier line was not saved with the session]")
+  })
+
   it("keeps the newest 500 lines of a longer log, and says how many it left out", () => {
     const logs = Array.from({ length: 502 }, (_, i) => line(i))
 
@@ -130,6 +154,43 @@ describe("a saved run", () => {
 
     expect(restored).toMatchObject({ status: "success", exitCode: 0, outputs: null })
     expect(restored?.error?.message).toBe("The outputs of this run were not saved with the session")
+    expect(restored?.error?.details).toContain("Run the block again")
+  })
+
+  it("keeps outputs of exactly 512 KiB of JSON", () => {
+    const empty = JSON.stringify(encodeOutputs({ plan: "" })).length
+    const outputs = { plan: "p".repeat(512 * 1024 - empty) }
+
+    const restored = restoreRun(stored(runEnded(execState({ outputs }))))
+
+    expect(restored?.outputs).toEqual(outputs)
+    expect(restored?.error).toBeNull()
+  })
+
+  it("keeps lines that come to exactly 64 KiB of log text", () => {
+    const half = "x".repeat(32 * 1024)
+    const logs = [line(1, "dropped"), line(2, half), line(3, half)]
+
+    const restored = restoreRun(stored(runEnded(execState({ logs }))))
+
+    expect(restored?.logs.map((entry) => entry.line)).toEqual([
+      "[1 earlier line was not saved with the session]",
+      half,
+      half,
+    ])
+  })
+
+  it("keeps empty lines before a last line of exactly 64 KiB", () => {
+    const full = "x".repeat(64 * 1024)
+    const logs = [line(1, ""), line(2, full)]
+
+    expect(restoreRun(stored(runEnded(execState({ logs }))))?.logs).toEqual(logs)
+  })
+
+  it("gives back a saved run that left out lines it no longer has", () => {
+    const payload = { ...(stored(runEnded(execState({ logs: [] }))) as object), omittedLogLines: 3 }
+
+    expect(restoreRun(payload)?.logs).toEqual([])
   })
 
   it("leaves a block whose run never ended not run, with an error that says so", () => {
@@ -137,6 +198,7 @@ describe("a saved run", () => {
 
     expect(restored).toMatchObject({ status: "pending", exitCode: null, outputs: null, logs: [] })
     expect(restored?.error?.message).toBe("The last run of this block did not finish")
+    expect(restored?.error?.details).toContain("How far it got is not known.")
   })
 
   it("is undefined for a payload of another shape", () => {

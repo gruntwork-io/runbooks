@@ -455,6 +455,95 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(screen.queryByRole("option", { name: "github.example.com" })).not.toBeInTheDocument()
   })
 
+  it.each([
+    ["the scope it needs", ["repo"]],
+    ["no scopes known", []],
+  ])("warns of no missing scope for a saved sign-in with %s", async (_label, scopes) => {
+    renderInSession(
+      githubAnswers(() => deferred<unknown>().promise),
+      <GitAuth id="git" />,
+      { ...SAVED_GITHUB, scopes },
+    )
+
+    expect(screen.getByText(/Authenticated to GitHub/)).toBeInTheDocument()
+    expect(screen.queryByText(/Missing "repo" scope/)).not.toBeInTheDocument()
+  })
+
+  it("lists the saved host once when enumeration lists it too", async () => {
+    renderInSession(
+      (channel) => {
+        if (channel === "github:enumerate-hosts") {
+          return {
+            hosts: [
+              { host: "github.com", sources: ["config"], hasCredential: true },
+              { host: "github.example.com", sources: ["env"], hasCredential: true },
+            ],
+            defaultHost: "github.com",
+          }
+        }
+        if (channel === "github:validate") return deferred<unknown>().promise
+        return undefined
+      },
+      <GitAuth id="git" />,
+      SAVED_GITHUB,
+    )
+
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2))
+    expect(screen.getAllByRole("option", { name: "github.example.com" })).toHaveLength(1)
+  })
+
+  it("shows the saved host as one with a credential, and no other source", async () => {
+    renderInSession(
+      githubAnswers(() => deferred<unknown>().promise),
+      <GitAuth id="git" />,
+      SAVED_GITHUB,
+    )
+
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("github.example.com"))
+    expect(screen.getByTestId("host-credential-git")).toBeInTheDocument()
+    expect(screen.queryByTestId("host-sources-git")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("host-no-credential-git")).not.toBeInTheDocument()
+  })
+
+  it("goes back to sign-in when the session's credential validates as no one", async () => {
+    renderInSession(
+      githubAnswers(() => ({ valid: true })),
+      <GitAuth id="git" />,
+      SAVED_GITHUB,
+    )
+
+    expect(
+      await screen.findByText(
+        "The session's GitHub credential now belongs to another user, not octo. Sign in again.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it("goes back to sign-in when the saved credential is refused without a reason", async () => {
+    renderInSession(
+      githubAnswers(() => ({ valid: false })),
+      <GitAuth id="git" />,
+      SAVED_GITHUB,
+    )
+
+    expect(
+      await screen.findByText(
+        "The sign-in saved with this session no longer works (the credential was refused). Sign in again.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it("resumes a saved sign-in in a block locked to its provider", async () => {
+    renderInSession(
+      githubAnswers(() => ({ valid: true, user: { login: "octo" } })),
+      <GitHubAuth id="git" />,
+      SAVED_GITHUB,
+    )
+
+    expect(screen.getByText(/Authenticated to GitHub \(github\.example\.com\)/)).toBeInTheDocument()
+    await waitFor(() => expect(callsTo("github:validate")).toHaveLength(1))
+  })
+
   it("ignores a saved sign-in for another provider when the block's provider is locked", async () => {
     const savedGitLab: SavedGitAuth = { ...SAVED_GITHUB, provider: "gitlab", host: "gitlab.com" }
 

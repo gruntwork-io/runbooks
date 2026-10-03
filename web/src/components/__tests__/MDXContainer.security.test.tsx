@@ -113,7 +113,7 @@ describe("MDXContainer — runbook code cannot run on open", () => {
 
 // Every runbook we ship as test data or as an e2e fixture must stay within the
 // literal-only rules.
-const REPO_ROOT = resolve(process.cwd(), "..")
+const REPO_ROOT = resolve(__dirname, "../../../..")
 const RUNBOOK_DIRS = ["testdata", join("test", "fixtures", "runbooks")]
 
 const runbooksIn = (dir: string) =>

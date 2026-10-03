@@ -79,10 +79,7 @@ describe("instruction mode — MDX registry coverage", () => {
 
   it.each(INTERACTIVE_BLOCKS)("%s wires up useInstructionMode", (block) => {
     const relativePath = ALIAS_SOURCE[block] ?? `${block}/${block}.tsx`
-    const source = readFileSync(
-      resolve(process.cwd(), `src/components/mdx/${relativePath}`),
-      "utf8",
-    )
+    const source = readFileSync(resolve(__dirname, "..", relativePath), "utf8")
     expect(source).toContain("useInstructionMode")
   })
 })

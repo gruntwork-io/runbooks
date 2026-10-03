@@ -99,10 +99,12 @@ function renderBlock({
   values,
   written,
   generateFile = true,
+  target,
 }: {
   values: Record<string, unknown>
   written?: unknown
   generateFile?: boolean
+  target?: "generated"
 }) {
   const api = { invoke, on: vi.fn(() => () => {}) } as unknown as Parameters<
     typeof ApiProvider
@@ -114,7 +116,13 @@ function renderBlock({
       <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
         <TestWrapper>
           <RegisterInputs values={current} />
-          <TemplateInline id="tpl" inputsId="form" outputPath="out.txt" generateFile={generateFile}>
+          <TemplateInline
+            id="tpl"
+            inputsId="form"
+            outputPath="out.txt"
+            generateFile={generateFile}
+            target={target}
+          >
             <pre>
               <code className="language-txt">{TEMPLATE}</code>
             </pre>
@@ -186,6 +194,16 @@ describe("TemplateInline in a session", () => {
     expect(renderCalls()[0]?.generateFile).toBe(true)
     expect(recordedRenders()).toHaveLength(1)
     expect(recordedRenders()[0]).not.toEqual(written)
+  })
+
+  it("writes the file when it was last written for another target", async () => {
+    const written = await writeOnce({ name: "world" })
+
+    renderBlock({ values: { name: "world" }, written, target: "generated" })
+    await settle()
+
+    expect(renderCalls()).toHaveLength(1)
+    expect(renderCalls()[0]?.generateFile).toBe(true)
   })
 
   it("writes on the first change after showing the file it was resumed with", async () => {

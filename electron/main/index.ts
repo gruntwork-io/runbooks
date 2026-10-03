@@ -17,8 +17,7 @@ import { setupApplicationMenu } from "./menu.ts"
 import { initAutoUpdater } from "./updater.ts"
 import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import { launchDirContext, requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
-import { sessionToResume } from "./launch-session.ts"
-import type { SessionRecord } from "../../src/domain/session/store.ts"
+import { planSecondLaunch, planStartupLaunch } from "./launch-session.ts"
 import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
@@ -195,36 +194,23 @@ if (!gotLock) {
       secondLaunchDir,
       app.getAppPath(),
     )
-    const from = launchDirContext(secondLaunchDir)
-    if (secondArgs.remoteUrl) {
-      expectLaunch({ source: secondArgs.remoteUrl, launchDir: from, sessionId: undefined })
-      openRemoteRunbook(win, secondArgs.remoteUrl)
-    } else if (secondArgs.runbookPath) {
-      expectLaunch({ source: secondArgs.runbookPath, launchDir: from, sessionId: undefined })
+    // Electron emits second-instance only after ready, and the ready handler
+    // opens session storage first.
+    if (!sessionPersistence) throw new Error("session persistence is not initialized")
+    const plan = planSecondLaunch(
+      sessionPersistence,
+      secondArgs,
+      launchDirContext(secondLaunchDir),
+      isSessionOpen,
+    )
+    if (plan === undefined) return
+    expectLaunch(plan.launch)
+    if ("remoteUrl" in plan.open) {
+      openRemoteRunbook(win, plan.open.remoteUrl)
+    } else {
       // focusOrCreateWindow may return a window that is still loading.
-      openRunbookInWindow(win, { path: secondArgs.runbookPath })
-    } else if (from !== undefined && sessionPersistence) {
-      // `runbooks` alone, run in a directory: bring up that directory's
-      // session. With nothing to resume, the window keeps what it shows.
-      const saved = sessionToResume(sessionPersistence, from)
-      if (saved && !isSessionOpen(saved.id)) {
-        expectResume(saved, from)
-        if (saved.remoteSource !== undefined) {
-          openRemoteRunbook(win, saved.remoteSource)
-        } else {
-          openRunbookInWindow(win, { path: saved.path })
-        }
-      }
+      openRunbookInWindow(win, { path: plan.open.path })
     }
-  })
-}
-
-/** Have the runbook:get that loads `saved`'s runbook resume that session. */
-function expectResume(saved: SessionRecord, from: string | undefined): void {
-  expectLaunch({
-    source: saved.remoteSource ?? saved.path,
-    launchDir: from,
-    sessionId: saved.id,
   })
 }
 
@@ -266,23 +252,22 @@ let sessionStore: SessionStorage | null = null
  * has to be cloned again first, so its URL is returned instead.
  */
 function prepareStartupLaunch(storage: SessionStorage): string | undefined {
-  const from = launchDirContext(launchDir)
-  const source = cliConfig.remoteUrl ?? cliConfig.runbookPath
-  if (source) {
-    expectLaunch({ source, launchDir: from, sessionId: undefined })
-    return undefined
-  }
-  // A runbook double-clicked in Finder is what this launch opens.
-  if (pendingOpenFilePath) return undefined
-
-  const saved = sessionToResume(storage.persistence, from)
-  if (!saved) return undefined
-  expectResume(saved, from)
-  if (saved.remoteSource !== undefined) return saved.remoteSource
-  startupRunbookPath = saved.path
+  const plan = planStartupLaunch(
+    storage.persistence,
+    cliConfig,
+    launchDirContext(launchDir),
+    pendingOpenFilePath,
+  )
+  if (plan === undefined) return undefined
+  expectLaunch(plan.launch)
+  if ("remoteUrl" in plan.open) return plan.open.remoteUrl
+  // A path on the command line is startupRunbookPath already, with localPath
+  // resolved below.
+  if (plan.launch.sessionId === undefined) return undefined
+  startupRunbookPath = plan.open.path
   // As for a path on the command line below: an asset request must not find
   // an empty localPath if it gets ahead of the renderer's runbook:get.
-  setRunbookConfig({ ...runbookConfig, localPath: saved.path })
+  setRunbookConfig({ ...runbookConfig, localPath: plan.open.path })
   return undefined
 }
 

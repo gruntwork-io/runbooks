@@ -212,8 +212,97 @@ describe("GitClone in a session", () => {
 
     expect(screen.queryByText("Clone complete")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /^Clone$/i })).toBeInTheDocument()
+    expect(screen.queryByText("This block's repository is gone")).not.toBeInTheDocument()
     expect(localRepoCalls()).toEqual([])
     expect(publishedOutputs()).toEqual({})
+  })
+
+  it("says the repository is no longer a git repository when the check gives no reason", async () => {
+    mockIpc(async () => ({ status: "fail" }))
+
+    renderGitClone(SAVED_CLONE)
+
+    expect(
+      await screen.findByText(
+        /The repository at \/work\/infra is gone: it is no longer a git repository/,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it("ignores a check that comes back after Clone again", async () => {
+    const user = userEvent.setup()
+    let answerCheck!: (answer: unknown) => void
+    mockIpc(
+      () =>
+        new Promise((resolve) => {
+          answerCheck = resolve
+        }),
+    )
+    renderGitClone(SAVED_CLONE)
+    await waitFor(() => expect(localRepoCalls()).toHaveLength(1))
+
+    await user.click(screen.getByRole("button", { name: /Clone again/i }))
+    await user.click(screen.getByRole("button", { name: /^Clone$/i }))
+    await screen.findByText("Clone complete")
+    await act(async () => answerCheck({ status: "fail", error: "no such directory" }))
+
+    expect(screen.getByText("Clone complete")).toBeInTheDocument()
+    expect(screen.queryByText("This block's repository is gone")).not.toBeInTheDocument()
+    expect(publishedOutputs()).toEqual(OUTPUTS)
+    expect(unregisterWorkTree).toHaveBeenCalledTimes(1)
+  })
+
+  it("records an empty repository only once it has a default branch, on that branch", async () => {
+    const user = userEvent.setup()
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === "git:clone") return { ...CLONED, hasCommits: false, ref: undefined }
+      if (channel === "git:init-default-branch") return { branch: "trunk" }
+      if (channel === "session:get") return { workingDir: "/work" }
+      if (channel === "github:orgs") return []
+      return { ok: true }
+    })
+    renderGitClone(undefined, { prefilledUrl: URL })
+    const clone = screen.getByRole("button", { name: /^Clone$/i })
+    await waitFor(() => expect(clone).toBeEnabled(), { timeout: 2000 })
+
+    await user.click(clone)
+    await screen.findByText("This repository has no commits yet")
+    await settle()
+    // Its outputs are held back, and so is its place in the history.
+    expect(recorded()).toEqual([])
+
+    await user.clear(screen.getByLabelText("Default branch name"))
+    await user.type(screen.getByLabelText("Default branch name"), "trunk")
+    await user.click(screen.getByRole("button", { name: "Create default branch" }))
+
+    await waitFor(() => expect(recorded()).toHaveLength(1))
+    expect(recorded()[0]).toEqual({
+      ...SAVED_CLONE,
+      result: { ...SAVED_CLONE.result, ref: "trunk", hasCommits: true },
+    })
+  })
+
+  it("records a clone made after a local checkout without the checkout's details", async () => {
+    const user = userEvent.setup()
+    renderGitClone(undefined, {
+      source: "local",
+      prefilledRepoDir: "/home/me/infra",
+      prefilledUrl: URL,
+    })
+    const confirm = screen.getByRole("button", { name: /Use This Repo/i })
+    await waitFor(() => expect(confirm).toBeEnabled(), { timeout: 2000 })
+    await user.click(confirm)
+    await screen.findByText("Using local checkout")
+    await user.click(screen.getByRole("button", { name: /Stop using this repo/i }))
+
+    await user.click(screen.getByRole("tab", { name: "Clone from remote" }))
+    const clone = screen.getByRole("button", { name: /^Clone$/i })
+    await waitFor(() => expect(clone).toBeEnabled(), { timeout: 2000 })
+    await user.click(clone)
+    await screen.findByText("Clone complete")
+
+    await waitFor(() => expect(recorded()).toHaveLength(3))
+    expect(recorded()[2]).toMatchObject({ status: "ready", source: "clone", localInfo: null })
   })
 
   it("records a clone with the form, the result and the outputs, and Clone again as none", async () => {
