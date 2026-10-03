@@ -12,13 +12,18 @@ tests:
   - name: defaults-render
     description: |
       Every block runs with its defaults, including the defaults built from
-      other variables.
+      other variables, and the script produces the output that the
+      AccountAlias default waits on.
     assertions:
       - type: file_exists
         path: settings.yml
       - type: file_contains
         path: settings.yml
         contains: "project: acme"
+      - type: output_equals
+        block: create-account
+        output: account_id
+        value: "123456789012"
 
   - name: override-replaces-link
     description: |

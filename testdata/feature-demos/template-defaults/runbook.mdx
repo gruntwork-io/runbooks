@@ -32,6 +32,31 @@ Service name: {{ .inputs.ServiceName }}
 ```
 </TemplateInline>
 
+## Waiting on a script's output
+
+A default can also use another block's output, such as an ID a script prints. Until that block has run, the form can't know the value, so the token is yellow. Hover over it to see which block it's waiting for.
+
+`AccountAlias` defaults to `acme-` plus the ID of the account that the **Create Account** script below creates. Run the script and the field shows `acme-123456789012`.
+
+<Inputs id="account">
+```yaml
+variables:
+  - name: AccountAlias
+    type: string
+    description: Defaults to "acme-" plus the ID of the account the script below creates
+    default: "acme-{{ .outputs.create_account.account_id }}"
+```
+</Inputs>
+
+A block's `id` uses `-`, but a template refers to it with `_`, so `create-account` is `.outputs.create_account`.
+
+<Command
+  id="create-account"
+  path="scripts/create-account.sh"
+  title="Create Account"
+  description="Simulates creating an account and outputs its ID as account_id"
+/>
+
 ## In a Template
 
 This template's `boilerplate.yml` has linked defaults of every kind:
