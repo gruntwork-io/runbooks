@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { Check } from "lucide-react"
+import { Check, Copy, Pencil } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
 import { useApi } from "@/contexts/ApiContext"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { cn } from "@/lib/utils"
@@ -22,51 +23,77 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as React.CSSProperties
 const PILL = "rounded-full border px-2 py-0.5 text-xs text-foreground font-mono font-normal"
 
 /**
- * The session's name in the title bar. A click copies the name. A shift-click
- * turns it into a field: Enter renames the session, and Escape or clicking
- * elsewhere leaves the name as it was.
+ * The session's name in the title bar, with a button before it that copies
+ * the name. A click on the name turns it into a field: Enter renames the
+ * session, and Escape or clicking elsewhere leaves the name as it was.
  */
 export function SessionName({ name, isRenaming, onRenamingChange, onRenamed }: SessionNameProps) {
-  if (!isRenaming) {
-    return <SessionNameLabel name={name} onRename={() => onRenamingChange(true)} />
-  }
   return (
-    <SessionNameField
-      // A session that replaces this one mid-edit starts the field over.
-      key={name}
-      name={name}
-      onRenamed={(renamed) => {
-        onRenamed(renamed)
-        onRenamingChange(false)
-      }}
-      onCancel={() => onRenamingChange(false)}
-    />
+    <TooltipProvider delayDuration={400}>
+      <CopyNameButton name={name} />
+      {isRenaming ? (
+        <SessionNameField
+          // A session that replaces this one mid-edit starts the field over.
+          key={name}
+          name={name}
+          onRenamed={(renamed) => {
+            onRenamed(renamed)
+            onRenamingChange(false)
+          }}
+          onCancel={() => onRenamingChange(false)}
+        />
+      ) : (
+        <SessionNameLabel name={name} onRename={() => onRenamingChange(true)} />
+      )}
+    </TooltipProvider>
+  )
+}
+
+function CopyNameButton({ name }: { name: string }) {
+  const { didCopy, copy } = useCopyToClipboard()
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={didCopy ? "Copied" : "Copy session name"}
+          className="flex-shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+          style={NO_DRAG}
+          onClick={() => void copy(name)}
+        >
+          {didCopy ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{didCopy ? "Copied" : "Copy session name"}</TooltipContent>
+    </Tooltip>
   )
 }
 
 function SessionNameLabel({ name, onRename }: { name: string; onRename: () => void }) {
-  const { didCopy, copy } = useCopyToClipboard()
   return (
-    <button
-      type="button"
-      className={cn(
-        PILL,
-        "flex flex-shrink-0 items-center gap-1 border-border cursor-pointer hover:bg-accent",
-      )}
-      style={NO_DRAG}
-      title="Click to copy the session name. Shift-click to rename the session."
-      data-testid="session-name"
-      onClick={(event) => {
-        if (event.shiftKey) {
-          onRename()
-          return
-        }
-        void copy(name)
-      }}
-    >
-      {name}
-      {didCopy && <Check className="size-3 text-success" aria-label="Copied" />}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            PILL,
+            "group flex flex-shrink-0 items-center gap-1 border-border cursor-text transition-colors hover:bg-accent focus-visible:bg-accent",
+          )}
+          style={NO_DRAG}
+          aria-label={`Rename session ${name}`}
+          data-testid="session-name"
+          onClick={onRename}
+        >
+          {name}
+          {/* Shown on hover and focus: the name can be edited. */}
+          <Pencil
+            aria-hidden
+            className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">Rename session</TooltipContent>
+    </Tooltip>
   )
 }
 

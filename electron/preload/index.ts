@@ -18,6 +18,7 @@ const INVOKE_CHANNELS = {
   "session:set-env": true,
   "session:rename": true,
   "session:record-event": true,
+  "session:finish": true,
   "session:list": true,
   "session:switch": true,
   "session:delete": true,

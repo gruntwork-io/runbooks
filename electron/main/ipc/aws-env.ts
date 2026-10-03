@@ -120,6 +120,7 @@ export async function handleEnvCredentialsConfirm(params: EnvCredentialsConfirmP
       secretAccessKey: credentials.secretAccessKey,
       sessionToken: credentials.sessionToken,
       region: credentials.region,
+      expiresAt: credentials.expiresAt,
     }
   } catch (err) {
     return {

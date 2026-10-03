@@ -197,6 +197,28 @@ describe("useGoogleAuth in a session — recording", () => {
     await waitFor(() => expect(signIns()).toEqual([{ kind: "block", blockId: "bootstrap" }]))
   })
 
+  it("records when an access token expires, and shows it on the account", async () => {
+    runbookState.blockOutputs = {
+      bootstrap: { values: { GOOGLE_OAUTH_ACCESS_TOKEN: "ya29.token" } },
+    }
+    replies["google:validate-credentials"] = () => ({
+      valid: true,
+      account: { ...ACCOUNT, expiresAt: "2026-10-03T13:00:00.000Z" },
+      credentialType: "access_token",
+      projectId: "proj-b",
+    })
+    const { result } = renderGoogleAuth({ detectCredentials: [{ block: "bootstrap" }] })
+    await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
+
+    await act(() => result.current.handleConfirmDetected())
+
+    await waitFor(() => expect(signIns()).toHaveLength(1))
+    expect(recorded()[0]).toMatchObject({
+      account: { credentialType: "access_token", expiresAt: "2026-10-03T13:00:00.000Z" },
+    })
+    expect(result.current.accountInfo?.expiresAt).toBe("2026-10-03T13:00:00.000Z")
+  })
+
   it("records a sign-out when the user re-authenticates", async () => {
     replies["google:env-credentials"] = () => ({ found: true, valid: true, account: ACCOUNT })
     replies["google:gcloud-auth"] = () => ({ valid: true, account: ACCOUNT, projectId: "proj-p" })
@@ -297,6 +319,38 @@ describe("useGoogleAuth in a session — resuming", () => {
         { blockId: "gcp", keyPath: "/home/u/key.json", ...PLACEMENT, registerSession: true },
       ],
     ])
+  })
+
+  it("starts with the saved token's expiry, and takes the one signing in again reports", async () => {
+    const replay = deferred<unknown>()
+    runbookState.blockOutputs = {
+      bootstrap: { values: { GOOGLE_OAUTH_ACCESS_TOKEN: "ya29.token" } },
+    }
+    replies["google:validate-credentials"] = (args) =>
+      args?.registerSession
+        ? replay.promise
+        : { valid: true, account: ACCOUNT, credentialType: "access_token" }
+    const { result } = renderGoogleAuth(
+      {},
+      {
+        ...saved({ kind: "block", blockId: "bootstrap" }),
+        account: { ...ACCOUNT, credentialType: "access_token", expiresAt: "2026-10-03T13:00:00Z" },
+      },
+    )
+    expect(result.current.accountInfo?.expiresAt).toBe("2026-10-03T13:00:00Z")
+
+    await act(async () =>
+      replay.resolve({
+        valid: true,
+        account: { ...ACCOUNT, expiresAt: "2026-10-03T14:00:00.000Z" },
+        credentialType: "access_token",
+        projectId: "proj-p",
+      }),
+    )
+
+    await waitFor(() =>
+      expect(result.current.accountInfo?.expiresAt).toBe("2026-10-03T14:00:00.000Z"),
+    )
   })
 
   it("waits for the block it signed in from to have its outputs back", async () => {

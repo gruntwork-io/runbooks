@@ -36,6 +36,8 @@ export function installTestSessionPersistence(): TestSessionPersistence {
       encrypt: (plaintext) => new TextEncoder().encode(plaintext),
       decrypt: (ciphertext) => new TextDecoder().decode(ciphertext),
     },
+    // Stands in for the OS trash, which a test must not fill.
+    moveToTrash: (dir) => fs.promises.rm(dir, { recursive: true }),
     ephemeralFileEnvVars: [],
     random: () => Math.random(),
     onSaveError: (err) => {

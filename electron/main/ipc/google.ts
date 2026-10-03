@@ -164,6 +164,7 @@ const toAccountInfo = (identity: GoogleIdentity): GoogleAccountInfo => ({
   principal: identity.email,
   accountType: identity.accountType,
   ...(identity.scopes ? { scopes: [...identity.scopes] } : {}),
+  ...(identity.expiresAt ? { expiresAt: identity.expiresAt } : {}),
 })
 
 const toProjectIpc = (project: GoogleProject): GoogleProjectIpc => ({

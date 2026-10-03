@@ -8,6 +8,7 @@ import { OpenUrlModal } from "./components/layout/OpenUrlModal"
 import { FindBar } from "./components/layout/FindBar"
 import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
+import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
 import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
@@ -260,6 +261,32 @@ function App() {
     document.title = sessionName ? `${sessionName} - ${APP_TITLE}` : APP_TITLE
   }, [sessionName])
 
+  // Says that opening the runbook resumed a saved session with history. Only
+  // the load that resumed it says when it was last used, so the notice is kept
+  // through later reloads in that session, until dismissed.
+  const [resumeNotice, setResumeNotice] = useState<{
+    sessionKey: string
+    resumedFrom: string
+  } | null>(null)
+  const [prevRunbookData, setPrevRunbookData] = useState(getRunbookResult.data)
+  if (getRunbookResult.data !== prevRunbookData) {
+    setPrevRunbookData(getRunbookResult.data)
+    const resumedFrom = getRunbookResult.data?.sessionResumedFrom
+    if (loadedSessionKey && resumedFrom && resumesBlocks) {
+      setResumeNotice({ sessionKey: loadedSessionKey, resumedFrom })
+    }
+  }
+  const shownResumeNotice =
+    resumeNotice !== null && resumeNotice.sessionKey === loadedSessionKey && sessionName
+      ? { ...resumeNotice, sessionName }
+      : null
+  const handleStartNewSession = () => {
+    setResumeNotice(null)
+    api.invoke("native:reset-session").catch((err: unknown) => {
+      console.error("Failed to reset the session:", err)
+    })
+  }
+
   // Track whether we've ever successfully loaded runbook content.
   // Once true, never let loading/error states unmount MDXContainer — doing so
   // would destroy all block outputs (and user-edited inputs) stored in
@@ -316,8 +343,17 @@ function App() {
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
-        {(showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
+        {(shownResumeNotice || showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
           <div className="fixed top-15 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl flex flex-col items-center gap-2 pointer-events-none">
+            {shownResumeNotice && (
+              <SessionResumedNotice
+                sessionName={shownResumeNotice.sessionName}
+                resumedFrom={shownResumeNotice.resumedFrom}
+                onStartNew={handleStartNewSession}
+                onDismiss={() => setResumeNotice(null)}
+                className="shadow-md pointer-events-auto"
+              />
+            )}
             {showOpenErrorBanner && openError && (
               <RunbookOpenError
                 variant="inline"

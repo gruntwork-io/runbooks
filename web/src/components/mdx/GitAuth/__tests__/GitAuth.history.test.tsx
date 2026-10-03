@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import type { ReactNode } from "react"
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
@@ -573,5 +573,64 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(screen.queryByText(/Authenticated to/)).not.toBeInTheDocument()
     expect(callsTo("github:validate")).toEqual([])
     expect(callsTo("gitlab:validate")).toEqual([])
+  })
+})
+
+describe("GitAuth in a session: a token that expires", () => {
+  const inMinutes = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString()
+
+  it("records when the token expires, and stays green while it is hours away", async () => {
+    const expiresAt = inMinutes(8 * 60)
+    renderInSession(
+      (channel) => {
+        if (channel === "github:enumerate-hosts") return onlyHost("github.com")
+        if (channel === "github:env-credentials") {
+          return {
+            found: true,
+            valid: true,
+            user: { login: "octo" },
+            envVar: "GITHUB_TOKEN",
+            expiresAt,
+          }
+        }
+        return undefined
+      },
+      <GitAuth id="git" />,
+    )
+
+    await waitFor(() => expect(recorded()).toHaveLength(1))
+    expect(recorded()[0]).toMatchObject({ status: "signed-in", expiresAt })
+    expect(screen.getByTestId("git")).toHaveClass("bg-success-muted")
+    expect(screen.queryByText(/These credentials/)).not.toBeInTheDocument()
+  })
+
+  it("turns red when a resumed token expires within minutes, and signs in again on request", async () => {
+    renderInSession(
+      githubAnswers(() => ({ valid: true, user: { login: "octo" } })),
+      <GitAuth id="git" />,
+      { ...SAVED_GITHUB, expiresAt: inMinutes(3) },
+    )
+
+    const notice = (await screen.findByText("These credentials expire in less than 5 minutes"))
+      .parentElement!.parentElement!
+    expect(screen.getByTestId("git")).toHaveClass("bg-destructive-muted")
+
+    fireEvent.click(within(notice).getByRole("button", { name: "Sign in again" }))
+
+    await waitFor(() => expect(recorded()).toEqual([{ status: "signed-out" }]))
+    expect(screen.queryByText(/These credentials/)).not.toBeInTheDocument()
+    expect(publishedOutputs()).toEqual({ GIT_PROVIDER: "github" })
+  })
+
+  it("says the token expired when the host can't be reached to check it", async () => {
+    renderInSession(
+      githubAnswers(() => ({ valid: false, errorKind: "network", error: "offline" })),
+      <GitAuth id="git" />,
+      { ...SAVED_GITHUB, expiresAt: inMinutes(-10) },
+    )
+
+    expect(await screen.findByText("These credentials have expired")).toBeInTheDocument()
+    expect(screen.getByText(/Authenticated to GitHub/)).toBeInTheDocument()
+    expect(screen.getByTestId("git")).toHaveClass("bg-destructive-muted")
   })
 })

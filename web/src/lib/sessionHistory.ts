@@ -139,6 +139,7 @@ const SavedAwsAuthSchema = z.discriminatedUnion("status", [
       secretAccessKey: z.string(),
       sessionToken: z.string().optional(),
       region: z.string(),
+      expiresAt: z.string().optional(),
     }),
     account: z.object({
       accountId: z.string().optional(),
@@ -178,6 +179,8 @@ const SavedGitAuthSchema = z.discriminatedUnion("status", [
     }),
     source: z.enum(["env", "cli", "block"]).nullable(),
     scopes: z.array(z.string()).nullable(),
+    /** When the token expires, as an ISO timestamp */
+    expiresAt: z.string().optional(),
     tokenType: z
       .enum(["classic_pat", "fine_grained_pat", "oauth", "github_app", "pat", "unknown"])
       .nullable(),
@@ -242,6 +245,8 @@ const SavedGoogleAuthSchema = z.discriminatedUnion("status", [
         ])
         .optional(),
       scopes: z.array(z.string()).optional(),
+      /** When a bare access token expires, as an ISO timestamp */
+      expiresAt: z.string().optional(),
     }),
     projectId: z.string(),
     projectName: z.string().optional(),
@@ -280,6 +285,8 @@ const SavedRunSchema = z.discriminatedUnion("status", [
     logs: z.array(z.object({ line: z.string(), timestamp: z.string() })),
     /** How many lines before `logs` were left out */
     omittedLogLines: z.number(),
+    /** The run's full log file, in the session's directory */
+    logFile: z.string().nullable(),
     outputs: z
       .record(z.string(), z.object({ value: z.string(), sensitive: z.boolean() }))
       .nullable(),
@@ -309,6 +316,7 @@ export function runEnded(state: ExecState): SavedRun {
     exitCode: state.exitCode,
     logs,
     omittedLogLines: state.logs.length - logs.length,
+    logFile: state.logFilePath,
     outputs: outputsOmitted ? null : outputs,
     outputsOmitted,
     error: state.error,
@@ -331,7 +339,6 @@ export function restoreRun(payload: unknown): ExecState | undefined {
     exitCode: null,
     error: null,
     outputs: null,
-    // A log file is the app's, and gone once it quits.
     logFilePath: null,
   }
 
@@ -350,7 +357,10 @@ export function restoreRun(payload: unknown): ExecState | undefined {
     run.omittedLogLines > 0 && firstLine !== undefined
       ? [
           {
-            line: `[${run.omittedLogLines} earlier ${run.omittedLogLines === 1 ? "line was" : "lines were"} not saved with the session]`,
+            line:
+              run.logFile === null
+                ? `[${run.omittedLogLines} earlier ${run.omittedLogLines === 1 ? "line was" : "lines were"} not saved with the session]`
+                : `[${run.omittedLogLines} earlier ${run.omittedLogLines === 1 ? "line is" : "lines are"} only in the full log file]`,
             timestamp: firstLine.timestamp,
           },
         ]
@@ -360,6 +370,7 @@ export function restoreRun(payload: unknown): ExecState | undefined {
     status: run.status,
     exitCode: run.exitCode,
     logs: [...omitted, ...run.logs],
+    logFilePath: run.logFile,
     outputs: run.outputs === null ? null : decodeOutputs(run.outputs),
     // Blocks that read the outputs wait for them, so say why they are missing.
     error:

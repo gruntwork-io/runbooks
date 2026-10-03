@@ -108,6 +108,7 @@ function renderBlock(saved?: unknown) {
 }
 
 const LOG = { line: "deployed", timestamp: "2026-01-01T00:00:01.000Z" }
+const LOG_FILE = "/sessions/elegant-elephant/.runbooks/logs/deploy/run.log"
 
 describe("useScriptExecution in a session", () => {
   it("adds a run to the history when it starts, and when it ends with its logs and outputs", async () => {
@@ -119,6 +120,7 @@ describe("useScriptExecution in a session", () => {
     expect(recorded()).toEqual([{ status: "running" }])
 
     act(() => {
+      emit("exec:log-file", { path: LOG_FILE })
       emit("exec:log", LOG)
       emit("exec:outputs", {
         outputs: {
@@ -136,6 +138,7 @@ describe("useScriptExecution in a session", () => {
       exitCode: 0,
       logs: [LOG],
       omittedLogLines: 0,
+      logFile: LOG_FILE,
       outputsOmitted: false,
       outputs: {
         url: { value: "https://x", sensitive: false },
@@ -168,6 +171,7 @@ describe("useScriptExecution in a session", () => {
       exitCode: 2,
       logs: [LOG],
       omittedLogLines: 0,
+      logFile: LOG_FILE,
       outputsOmitted: false,
       outputs: {
         url: { value: "https://x", sensitive: false },
@@ -179,7 +183,7 @@ describe("useScriptExecution in a session", () => {
     // A Command shows a warning as a failure.
     expect(result.current.exec.status).toBe("fail")
     expect(result.current.exec.logs).toEqual([LOG])
-    expect(result.current.exec.logFilePath).toBeNull()
+    expect(result.current.exec.logFilePath).toBe(LOG_FILE)
     const shown = result.current.exec.outputs ?? {}
     expect(isSensitiveOutput(shown.token!)).toBe(true)
 

@@ -48,6 +48,7 @@ type RunbookGetResult = {
   sessionId: string
   sessionName: string
   sessionDir: string
+  sessionResumedFrom?: string
   blockStates: unknown[]
 }
 /** Call runbook:get as the renderer does; `extra` adds fields such as `remoteSource`. */
@@ -565,6 +566,28 @@ describe("runbook IPC handlers", () => {
             payload: { values: { region: "eu-west-1" }, submitted: false },
           },
         ])
+      })
+
+      it("says when a resumed session was last used, on the load that resumed it only", async () => {
+        const first = await getRunbook(dirA)
+        expect(first.sessionResumedFrom).toBeUndefined()
+        // A reload in the same session resumes nothing.
+        expect((await getRunbook(dirA)).sessionResumedFrom).toBeUndefined()
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5)
+        })
+        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+        const [listed] = await runtimeModule.runtime.runPromise(sessions.persistence.listSessions())
+        restartApp()
+
+        const resumed = await getRunbook(dirA)
+
+        expect(resumed.sessionId).toBe(first.sessionId)
+        expect(resumed.sessionResumedFrom).toBe(listed!.lastUsedAt)
+        expect((await getRunbook(dirA)).sessionResumedFrom).toBeUndefined()
+
+        resetToNewSession()
+        expect((await getRunbook(dirA)).sessionResumedFrom).toBeUndefined()
       })
 
       it("opens the runbook with its blocks as new when the history can't be read", async () => {

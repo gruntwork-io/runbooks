@@ -28,6 +28,7 @@ function session(overrides: Partial<ListedSession> & { id: string }): ListedSess
     executionCount: 0,
     isCurrent: false,
     runbookMissing: false,
+    finishedAt: undefined,
     ...overrides,
   }
 }
@@ -67,6 +68,9 @@ function renderDialog() {
 /** The list item of the session named `name`. */
 const row = (name: string) =>
   screen.getByRole("button", { name: new RegExp(`^${name}`) }).closest("li")!
+/** The list item of the session named `name`, once the list has loaded. */
+const rowAsync = async (name: string) =>
+  (await screen.findByRole("button", { name: new RegExp(`^${name}`) })).closest("li")!
 const callsTo = (channel: string) =>
   invoke.mock.calls.filter(([c]) => c === channel).map(([, params]) => params)
 
@@ -91,10 +95,28 @@ describe("SessionsDialog", () => {
     expect(screen.queryByText("Loading sessions…")).not.toBeInTheDocument()
     expect(screen.queryByText("No saved sessions yet.")).not.toBeInTheDocument()
     expect(screen.queryByText(/No sessions match/)).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Delete calm-heron" })).toHaveAttribute(
-      "title",
-      "Delete calm-heron",
-    )
+  })
+
+  it("says what the delete icon does when hovered", async () => {
+    const user = userEvent.setup()
+    renderDialog()
+
+    await user.hover(await screen.findByRole("button", { name: "Delete calm-heron" }))
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Delete session")
+  })
+
+  it("marks the sessions that are finished", async () => {
+    answers["session:list"] = () => ({
+      sessions: [
+        session({ id: "f", name: "done-deal", finishedAt: hoursAgo(2) }),
+        session({ id: "u", name: "still-going" }),
+      ],
+    })
+    renderDialog()
+
+    expect(within(await rowAsync("done-deal")).getByText("Finished")).toBeInTheDocument()
+    expect(within(row("still-going")).queryByText("Finished")).not.toBeInTheDocument()
   })
 
   it("says it is loading until main has listed the sessions", async () => {
@@ -287,7 +309,9 @@ describe("SessionsDialog", () => {
     renderDialog()
 
     await user.click(await screen.findByRole("button", { name: "Delete calm-heron" }))
-    expect(within(row("calm-heron")).getByText("Delete its files and history?")).toBeInTheDocument()
+    expect(
+      within(row("calm-heron")).getByText("Delete it? Its files go to the trash."),
+    ).toBeInTheDocument()
     expect(callsTo("session:delete")).toEqual([])
     await user.click(within(row("calm-heron")).getByRole("button", { name: "Delete" }))
 
@@ -323,9 +347,15 @@ describe("SessionsDialog", () => {
   it("can't delete the open session", async () => {
     renderDialog()
 
+    const user = userEvent.setup()
     const remove = await screen.findByRole("button", { name: "Delete elegant-elephant" })
     expect(remove).toBeDisabled()
-    expect(remove).toHaveAttribute("title", "Switch to another session to delete this one")
+
+    // The disabled icon still says why, on hover.
+    await user.hover(remove.parentElement!)
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Switch to another session to delete this one",
+    )
   })
 
   it("says why a delete failed, and keeps the session listed", async () => {

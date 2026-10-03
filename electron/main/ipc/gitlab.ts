@@ -233,6 +233,7 @@ export function registerGitLabHandlers(): void {
           host,
           user: result.user,
           scopes: result.scopes,
+          ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
           tokenType,
           outcome: "valid" as const,
           ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),

@@ -7,7 +7,7 @@
  * `v0` versions the layout: a layout that can't be migrated in place gets a
  * new top-level directory.
  */
-import { safeStorage } from "electron"
+import { safeStorage, shell } from "electron"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { Effect } from "effect"
@@ -58,6 +58,7 @@ export function openSessionStorage(userDataDir: string): SessionStorage {
       manager: sessionManager,
       dirsRoot,
       cipher: safeStorageCipher(),
+      moveToTrash: trash(),
       ephemeralFileEnvVars: GOOGLE_CREDENTIAL_FILE_ENV_VARS,
       random: () => Math.random(),
       onSaveError: (err) => {
@@ -76,6 +77,19 @@ export function openSessionStorage(userDataDir: string): SessionStorage {
       )
     },
   }
+}
+
+/**
+ * Moves a directory to the OS trash. e2e tests set RUNBOOKS_TEST_TRASH_DIR to
+ * a directory of their own to move it into instead, so a test run leaves
+ * nothing in the user's trash, and runs where the OS has none.
+ */
+function trash(): (dir: string) => Promise<void> {
+  const testTrashDir = process.env.RUNBOOKS_TEST_TRASH_DIR
+  if (testTrashDir) {
+    return (dir) => fs.promises.rename(dir, path.join(testTrashDir, path.basename(dir)))
+  }
+  return (dir) => shell.trashItem(dir)
 }
 
 /**

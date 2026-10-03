@@ -347,6 +347,9 @@ export function registerRunbookHandlers(): void {
         sessionId: session.id,
         sessionName: session.name,
         sessionDir: session.dir,
+        ...(turn.switched && session.resumedFrom !== undefined
+          ? { sessionResumedFrom: session.resumedFrom }
+          : {}),
         blockStates,
       }
     },

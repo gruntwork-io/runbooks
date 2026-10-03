@@ -78,6 +78,7 @@ const DETECTION_DISABLED_HINT = "This runbook doesn't use existing credentials â
  */
 type CredentialDetails = {
   scopes?: string[] | undefined
+  expiresAt?: string | undefined
   tokenType?: GitTokenType | undefined
   meta?: GitSuccessMeta | null | undefined
   divergenceHint?: string | undefined
@@ -90,12 +91,14 @@ type CredentialDetails = {
  */
 function blockCredentialDetails(result: {
   scopes?: string[] | undefined
+  expiresAt?: string | undefined
   tokenType?: GitTokenType | undefined
   validatedVia?: "direct" | "cli" | undefined
   sessionEnvWarning?: string | undefined
 }): CredentialDetails {
   return {
     scopes: result.scopes,
+    expiresAt: result.expiresAt,
     tokenType: result.tokenType,
     sessionEnvWarning: result.sessionEnvWarning,
     meta: result.validatedVia ? { validatedVia: result.validatedVia } : null,
@@ -209,6 +212,7 @@ export function useGitAuth({
     restored?.source ?? null,
   )
   const [detectedScopes, setDetectedScopes] = useState<string[] | null>(restored?.scopes ?? null)
+  const [expiresAt, setExpiresAt] = useState(restored?.expiresAt)
   const [detectedTokenType, setDetectedTokenType] = useState<GitTokenType | null>(
     restored?.tokenType ?? null,
   )
@@ -502,6 +506,7 @@ export function useGitAuth({
     (details: CredentialDetails) => {
       const scopes = details.scopes && details.scopes.length > 0 ? details.scopes : null
       setDetectedScopes(scopes)
+      setExpiresAt(details.expiresAt)
       setMissingScope(shouldWarnMissingScope(details.scopes))
       setDetectedTokenType(details.tokenType ?? null)
       setSuccessMeta(details.meta ?? null)
@@ -551,6 +556,7 @@ export function useGitAuth({
       valid: boolean
       user?: GitUserInfo | undefined
       scopes?: string[] | undefined
+      expiresAt?: string | undefined
       tokenType?: GitTokenType | undefined
       error?: string | undefined
       errorKind?: GitErrorKind | undefined
@@ -572,6 +578,7 @@ export function useGitAuth({
           valid: data.valid,
           user: data.user as GitUserInfo | undefined,
           scopes: data.scopes,
+          expiresAt: data.expiresAt,
           tokenType: data.tokenType as GitTokenType | undefined,
           error: data.error,
           errorKind: data.errorKind as GitErrorKind | undefined,
@@ -597,6 +604,7 @@ export function useGitAuth({
       success: boolean
       user?: GitUserInfo | undefined
       scopes?: string[] | undefined
+      expiresAt?: string | undefined
       tokenType?: GitTokenType | undefined
       error?: string | undefined
       foundButInvalid?: boolean | undefined
@@ -649,6 +657,7 @@ export function useGitAuth({
           success: true,
           user: data.user as GitUserInfo | undefined,
           scopes: data.scopes,
+          expiresAt: data.expiresAt,
           tokenType: data.tokenType as GitTokenType | undefined,
           divergenceHint: data.divergenceHint,
           envVar: data.envVar,
@@ -670,6 +679,7 @@ export function useGitAuth({
     success: boolean
     user?: GitUserInfo | undefined
     scopes?: string[] | undefined
+    expiresAt?: string | undefined
     tokenType?: GitTokenType | undefined
     error?: string | undefined
     foundButInvalid?: boolean | undefined
@@ -722,6 +732,7 @@ export function useGitAuth({
         success: true,
         user: data.user,
         scopes: data.scopes,
+        expiresAt: data.expiresAt,
         tokenType: data.tokenType,
         host: data.host,
         source: data.source,
@@ -886,6 +897,7 @@ export function useGitAuth({
               user: result.user,
               details: {
                 scopes: result.scopes,
+                expiresAt: result.expiresAt,
                 tokenType: result.tokenType,
                 divergenceHint: result.divergenceHint,
                 sessionEnvWarning: result.sessionEnvWarning,
@@ -925,6 +937,7 @@ export function useGitAuth({
               user: result.user,
               details: {
                 scopes: result.scopes,
+                expiresAt: result.expiresAt,
                 tokenType: result.tokenType,
                 sessionEnvWarning: result.sessionEnvWarning,
                 meta: { source: result.source ?? "cli", validatedVia: result.validatedVia },
@@ -1143,6 +1156,7 @@ export function useGitAuth({
     // fine-grained PATs and GitLab tokens may report none.
     applyCredentialDetails({
       scopes: validation.scopes,
+      expiresAt: validation.expiresAt,
       tokenType: validation.tokenType,
       sessionEnvWarning: validation.sessionEnvWarning,
       meta: validation.validatedVia ? { validatedVia: validation.validatedVia } : null,
@@ -1210,6 +1224,7 @@ export function useGitAuth({
             setUserInfo(user)
             applyCredentialDetails({
               scopes: data.scopes,
+              expiresAt: data.expiresAt,
               tokenType: data.tokenType as GitTokenType | undefined,
               sessionEnvWarning: data.sessionEnvWarning,
             })
@@ -1306,6 +1321,7 @@ export function useGitAuth({
     setUserInfo(null)
     setDetectionSource(null)
     setDetectedScopes(null)
+    setExpiresAt(undefined)
     setDetectedTokenType(null)
     setMissingScope(false)
     setDetectionWarning(null)
@@ -1567,6 +1583,7 @@ export function useGitAuth({
         user: userInfo,
         source: detectionSource,
         scopes: detectedScopes,
+        expiresAt,
         tokenType: detectedTokenType,
         meta: successMeta,
         outputs: encodeOutputs(ownOutputs),
@@ -1591,6 +1608,7 @@ export function useGitAuth({
     gitlabInstanceUrl,
     detectionSource,
     detectedScopes,
+    expiresAt,
     detectedTokenType,
     successMeta,
   ])
@@ -1638,6 +1656,7 @@ export function useGitAuth({
     detectionStatus,
     detectionSource,
     detectedScopes,
+    expiresAt,
     detectedTokenType,
     missingScope,
     detectionWarning,

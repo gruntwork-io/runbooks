@@ -26,7 +26,7 @@
  * script runs, in order, and all of them before the status event, and that a
  * background job can keep logging once the run has ended.
  */
-import { describe, it, expect, afterEach } from "bun:test"
+import { describe, it, expect, afterAll, afterEach } from "bun:test"
 import { Effect, Fiber, Layer, Stream } from "effect"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -42,6 +42,12 @@ const liveLayer = Layer.mergeAll(
   ProcessEnvironmentLive,
   ChildProcessSpawnerLive,
 )
+
+/** Where these runs write their logs. */
+const LOGS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "runbook-kill-logs-"))
+afterAll(() => {
+  fs.rmSync(LOGS_DIR, { recursive: true, force: true })
+})
 
 /** True if a process with `pid` is still alive (signal 0 = existence probe). */
 function isAlive(pid: number): boolean {
@@ -118,6 +124,7 @@ describe("executeScript cancellation (e2e, real process tree)", () => {
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
           "",
           "",
+          LOGS_DIR,
         )
         // Draining the log stream parks the fiber while the process runs —
         // this is the interruptible point cancellation acts on.
@@ -185,6 +192,7 @@ async function runToCompletion(
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
           "",
           "",
+          LOGS_DIR,
         )
         const blockUntil = Date.now() + blockAfterSpawnMs
         while (Date.now() < blockUntil) {
@@ -243,6 +251,7 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
             { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
             "",
             "",
+            LOGS_DIR,
           )
           yield* Stream.runDrain(run.logStream)
           yield* run.completionEffect

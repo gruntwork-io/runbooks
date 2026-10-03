@@ -103,6 +103,12 @@ A filled-in instance URL, whether typed or set with `instanceUrl`, takes precede
 
 The `GITLAB_TOKEN` environment variable is used for one instance only. That instance is the host named by `GITLAB_HOST`, `GITLAB_URI` or `GL_HOST`, checked in that order, or `gitlab.com` when none is set. Runbooks never sends the token to any other host, or over plain `http://`, so to have it detected for a self-managed instance, also set `GITLAB_HOST`. A prefixed token (`{ env: { prefix } }`) is bound by the prefixed host variables. See [`<GitLabAuth>`](/authoring/blocks/gitlabauth/#prefixed-environment-variables).
 
+### Expiring tokens
+
+The block warns before a token expires when the provider says when that is. GitHub says so for a token that has an expiration date, such as a fine-grained personal access token. GitLab says so for a personal access token with an expiry date, and for an OAuth token such as the one `glab auth login` stores.
+
+Five minutes before the token expires, the block turns red, says when it expires, and offers **Sign in again**. Once it has expired, the block says so. It stays signed in until you sign in again, so a script that runs in the meantime gets the expired token.
+
 ## Props
 
 | Prop | Type | Required | Default | Description |

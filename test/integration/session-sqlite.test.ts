@@ -30,6 +30,7 @@ const session: SessionRecord = {
   lastLaunchedAt: "2026-01-02T00:00:00.000Z",
   lastActivityAt: "2026-01-03T00:00:00.000Z",
   vcsBindings: { github: { host: "ghe.example.com", source: "oauth" } },
+  finishedAt: "2026-01-03T12:00:00.000Z",
 }
 
 describe("SessionStore over node:sqlite", () => {

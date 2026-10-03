@@ -78,6 +78,8 @@ export function useGitClone({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   // Why the repository the session's history had is not shown: it is gone.
   const [restoreError, setRestoreError] = useState<string | null>(null)
+  // The restored repository is on another branch or tag than the session saved.
+  const [refMismatch, setRefMismatch] = useState<{ saved: string; current: string } | null>(null)
   const [hasGitHubToken, setHasGitHubToken] = useState(false)
   const [tokenChecked, setTokenChecked] = useState(false)
   const [workingDir, setWorkingDir] = useState<string | null>(null)
@@ -132,7 +134,8 @@ export function useGitClone({
   // A restored repository is shown and published at once, and then checked:
   // the session's history says it was there when the session was last open,
   // not that it still is. Restoring publishes nothing new, so onReady stays
-  // out of it.
+  // out of it. A repository someone moved to another branch since is left
+  // alone, and the block says so.
   const [restoredAtMount] = useState(restored)
   useEffect(() => {
     if (restoredAtMount === undefined) return
@@ -142,7 +145,13 @@ export function useGitClone({
       .invoke("git:local-repo", { path: restoredAtMount.result.absolutePath })
       .then((check) => {
         // The user has moved on (Clone again) since: the check is moot.
-        if (runId !== cloneRunRef.current || check.status === "success") return
+        if (runId !== cloneRunRef.current) return
+        if (check.status === "success") {
+          const saved = restoredAtMount.result.ref
+          const current = check.ref ?? ""
+          if (saved && current !== saved) setRefMismatch({ saved, current })
+          return
+        }
         cloneRunRef.current++
         setCloneStatus("ready")
         setCloneResult(null)
@@ -551,6 +560,7 @@ export function useGitClone({
     setCloneResult(null)
     setErrorMessage(null)
     setRestoreError(null)
+    setRefMismatch(null)
     pendingOutputsRef.current = null
     registerOutputs(id, {})
     setSeedStatus("idle")
@@ -574,6 +584,7 @@ export function useGitClone({
     cloneResult,
     errorMessage,
     restoreError,
+    refMismatch,
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,

@@ -33,11 +33,11 @@ function Harness({ onRenamed }: { onRenamed: (name: string) => void }) {
   )
 }
 
-/** Render the name and shift-click it; returns the field and the onRenamed spy. */
+/** Render the name and click it; returns the field and the onRenamed spy. */
 async function startRenaming() {
   const onRenamed = vi.fn()
   render(<Harness onRenamed={onRenamed} />)
-  fireEvent.click(screen.getByRole("button", { name: "elegant-elephant" }), { shiftKey: true })
+  fireEvent.click(screen.getByRole("button", { name: "Rename session elegant-elephant" }))
   return { field: screen.getByRole("textbox", { name: "Session name" }), onRenamed }
 }
 
@@ -46,19 +46,31 @@ describe("SessionName", () => {
     invoke.mockReset()
   })
 
-  it("copies the name when clicked, and stays a name", async () => {
+  it("copies the name from the button before it, and stays a name", async () => {
     const user = userEvent.setup()
     render(<Harness onRenamed={vi.fn()} />)
 
-    await user.click(screen.getByRole("button", { name: "elegant-elephant" }))
+    await user.click(screen.getByRole("button", { name: "Copy session name" }))
 
     expect(await navigator.clipboard.readText()).toBe("elegant-elephant")
-    expect(await screen.findByLabelText("Copied")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument()
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it("turns into a field with the name selected when shift-clicked", async () => {
+  it("hints at what each control does when hovered", async () => {
+    const user = userEvent.setup()
+    render(<Harness onRenamed={vi.fn()} />)
+
+    await user.hover(screen.getByRole("button", { name: "Copy session name" }))
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Copy session name")
+    await user.unhover(screen.getByRole("button", { name: "Copy session name" }))
+
+    await user.hover(screen.getByRole("button", { name: "Rename session elegant-elephant" }))
+    await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Rename session"))
+  })
+
+  it("turns into a field with the name selected when clicked", async () => {
     const { field } = await startRenaming()
 
     expect(field).toHaveValue("elegant-elephant")
@@ -75,7 +87,9 @@ describe("SessionName", () => {
     await userEvent.keyboard("prod-deploy{Enter}")
 
     expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
-    expect(await screen.findByRole("button", { name: "prod-deploy" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Rename session prod-deploy" }),
+    ).toBeInTheDocument()
     expect(onRenamed).toHaveBeenCalledWith("prod-deploy")
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
   })
@@ -127,7 +141,9 @@ describe("SessionName", () => {
 
     await userEvent.keyboard("prod-deploy{Escape}")
 
-    expect(screen.getByRole("button", { name: "elegant-elephant" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
+    ).toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
     expect(onRenamed).not.toHaveBeenCalled()
   })
@@ -138,7 +154,9 @@ describe("SessionName", () => {
     await userEvent.keyboard("prod-deploy")
     await userEvent.click(screen.getByRole("button", { name: "Elsewhere" }))
 
-    expect(screen.getByRole("button", { name: "elegant-elephant" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
+    ).toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
   })
 
@@ -158,7 +176,9 @@ describe("SessionName", () => {
     await userEvent.clear(field)
     await userEvent.keyboard(" elegant-elephant {Enter}")
 
-    expect(screen.getByRole("button", { name: "elegant-elephant" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
+    ).toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
   })
 
@@ -178,7 +198,9 @@ describe("SessionName", () => {
     expect(screen.getByRole("textbox", { name: "Session name" })).toBe(field)
 
     finish({ name: "prod-deploy" })
-    expect(await screen.findByRole("button", { name: "prod-deploy" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Rename session prod-deploy" }),
+    ).toBeInTheDocument()
     expect(onRenamed).toHaveBeenCalledWith("prod-deploy")
   })
 
@@ -200,7 +222,9 @@ describe("SessionName", () => {
 
     await userEvent.keyboard("{Enter}")
 
-    expect(screen.getByRole("button", { name: "elegant-elephant" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Rename session elegant-elephant" }),
+    ).toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
   })
 })

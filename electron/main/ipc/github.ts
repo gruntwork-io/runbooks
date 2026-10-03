@@ -245,6 +245,7 @@ export function registerGitHubHandlers(): void {
           host,
           user: result.user,
           scopes: result.scopes,
+          ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
           tokenType,
           outcome: "valid" as const,
           ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),
@@ -294,7 +295,9 @@ export function registerGitHubHandlers(): void {
 
         registerSecret(result.token)
         const tokenType = detectTokenType(result.token)
-        const { user, scopes } = await runtime.runPromise(validateToken(result.token, host))
+        const { user, scopes, expiresAt } = await runtime.runPromise(
+          validateToken(result.token, host),
+        )
 
         const sessionEnvWarning = await writeGitHubSession(
           generation,
@@ -311,6 +314,7 @@ export function registerGitHubHandlers(): void {
           status: "complete" as const,
           user,
           scopes,
+          ...(expiresAt ? { expiresAt } : {}),
           tokenType,
           ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }

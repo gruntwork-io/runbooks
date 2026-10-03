@@ -200,3 +200,15 @@ export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) 
     const absolutePath = yield* resolveToAbsolutePath(baseDir, outputPath)
     return { baseDir, outputPath, absolutePath }
   })
+
+/**
+ * The directory the runs of block `blockId` write their logs to:
+ * `.runbooks/logs/<block id>` in the session's own directory, so the logs
+ * last as long as the session and go when it is deleted. A block id that
+ * isn't a plain file name has its other characters replaced.
+ */
+export const resolveRunLogsDir = (blockId: string) =>
+  Effect.map(sessionManager.getSession(), (session) => {
+    const name = blockId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+$/, "_") || "_"
+    return path.join(session.initialWorkDir, ".runbooks", "logs", name)
+  })

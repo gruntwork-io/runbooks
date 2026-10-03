@@ -43,6 +43,13 @@ export function registerSessionHandlers(): void {
     return { name: await runtime.runPromise(persistence.renameCurrent(requested)) }
   })
 
+  ipcMain.handle("session:finish", async () => {
+    const persistence = sessionPersistence
+    if (!persistence) throw new Error("session persistence is not initialized")
+    await runtime.runPromise(persistence.finishCurrent())
+    return { ok: true as const }
+  })
+
   ipcMain.handle("session:list", async () => {
     const persistence = sessionPersistence
     if (!persistence) throw new Error("session persistence is not initialized")
@@ -57,8 +64,8 @@ export function registerSessionHandlers(): void {
     },
   )
 
-  // Rejects with a sentence for the user when the session is the open one
-  // (see SessionPersistence.deleteSession).
+  // Rejects with a sentence for the user when the session is the open one, or
+  // its directory can't be moved to the trash (see SessionPersistence.deleteSession).
   ipcMain.handle("session:delete", async (_event, params?: { id?: unknown }) => {
     const persistence = sessionPersistence
     if (!persistence) throw new Error("session persistence is not initialized")

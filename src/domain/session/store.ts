@@ -67,6 +67,8 @@ export interface SessionRecord extends StoredSessionState, RunbookSource {
   createdAt: string
   lastLaunchedAt: string
   vcsBindings: VcsBindings
+  /** When the session was marked finished; undefined while it isn't. */
+  finishedAt: string | undefined
 }
 
 /** What a list of sessions shows of each (SessionStore.list). */
@@ -78,6 +80,8 @@ export interface SessionSummary extends RunbookSource {
   /** When the session was last opened, or a block last changed it, whichever is later. */
   lastUsedAt: string
   executionCount: number
+  /** When the session was marked finished; undefined while it isn't. */
+  finishedAt: string | undefined
 }
 
 /** A saved session as a list of sessions shows it (SessionPersistence.listSessions). */
@@ -118,6 +122,7 @@ interface SessionRow {
   last_launched_at: string
   last_activity_at: string
   vcs_bindings: string
+  finished_at: string | null
 }
 
 const MIGRATIONS = [
@@ -135,7 +140,8 @@ const MIGRATIONS = [
      created_at TEXT NOT NULL,
      last_launched_at TEXT NOT NULL,
      last_activity_at TEXT NOT NULL,
-     vcs_bindings TEXT NOT NULL
+     vcs_bindings TEXT NOT NULL,
+     finished_at TEXT
    ) STRICT;
    CREATE TABLE session_worktrees (
      session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
@@ -202,8 +208,8 @@ export class SessionStore {
             `INSERT INTO sessions (
                id, name, runbook_path, remote_source, dir, working_dir, launch_dir, env,
                active_worktree, execution_count, created_at, last_launched_at, last_activity_at,
-               vcs_bindings
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               vcs_bindings, finished_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             record.id,
@@ -220,6 +226,7 @@ export class SessionStore {
             record.lastLaunchedAt,
             record.lastActivityAt,
             JSON.stringify(record.vcsBindings),
+            record.finishedAt ?? null,
           )
         this.replaceWorktrees(record.id, record.worktrees)
       })
@@ -379,7 +386,7 @@ export class SessionStore {
       const rows = this.db
         .prepare(
           `SELECT id, name, runbook_path, remote_source, dir, created_at, execution_count,
-             MAX(last_launched_at, last_activity_at) AS last_used_at
+             finished_at, MAX(last_launched_at, last_activity_at) AS last_used_at
            FROM sessions ORDER BY last_used_at DESC, rowid DESC LIMIT ?`,
         )
         .all(limit) as Array<
@@ -392,6 +399,7 @@ export class SessionStore {
           | "dir"
           | "created_at"
           | "execution_count"
+          | "finished_at"
         > & { last_used_at: string }
       >
       return rows.map((row) => ({
@@ -403,7 +411,17 @@ export class SessionStore {
         createdAt: row.created_at,
         lastUsedAt: row.last_used_at,
         executionCount: row.execution_count,
+        finishedAt: row.finished_at ?? undefined,
       }))
+    })
+  }
+
+  /** Mark a session finished at `at`. A session already finished keeps its first time. */
+  markFinished(id: string, at: string): Effect.Effect<void, SessionStoreError> {
+    return attempt("mark a session finished", () => {
+      this.db
+        .prepare("UPDATE sessions SET finished_at = ? WHERE id = ? AND finished_at IS NULL")
+        .run(at, id)
     })
   }
 
@@ -466,6 +484,7 @@ export class SessionStore {
         lastLaunchedAt: row.last_launched_at,
         lastActivityAt: row.last_activity_at,
         vcsBindings: parseVcsBindings(row.vcs_bindings),
+        finishedAt: row.finished_at ?? undefined,
       }
     })
   }

@@ -386,6 +386,35 @@ describe("github:validate", () => {
   })
 })
 
+describe("an expiring token", () => {
+  const EXPIRING = { "GitHub-Authentication-Token-Expiration": "2026-11-30 21:04:01 UTC" }
+  const expiringResponder = (url: string): Response =>
+    url.endsWith("/login/oauth/access_token")
+      ? json({ access_token: "ghu_expiring" })
+      : url.endsWith("/user")
+        ? json({ login: "alice" }, EXPIRING)
+        : githubResponder(url)
+
+  it("validate, env-credentials and oauth-poll all return when it expires", async () => {
+    mockFetch(expiringResponder)
+    process.env.GITHUB_TOKEN = "github_pat_env"
+
+    const validated = await invoke("github:validate", { token: "github_pat_x" })
+    const detected = await invoke("github:env-credentials", {})
+    const polled = await invoke("github:oauth-poll", { deviceCode: "dc" })
+
+    for (const result of [validated, detected, polled]) {
+      expect(result.expiresAt).toBe("2026-11-30T21:04:01.000Z")
+    }
+  })
+
+  it("is absent for a token that doesn't expire", async () => {
+    const result = await invoke("github:validate", { token: "ghp_pat" })
+    expect(result.valid).toBe(true)
+    expect("expiresAt" in result).toBe(false)
+  })
+})
+
 describe("github:env-credentials / github:cli-credentials", () => {
   it("env-credentials for GHES reads GH_ENTERPRISE_TOKEN bound by GH_HOST and returns host", async () => {
     process.env.GH_HOST = GHES

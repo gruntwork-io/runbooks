@@ -60,6 +60,7 @@ const SAVED = {
     secretAccessKey: "saved-secret",
     sessionToken: "saved-token",
     region: "us-west-2",
+    expiresAt: "2026-10-03T13:00:00.000Z",
   },
   account: ACCOUNT,
 }
@@ -140,7 +141,7 @@ describe("useAwsAuth in a session — recording", () => {
     })
   })
 
-  it("records a sign-in with a local profile", async () => {
+  it("records a sign-in with a local profile, with when its credentials expire", async () => {
     replies["aws:profiles"] = () => ({ profiles: [{ name: "default", authType: "static" }] })
     replies["aws:profile-auth"] = () => ({
       valid: true,
@@ -148,6 +149,7 @@ describe("useAwsAuth in a session — recording", () => {
       accessKeyId: "AKIA_PROFILE",
       secretAccessKey: "profile-secret",
       sessionToken: "profile-token",
+      expiresAt: "2026-10-03T13:00:00.000Z",
     })
     const { result } = renderAwsAuth()
 
@@ -164,6 +166,7 @@ describe("useAwsAuth in a session — recording", () => {
             secretAccessKey: "profile-secret",
             sessionToken: "profile-token",
             region: "us-west-2",
+            expiresAt: "2026-10-03T13:00:00.000Z",
           },
           account: ACCOUNT,
         },
@@ -179,6 +182,7 @@ describe("useAwsAuth in a session — recording", () => {
       accessKeyId: "AKIA_ENV",
       secretAccessKey: "env-secret",
       region: "eu-central-1",
+      expiresAt: "2026-10-03T14:00:00.000Z",
     })
     const { result } = renderAwsAuth({ detectCredentials: ["env"] })
     await waitFor(() => expect(result.current.detectionStatus).toBe("detected"))
@@ -194,6 +198,7 @@ describe("useAwsAuth in a session — recording", () => {
             accessKeyId: "AKIA_ENV",
             secretAccessKey: "env-secret",
             region: "eu-central-1",
+            expiresAt: "2026-10-03T14:00:00.000Z",
           },
           account: ACCOUNT,
         },
@@ -208,6 +213,7 @@ describe("useAwsAuth in a session — recording", () => {
           AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
           AWS_SECRET_ACCESS_KEY: "block-secret",
           AWS_REGION: "eu-west-1",
+          AWS_CREDENTIAL_EXPIRATION: "2026-10-03T14:30:00+02:00",
         },
       },
     }
@@ -226,6 +232,7 @@ describe("useAwsAuth in a session — recording", () => {
             accessKeyId: "AKIA_BLOCK",
             secretAccessKey: "block-secret",
             region: "eu-west-1",
+            expiresAt: "2026-10-03T12:30:00.000Z",
           },
           account: ACCOUNT,
         },
@@ -238,6 +245,7 @@ describe("useAwsAuth in a session — recording", () => {
       accessKeyId: "AKIA_SSO",
       secretAccessKey: "sso-secret",
       sessionToken: "sso-token",
+      expiresAt: "2026-10-03T20:00:00.000Z",
     }
     const savedSso = {
       status: "signed-in",
@@ -316,6 +324,7 @@ describe("useAwsAuth in a session — resuming", () => {
 
     expect(result.current.authStatus).toBe("authenticated")
     expect(result.current.accountInfo).toEqual(ACCOUNT)
+    expect(result.current.expiresAt).toBe("2026-10-03T13:00:00.000Z")
     expect(result.current.detectionStatus).toBe("done")
     await waitFor(() =>
       expect(registerOutputs).toHaveBeenCalledWith("aws", {

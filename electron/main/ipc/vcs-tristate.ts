@@ -145,6 +145,7 @@ export const toDetectionIpcResult = (result: OrchestratedDetection, host?: strin
         ...common,
         user: result.user,
         scopes: result.scopes,
+        ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
         ...(result.envVar ? { envVar: result.envVar } : {}),
         ...(result.divergenceHint ? { divergenceHint: result.divergenceHint } : {}),
         ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),

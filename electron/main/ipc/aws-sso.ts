@@ -57,6 +57,7 @@ export async function handleSsoPoll(params: SsoPollRequest) {
           accessKeyId: outcome.credentials.accessKeyId,
           secretAccessKey: outcome.credentials.secretAccessKey,
           sessionToken: outcome.credentials.sessionToken,
+          expiresAt: outcome.credentials.expiresAt,
         }
     }
   } catch (err) {

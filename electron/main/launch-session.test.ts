@@ -22,6 +22,7 @@ describe("launch-session", () => {
       manager: new SessionManager(),
       dirsRoot: path.join(tmp, "dirs"),
       cipher: { encrypt: () => undefined, decrypt: () => undefined },
+      moveToTrash: async () => {},
       ephemeralFileEnvVars: [],
       random: () => Math.random(),
       onSaveError: () => {},
@@ -51,6 +52,7 @@ describe("launch-session", () => {
       lastLaunchedAt: "2026-01-01T00:00:00.000Z",
       lastActivityAt: "2026-01-01T00:00:00.000Z",
       vcsBindings: {},
+      finishedAt: undefined,
       ...overrides,
     }
     Effect.runSync(store.insert(session))
@@ -179,6 +181,19 @@ describe("launch-session", () => {
 
     it("opens nothing when there is no session to resume", () => {
       expect(planStartupLaunch(persistence, NO_ARGS, "/home/me/project", null)).toBeUndefined()
+    })
+
+    it("opens a finished session's runbook without naming the session, so it gets a new one", () => {
+      const saved = saveSession({
+        id: "done",
+        launchDir: "/home/me/project",
+        finishedAt: "2026-01-02T00:00:00.000Z",
+      })
+
+      expect(planStartupLaunch(persistence, NO_ARGS, "/home/me/project", null)).toEqual({
+        launch: { source: saved.path, launchDir: "/home/me/project", sessionId: undefined },
+        open: { path: saved.path },
+      })
     })
   })
 

@@ -76,6 +76,7 @@ export function useAwsAuth({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(restored?.account ?? null)
+  const [expiresAt, setExpiresAt] = useState(restored?.credentials.expiresAt)
 
   // Detection state (new pattern matching GitHubAuth)
   const [detectionStatus, setDetectionStatus] = useState<AwsDetectionStatus>(
@@ -178,6 +179,9 @@ export function useAwsAuth({
         }
       }
 
+      // AWS_CREDENTIAL_EXPIRATION is the variable the AWS SDKs read the
+      // expiry from; one that isn't a date is ignored.
+      const expiration = new Date(outputs.AWS_CREDENTIAL_EXPIRATION ?? "")
       return {
         found: true,
         creds: omitUndefined({
@@ -185,6 +189,7 @@ export function useAwsAuth({
           secretAccessKey: blockSecretAccessKey,
           sessionToken: outputs.AWS_SESSION_TOKEN,
           region: outputs.AWS_REGION || defaultRegion,
+          expiresAt: Number.isNaN(expiration.getTime()) ? undefined : expiration.toISOString(),
         }),
       }
     },
@@ -243,6 +248,7 @@ export function useAwsAuth({
       } satisfies Record<string, string>
 
       publishCredentials(creds)
+      setExpiresAt(creds.expiresAt)
       history.record(id, "auth", {
         status: "signed-in",
         block: "aws",
@@ -612,6 +618,7 @@ export function useAwsAuth({
             secretAccessKey: data.secretAccessKey,
             sessionToken: data.sessionToken,
             region: data.region || defaultRegion,
+            expiresAt: data.expiresAt,
           }),
           { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
         )
@@ -860,6 +867,7 @@ export function useAwsAuth({
                 secretAccessKey: data.secretAccessKey!,
                 sessionToken: data.sessionToken,
                 region: selectedDefaultRegion,
+                expiresAt: data.expiresAt,
               }),
               { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
             )
@@ -993,6 +1001,7 @@ export function useAwsAuth({
             secretAccessKey: data.secretAccessKey!,
             sessionToken: data.sessionToken,
             region: selectedDefaultRegion,
+            expiresAt: data.expiresAt,
           }),
           { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
         )
@@ -1059,6 +1068,7 @@ export function useAwsAuth({
             sessionToken: data.sessionToken,
             // The region main validated in: the profile's own, else the chosen one.
             region: data.region || selectedDefaultRegion,
+            expiresAt: data.expiresAt,
           }),
           { accountId: data.accountId, accountName: data.accountName, arn: data.arn },
         )
@@ -1115,6 +1125,7 @@ export function useAwsAuth({
     errorMessage,
     warningMessage,
     accountInfo,
+    expiresAt,
 
     // Detection state (new pattern)
     detectionStatus,

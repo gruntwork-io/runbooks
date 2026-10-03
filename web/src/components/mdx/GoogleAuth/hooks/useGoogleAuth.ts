@@ -107,6 +107,8 @@ interface PendingAccount {
   accountType?: "service_account" | "user"
   credentialType?: GoogleCredentialType
   scopes?: string[]
+  /** When a bare access token expires, as an ISO timestamp */
+  expiresAt?: string
   credentialsPath?: string
 }
 
@@ -116,7 +118,12 @@ interface PendingAccount {
  */
 interface ReplayResult {
   valid: boolean
-  account?: { principal?: string; accountType?: "service_account" | "user"; scopes?: string[] }
+  account?: {
+    principal?: string
+    accountType?: "service_account" | "user"
+    scopes?: string[]
+    expiresAt?: string
+  }
   projectId?: string
   credentialsPath?: string
   credentialType?: GoogleCredentialType
@@ -574,6 +581,7 @@ export function useGoogleAuth({
         ...(result.accountType ? { accountType: result.accountType } : {}),
         ...(result.credentialType ? { credentialType: result.credentialType } : {}),
         ...(result.scopes && result.scopes.length > 0 ? { scopes: result.scopes } : {}),
+        ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
         ...(credentialsPath ? { credentialsPath } : {}),
       })
 
@@ -587,6 +595,7 @@ export function useGoogleAuth({
           accountType: result.accountType,
           credentialType: result.credentialType,
           scopes: result.scopes,
+          expiresAt: result.expiresAt,
         }),
         projectId: result.projectId,
         ...(result.projectName ? { projectName: result.projectName } : {}),
@@ -658,6 +667,7 @@ export function useGoogleAuth({
           ...(accountInfo?.accountType ? { accountType: accountInfo.accountType } : {}),
           ...(accountInfo?.credentialType ? { credentialType: accountInfo.credentialType } : {}),
           ...(accountInfo?.scopes ? { scopes: accountInfo.scopes } : {}),
+          ...(accountInfo?.expiresAt ? { expiresAt: accountInfo.expiresAt } : {}),
           ...(accountInfo?.credentialsPath ? { credentialsPath: accountInfo.credentialsPath } : {}),
         }
 
@@ -1152,6 +1162,7 @@ export function useGoogleAuth({
           ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
           credentialType: data.credentialType ?? detectedCredentials.credentialType,
           ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
+          ...(data.account?.expiresAt ? { expiresAt: data.account.expiresAt } : {}),
           ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
           // The 'gcloud' and 'env' sources fall back to the configuration's or
           // env's own region/zone in MAIN; publish what MAIN wrote.
@@ -1210,6 +1221,7 @@ export function useGoogleAuth({
               ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
               credentialType: data.credentialType ?? detectedCredentials.credentialType,
               ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
+              ...(data.account?.expiresAt ? { expiresAt: data.account.expiresAt } : {}),
               ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
               region: effectiveRegion,
               zone: effectiveZone,
@@ -1376,6 +1388,7 @@ export function useGoogleAuth({
         ...(data.account?.accountType ? { accountType: data.account.accountType } : {}),
         credentialType: data.credentialType ?? "service_account",
         ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
+        ...(data.account?.expiresAt ? { expiresAt: data.account.expiresAt } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
 
@@ -1874,6 +1887,7 @@ export function useGoogleAuth({
         credentialType:
           selectedConfig.authType === "adc-service-account" ? "service_account" : "authorized_user",
         ...(data.account?.scopes ? { scopes: data.account.scopes } : {}),
+        ...(data.account?.expiresAt ? { expiresAt: data.account.expiresAt } : {}),
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
 
@@ -2173,6 +2187,7 @@ export function useGoogleAuth({
           accountType: account?.accountType ?? restoredAtMount.account.accountType,
           credentialType: data.credentialType ?? restoredAtMount.account.credentialType,
           scopes: account?.scopes ?? restoredAtMount.account.scopes,
+          expiresAt: account?.expiresAt,
           credentialsPath: data.credentialsPath,
           projectName: restoredAtMount.projectName,
           sessionEnvWarning: data.sessionEnvWarning,

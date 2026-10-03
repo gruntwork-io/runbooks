@@ -92,6 +92,8 @@ test.describe("Saved sessions", () => {
   let userDataDir: string
   /** Where each session gets its own directory. */
   let sessionDirs: string
+  /** Stands in for the OS trash (RUNBOOKS_TEST_TRASH_DIR). */
+  let trashDir: string
 
   test.beforeEach(() => {
     // realpath: os.tmpdir() is a symlink on macOS, and a script's $PWD is not.
@@ -101,7 +103,9 @@ test.describe("Saved sessions", () => {
     // every session directory, and so every script's $PWD, has one.
     userDataDir = path.join(tmpDir, "user data")
     sessionDirs = path.join(userDataDir, "v0", "sessions", "dirs")
+    trashDir = path.join(tmpDir, "trash")
     fs.mkdirSync(runbookDir)
+    fs.mkdirSync(trashDir)
     fs.writeFileSync(path.join(runbookDir, "runbook.mdx"), RUNBOOK)
     fs.writeFileSync(path.join(runbookDir, "save.sh"), SAVE_SCRIPT)
     fs.writeFileSync(path.join(runbookDir, "show.sh"), SHOW_SCRIPT)
@@ -132,6 +136,7 @@ test.describe("Saved sessions", () => {
         ...(process.env as Record<string, string>),
         ELECTRON_NO_UPDATER: "1",
         RUNBOOKS_NO_TELEMETRY: "1",
+        RUNBOOKS_TEST_TRASH_DIR: trashDir,
         ...env,
       },
     })
@@ -182,6 +187,7 @@ test.describe("Saved sessions", () => {
       await expectRunbook(first.page)
       name = await sessionName(first.page)
       await expect(first.page).toHaveTitle(`${name} - Gruntwork Runbooks`)
+      await expect(first.page.getByText(/^Resumed session/)).toHaveCount(0)
       sessionDir = await showSession(first.page, "unset")
       expect(path.dirname(sessionDir)).toBe(sessionDirs)
       // The folder button next to the name is for copying that directory.
@@ -200,6 +206,8 @@ test.describe("Saved sessions", () => {
     try {
       await expectRunbook(second.page)
       expect(await sessionName(second.page)).toBe(name)
+      await expect(second.page.getByText(`Resumed session ${name}`)).toBeVisible()
+      await second.page.getByRole("button", { name: "Dismiss" }).click()
       // The export and the `cd` of the first run's block are both back.
       expect(await showSession(second.page, "from-first-run")).toBe(path.join(sessionDir, "work"))
     } finally {
@@ -262,7 +270,7 @@ test.describe("Saved sessions", () => {
       sessionDir = await showSession(first.page, "unset")
       const field = first.page.getByRole("textbox", { name: "Session name" })
 
-      await first.page.getByTestId("session-name").click({ modifiers: ["Shift"] })
+      await first.page.getByTestId("session-name").click()
       await expect(field).toBeFocused()
       // Typed over the selected name, and lowercased as it is typed.
       await first.page.keyboard.type("Prod Deploy")
@@ -561,12 +569,13 @@ test.describe("Saved sessions", () => {
       await expect(page.getByTestId("session-name")).toHaveText(secondName)
       expect(await showSession(page, "unset")).toBe(secondDir)
 
-      // Delete the first session: it leaves the list, and its directory goes.
+      // Delete the first session: it leaves the list, and its directory goes to the trash.
       dialog = await openSessions()
       await dialog.getByRole("button", { name: `Delete ${firstName}` }).click()
       await dialog.getByRole("button", { name: "Delete", exact: true }).click()
       await expect(sessionButton(dialog, firstName)).toHaveCount(0)
       expect(fs.existsSync(firstDir)).toBe(false)
+      expect(fs.readdirSync(trashDir)).toEqual([path.basename(firstDir)])
       expect(fs.existsSync(secondDir)).toBe(true)
     } finally {
       await app.close()

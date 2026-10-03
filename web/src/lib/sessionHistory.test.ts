@@ -54,14 +54,23 @@ describe("a saved form", () => {
 })
 
 describe("a saved run", () => {
-  it("gives a block back the state its run ended in, without the log file", () => {
+  it("gives a block back the state its run ended in, with its log file", () => {
     const state = execState({
       status: "fail",
       exitCode: 2,
       error: { message: "boom", details: "it broke" },
     })
 
-    expect(restoreRun(stored(runEnded(state)))).toEqual({ ...state, logFilePath: null })
+    expect(restoreRun(stored(runEnded(state)))).toEqual(state)
+  })
+
+  it("says the lines it left out were not saved when the run had no log file", () => {
+    const logs = Array.from({ length: 502 }, (_, i) => line(i))
+
+    const restored = restoreRun(stored(runEnded(execState({ logs, logFilePath: null }))))
+
+    expect(restored?.logFilePath).toBeNull()
+    expect(restored?.logs[0]?.line).toBe("[2 earlier lines were not saved with the session]")
   })
 
   it("keeps a sensitive output's value, and gives it back wrapped", () => {
@@ -104,7 +113,7 @@ describe("a saved run", () => {
 
     const restored = restoreRun(stored(runEnded(execState({ logs }))))
 
-    expect(restored?.logs[0]?.line).toBe("[1 earlier line was not saved with the session]")
+    expect(restored?.logs[0]?.line).toBe("[1 earlier line is only in the full log file]")
   })
 
   it("keeps the newest 500 lines of a longer log, and says how many it left out", () => {
@@ -114,7 +123,7 @@ describe("a saved run", () => {
 
     expect(restored?.logs).toHaveLength(501)
     expect(restored?.logs[0]).toEqual({
-      line: "[2 earlier lines were not saved with the session]",
+      line: "[2 earlier lines are only in the full log file]",
       timestamp: logs[2]!.timestamp,
     })
     expect(restored?.logs.slice(1)).toEqual(logs.slice(2))
@@ -127,7 +136,7 @@ describe("a saved run", () => {
     const restored = restoreRun(stored(runEnded(execState({ logs }))))
 
     expect(restored?.logs.map((entry) => entry.line)).toEqual([
-      "[1 earlier line was not saved with the session]",
+      "[1 earlier line is only in the full log file]",
       long,
       "the end",
     ])
@@ -139,7 +148,7 @@ describe("a saved run", () => {
     const restored = restoreRun(stored(runEnded(execState({ logs }))))
 
     expect(restored?.logs).toHaveLength(2)
-    expect(restored?.logs[0]?.line).toBe("[1 earlier line was not saved with the session]")
+    expect(restored?.logs[0]?.line).toBe("[1 earlier line is only in the full log file]")
     expect(restored?.logs[1]?.line).toHaveLength(64 * 1024)
     expect(restored?.logs[1]?.line.endsWith("xthe end")).toBe(true)
   })
@@ -174,7 +183,7 @@ describe("a saved run", () => {
     const restored = restoreRun(stored(runEnded(execState({ logs }))))
 
     expect(restored?.logs.map((entry) => entry.line)).toEqual([
-      "[1 earlier line was not saved with the session]",
+      "[1 earlier line is only in the full log file]",
       half,
       half,
     ])

@@ -44,7 +44,7 @@ const { installTestSessionPersistence } = await import("../test-utils/session-pe
 const { sessionManager, setExecutableRegistry, setRunbookConfig } = runtimeModule
 
 type Loaded = { path: string; sessionId: string; sessionName: string }
-type Listed = { id: string; isCurrent: boolean; runbookMissing: boolean }
+type Listed = { id: string; isCurrent: boolean; runbookMissing: boolean; finishedAt?: string }
 
 const invoke = (channel: string, params?: unknown) => handlers.get(channel)!(undefined, params)
 const getRunbook = (runbookPath: string, remoteSource?: string) =>
@@ -264,6 +264,26 @@ describe("switching and deleting saved sessions", () => {
       await expect(invoke("session:switch", {})).rejects.toThrow(
         "a session switch needs a session id",
       )
+    })
+  })
+
+  describe("session:finish", () => {
+    it("marks the open session finished: the runbook's next open starts a new one", async () => {
+      const a = await getRunbook(dirA)
+
+      expect(await invoke("session:finish")).toEqual({ ok: true })
+
+      expect((await list()).find((s) => s.id === a.sessionId)).toMatchObject({
+        finishedAt: expect.any(String),
+      })
+      // A restart, then the runbook is opened again.
+      markRunbookClosed()
+      sessionManager.deleteSession()
+      const next = await getRunbook(dirA)
+      expect(next.sessionId).not.toBe(a.sessionId)
+      // Switching to the finished session still opens it.
+      expect(await switchTo(a.sessionId)).toEqual({ status: "switched" })
+      expect((await getRunbook(a.path)).sessionId).toBe(a.sessionId)
     })
   })
 

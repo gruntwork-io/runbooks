@@ -32,6 +32,7 @@ function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
     lastLaunchedAt: "2026-01-01T00:00:00.000Z",
     lastActivityAt: "2026-01-01T00:00:00.000Z",
     vcsBindings: {},
+    finishedAt: undefined,
     ...overrides,
   }
 }
@@ -374,6 +375,7 @@ describe("SessionStore", () => {
           createdAt: "2025-12-31T00:00:00.000Z",
           lastUsedAt: "2026-01-01T00:00:00.000Z",
           executionCount: 4,
+          finishedAt: undefined,
         },
       ])
     })
@@ -382,6 +384,23 @@ describe("SessionStore", () => {
       for (const id of ["a", "b", "c"]) run(store.insert(record({ id })))
 
       expect(run(store.list(2)).map((s) => s.id)).toEqual(["c", "b"])
+    })
+  })
+
+  describe("markFinished", () => {
+    it("marks a session finished, keeping the first time it was marked", () => {
+      run(store.insert(record()))
+      run(store.insert(record({ id: "other" })))
+
+      run(store.markFinished("s1", "2026-02-01T00:00:00.000Z"))
+      run(store.markFinished("s1", "2026-03-01T00:00:00.000Z"))
+
+      expect(run(store.get("s1"))?.finishedAt).toBe("2026-02-01T00:00:00.000Z")
+      expect(run(store.get("other"))?.finishedAt).toBeUndefined()
+      expect(run(store.list(10)).map((s) => [s.id, s.finishedAt])).toEqual([
+        ["other", undefined],
+        ["s1", "2026-02-01T00:00:00.000Z"],
+      ])
     })
   })
 

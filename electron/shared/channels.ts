@@ -39,7 +39,9 @@ export interface IpcChannelMap {
      * the title bar shows it as, e.g. `elegant-elephant`, and `sessionDir` is
      * the session's own directory, which the title bar's folder button copies.
      * `blockStates` is what the session's history says each block was left as,
-     * which the blocks start from.
+     * which the blocks start from. `sessionResumedFrom` is when a saved session
+     * was last used, on the load that resumed it; a new session, and a reload
+     * of the runbook in the session it has open, have none.
      */
     params: { path: string; watchMode?: boolean; remoteSource?: string }
     result: {
@@ -55,6 +57,7 @@ export interface IpcChannelMap {
       sessionId: string
       sessionName: string
       sessionDir: string
+      sessionResumedFrom?: string
       blockStates: SavedBlockState[]
     }
   }
@@ -95,6 +98,11 @@ export interface IpcChannelMap {
    * sessionNameProblem) or is another session's.
    */
   "session:rename": { params: { name: string }; result: { name: string } }
+  /**
+   * Mark the open session finished (SessionPersistence.finishCurrent): opening
+   * its runbook again starts a new session.
+   */
+  "session:finish": { params: void; result: { ok: true } }
   /** The most recently used saved sessions, most recent first (SessionPersistence.listSessions). */
   "session:list": { params: void; result: { sessions: ListedSession[] } }
   /**
@@ -107,8 +115,9 @@ export interface IpcChannelMap {
     result: SessionSwitchResult
   }
   /**
-   * Delete saved session `id`, its history and its directory. Rejects with a
-   * sentence for the user when `id` is the open session.
+   * Delete saved session `id` and its history, and move its directory to the
+   * trash. Rejects with a sentence for the user when `id` is the open session,
+   * or its directory can't be moved to the trash.
    */
   "session:delete": { params: { id: string }; result: { ok: true } }
   /**
@@ -224,6 +233,7 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      expiresAt?: string
       error?: string
     }
   }
@@ -234,6 +244,7 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      expiresAt?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -272,6 +283,7 @@ export interface IpcChannelMap {
       secretAccessKey?: string
       region?: string
       sessionToken?: string
+      expiresAt?: string
     }
   }
   "aws:profile-auth": {
@@ -284,6 +296,7 @@ export interface IpcChannelMap {
       sessionToken?: string
       /** The region the credentials were validated in: the profile's own, else `defaultRegion`. */
       region?: string
+      expiresAt?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -623,6 +636,8 @@ export interface IpcChannelMap {
       user?: GitHubUser
       scopes?: string[]
       tokenType?: string
+      /** When the token expires, as an ISO timestamp. Absent when it doesn't. */
+      expiresAt?: string
       /** GitHub answered slow_down: back off before the next poll. */
       slowDown?: boolean
       /** With slowDown: the minimum interval GitHub now requires, in seconds. */
@@ -1061,6 +1076,8 @@ export interface GoogleAccountInfo {
   principal: string
   accountType: "service_account" | "user"
   scopes?: string[]
+  /** When a bare access token expires, as an ISO timestamp. Absent for credentials that refresh. */
+  expiresAt?: string
 }
 
 export interface GoogleProjectIpc {
@@ -1102,6 +1119,8 @@ export type VcsErrorKind = "tls" | "server-cert" | "network"
 /** Tri-state metadata carried by detection/validation results. */
 export interface VcsDetectionMeta {
   outcome?: VcsAuthOutcome
+  /** When a valid token expires, as an ISO timestamp. Absent when it doesn't, or isn't known. */
+  expiresAt?: string
   /** Which source produced the credential (cli-channel results may be "config" — hosts.yml/config.yml fallbacks). */
   source?: "env" | "cli" | "config"
   /** "cli" marks probe-validated degraded auth (success-card transparency line). */

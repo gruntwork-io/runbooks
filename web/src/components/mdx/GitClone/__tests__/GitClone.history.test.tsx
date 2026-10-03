@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { ReactNode } from "react"
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
@@ -190,6 +190,49 @@ describe("GitClone in a session", () => {
     expect(unregisterWorkTree).toHaveBeenCalledWith("test-clone")
     // The form comes back filled in as it was for that repository.
     expect(screen.getByPlaceholderText("https://github.com/org/repo.git")).toHaveValue(URL)
+  })
+
+  it("turns red, and leaves the repository alone, when it is on another branch than the session saved", async () => {
+    mockIpc(async () => ({ ...CHECKOUT, ref: "feature-x" }))
+
+    renderGitClone(SAVED_CLONE)
+
+    expect(await screen.findByText("This repository is on feature-x, not main")).toBeInTheDocument()
+    expect(screen.getByRole("alert")).toHaveTextContent("git checkout main")
+    // Still the repository the session had: published, nothing switched or recorded.
+    expect(screen.getByText("Clone complete")).toBeInTheDocument()
+    expect(publishedOutputs()).toEqual(OUTPUTS)
+    expect(localRepoCalls()).toEqual([{ path: "/work/infra" }])
+    expect(recorded()).toEqual([])
+    expect(screen.getByTestId("test-clone").className).toContain("bg-destructive-muted")
+  })
+
+  it("says the repository is no longer on the saved branch when it has none checked out", async () => {
+    mockIpc(async () => ({ ...CHECKOUT, ref: "" }))
+
+    renderGitClone(SAVED_CLONE)
+
+    expect(await screen.findByText("This repository is no longer on main")).toBeInTheDocument()
+  })
+
+  it("stays green on the branch the session saved", async () => {
+    renderGitClone(SAVED_CLONE)
+    await waitFor(() => expect(localRepoCalls()).toHaveLength(1))
+    await settle()
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByTestId("test-clone").className).toContain("bg-success-muted")
+  })
+
+  it("drops the branch warning when the user starts over", async () => {
+    mockIpc(async () => ({ ...CHECKOUT, ref: "feature-x" }))
+    renderGitClone(SAVED_CLONE)
+    await screen.findByText("This repository is on feature-x, not main")
+
+    fireEvent.click(screen.getByRole("button", { name: /Clone again/ }))
+
+    expect(screen.queryByText(/This repository is on/)).not.toBeInTheDocument()
+    expect(screen.getByTestId("test-clone").className).not.toContain("bg-destructive-muted")
   })
 
   it("keeps the repository when the check itself fails", async () => {

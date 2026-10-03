@@ -151,6 +151,7 @@ const impl: AwsClientShape = {
           secretAccessKey: resolved.secretAccessKey,
           sessionToken: resolved.sessionToken,
           region,
+          expiresAt: resolved.expiration?.toISOString(),
         }
       },
       catch: (err) =>
@@ -246,6 +247,11 @@ const impl: AwsClientShape = {
           secretAccessKey: roleCreds.secretAccessKey!,
           sessionToken: roleCreds.sessionToken,
           region: params.region,
+          // Milliseconds since the epoch.
+          expiresAt:
+            roleCreds.expiration === undefined
+              ? undefined
+              : new Date(roleCreds.expiration).toISOString(),
         }
       },
       catch: (err) =>

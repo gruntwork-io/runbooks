@@ -6,6 +6,8 @@ export interface AwsCredentials {
   readonly secretAccessKey: string
   readonly sessionToken?: string | undefined
   readonly region: string
+  /** When temporary credentials expire, as an ISO timestamp. Undefined when they don't, or it isn't known. */
+  readonly expiresAt?: string | undefined
 }
 
 export interface AwsIdentity {

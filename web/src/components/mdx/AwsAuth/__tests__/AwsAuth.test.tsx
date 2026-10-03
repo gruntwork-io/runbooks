@@ -197,4 +197,62 @@ describe("AwsAuth — detection", () => {
     expect(screen.getByRole("button", { name: "Static Credentials" })).toBeInTheDocument()
     expect(screen.queryByText("✓ Authenticated to AWS")).toBeNull()
   })
+
+  it("turns red when the credentials expire within minutes, and signs in again on request", async () => {
+    const expiresAt = new Date(Date.now() + 2 * 60_000).toISOString()
+    installApi((channel) => {
+      if (channel === "aws:env-credentials") return { found: true, valid: true, ...IDENTITY }
+      if (channel === "aws:env-credentials-confirm") {
+        return {
+          valid: true,
+          ...IDENTITY,
+          accessKeyId: "ASIA_ENV",
+          secretAccessKey: "env-secret",
+          sessionToken: "env-token",
+          region: "us-east-1",
+          expiresAt,
+        }
+      }
+      if (channel === "session:set-env") return { ok: true }
+      if (channel === "aws:check-region") return { enabled: true }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(<AwsAuth id="test-aws" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Use These Credentials" }))
+
+    expect(
+      await screen.findByText("These credentials expire in less than 5 minutes"),
+    ).toBeInTheDocument()
+    expect(screen.getByText("✓ Authenticated to AWS")).toBeInTheDocument()
+    expect(screen.getByTestId("test-aws")).toHaveClass("bg-destructive-muted")
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
+    expect(screen.getByRole("button", { name: "Static Credentials" })).toBeInTheDocument()
+    expect(screen.queryByText(/These credentials/)).toBeNull()
+  })
+
+  it("stays green for credentials that expire hours from now", async () => {
+    installApi((channel) => {
+      if (channel === "aws:env-credentials") return { found: true, valid: true, ...IDENTITY }
+      if (channel === "aws:env-credentials-confirm") {
+        return {
+          valid: true,
+          ...IDENTITY,
+          accessKeyId: "ASIA_ENV",
+          secretAccessKey: "env-secret",
+          region: "us-east-1",
+          expiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
+        }
+      }
+      if (channel === "session:set-env") return { ok: true }
+      if (channel === "aws:check-region") return { enabled: true }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(<AwsAuth id="test-aws" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Use These Credentials" }))
+
+    expect(await screen.findByText("✓ Authenticated to AWS")).toBeInTheDocument()
+    expect(screen.getByTestId("test-aws")).toHaveClass("bg-success-muted")
+    expect(screen.queryByText(/These credentials/)).toBeNull()
+  })
 })

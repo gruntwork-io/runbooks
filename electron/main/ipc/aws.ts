@@ -85,6 +85,7 @@ export function registerAwsHandlers(): void {
         secretAccessKey: credentials.secretAccessKey,
         sessionToken: credentials.sessionToken,
         region: credentials.region,
+        expiresAt: credentials.expiresAt,
       }
     } catch (err) {
       return {

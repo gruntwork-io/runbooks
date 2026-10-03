@@ -56,6 +56,11 @@ interface ApiOptions {
   deleteFails?: boolean
   /** Report `isWatchMode` from `runbook:get`, as a `--watch` launch does. */
   watchMode?: boolean
+  /**
+   * Runbook file paths whose first session is a saved one: its first load
+   * resumes it, last used at `from`, with a history unless `history` is false.
+   */
+  resumed?: Record<string, { from: string; history?: boolean }>
 }
 
 /**
@@ -64,9 +69,16 @@ interface ApiOptions {
  * `generated-files:delete` act on whichever runbook was loaded last, like the
  * real session-scoped handlers, with the file count from `generatedFiles`.
  */
-function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }: ApiOptions = {}) {
+function makeApi({
+  generatedFiles = {},
+  deleteFails = false,
+  watchMode = false,
+  resumed = {},
+}: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
+  // Like main, only the load that resumes a session says it was resumed.
+  const resumedOnce = new Set<string>()
   // How many times each runbook was given a new session (see newSession).
   const sessionCounts = new Map<string, number>()
 
@@ -87,6 +99,9 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
           if (!fixture) throw new Error(NO_RUNBOOK_MESSAGE(params?.path ?? ""))
           current = fixture
           const sessionCount = sessionCounts.get(fixture.path) ?? 0
+          const resume = sessionCount === 0 ? resumed[fixture.path] : undefined
+          const resumes = resume !== undefined && !resumedOnce.has(fixture.path)
+          resumedOnce.add(fixture.path)
           return {
             path: fixture.path,
             content: fixture.content,
@@ -99,6 +114,11 @@ function makeApi({ generatedFiles = {}, deleteFails = false, watchMode = false }
             sessionId: `session-${sessionCount}`,
             sessionName: SESSION_NAMES[sessionCount],
             sessionDir: `/sessions/dirs/session-${sessionCount}`,
+            ...(resumes ? { sessionResumedFrom: resume.from } : {}),
+            blockStates:
+              resume !== undefined && resume.history !== false
+                ? [{ blockId: "region", kind: "inputs", payload: { values: {}, submitted: false } }]
+                : [],
           }
         }
         case "generated-files:check": {
@@ -316,7 +336,7 @@ describe("App runbook switching", () => {
     const { invoke, emit, newSession } = renderApp()
     await openRunbook(emit, "/work/a", "Runbook A")
 
-    fireEvent.click(screen.getByTestId("session-name"), { shiftKey: true })
+    fireEvent.click(screen.getByTestId("session-name"))
     await userEvent.keyboard("prod-deploy{Enter}")
 
     expect(invoke).toHaveBeenCalledWith("session:rename", { name: "prod-deploy" })
@@ -555,6 +575,68 @@ describe("App runbook switching", () => {
       expect(screen.queryByText(resultTitle)).not.toBeInTheDocument()
     },
   )
+})
+
+describe("App resumed sessions", () => {
+  const TWO_DAYS_AGO = new Date(Date.now() - 2 * 24 * 60 * 60_000 - 60_000).toISOString()
+
+  beforeEach(() => localStorage.clear())
+  afterEach(() => {
+    window.api = originalApi
+  })
+
+  it("says the runbook resumed a saved session and when it was last used, until dismissed", async () => {
+    const { emit } = renderApp({ resumed: { "/work/a/runbook.mdx": { from: TWO_DAYS_AGO } } })
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    const notice = await screen.findByText("Resumed session elegant-elephant")
+    expect(screen.getByText(/^Last used 2 days ago\./)).toBeInTheDocument()
+
+    // Opening the runbook again keeps the session, and the notice with it.
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(notice).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }))
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+  })
+
+  it("starts a new session from the notice", async () => {
+    const { invoke, emit, newSession } = renderApp({
+      resumed: { "/work/a/runbook.mdx": { from: TWO_DAYS_AGO } },
+    })
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start new session" }))
+
+    expect(callsTo(invoke, "native:reset-session")).toHaveLength(1)
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+    // Main answers by loading the runbook in a new session.
+    await newSession()
+    await waitFor(() => expect(screen.getByTestId("session-name")).toHaveTextContent("brave-otter"))
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+  })
+
+  it("goes away when another runbook opens", async () => {
+    const { emit } = renderApp({ resumed: { "/work/a/runbook.mdx": { from: TWO_DAYS_AGO } } })
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(await screen.findByText("Resumed session elegant-elephant")).toBeInTheDocument()
+
+    await openRunbook(emit, "/work/b", "Runbook B")
+
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+  })
+
+  it("says nothing for a new session, or for a resumed one with no history", async () => {
+    const { emit } = renderApp({
+      resumed: { "/work/b/runbook.mdx": { from: TWO_DAYS_AGO, history: false } },
+    })
+    await openRunbook(emit, "/work/a", "Runbook A")
+    await openRunbook(emit, "/work/b", "Runbook B")
+
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+  })
 })
 
 describe("App runbook context", () => {

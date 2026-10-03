@@ -96,6 +96,7 @@ interface DirectValidation {
   readonly ok: boolean
   readonly user?: VcsUserInfo
   readonly scopes?: string[] | undefined
+  readonly expiresAt?: string | undefined
   readonly status?: number
   readonly kind?: DetectionResult["errorKind"]
   readonly message?: string
@@ -117,6 +118,7 @@ const toDetection = (
       ...base,
       user: validation.user,
       scopes: validation.scopes,
+      expiresAt: validation.expiresAt,
       warnings: [],
       validatedVia: "direct",
     }
@@ -239,7 +241,12 @@ export const VcsCredentialsLive = Layer.effect(
 
     const validateGitHubDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
       githubClient.validateToken(token, host).pipe(
-        Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
+        Effect.map((v): DirectValidation => ({
+          ok: true,
+          user: v.user,
+          scopes: v.scopes,
+          expiresAt: v.expiresAt,
+        })),
         Effect.catchAll((err: GitHubApiError) =>
           Effect.succeed<DirectValidation>({
             ok: false,
@@ -252,7 +259,12 @@ export const VcsCredentialsLive = Layer.effect(
 
     const validateGitLabDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
       gitlabClient.validateToken(token, normalizeGitLabBaseUrl(host)).pipe(
-        Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
+        Effect.map((v): DirectValidation => ({
+          ok: true,
+          user: v.user,
+          scopes: v.scopes,
+          expiresAt: v.expiresAt,
+        })),
         Effect.catchAll((err: GitLabApiError) =>
           Effect.succeed<DirectValidation>({
             ok: false,

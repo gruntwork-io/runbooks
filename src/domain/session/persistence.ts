@@ -11,6 +11,7 @@ import { randomUUIDv7 } from "node:crypto"
 import path from "node:path"
 import { Cause, Effect } from "effect"
 import { SessionDeleteError, SessionNameError, SessionNotFoundError } from "../../errors/index.ts"
+import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import {
   isSessionEventKind,
@@ -51,6 +52,8 @@ export interface SessionPersistenceOptions {
   /** The directory that has one subdirectory per session. */
   dirsRoot: string
   cipher: SessionCipher
+  /** Moves a deleted session's directory to the OS trash, where it can be restored from. */
+  moveToTrash: (dir: string) => Promise<void>
   /**
    * Env vars that name a file the app deletes when it quits (a Google
    * credential file). A resumed session drops the ones whose file is gone:
@@ -80,6 +83,8 @@ export interface OpenedSession {
   dir: string
   /** The git host bindings of the session's credentials, as saved with it */
   vcsBindings: VcsBindings
+  /** When a resumed session was last used before this open; undefined for a new session. */
+  resumedFrom: string | undefined
 }
 
 export class SessionPersistence {
@@ -125,13 +130,14 @@ export class SessionPersistence {
   }
 
   /**
-   * Delete a saved session: its row, its history, and its directory with the
-   * files its blocks wrote and the repositories they cloned. A directory that
-   * is not the session's own one under `dirsRoot` is left alone. Deleting a
-   * session that does not exist does nothing.
+   * Delete a saved session: its row and its history, and move its directory,
+   * with the files its blocks wrote and the repositories they cloned, to the
+   * trash. A directory that is not the session's own one under `dirsRoot` is
+   * left alone. Deleting a session that does not exist does nothing.
    *
    * Fails with a SessionDeleteError for the current session, whose scripts may
-   * be running in that directory.
+   * be running in that directory, and when the directory can't be moved to
+   * the trash. Nothing is deleted then.
    */
   deleteSession(id: string) {
     return Effect.gen(this, function* () {
@@ -142,19 +148,29 @@ export class SessionPersistence {
       }
       const saved = yield* this.options.store.get(id)
       if (saved === undefined) return
-      yield* this.options.store.delete(id)
       const fs = yield* FileSystem
       const root = yield* fs.realpath(this.options.dirsRoot).pipe(Effect.option)
-      // The path comes from the database: remove it only where a session's
+      // The path comes from the database: move it only where a session's
       // directory would be.
-      if (root._tag === "None" || saved.dir !== path.join(root.value, saved.id)) return
-      yield* fs.rm(saved.dir, { recursive: true, force: true })
+      const ownDir = root._tag === "Some" && saved.dir === path.join(root.value, saved.id)
+      if (ownDir && (yield* fs.exists(saved.dir))) {
+        yield* Effect.tryPromise({
+          try: () => this.options.moveToTrash(saved.dir),
+          catch: (err) =>
+            new SessionDeleteError({
+              message: `The session's files could not be moved to the trash, so it was not deleted (${errorMessage(err)}).`,
+            }),
+        })
+      }
+      yield* this.options.store.delete(id)
     })
   }
 
   /**
    * Replace the manager's session with the one `request` asks for, resumed
    * from the database or newly created, and save every later change to it.
+   * A runbook whose most recent session is finished gets a new one, unless
+   * `request` names that session.
    */
   open(request: OpenSessionRequest) {
     return Effect.gen(this, function* () {
@@ -192,9 +208,10 @@ export class SessionPersistence {
           lastLaunchedAt: now.toISOString(),
           lastActivityAt: now.toISOString(),
           vcsBindings: {},
+          finishedAt: undefined,
         })
         yield* manager.createSession(dir, request.runbook.path)
-        opened = { id, name, dir, vcsBindings: {} }
+        opened = { id, name, dir, vcsBindings: {}, resumedFrom: undefined }
       } else {
         const dir = yield* this.ensureDir(saved.dir)
         yield* manager.resumeSession({
@@ -208,7 +225,17 @@ export class SessionPersistence {
           runbookPath: request.runbook.path,
           launchDir: request.launchDir,
         })
-        opened = { id: saved.id, name: saved.name, dir, vcsBindings: saved.vcsBindings }
+        opened = {
+          id: saved.id,
+          name: saved.name,
+          dir,
+          vcsBindings: saved.vcsBindings,
+          // ISO timestamps in UTC, which sort as strings.
+          resumedFrom:
+            saved.lastActivityAt > saved.lastLaunchedAt
+              ? saved.lastActivityAt
+              : saved.lastLaunchedAt,
+        }
       }
 
       this.current = opened
@@ -229,6 +256,21 @@ export class SessionPersistence {
       at: new Date().toISOString(),
       runbookPath,
       launchDir,
+    })
+  }
+
+  /**
+   * Mark the current session finished: opening its runbook again starts a new
+   * session, though the session itself can still be resumed by name. Marking
+   * it again keeps the first time.
+   *
+   * Fails with a SessionNotFoundError when no session is open.
+   */
+  finishCurrent() {
+    return Effect.gen(this, function* () {
+      const current = this.current
+      if (current === undefined) return yield* new SessionNotFoundError()
+      yield* this.options.store.markFinished(current.id, new Date().toISOString())
     })
   }
 
@@ -361,7 +403,8 @@ export class SessionPersistence {
         const session = yield* this.options.store.get(request.sessionId)
         if (session !== undefined) return session
       }
-      return yield* this.options.store.latestForRunbook(request.runbook)
+      const latest = yield* this.options.store.latestForRunbook(request.runbook)
+      return latest?.finishedAt === undefined ? latest : undefined
     })
   }
 

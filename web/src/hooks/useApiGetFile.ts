@@ -22,6 +22,8 @@ export interface GetFileReturn {
   sessionName?: string
   /** That session's own directory, where its scripts start and its files are written (runbook:get only) */
   sessionDir?: string
+  /** When that session was last used, on the load that resumed it (runbook:get only) */
+  sessionResumedFrom?: string
   /** What that session's history says each block was left as (runbook:get only) */
   blockStates?: SavedBlockState[]
 }

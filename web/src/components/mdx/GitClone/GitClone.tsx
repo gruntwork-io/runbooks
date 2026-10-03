@@ -171,6 +171,7 @@ function GitCloneInteractive({
     cloneResult,
     errorMessage,
     restoreError,
+    refMismatch,
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
@@ -542,7 +543,9 @@ function GitCloneInteractive({
     bg: statusClasses,
     icon: IconComponent,
     iconColor: iconClasses,
-  } = statusConfig[cloneStatus]
+    // A restored repository on another branch than the session saved is red
+    // until the user switches it back or starts over.
+  } = statusConfig[cloneStatus === "success" && refMismatch ? "fail" : cloneStatus]
 
   const isLocalSource = activeSource === "local"
   // Browsing and checking a directory needs no credentials, so the local form
@@ -637,6 +640,26 @@ function GitCloneInteractive({
           {/* Success state */}
           {cloneStatus === "success" && cloneResult ? (
             <div className="space-y-3">
+              {refMismatch && (
+                <div
+                  role="alert"
+                  className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2"
+                >
+                  <AlertTriangle className="size-4 text-destructive mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-destructive m-0">
+                      {refMismatch.current
+                        ? `This repository is on ${refMismatch.current}, not ${refMismatch.saved}`
+                        : `This repository is no longer on ${refMismatch.saved}`}
+                    </p>
+                    <p className="text-xs text-destructive m-0 mt-0.5 break-words">
+                      This session was working on <code>{refMismatch.saved}</code>, and the blocks
+                      that follow expect it. Run <code>git checkout {refMismatch.saved}</code> in
+                      the repository, or clone again.
+                    </p>
+                  </div>
+                </div>
+              )}
               {/* An empty repo is a success as far as the clone goes, but it
                   can't take a pull request yet — say so here rather than
                   letting later blocks discover it the hard way. */}

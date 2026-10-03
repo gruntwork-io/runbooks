@@ -26,6 +26,8 @@ describe("SessionPersistence", () => {
   let saveErrors: unknown[]
   /** Picks the words of session names; a test replaces it to force collisions. */
   let random: () => number
+  /** Stands in for the OS trash: moves a directory into `trash` under the test's root. */
+  let moveToTrash: (dir: string) => Promise<void>
 
   beforeEach(() => {
     random = () => Math.random()
@@ -35,6 +37,10 @@ describe("SessionPersistence", () => {
     dbFile = path.join(root, "sessions.db")
     processEnv = { HOME: "/home/me" }
     saveErrors = []
+    moveToTrash = async (dir) => {
+      fs.mkdirSync(path.join(root, "trash"), { recursive: true })
+      fs.renameSync(dir, path.join(root, "trash", path.basename(dir)))
+    }
   })
 
   afterEach(() => {
@@ -57,6 +63,7 @@ describe("SessionPersistence", () => {
       manager,
       dirsRoot,
       cipher,
+      moveToTrash: (dir) => moveToTrash(dir),
       ephemeralFileEnvVars: ["CREDENTIALS_FILE"],
       random: () => random(),
       onSaveError: (err) => saveErrors.push(err),
@@ -146,7 +153,11 @@ describe("SessionPersistence", () => {
       expect(first.persistence.currentSession()).toEqual({ ...session, name: "prod-deploy" })
       first.quit()
       const second = startApp()
-      expect(await second.open()).toEqual({ ...session, name: "prod-deploy" })
+      expect(await second.open()).toEqual({
+        ...session,
+        name: "prod-deploy",
+        resumedFrom: expect.any(String),
+      })
     })
 
     it("drops the whitespace around the name", async () => {
@@ -213,6 +224,24 @@ describe("SessionPersistence", () => {
     })
   })
 
+  it("says when a resumed session was last used, and nothing for a new one", async () => {
+    const first = startApp()
+    const session = await first.open()
+    expect(session.resumedFrom).toBeUndefined()
+    // Used after it was launched, so its last use is not its launch.
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5)
+    })
+    await run(first.manager.appendToEnv({ EXPORTED: "1" }))
+    const saved = (await run(first.store.get(session.id)))!
+    first.quit()
+
+    const resumed = await startApp().open()
+
+    expect(Date.parse(saved.lastActivityAt)).toBeGreaterThan(Date.parse(saved.lastLaunchedAt))
+    expect(resumed.resumedFrom).toBe(saved.lastActivityAt)
+  })
+
   it("resumes the runbook's session in a later run, with what its scripts left behind", async () => {
     const first = startApp()
     const session = await first.open()
@@ -236,7 +265,7 @@ describe("SessionPersistence", () => {
     const second = startApp()
     const resumed = await second.open()
 
-    expect(resumed).toEqual(session)
+    expect(resumed).toEqual({ ...session, resumedFrom: expect.any(String) })
     expect(await run(second.manager.getExecContext())).toMatchObject({
       env: { HOME: "/home/me", PATH: "/new/bin", EXPORTED: "1" },
       workDir: repo,
@@ -451,6 +480,7 @@ describe("SessionPersistence", () => {
       lastLaunchedAt: saved.createdAt,
       lastActivityAt: saved.createdAt,
       vcsBindings: {},
+      finishedAt: undefined,
     })
     expect(Date.parse(saved.createdAt)).not.toBeNaN()
   })
@@ -461,7 +491,7 @@ describe("SessionPersistence", () => {
 
     const resumed = await app.open({ sessionId: "01900000-0000-7000-8000-000000000000" })
 
-    expect(resumed).toEqual(latest)
+    expect(resumed).toEqual({ ...latest, resumedFrom: expect.any(String) })
   })
 
   it("recreates a session directory that was deleted", async () => {
@@ -473,7 +503,7 @@ describe("SessionPersistence", () => {
     const second = startApp()
     const resumed = await second.open()
 
-    expect(resumed).toEqual(session)
+    expect(resumed).toEqual({ ...session, resumedFrom: expect.any(String) })
     expect(fs.statSync(session.dir).isDirectory()).toBe(true)
   })
 
@@ -487,7 +517,7 @@ describe("SessionPersistence", () => {
     expect(b.id).not.toBe(a.id)
     expect((await run(app.manager.getExecContext())).env.FROM_A).toBeUndefined()
     // Switching back resumes the first runbook's session.
-    expect(await app.open()).toEqual(a)
+    expect(await app.open()).toEqual({ ...a, resumedFrom: expect.any(String) })
     expect((await run(app.manager.getExecContext())).env.FROM_A).toBe("1")
   })
 
@@ -504,7 +534,7 @@ describe("SessionPersistence", () => {
       runbook: { path: "/tmp/clone-2/runbook.mdx", remoteSource: url },
     })
 
-    expect(resumed).toEqual(session)
+    expect(resumed).toEqual({ ...session, resumedFrom: expect.any(String) })
     expect(second.manager.getRunbookPath()).toBe("/tmp/clone-2/runbook.mdx")
     expect(Effect.runSync(second.store.get(session.id))?.path).toBe("/tmp/clone-2/runbook.mdx")
   })
@@ -635,8 +665,42 @@ describe("SessionPersistence", () => {
     })
   })
 
+  describe("finishCurrent", () => {
+    it("starts a new session the next time the runbook opens", async () => {
+      const first = startApp()
+      const finished = await first.open()
+      await run(first.persistence.finishCurrent())
+      first.quit()
+
+      const second = startApp()
+      const next = await second.open()
+
+      expect(next.id).not.toBe(finished.id)
+      expect(Effect.runSync(second.store.get(finished.id))?.finishedAt).toBeDefined()
+      // The new session isn't finished: the runbook resumes it after that.
+      expect(
+        (await second.open({ runbook: { path: "/other.mdx", remoteSource: undefined } })).id,
+      ).not.toBe(next.id)
+      expect((await second.open()).id).toBe(next.id)
+    })
+
+    it("still resumes the finished session when a launch names it", async () => {
+      const app = startApp()
+      const finished = await app.open()
+      await run(app.persistence.finishCurrent())
+
+      expect((await app.open({ sessionId: finished.id })).id).toBe(finished.id)
+    })
+
+    it("fails while no session is open", async () => {
+      const result = await run(Effect.either(startApp().persistence.finishCurrent()))
+
+      expect(result).toMatchObject({ _tag: "Left", left: { _tag: "SessionNotFoundError" } })
+    })
+  })
+
   describe("deleteSession", () => {
-    it("deletes another session with its history and its directory", async () => {
+    it("deletes another session with its history, and moves its directory to the trash", async () => {
       const app = startApp()
       const old = await app.open()
       fs.writeFileSync(path.join(old.dir, "generated.tf"), "x")
@@ -647,8 +711,45 @@ describe("SessionPersistence", () => {
 
       expect(Effect.runSync(app.persistence.findSession(old.id))).toBeUndefined()
       expect(fs.existsSync(old.dir)).toBe(false)
+      expect(fs.readFileSync(path.join(root, "trash", old.id, "generated.tf"), "utf8")).toBe("x")
       expect(fs.existsSync(current.dir)).toBe(true)
       expect((await run(app.persistence.listSessions())).map((s) => s.id)).toEqual([current.id])
+    })
+
+    it("keeps a session whose directory can't be moved to the trash, and says why", async () => {
+      const app = startApp()
+      const old = await app.open()
+      await app.open({ startNew: true })
+      moveToTrash = () => Promise.reject(new Error("no trash on this volume"))
+
+      const result = await run(Effect.either(app.persistence.deleteSession(old.id)))
+
+      expect(result).toMatchObject({
+        _tag: "Left",
+        left: {
+          _tag: "SessionDeleteError",
+          message:
+            "The session's files could not be moved to the trash, so it was not deleted (no trash on this volume).",
+        },
+      })
+      expect(fs.existsSync(old.dir)).toBe(true)
+      expect(Effect.runSync(app.persistence.findSession(old.id))).toBeDefined()
+    })
+
+    it("deletes a session whose directory is already gone", async () => {
+      const app = startApp()
+      const old = await app.open()
+      await app.open({ startNew: true })
+      fs.rmSync(old.dir, { recursive: true })
+      const trashed: string[] = []
+      moveToTrash = async (dir) => {
+        trashed.push(dir)
+      }
+
+      await run(app.persistence.deleteSession(old.id))
+
+      expect(Effect.runSync(app.persistence.findSession(old.id))).toBeUndefined()
+      expect(trashed).toEqual([])
     })
 
     it("refuses to delete the open session, and says why", async () => {
@@ -682,6 +783,7 @@ describe("SessionPersistence", () => {
 
       expect(Effect.runSync(app.persistence.findSession(old.id))).toBeUndefined()
       expect(fs.existsSync(elsewhere)).toBe(true)
+      expect(fs.existsSync(path.join(root, "trash"))).toBe(false)
     })
 
     it("does nothing for a session that does not exist", async () => {

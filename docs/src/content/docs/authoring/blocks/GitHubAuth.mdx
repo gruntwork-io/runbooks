@@ -379,6 +379,8 @@ Classic PATs use the same scopes as OAuth, such as `repo` and `read:org`. Fine-g
 
 If your runbook requires specific permissions, list them in the runbook so users know what to select when creating their PAT.
 
+A token with an expiration date gets a warning on the block before it expires; see [Expiring tokens](/authoring/blocks/gitauth/#expiring-tokens).
+
 The block's "create a token" link follows the selected host: `https://<host>/settings/personal-access-tokens/new` on `github.com` and GHE.com tenants, and `https://<host>/settings/tokens/new` on GitHub Enterprise Server.
 
 ### Auto-detected credentials
@@ -395,7 +397,7 @@ When detecting credentials from GitHub CLI, Runbooks checks whether the token ha
 
 1. **Gruntwork never sees your credentials.** Authentication happens between your machine and GitHub. Tokens are not sent to Gruntwork servers.
 2. **Tokens stay with their host.** A token is sent only to the GitHub host it was issued for.
-3. **Credentials stay in memory.** Tokens are stored only in your local Runbooks session and are not written to disk.
+3. **Credentials are encrypted at rest.** Tokens are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
 
 ### How credentials stay local
 

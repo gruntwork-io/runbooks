@@ -27,7 +27,8 @@ export interface LaunchArgs {
 
 /**
  * What the app's first launch opens: the runbook the command line names, or
- * else the session to resume for `launchDir` (sessionToResume).
+ * else the session to resume for `launchDir` (sessionToResume). A finished
+ * session's runbook opens in a new session instead.
  *
  * Undefined when there is nothing to open, and when the launch opens a
  * runbook double-clicked in a file manager (`openFilePath`) instead.
@@ -46,7 +47,8 @@ export function planStartupLaunch(
 
 /**
  * What `runbooks` run again while the app is open brings up: the runbook the
- * command line names, or else the session last launched from `launchDir`.
+ * command line names, or else the session last launched from `launchDir`. A
+ * finished session's runbook opens in a new session instead.
  *
  * Undefined when there is nothing to bring up: a launch with no directory (the
  * dock), a directory no session was launched from, or a session that is
@@ -117,7 +119,12 @@ function planResume(
 ): LaunchPlan | undefined {
   if (saved === undefined) return undefined
   return {
-    launch: { source: saved.remoteSource ?? saved.path, launchDir, sessionId: saved.id },
+    launch: {
+      source: saved.remoteSource ?? saved.path,
+      launchDir,
+      // A finished session's runbook opens in a new session.
+      sessionId: saved.finishedAt === undefined ? saved.id : undefined,
+    },
     open:
       saved.remoteSource !== undefined ? { remoteUrl: saved.remoteSource } : { path: saved.path },
   }
