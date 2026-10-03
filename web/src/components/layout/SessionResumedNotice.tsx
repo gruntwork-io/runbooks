@@ -1,7 +1,6 @@
 import { History, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatTimeAgo } from "@/lib/relativeTime"
-import { cn } from "@/lib/utils"
 
 interface SessionResumedNoticeProps {
   sessionName: string
@@ -9,7 +8,6 @@ interface SessionResumedNoticeProps {
   resumedFrom: string
   onStartNew: () => void
   onDismiss: () => void
-  className?: string
 }
 
 /**
@@ -21,15 +19,11 @@ export function SessionResumedNotice({
   resumedFrom,
   onStartNew,
   onDismiss,
-  className,
 }: SessionResumedNoticeProps) {
   return (
     <div
       role="status"
-      className={cn(
-        "flex w-full items-start gap-3 rounded-md border border-info/40 bg-info-muted px-4 py-3 text-sm",
-        className,
-      )}
+      className="flex w-full items-start gap-3 rounded-md border border-info/40 bg-info-muted px-4 py-3 text-sm"
     >
       <History className="mt-0.5 size-4 shrink-0 text-info" aria-hidden />
       <div className="min-w-0 flex-1">

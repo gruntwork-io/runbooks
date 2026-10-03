@@ -343,17 +343,8 @@ function App() {
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
-        {(shownResumeNotice || showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
+        {(showOpenErrorBanner || errorCount > 0 || warningCount > 0) && (
           <div className="fixed top-15 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-2xl flex flex-col items-center gap-2 pointer-events-none">
-            {shownResumeNotice && (
-              <SessionResumedNotice
-                sessionName={shownResumeNotice.sessionName}
-                resumedFrom={shownResumeNotice.resumedFrom}
-                onStartNew={handleStartNewSession}
-                onDismiss={() => setResumeNotice(null)}
-                className="shadow-md pointer-events-auto"
-              />
-            )}
             {showOpenErrorBanner && openError && (
               <RunbookOpenError
                 variant="inline"
@@ -451,6 +442,16 @@ function App() {
                       runbookFilePath={getRunbookResult.data?.path}
                       remoteSource={getRunbookResult.data?.remoteSource}
                       assetHost={getRunbookResult.data?.assetHost}
+                      banner={
+                        shownResumeNotice && (
+                          <SessionResumedNotice
+                            sessionName={shownResumeNotice.sessionName}
+                            resumedFrom={shownResumeNotice.resumedFrom}
+                            onStartNew={handleStartNewSession}
+                            onDismiss={() => setResumeNotice(null)}
+                          />
+                        )
+                      }
                       className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
                     />
                   </IpcSessionHistoryProvider>
