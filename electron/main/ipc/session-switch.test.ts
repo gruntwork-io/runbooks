@@ -140,6 +140,10 @@ describe("switching and deleting saved sessions", () => {
       expect(await switchTo(a.sessionId)).toEqual({ status: "switched" })
 
       expect(opensSince(from)).toEqual([{ path: a.path }])
+      // Launch times have millisecond resolution: let B's launch be the earlier one.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5)
+      })
       const resumed = await getRunbook(a.path)
       expect(resumed.sessionId).toBe(a.sessionId)
       expect((await sessionEnv()).FROM_A).toBe("1")
