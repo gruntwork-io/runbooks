@@ -14,7 +14,13 @@ import { cn } from "@/lib/utils"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 import { tupleElementKeys, untouchedTupleElement } from "../lib/untouchedValue"
-import { isTemplateValue, summarizeTemplateValue } from "../lib/templateValue"
+import {
+  isTemplateValue,
+  resolvedEntries,
+  resolvedItems,
+  resolvedValueText,
+  summarizeTemplateValue,
+} from "../lib/templateValue"
 import { LinkedValueChip, TemplateValueText } from "./TemplateValue"
 
 /**
@@ -25,6 +31,12 @@ interface BaseFormControlProps {
   variable: BoilerplateVariable
   /** Current value of the form field */
   value: unknown
+  /**
+   * What a template value comes to right now, when known: a string for a
+   * string field, or for a list or map, the same shape with each template
+   * entry resolved. Shown in place of the value's tokens; display only.
+   */
+  resolvedValue?: unknown
   /** Optional validation error message */
   error?: string | undefined
   /** Callback function when the field value changes */
@@ -93,13 +105,15 @@ const RemoveEntryButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
  * Text input component for string variables
  * Renders a standard text input field with validation error styling.
  * A template value (e.g. a boilerplate default of `{{ .OtherVar }}`) is shown
- * as a linked chip instead, until the user clicks it, clears it or types into
- * the field; after that the raw expression is edited as text. A sensitive
- * field's chip names only the variables it is linked to.
+ * as a linked chip instead: what it comes to when that is known, else tokens
+ * for what it is linked to. Clicking the chip edits the raw expression as
+ * text; leaving the field shows the chip again if the value is still a
+ * template. A sensitive field's chip names only the variables it is linked to.
  */
 export const StringInput: React.FC<BaseFormControlProps> = ({
   variable,
   value,
+  resolvedValue,
   error,
   onChange,
   onBlur,
@@ -129,6 +143,7 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
       <LinkedValueChip
         id={inputId}
         expression={value}
+        resolved={resolvedValue}
         error={error}
         disabled={disabled}
         sensitive={variable.sensitive}
@@ -141,15 +156,20 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
     )
   }
 
-  // Typing keeps the text input, even if the user writes their own expression.
+  // Typing keeps the text input while the field has focus, even once the text
+  // is an expression; leaving the field decides between chip and text again.
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setShowExpression(true)
     onChange(e.target.value)
   }
+  const handleFocusLeave = (e: React.FocusEvent<HTMLElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) setShowExpression(false)
+  }
 
   if (variable.sensitive) {
+    // Focus moving to the show/hide button stays within the field.
     return (
-      <div className="relative">
+      <div className="relative" onBlur={handleFocusLeave}>
         <input
           ref={inputRef}
           type={showSensitive ? "text" : "password"}
@@ -179,7 +199,10 @@ export const StringInput: React.FC<BaseFormControlProps> = ({
       id={inputId}
       value={valueText(value || "")}
       onChange={handleChange}
-      onBlur={onBlur}
+      onBlur={(e) => {
+        handleFocusLeave(e)
+        onBlur?.()
+      }}
       disabled={disabled}
       className={getInputClassName(error, "w-full", disabled)}
     />
@@ -266,13 +289,15 @@ export const BooleanInput: React.FC<BaseFormControlProps> = ({
  *     also shows it, unless '' is one of the options: then that option is shown.
  *   - A value that is not one of the options (e.g. imported from an upstream
  *     string field) is shown as its own disabled option. A template value
- *     (`{{ .OtherVar }}`) is labelled by what it is linked to, not its syntax.
+ *     (`{{ .OtherVar }}`) is labelled by what it comes to when that is known,
+ *     else by what it is linked to, never by its syntax.
  * Options and value are compared as strings: YAML can make options numbers or
  * booleans, while a picked value is always the option's string.
  */
 export const EnumSelect: React.FC<BaseFormControlProps> = ({
   variable,
   value,
+  resolvedValue,
   error,
   onChange,
   onBlur,
@@ -299,7 +324,9 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
       )}
       {isUnlistedValue && (
         <option value={current} disabled>
-          {isTemplateValue(current) ? summarizeTemplateValue(current) : current}
+          {isTemplateValue(current)
+            ? (resolvedValueText(resolvedValue) ?? summarizeTemplateValue(current))
+            : current}
         </option>
       )}
       {options.map((option) => (
@@ -317,11 +344,13 @@ export const EnumSelect: React.FC<BaseFormControlProps> = ({
  */
 export const ListInput: React.FC<BaseFormControlProps> = ({
   value,
+  resolvedValue,
   onChange,
   onBlur,
   disabled,
 }) => {
   const currentList = Array.isArray(value) ? value : []
+  const resolvedList = resolvedItems(currentList, resolvedValue)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const addItem = (newItem: string) => {
@@ -388,7 +417,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
                 <span
                   className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                 >
-                  <TemplateValueText value={item} />
+                  <TemplateValueText value={item} resolved={resolvedList[index]} />
                 </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeItem(index)} />}
               </div>
@@ -537,6 +566,20 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
   )
 }
 
+/** One structured map entry's fields, each as `name: value`. */
+const StructuredEntryFields: React.FC<{
+  fields: Array<[string, unknown]>
+  resolved: unknown
+}> = ({ fields, resolved }) => {
+  const resolvedFields = resolvedEntries(fields, resolved)
+  return fields.map(([fieldKey, fieldVal], index) => (
+    <div key={fieldKey}>
+      <span className="font-medium">{fieldKey}:</span>{" "}
+      <TemplateValueText value={fieldVal} resolved={resolvedFields[index]?.[1]} />
+    </div>
+  ))
+}
+
 /**
  * Structured map input component for map variables with a schema
  * Provides a form-based UI for entering structured data with multiple fields per entry
@@ -544,6 +587,7 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
 export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
   variable,
   value,
+  resolvedValue,
   onChange,
   onBlur,
   id,
@@ -591,6 +635,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
   }
 
   const entries = Object.entries(currentMap)
+  const resolved = resolvedEntries(entries, resolvedValue)
 
   return (
     <div className="space-y-3">
@@ -695,7 +740,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
         <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
           <EntryCountHeader count={entries.length} disabled={disabled} />
           <div className="divide-y divide-border">
-            {entries.map(([key, val]) => (
+            {entries.map(([key, val], index) => (
               <div
                 key={key}
                 className={`px-3 py-2 ${disabled ? "" : "hover:bg-accent"} transition-colors`}
@@ -705,21 +750,17 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
                     <div
                       className={`font-medium text-sm mb-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                     >
-                      <TemplateValueText value={key} />
+                      <TemplateValueText value={key} resolved={resolved[index]?.[0]} />
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
                       {typeof val === "object" && val !== null ? (
-                        Object.entries(val as Record<string, unknown>).map(
-                          ([fieldKey, fieldVal]) => (
-                            <div key={fieldKey}>
-                              <span className="font-medium">{fieldKey}:</span>{" "}
-                              <TemplateValueText value={fieldVal} />
-                            </div>
-                          ),
-                        )
+                        <StructuredEntryFields
+                          fields={Object.entries(val as Record<string, unknown>)}
+                          resolved={resolved[index]?.[1]}
+                        />
                       ) : (
                         <div>
-                          <TemplateValueText value={val} />
+                          <TemplateValueText value={val} resolved={resolved[index]?.[1]} />
                         </div>
                       )}
                     </div>
@@ -746,6 +787,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
 export const MapInput: React.FC<BaseFormControlProps> = ({
   variable,
   value,
+  resolvedValue,
   onChange,
   onBlur,
   id,
@@ -777,6 +819,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
   }
 
   const entries = Object.entries(currentMap)
+  const resolved = resolvedEntries(entries, resolvedValue)
 
   return (
     <div className="space-y-3">
@@ -813,7 +856,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
         <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
           <EntryCountHeader count={entries.length} disabled={disabled} />
           <div className="divide-y divide-border">
-            {entries.map(([key, val]) => (
+            {entries.map(([key, val], index) => (
               <div
                 key={key}
                 className={`flex items-center justify-between px-3 py-2 ${disabled ? "" : "hover:bg-accent"} transition-colors`}
@@ -822,9 +865,9 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
                   className={`text-sm flex-1 ${disabled ? "text-muted-foreground" : "text-foreground"}`}
                 >
                   <strong>
-                    <TemplateValueText value={key} />:
+                    <TemplateValueText value={key} resolved={resolved[index]?.[0]} />:
                   </strong>{" "}
-                  <TemplateValueText value={val} />
+                  <TemplateValueText value={val} resolved={resolved[index]?.[1]} />
                 </span>
                 {!disabled && <RemoveEntryButton onClick={() => removeEntry(key)} />}
               </div>

@@ -5,7 +5,9 @@
  *
  * Display only: the form keeps the raw expression as the value, and the main
  * process resolves it against the other inputs when it renders (see
- * resolveInputTemplates in src/domain/boilerplate/flattenInputs.ts).
+ * resolveInputTemplates in src/domain/boilerplate/flattenInputs.ts). The form
+ * asks main for that same resolution as values change (see
+ * useResolvedTemplateValues) and shows what a value comes to when it's known.
  */
 
 import { formatVariableLabel } from "./formatVariableLabel"
@@ -120,4 +122,50 @@ export function summarizeTemplateValue(expr: string): string {
   return refs.length > 0
     ? `Based on ${refs.map(formatVariableLabel).join(", ")}`
     : "Set automatically"
+}
+
+/** Whether a value is a template, or holds one as a list item, map key or map value. */
+export function containsTemplateValue(value: unknown): boolean {
+  if (isTemplateValue(value)) return true
+  if (Array.isArray(value)) return value.some(containsTemplateValue)
+  if (value && typeof value === "object") {
+    return Object.entries(value).some(([k, v]) => isTemplateValue(k) || containsTemplateValue(v))
+  }
+  return false
+}
+
+/**
+ * The text to show for what a template value resolved to, or undefined to
+ * keep showing its tokens: it hasn't resolved (it is still a template, or no
+ * result has arrived), or it came to "", which would leave nothing to show.
+ */
+export function resolvedValueText(resolved: unknown): string | undefined {
+  return typeof resolved === "string" && resolved !== "" && !isTemplateValue(resolved)
+    ? resolved
+    : undefined
+}
+
+/**
+ * A list's resolved value item by item, or [] when it isn't a list of the
+ * same length.
+ */
+export function resolvedItems(items: readonly unknown[], resolved: unknown): readonly unknown[] {
+  return Array.isArray(resolved) && resolved.length === items.length ? resolved : []
+}
+
+/**
+ * A map's resolved value as entries lined up with the map's own, or [] when
+ * they don't line up: two keys came to the same text and merged, or a key
+ * came to a number-like text, which an object lists first.
+ */
+export function resolvedEntries(
+  entries: ReadonlyArray<[string, unknown]>,
+  resolved: unknown,
+): ReadonlyArray<[string, unknown]> {
+  if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) return []
+  const resolvedList = Object.entries(resolved)
+  const linedUp =
+    resolvedList.length === entries.length &&
+    entries.every(([key], i) => isTemplateValue(key) || resolvedList[i]![0] === key)
+  return linedUp ? resolvedList : []
 }

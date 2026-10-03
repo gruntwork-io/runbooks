@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from "vitest"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import type { ComponentProps } from "react"
 import { BoilerplateInputsForm } from "../BoilerplateInputsForm"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateValidationType } from "@/types/boilerplateVariable"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
+import { RunbookContext, type RunbookContextType } from "@/contexts/RunbookContext"
+import { sensitiveOutput } from "@/lib/outputValues"
 
 const config: BoilerplateConfig = {
   variables: [{ name: "region", type: "string", description: "", default: "us-east-1" }],
@@ -144,5 +147,191 @@ describe("BoilerplateInputsForm template-valued defaults", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Generate" }))
     expect(onGenerate).toHaveBeenCalledWith(expect.objectContaining({ BucketName: "" }))
+  })
+})
+
+// The form asks main what each linked value comes to (boilerplate:resolve-inputs)
+// and shows that in place of the tokens. Main resolves the way a render does;
+// this stand-in substitutes `{{ .Name }}` and `{{ .outputs.block.name }}`, and
+// leaves a value whose reference is missing as it was, as main does.
+describe("BoilerplateInputsForm resolved linked values", () => {
+  type ResolveRequest = {
+    inputs: Record<string, unknown>
+    outputs: Record<string, Record<string, string>>
+  }
+
+  function fakeResolve({ inputs, outputs }: ResolveRequest): Record<string, unknown> {
+    const resolveString = (text: string): string => {
+      let missing = false
+      const out = text.replace(/\{\{\s*\.([\w.]+)\s*\}\}/g, (_m, path: string) => {
+        const [first, block, name] = path.split(".")
+        const found =
+          first === "outputs" ? outputs[block!]?.[name!] : (inputs[first!] as string | undefined)
+        if (typeof found !== "string" || found.includes("{{")) missing = true
+        return String(found)
+      })
+      return missing ? text : out
+    }
+    const resolveValue = (value: unknown): unknown => {
+      if (typeof value === "string") return resolveString(value)
+      if (Array.isArray(value)) return value.map(resolveValue)
+      if (value && typeof value === "object") {
+        return Object.fromEntries(
+          Object.entries(value).map(([k, v]) => [resolveString(k), resolveValue(v)]),
+        )
+      }
+      return value
+    }
+    return Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, resolveValue(v)]))
+  }
+
+  function renderWithResolver(
+    boilerplateConfig: BoilerplateConfig,
+    blockOutputs: RunbookContextType["blockOutputs"] = {},
+  ) {
+    const invoke = vi.fn(async (channel: string, request: ResolveRequest) => {
+      if (channel !== "boilerplate:resolve-inputs") throw new Error(`unexpected ${channel}`)
+      return { inputs: fakeResolve(request) }
+    })
+    const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
+    const runbook = { blockOutputs } as RunbookContextType
+    const utils = render(
+      <ApiProvider api={api}>
+        <RunbookContext.Provider value={runbook}>
+          <BoilerplateInputsForm
+            id="tpl"
+            boilerplateConfig={boilerplateConfig}
+            enableAutoRender={false}
+            variant="standard"
+          />
+        </RunbookContext.Provider>
+      </ApiProvider>,
+    )
+    const requests = () => invoke.mock.calls.map(([, request]) => request)
+    return { ...utils, invoke, requests }
+  }
+
+  const linkedConfig: BoilerplateConfig = {
+    variables: [
+      { name: "ProjectName", type: "string", description: "", default: "acme" },
+      {
+        name: "BucketName",
+        type: "string",
+        description: "",
+        default: "{{ .ProjectName }}-state",
+      },
+      {
+        name: "Repos",
+        type: "list",
+        description: "",
+        default: ["github.com/acme/catalog", "github.com/{{ .ProjectName }}/modules"],
+      },
+      {
+        name: "Tags",
+        type: "map",
+        description: "",
+        default: { "{{ .ProjectName }}:Team": "DevOps" },
+      },
+    ],
+  }
+
+  it("shows what each linked value comes to", async () => {
+    const { container } = renderWithResolver(linkedConfig)
+
+    // The field's label names the chip; its text is what the value comes to
+    await waitFor(() =>
+      expect(screen.getByLabelText("Bucket Name")).toHaveTextContent("acme-state"),
+    )
+    expect(screen.getByText("github.com/acme/modules")).toBeInTheDocument()
+    expect(screen.getByText("acme:Team")).toBeInTheDocument()
+    // Only the field's own label: no token names it
+    expect(screen.getAllByText("Project Name")).toHaveLength(1)
+    expect(container.textContent).not.toContain("{{")
+  })
+
+  it("follows a change to the value it is linked to", async () => {
+    renderWithResolver(linkedConfig)
+    await screen.findByText("acme-state")
+
+    fireEvent.change(screen.getByLabelText("Project Name"), { target: { value: "globex" } })
+
+    expect(await screen.findByText("globex-state")).toBeInTheDocument()
+    expect(screen.getByText("github.com/globex/modules")).toBeInTheDocument()
+  })
+
+  it("never sends a sensitive value, so what is built from one keeps its tokens", async () => {
+    const { requests } = renderWithResolver({
+      variables: [
+        { name: "DbHost", type: "string", description: "", default: "db.internal" },
+        {
+          name: "DbPassword",
+          type: "string",
+          description: "",
+          default: "hunter2",
+          sensitive: true,
+        },
+        {
+          name: "DbUrl",
+          type: "string",
+          description: "",
+          default: "postgres://app:{{ .DbPassword }}@{{ .DbHost }}",
+        },
+        {
+          name: "Replica",
+          type: "string",
+          description: "",
+          default: "{{ .DbHost }}",
+        },
+      ],
+    })
+
+    await waitFor(() => expect(screen.getByLabelText("Replica")).toHaveTextContent("db.internal"))
+    expect(screen.getByLabelText("DB URL")).toHaveTextContent("postgres://app:DB Password")
+    expect(screen.getByTestId("field-DbUrl").innerHTML).not.toContain("hunter2")
+    for (const request of requests()) {
+      expect(request.inputs).not.toHaveProperty("DbPassword")
+      expect(JSON.stringify(request)).not.toContain("hunter2")
+    }
+  })
+
+  it("resolves against block outputs, but never a sensitive one", async () => {
+    const { requests } = renderWithResolver(
+      {
+        variables: [
+          {
+            name: "AccountId",
+            type: "string",
+            description: "",
+            default: "{{ .outputs.make_account.account_id }}",
+          },
+          {
+            name: "Token",
+            type: "string",
+            description: "",
+            default: "{{ .outputs.make_account.token }}",
+          },
+        ],
+      },
+      {
+        make_account: {
+          values: { account_id: "123456789012", token: sensitiveOutput("s3cr3t") },
+          timestamp: "",
+        },
+      },
+    )
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Account ID")).toHaveTextContent("123456789012"),
+    )
+    expect(screen.getByLabelText("Token")).toHaveTextContent("Set automatically")
+    for (const request of requests()) {
+      expect(request.outputs).toEqual({ make_account: { account_id: "123456789012" } })
+    }
+  })
+
+  it("asks nothing when no value is linked", () => {
+    const { invoke } = renderWithResolver(config)
+
+    expect(invoke).not.toHaveBeenCalled()
   })
 })

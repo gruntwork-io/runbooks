@@ -6,11 +6,14 @@ import { formatVariableLabel } from "../lib/formatVariableLabel"
 import { FormControl } from "./FormControls"
 import { useFormState } from "../hooks/useFormState"
 import { useFormValidation } from "../hooks/useFormValidation"
+import { useResolvedTemplateValues } from "../hooks/useResolvedTemplateValues"
 import { markKeystroke } from "@/lib/renderPerf"
 import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
 import { BlockIdLabel } from "./BlockIdLabel"
 import type { BlockOutput } from "@/lib/templateUtils"
+
+const NO_VARIABLES: BoilerplateVariable[] = []
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -69,6 +72,8 @@ interface VariableFieldProps {
   id: string
   variable: BoilerplateVariable
   value: unknown
+  /** What a template value comes to right now, if known. */
+  resolvedValue?: unknown
   error?: string | undefined
   onChange: (value: unknown) => void
   onBlur?: (() => void) | undefined
@@ -79,6 +84,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
   id,
   variable,
   value,
+  resolvedValue,
   error,
   onChange,
   onBlur,
@@ -109,6 +115,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
         <FormControl
           variable={variable}
           value={value}
+          resolvedValue={resolvedValue}
           error={error}
           onChange={disabled ? () => {} : onChange}
           onBlur={onBlur}
@@ -174,6 +181,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     onFormChange,
     onAutoRender,
     enableAutoRender,
+  )
+
+  // What each linked (template) value comes to, shown in place of its tokens
+  const resolvedValues = useResolvedTemplateValues(
+    formData,
+    boilerplateConfig?.variables ?? NO_VARIABLES,
   )
 
   // Sync live variable values when they change (for shared variables)
@@ -262,6 +275,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           id={id}
           variable={variable}
           value={formData[variable.name]}
+          resolvedValue={resolvedValues[variable.name]}
           error={visibleErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
           onBlur={() => handleFieldBlur(variable.name)}
@@ -313,6 +327,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           id={id}
           variable={variable}
           value={formData[variable.name]}
+          resolvedValue={resolvedValues[variable.name]}
           error={visibleErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
           onBlur={() => handleFieldBlur(variable.name)}

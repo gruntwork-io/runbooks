@@ -2,15 +2,15 @@
 
 A variable's `default` can be built from other variables, such as `default: "{{ .ProjectName }}-state"`. Runbooks fills in the real value when it renders, using whatever the other fields hold at that moment.
 
-The form never shows the `{{ }}` syntax. A linked default appears as a token for each variable it uses, named the way that variable's field is labelled. A default that does more than insert a variable (a conditional or a function) appears as one token that says what it's based on.
+The form never shows the `{{ }}` syntax. A linked default shows the value it comes to, with a link icon, and follows the fields it uses as you edit them. When that value can't be worked out yet, the default appears as a token for each variable it uses instead, named the way that variable's field is labelled. A default that does more than insert a variable (a conditional or a function) then appears as one token that says what it's based on.
 
 - **Hover** over a linked value to see its expression.
-- **Click** it to edit the expression.
+- **Click** it to edit the expression. Leave the field and it shows as linked again.
 - **Click the X** to clear it and type your own value.
 
 ## In an Inputs block
 
-`ServiceName` defaults to the app name with a `-service` suffix. Change `AppName` and watch the preview below follow it.
+`ServiceName` defaults to the app name with a `-service` suffix. Change `AppName` and watch the **Service Name** field and the preview below follow it.
 
 <Inputs id="naming">
 ```yaml

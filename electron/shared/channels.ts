@@ -87,6 +87,15 @@ export interface IpcChannelMap {
       meta?: unknown
     }
   }
+  /**
+   * Resolve template-valued inputs (`{{ .ProjectName }}-state`) against the
+   * other inputs and outputs, as a render does, so a form can show what a
+   * linked value comes to. A value that doesn't resolve is returned as sent.
+   */
+  "boilerplate:resolve-inputs": {
+    params: ResolveInputsRequest
+    result: { inputs: Record<string, unknown> }
+  }
 
   // AWS Authentication
   "aws:validate": {
@@ -899,6 +908,13 @@ export interface RenderInlineRequest {
   inputs?: Array<{ name: string; value: unknown }>
   generateFile?: boolean
   outputPath?: string
+}
+
+export interface ResolveInputsRequest {
+  /** Input values by name; template-valued ones are resolved. */
+  inputs: Record<string, unknown>
+  /** Block outputs for `{{ .outputs.<block>.<name> }}`, as plain strings. */
+  outputs?: Record<string, Record<string, string>>
 }
 
 export interface ProfileInfo {

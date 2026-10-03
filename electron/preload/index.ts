@@ -19,6 +19,7 @@ const INVOKE_CHANNELS = {
   "boilerplate:variables": true,
   "boilerplate:render": true,
   "boilerplate:render-inline": true,
+  "boilerplate:resolve-inputs": true,
   "aws:validate": true,
   "aws:profiles": true,
   "aws:sso-start": true,

@@ -168,10 +168,14 @@ Runbooks fills these in, using whatever the other fields hold at that moment, in
 
 Other block props that use the variable through `{{ .inputs.X }}`, like `<GitClone>`'s `prefilledUrl` or `<TemplateInline>`'s `outputPath`, get the expression as written, not the value it resolves to. Give those props a variable with a plain default.
 
-The form doesn't show the `{{ }}` syntax. A linked default shows a token for each variable it uses, named the way that variable's field is labelled. Here `BucketName` shows a **Project Name** token followed by `-state`. A default that does more than insert a variable, like `InstanceSize`, shows one token that says what it's based on: **Based on Environment**. In a text field:
+The form doesn't show the `{{ }}` syntax. A linked default shows the value it comes to, with a link icon, and follows the fields it uses as you edit them. Here `BucketName` shows `acme-state`, and `InstanceSize` shows `small` until you pick `prod`.
+
+When the form can't work out the value yet, for example because the default uses a block output that hasn't been produced, it shows a token for each variable the default uses instead, named the way that variable's field is labelled: a **Project Name** token followed by `-state`. A default that does more than insert a variable shows one token that says what it's based on, like **Based on Environment**. A sensitive field, and any default built from a sensitive variable or output, always shows tokens, never the value.
+
+In a text field:
 
 - Hover over the value to see its expression.
-- Click it to edit the expression.
+- Click it to edit the expression. When you leave the field, a value that is still an expression is shown as linked again.
 - Click the **X** to clear it and type your own value.
 
 The [template-defaults demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/template-defaults) uses each kind.

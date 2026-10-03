@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest"
-import { isTemplateValue, parseTemplateValue, summarizeTemplateValue } from "./templateValue"
+import {
+  containsTemplateValue,
+  isTemplateValue,
+  parseTemplateValue,
+  resolvedEntries,
+  resolvedItems,
+  resolvedValueText,
+  summarizeTemplateValue,
+} from "./templateValue"
 
 describe("isTemplateValue", () => {
   it.each([
@@ -156,5 +164,87 @@ describe("summarizeTemplateValue", () => {
       "Set automatically",
     )
     expect(summarizeTemplateValue("{{ now }}")).toBe("Set automatically")
+  })
+})
+
+describe("containsTemplateValue", () => {
+  it.each([
+    ["{{ .A }}", true],
+    [["x", "{{ .A }}"], true],
+    [{ "{{ .A }}:Team": "DevOps" }, true],
+    [{ Owner: "{{ .A }}" }, true],
+    [{ security: { email: "x@{{ .Domain }}" } }, true],
+    ["plain", false],
+    [["x", "y"], false],
+    [{ a: "b" }, false],
+    [42, false],
+    [null, false],
+  ])("%j -> %s", (value, expected) => {
+    expect(containsTemplateValue(value)).toBe(expected)
+  })
+})
+
+describe("resolvedValueText", () => {
+  it("is the text a value came to", () => {
+    expect(resolvedValueText("acme-state")).toBe("acme-state")
+  })
+
+  it.each([undefined, null, "", "{{ .outputs.a.b }}", 42, ["x"]])(
+    "is undefined for %j, which keeps the tokens",
+    (resolved) => {
+      expect(resolvedValueText(resolved)).toBeUndefined()
+    },
+  )
+})
+
+describe("resolvedItems", () => {
+  it("lines up a resolved list with the list", () => {
+    expect(resolvedItems(["a", "{{ .B }}"], ["a", "b"])).toEqual(["a", "b"])
+  })
+
+  it.each([undefined, ["a"], { 0: "a", 1: "b" }])("is empty for %j", (resolved) => {
+    expect(resolvedItems(["a", "{{ .B }}"], resolved)).toEqual([])
+  })
+})
+
+describe("resolvedEntries", () => {
+  const entries: Array<[string, unknown]> = [
+    ["{{ .Org }}:Team", "DevOps"],
+    ["Owner", "{{ .Email }}"],
+  ]
+
+  it("lines up a resolved map with the map's entries", () => {
+    expect(resolvedEntries(entries, { "acme:Team": "DevOps", Owner: "ops@acme.io" })).toEqual([
+      ["acme:Team", "DevOps"],
+      ["Owner", "ops@acme.io"],
+    ])
+  })
+
+  it("is empty when two keys came to the same text", () => {
+    expect(
+      resolvedEntries(
+        [
+          ["{{ .A }}", "1"],
+          ["x", "2"],
+        ],
+        { x: "2" },
+      ),
+    ).toEqual([])
+  })
+
+  it("is empty when a key came to a number-like text, which moves it first", () => {
+    expect(
+      resolvedEntries(
+        [
+          ["Name", "a"],
+          ["{{ .Id }}", "b"],
+        ],
+        { Name: "a", "7": "b" },
+      ),
+    ).toEqual([])
+  })
+
+  it.each([undefined, ["DevOps"], "x"])("is empty for %j", (resolved) => {
+    expect(resolvedEntries(entries, resolved)).toEqual([])
   })
 })

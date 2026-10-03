@@ -2,7 +2,12 @@ import React from "react"
 import { Link2, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
-import { isTemplateValue, parseTemplateValue, summarizeTemplateValue } from "../lib/templateValue"
+import {
+  isTemplateValue,
+  parseTemplateValue,
+  resolvedValueText,
+  summarizeTemplateValue,
+} from "../lib/templateValue"
 
 /** A pill naming a variable (or summarising a computed expression) that a value is linked to. */
 const TemplateToken: React.FC<{ label: string }> = ({ label }) => (
@@ -14,24 +19,28 @@ const TemplateToken: React.FC<{ label: string }> = ({ label }) => (
 
 interface TemplateValueTextProps {
   value: unknown
+  /** What the value comes to right now, if known (see useResolvedTemplateValues). */
+  resolved?: unknown
   id?: string
   className?: string
   /**
    * The value is sensitive: show only what it is linked to ("Based on …"),
-   * never its literal text or, on hover, its expression.
+   * never its literal text, what it comes to or, on hover, its expression.
    */
   masked?: boolean | undefined
 }
 
 /**
  * Shows a value the way a form entry displays it. A template value such as
- * `aws-sso@{{ .EmailDomainName }}` becomes its literal text with a token for
- * each referenced variable; a computed one (conditionals, functions) becomes a
- * single "Based on …" token. Hovering shows the raw expression. Anything else
- * is shown as String(value).
+ * `aws-sso@{{ .EmailDomainName }}` is shown as what it comes to when that is
+ * known, with a link icon. Otherwise it becomes its literal text with a token
+ * for each referenced variable; a computed one (conditionals, functions)
+ * becomes a single "Based on …" token. Hovering shows the raw expression.
+ * Anything else is shown as String(value).
  */
 export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
   value,
+  resolved,
   id,
   className,
   masked,
@@ -42,6 +51,19 @@ export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
     return (
       <span id={id} className={className}>
         <TemplateToken label={summarizeTemplateValue(value)} />
+      </span>
+    )
+  }
+
+  const resolvedText = resolvedValueText(resolved)
+  if (resolvedText !== undefined) {
+    return (
+      <span id={id} title={value} className={className}>
+        <Link2
+          className="mr-1 inline size-3 align-[-0.125em] text-muted-foreground"
+          aria-hidden="true"
+        />
+        {resolvedText}
       </span>
     )
   }
@@ -69,6 +91,8 @@ interface LinkedValueChipProps {
   id: string
   /** The raw template expression. */
   expression: string
+  /** What the expression comes to right now, if known. */
+  resolved?: unknown
   error?: string | undefined
   disabled?: boolean | undefined
   /** The field is sensitive: show only the variables the value is linked to. */
@@ -87,6 +111,7 @@ interface LinkedValueChipProps {
 export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({
   id,
   expression,
+  resolved,
   error,
   disabled,
   sensitive,
@@ -104,7 +129,12 @@ export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({
   if (disabled) {
     return (
       <div id={id} className={boxClassName}>
-        <TemplateValueText value={expression} masked={sensitive} className="min-w-0 flex-1" />
+        <TemplateValueText
+          value={expression}
+          resolved={resolved}
+          masked={sensitive}
+          className="min-w-0 flex-1"
+        />
       </div>
     )
   }
@@ -122,6 +152,7 @@ export const LinkedValueChip: React.FC<LinkedValueChipProps> = ({
         <TemplateValueText
           id={valueId}
           value={expression}
+          resolved={resolved}
           masked={sensitive}
           className="min-w-0 flex-1"
         />

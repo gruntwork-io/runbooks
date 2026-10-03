@@ -354,18 +354,90 @@ describe("FormControls template-valued values", () => {
     expect(screen.queryByRole("button")).toBeNull()
   })
 
-  it("keeps a textbox while the user types their own expression", () => {
+  it("keeps a textbox while the user types their own expression, and links it once they leave", () => {
     const onChange = vi.fn()
+    const onBlur = vi.fn()
     const variable = stringVar()
     const { rerender } = render(
-      <FormControl id="f" variable={variable} value="" onChange={onChange} />,
+      <FormControl id="f" variable={variable} value="" onChange={onChange} onBlur={onBlur} />,
     )
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "{{ .inputs.A }}" } })
-    rerender(<FormControl id="f" variable={variable} value="{{ .inputs.A }}" onChange={onChange} />)
+    rerender(
+      <FormControl
+        id="f"
+        variable={variable}
+        value="{{ .inputs.A }}"
+        onChange={onChange}
+        onBlur={onBlur}
+      />,
+    )
 
     expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("{{ .inputs.A }}")
     expect(screen.queryByRole("button", { name: "Clear linked value" })).toBeNull()
+
+    fireEvent.blur(screen.getByRole("textbox"))
+    expect(onBlur).toHaveBeenCalled()
+    expect(screen.queryByRole("textbox")).toBeNull()
+    expect(screen.getByRole("button", { name: /^A$/ })).toBeInTheDocument()
+  })
+
+  it("shows the chip again when the user leaves an expression they opened", () => {
+    render(
+      <FormControl
+        id="f"
+        variable={stringVar()}
+        value="{{ .SecurityModulesVersion }}"
+        resolvedValue="v1.4.0"
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /v1\.4\.0/ }))
+    fireEvent.blur(screen.getByRole("textbox"))
+
+    expect(screen.queryByRole("textbox")).toBeNull()
+    expect(screen.getByRole("button", { name: /v1\.4\.0/ })).toBeInTheDocument()
+  })
+
+  it("keeps a textbox when the user leaves a value that is no longer an expression", () => {
+    const onChange = vi.fn()
+    const variable = stringVar()
+    const { rerender } = render(
+      <FormControl
+        id="f"
+        variable={variable}
+        value="{{ .SecurityModulesVersion }}"
+        onChange={onChange}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Security Modules Version/ }))
+    rerender(<FormControl id="f" variable={variable} value="v2.0.0" onChange={onChange} />)
+    fireEvent.blur(screen.getByRole("textbox"))
+
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("v2.0.0")
+  })
+
+  it("keeps a sensitive expression open while focus moves to its show button", () => {
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={stringVar({ sensitive: true })}
+        value="{{ .SharedSecret }}"
+        onChange={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /Shared Secret/ }))
+    const input = container.querySelector('input[type="password"]')!
+    const showButton = screen.getByRole("button", { name: "Show sensitive input" })
+    fireEvent.blur(input, { relatedTarget: showButton })
+    expect(container.querySelector('input[type="password"]')).not.toBeNull()
+
+    fireEvent.blur(showButton, { relatedTarget: document.body })
+    expect(container.querySelector("input")).toBeNull()
+    expect(screen.getByRole("button", { name: /Shared Secret/ })).toBeInTheDocument()
   })
 
   it("shows a linked list entry as tokens, and removing it still works", () => {
@@ -427,6 +499,142 @@ describe("FormControls template-valued values", () => {
     expect(screen.getByText("Email Domain Name")).toBeInTheDocument()
     expect(screen.getByText("Security")).toBeInTheDocument()
     expectNoRawTemplateText(container)
+  })
+
+  it("shows what a linked value comes to when it is known, with the expression on hover", () => {
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={stringVar()}
+        value='{{ if eq .Environment "prod" }}large{{ else }}small{{ end }}'
+        resolvedValue="small"
+        onChange={vi.fn()}
+      />,
+    )
+
+    const chip = screen.getByRole("button", { name: "small" })
+    expect(chip.id).toBe("f-ModuleVersion")
+    expect(screen.queryByText(/Based on/)).toBeNull()
+    expect(
+      container.querySelector(
+        `[title='{{ if eq .Environment "prod" }}large{{ else }}small{{ end }}']`,
+      ),
+    ).not.toBeNull()
+    expectNoRawTemplateText(container)
+  })
+
+  it.each([
+    ["not resolved yet", undefined],
+    ["unresolvable", "{{ .outputs.account.id }}"],
+    ["empty", ""],
+  ])("keeps the tokens when what the value comes to is %s", (_case, resolvedValue) => {
+    render(
+      <FormControl
+        id="f"
+        variable={stringVar()}
+        value="{{ .outputs.account.id }}"
+        resolvedValue={resolvedValue}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole("button", { name: /Set automatically/ })).toBeInTheDocument()
+  })
+
+  it.each([false, true])(
+    "never shows what a sensitive linked value comes to (disabled: %s)",
+    (disabled) => {
+      const { container } = render(
+        <FormControl
+          id="f"
+          variable={stringVar({ sensitive: true })}
+          value="postgres://admin:{{ .DbPassword }}@db/app"
+          resolvedValue="postgres://admin:hunter2@db/app"
+          onChange={vi.fn()}
+          disabled={disabled}
+        />,
+      )
+
+      expect(screen.getByText("Based on DB Password")).toBeInTheDocument()
+      expect(container.innerHTML).not.toContain("hunter2")
+    },
+  )
+
+  it("shows what linked list entries come to", () => {
+    const variable: BoilerplateVariable = { name: "Repos", type: "list", description: "" }
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={variable}
+        value={["github.com/acme/catalog", "github.com/{{ .ProjectName }}/modules"]}
+        resolvedValue={["github.com/acme/catalog", "github.com/acme/modules"]}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("github.com/acme/modules")).toBeInTheDocument()
+    expect(screen.queryByText("Project Name")).toBeNull()
+    expectNoRawTemplateText(container)
+  })
+
+  it("shows what linked map keys and values come to", () => {
+    const variable: BoilerplateVariable = { name: "DefaultTags", type: "map", description: "" }
+    const { container } = render(
+      <FormControl
+        id="f"
+        variable={variable}
+        value={{ "{{ .OrgNamePrefix }}:Team": "DevOps", Owner: "{{ .TeamEmail }}" }}
+        resolvedValue={{ "acme:Team": "DevOps", Owner: "ops@acme.io" }}
+        onChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("acme:Team")).toBeInTheDocument()
+    expect(screen.getByText("ops@acme.io")).toBeInTheDocument()
+    expectNoRawTemplateText(container)
+  })
+
+  it("shows what linked structured map fields come to", () => {
+    const variable: BoilerplateVariable = {
+      name: "Accounts",
+      type: "map",
+      description: "",
+      schema: { email: "string", name: "string" },
+    }
+    render(
+      <FormControl
+        id="f"
+        variable={variable}
+        onChange={vi.fn()}
+        value={{ security: { email: "security@{{ .EmailDomainName }}", name: "Security" } }}
+        resolvedValue={{ security: { email: "security@acme.io", name: "Security" } }}
+      />,
+    )
+
+    expect(screen.getByText("security@acme.io")).toBeInTheDocument()
+    expect(screen.queryByText("Email Domain Name")).toBeNull()
+  })
+
+  it("labels a linked enum value by what it comes to when that is known", () => {
+    const variable: BoilerplateVariable = {
+      name: "Env",
+      type: "enum",
+      description: "",
+      options: ["dev", "prod"],
+    }
+    render(
+      <FormControl
+        id="f"
+        variable={variable}
+        value="{{ .DefaultEnv }}"
+        resolvedValue="dev"
+        onChange={vi.fn()}
+      />,
+    )
+
+    const select = screen.getByRole("combobox") as HTMLSelectElement
+    expect(select.value).toBe("{{ .DefaultEnv }}")
+    expect(select.selectedOptions[0]!.text).toBe("dev")
   })
 
   it("labels a linked enum value by what it is based on, keeping the expression as the value", () => {
