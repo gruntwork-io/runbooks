@@ -402,6 +402,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
 
       <BoilerplateInputsForm
         id={id}
+        blockType="Template"
         boilerplateConfig={boilerplateConfig}
         initialData={initialData}
         onAutoRender={handleAutoRender}

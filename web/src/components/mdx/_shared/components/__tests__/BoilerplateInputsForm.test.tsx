@@ -8,6 +8,9 @@ import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import { RunbookStateStub } from "@/test/test-utils"
 import { ComponentIdRegistryProvider, useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
+import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
+import { useErrorReporting } from "@/contexts/useErrorReporting"
+import type { ReportedError } from "@/contexts/ErrorReportingContext.types"
 import { sensitiveOutput } from "@/lib/outputValues"
 
 const config: BoilerplateConfig = {
@@ -19,6 +22,7 @@ function renderForm(props: Partial<ComponentProps<typeof BoilerplateInputsForm>>
   const element = (overrides: Partial<ComponentProps<typeof BoilerplateInputsForm>> = {}) => (
     <BoilerplateInputsForm
       id="tpl"
+      blockType="Template"
       boilerplateConfig={config}
       onGenerate={onGenerate}
       enableAutoRender={false}
@@ -209,6 +213,7 @@ describe("BoilerplateInputsForm resolved linked values", () => {
         <RunbookStateStub blockOutputs={blockOutputs} blockInputs={blockInputs}>
           <BoilerplateInputsForm
             id="tpl"
+            blockType="Template"
             boilerplateConfig={boilerplateConfig}
             enableAutoRender={false}
             variant="standard"
@@ -420,24 +425,39 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
     return null
   }
 
+  // Reads the page-level error report, as the summary banner does.
+  let reported: ReportedError[] = []
+  function ReportProbe() {
+    reported = useErrorReporting().errors
+    return null
+  }
+
   function renderOnPage(blockIds: string[]) {
     const onGenerate = vi.fn()
-    const utils = render(
-      <ComponentIdRegistryProvider>
-        {blockIds.map((blockId) => (
-          <PageBlock key={blockId} id={blockId} />
-        ))}
-        <BoilerplateInputsForm
-          id="tpl"
-          boilerplateConfig={accountConfig}
-          onGenerate={onGenerate}
-          enableAutoRender={false}
-          variant="standard"
-        />
-      </ComponentIdRegistryProvider>,
+    const form = (
+      <BoilerplateInputsForm
+        id="tpl"
+        blockType="Template"
+        boilerplateConfig={accountConfig}
+        onGenerate={onGenerate}
+        enableAutoRender={false}
+        variant="standard"
+      />
     )
+    const page = (withForm: boolean) => (
+      <ErrorReportingProvider>
+        <ComponentIdRegistryProvider>
+          {blockIds.map((blockId) => (
+            <PageBlock key={blockId} id={blockId} />
+          ))}
+          {withForm && form}
+          <ReportProbe />
+        </ComponentIdRegistryProvider>
+      </ErrorReportingProvider>
+    )
+    const utils = render(page(true))
     const block = () => utils.container.querySelector(".runbook-block") as HTMLElement
-    return { ...utils, onGenerate, block }
+    return { ...utils, onGenerate, block, removeForm: () => utils.rerender(page(false)) }
   }
 
   it("shows the error on the field and turns the block red, without the field being touched", async () => {
@@ -468,11 +488,39 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
     expect(onGenerate).toHaveBeenCalledWith({ Region: "us-east-1", AccountAlias: "acme-prod" })
   })
 
+  it("adds it to the page-level error report until the value is replaced", async () => {
+    renderOnPage(["tpl", "other-block"])
+    await screen.findByText(/no block on this page has that id/)
+
+    expect(reported).toEqual([
+      {
+        componentId: "tpl:missing-output-blocks",
+        componentType: "Template",
+        severity: "error",
+        message:
+          'Account Alias uses an output of block "create_account", which isn\'t on this page.',
+      },
+    ])
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear linked value" }))
+    expect(reported).toEqual([])
+  })
+
+  it("takes it out of the page-level error report when the block goes away", async () => {
+    const { removeForm } = renderOnPage(["tpl", "other-block"])
+    await screen.findByText(/no block on this page has that id/)
+    expect(reported).toHaveLength(1)
+
+    removeForm()
+    expect(reported).toEqual([])
+  })
+
   it("is only waiting, not an error, when the block is on the page", async () => {
     const { block, onGenerate } = renderOnPage(["tpl", "create-account"])
 
     expect(await screen.findByTitle("Waiting for create-account to run")).toBeInTheDocument()
     expect(screen.queryByText(/no block on this page/)).toBeNull()
+    expect(reported).toEqual([])
     expect(block().className).not.toContain("bg-destructive-muted")
     fireEvent.click(screen.getByRole("button", { name: "Generate" }))
     expect(onGenerate).toHaveBeenCalled()

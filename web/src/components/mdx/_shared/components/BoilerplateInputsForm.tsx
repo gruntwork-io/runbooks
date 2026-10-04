@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react"
+import React, { useMemo, useState, useEffect, useContext } from "react"
 import { Button } from "@/components/ui/button"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
@@ -13,16 +13,28 @@ import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
 import { BlockIdLabel } from "./BlockIdLabel"
 import type { BlockOutput } from "@/lib/templateUtils"
+import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
 const NO_VALUES: Record<string, unknown> = {}
 
+const quoted = (blockIds: string[]) => blockIds.map((blockId) => `"${blockId}"`).join(", ")
+
 /** The error on a field whose value uses outputs of blocks that aren't on the page. */
 function missingBlockMessage(blockIds: string[]): string {
-  const named = blockIds.map((blockId) => `"${blockId}"`).join(", ")
   return blockIds.length === 1
-    ? `Uses an output of block ${named}, but no block on this page has that id, so it can't be filled in. Enter a value instead.`
-    : `Uses outputs of blocks ${named}, but no blocks on this page have those ids, so it can't be filled in. Enter a value instead.`
+    ? `Uses an output of block ${quoted(blockIds)}, but no block on this page has that id, so it can't be filled in. Enter a value instead.`
+    : `Uses outputs of blocks ${quoted(blockIds)}, but no blocks on this page have those ids, so it can't be filled in. Enter a value instead.`
+}
+
+/** The page-level report of a form's fields that use outputs of blocks that aren't on the page. */
+function missingBlocksReport(missingByField: Record<string, string[]>): string | undefined {
+  const sentences = Object.entries(missingByField).map(([name, blockIds]) =>
+    blockIds.length === 1
+      ? `${formatVariableLabel(name)} uses an output of block ${quoted(blockIds)}, which isn't on this page.`
+      : `${formatVariableLabel(name)} uses outputs of blocks ${quoted(blockIds)}, which aren't on this page.`,
+  )
+  return sentences.length > 0 ? sentences.join(" ") : undefined
 }
 
 /**
@@ -48,6 +60,8 @@ function missingBlockMessage(blockIds: string[]): string {
  */
 interface BoilerplateInputsFormProps {
   id: string
+  /** The kind of block the form belongs to, as the page-level error report names it. */
+  blockType: "Inputs" | "Template"
   boilerplateConfig: BoilerplateConfig | null
   initialData?: Record<string, unknown>
   onFormChange?: (formData: Record<string, unknown>) => void
@@ -155,6 +169,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
 
 export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   id,
+  blockType,
   boilerplateConfig,
   initialData = {},
   onFormChange,
@@ -212,14 +227,36 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // start, not once touched, and the form stays invalid (and red) until then.
   // An inherited field is left to the block it comes from, which shows it.
   const outputStatus = useOutputDependencyStatus()
+  const missingByField: Record<string, string[]> = {}
   const missingBlockErrors: Record<string, string> = {}
   for (const variable of boilerplateConfig?.variables ?? NO_VARIABLES) {
     if (sharedVarNames.has(variable.name)) continue
     const { missing } = outputStatus(formData[variable.name])
-    if (missing.length > 0) missingBlockErrors[variable.name] = missingBlockMessage(missing)
+    if (missing.length === 0) continue
+    missingByField[variable.name] = missing
+    missingBlockErrors[variable.name] = missingBlockMessage(missing)
   }
   const hasMissingBlocks = Object.keys(missingBlockErrors).length > 0
   const shownErrors = { ...visibleErrors, ...missingBlockErrors }
+
+  // It's a mistake in the runbook, so the page-level error report counts it
+  // too. Under its own key: the block reports (and clears) its own errors
+  // under its id. Optional, as the form can render without the provider.
+  const errorReporting = useContext(ErrorReportingContext)
+  const reportError = errorReporting?.reportError
+  const clearError = errorReporting?.clearError
+  const missingReport = missingBlocksReport(missingByField)
+  useEffect(() => {
+    if (!reportError || !clearError || !missingReport) return
+    const componentId = `${id}:missing-output-blocks`
+    reportError({
+      componentId,
+      componentType: blockType,
+      severity: "error",
+      message: missingReport,
+    })
+    return () => clearError(componentId)
+  }, [id, blockType, missingReport, reportError, clearError])
 
   // Sync live variable values when they change (for shared variables)
   // Shared variables are read-only in the form and stay live-synced to imported values

@@ -113,6 +113,7 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
 
           <BoilerplateInputsForm
             id={id}
+            blockType="Template"
             boilerplateConfig={config}
             initialData={initialData}
             onFormChange={handleFormChange}
