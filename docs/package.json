@@ -11,7 +11,7 @@
     "astro": "astro",
     "spellcheck": "cspell \"src/content/**/*.{md,mdx}\" --no-progress",
     "spellcheck:fix": "cspell \"src/content/**/*.{md,mdx}\" --no-progress --show-suggestions",
-    "linkcheck": "linkinator ./dist --recurse --skip 'github.com' --skip 'localhost'",
+    "linkcheck": "linkinator ./dist --recurse --skip 'github.com' --skip 'localhost' --skip 'gnu.org' --skip 'runbooks.gruntwork.io'",
     "linkcheck:external": "linkinator ./dist --recurse"
   },
   "dependencies": {
@@ -22,6 +22,6 @@
   },
   "devDependencies": {
     "cspell": "10.0.0",
-    "linkinator": "7.6.1"
+    "linkinator": "8.1.0"
   }
 }
