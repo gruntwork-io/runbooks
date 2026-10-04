@@ -1,7 +1,11 @@
-import type { ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { InstructionModeProvider } from "@/contexts/InstructionModeContext"
-import { RunbookContextProvider } from "@/contexts/RunbookContext"
+import {
+  RunbookContext,
+  RunbookContextProvider,
+  type RunbookContextType,
+} from "@/contexts/RunbookContext"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { TelemetryContext, defaultContextValue } from "@/contexts/TelemetryContext.types"
@@ -41,3 +45,25 @@ export function TestWrapper({
     </ThemeProvider>
   )
 }
+
+/**
+ * Provides a RunbookContext holding only the given block inputs and outputs,
+ * for a test of a component that reads them but registers nothing.
+ */
+export function RunbookStateStub({
+  blockInputs = EMPTY_BLOCK_STATE,
+  blockOutputs = EMPTY_BLOCK_STATE,
+  children,
+}: {
+  blockInputs?: RunbookContextType["blockInputs"]
+  blockOutputs?: RunbookContextType["blockOutputs"]
+  children: ReactNode
+}) {
+  const value = useMemo(
+    () => ({ blockInputs, blockOutputs }) as RunbookContextType,
+    [blockInputs, blockOutputs],
+  )
+  return <RunbookContext.Provider value={value}>{children}</RunbookContext.Provider>
+}
+
+const EMPTY_BLOCK_STATE = {}

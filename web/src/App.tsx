@@ -203,12 +203,12 @@ function App() {
   // there (a stale "active" repo, its file tree). Clear them on the same
   // runbook changes as the alert above. The per-runbook block state is reset
   // by keying MDXContainer on the same path below, and the logs store by
-  // ClearLogsOnRunbookChange.
+  // ClearLogsOnRunbookChange. Both setters are stable, so only a path change
+  // re-runs this.
   useEffect(() => {
     resetWorkTrees()
     updateGeneratedFileTree(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedRunbookPath])
+  }, [loadedRunbookPath, resetWorkTrees, updateGeneratedFileTree])
 
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""

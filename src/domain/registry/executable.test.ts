@@ -9,6 +9,8 @@ import {
   parseComponents,
   ExecutableRegistry,
 } from "./executable.ts"
+import { computeContentHash } from "../workspace/file.ts"
+import type { FileSystem } from "../../services/FileSystem.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
 
 describe("extractProp", () => {
@@ -344,5 +346,121 @@ describe("ExecutableRegistry", () => {
     const entry = await Effect.runPromise(registry.getExecutable(entries[0]!))
     expect(entry.templateVars).toContain("Name")
     expect(entry.templateVars).toContain("Region")
+  })
+
+  describe("a script file that changes after it was registered", () => {
+    const SCRIPT = "/rb/scripts/deploy.sh"
+
+    /**
+     * A registry built from a runbook with a file-based block and an inline
+     * one. `files` is the disk: writing to it changes what the registry reads
+     * next. `run` runs a registry effect against that disk.
+     */
+    async function loadRunbook() {
+      const files: Record<string, string> = {
+        "/rb/runbook.mdx":
+          '<Command id="deploy" path="scripts/deploy.sh" />\n<Check id="greet" command="echo hi" />',
+        [SCRIPT]: "echo v1 {{ .Region }}",
+      }
+      const layer = makeTestFileSystem(files)
+      const registry = await Effect.runPromise(
+        ExecutableRegistry.create("/rb/runbook.mdx").pipe(Effect.provide(layer)),
+      )
+      const run = <A, E>(effect: Effect.Effect<A, E, FileSystem>) =>
+        Effect.runPromiseExit(effect.pipe(Effect.provide(layer)))
+      const deployEntry = () => {
+        const id = Object.values(registry.getAllExecutables()).find(
+          (e) => e.componentId === "deploy",
+        )!.id
+        return registry.getExecutableSync(id)!
+      }
+      return { files, registry, run, deployEntry }
+    }
+
+    it("lists the script files its file entries were read from", async () => {
+      const { registry } = await loadRunbook()
+      expect(registry.getScriptPaths()).toEqual([SCRIPT])
+    })
+
+    it("names the components that run a given script file, and none for other files", async () => {
+      const { registry } = await loadRunbook()
+      expect(registry.getComponentIdsForScripts([SCRIPT])).toEqual(["deploy"])
+      expect(
+        registry.getComponentIdsForScripts(["/rb/scripts/other.sh", "/rb/runbook.mdx"]),
+      ).toEqual([])
+    })
+
+    it("reports no change while the file matches the registered copy", async () => {
+      const { registry, run } = await loadRunbook()
+      expect(await run(registry.getScriptFileChange("deploy"))).toEqual(Exit.succeed(null))
+    })
+
+    it("reports the registered copy and the file on disk once they differ, and keeps the registered copy", async () => {
+      const { files, registry, run, deployEntry } = await loadRunbook()
+      files[SCRIPT] = "echo v2"
+
+      expect(await run(registry.getScriptFileChange("deploy"))).toEqual(
+        Exit.succeed({
+          registeredContent: "echo v1 {{ .Region }}",
+          diskContent: "echo v2",
+          diskContentHash: computeContentHash("echo v2"),
+        }),
+      )
+      expect(deployEntry().content).toBe("echo v1 {{ .Region }}")
+    })
+
+    it("reports no change for a deleted script file and for a block without one", async () => {
+      const { files, registry, run } = await loadRunbook()
+      delete files[SCRIPT]
+
+      expect(await run(registry.getScriptFileChange("deploy"))).toEqual(Exit.succeed(null))
+      expect(await run(registry.getScriptFileChange("greet"))).toEqual(Exit.succeed(null))
+    })
+
+    it("reloadFileEntry registers the reviewed version under a new entry ID", async () => {
+      const { files, registry, run, deployEntry } = await loadRunbook()
+      const before = deployEntry()
+      files[SCRIPT] = "echo v2 {{ .Zone }}"
+
+      const exit = await run(registry.reloadFileEntry("deploy", computeContentHash(files[SCRIPT])))
+
+      expect(Exit.isSuccess(exit)).toBe(true)
+      const after = deployEntry()
+      expect(after).toEqual({
+        ...before,
+        id: computeExecutableId("deploy", files[SCRIPT]),
+        content: files[SCRIPT],
+        contentHash: computeContentHash(files[SCRIPT]),
+        templateVars: ["Zone"],
+      })
+      // The replaced version can't be run by its old ID.
+      expect(registry.getExecutableSync(before.id)).toBeUndefined()
+      expect(Object.keys(registry.getAllExecutables())).toHaveLength(2)
+      expect(registry.getScriptPaths()).toEqual([SCRIPT])
+      expect(await run(registry.getScriptFileChange("deploy"))).toEqual(Exit.succeed(null))
+    })
+
+    it("reloadFileEntry fails, and keeps the registered copy, when the file is not the reviewed version", async () => {
+      const { files, registry, run, deployEntry } = await loadRunbook()
+      const before = deployEntry()
+      const reviewedHash = computeContentHash("echo v2")
+      // The file changed again between the review and the reload.
+      files[SCRIPT] = "echo v3"
+
+      const exit = await run(registry.reloadFileEntry("deploy", reviewedHash))
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(String(exit)).toContain("ScriptReloadConflictError")
+      expect(deployEntry()).toEqual(before)
+    })
+
+    it("reloadFileEntry fails for a block without a script file", async () => {
+      const { registry, run } = await loadRunbook()
+
+      const exit = await run(registry.reloadFileEntry("greet", computeContentHash("echo hi")))
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(String(exit)).toContain("ExecutableNotFoundError")
+    })
   })
 })

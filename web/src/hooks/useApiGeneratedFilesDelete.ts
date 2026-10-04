@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import { useApi } from "@/contexts/ApiContext"
 
 /**
  * Response from the generated files delete API
@@ -23,6 +24,7 @@ export interface UseApiGeneratedFilesDeleteReturn {
  * Hook to delete generated files from the output directory
  */
 export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
+  const api = useApi()
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<{ message: string; details?: string } | null>(null)
   const [deleteSuccess, setDeleteSuccess] = useState<GeneratedFilesDeleteResult | null>(null)
@@ -33,7 +35,7 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
     setDeleteSuccess(null)
 
     try {
-      const data = (await window.api.invoke(
+      const data = (await api.invoke(
         "generated-files:delete",
       )) as unknown as GeneratedFilesDeleteResult
       setDeleteSuccess(data)
@@ -47,7 +49,7 @@ export function useApiGeneratedFilesDelete(): UseApiGeneratedFilesDeleteReturn {
       setIsDeleting(false)
       return false
     }
-  }, [])
+  }, [api])
 
   return {
     deleteFiles,

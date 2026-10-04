@@ -13,9 +13,9 @@ import * as path from "node:path"
 
 import { FileSystem } from "../../services/FileSystem.js"
 import { computeContentHash } from "../workspace/file.js"
-import { ExecutableNotFoundError } from "../../errors/index.js"
+import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
 import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../mdx.js"
-import type { Executable, ExecutableType } from "../../types.js"
+import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
 // ---------------------------------------------------------------------------
 // Component types that are scanned
@@ -207,6 +207,8 @@ export function parseComponents(content: string, componentType: string): ParsedC
 
 export class ExecutableRegistry {
   private entries = new Map<string, Executable>()
+  /** Absolute path each file entry's script was read from, keyed by entry ID. */
+  private scriptPaths = new Map<string, string>()
   private warnings: string[] = []
 
   // -----------------------------------------------------------------------
@@ -331,7 +333,106 @@ export class ExecutableRegistry {
         path: scriptPath,
         templateVars: extractTemplateVars(scriptContent),
       })
+      this.scriptPaths.set(entryId, fullPath)
     })
+  }
+
+  // -----------------------------------------------------------------------
+  // Script files changed after registration
+  // -----------------------------------------------------------------------
+
+  /** Absolute paths of the script files the file entries were read from. */
+  getScriptPaths(): string[] {
+    return [...new Set(this.scriptPaths.values())]
+  }
+
+  /** IDs of the components whose file entry was read from one of `scriptPaths`. */
+  getComponentIdsForScripts(scriptPaths: readonly string[]): string[] {
+    const componentIds: string[] = []
+    for (const [entryId, scriptPath] of this.scriptPaths) {
+      const entry = this.entries.get(entryId)
+      if (entry && scriptPaths.includes(scriptPath)) componentIds.push(entry.componentId)
+    }
+    return componentIds
+  }
+
+  /**
+   * The script file of `componentId`'s entry as it is on disk now, when that
+   * differs from the registered copy. Null when the two match, when the file
+   * can't be read, and when the component has no file entry.
+   */
+  getScriptFileChange(componentId: string) {
+    return Effect.gen(this, function* () {
+      const fs = yield* FileSystem
+      const found = this.findFileEntry(componentId)
+      if (!found) return null
+
+      const diskContent = yield* Effect.catchAll(fs.readFile(found.scriptPath), () =>
+        Effect.succeed(null),
+      )
+      if (diskContent === null) return null
+
+      const diskContentHash = computeContentHash(diskContent)
+      if (diskContentHash === found.entry.contentHash) return null
+
+      const change: ScriptFileChange = {
+        registeredContent: found.entry.content,
+        diskContent,
+        diskContentHash,
+      }
+      return change
+    })
+  }
+
+  /**
+   * Replace `componentId`'s file entry with its script as it is on disk, so
+   * Run executes that version. `reviewedHash` is the content hash of the
+   * version the user reviewed.
+   *
+   * Fails with ScriptReloadConflictError, leaving the entry as it was, when
+   * the file's content does not have that hash. Fails with
+   * ExecutableNotFoundError when the component has no file entry.
+   */
+  reloadFileEntry(componentId: string, reviewedHash: string) {
+    return Effect.gen(this, function* () {
+      const fs = yield* FileSystem
+      const found = this.findFileEntry(componentId)
+      if (!found) {
+        return yield* new ExecutableNotFoundError({ id: componentId })
+      }
+      const { entry, scriptPath } = found
+
+      const content = yield* fs.readFile(scriptPath)
+      if (computeContentHash(content) !== reviewedHash) {
+        return yield* new ScriptReloadConflictError({
+          path: scriptPath,
+          message: `${entry.path} changed again after you reviewed it. Review the latest change, then reload the script.`,
+        })
+      }
+
+      // The entry ID is derived from the content, so the entry moves to a new ID.
+      const entryId = computeExecutableId(componentId, content)
+      this.entries.delete(entry.id)
+      this.scriptPaths.delete(entry.id)
+      this.entries.set(entryId, {
+        ...entry,
+        id: entryId,
+        content,
+        contentHash: reviewedHash,
+        templateVars: extractTemplateVars(content),
+      })
+      this.scriptPaths.set(entryId, scriptPath)
+    })
+  }
+
+  private findFileEntry(
+    componentId: string,
+  ): { entry: Executable; scriptPath: string } | undefined {
+    for (const [entryId, scriptPath] of this.scriptPaths) {
+      const entry = this.entries.get(entryId)
+      if (entry?.componentId === componentId) return { entry, scriptPath }
+    }
+    return undefined
   }
 
   // -----------------------------------------------------------------------

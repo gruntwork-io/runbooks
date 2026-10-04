@@ -1,6 +1,7 @@
 /**
  * Line diff and unified-diff layout for the Changed files view
- * (ChangedFilesView). Pure functions, so the diff rows and the collapsed
+ * (ChangedFilesView) and a script block's changed-script notice
+ * (ScriptChangeNotice). Pure functions, so the diff rows and the collapsed
  * context sections can be tested without rendering.
  */
 
@@ -88,11 +89,24 @@ export function generateUnifiedDiff(
 
   if (originalContent === undefined || newContent === undefined) return undefined
 
+  return toDiffLines(diffLineArrays(headLines(originalContent), diskLines(newContent)))
+}
+
+/**
+ * Build the unified diff rows between two versions of a file that were both
+ * read from disk. Two versions that differ only in line endings, or in a
+ * final newline, have no changed rows.
+ */
+export function diffDiskContents(oldContent: string, newContent: string): DiffLine[] {
+  return toDiffLines(diffLineArrays(diskLines(oldContent), diskLines(newContent)))
+}
+
+function toDiffLines(ops: DiffOp[]): DiffLine[] {
   const lines: DiffLine[] = []
   let oldLineNum = 1
   let newLineNum = 1
 
-  for (const op of diffLineArrays(headLines(originalContent), diskLines(newContent))) {
+  for (const op of ops) {
     if (op.type === "equal") {
       lines.push({
         type: "context",
