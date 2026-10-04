@@ -5,7 +5,8 @@ import { BoilerplateInputsForm } from "../BoilerplateInputsForm"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateValidationType } from "@/types/boilerplateVariable"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
-import { RunbookContext, type RunbookContextType } from "@/contexts/RunbookContext"
+import type { RunbookContextType } from "@/contexts/RunbookContext"
+import { RunbookStateStub } from "@/test/test-utils"
 import { sensitiveOutput } from "@/lib/outputValues"
 
 const config: BoilerplateConfig = {
@@ -202,10 +203,9 @@ describe("BoilerplateInputsForm resolved linked values", () => {
       return { inputs: fakeResolve(request) }
     })
     const api = { invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI
-    const runbook = { blockOutputs, blockInputs } as RunbookContextType
     const utils = render(
       <ApiProvider api={api}>
-        <RunbookContext.Provider value={runbook}>
+        <RunbookStateStub blockOutputs={blockOutputs} blockInputs={blockInputs}>
           <BoilerplateInputsForm
             id="tpl"
             boilerplateConfig={boilerplateConfig}
@@ -213,7 +213,7 @@ describe("BoilerplateInputsForm resolved linked values", () => {
             variant="standard"
             importedValues={importedValues}
           />
-        </RunbookContext.Provider>
+        </RunbookStateStub>
       </ApiProvider>,
     )
     const requests = () => invoke.mock.calls.map(([, request]) => request)
