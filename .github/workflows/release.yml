@@ -132,7 +132,7 @@ jobs:
           # Rosetta). arm64 first so the legacy top-level path/sha512 match a
           # single both-arch build. The merge also sets minimumSystemVersion
           # (MINIMUM_DARWIN_VERSION in the script), so Macs older than the
-          # release's macOS floor aren't offered an update they can't launch.
+          # oldest supported macOS aren't offered the update.
           mise x node -- node .github/scripts/release/merge-mac-latest.mjs \
             out/latest-mac.yml out/latest-mac-arm64.yml out/latest-mac.yml
           rm -f out/latest-mac-arm64.yml

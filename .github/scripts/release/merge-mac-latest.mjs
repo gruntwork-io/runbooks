@@ -16,8 +16,8 @@
 // per-pass `files` arrays back together restores correct per-arch updates.
 //
 // The merged manifest also gets `minimumSystemVersion`, which electron-builder
-// never writes, so Macs too old for a release don't auto-update into an app
-// that won't launch (see MINIMUM_DARWIN_VERSION below).
+// never writes, so Macs older than the oldest supported macOS aren't offered
+// the update (see MINIMUM_DARWIN_VERSION below).
 //
 // Usage: merge-mac-latest.mjs <output.yml> <input1.yml> [input2.yml ...]
 //
