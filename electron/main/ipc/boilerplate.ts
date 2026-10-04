@@ -10,6 +10,7 @@ import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,
+  extractTemplateOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
 import {
   flattenVariables,
@@ -189,35 +190,14 @@ export function registerBoilerplateHandlers(): void {
 
         const config = yield* parseBoilerplateConfig(yamlContent)
 
-        // Extract output dependencies from the boilerplate.yml itself.
-        // Variable defaults often reference `{{ .outputs.blockId.X }}`, and
-        // those deps must gate the Generate button just like refs in
-        // template files do.
-        const yamlDeps = extractOutputDependencies(yamlContent)
-        for (const dep of yamlDeps) {
-          if (!config.outputDependencies.some((d) => d.fullPath === dep.fullPath)) {
-            config.outputDependencies.push(dep)
-          }
-        }
-
-        // Extract output dependencies from template files if we have a path
-        if (resolvedTemplatePath) {
-          const fs = yield* FileSystem
-          const templateDir = resolvedTemplatePath.replace(/\/[^/]+$/, "")
-          const entries = yield* Effect.either(fs.readdir(templateDir))
-
-          if (entries._tag === "Right") {
-            for (const entry of entries.right) {
-              if (entry === "boilerplate.yml" || entry === "boilerplate.yaml") continue
-              const filePath = `${templateDir}/${entry}`
-              const content = yield* Effect.either(fs.readFile(filePath))
-              if (content._tag === "Right") {
-                const deps = extractOutputDependencies(content.right)
-                config.outputDependencies.push(...deps)
-              }
-            }
-          }
-        }
+        // Output references gate the Generate button. Inline content has
+        // only the boilerplate.yml to scan; a template on disk has its files too.
+        config.outputDependencies = resolvedTemplatePath
+          ? yield* extractTemplateOutputDependencies(
+              resolvedTemplatePath.replace(/\/[^/]+$/, ""),
+              yamlContent,
+            )
+          : extractOutputDependencies(yamlContent)
 
         return config
       }),
