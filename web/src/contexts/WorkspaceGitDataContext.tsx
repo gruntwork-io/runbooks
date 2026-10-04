@@ -1,4 +1,12 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
+import {
+  useState,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react"
 import type { ReactNode } from "react"
 import { useApi, type RunbooksAPI } from "./ApiContext"
 import { useGitWorkTree } from "./useGitWorkTree"
@@ -301,12 +309,14 @@ function useFileTree(
   // With no worktree, the path change already cleared the tree during render,
   // and the previous run's cleanup dropped its in-flight response.
   const prevTreeVersionRef = useRef(treeVersion)
+  // Read, not a trigger: the fetch below updates `tree` itself.
+  const hasTree = useEffectEvent(() => tree !== null)
   useEffect(() => {
     if (!localPath) return
 
     // If treeVersion changed but path didn't, this is a background refresh — skip the spinner.
     // A path change already cleared `tree` during render, so it always shows one.
-    const silent = prevTreeVersionRef.current !== treeVersion && tree !== null
+    const silent = prevTreeVersionRef.current !== treeVersion && hasTree()
     prevTreeVersionRef.current = treeVersion
 
     void fetchTree(localPath, silent)
@@ -314,7 +324,6 @@ function useFileTree(
     return () => {
       nextTreeSeq()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `tree` is only read for the silent check
   }, [localPath, fetchTree, nextTreeSeq, treeVersion])
 
   const refetch = useCallback(() => {
