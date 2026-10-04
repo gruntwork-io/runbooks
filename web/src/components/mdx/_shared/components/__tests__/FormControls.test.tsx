@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
 import { FormControl } from "../FormControls"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
-import { RunbookContext, type RunbookContextType } from "@/contexts/RunbookContext"
+import type { RunbookContextType } from "@/contexts/RunbookContext"
+import { RunbookStateStub } from "@/test/test-utils"
+import { ComponentIdRegistryProvider, useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 
 // Each select must display the value that is actually in form state, so the
 // user never sees a choice that downstream blocks don't receive.
@@ -545,9 +547,7 @@ describe("FormControls template-valued values", () => {
   // A value built from a block's output can't be known until that block runs.
   describe("waiting on a block that hasn't run", () => {
     const withOutputs = (ui: React.ReactNode, blockOutputs: RunbookContextType["blockOutputs"]) => (
-      <RunbookContext.Provider value={{ blockOutputs } as RunbookContextType}>
-        {ui}
-      </RunbookContext.Provider>
+      <RunbookStateStub blockOutputs={blockOutputs}>{ui}</RunbookStateStub>
     )
     const accountIdField = (props: Partial<React.ComponentProps<typeof FormControl>> = {}) => (
       <FormControl
@@ -565,6 +565,21 @@ describe("FormControls template-valued values", () => {
       const token = screen.getByTitle("Waiting for make_account to run")
       expect(token).toHaveTextContent("Set automatically")
       expect(token.className).toContain("bg-warning-muted")
+    })
+
+    it("names the block by the id it is written with, not the one templates use", async () => {
+      function CreateAccountBlock() {
+        useComponentIdRegistry("make-account", "Command")
+        return null
+      }
+      render(
+        <ComponentIdRegistryProvider>
+          <CreateAccountBlock />
+          {withOutputs(accountIdField(), {})}
+        </ComponentIdRegistryProvider>,
+      )
+
+      expect(await screen.findByTitle("Waiting for make-account to run")).toBeInTheDocument()
     })
 
     it("shows the token in yellow for a sensitive value too", () => {

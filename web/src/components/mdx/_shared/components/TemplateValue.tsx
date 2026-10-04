@@ -2,6 +2,7 @@ import React from "react"
 import { Link2, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAllOutputs } from "@/contexts/useRunbook"
+import { useBlockIdAsWritten } from "@/contexts/ComponentIdRegistry"
 import {
   extractTemplateDependenciesFromString,
   splitDependencies,
@@ -44,14 +45,17 @@ const TemplateToken: React.FC<{ label: string; waitingFor: readonly string[] }> 
 }
 
 /**
- * The blocks whose outputs a template value uses but haven't produced them
- * yet. Until they run, the value can't be known.
+ * The ids, as written in the runbook, of the blocks whose outputs a template
+ * value uses but haven't produced them yet. Until they run, the value can't
+ * be known.
  */
 function useWaitingForBlocks(value: unknown): string[] {
   const allOutputs = useAllOutputs()
+  const blockIdAsWritten = useBlockIdAsWritten()
   if (!isTemplateValue(value)) return []
   const { outputs } = splitDependencies(extractTemplateDependenciesFromString(value))
-  return computeUnmetOutputDependencies(outputs, allOutputs).map((block) => block.blockId)
+  const unmet = computeUnmetOutputDependencies(outputs, allOutputs)
+  return [...new Set(unmet.map((block) => blockIdAsWritten(block.blockId)))]
 }
 
 interface TemplateValueTextProps {
