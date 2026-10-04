@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   containsTemplateValue,
   isTemplateValue,
+  outputDependenciesIn,
   parseTemplateValue,
   resolvedEntries,
   resolvedItems,
@@ -247,4 +248,26 @@ describe("resolvedEntries", () => {
   it.each([undefined, ["DevOps"], "x"])("is empty for %j", (resolved) => {
     expect(resolvedEntries(entries, resolved)).toEqual([])
   })
+})
+
+describe("outputDependenciesIn", () => {
+  it("finds outputs used anywhere in a value, once each", () => {
+    const value = {
+      "{{ .outputs.make_account.region }}:Team": "{{ .outputs.make_account.account_id }}",
+      Owners: ["ops", "{{ .outputs.make-account.account_id }}", "{{ .outputs.iam.role }}"],
+    }
+
+    expect(outputDependenciesIn(value).map((d) => `${d.blockId}.${d.outputName}`)).toEqual([
+      "make_account.region",
+      "make_account.account_id",
+      "iam.role",
+    ])
+  })
+
+  it.each(["plain", "{{ .ProjectName }}-state", ["a", "b"], { a: "b" }, 42])(
+    "is empty for %j",
+    (value) => {
+      expect(outputDependenciesIn(value)).toEqual([])
+    },
+  )
 })

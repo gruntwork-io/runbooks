@@ -11,6 +11,11 @@
  */
 
 import { formatVariableLabel } from "./formatVariableLabel"
+import {
+  extractTemplateDependenciesFromString,
+  splitDependencies,
+  type OutputDependency,
+} from "@/lib/extractTemplateDependencies"
 import { isTemplateString } from "../../../../../../src/domain/boilerplate/templateString"
 
 const ACTION_RE = /\{\{(.*?)\}\}/gs
@@ -132,6 +137,25 @@ export function containsTemplateValue(value: unknown): boolean {
     return Object.entries(value).some(([k, v]) => isTemplateValue(k) || containsTemplateValue(v))
   }
   return false
+}
+
+/** Every template string in a value: the value itself, or its list items, map keys and map values. */
+function templateStringsIn(value: unknown): string[] {
+  if (isTemplateValue(value)) return [value]
+  if (Array.isArray(value)) return value.flatMap(templateStringsIn)
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([k, v]) => [
+      ...templateStringsIn(k),
+      ...templateStringsIn(v),
+    ])
+  }
+  return []
+}
+
+/** The block outputs a value's templates use, wherever in the value they are. */
+export function outputDependenciesIn(value: unknown): OutputDependency[] {
+  return splitDependencies(templateStringsIn(value).flatMap(extractTemplateDependenciesFromString))
+    .outputs
 }
 
 /**

@@ -34,7 +34,7 @@ Service name: {{ .inputs.ServiceName }}
 
 ## Waiting on a script's output
 
-A default can also use another block's output, such as an ID a script prints. Until that block has run, the form can't know the value, so the token is yellow. Hover over it to see which block it's waiting for.
+A default can also use another block's output, such as an ID a script prints. Until that block has run, the form can't know the value, so the token is yellow. Hover over it to see which block it's waiting for. If no block on the page has the id the default names, the token is red instead, and the field shows an error until you replace the value.
 
 `AccountAlias` defaults to `acme-` plus the ID of the account that the **Create Account** script below creates. Run the script and the field shows `acme-123456789012`.
 

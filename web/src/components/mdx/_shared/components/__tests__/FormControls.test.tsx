@@ -567,19 +567,47 @@ describe("FormControls template-valued values", () => {
       expect(token.className).toContain("bg-warning-muted")
     })
 
+    function PageBlock({ id }: { id: string }) {
+      useComponentIdRegistry(id, "Command")
+      return null
+    }
+
     it("names the block by the id it is written with, not the one templates use", async () => {
-      function CreateAccountBlock() {
-        useComponentIdRegistry("make-account", "Command")
-        return null
-      }
       render(
         <ComponentIdRegistryProvider>
-          <CreateAccountBlock />
+          <PageBlock id="make-account" />
           {withOutputs(accountIdField(), {})}
         </ComponentIdRegistryProvider>,
       )
 
       expect(await screen.findByTitle("Waiting for make-account to run")).toBeInTheDocument()
+    })
+
+    // No such block can ever run, so the value can never be filled in.
+    it("shows its token in red when no block on the page has that id", async () => {
+      render(
+        <ComponentIdRegistryProvider>
+          <PageBlock id="other-block" />
+          {withOutputs(accountIdField(), {})}
+        </ComponentIdRegistryProvider>,
+      )
+
+      const token = await screen.findByTitle('No block on this page has the id "make_account"')
+      expect(token).toHaveTextContent("Set automatically")
+      expect(token.className).toContain("bg-destructive-muted")
+      expect(screen.queryByTitle(/Waiting for/)).toBeNull()
+    })
+
+    // Blocks register after their first render, so until then a block can't
+    // be known to be missing.
+    it("isn't red before any block has registered", () => {
+      render(
+        <ComponentIdRegistryProvider>
+          {withOutputs(accountIdField(), {})}
+        </ComponentIdRegistryProvider>,
+      )
+
+      expect(screen.getByTitle("Waiting for make_account to run")).toBeInTheDocument()
     })
 
     it("shows the token in yellow for a sensitive value too", () => {

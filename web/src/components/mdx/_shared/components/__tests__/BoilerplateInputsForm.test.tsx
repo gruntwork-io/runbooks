@@ -7,6 +7,7 @@ import { BoilerplateValidationType } from "@/types/boilerplateVariable"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import { RunbookStateStub } from "@/test/test-utils"
+import { ComponentIdRegistryProvider, useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { sensitiveOutput } from "@/lib/outputValues"
 
 const config: BoilerplateConfig = {
@@ -396,5 +397,84 @@ describe("BoilerplateInputsForm resolved linked values", () => {
     const { invoke } = renderWithResolver(config)
 
     expect(invoke).not.toHaveBeenCalled()
+  })
+})
+
+// A linked default that uses an output of a block that isn't on the page can
+// never be filled in: the form shows it as an error until someone replaces it.
+describe("BoilerplateInputsForm linked default using a block that isn't on the page", () => {
+  const accountConfig: BoilerplateConfig = {
+    variables: [
+      { name: "Region", type: "string", description: "", default: "us-east-1" },
+      {
+        name: "AccountAlias",
+        type: "string",
+        description: "",
+        default: "acme-{{ .outputs.create_account.account_id }}",
+      },
+    ],
+  }
+
+  function PageBlock({ id }: { id: string }) {
+    useComponentIdRegistry(id, "Command")
+    return null
+  }
+
+  function renderOnPage(blockIds: string[]) {
+    const onGenerate = vi.fn()
+    const utils = render(
+      <ComponentIdRegistryProvider>
+        {blockIds.map((blockId) => (
+          <PageBlock key={blockId} id={blockId} />
+        ))}
+        <BoilerplateInputsForm
+          id="tpl"
+          boilerplateConfig={accountConfig}
+          onGenerate={onGenerate}
+          enableAutoRender={false}
+          variant="standard"
+        />
+      </ComponentIdRegistryProvider>,
+    )
+    const block = () => utils.container.querySelector(".runbook-block") as HTMLElement
+    return { ...utils, onGenerate, block }
+  }
+
+  it("shows the error on the field and turns the block red, without the field being touched", async () => {
+    const { block } = renderOnPage(["tpl", "other-block"])
+
+    expect(
+      await screen.findByText(
+        'Uses an output of block "create_account", but no block on this page has that id, so it can\'t be filled in. Enter a value instead.',
+      ),
+    ).toBeInTheDocument()
+    expect(block().className).toContain("bg-destructive-muted")
+  })
+
+  it("doesn't generate until the value is replaced", async () => {
+    const { onGenerate, block } = renderOnPage(["tpl", "other-block"])
+    await screen.findByText(/no block on this page has that id/)
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).not.toHaveBeenCalled()
+    expect(screen.getByText(/There is/)).toHaveTextContent("There is 1 validation error above")
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear linked value" }))
+    fireEvent.change(screen.getByLabelText("Account Alias"), { target: { value: "acme-prod" } })
+    expect(screen.queryByText(/no block on this page has that id/)).toBeNull()
+    expect(block().className).not.toContain("bg-destructive-muted")
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ Region: "us-east-1", AccountAlias: "acme-prod" })
+  })
+
+  it("is only waiting, not an error, when the block is on the page", async () => {
+    const { block, onGenerate } = renderOnPage(["tpl", "create-account"])
+
+    expect(await screen.findByTitle("Waiting for create-account to run")).toBeInTheDocument()
+    expect(screen.queryByText(/no block on this page/)).toBeNull()
+    expect(block().className).not.toContain("bg-destructive-muted")
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalled()
   })
 })

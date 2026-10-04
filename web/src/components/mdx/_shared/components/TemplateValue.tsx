@@ -1,14 +1,11 @@
 import React from "react"
 import { Link2, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useAllOutputs } from "@/contexts/useRunbook"
-import { useBlockIdAsWritten } from "@/contexts/ComponentIdRegistry"
-import {
-  extractTemplateDependenciesFromString,
-  splitDependencies,
-} from "@/lib/extractTemplateDependencies"
-import { computeUnmetOutputDependencies } from "@/lib/templateUtils"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
+import {
+  useOutputDependencyStatus,
+  type OutputDependencyStatus,
+} from "../hooks/useOutputDependencyStatus"
 import {
   isTemplateValue,
   parseTemplateValue,
@@ -16,46 +13,52 @@ import {
   summarizeTemplateValue,
 } from "../lib/templateValue"
 
+const NO_PENDING_OUTPUTS: OutputDependencyStatus = { waitingFor: [], missing: [] }
+
 /**
  * A pill naming a variable (or summarising a computed expression) that a value
- * is linked to. Yellow while the value waits on blocks that haven't run.
+ * is linked to. Red when the value uses an output of a block that isn't on the
+ * page, so it can never be filled in; yellow while it waits on blocks that
+ * haven't run. Hovering names those blocks.
  */
-const TemplateToken: React.FC<{ label: string; waitingFor: readonly string[] }> = ({
+const TemplateToken: React.FC<{ label: string; outputs: OutputDependencyStatus }> = ({
   label,
-  waitingFor,
+  outputs: { waitingFor, missing },
 }) => {
-  const waiting = waitingFor.length > 0
+  const state = missing.length > 0 ? "missing" : waitingFor.length > 0 ? "waiting" : "linked"
+  const title = {
+    missing:
+      missing.length === 1
+        ? `No block on this page has the id "${missing[0]}"`
+        : `No blocks on this page have the ids ${missing.map((b) => `"${b}"`).join(", ")}`,
+    waiting: `Waiting for ${waitingFor.join(", ")} to run`,
+    linked: undefined,
+  }[state]
   return (
     <span
-      title={waiting ? `Waiting for ${waitingFor.join(", ")} to run` : undefined}
+      title={title}
+      data-state={state}
       className={cn(
         "mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px align-middle text-xs font-medium",
-        waiting
-          ? "border-warning/40 bg-warning-muted text-warning-foreground"
-          : "border-border bg-muted text-foreground",
+        {
+          missing: "border-destructive/40 bg-destructive-muted text-destructive",
+          waiting: "border-warning/40 bg-warning-muted text-warning-foreground",
+          linked: "border-border bg-muted text-foreground",
+        }[state],
       )}
     >
       <Link2
-        className={cn("size-3 shrink-0", waiting ? "text-warning" : "text-muted-foreground")}
+        className={cn(
+          "size-3 shrink-0",
+          { missing: "text-destructive", waiting: "text-warning", linked: "text-muted-foreground" }[
+            state
+          ],
+        )}
         aria-hidden="true"
       />
       {label}
     </span>
   )
-}
-
-/**
- * The ids, as written in the runbook, of the blocks whose outputs a template
- * value uses but haven't produced them yet. Until they run, the value can't
- * be known.
- */
-function useWaitingForBlocks(value: unknown): string[] {
-  const allOutputs = useAllOutputs()
-  const blockIdAsWritten = useBlockIdAsWritten()
-  if (!isTemplateValue(value)) return []
-  const { outputs } = splitDependencies(extractTemplateDependenciesFromString(value))
-  const unmet = computeUnmetOutputDependencies(outputs, allOutputs)
-  return [...new Set(unmet.map((block) => blockIdAsWritten(block.blockId)))]
 }
 
 interface TemplateValueTextProps {
@@ -78,7 +81,8 @@ interface TemplateValueTextProps {
  * for each referenced variable; a computed one (conditionals, functions)
  * becomes a single "Based on …" token. Hovering shows the raw expression.
  * While the value uses an output a block hasn't produced yet, its tokens are
- * yellow. Anything else is shown as String(value).
+ * yellow; when no block on the page has that id, they are red. Anything else
+ * is shown as String(value).
  */
 export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
   value,
@@ -87,19 +91,21 @@ export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
   className,
   masked,
 }) => {
-  const waitingFor = useWaitingForBlocks(value)
+  const outputStatus = useOutputDependencyStatus()
   if (!isTemplateValue(value)) return <>{String(value)}</>
+  const outputs = outputStatus(value)
+  const unmet = outputs.waitingFor.length > 0 || outputs.missing.length > 0
 
   if (masked) {
     return (
       <span id={id} className={className}>
-        <TemplateToken label={summarizeTemplateValue(value)} waitingFor={waitingFor} />
+        <TemplateToken label={summarizeTemplateValue(value)} outputs={outputs} />
       </span>
     )
   }
 
-  // A missing output means any resolved value is from before it went away.
-  const resolvedText = waitingFor.length > 0 ? undefined : resolvedValueText(resolved)
+  // While an output it uses is missing, any resolved value is from before.
+  const resolvedText = unmet ? undefined : resolvedValueText(resolved)
   if (resolvedText !== undefined) {
     return (
       <span id={id} title={value} className={className}>
@@ -123,12 +129,12 @@ export const TemplateValueText: React.FC<TemplateValueTextProps> = ({
             <TemplateToken
               key={i}
               label={formatVariableLabel(segment.name)}
-              waitingFor={waitingFor}
+              outputs={NO_PENDING_OUTPUTS}
             />
           ),
         )
       ) : (
-        <TemplateToken label={summarizeTemplateValue(value)} waitingFor={waitingFor} />
+        <TemplateToken label={summarizeTemplateValue(value)} outputs={outputs} />
       )}
     </span>
   )

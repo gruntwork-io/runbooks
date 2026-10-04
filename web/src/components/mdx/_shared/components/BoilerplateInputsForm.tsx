@@ -7,6 +7,7 @@ import { FormControl } from "./FormControls"
 import { useFormState } from "../hooks/useFormState"
 import { useFormValidation } from "../hooks/useFormValidation"
 import { useResolvedTemplateValues } from "../hooks/useResolvedTemplateValues"
+import { useOutputDependencyStatus } from "../hooks/useOutputDependencyStatus"
 import { markKeystroke } from "@/lib/renderPerf"
 import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
@@ -15,6 +16,14 @@ import type { BlockOutput } from "@/lib/templateUtils"
 
 const NO_VARIABLES: BoilerplateVariable[] = []
 const NO_VALUES: Record<string, unknown> = {}
+
+/** The error on a field whose value uses outputs of blocks that aren't on the page. */
+function missingBlockMessage(blockIds: string[]): string {
+  const named = blockIds.map((blockId) => `"${blockId}"`).join(", ")
+  return blockIds.length === 1
+    ? `Uses an output of block ${named}, but no block on this page has that id, so it can't be filled in. Enter a value instead.`
+    : `Uses outputs of blocks ${named}, but no blocks on this page have those ids, so it can't be filled in. Enter a value instead.`
+}
 
 /**
  * Main form component for rendering a webform to initialize boilerplate variables
@@ -198,6 +207,20 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     importedValues,
   )
 
+  // A value that uses an output of a block that isn't on the page can never be
+  // filled in, so someone has to replace it. Its field shows the error from the
+  // start, not once touched, and the form stays invalid (and red) until then.
+  // An inherited field is left to the block it comes from, which shows it.
+  const outputStatus = useOutputDependencyStatus()
+  const missingBlockErrors: Record<string, string> = {}
+  for (const variable of boilerplateConfig?.variables ?? NO_VARIABLES) {
+    if (sharedVarNames.has(variable.name)) continue
+    const { missing } = outputStatus(formData[variable.name])
+    if (missing.length > 0) missingBlockErrors[variable.name] = missingBlockMessage(missing)
+  }
+  const hasMissingBlocks = Object.keys(missingBlockErrors).length > 0
+  const shownErrors = { ...visibleErrors, ...missingBlockErrors }
+
   // Sync live variable values when they change (for shared variables)
   // Shared variables are read-only in the form and stay live-synced to imported values
   useEffect(() => {
@@ -256,7 +279,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!validateForm(formData)) {
+    if (!validateForm(formData) || hasMissingBlocks) {
       setSubmitAttempted(true)
       return
     }
@@ -285,7 +308,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           variable={variable}
           value={formData[variable.name]}
           resolvedValue={resolvedValues[variable.name]}
-          error={visibleErrors[variable.name]}
+          error={shownErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
           onBlur={() => handleFieldBlur(variable.name)}
           disabled={isDisabled}
@@ -337,7 +360,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
           variable={variable}
           value={formData[variable.name]}
           resolvedValue={resolvedValues[variable.name]}
-          error={visibleErrors[variable.name]}
+          error={shownErrors[variable.name]}
           onChange={(value) => handleInputChange(variable.name, value)}
           onBlur={() => handleFieldBlur(variable.name)}
           disabled={isDisabled}
@@ -349,7 +372,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const shouldShowSubmitButton = variant !== "embedded" && showSubmitButton
 
   // Check if form is currently valid (for FormStatus)
-  const formIsValid = isFormValid(formData)
+  const formIsValid = isFormValid(formData) && !hasMissingBlocks
 
   // Once the form has generated successfully, highlight the block green to
   // match the success styling of run-based blocks (Command, Check, etc.).
@@ -357,11 +380,18 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // later becomes invalid or the latest render failed.
   const showSuccess = variant === "standard" && hasGenerated && formIsValid && !hasRenderError
 
-  // Determine container classes based on variant and success state
+  // Container classes by variant and state: red while a field uses a block
+  // that isn't on the page, green once generated successfully
   const containerClasses =
     variant === "embedded"
       ? "runbook-block bg-transparent relative"
-      : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${showSuccess ? "bg-success-muted border-success/30" : "bg-muted border-border"}`
+      : `runbook-block p-6 border rounded-lg shadow-sm mb-4 relative ${
+          hasMissingBlocks
+            ? "bg-destructive-muted border-destructive/30"
+            : showSuccess
+              ? "bg-success-muted border-success/30"
+              : "bg-muted border-border"
+        }`
 
   return (
     <div className={containerClasses}>
@@ -390,9 +420,9 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                   {effectiveButtonText}
                 </Button>
                 {/* Show validation error summary near the button after a failed submit */}
-                {submitAttempted && Object.keys(visibleErrors).length > 0 && (
+                {submitAttempted && Object.keys(shownErrors).length > 0 && (
                   <p className="mt-3 text-sm text-destructive">
-                    {Object.keys(visibleErrors).length === 1 ? (
+                    {Object.keys(shownErrors).length === 1 ? (
                       <>
                         There is <strong>1 validation error</strong> above. Please fix it before
                         generating.
@@ -400,8 +430,8 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                     ) : (
                       <>
                         There are{" "}
-                        <strong>{Object.keys(visibleErrors).length} validation errors</strong>{" "}
-                        above. Please fix them before generating.
+                        <strong>{Object.keys(shownErrors).length} validation errors</strong> above.
+                        Please fix them before generating.
                       </>
                     )}
                   </p>
