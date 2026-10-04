@@ -1,14 +1,16 @@
 /**
- * Owns the single watch-mode file watcher.
+ * Owns the file watchers for the open runbook: the watch-mode watcher on the
+ * runbook file, and the watcher on the script files its blocks run.
  *
- * At most one watcher runs at a time, keyed on the runbook it watches:
- * starting a watcher for a different runbook interrupts the previous one,
- * which closes its file watcher. Kept free of Electron imports; watch.ts
- * wires it to the app runtime and the main window.
+ * Each runs at most one watch at a time, keyed on what it watches: starting
+ * it on something else interrupts the previous watch, which closes its file
+ * watcher. Kept free of Electron imports; watch.ts wires them to the app
+ * runtime and the main window.
  */
 import { Effect, Fiber, Stream } from "effect"
-import { createWatcher } from "../../../src/watcher.ts"
-import type { FileSystem } from "../../../src/services/FileSystem.ts"
+import { createScriptWatcher, createWatcher } from "../../../src/watcher.ts"
+import type { FileChangeEvent, FileSystem } from "../../../src/services/FileSystem.ts"
+import type { FileWatchError } from "../../../src/errors/index.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:watch")
@@ -29,25 +31,82 @@ export interface RunbookWatcher {
   stop: () => Promise<void>
 }
 
+export interface ScriptWatcher {
+  /**
+   * Watch `scriptPaths` and call `onChange` with the ones that were written,
+   * once per burst of writes. A no-op when exactly those files are already
+   * being watched; a watcher on any other set is stopped first, and an empty
+   * set only stops it.
+   */
+  watch: (scriptPaths: readonly string[]) => void
+  /** Stop the running watcher, if any. Resolves once its file watcher is closed. */
+  stop: () => Promise<void>
+}
+
 export function makeRunbookWatcher(
   runtime: WatcherRuntime,
   onReload: (runbookPath: string) => void,
 ): RunbookWatcher {
-  let active: { runbookPath: string; fiber: Fiber.RuntimeFiber<void> } | null = null
+  const watch = makeKeyedWatch<FileChangeEvent>(runtime)
+  return {
+    start: (runbookPath) =>
+      watch.start({
+        key: runbookPath,
+        label: runbookPath,
+        changes: createWatcher(runbookPath),
+        onChange: () => onReload(runbookPath),
+      }),
+    stop: watch.stop,
+  }
+}
 
-  const watchRunbook = (runbookPath: string) =>
+export function makeScriptWatcher(
+  runtime: WatcherRuntime,
+  onChange: (scriptsWritten: string[]) => void,
+): ScriptWatcher {
+  const watch = makeKeyedWatch<string[]>(runtime)
+  return {
+    watch: (scriptPaths) => {
+      if (scriptPaths.length === 0) {
+        void watch.stop()
+        return
+      }
+      watch.start({
+        key: [...scriptPaths].sort().join("\n"),
+        label: `${scriptPaths.length} script file(s)`,
+        changes: createScriptWatcher(scriptPaths),
+        onChange,
+      })
+    },
+    stop: watch.stop,
+  }
+}
+
+interface WatchTarget<T> {
+  /** Identifies what is watched: starting the same key again is a no-op. */
+  key: string
+  /** Names what is watched in the log. */
+  label: string
+  changes: Effect.Effect<Stream.Stream<T, FileWatchError>, never, FileSystem>
+  onChange: (change: T) => void
+}
+
+function makeKeyedWatch<T>(runtime: WatcherRuntime) {
+  let active: { key: string; fiber: Fiber.RuntimeFiber<void> } | null = null
+
+  const run = (target: WatchTarget<T>) =>
     Effect.gen(function* () {
-      const changes = yield* createWatcher(runbookPath)
-      yield* Stream.runForEach(changes, () =>
+      const changes = yield* target.changes
+      yield* Stream.runForEach(changes, (change) =>
         Effect.sync(() => {
           // A replaced or stopped watcher can deliver one last event before
-          // its interruption lands; only the runbook being watched reloads.
-          if (active?.runbookPath === runbookPath) onReload(runbookPath)
+          // its interruption lands; only the target being watched reports it.
+          if (active?.key === target.key) target.onChange(change)
         }),
       )
     }).pipe(
       Effect.catchAll((err) =>
-        Effect.sync(() => log.warn(`stopped watching ${runbookPath}:`, err)),
+        Effect.sync(() => log.warn(`stopped watching ${target.label}:`, err)),
       ),
     )
 
@@ -58,13 +117,13 @@ export function makeRunbookWatcher(
     return Effect.runPromise(Fiber.interrupt(current.fiber).pipe(Effect.asVoid))
   }
 
-  const start = (runbookPath: string): void => {
+  const start = (target: WatchTarget<T>): void => {
     // A watcher that died (e.g. a file watcher error) is replaced, not kept.
-    if (active?.runbookPath === runbookPath && active.fiber.unsafePoll() === null) {
+    if (active?.key === target.key && active.fiber.unsafePoll() === null) {
       return
     }
     void stop()
-    active = { runbookPath, fiber: runtime.runFork(watchRunbook(runbookPath)) }
+    active = { key: target.key, fiber: runtime.runFork(run(target)) }
   }
 
   return { start, stop }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime, Stream } from "effect"
-import { makeRunbookWatcher, type RunbookWatcher } from "./runbook-watcher.ts"
+import { makeRunbookWatcher, makeScriptWatcher, type RunbookWatcher } from "./runbook-watcher.ts"
 import { FileSystem, type FileChangeEvent } from "../../../src/services/FileSystem.ts"
 import { FileWatchError } from "../../../src/errors/index.ts"
 import { makeTestFileSystem } from "../../../src/test-utils/TestFileSystem.ts"
@@ -158,5 +158,67 @@ describe("makeRunbookWatcher", () => {
       await failing.stop()
       warn.mockRestore()
     }
+  })
+})
+
+describe("makeScriptWatcher", () => {
+  const SETUP = "/work/a/scripts/setup.sh"
+  const DEPLOY = "/work/a/scripts/deploy.sh"
+
+  let changes: string[][] = []
+  const scripts = makeScriptWatcher(watchRuntime, (scriptsWritten) => {
+    changes.push(scriptsWritten)
+  })
+
+  beforeEach(() => {
+    changes = []
+  })
+
+  afterEach(async () => {
+    await scripts.stop()
+  })
+
+  it("keeps one watcher per set of scripts, in any order", async () => {
+    scripts.watch([SETUP, DEPLOY])
+    await waitFor(() => opened.length === 1)
+
+    scripts.watch([DEPLOY, SETUP])
+    await settle()
+
+    expect(opened).toEqual([["/work/a/scripts"]])
+    expect(closed).toBe(0)
+  })
+
+  it("replaces the watcher when the set of scripts changes, and stops it for an empty set", async () => {
+    scripts.watch([SETUP])
+    await waitFor(() => opened.length === 1)
+
+    scripts.watch([SETUP, "/work/a/check.sh"])
+    await waitFor(() => opened.length === 2 && closed === 1)
+    expect(opened[1]).toEqual(["/work/a/scripts", "/work/a"])
+
+    scripts.watch([])
+    await waitFor(() => closed === 2)
+    expect(opened).toHaveLength(2)
+  })
+
+  it("reports once per debounced burst, with the watched scripts written during it", async () => {
+    scripts.watch([SETUP, DEPLOY, "/work/a/scripts/untouched.sh"])
+    await waitFor(() => emitters.length === 1)
+
+    emitters[0]!({ type: "change", path: "/work/a/scripts/notes.txt" })
+    emitters[0]!({ type: "change", path: SETUP })
+    emitters[0]!({ type: "change", path: DEPLOY })
+    await waitFor(() => changes.length > 0)
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400)
+    })
+
+    expect(changes).toEqual([[SETUP, DEPLOY]])
+
+    // The next burst starts empty: it reports only what it wrote.
+    emitters[0]!({ type: "change", path: DEPLOY })
+    await waitFor(() => changes.length > 1)
+    expect(changes[1]).toEqual([DEPLOY])
   })
 })

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test"
 import { Chunk, Effect, Layer, Stream } from "effect"
-import { createWatcher } from "./watcher.ts"
+import { createScriptWatcher, createWatcher } from "./watcher.ts"
 import { FileSystem, type FileChangeEvent, type WatchOptions } from "./services/FileSystem.ts"
 import { makeTestFileSystem } from "./test-utils/TestFileSystem.ts"
 
@@ -97,5 +97,84 @@ describe("createWatcher", () => {
       "linux",
     )
     expect(emitted).toEqual([])
+  })
+})
+
+describe("createScriptWatcher", () => {
+  const SETUP = "/work/my-runbook/scripts/setup.sh"
+  const DEPLOY = "/work/my-runbook/scripts/deploy.sh"
+  const CHECK = "/work/my-runbook/check.sh"
+
+  const collectScripts = (
+    scriptPaths: string[],
+    events: FileChangeEvent[],
+    platform: NodeJS.Platform = "linux",
+  ) => {
+    const fs = replayingFs(events)
+    return Effect.runPromise(
+      createScriptWatcher(scriptPaths, platform).pipe(
+        Effect.flatMap(Stream.runCollect),
+        Effect.map(Chunk.toArray),
+        Effect.provide(fs.layer),
+      ),
+    ).then((emitted) => ({ emitted, watched: fs.watched }))
+  }
+
+  it("watches each directory that contains a script once, not its subdirectories", async () => {
+    const { watched } = await collectScripts([SETUP, DEPLOY, CHECK], [])
+    expect(watched).toEqual([
+      { paths: ["/work/my-runbook/scripts", "/work/my-runbook"], options: { depth: 0 } },
+    ])
+  })
+
+  it("emits the script that was written, including by an editor's save by rename", async () => {
+    expect(
+      (await collectScripts([SETUP, DEPLOY], [{ type: "change", path: SETUP }])).emitted,
+    ).toEqual([[SETUP]])
+    expect(
+      (await collectScripts([SETUP, DEPLOY], [{ type: "add", path: DEPLOY }])).emitted,
+    ).toEqual([[DEPLOY]])
+  })
+
+  it("emits once per burst, with every script written during it", async () => {
+    const { emitted } = await collectScripts(
+      [SETUP, DEPLOY, CHECK],
+      [
+        { type: "change", path: SETUP },
+        { type: "change", path: DEPLOY },
+        { type: "change", path: SETUP },
+      ],
+    )
+    expect(emitted).toEqual([[SETUP, DEPLOY]])
+  })
+
+  it("ignores the other files in the scripts' directories, and deletions", async () => {
+    const { emitted } = await collectScripts(
+      [SETUP, CHECK],
+      [
+        { type: "change", path: "/work/my-runbook/runbook.mdx" },
+        { type: "add", path: "/work/my-runbook/scripts/setup.sh.swp" },
+        { type: "unlink", path: SETUP },
+      ],
+    )
+    expect(emitted).toEqual([])
+  })
+
+  it("keeps a script change that is followed by unrelated writes in the same burst", async () => {
+    const { emitted } = await collectScripts(
+      [SETUP],
+      [
+        { type: "change", path: SETUP },
+        { type: "add", path: "/work/my-runbook/scripts/notes.txt" },
+      ],
+    )
+    expect(emitted).toEqual([[SETUP]])
+  })
+
+  it("matches a script's on-disk name case-insensitively on darwin, case-sensitively on linux", async () => {
+    // Emitted as the registry spells it, whatever the file's name on disk.
+    const event: FileChangeEvent = { type: "change", path: "/work/my-runbook/scripts/Setup.sh" }
+    expect((await collectScripts([SETUP], [event], "darwin")).emitted).toEqual([[SETUP]])
+    expect((await collectScripts([SETUP], [event], "linux")).emitted).toEqual([])
   })
 })
