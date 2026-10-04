@@ -19,14 +19,21 @@ default:
 _no-nested-node-modules:
     @mise x bun -- bun scripts/no-nested-node-modules.ts
 
+# Download the Electron binary into node_modules/electron/dist. Since Electron
+# 42, `bun install` no longer does this (the package has no postinstall), and
+# electron-vite dev/preview fail with "Electron uninstall" until it is there.
+# Exits at once when the binary already matches the installed package.
+_electron-binary:
+    @mise x node -- node node_modules/electron/install.js
+
 # Start Electron app in dev mode with HMR. Depends on fetch-boilerplate so
 # the app always renders with the vendored boilerplate under resources/ —
 # the main process never falls back to a boilerplate on PATH.
-dev: _no-nested-node-modules fetch-boilerplate
+dev: _no-nested-node-modules _electron-binary fetch-boilerplate
     mise x node -- npx electron-vite dev
 
 # Start Electron app pointing at a specific runbook
-dev-runbook path="testdata/my-first-runbook": _no-nested-node-modules fetch-boilerplate
+dev-runbook path="testdata/my-first-runbook": _no-nested-node-modules _electron-binary fetch-boilerplate
     mise x node -- npx electron-vite dev -- --runbook {{path}}
 
 # --- Build ---

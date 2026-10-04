@@ -37,7 +37,7 @@ Runbooks uses an executable registry to ensure that only commands and scripts th
 
 ### macOS
 
-Download the `.dmg` from the [latest release](https://github.com/gruntwork-io/runbooks/releases) and drag to Applications.
+Runbooks requires macOS 13 (Ventura) or later. Download the `.dmg` from the [latest release](https://github.com/gruntwork-io/runbooks/releases) and drag to Applications.
 
 ### Linux
 

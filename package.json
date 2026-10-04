@@ -10,9 +10,9 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "install-electron && electron-vite dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
+    "preview": "install-electron && electron-vite preview",
     "package": "electron-builder",
     "typecheck": "bun scripts/no-nested-node-modules.ts && tsc -b",
     "lint": "oxlint .",
@@ -228,7 +228,6 @@
     }
   },
   "trustedDependencies": [
-    "@swc/core",
-    "electron"
+    "@swc/core"
   ]
 }
