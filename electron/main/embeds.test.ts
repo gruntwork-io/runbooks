@@ -10,6 +10,7 @@ import {
 } from "./embeds.ts"
 
 const HOST = "rabc"
+const RELAY = "/app/dist/preload/embed.cjs"
 
 describe("embedPartitionFor", () => {
   it.each([
@@ -49,7 +50,7 @@ describe("prepareWebviewAttach", () => {
       partition: "persist:asked",
     }
 
-    expect(prepareWebviewAttach(prefs, params, HOST)).toBe(true)
+    expect(prepareWebviewAttach(prefs, params, HOST, RELAY)).toBe(true)
 
     expect(prefs.preload).toBeUndefined()
     expect(prefs).toMatchObject({
@@ -65,18 +66,19 @@ describe("prepareWebviewAttach", () => {
     expect(params.partition).toBe(WEB_EMBED_PARTITION)
   })
 
-  it("puts the open runbook's asset pages in the local session", () => {
-    const prefs: WebPreferences = {}
-    expect(prepareWebviewAttach(prefs, { src: `runbook-asset://${HOST}/index.html` }, HOST)).toBe(
-      true,
-    )
+  it("puts the open runbook's asset pages in the local session, with the app's relay as preload", () => {
+    const prefs: WebPreferences = { preload: "/tmp/preload.js" }
+    expect(
+      prepareWebviewAttach(prefs, { src: `runbook-asset://${HOST}/index.html` }, HOST, RELAY),
+    ).toBe(true)
     expect(prefs.partition).toBe(LOCAL_EMBED_PARTITION)
+    expect(prefs.preload).toBe(RELAY)
   })
 
   it.each(["file:///etc/hosts", "runbook-asset://rother/index.html", "http://192.168.1.1/", ""])(
     "refuses %p",
     (src) => {
-      expect(prepareWebviewAttach({}, { src }, HOST)).toBe(false)
+      expect(prepareWebviewAttach({}, { src }, HOST, RELAY)).toBe(false)
     },
   )
 })

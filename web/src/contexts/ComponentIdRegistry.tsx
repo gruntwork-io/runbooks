@@ -27,6 +27,7 @@ export type BlockComponentType =
   | "GitHubPullRequest"
   | "GitLabMergeRequest"
   | "DirPicker"
+  | "Iframe"
 
 interface ComponentRegistration {
   id: string
