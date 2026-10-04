@@ -38,7 +38,7 @@
     "@aws-sdk/util-endpoints": "^3.996.5",
     "@smithy/shared-ini-file-loader": "^4.4.7",
     "chokidar": "^5.0.0",
-    "commander": "^14.0.0",
+    "commander": "^15.0.0",
     "effect": "^3.21.0",
     "electron-updater": "^6.8.0",
     "google-auth-library": "^11.0.0",
