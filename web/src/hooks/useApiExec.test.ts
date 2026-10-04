@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { useApiExec } from "./useApiExec"
 import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 
@@ -8,21 +10,21 @@ import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 // =============================================================================
 //
 // These tests verify the core execution engine's state transitions via IPC events.
-// useApiExec subscribes to window.api.on('exec:log'), window.api.on('exec:status'),
-// etc., and calls window.api.invoke('exec:run', payload) to start execution.
+// useApiExec subscribes to api.on('exec:log'), api.on('exec:status'), etc., and
+// calls api.invoke('exec:run', payload) to start execution.
 //
-// Mock boundary: window.api is mocked. The IPC event listeners and Zod parsing
-// run as real production code.
+// Mock boundary: the API from ApiProvider is mocked. The IPC event listeners
+// and Zod parsing run as real production code.
 
 type EventCallback = (...args: unknown[]) => void
 
 /**
- * Creates a mock window.api that:
+ * Creates a mock API that:
  * - Collects event subscriptions via .on()
  * - Allows tests to emit events to those subscribers
  * - Controls when .invoke('exec:run') resolves
  */
-function createMockWindowApi() {
+function createMockApi() {
   const listeners = new Map<string, Set<EventCallback>>()
   let invokeResolve: ((value?: unknown) => void) | null = null
   let invokeReject: ((err: Error) => void) | null = null
@@ -56,7 +58,7 @@ function createMockWindowApi() {
   }
 
   return {
-    api: api as unknown as typeof window.api,
+    api: api as unknown as RunbooksAPI,
     /** Emit an event to all listeners on a channel */
     emit(channel: string, data: unknown) {
       const cbs = listeners.get(channel)
@@ -80,22 +82,24 @@ function createMockWindowApi() {
 }
 
 describe("useApiExec state machine", () => {
-  let mock: ReturnType<typeof createMockWindowApi>
-  let originalApi: typeof window.api
+  let mock: ReturnType<typeof createMockApi>
+
+  const renderExec = (options?: Parameters<typeof useApiExec>[0]) =>
+    renderHook(() => useApiExec(options), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(ApiProvider, { api: mock.api }, children),
+    })
 
   beforeEach(() => {
-    mock = createMockWindowApi()
-    originalApi = window.api
-    window.api = mock.api
+    mock = createMockApi()
   })
 
   afterEach(() => {
-    window.api = originalApi
     vi.restoreAllMocks()
   })
 
   it("starts in pending state", () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     expect(result.current.state.status).toBe("pending")
     expect(result.current.state.logs).toEqual([])
@@ -104,7 +108,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("happy path: pending -> running -> logs arrive -> success", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     // Execute
     act(() => {
@@ -142,7 +146,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("status fail event: running -> fail with exit code", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("failing-script")
@@ -159,7 +163,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("IPC error: invoke rejection -> fail with error", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("test-executable")
@@ -177,7 +181,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("cancel: running -> pending with cancellation log", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("long-running-script")
@@ -196,7 +200,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("cancel sends exec:cancel targeting the running execution id", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("long-running-script")
@@ -216,7 +220,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("reconciles final status from the invoke result when the status event is dropped", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("long-running-script")
@@ -241,7 +245,7 @@ describe("useApiExec state machine", () => {
   // ---------------------------------------------------------------------------
 
   it('an aborted run leaves "running" instead of spinning forever', async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("long-running-script")
@@ -258,8 +262,8 @@ describe("useApiExec state machine", () => {
   })
 
   it("a block interrupted by a second block does not stay stuck on running", async () => {
-    const first = renderHook(() => useApiExec())
-    const second = renderHook(() => useApiExec())
+    const first = renderExec()
+    const second = renderExec()
 
     act(() => {
       first.result.current.execute("slow-script")
@@ -284,7 +288,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("does not explain the stop twice when the user cancelled it", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("long-running-script")
@@ -303,7 +307,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("cancel still targets this run after its invoke has already resolved", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("long-running-script")
@@ -328,7 +332,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("reset: clears all state back to initial", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("test-executable")
@@ -357,7 +361,7 @@ describe("useApiExec state machine", () => {
 
   it("outputs event: captures block outputs and invokes callback", async () => {
     const onOutputsCaptured = vi.fn()
-    const { result } = renderHook(() => useApiExec({ onOutputsCaptured }))
+    const { result } = renderExec({ onOutputsCaptured })
 
     act(() => {
       result.current.execute("test-executable")
@@ -382,7 +386,7 @@ describe("useApiExec state machine", () => {
 
   it("outputs event: wraps a sensitive output again, keeping its real value for downstream blocks", async () => {
     const onOutputsCaptured = vi.fn()
-    const { result } = renderHook(() => useApiExec({ onOutputsCaptured }))
+    const { result } = renderExec({ onOutputsCaptured })
 
     act(() => {
       result.current.execute("test-executable")
@@ -441,7 +445,7 @@ describe("useApiExec state machine", () => {
       heavyDirs: [],
     }
     const onFilesCaptured = vi.fn()
-    const { result } = renderHook(() => useApiExec({ onFilesCaptured }))
+    const { result } = renderExec({ onFilesCaptured })
 
     act(() => {
       result.current.execute("test-executable")
@@ -462,7 +466,7 @@ describe("useApiExec state machine", () => {
     // Main omits fileTree when it could not read the output dir; the step
     // still captured files, so the git tree must still refresh.
     const onFilesCaptured = vi.fn()
-    const { result } = renderHook(() => useApiExec({ onFilesCaptured }))
+    const { result } = renderExec({ onFilesCaptured })
 
     act(() => {
       result.current.execute("test-executable")
@@ -482,7 +486,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("warn status: exit code 2 sets warn status", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("warn-script")
@@ -498,7 +502,7 @@ describe("useApiExec state machine", () => {
   })
 
   it("cleans up event subscriptions on next execution", async () => {
-    const { result } = renderHook(() => useApiExec())
+    const { result } = renderExec()
 
     act(() => {
       result.current.execute("test-executable")

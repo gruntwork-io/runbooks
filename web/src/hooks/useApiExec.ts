@@ -4,6 +4,7 @@ import { createAppError, type AppError } from "@/types/error"
 import { FileTreeNodeArraySchema } from "@/components/artifacts/code/FileTree.types"
 import { decodeOutputs, type OutputValues } from "@/lib/outputValues"
 import { omitUndefined } from "@/lib/omitUndefined"
+import { useApi } from "@/contexts/ApiContext"
 // Zod schemas for IPC events
 const ExecLogEventSchema = z.object({
   line: z.string(),
@@ -108,6 +109,7 @@ let activeExecId = 0
  * Uses executable IDs from the executable registry instead of raw script content.
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
+  const api = useApi()
   const [state, setState] = useState<ExecState>({
     logs: [],
     status: "pending",
@@ -144,7 +146,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     // there (the id is dropped when the handler returns), so it's safe to send
     // whenever we have one.
     if (execId !== null) {
-      window.api.invoke("exec:cancel", { executionId: execId }).catch(() => {})
+      api.invoke("exec:cancel", { executionId: execId }).catch(() => {})
       runningExecIdRef.current = null
     }
 
@@ -166,7 +168,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           }
         : prev,
     )
-  }, [])
+  }, [api])
 
   const reset = useCallback(() => {
     cancel()
@@ -219,7 +221,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       const unsubs: (() => void)[] = []
 
       unsubs.push(
-        window.api.on("exec:log", (data: unknown) => {
+        api.on("exec:log", (data: unknown) => {
           if (activeExecId !== execId) return
           const parsed = ExecLogEventSchema.safeParse(data)
           if (parsed.success) {
@@ -236,7 +238,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       )
 
       unsubs.push(
-        window.api.on("exec:log-file", (data: unknown) => {
+        api.on("exec:log-file", (data: unknown) => {
           if (activeExecId !== execId) return
           const parsed = ExecLogFileEventSchema.safeParse(data)
           if (parsed.success) {
@@ -246,7 +248,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       )
 
       unsubs.push(
-        window.api.on("exec:outputs", (data: unknown) => {
+        api.on("exec:outputs", (data: unknown) => {
           if (activeExecId !== execId) return
           const parsed = BlockOutputsEventSchema.safeParse(data)
           if (parsed.success) {
@@ -257,7 +259,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       )
 
       unsubs.push(
-        window.api.on("exec:files-captured", (data: unknown) => {
+        api.on("exec:files-captured", (data: unknown) => {
           if (activeExecId !== execId) return
           const parsed = FilesCapturedEventSchema.safeParse(data)
           if (parsed.success) {
@@ -267,7 +269,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       )
 
       unsubs.push(
-        window.api.on("exec:status", (data: unknown) => {
+        api.on("exec:status", (data: unknown) => {
           if (activeExecId !== execId) return
           const parsed = ExecStatusEventSchema.safeParse(data)
           if (parsed.success) {
@@ -286,7 +288,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       cleanupRef.current = cleanup
 
       try {
-        const result = await window.api.invoke("exec:run", { ...payload, executionId })
+        const result = await api.invoke("exec:run", { ...payload, executionId })
         // The invoke resolved — this run is finished and no longer cancellable.
         if (generation === executionGenRef.current) {
           runningExecIdRef.current = null
@@ -364,7 +366,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         }
       }
     },
-    [cancel, options],
+    [api, cancel, options],
   )
 
   // Execute script by executable ID

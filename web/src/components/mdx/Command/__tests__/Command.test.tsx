@@ -37,6 +37,14 @@ const defaultScriptExecution = {
   cancel: vi.fn(),
   outputs: null as OutputValues | null,
   hasScriptDrift: false,
+  scriptFileChange: null as {
+    registeredContent: string
+    diskContent: string
+    diskContentHash: string
+  } | null,
+  reloadScript: vi.fn(),
+  isReloadingScript: false,
+  scriptReloadError: null as { message: string; details: string } | null,
 }
 
 let mockScriptExecution = { ...defaultScriptExecution }
@@ -376,6 +384,76 @@ describe("Command", () => {
     }
     renderCommand({ path: "scripts/test.sh", command: undefined })
     expect(screen.getByText("Script changed")).toBeInTheDocument()
+  })
+
+  it("shows how a changed script file differs and reloads it on request", async () => {
+    const reloadScript = vi.fn()
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      hasScriptDrift: true,
+      scriptFileChange: {
+        registeredContent: "#!/bin/bash\necho before\n",
+        diskContent: "#!/bin/bash\necho after\n",
+        diskContentHash: "hash-after",
+      },
+      reloadScript,
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand({ path: "scripts/test.sh", command: undefined })
+
+    // One notice, with the removed and the added line of the diff
+    expect(screen.getAllByText("Script changed")).toHaveLength(1)
+    const diff = screen.getByTestId("script-change-diff")
+    expect(diff).toHaveTextContent("-echo before")
+    expect(diff).toHaveTextContent("+echo after")
+
+    await userEvent.click(screen.getByRole("button", { name: "Reload script" }))
+    expect(reloadScript).toHaveBeenCalledTimes(1)
+  })
+
+  it("says so when a changed script file has no changed lines to show", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      hasScriptDrift: true,
+      scriptFileChange: {
+        registeredContent: "echo same\n",
+        diskContent: "echo same\r\n",
+        diskContentHash: "hash-crlf",
+      },
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand({ path: "scripts/test.sh", command: undefined })
+
+    expect(screen.queryByTestId("script-change-diff")).not.toBeInTheDocument()
+    expect(screen.getByText(/differ only in line endings or a final newline/)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Reload script" })).toBeEnabled()
+  })
+
+  it("shows why a script reload failed and disables the button while one is running", () => {
+    mockScriptExecution = {
+      ...defaultScriptExecution,
+      hasScriptDrift: true,
+      scriptFileChange: {
+        registeredContent: "echo a\n",
+        diskContent: "echo b\n",
+        diskContentHash: "hash-b",
+      },
+      isReloadingScript: true,
+      scriptReloadError: {
+        message: "scripts/test.sh changed again after you reviewed it.",
+        details: "",
+      },
+      execute: vi.fn(),
+      cancel: vi.fn(),
+    }
+    renderCommand({ path: "scripts/test.sh", command: undefined })
+
+    expect(
+      screen.getByText("scripts/test.sh changed again after you reviewed it."),
+    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Reload script" })).toBeDisabled()
   })
 
   // --- Outputs ---

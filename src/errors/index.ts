@@ -162,6 +162,12 @@ export class ExecutableNotFoundError extends Data.TaggedError("ExecutableNotFoun
   readonly id: string
 }> {}
 
+/** The script file's content is not the content the user reviewed before reloading it. */
+export class ScriptReloadConflictError extends Data.TaggedError("ScriptReloadConflictError")<{
+  readonly path: string
+  readonly message: string
+}> {}
+
 // Remote source
 export class RemoteSourceError extends Data.TaggedError("RemoteSourceError")<{
   readonly url: string
