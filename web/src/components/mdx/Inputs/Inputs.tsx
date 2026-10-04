@@ -175,6 +175,7 @@ function Inputs({
     <div data-testid={id}>
       <BoilerplateInputsForm
         id={id}
+        blockType="Inputs"
         boilerplateConfig={boilerplateConfigWithPrefilledVariables}
         initialData={initialData}
         onAutoRender={handleAutoUpdate}

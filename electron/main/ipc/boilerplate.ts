@@ -1,7 +1,8 @@
 /**
  * IPC handlers for boilerplate operations.
  *
- * Provides config parsing, template rendering, and inline template rendering.
+ * Provides config parsing, template rendering, inline template rendering, and
+ * resolving template-valued inputs for display.
  */
 import { Cause, Effect, Exit, Fiber } from "effect"
 import { ipcMain } from "electron"
@@ -36,6 +37,7 @@ import {
 import { RenderError } from "../../../src/errors/index.ts"
 import type { FileTreeMeta, ManifestEntry } from "../../../src/types.ts"
 import type { RenderRequest, RenderInlineRequest, BoilerplateRequest } from "../../../src/types.ts"
+import type { ResolveInputsRequest } from "../../shared/channels.ts"
 import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
 /**
@@ -689,6 +691,16 @@ export function registerBoilerplateHandlers(): void {
           ...built.meta,
         }
       }),
+    )
+  })
+
+  // Display only: a form shows a linked value as what it comes to. The same
+  // resolution the renders above run, so the form shows what a render uses.
+  ipcMain.handle("boilerplate:resolve-inputs", async (_event, params: ResolveInputsRequest) => {
+    return runtime.runPromise(
+      resolveInputTemplates(params.inputs ?? {}, params.outputs).pipe(
+        Effect.map((inputs) => ({ inputs })),
+      ),
     )
   })
 }

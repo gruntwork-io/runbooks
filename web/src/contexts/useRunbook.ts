@@ -136,6 +136,25 @@ export function useAllOutputs(): Record<string, BlockOutputs> {
 }
 
 /**
+ * Hook to get the names of the input variables any block marks `sensitive`.
+ * A value that reaches a block through `inputsId` carries no sensitive flag
+ * of its own, so this is how to tell that it may hold a secret.
+ */
+export function useSensitiveInputNames(): ReadonlySet<string> {
+  const context = useContext(RunbookContext)
+  const blockInputs = context?.blockInputs
+  return useMemo(() => {
+    const names = new Set<string>()
+    for (const { config } of Object.values(blockInputs ?? {})) {
+      for (const variable of config.variables ?? []) {
+        if (variable.sensitive) names.add(variable.name)
+      }
+    }
+    return names
+  }, [blockInputs])
+}
+
+/**
  * Hook to get the full template context for rendering.
  *
  * Returns a `TemplateContext` with two namespaces:

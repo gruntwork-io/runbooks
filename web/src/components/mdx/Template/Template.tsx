@@ -402,6 +402,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
 
       <BoilerplateInputsForm
         id={id}
+        blockType="Template"
         boilerplateConfig={boilerplateConfig}
         initialData={initialData}
         onAutoRender={handleAutoRender}
@@ -416,6 +417,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
         sharedVarNames={sharedVarNames}
         liveVarValues={liveVarValues}
         unmetOutputDependencies={unmetOutputDependencies}
+        importedValues={inputValues}
       />
     </div>
   )
