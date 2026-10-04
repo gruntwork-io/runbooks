@@ -15,16 +15,41 @@
 // users auto-update to an x64 build that then runs under Rosetta. Merging the
 // per-pass `files` arrays back together restores correct per-arch updates.
 //
+// The merged manifest also gets `minimumSystemVersion`, which electron-builder
+// never writes, so Macs too old for a release don't auto-update into an app
+// that won't launch (see MINIMUM_DARWIN_VERSION below).
+//
 // Usage: merge-mac-latest.mjs <output.yml> <input1.yml> [input2.yml ...]
 //
 // Top-level metadata (version, releaseDate, and the legacy path/sha512 fields)
-// is taken from the first input; only `files` is unioned (deduped by url). Pass
-// the arm64 manifest first so the legacy top-level path matches what a single
-// both-arch `electron-builder --mac` run would emit. The output path may be the
-// same as one of the inputs -- all inputs are read before anything is written.
+// is taken from the first input, `files` is unioned (deduped by url), and
+// `minimumSystemVersion` is set to MINIMUM_DARWIN_VERSION. Pass the arm64
+// manifest first so the legacy top-level path matches what a single both-arch
+// `electron-builder --mac` run would emit. The output path may be the same as
+// one of the inputs -- all inputs are read before anything is written.
 
 import { readFileSync, writeFileSync } from "node:fs"
 import { parse, stringify, Scalar } from "yaml"
+
+// The oldest macOS the release runs on, as the Darwin kernel version that
+// os.release() reports, not the macOS version: macOS 13 Ventura is Darwin 22,
+// but macOS 26 is Darwin 25, so look the number up. Electron 44 needs
+// macOS 13. The installed app's electron-updater (6.8.3 in every release since
+// v0.11.0) skips an update in AppUpdater.isUpdateAvailable when os.release() is
+// semver-below this, so a macOS 12 install stays on the last release that runs
+// there instead of auto-updating into an app that won't launch.
+//
+// app-builder-lib 26 puts mac.minimumSystemVersion only in the app's
+// LSMinimumSystemVersion, and its releaseInfo option rejects extra keys, so the
+// manifest gets the value here. Keep it a full x.y.z version: electron-updater
+// offers the update anyway when semver can't parse it. Raise it when an
+// Electron upgrade raises the macOS floor, which is the LSMinimumSystemVersion
+// in node_modules/electron/dist/Electron.app/Contents/Info.plist.
+const MINIMUM_DARWIN_VERSION = "22.0.0"
+
+// A single-quoted YAML string, so js-yaml (which electron-updater uses to parse
+// the manifest) reads it back as a string.
+const quoted = (value) => Object.assign(new Scalar(value), { type: Scalar.QUOTE_SINGLE })
 
 const [output, ...inputs] = process.argv.slice(2)
 if (!output || inputs.length === 0) {
@@ -53,14 +78,15 @@ for (const { path, doc } of docs) {
 }
 
 // electron-builder emits `releaseDate` as a quoted string. Preserve the quotes:
-// js-yaml (which electron-updater uses to parse the manifest) decodes an
-// *unquoted* ISO timestamp as a Date rather than the string the type expects.
+// js-yaml decodes an *unquoted* ISO timestamp as a Date rather than the string
+// the type expects.
 if (typeof merged.releaseDate === "string") {
-  merged.releaseDate = Object.assign(new Scalar(merged.releaseDate), {
-    type: Scalar.QUOTE_SINGLE,
-  })
+  merged.releaseDate = quoted(merged.releaseDate)
 }
+
+merged.minimumSystemVersion = quoted(MINIMUM_DARWIN_VERSION)
 
 writeFileSync(output, stringify(merged))
 console.log(`Merged ${inputs.length} manifest(s) into ${output}:`)
 for (const f of merged.files) console.log(`  - ${f.url}`)
+console.log(`minimumSystemVersion: ${MINIMUM_DARWIN_VERSION}`)
