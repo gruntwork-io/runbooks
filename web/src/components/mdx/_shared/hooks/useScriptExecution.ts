@@ -38,6 +38,8 @@ import { revealOutput, revealOutputs, type OutputValues } from "@/lib/outputValu
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { AppError } from "@/types/error"
 import { createAppError } from "@/types/error"
+import { useScriptFileChange } from "./useScriptFileChange"
+import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 
 interface UseScriptExecutionProps {
   componentId: string
@@ -241,6 +243,16 @@ interface UseScriptExecutionReturn {
 
   // Drift detection (script changed on disk since runbook was opened)
   hasScriptDrift: boolean
+  /**
+   * How a script file differs on disk from the version Run executes, or null
+   * when it doesn't. While it is set, the script content above is the version
+   * Run executes.
+   */
+  scriptFileChange: ScriptFileChange | null
+  /** Make Run execute the script file as it is in `scriptFileChange`. */
+  reloadScript: () => void
+  isReloadingScript: boolean
+  scriptReloadError: AppError | null
 }
 
 /**
@@ -318,8 +330,8 @@ export function useScriptExecution({
   // Re-read the script file whenever the main process rebuilds the registry.
   // A watch-mode reload rebuilds it even when runbook.mdx was saved unchanged,
   // which neither recompiles the MDX nor remounts this block, so without this
-  // the block would keep showing (and drift-checking) the script it first read
-  // while Run executes the rebuilt registry's version.
+  // the block would keep showing the script it first read while Run executes
+  // the rebuilt registry's version. Reloading one script rebuilds its entry.
   const registryVersionRef = useRef(registryVersion)
   useEffect(() => {
     if (registryVersionRef.current === registryVersion) return
@@ -327,8 +339,23 @@ export function useScriptExecution({
     if (shouldFetchFile) rereadFile()
   }, [registryVersion, shouldFetchFile, rereadFile])
 
-  // Determine raw script content: command prop takes precedence over file path
-  const rawScriptContent = command || fileData?.content || ""
+  // A script file that changes on disk keeps running as the registry's copy
+  // until the user reloads it.
+  const {
+    change: scriptFileChange,
+    reload: reloadScript,
+    isReloading: isReloadingScript,
+    reloadError: scriptReloadError,
+  } = useScriptFileChange(
+    componentId,
+    shouldFetchFile ? getExecutableByComponentId(componentId)?.id : undefined,
+  )
+
+  // Determine raw script content: command prop takes precedence over file
+  // path. A changed script file shows as the registry's copy, the version
+  // Run executes; the file as read here may already be the changed one.
+  const fileContent = scriptFileChange ? scriptFileChange.registeredContent : fileData?.content
+  const rawScriptContent = command || fileContent || ""
   const language = fileData?.language
 
   // State for computed hash of inline command content (for drift detection)
@@ -371,10 +398,10 @@ export function useScriptExecution({
       return commandHashResult.hash !== executable.contentHash
     }
 
-    // For file-based scripts, compare file hash against registry hash
-    if (!fileData?.contentHash) return false
-    return fileData.contentHash !== executable.contentHash
-  }, [command, commandHashResult, fileData?.contentHash, componentId, getExecutableByComponentId])
+    // For file-based scripts, the main process compares the file on disk
+    // against the registry's copy
+    return scriptFileChange !== null
+  }, [command, commandHashResult, scriptFileChange, componentId, getExecutableByComponentId])
 
   // Extract inline Inputs ID from children if present
   const inlineInputsId = useMemo(() => extractInlineInputsId(children), [children])
@@ -878,6 +905,10 @@ export function useScriptExecution({
 
     // Drift detection
     hasScriptDrift,
+    scriptFileChange,
+    reloadScript,
+    isReloadingScript,
+    scriptReloadError,
   }
 }
 

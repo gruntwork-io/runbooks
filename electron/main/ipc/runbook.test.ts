@@ -16,8 +16,8 @@ mockElectron({
   },
 })
 
-// The main window runbook:get and the watch-mode watcher send to: records
-// every message main sends the renderer.
+// The main window runbook:get, runbook:reload-script and the file watchers
+// send to: records every message main sends the renderer.
 const sent: Array<{ channel: string; payload: unknown }> = []
 const fakeWindow = {
   isDestroyed: () => false,
@@ -30,7 +30,7 @@ const fakeWindow = {
 await mock.module("../window.ts", () => ({ getMainWindow: () => fakeWindow }))
 
 const { registerRunbookHandlers } = await import("./runbook.ts")
-const { closeRunbook, stopWatcher } = await import("./watch.ts")
+const { closeRunbook, stopWatchers } = await import("./watch.ts")
 const runtimeModule = await import("./runtime.ts")
 const { setRunbookConfig, setExecutableRegistry, sessionManager } = runtimeModule
 
@@ -159,7 +159,7 @@ describe("runbook IPC handlers", () => {
     })
 
     afterEach(async () => {
-      await stopWatcher()
+      await stopWatchers()
       sessionManager.deleteSession()
       setExecutableRegistry(null)
       fs.rmSync(tmp, { recursive: true, force: true })
@@ -371,6 +371,150 @@ describe("runbook IPC handlers", () => {
         await getRunbook(dirA)
         expect(await workingDir()).toBe(dirA)
       })
+    })
+
+    describe("a script file that changes after the runbook loaded", () => {
+      type ScriptChange = {
+        registeredContent: string
+        diskContent: string
+        diskContentHash: string
+      }
+      let runbookFile: string
+      let scriptFile: string
+
+      beforeEach(() => {
+        runbookFile = path.join(dirA, "runbook.mdx")
+        scriptFile = path.join(dirA, "scripts", "deploy.sh")
+        fs.mkdirSync(path.dirname(scriptFile))
+        fs.writeFileSync(scriptFile, "echo v1\n")
+        fs.writeFileSync(path.join(dirA, "scripts", "verify.sh"), "echo verify\n")
+        fs.writeFileSync(
+          runbookFile,
+          '# Runbook\n\n<Command id="deploy" path="scripts/deploy.sh" />\n\n<Check id="verify" path="scripts/verify.sh" />\n',
+        )
+      })
+
+      const scriptChange = async () =>
+        (
+          (await handlers.get("runbook:script-change")!(undefined, { componentId: "deploy" })) as {
+            change: ScriptChange | null
+          }
+        ).change
+
+      const reloadScript = (contentHash: string) =>
+        handlers.get("runbook:reload-script")!(undefined, { componentId: "deploy", contentHash })
+
+      /** The script Run executes for the block: the registry's copy. */
+      const registeredScript = () => {
+        const registry = runtimeModule.executableRegistry!
+        const entry = Object.values(registry.getAllExecutables()).find(
+          (e) => e.componentId === "deploy",
+        )!
+        return registry.getExecutableSync(entry.id)!.content
+      }
+
+      /** The block IDs of each watch:script-change event sent since `from`. */
+      const scriptChangesSince = (from: number) =>
+        sent
+          .slice(from)
+          .filter((m) => m.channel === "watch:script-change")
+          .map((m) => (m.payload as { componentIds: string[] }).componentIds)
+
+      it("reports the change and keeps executing the loaded version until the script is reloaded", async () => {
+        await getRunbook(dirA)
+        expect(await scriptChange()).toBeNull()
+
+        fs.writeFileSync(scriptFile, "echo v2\n")
+        const change = await scriptChange()
+
+        expect(change).toMatchObject({ registeredContent: "echo v1\n", diskContent: "echo v2\n" })
+        expect(registeredScript()).toBe("echo v1\n")
+
+        const from = sent.length
+        expect(await reloadScript(change!.diskContentHash)).toEqual({ ok: true })
+
+        expect(registeredScript()).toBe("echo v2\n")
+        expect(registryUpdatesSince(from)).toBe(1)
+        expect(await scriptChange()).toBeNull()
+      })
+
+      it("rejects a reload of a version the user did not review, and keeps the loaded one", async () => {
+        await getRunbook(dirA)
+        fs.writeFileSync(scriptFile, "echo v2\n")
+        const reviewed = await scriptChange()
+        // The file changes again between the review and the click.
+        fs.writeFileSync(scriptFile, "echo v3\n")
+
+        const from = sent.length
+        await expect(reloadScript(reviewed!.diskContentHash)).rejects.toThrow(
+          "changed again after you reviewed it",
+        )
+
+        expect(registeredScript()).toBe("echo v1\n")
+        expect(registryUpdatesSince(from)).toBe(0)
+        expect(await scriptChange()).toMatchObject({ diskContent: "echo v3\n" })
+      })
+
+      it("with --disable-live-file-reload, a reloaded script stays registered across a reload of the runbook", async () => {
+        setRunbookConfig({ ...originalRunbookConfig, disableLiveFileReload: true })
+        await getRunbook(dirA)
+        fs.writeFileSync(scriptFile, "echo v2\n")
+        await reloadScript((await scriptChange())!.diskContentHash)
+
+        // A later edit is not picked up by reloading the runbook: the registry
+        // is frozen apart from the script the user reloaded.
+        fs.writeFileSync(scriptFile, "echo v3\n")
+        await getRunbook(dirA, { reload: "watch" })
+
+        expect(registeredScript()).toBe("echo v2\n")
+      })
+
+      it(
+        "tells the renderer which block's script file was written, without --watch",
+        async () => {
+          await getRunbook(dirA)
+          const from = sent.length
+
+          // A watcher that has only just started can miss a write made before
+          // chokidar finished its initial scan, so write until one is reported.
+          const deadline = Date.now() + WATCH_TEST_TIMEOUT_MS / 2
+          for (let edit = 1; scriptChangesSince(from).length === 0; edit++) {
+            if (Date.now() > deadline) throw new Error("no script change was sent")
+            fs.writeFileSync(scriptFile, `echo edit-${edit}\n`)
+            await waitUntil(() => scriptChangesSince(from).length > 0, 1_000)
+          }
+
+          // Only the block whose script was written is named, never "verify".
+          expect(new Set(scriptChangesSince(from).flat())).toEqual(new Set(["deploy"]))
+          // Nothing but the notice: the runbook isn't reloaded and the registry isn't rebuilt.
+          expect(new Set(sent.slice(from).map((m) => m.channel))).toEqual(
+            new Set(["watch:script-change"]),
+          )
+          expect(registeredScript()).toBe("echo v1\n")
+        },
+        WATCH_TEST_TIMEOUT_MS,
+      )
+
+      it(
+        "closeRunbook stops reporting changes to the closed runbook's scripts",
+        async () => {
+          await getRunbook(dirA)
+          const closed = sent.length
+          closeRunbook()
+
+          for (let edit = 1; edit <= 5; edit++) {
+            fs.writeFileSync(scriptFile, `echo after-close-${edit}\n`)
+            await new Promise((resolve) => {
+              setTimeout(resolve, 300)
+            })
+          }
+          await new Promise((resolve) => {
+            setTimeout(resolve, 700)
+          })
+          expect(scriptChangesSince(closed)).toEqual([])
+        },
+        WATCH_TEST_TIMEOUT_MS,
+      )
     })
 
     describe("executable registry", () => {

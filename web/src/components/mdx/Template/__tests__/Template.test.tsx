@@ -6,6 +6,7 @@ import { useRunbookContext } from "@/contexts/useRunbook"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { sensitiveOutput } from "@/lib/outputValues"
+import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 
 // Mock config loading
 let mockConfigReturn = {
@@ -209,6 +210,68 @@ describe("Template", () => {
       setUpstreamRegion("eu-west-1")
       await settle()
       expect(renderedRegions()).toEqual(["eu-west-1"])
+    })
+  })
+
+  // A linked default can use what the Template imports through inputsId, even
+  // a variable its own boilerplate.yml doesn't declare. A variable the
+  // upstream block marks sensitive is never sent to work one out.
+  describe("linked defaults over imported values", () => {
+    it("shows what a default built from an imported value comes to", async () => {
+      mockConfigReturn = {
+        ...mockConfigReturn,
+        data: {
+          variables: [
+            { name: "bucket", type: "string", description: "", default: "{{ .region }}-state" },
+            { name: "auth", type: "string", description: "", default: "Bearer {{ .token }}" },
+          ],
+          outputDependencies: [],
+        },
+      }
+      // Resolves the two defaults when their variable is sent, as main would.
+      const invoke = vi.fn(
+        async (channel: string, request: { inputs: Record<string, unknown> }) => {
+          if (channel !== "boilerplate:resolve-inputs") return undefined
+          const { region, token } = request.inputs
+          return {
+            inputs: {
+              ...request.inputs,
+              ...(typeof region === "string" && { bucket: `${region}-state` }),
+              ...(typeof token === "string" && { auth: `Bearer ${token}` }),
+            },
+          }
+        },
+      )
+      render(
+        <ApiProvider api={{ invoke, on: vi.fn(() => () => {}) } as unknown as RunbooksAPI}>
+          <TestWrapper>
+            <CaptureContext />
+            <Template id="state" path="templates/state" inputsId="cfg" />
+          </TestWrapper>
+        </ApiProvider>,
+      )
+
+      act(() => {
+        ctx.registerInputs(
+          "cfg",
+          { region: "eu-west-1", token: "ghp_s3cr3t" },
+          {
+            variables: [
+              { name: "region", type: "string", description: "" },
+              { name: "token", type: "string", description: "", sensitive: true },
+            ],
+          },
+        )
+      })
+      await settle()
+
+      expect(screen.getByLabelText("Bucket")).toHaveTextContent("eu-west-1-state")
+      expect(screen.getByLabelText("Auth")).not.toHaveTextContent("ghp_s3cr3t")
+      const resolveRequests = invoke.mock.calls.filter(([c]) => c === "boilerplate:resolve-inputs")
+      expect(resolveRequests.length).toBeGreaterThan(0)
+      for (const [, request] of resolveRequests) {
+        expect(request.inputs).not.toHaveProperty("token")
+      }
     })
   })
 

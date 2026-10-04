@@ -2,7 +2,8 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "options": {
     "reportUnusedDisableDirectives": "error",
-    "typeAware": true
+    "typeAware": true,
+    "denyWarnings": true
   },
   "plugins": ["typescript", "unicorn", "oxc", "react"],
   "jsPlugins": [
@@ -15,13 +16,26 @@
     "no-unused-vars": "warn",
     "no-console": "off",
     "typescript/no-require-imports": "error",
-    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
     "no-shadow": "error",
     "no-promise-executor-return": "error",
     "preserve-caught-error": "error",
     "react/jsx-no-constructed-context-values": "error",
     "react/no-unstable-nested-components": "error",
-    "typescript/no-misused-promises": ["error", { "checksVoidReturn": { "attributes": false } }],
+    "typescript/no-misused-promises": [
+      "error",
+      {
+        "checksVoidReturn": {
+          "attributes": false
+        }
+      }
+    ],
     "typescript/switch-exhaustiveness-check": "error",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
@@ -84,6 +98,208 @@
       "rules": {
         "typescript/no-base-to-string": "off",
         "typescript/restrict-template-expressions": "off"
+      }
+    },
+    {
+      "files": ["src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "src/ is shared with the CLI; only electron/ may import Electron (AGENTS.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/domain/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "src/ is shared with the CLI; only electron/ may import Electron (AGENTS.md)."
+              },
+              {
+                "name": "fs",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:fs",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "fs/promises",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:fs/promises",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "child_process",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:child_process",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "net",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:net",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "http",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:http",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "https",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:https",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "http2",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:http2",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "tls",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:tls",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "dgram",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:dgram",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "dns",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:dns",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "os",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:os",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "readline",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:readline",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "worker_threads",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:worker_threads",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "cluster",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:cluster",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "vm",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:vm",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "inspector",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              },
+              {
+                "name": "node:inspector",
+                "message": "Domain code does no I/O itself: reach the OS through an Effect service (AGENTS.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/domain/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "electron",
+                "message": "src/ is shared with the CLI; only electron/ may import Electron (AGENTS.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["web/src/**"],
+      "rules": {
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "window",
+            "property": "api",
+            "message": "Use useApi() so tests and providers can supply the API (AGENTS.md)."
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "web/src/main.tsx",
+        "web/src/contexts/ApiContext.tsx",
+        "web/src/**/*.test.ts",
+        "web/src/**/*.test.tsx",
+        "web/src/**/__tests__/**",
+        "web/src/test/**"
+      ],
+      "rules": {
+        "no-restricted-properties": "off"
       }
     }
   ],

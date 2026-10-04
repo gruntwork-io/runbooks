@@ -17,7 +17,7 @@ import {
   CreateTokenCommand,
 } from "@aws-sdk/client-sso-oidc"
 import { AccountClient, GetRegionOptStatusCommand } from "@aws-sdk/client-account"
-import { parseKnownFiles } from "@smithy/shared-ini-file-loader"
+import { parseKnownFiles } from "@smithy/core/config"
 import { AwsClient } from "../services/AwsClient.ts"
 import type {
   AwsClientShape,

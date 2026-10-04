@@ -16,6 +16,7 @@ import {
   Instruction,
 } from "@/components/mdx/_shared"
 import { DuplicateIdError } from "./DuplicateIdError"
+import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -169,6 +170,10 @@ export function ScriptBlock({
     cancel,
     outputs,
     hasScriptDrift,
+    scriptFileChange,
+    reloadScript,
+    isReloadingScript,
+    scriptReloadError,
   } = useScriptExecution({
     componentId: id,
     path,
@@ -425,8 +430,19 @@ export function ScriptBlock({
         <BlockIdLabel id={id} size="large" />
       </div>
 
+      {/* A changed script file can be reviewed and reloaded in place */}
+      {path && scriptFileChange && (
+        <ScriptChangeNotice
+          path={path}
+          change={scriptFileChange}
+          onReload={reloadScript}
+          isReloading={isReloadingScript}
+          reloadError={scriptReloadError}
+        />
+      )}
+
       {/* Script drift warning - mr-12 leaves room for the ID label */}
-      {hasScriptDrift && (
+      {hasScriptDrift && !scriptFileChange && (
         <Admonition type="warning" title="Script changed" className="space-y-2 mr-12">
           <p>
             This script has changed since the runbook was loaded. Although the <em>UI</em> shows the

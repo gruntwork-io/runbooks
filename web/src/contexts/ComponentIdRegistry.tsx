@@ -57,6 +57,9 @@ const ComponentIdRegistryContext = createContext<ComponentIdRegistryContextValue
   undefined,
 )
 
+/** Each registered block's id as written, keyed by its normalized id. */
+const BlockIdsContext = createContext<ReadonlyMap<string, string>>(new Map())
+
 /**
  * Provider that tracks all component IDs to detect duplicates.
  * Components register on mount and unregister on unmount.
@@ -130,10 +133,45 @@ export function ComponentIdRegistryProvider({ children }: { children: ReactNode 
     [registerComponent, unregisterComponent, getDuplicateInfo],
   )
 
+  // Separate from `value`, which stays stable, so only the components that
+  // name blocks re-render when one registers.
+  const blockIds = useMemo(
+    () => new Map(registrations.map((r) => [r.normalizedId, r.id])),
+    [registrations],
+  )
+
   return (
     <ComponentIdRegistryContext.Provider value={value}>
-      {children}
+      <BlockIdsContext.Provider value={blockIds}>{children}</BlockIdsContext.Provider>
     </ComponentIdRegistryContext.Provider>
+  )
+}
+
+interface PageBlocks {
+  /**
+   * A block's id as the runbook writes it (`create-account`), for the id a
+   * template refers to it by (`create_account`). An id that no block on the
+   * page has is returned as is.
+   */
+  asWritten: (templateId: string) => string
+  /**
+   * Whether a block on the page has this id. Undefined while no block has
+   * registered: without a registry, and in the first render, since blocks
+   * register in their effects.
+   */
+  isOnPage: (templateId: string) => boolean | undefined
+}
+
+/** Looks up the blocks on the page by the id a template refers to them by. */
+export function usePageBlocks(): PageBlocks {
+  const blockIds = useContext(BlockIdsContext)
+  return useMemo(
+    () => ({
+      asWritten: (templateId) => blockIds.get(normalizeBlockId(templateId)) ?? templateId,
+      isOnPage: (templateId) =>
+        blockIds.size === 0 ? undefined : blockIds.has(normalizeBlockId(templateId)),
+    }),
+    [blockIds],
   )
 }
 

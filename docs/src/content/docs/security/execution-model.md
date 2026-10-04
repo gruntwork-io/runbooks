@@ -38,7 +38,7 @@ Runbooks uses an **executable registry,** which is a _registry_ of all _executab
 
 Here's how it works. When you open a runbook, Runbooks starts the main process and populates the executable registry with all scripts or commands contained in the Runbook. To populate the executable registry, Runbooks reads your `runbook.mdx` file and scans for all `<Check>` and `<Command>` components. For each component, it extracts the script (either from the `command` prop for inline scripts or by reading the file specified in the `path` prop), assigns it a unique executable ID, and stores it in an in-memory registry. The registry maps each executable ID to its corresponding script content, component ID, and metadata like template variables.
 
-When you click "Run" in the UI, the renderer sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The main process validates that this executable ID exists in the registry (which was built from your Runbook when it was loaded), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate IPC messages, they cannot inject arbitrary code because the main process will only execute scripts that were present in your Runbook when it was loaded. Effectively, the registry acts as a whitelist of approved executables.
+When you click "Run" in the UI, the renderer sends an execution request containing only the executable ID and any template variable values, but _not the actual script content_. The main process validates that this executable ID exists in the registry (which was built from your Runbook when it was loaded), retrieves the pre-approved script content, renders it with the given variables if needed, and executes it. This means even if an attacker could manipulate IPC messages, they cannot inject arbitrary code because the main process will only execute scripts that were present in your Runbook when it was loaded, or that you [reloaded yourself](#reloading-a-changed-script-file) after reviewing a change. Effectively, the registry acts as a whitelist of approved executables.
 
 ### Electron Security
 
@@ -71,7 +71,7 @@ runbooks open path/to/runbook.mdx
 **Security:**
 - All scripts pre-validated when the runbook is opened
 - Cannot execute arbitrary code via IPC manipulation
-- Changes you make to the runbook or its scripts afterwards are not executed until you close and reopen the runbook, which builds a new registry
+- Changes you make to the runbook or its scripts afterwards are not executed until you close and reopen the runbook, which builds a new registry, or until you [reload a changed script file](#reloading-a-changed-script-file) from its block
 
 ### Watch mode
 ```bash
@@ -97,6 +97,23 @@ runbooks open --watch --disable-live-file-reload path/to/runbook.mdx
 ```
 
 `--disable-live-file-reload` keeps the registry built when the runbook was opened in this app session. Watch mode still reloads what the app shows, but Runbooks keeps executing the scripts that were present at open, and blocks whose script has changed show a "Script changed" warning. Opening a different runbook builds its registry as usual, and coming back to this one rebuilds its registry.
+
+Freezing the registry does not stop you from [reloading a changed script file](#reloading-a-changed-script-file) from its block.
+
+### Reloading a changed script file
+
+Runbooks watches the script files that `<Check>` and `<Command>` blocks reference with `path`, in every mode. When one changes on disk after the registry was built, nothing about what runs changes. Its block shows a "Script changed" notice with a diff between the version in the registry and the version on disk, and a **Reload script** button.
+
+**How it works:**
+1. Until you click **Reload script**, Run executes the version in the registry, which is also the version under "View Source Code"
+2. The click sends the main process the block's ID and the hash of the version you reviewed, never a path or script content
+3. The main process reads the file again from the path the registry entry was built from, and replaces that one entry only if the content has the hash you reviewed
+4. If the file changed again in between, the reload is refused and the notice shows the latest diff
+
+**Security:**
+- A changed script is never executed without a click on a notice that shows what changed
+- The reload approves the content you saw. A write that lands between the diff and the click is rejected
+- Only script files are covered. A changed inline `command` is part of `runbook.mdx`, so it needs the runbook to be reloaded
 
 ## How Scripts Are Executed
 

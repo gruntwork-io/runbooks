@@ -20,7 +20,7 @@ import { requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.t
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
-import { closeRunbook, stopWatcher } from "./ipc/watch.ts"
+import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
 import { cleanupGoogleCredentialFiles } from "./ipc/google-credentials.ts"
 import { cancelAllExecutions } from "./ipc/exec.ts"
@@ -536,8 +536,8 @@ app.on("will-quit", (event) => {
       // Shred the credential files materialised for Google Cloud auth
       cleanupGoogleCredentialFiles()
 
-      // Close the watch-mode file watcher (runtime.dispose doesn't reach it)
-      void stopWatcher()
+      // Close the runbook and script file watchers (runtime.dispose doesn't reach them)
+      void stopWatchers()
 
       // Dispose the Effect managed runtime to clean up background fibers,
       // file watchers, etc., while telemetry gets its brief window to send

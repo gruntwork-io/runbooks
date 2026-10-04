@@ -12,6 +12,7 @@ import {
   type WarmRenderResult,
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { DEFAULT_GENERATED_DIR } from "../../../src/domain/files/generated.ts"
+import { WasmError } from "../../../src/errors/index.ts"
 
 // boilerplate.ts registers its handlers on electron's ipcMain. Capture them so
 // the real boilerplate:render handler can be called directly.
@@ -200,5 +201,71 @@ describe("boilerplate:render", () => {
     expect(error.message).toBe(
       "Template render failed: f1.tf: boom; f2.tf: boom; f3.tf: boom; f4.tf: boom; f5.tf: boom (and 3 more)",
     )
+  })
+})
+
+// Display only: the form asks what its linked values come to. The template
+// engine is the boundary; this stand-in renders `{{ .Name }}` and
+// `{{ .outputs.block.name }}` and fails on a missing key, as the WASM build does.
+describe("boilerplate:resolve-inputs", () => {
+  const renderTemplate = (template: string, varsJSON: string) => {
+    const vars = JSON.parse(varsJSON) as Record<string, unknown> & {
+      outputs: Record<string, Record<string, string>>
+    }
+    let missing: string | undefined
+    const out = template.replace(/\{\{\s*\.([\w.]+)\s*\}\}/g, (_m, ref: string) => {
+      const [first, block, name] = ref.split(".")
+      const value = first === "outputs" ? vars.outputs[block!]?.[name!] : vars[first!]
+      if (typeof value !== "string") missing ??= ref
+      return String(value)
+    })
+    return missing
+      ? Effect.fail(
+          new WasmError({ message: `map has no entry for key "${missing}"`, kind: "internal" }),
+        )
+      : Effect.succeed(out)
+  }
+
+  beforeEach(() => {
+    spyOn(runtime, "runPromise").mockImplementation(((effect: Effect.Effect<unknown, unknown>) =>
+      Effect.runPromise(
+        Effect.provide(
+          effect,
+          Layer.succeed(WasmRuntime, { renderTemplate } as unknown as WasmRuntimeShape),
+        ) as Effect.Effect<unknown>,
+      )) as unknown as typeof runtime.runPromise)
+  })
+
+  afterEach(() => {
+    mock.restore()
+  })
+
+  it("resolves each linked value against the other inputs and the outputs", async () => {
+    const result = await handlers.get("boilerplate:resolve-inputs")!(null, {
+      inputs: {
+        ProjectName: "acme",
+        BucketName: "{{ .ProjectName }}-state",
+        Repos: ["github.com/{{ .ProjectName }}/modules"],
+        AccountId: "{{ .outputs.make_account.account_id }}",
+      },
+      outputs: { make_account: { account_id: "123456789012" } },
+    })
+
+    expect(result).toEqual({
+      inputs: {
+        ProjectName: "acme",
+        BucketName: "acme-state",
+        Repos: ["github.com/acme/modules"],
+        AccountId: "123456789012",
+      },
+    })
+  })
+
+  it("returns a value that doesn't resolve as it was sent", async () => {
+    const result = await handlers.get("boilerplate:resolve-inputs")!(null, {
+      inputs: { DbUrl: "postgres://app:{{ .DbPassword }}@db" },
+    })
+
+    expect(result).toEqual({ inputs: { DbUrl: "postgres://app:{{ .DbPassword }}@db" } })
   })
 })
