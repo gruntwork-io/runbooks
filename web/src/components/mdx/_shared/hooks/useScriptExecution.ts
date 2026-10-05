@@ -310,9 +310,15 @@ export function useScriptExecution({
     [updateGeneratedFileTree, invalidateGitFileTree],
   )
 
+  // Whether the current run has delivered outputs. Set as they arrive and
+  // cleared when a run starts, so the effect that withdraws a finished run's
+  // outputs can tell when it is acting on a render from before they arrived.
+  const outputsCapturedRef = useRef(false)
+
   // Callback to handle outputs captured from script execution
   const handleOutputsCaptured = useCallback(
     (outputValues: OutputValues) => {
+      outputsCapturedRef.current = true
       // Register outputs in the runbook context so other blocks can access them
       registerOutputs(componentId, outputValues)
     },
@@ -622,9 +628,14 @@ export function useScriptExecution({
   // This lets downstream watchers (e.g. AwsAuth block-based detection) distinguish
   // "block hasn't run yet" (no entry in blockOutputs) from "block ran but produced
   // no outputs" (entry exists with empty values).
+  //
+  // `outputs` can be out of date here. Main sends exec:status before
+  // exec:outputs, and React can run the success render's effects after the
+  // outputs have arrived and been registered. Registering {} then would wipe
+  // them, and downstream blocks would wait on a block that shows its outputs.
   useEffect(() => {
     const isTerminal = status === "success" || status === "fail" || status === "warn"
-    if (isTerminal && outputs === null) {
+    if (isTerminal && outputs === null && !outputsCapturedRef.current) {
       registerOutputs(componentId, {})
     }
   }, [status, outputs, componentId, registerOutputs])
@@ -824,6 +835,8 @@ export function useScriptExecution({
       return
     }
 
+    // A new run: its outputs, if it has any, are still to come
+    outputsCapturedRef.current = false
     executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
   }, [
     executeScript,
