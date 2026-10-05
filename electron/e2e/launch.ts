@@ -7,3 +7,11 @@
  * never opens the Keychain. Other platforms ignore it.
  */
 export const MOCK_KEYCHAIN = "--use-mock-keychain"
+
+/**
+ * Env for a launch whose test expects a saved session's env or block history
+ * back. Playwright starts Electron with `--password-store=basic`, which on
+ * Linux leaves safeStorage only the key hardcoded in Chromium, and the app
+ * saves neither with that key unless this is set. Other platforms ignore it.
+ */
+export const INSECURE_SESSION_KEY = { RUNBOOKS_TEST_INSECURE_SESSION_KEY: "1" }

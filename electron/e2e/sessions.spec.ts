@@ -23,7 +23,7 @@ import * as fs from "fs"
 import * as os from "os"
 import { execFileSync } from "child_process"
 import { fileURLToPath } from "url"
-import { MOCK_KEYCHAIN } from "./launch.ts"
+import { INSECURE_SESSION_KEY, MOCK_KEYCHAIN } from "./launch.ts"
 import { runInMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -137,6 +137,7 @@ test.describe("Saved sessions", () => {
         ELECTRON_NO_UPDATER: "1",
         RUNBOOKS_NO_TELEMETRY: "1",
         RUNBOOKS_TEST_TRASH_DIR: trashDir,
+        ...INSECURE_SESSION_KEY,
         ...env,
       },
     })

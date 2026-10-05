@@ -10,6 +10,7 @@ import { mockElectron } from "./test-utils/mock-electron.ts"
 const keychain = {
   available: true,
   backend: "gnome_libsecret",
+  usePlainText: (_use: boolean): void => {},
   encrypt: (plaintext: string): Buffer => Buffer.from(`enc:${plaintext}`),
   decrypt: (ciphertext: Buffer): string => ciphertext.toString().replace(/^enc:/, ""),
 }
@@ -18,6 +19,7 @@ mockElectron({
   safeStorage: {
     isEncryptionAvailable: () => keychain.available,
     getSelectedStorageBackend: () => keychain.backend,
+    setUsePlainTextEncryption: (use: boolean) => keychain.usePlainText(use),
     encryptString: (plaintext: string) => keychain.encrypt(plaintext),
     decryptString: (ciphertext: Buffer) => keychain.decrypt(ciphertext),
   },
@@ -40,6 +42,7 @@ describe("openSessionStorage", () => {
     userData = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-userdata-")))
     keychain.available = true
     keychain.backend = "gnome_libsecret"
+    keychain.usePlainText = () => {}
     keychain.encrypt = (plaintext) => Buffer.from(`enc:${plaintext}`)
     keychain.decrypt = (ciphertext) => ciphertext.toString().replace(/^enc:/, "")
     warnings = []
@@ -56,6 +59,7 @@ describe("openSessionStorage", () => {
     storage = undefined
     sessionManager.deleteSession()
     Object.defineProperty(process, "platform", { value: platform })
+    delete process.env.RUNBOOKS_TEST_INSECURE_SESSION_KEY
     for (const spy of consoleSpies.splice(0)) spy.mockRestore()
     fs.rmSync(userData, { recursive: true, force: true })
   })
@@ -153,6 +157,23 @@ describe("openSessionStorage", () => {
     const session = await openSession()
 
     expect((await saveEnvAndClose(session.id))?.env).toBeUndefined()
+  })
+
+  it("saves the env on Linux with the hardcoded key when RUNBOOKS_TEST_INSECURE_SESSION_KEY is set", async () => {
+    Object.defineProperty(process, "platform", { value: "linux" })
+    keychain.backend = "basic_text"
+    // As Electron does on basic_text: no encryption until plain text is allowed.
+    keychain.available = false
+    keychain.usePlainText = (use) => {
+      keychain.available = use
+    }
+    process.env.RUNBOOKS_TEST_INSECURE_SESSION_KEY = "1"
+    const session = await openSession()
+
+    const saved = await saveEnvAndClose(session.id)
+
+    expect(new TextDecoder().decode(saved?.env)).toContain("s3cret")
+    expect(warnings.filter((w) => w.includes("No OS credential store"))).toHaveLength(0)
   })
 
   it("saves the env on Linux with a secret service", async () => {

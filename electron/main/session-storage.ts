@@ -99,13 +99,24 @@ function trash(): (dir: string) => Promise<void> {
  * On Linux without a secret service, safeStorage falls back to a key
  * hardcoded in Chromium ("basic_text"). That is no protection for
  * credentials, so the env is not saved there.
+ *
+ * e2e tests set RUNBOOKS_TEST_INSECURE_SESSION_KEY=1 to save with that key
+ * anyway. Playwright starts Electron with `--password-store=basic`, so on
+ * Linux a test launch gets the hardcoded key whatever keyring the machine has.
  */
 function safeStorageCipher(): SessionCipher {
+  const hardcodedKeyAllowed = process.env.RUNBOOKS_TEST_INSECURE_SESSION_KEY === "1"
+  // safeStorage reports no encryption on basic_text until it is told to use
+  // the hardcoded key. The call does nothing on macOS and Windows.
+  if (hardcodedKeyAllowed) safeStorage.setUsePlainTextEncryption(true)
+
   let warned = false
   const available = (): boolean => {
     const ok =
       safeStorage.isEncryptionAvailable() &&
-      (process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text")
+      (process.platform !== "linux" ||
+        hardcodedKeyAllowed ||
+        safeStorage.getSelectedStorageBackend() !== "basic_text")
     if (!ok && !warned) {
       warned = true
       log.warn(

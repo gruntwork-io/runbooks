@@ -93,7 +93,7 @@ describe("DirPicker in a session", () => {
     await waitFor(() => expect(pathInput()).toHaveValue("prod/us-east-1/custom"))
     // "custom" is not a directory under us-east-1: the path keeps it as typed.
     expect(selects().map((s) => s.value)).toEqual(["prod", "us-east-1", ""])
-    expect(publishedValues()).toEqual({ PATH: "prod/us-east-1/custom" })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod/us-east-1/custom" }))
     expect(recorded()).toEqual([])
   })
 
@@ -106,7 +106,7 @@ describe("DirPicker in a session", () => {
 
     await waitFor(() => expect(pathInput()).toHaveValue("prod/us-east-1/svc"))
     expect(selects().map((s) => s.value)).toEqual(["prod", "us-east-1"])
-    expect(publishedValues()).toEqual({ PATH: "prod/us-east-1/svc" })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "prod/us-east-1/svc" }))
   })
 
   it("takes back the path once the GitClone block it browses has published its checkout", async () => {
@@ -119,7 +119,7 @@ describe("DirPicker in a session", () => {
 
     await waitFor(() => expect(pathInput()).toHaveValue("dev/sandbox"))
     expect(selects().map((s) => s.value)).toEqual(["dev", "sandbox"])
-    expect(publishedValues()).toEqual({ PATH: "dev/sandbox" })
+    await waitFor(() => expect(publishedValues()).toEqual({ PATH: "dev/sandbox" }))
   })
 
   it("adds every pick and every edit of the path to the history", async () => {
