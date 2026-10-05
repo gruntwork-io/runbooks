@@ -19,22 +19,13 @@ import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
-import {
-  useRunbookContext,
-  useTemplateContext,
-  useAllOutputs,
-  useOutputs,
-} from "@/contexts/useRunbook"
-import {
-  resolveTemplateReferences,
-  computeUnmetInputDependencies,
-  computeUnmetOutputDependencies,
-} from "@/lib/templateUtils"
+import { useRunbookContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
+import { resolveTemplateReferences, type TemplateContext } from "@/lib/templateUtils"
 import {
   extractTemplateDependenciesFromString,
   requireAllOutputs,
-  splitDependencies,
 } from "@/lib/extractTemplateDependencies"
+import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTemplateDependencies"
 import {
   deriveProviderFromAuth,
   deriveProviderFromRepoUrl,
@@ -83,10 +74,7 @@ const STATUS_CONFIG: Record<
 }
 
 /** Resolve template expressions and process escape sequences (\n → newline). */
-function resolveAndUnescape(
-  template: string,
-  ctx: import("@/lib/templateUtils").TemplateContext,
-): string {
+function resolveAndUnescape(template: string, ctx: TemplateContext): string {
   return resolveTemplateReferences(template, ctx).replace(/\\n/g, "\n")
 }
 
@@ -124,9 +112,8 @@ function GitPullRequestInteractive({
   const { trackBlockRender } = useTelemetry()
   const { activeWorkTree } = useGitWorkTree()
 
-  // Runbook context for metadata; template context for resolving expressions
+  // Runbook context for metadata
   const { runbookName } = useRunbookContext()
-  const templateCtx = useTemplateContext(inputsId)
   const rawOutputs = useAllOutputs()
 
   // Resolve the effective provider. A locked wrapper passes `provider`; otherwise
@@ -150,15 +137,15 @@ function GitPullRequestInteractive({
   // description) resolve too, but never block. These props resolve
   // client-side, which can't evaluate a `hasKey` guard, so every output they
   // reference is required.
-  const { inputs: blockingInputDeps, outputs: blockingOutputDeps } = useMemo(
+  const blockingDeps = useMemo(
     () =>
-      splitDependencies(
-        requireAllOutputs([
-          ...extractTemplateDependenciesFromString(prefilledPullRequestTitle ?? ""),
-          ...extractTemplateDependenciesFromString(prefilledPullRequestDescription ?? ""),
-          ...extractTemplateDependenciesFromString(prefilledBranchName ?? ""),
-          ...extractTemplateDependenciesFromString(prefilledCommitMessage ?? ""),
-        ]),
+      requireAllOutputs(
+        extractTemplateDependenciesFromString(
+          prefilledPullRequestTitle,
+          prefilledPullRequestDescription,
+          prefilledBranchName,
+          prefilledCommitMessage,
+        ),
       ),
     [
       prefilledPullRequestTitle,
@@ -168,16 +155,16 @@ function GitPullRequestInteractive({
     ],
   )
 
-  const unmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(blockingInputDeps, templateCtx.inputs),
-    [blockingInputDeps, templateCtx.inputs],
-  )
-  const unmetOutputDeps = useMemo(
-    () => computeUnmetOutputDependencies(blockingOutputDeps, rawOutputs),
-    [blockingOutputDeps, rawOutputs],
-  )
+  const {
+    unmetInputDeps,
+    unmetOutputDeps,
+    hasAllDependencies: hasAllBlockingDependencies,
+    inputs,
+    outputs,
+  } = useTemplateDependencies(blockingDeps, inputsId)
 
-  const hasAllBlockingDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
+  // Template context for resolving expressions (blocking + display props)
+  const templateCtx = useMemo(() => ({ inputs, outputs }), [inputs, outputs])
 
   useEffect(() => {
     trackBlockRender(__registryType)
