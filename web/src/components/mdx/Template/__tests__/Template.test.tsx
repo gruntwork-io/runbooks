@@ -205,7 +205,7 @@ describe("Template", () => {
     }
 
     it("goes stale without rendering when a shared var changes upstream, and Regenerate renders the new value", () => {
-      const { container } = renderAndGenerate("us-east-1")
+      const { container, rerender } = renderAndGenerate("us-east-1")
       expect(formBlock(container).className).toContain("bg-success-muted")
 
       setUpstreamRegion("eu-west-1")
@@ -214,6 +214,7 @@ describe("Template", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
       expect(renderedRegions()).toEqual(["eu-west-1"])
+      succeedRender(rerender, vpcTemplate())
       expect(formBlock(container).className).toContain("bg-success-muted")
     })
 
@@ -342,7 +343,7 @@ describe("Template", () => {
       act(() => ctx.registerOutputs("unrelated", { value: "anything" }))
 
       expect(formBlock(container).className).toContain("bg-success-muted")
-      expect(screen.queryByRole("button", { name: "Regenerate" })).toBeNull()
+      expect(screen.getByText("Up to date")).toBeInTheDocument()
     })
   })
 
@@ -360,7 +361,7 @@ describe("Template", () => {
     }
 
     it("turns yellow and waits for Regenerate, without rendering", () => {
-      const { container } = renderAndGenerate()
+      const { container, rerender } = renderAndGenerate()
       expect(formBlock(container).className).toContain("bg-success-muted")
 
       typeRegion("eu-west-1")
@@ -373,8 +374,12 @@ describe("Template", () => {
       fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
 
       expect(renderedRegions()).toEqual(["eu-west-1"])
+      // The files hold the old value until the render succeeds.
+      expect(formBlock(container).className).toContain("bg-warning-muted")
+
+      succeedRender(rerender, testTemplate())
       expect(formBlock(container).className).toContain("bg-success-muted")
-      expect(screen.queryByRole("button", { name: "Regenerate" })).toBeNull()
+      expect(screen.getByText("Up to date")).toBeInTheDocument()
     })
 
     it("returns to up to date when the edit is undone", () => {
@@ -385,8 +390,31 @@ describe("Template", () => {
 
       typeRegion("us-east-1")
       expect(formBlock(container).className).toContain("bg-success-muted")
-      expect(screen.queryByRole("button", { name: "Regenerate" })).toBeNull()
+      expect(screen.getByText("Up to date")).toBeInTheDocument()
       expect(renderMock.render).not.toHaveBeenCalled()
+    })
+
+    it("regenerates with unchanged values while up to date", () => {
+      renderAndGenerate()
+
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+
+      expect(renderedRegions()).toEqual(["us-east-1"])
+    })
+
+    it("returns to up to date, without the error, when an edit whose regeneration failed is undone", () => {
+      const { container, rerender } = renderAndGenerate()
+
+      typeRegion("eu-west-1")
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+      renderMock.error = { message: "template error" }
+      rerender(testTemplate())
+      expect(screen.getByText(/template error/)).toBeInTheDocument()
+      expect(formBlock(container).className).toContain("bg-warning-muted")
+
+      typeRegion("us-east-1")
+      expect(formBlock(container).className).toContain("bg-success-muted")
+      expect(screen.queryByText(/template error/)).toBeNull()
     })
   })
 

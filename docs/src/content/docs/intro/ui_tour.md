@@ -100,7 +100,7 @@ The user clicks the "Generate" button at the bottom of the form, which the scree
 
 ![Runbooks Example Screenshot 5](../../../assets/screenshots/intro/runbooks-example-5.webp)
 
-As the user changes values in the form, the rendered files update, so the user sees how each value changes the generated code.
+When the user changes values in the form, the block turns yellow and offers a "Regenerate" button. Clicking it updates the files, so the user can see how their form values affect the generated code.
 
 Runbooks writes the generated files to the user's machine, so a script can open a GitHub pull request with them. This runbook's author included one.
 

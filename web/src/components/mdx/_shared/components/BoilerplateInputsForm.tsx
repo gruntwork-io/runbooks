@@ -58,7 +58,7 @@ function missingBlocksReport(missingByField: Record<string, string[]>): string |
  *     Controlled by the parent: the Generate button stays until this is true.
  *   - `hasRenderError`: Whether the parent's latest render failed (default: false)
  *   - `isStale`: Whether the inputs changed since the parent last generated (default: false).
- *     Turns the block yellow and brings the button back as Regenerate.
+ *     Turns the block yellow and asks the user to regenerate.
  * @returns JSX element representing the form
  */
 interface BoilerplateInputsFormProps {
@@ -205,10 +205,6 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   // Use validation hook first so we can use isFormValid in the wrapped callback
   const { visibleErrors, validateForm, validateField, isFormValid, markFieldTouched } =
     useFormValidation(boilerplateConfig)
-
-  // Always call onAutoRender so that variables are published to context
-  // This allows Command/Check components to react to empty/invalid values
-  // Each consumer (Inputs, Template) handles its own logic appropriately
 
   // Use custom hooks for state management
   const { formData, updateField, updateFields } = useFormState(
@@ -424,9 +420,12 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   const showSuccess =
     variant === "standard" && hasGenerated && formIsValid && !hasRenderError && !showStale
 
-  // After the first generation the button returns only when there is something
-  // to regenerate: changed inputs, or a failed render to retry.
-  const showGenerateButton = !hasGenerated || showStale || hasRenderError
+  // Inline mode publishes values as the user types, so once submitted it has
+  // nothing to resubmit. Generated files can change or vanish on disk without
+  // any input changing, so that mode keeps the button as Regenerate.
+  const showGenerateButton = !hasGenerated || !isInlineMode
+  // Quieter while the files are up to date, since nothing asks for a click.
+  const needsGenerate = !hasGenerated || showStale || hasRenderError
 
   // Red while a field uses a block that isn't on the page, yellow while the
   // generated files are stale, green once generated successfully.
@@ -456,7 +455,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 
         {shouldShowSubmitButton && (
           <div className="pt-4 border-t border-border space-y-3">
-            {showStale && (
+            {showStale && !isGenerating && (
               <div className="flex items-center gap-2">
                 <AlertTriangle className="size-5 text-warning flex-shrink-0" />
                 <span className="text-sm text-warning-foreground font-medium">
@@ -464,7 +463,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
                 </span>
               </div>
             )}
-            {hasGenerated && !showStale && (
+            {hasGenerated && (!showStale || isGenerating) && (
               <FormStatus
                 isValid={formIsValid}
                 isUpdating={isGenerating}
@@ -476,7 +475,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
               <div>
                 <Button
                   type="submit"
-                  variant="default"
+                  variant={needsGenerate ? "default" : "outline"}
                   disabled={isGenerating || unmetOutputDependencies.length > 0}
                 >
                   {hasGenerated ? "Regenerate" : effectiveButtonText}

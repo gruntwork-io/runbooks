@@ -80,11 +80,11 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   }, [trackBlockRender])
 
   const [localVarValues, setLocalVarValues] = useState<Record<string, unknown>>({})
-  // Change key of the values the last Generate click rendered. Null until the first click.
+  // Change key of the values the latest Generate click asked to render.
+  const [requestedKey, setRequestedKey] = useState<string | null>(null)
+  // Change key of the values the files on disk were rendered from. Null until
+  // a render succeeds. A failed render writes no files, so it leaves this alone.
   const [generatedKey, setGeneratedKey] = useState<string | null>(null)
-
-  // Track if we've ever successfully generated (stays true even if subsequent renders fail)
-  const [hasEverGenerated, setHasEverGenerated] = useState(false)
 
   // (Worktree/file tree updates are handled by useApiBoilerplateRender via useFileTreeUpdater)
 
@@ -192,8 +192,12 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     render,
   } = useApiBoilerplateRender(path, id, target)
 
-  if (renderResult && !hasEverGenerated) {
-    setHasEverGenerated(true)
+  // useIpc commits only the latest request's result, so a new result is the
+  // render of requestedKey.
+  const [committedResult, setCommittedResult] = useState(renderResult)
+  if (renderResult !== committedResult) {
+    setCommittedResult(renderResult)
+    setGeneratedKey(requestedKey)
   }
 
   // Track successful generation (file tree updates are handled by useApiBoilerplateRender).
@@ -240,10 +244,15 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     [generatedKey, changeKeyFor, localVarValues],
   )
 
+  // An error from rendering other values says nothing about files that match
+  // the form again, so it is hidden until the form drifts from them.
+  const showRenderError =
+    renderError !== null && (generatedKey === null || isStale || requestedKey === generatedKey)
+
   // The only place a render starts, so the files change only on a click.
   const handleGenerate = useCallback(
     (formValues: Record<string, unknown>) => {
-      setGeneratedKey(changeKeyFor(formValues))
+      setRequestedKey(changeKeyFor(formValues))
       render(
         buildRenderVariables({ ...inputValues, ...formValues, ...liveVarValues }, flattenedOutputs),
       )
@@ -299,7 +308,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   return (
     <div data-testid={id}>
       {/* Show render errors inline (don't unmount the form) */}
-      {renderError && <ErrorDisplay error={renderError} />}
+      {showRenderError && <ErrorDisplay error={renderError} />}
 
       <BoilerplateInputsForm
         id={id}
@@ -310,8 +319,8 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
         onGenerate={handleGenerate}
         isGenerating={isGenerating}
         enableAutoRender={false}
-        hasGeneratedSuccessfully={hasEverGenerated}
-        hasRenderError={Boolean(renderError)}
+        hasGeneratedSuccessfully={generatedKey !== null}
+        hasRenderError={showRenderError}
         isStale={isStale}
         variant="standard"
         isInlineMode={false}

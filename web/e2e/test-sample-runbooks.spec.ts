@@ -479,12 +479,15 @@ test.describe("sample-runbooks/my-first-runbook", () => {
 
     // Editing an input marks the files stale and leaves them as they were.
     await templateBlock.getByRole("textbox", { name: "Author" }).fill("Bob")
-    const regenerate = templateBlock.getByRole("button", { name: "Regenerate" })
-    await expect(regenerate).toBeVisible()
+    await expect(
+      templateBlock.getByText(/Inputs changed since the files were generated/),
+    ).toBeVisible()
     await expect(templateBlock.getByText("Up to date")).not.toBeVisible()
+    // A render started by the edit would land after it, so give one time to show up.
+    await page.waitForTimeout(1_000)
     await expect(generated.getCodeFile("README.md")).toContainText("Alice")
 
-    await regenerate.click()
+    await templateBlock.getByRole("button", { name: "Regenerate" }).click()
     await expect(generated.getCodeFile("README.md")).toContainText("Bob")
     await expect(templateBlock.getByText("Up to date")).toBeVisible()
 
