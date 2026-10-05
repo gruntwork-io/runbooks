@@ -26,12 +26,28 @@ vi.mock("../components/PRResult", () => ({
 }))
 
 import GitPullRequest from "../GitPullRequest"
+import { BoilerplateVariableType } from "@/types/boilerplateVariable"
 
 function Seed({ id, values }: { id: string; values: Record<string, string> }) {
   const { registerOutputs } = useRunbookContext()
   useEffect(() => {
     registerOutputs(id, values)
   }, [id, values, registerOutputs])
+  return null
+}
+
+/** Registers values for an Inputs block, as <Inputs> does. */
+function SeedInputs({ id, values }: { id: string; values: Record<string, string> }) {
+  const { registerInputs } = useRunbookContext()
+  useEffect(() => {
+    registerInputs(id, values, {
+      variables: Object.keys(values).map((name) => ({
+        name,
+        description: "",
+        type: BoilerplateVariableType.String,
+      })),
+    })
+  }, [id, values, registerInputs])
   return null
 }
 
@@ -91,5 +107,54 @@ describe("GitPullRequest (generic block)", () => {
     // Let the seeded outputs flush, then confirm no false positive.
     expect(await screen.findByTestId("pr")).toBeInTheDocument()
     expect(screen.queryByText("Wrong authentication provider")).toBeNull()
+  })
+
+  describe("template dependencies of the prefilled props", () => {
+    const PREFILLED = {
+      prefilledPullRequestTitle: "Deploy {{ .inputs.env }}",
+      prefilledBranchName: "deploy/{{ .outputs.mint.branch }}",
+    }
+
+    it("waits for the inputs and outputs they read", () => {
+      render(
+        <TestWrapper>
+          <GitPullRequest id="pr" inputsId="form" {...PREFILLED} />
+        </TestWrapper>,
+      )
+      const block = screen.getByTestId("pr")
+      expect(screen.getByText("Waiting for input values:")).toBeInTheDocument()
+      expect(screen.getByText("Waiting for outputs from:")).toBeInTheDocument()
+      expect(block.textContent).toContain("mint (branch)")
+    })
+
+    it("stops waiting once they have values", async () => {
+      render(
+        <TestWrapper>
+          <SeedInputs id="form" values={{ env: "prod" }} />
+          <Seed id="mint" values={{ branch: "b1" }} />
+          <GitPullRequest id="pr" inputsId="form" {...PREFILLED} />
+        </TestWrapper>,
+      )
+      expect(await screen.findByTestId("pr")).toBeInTheDocument()
+      expect(screen.queryByText("Waiting for input values:")).toBeNull()
+      expect(screen.queryByText("Waiting for outputs from:")).toBeNull()
+    })
+
+    // They resolve client-side, which can't evaluate a hasKey guard
+    it("requires an output they read behind a hasKey guard", async () => {
+      render(
+        <TestWrapper>
+          <Seed id="mint" values={{ branch: "b1" }} />
+          <GitPullRequest
+            id="pr"
+            prefilledPullRequestDescription={
+              '{{ if hasKey .outputs.mint "org" }}Org {{ .outputs.mint.org }}{{ end }}'
+            }
+          />
+        </TestWrapper>,
+      )
+      expect(await screen.findByText("Waiting for outputs from:")).toBeInTheDocument()
+      expect(screen.getByTestId("pr").textContent).toContain("mint (org)")
+    })
   })
 })

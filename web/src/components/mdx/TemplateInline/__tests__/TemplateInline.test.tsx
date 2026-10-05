@@ -221,6 +221,38 @@ describe("TemplateInline", () => {
     })
   })
 
+  describe("output dependencies", () => {
+    it("waits for an output the template reads, then renders with it", async () => {
+      const template = "account={{ .outputs.mint.account_id }}"
+      const { invoke, rerender } = renderBlock({ values: WORLD, template })
+
+      await settle()
+      expect(renderInlineCalls(invoke)).toHaveLength(0)
+      expect(screen.getByText("Waiting for outputs from:")).toBeInTheDocument()
+      expect(screen.getByText("mint")).toBeInTheDocument()
+
+      rerender({ values: WORLD, template, mintOutputs: { account_id: "123" } })
+
+      await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
+      expect(screen.queryByText("Waiting for outputs from:")).not.toBeInTheDocument()
+      const outputs = renderInlineCalls(invoke)[0]!.inputs.find((i) => i.name === "outputs")?.value
+      expect(outputs).toEqual({ mint: { account_id: "123" } })
+    })
+
+    it("waits only for the block to run when the template guards the output with hasKey", async () => {
+      const template =
+        '{{ if hasKey .outputs.mint "org_id" }}org={{ .outputs.mint.org_id }}{{ end }}'
+      const { invoke, rerender } = renderBlock({ values: WORLD, template })
+
+      await settle()
+      expect(renderInlineCalls(invoke)).toHaveLength(0)
+
+      rerender({ values: WORLD, template, mintOutputs: { account_id: "123" } })
+
+      await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
+    })
+  })
+
   it("does not render again when nothing it depends on changed", async () => {
     const { invoke, rerender } = renderBlock({ values: WORLD })
     await waitFor(() => expect(renderInlineCalls(invoke)).toHaveLength(1))
