@@ -2,13 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import type { ReactNode } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { useGetFile } from "@/hooks/useApiGetFile"
-import {
-  useInputs,
-  useRunbookContext,
-  useAllOutputs,
-  flattenInputs,
-  type TemplateValue,
-} from "@/contexts/useRunbook"
+import { useRunbookContext, useAllOutputs, type TemplateValue } from "@/contexts/useRunbook"
 import { useApiExec } from "@/hooks/useApiExec"
 import type { FilesCapturedEvent, LogEntry } from "@/hooks/useApiExec"
 import { useExecutableRegistry } from "@/hooks/useExecutableRegistry"
@@ -16,17 +10,11 @@ import { useGeneratedFiles } from "@/hooks/useGeneratedFiles"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useLogs } from "@/contexts/useLogs"
 import { extractInlineInputsId } from "../lib/extractInlineInputsId"
-import {
-  extractTemplateDependenciesFromString,
-  splitDependencies,
-} from "@/lib/extractTemplateDependencies"
+import { extractTemplateDependenciesFromString } from "@/lib/extractTemplateDependencies"
 import { computeSha256Hash } from "@/lib/hash"
 import { normalizeBlockId } from "@/lib/utils"
 import {
   buildTemplatePayload,
-  computeUnmetInputDependencies,
-  computeUnmetOutputDependencies,
-  flattenBlockOutputs,
   hasEmptyNumericInputs,
   maskTemplateOutputs,
   referencesSensitiveOutput,
@@ -39,6 +27,7 @@ import type { ComponentType, ExecutionStatus } from "../types"
 import type { AppError } from "@/types/error"
 import { createAppError } from "@/types/error"
 import { useScriptFileChange } from "./useScriptFileChange"
+import { useTemplateDependencies } from "./useTemplateDependencies"
 import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 
 interface UseScriptExecutionProps {
@@ -427,28 +416,27 @@ export function useScriptExecution({
     return ids
   }, [inputsId, inlineInputsId])
 
-  // Get inputs for API requests and derive values map for lookups
-  const inputs = useInputs(allInputsIds.length > 0 ? allInputsIds : undefined)
-  const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
-
   // Extract all template dependencies (inputs + outputs) from script content
   const allDeps = useMemo(
     () => extractTemplateDependenciesFromString(rawScriptContent),
     [rawScriptContent],
   )
-  const { inputs: inputDeps, outputs: outputDeps } = useMemo(
-    () => splitDependencies(allDeps),
-    [allDeps],
-  )
 
-  // Check which input dependencies are not yet satisfied
-  const unmetInputDependencies = useMemo(
-    () => computeUnmetInputDependencies(inputDeps, inputValues),
-    [inputDeps, inputValues],
-  )
+  // Resolve them against the inputs (typed for API requests, flattened for
+  // lookups) and block outputs
+  const {
+    rawInputs: inputs,
+    inputs: inputValues,
+    outputs: flattenedOutputs,
+    inputDeps,
+    outputDeps,
+    unmetInputDeps: unmetInputDependencies,
+    unmetOutputDeps: unmetOutputDependencies,
+  } = useTemplateDependencies(allDeps, allInputsIds.length > 0 ? allInputsIds : undefined)
   const hasAllInputDependencies = unmetInputDependencies.length === 0
+  const hasAllOutputDependencies = unmetOutputDependencies.length === 0
 
-  // Get all block outputs from context to check dependencies
+  // Get all block outputs from context for auth credentials and sensitive outputs
   const allOutputs = useAllOutputs()
 
   // Get AWS auth credentials from outputs if awsAuthId is specified
@@ -535,15 +523,6 @@ export function useScriptExecution({
     [googleAuthId, googleAuthEnvVars, allOutputs],
   )
   const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
-
-  // Check which output dependencies are not yet satisfied
-  const unmetOutputDependencies = useMemo(
-    () => computeUnmetOutputDependencies(outputDeps, allOutputs),
-    [outputDeps, allOutputs],
-  )
-
-  // Check if all output dependencies are satisfied
-  const hasAllOutputDependencies = unmetOutputDependencies.length === 0
 
   // Whether the script view's render shows a sensitive output as <redacted>
   // (see the render effect below)
@@ -696,9 +675,6 @@ export function useScriptExecution({
     },
     [api, rawScriptContent],
   )
-
-  // Compute flattened outputs for template context (used by render and prop resolution)
-  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])
 
   // Template context for prop resolution by callers (Command/Check resolve display string props)
   const templateContext = useMemo(
