@@ -239,6 +239,42 @@ describe("useScriptExecution — execute", () => {
   })
 })
 
+describe("useScriptExecution — template dependencies", () => {
+  it("lists the inputs the script reads and waits for their values", () => {
+    const { result } = renderScriptExecution({
+      command: "deploy {{ .inputs.env }} {{ .inputs.region }}",
+      inputsId: "cfg",
+    })
+    expect(result.current.exec.inputDependencies).toEqual(["env", "region"])
+    expect(result.current.exec.unmetInputDependencies).toEqual(["env", "region"])
+
+    act(() =>
+      result.current.runbook.registerInputs("cfg", { env: "prod", region: "" }, { variables: [] }),
+    )
+    expect(result.current.exec.unmetInputDependencies).toEqual(["region"])
+    expect(result.current.exec.hasAllInputDependencies).toBe(false)
+  })
+
+  it("names the outputs it waits for", () => {
+    const { result } = renderWithOutputs(
+      { command: "echo {{ .outputs.a.x }} {{ .outputs.a.y }}" },
+      { a: { x: "1" } },
+    )
+    expect(result.current.exec.unmetOutputDependencies).toEqual([
+      { blockId: "a", outputNames: ["y"] },
+    ])
+  })
+
+  it("waits only for the block to run when the script guards an output with hasKey", () => {
+    const command = '{{ if hasKey .outputs.a "org" }}--org {{ .outputs.a.org }}{{ end }}'
+    const { result } = renderScriptExecution({ command })
+    expect(result.current.exec.unmetOutputDependencies).toEqual([{ blockId: "a", outputNames: [] }])
+
+    act(() => result.current.runbook.registerOutputs("a", { other: "1" }))
+    expect(result.current.exec.hasAllOutputDependencies).toBe(true)
+  })
+})
+
 describe("useScriptExecution — outputs", () => {
   it("keeps a sensitive output wrapped, for display and for downstream blocks", () => {
     // Record what the run subscribes to, so the test can send its events
