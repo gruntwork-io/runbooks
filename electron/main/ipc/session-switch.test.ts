@@ -37,7 +37,7 @@ const { registerRunbookHandlers, markRunbookClosed, resetToNewSession } =
   await import("./runbook.ts")
 const { registerSessionHandlers } = await import("./session.ts")
 const { registerExecHandlers, isExecutionRunning } = await import("./exec.ts")
-const { stopWatcher } = await import("./watch.ts")
+const { stopWatchers } = await import("./watch.ts")
 const runtimeModule = await import("./runtime.ts")
 const remoteModule = await import("../remote.ts")
 const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
@@ -104,7 +104,7 @@ describe("switching and deleting saved sessions", () => {
 
   afterEach(async () => {
     for (const spy of spies.splice(0)) spy.mockRestore()
-    await stopWatcher()
+    await stopWatchers()
     markRunbookClosed()
     sessionManager.deleteSession()
     setExecutableRegistry(null)

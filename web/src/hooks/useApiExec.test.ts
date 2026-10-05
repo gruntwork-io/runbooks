@@ -680,7 +680,7 @@ describe("useApiExec state machine", () => {
 
   it("reports each run that is over, one after another, however it ended", async () => {
     const onRunEnded = vi.fn()
-    const { result } = renderHook(() => useApiExec({ onRunEnded }))
+    const { result } = renderExec({ onRunEnded })
     const runEndingWith = async (end: () => void, reports: number) => {
       act(() => {
         result.current.execute("test-executable")
