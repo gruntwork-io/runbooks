@@ -4,11 +4,11 @@ title: <AwsAuth>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<AwsAuth>` block provides a streamlined interface for authenticating to AWS. It supports three authentication methods: static credentials, AWS SSO (IAM Identity Center), and local AWS profiles. Once authenticated, credentials are automatically available to subsequent [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+The `<AwsAuth>` block authenticates the user to AWS with static credentials, AWS SSO (IAM Identity Center), or a local AWS profile. Once authenticated, the credentials are available to later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
 
-By default, AwsAuth automatically detects credentials from environment variables. When credentials are detected, the user is prompted to confirm before proceeding, preventing accidental operations against the wrong AWS account.
+By default, AwsAuth detects credentials in environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and so on), validates them, and asks the user to confirm the account before using them.
 
-## Basic Usage
+## Basic usage
 
 ```mdx
 <AwsAuth
@@ -19,11 +19,7 @@ By default, AwsAuth automatically detects credentials from environment variables
 />
 ```
 
-By default, AwsAuth checks for existing credentials in environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.). If found, it validates them and prompts the user to confirm before using them.
-
-## Authentication Methods
-
-The AwsAuth block provides three ways to authenticate:
+## Authentication methods
 
 | Method | Description | 
 |--------|-------------|
@@ -41,19 +37,20 @@ Static Credentials is the tab users land on. Set `defaultTab` to open on a diffe
 />
 ```
 
-The user can still switch tabs — `defaultTab` only chooses the starting one.
+The user can still switch tabs. `defaultTab` only chooses the starting one.
 
 ## Props
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `id` | string | required | Unique identifier for this component |
+| `inputsId` | string or string[] | - | ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title` and `description` resolve `{{ .inputs.VarName }}` expressions against them |
 | `title` | string | "AWS Authentication" | Display title shown in the UI |
 | `description` | string | - | Description of the authentication purpose |
 | `defaultRegion` | string | "us-east-1" | Default AWS region for CLI commands. Sets `AWS_REGION` environment variable. GovCloud regions (`us-gov-east-1`, `us-gov-west-1`) are supported. When the credentials don't name a region themselves, this region also decides which partition (commercial or GovCloud) they are validated in |
 | `defaultTab` | `'credentials'`, `'sso'`, or `'profile'` | `'credentials'` | Which authentication tab the block opens on. An unrecognized value falls back to `'credentials'` |
-| `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential Detection](#credential-detection) |
-| `ssoStartUrl` | string | - | AWS SSO start URL (e.g., `https://my-company.awsapps.com/start`). Required for SSO |
+| `detectCredentials` | `false` or `CredentialSource[]` | `['env']` | Whether and how to detect existing credentials. See [Credential detection](#credential-detection) |
+| `ssoStartUrl` | string | - | AWS SSO start URL (for example `https://my-company.awsapps.com/start`). Required for SSO |
 | `ssoRegion` | string | "us-east-1" | AWS region where IAM Identity Center is configured. Every SSO call goes to this region. For a GovCloud Identity Center this is `us-gov-east-1` or `us-gov-west-1` |
 | `ssoAccountId` | string | - | Pre-select a specific AWS account after SSO authentication. Takes effect only together with `ssoRoleName` |
 | `ssoRoleName` | string | - | Pre-select a specific IAM role to assume. Takes effect only together with `ssoAccountId` |
@@ -62,9 +59,9 @@ The user can still switch tabs — `defaultTab` only chooses the starting one.
 
 Credentials are validated in the partition their region belongs to: the commercial partition, GovCloud (US), China, the European Sovereign Cloud, or an isolated (ISO) partition. The region picker lists commercial and GovCloud regions. A region in any other partition works when it comes from the environment's credentials, a profile's `region`, or a block's `AWS_REGION` output, and is validated against that partition's own STS endpoint.
 
-## Environment Variables
+## Environment variables
 
-When authentication succeeds, the following environment variables are automatically set for subsequent Command and Check blocks:
+When authentication succeeds, these environment variables are set for later Command and Check blocks:
 
 | Variable | Description |
 |----------|-------------|
@@ -73,17 +70,15 @@ When authentication succeeds, the following environment variables are automatica
 | `AWS_SESSION_TOKEN` | Session token (for temporary credentials from SSO or assume role) |
 | `AWS_REGION` | The selected default region |
 
-These variables are set in the session environment, so all subsequent blocks have access without needing to explicitly reference `awsAuthId`.
+They are set in the session environment, so later blocks get them without setting `awsAuthId`.
 
 ## Using with Commands and Checks
 
-When you authenticate to AWS using the AwsAuth block, the [environment variables above](#environment-variables) are automatically made available to all subsequent Command and Check blocks. This means that Command and Check blocks will use the most recently authenticated AwsAuth block (if any) to get AWS authentication credentials.
-
-Any subsequent AWS authentication will update the environment variables and then become the default AWS authentication credentials.
+A Command or Check block that doesn't set `awsAuthId` uses the session environment, which has the credentials of the most recently authenticated AwsAuth block. Each new sign-in replaces them.
 
 Clicking **Re-authenticate** on the success card withdraws the block's credentials, so blocks that reference it with `awsAuthId` (below) report it as not authenticated until the user signs in again. The session environment variables keep their previous values until the next sign-in replaces them.
 
-However, in some cases, you may want to use a specific AWS authentication with a block, not just the most recent AWS authentication. To do that, you can reference a specific AwsAuth block from Command or Check blocks using the `awsAuthId` prop. For example:
+To make a Command or Check block use one specific AwsAuth block, regardless of which signed in last, set `awsAuthId`:
 
 ```mdx
 <AwsAuth
@@ -110,17 +105,11 @@ However, in some cases, you may want to use a specific AWS authentication with a
 />
 ```
 
-<Aside type="tip">
-While you can use `awsAuthId` to explicitly reference the AwsAuth block, the credentials are also set as session environment variables. This means subsequent blocks will have AWS access even without `awsAuthId`, though using it makes the dependency explicit.
-</Aside>
-
-## Configuration Examples
-
-### Pre-selected SSO Account and Role
+## Pre-selecting the SSO account and role
 
 After the user approves the sign-in in their browser, AwsAuth lists the AWS accounts they can access and asks them to pick an account and then a role. If they can access exactly one account with exactly one role, that role is used without asking.
 
-Skip the account/role selection step by pre-configuring both (setting only one of them has no effect):
+To skip the account and role selection, set both `ssoAccountId` and `ssoRoleName`. Setting only one has no effect.
 
 ```mdx
 <AwsAuth
@@ -134,9 +123,9 @@ Skip the account/role selection step by pre-configuring both (setting only one o
 />
 ```
 
-## Multiple AWS Accounts
+## Multiple AWS accounts
 
-You can include multiple AwsAuth blocks in a single runbook to authenticate to different AWS accounts:
+A runbook can have several AwsAuth blocks, one per AWS account:
 
 ```mdx
 <AwsAuth
@@ -167,14 +156,14 @@ You can include multiple AwsAuth blocks in a single runbook to authenticate to d
 ```
 
 <Aside type="caution">
-When using multiple AwsAuth blocks, be aware that the session environment variables (`AWS_ACCESS_KEY_ID`, etc.) will reflect the most recently authenticated credentials. Use `awsAuthId` to ensure each command uses the correct credentials.
+With several AwsAuth blocks, the session environment variables hold the most recently authenticated credentials. Set `awsAuthId` on each command so it runs against the account you intend.
 </Aside>
 
-## Local Profile Support
+## Local profile support
 
 The Local Profile tab shows profiles from your `~/.aws/credentials` and `~/.aws/config` files, or from the files that `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` point to. The files are read the way the AWS CLI reads them: `[profile staging]` in config and `[staging]` in credentials are one profile, so keys in one file and a region in the other work together. Two profile types are supported:
 
-| Profile Type | Description |
+| Profile type | Description |
 |--------------|-------------|
 | **Static Credentials** | Profiles with `aws_access_key_id` and `aws_secret_access_key` |
 | **Assume Role** | Profiles with a `role_arn` and either a `source_profile` or a `credential_source` |
@@ -189,24 +178,24 @@ A profile's own `region` is the one its credentials are validated in and the one
 SSO profiles (those with `sso_session` or `sso_start_url`) are not shown in the Local Profile tab. Use the AWS SSO tab instead to authenticate with SSO.
 </Aside>
 
-## Auto-Detection of Credentials
+## Credential detection
 
-By default, AwsAuth automatically detects existing credentials from environment variables. When credentials are detected, the user is shown the AWS account ID, account name (if available), and identity (e.g. IAM role), and must confirm before the credentials are used.
+By default, AwsAuth detects existing credentials in environment variables. It shows the user the AWS account ID, the account name if available, and the identity (for example an IAM role). The user must confirm before the credentials are used.
 
 <Aside type="note">
-Unlike GitHubAuth which auto-authenticates silently, AwsAuth requires explicit user confirmation. Until a user explicitly confirms which AWS account to use, no credentials are available to subsequent blocks. This prevents accidental operations against the wrong AWS account, which could have serious consequences in production environments. See [Credential Protection](#credential-protection) for details.
+GitHubAuth uses detected credentials without asking. AwsAuth waits for the user to confirm an account, and until then no credentials are available to later blocks. See [Credential protection](#credential-protection).
 </Aside>
 
-### Default Behavior
+### Default behavior
 
 With no configuration, AwsAuth checks for credentials in standard AWS environment variables:
 
 ```mdx
-{/* Default - same as detectCredentials={['env']} */}
+{/* Same as detectCredentials={['env']} */}
 <AwsAuth id="aws-auth" />
 ```
 
-If credentials are found and valid, the user sees a confirmation prompt showing:
+If credentials are found and valid, the confirmation prompt shows:
 - AWS Account ID
 - AWS Account Name (if available)
 - IAM ARN (identity)
@@ -219,17 +208,17 @@ The user can then choose to "Use These Credentials" or "Use Different Credential
 
 When the user clicks "Use These Credentials", AwsAuth reads and validates the environment's credentials again before setting them in the session. If they now belong to a different AWS account than the prompt showed, the prompt switches to that account and the user has to confirm again.
 
-### Credential Sources
+### Credential sources
 
 | Source | Description |
 |--------|-------------|
-| `'env'` | Check standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.) |
-| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_AWS_ACCESS_KEY_ID`, etc.) |
+| `'env'` | Check standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and so on) |
+| `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_AWS_ACCESS_KEY_ID` and so on) |
 | `{ block: 'block-id' }` | Use credentials from a Command block's output |
 
-### Disable Auto-Detection
+### Disabling detection
 
-Force manual authentication only (no credential detection):
+To show only the manual authentication tabs:
 
 ```mdx
 <AwsAuth
@@ -238,9 +227,9 @@ Force manual authentication only (no credential detection):
 />
 ```
 
-### Custom Detection with Prefix
+### Custom detection with prefix
 
-Check for the standard AWS environment variables, but with a custom prefix. For example, the following configuration will check for these environment variables: 
+A prefixed source checks for the standard AWS environment variables under a custom prefix. This configuration checks for:
 
 - `PROD_AWS_ACCESS_KEY_ID`
 - `PROD_AWS_SECRET_ACCESS_KEY`
@@ -260,23 +249,23 @@ Prefixes must follow these rules:
 
 - Uppercase letters, numbers, and underscores only
 - Must start with a letter
-- Must end with a trailing underscore (e.g., `PROD_`, `MY_APP_`)
+- Must end with an underscore, as in `PROD_` or `MY_APP_`
 
-### Test Prefix
+### Test prefix
 
-To use a different prefix for automated tests (e.g., to avoid conflicts with local credentials), configure `env_prefix` in your test config file (`runbook_test.yml`) rather than in the MDX:
+To use a different prefix in automated tests, for example to avoid conflicts with local credentials, set `env_prefix` on the step in `runbook_test.yml`:
 
 ```yaml
 # runbook_test.yml
 steps:
   - block: aws-auth
-    env_prefix: CI_  # Checks CI_AWS_ACCESS_KEY_ID, CI_AWS_SECRET_ACCESS_KEY, etc.
+    env_prefix: CI_  # Checks CI_AWS_ACCESS_KEY_ID, CI_AWS_SECRET_ACCESS_KEY, and so on
     expect: success
 ```
 
-This keeps test configuration separate from runtime behavior. See [Testing AwsAuth Blocks](/authoring/testing/#testing-awsauth-blocks) for details.
+See [Testing AwsAuth blocks](/authoring/testing/#testing-awsauth-blocks).
 
-### From Command Output
+### From Command output
 
 Use credentials generated by a previous Command block:
 
@@ -311,60 +300,49 @@ echo "sensitive:AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' <<< "$CRED
 echo "AWS_REGION=us-west-2" >> "$RUNBOOK_OUTPUT"  # Optional: override region
 ```
 
-The `sensitive:` prefix masks the secret key and session token in the Command's **View Outputs**. AwsAuth still reads them as `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. See [Sensitive Outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
+The `sensitive:` prefix masks the secret key and session token in the Command's **View Outputs**. AwsAuth still reads them as `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 
 The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defaultRegion` prop is used.
 
-When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers those, not the ones it checked when the prompt appeared. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate (for example, temporary credentials that have expired), the block shows the error and registers nothing.
+When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers the result. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate, for example because temporary credentials have expired, the block shows the error and registers nothing.
 
-### When Users Reject Auto-Detected Credentials
+### When users reject detected credentials
 
-Auto-detected credentials are **never available to scripts until the user confirms them**. Auto-detection is read-only. It validates the credentials and shows the user which account they belong to, but does not register them to the session.
+Detection is read-only. It validates the credentials and shows the user which account they belong to, but does not register them to the session, so scripts can't use detected credentials until the user confirms them.
 
-When a user clicks "Use Different Credentials" to reject auto-detected credentials:
+When a user clicks "Use Different Credentials":
 
 1. The manual authentication UI is shown (Static Credentials, SSO, or Local Profile tabs)
 2. The user must authenticate manually before any commands can access AWS
 
-This ensures that if a user sees credentials for the wrong account (e.g., production when they expected development), those credentials are never used—they were never registered in the first place.
-
-Note that this behavior only applies to the AwsAuth block. If standard AWS environment variables are available and the runbook does not contain any AwsAuth blocks, environment credentials work normally and these AWS credentials will automatically be available to all scripts.
-
-This is one key benefit of the AwsAuth block. It ensures that users are always aware of which AWS account they're about to operate in before any credentials are registered to the session.
+Credentials for the wrong account, such as production when the user expected development, were not registered, so no script runs with them.
 
 ## Security
 
-### Credential Protection
+### Credential protection
 
-When a runbook contains any `<AwsAuth>` blocks, Runbooks automatically **strips AWS credentials from the session** at startup. This means:
+When a runbook contains an `<AwsAuth>` block, Runbooks strips AWS credentials from the session at startup:
 
-1. **Before confirmation**: Even if you have `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` set in your terminal, scripts in the runbook cannot access them until you explicitly confirm which account to use
-2. **Detection is read-only**: When AwsAuth checks for credentials, it reads from your environment but does NOT register them to the session
-3. **Confirmation registers credentials**: Only after you click "Use These Credentials" are the credentials added to the session and available to subsequent scripts
+1. Before confirmation, scripts in the runbook cannot read `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or `AWS_SESSION_TOKEN`, even if they are set in your terminal.
+2. When AwsAuth checks for credentials, it reads them from your environment without registering them to the session.
+3. Clicking "Use These Credentials" adds the credentials to the session, where later scripts can use them.
 
-This design prevents a common and dangerous scenario: you have production credentials set in your terminal, open a runbook intending to work in development, and accidentally run scripts against production.
+For example, with production credentials set in your terminal, opening a runbook meant for development does not let its scripts run against production.
 
 <Aside type="tip">
-If your runbook does NOT contain any AwsAuth blocks, environment credentials work normally - they're available to all scripts. The protection only activates when AwsAuth is present, since that signals the runbook author wants explicit credential management.
+A runbook with no AwsAuth block leaves environment credentials in place, and all scripts can use them.
 </Aside>
 
-### Why Confirmation is Required
+### Why confirmation is required
 
-AWS operations can have significant consequences - creating resources that cost money, modifying production data, or deleting critical infrastructure. Unlike GitHub where most operations are reversible (you can revert commits), AWS operations are often immediate and irreversible.
+AWS operations often take effect immediately and can't be undone. They create resources that cost money, change production data, or delete infrastructure. Confirmation matters most when users have access to several AWS accounts, or when a tool such as aws-vault or granted has set credentials in the environment.
 
-The confirmation flow ensures users are aware of which AWS account they're about to operate in before any credentials are registered to the session. This is especially important in environments where:
+### Credential handling
 
-- Users have access to multiple AWS accounts (dev, staging, production)
-- Environment variables might be set by tools like aws-vault or granted
-- CI/CD pipelines set credentials that persist across sessions
+- Authentication happens between your machine and AWS. Credentials are not sent to Gruntwork or any other server unless a script in your runbook sends them.
+- Credentials are stored only in your local Runbooks session and are not written to disk.
+- Credentials are validated with STS GetCallerIdentity before they are registered to the session.
 
-### Credential Handling
+## Detailed example
 
-- **Credentials stay local**: All authentication happens between your machine and AWS. Credentials are never transmitted to external servers or to Gruntwork (unless your runbook includes scripts that explicitly do this).
-- **Session storage**: Credentials are stored only in your local Runbooks session and are never persisted to disk.
-- **Validation before use**: Credentials are validated via STS GetCallerIdentity before being registered to the session.
-- **Protected until confirmed**: AWS credentials are stripped from the session at startup when AwsAuth blocks are present, and only added back after explicit user confirmation.
-
-## Detailed Example
-
-See the [aws-auth feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/aws-auth) for a good walkthrough of the AwsAuth block.
+The [aws-auth feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/aws-auth) is a runbook that walks through the AwsAuth block.

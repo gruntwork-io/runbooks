@@ -91,7 +91,6 @@ export const test = base.extend<RunbookAppFixture>({
           ...process.env,
           ELECTRON_NO_UPDATER: "1",
           RUNBOOKS_TELEMETRY_DISABLE: "1",
-          RUNBOOKS_NO_TELEMETRY: "1",
         },
       })
 

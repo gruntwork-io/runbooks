@@ -78,7 +78,7 @@ async function launchApp(runbook: string, env: Record<string, string>): Promise<
     env: {
       ...cleanEnv,
       ELECTRON_NO_UPDATER: "1",
-      RUNBOOKS_NO_TELEMETRY: "1",
+      RUNBOOKS_TELEMETRY_DISABLE: "1",
       // Skip populateShellEnv so the test-controlled PATH survives.
       TERM_PROGRAM: "runbooks-e2e",
       ...env,

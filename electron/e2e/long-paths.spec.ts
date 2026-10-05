@@ -129,7 +129,7 @@ test.beforeAll(async () => {
     GIT_COMMITTER_NAME: "Runbooks E2E",
     GIT_COMMITTER_EMAIL: "e2e@example.com",
     ELECTRON_NO_UPDATER: "1",
-    RUNBOOKS_NO_TELEMETRY: "1",
+    RUNBOOKS_TELEMETRY_DISABLE: "1",
     // Skip populateShellEnv so the sandboxed HOME and git env survive.
     TERM_PROGRAM: "runbooks-e2e",
   })

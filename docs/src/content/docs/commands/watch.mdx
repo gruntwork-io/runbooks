@@ -1,14 +1,10 @@
 ---
-title: Watch Mode
+title: Watch mode
 ---
 
 import { Aside } from '@astrojs/starlight/components';
 
-# Watch Mode
-
-Watch mode monitors a `runbook.mdx` file for changes and automatically reloads the runbook in the app.
-
-This feature is intended for **authors** of runbooks.
+Watch mode reloads the runbook in the app each time you save `runbook.mdx`. It is meant for runbook authors.
 
 <Aside type="caution">
 Each reload rebuilds the [executable registry](/security/execution-model/#executable-registry) from the files on disk, so after a reload the app executes the current version of your commands and scripts. Pass `--disable-live-file-reload` to keep executing the versions that were present when the runbook was opened in this app session (opening another runbook and coming back rebuilds the registry).
@@ -18,61 +14,42 @@ Only changes to `runbook.mdx` itself trigger a reload. After you change a script
 
 ## Activating watch mode
 
-Activate watch mode on the command line when you launch the app:
+Pass `--watch` when you launch the app from the command line:
 
 ```bash
-runbooks --watch RUNBOOK_SOURCE
+runbooks open --watch RUNBOOK_SOURCE
 ```
 
-Watch mode then stays on for every runbook you open until you quit the app.
+Then edit `runbook.mdx` in your editor and save it. The app shows the change about 300ms later.
+
+Watch mode stays on for every runbook you open until you quit the app.
 
 `--watch` and `--disable-live-file-reload` are read only when they start the app. If Runbooks is already running, a second `runbooks` command opens the runbook in the existing window with that window's modes, whatever flags it passes. To change modes, quit Runbooks first.
 
 ## Arguments
 
-- `RUNBOOK_SOURCE` - A local path or remote URL pointing to a `runbook.mdx` file or the directory containing a `runbook.mdx` file. See [Opening a runbook](/commands/open) for supported remote URL formats.
+`RUNBOOK_SOURCE` is a local path or remote URL that points to a `runbook.mdx` file or to the directory that contains one. See [`runbooks open`](/commands/open/#remote-sources) for the remote URL formats.
 
 <Aside type="note">
-When watching a remote runbook, file watching operates on the local downloaded copy. Changes to the remote repository will not be detected automatically.
+For a remote runbook, Runbooks watches the local copy it downloaded. It does not detect changes to the remote repository.
 </Aside>
 
 ## Flags
 
-- `--disable-live-file-reload` - Keep the executable registry that was built when the runbook was opened in this app session. Opening another runbook and coming back rebuilds it. Reloads still update what the app shows, but Runbooks keeps executing the original commands and scripts, and blocks whose script has changed show a "Script changed" warning. A block that runs a script file offers to [reload that script](/security/execution-model/#reloading-a-changed-script-file) from the warning.
-
-## What it does
-
-When watch mode is active:
-
-1. **Watches for changes** - Monitors the runbook file for modifications
-2. **Auto-reloads** - Automatically refreshes the runbook in the app when changes are detected (within ~300ms)
-3. **Rebuilds the executable registry** - Re-reads the runbook and the scripts it references, unless `--disable-live-file-reload` is set
-
-### Writing a new runbook
-
-```bash
-runbooks open --watch /path/to/runbook
-```
-
-Then in your editor:
-1. Make changes to `runbook.mdx`
-2. Save the file
-3. See your changes instantly in the app -- no manual refresh needed
+`--disable-live-file-reload` keeps the executable registry that was built when the runbook was opened in this app session. Opening another runbook and coming back rebuilds it. Reloads still update what the app shows, but Runbooks keeps executing the original commands and scripts, and blocks whose script has changed show a "Script changed" warning. A block that runs a script file offers to [reload that script](/security/execution-model/#reloading-a-changed-script-file) from the warning.
 
 ## Technical details
 
 ### File watching
 
-- Uses `chokidar` for efficient file system monitoring
-- Watches the directory containing your runbook file, so editors that save by replacing the file are still detected
-- Does not watch subdirectories, such as cloned repositories or generated output
-- Implements debouncing (300ms) to handle editors that save files multiple times
-- Only triggers on write and create events for your specific runbook file; changes to other files in the directory are ignored
+- Runbooks watches the directory that contains your runbook file with `chokidar`, so it still sees editors that save by replacing the file.
+- It does not watch subdirectories, such as cloned repositories or generated output.
+- It reacts only to write and create events for the runbook file. Changes to other files in the directory are ignored.
+- It waits 300ms after the last event, so an editor that saves a file several times triggers one reload.
 - Script files that blocks run are watched separately, with or without `--watch`. A change to one never reloads the runbook: its block shows the "Script changed" notice.
 
-### Auto-reload mechanism
+### Reloading
 
-- Uses IPC (inter-process communication) events to notify the renderer process of file changes
-- When the file changes, the main process sends a `watch:file-change` event via IPC
-- The renderer receives the event and reloads the runbook, which re-reads the file and rebuilds the executable registry
-- A reload keeps the session: environment variables that blocks exported, and the directory a block moved to with `cd`, stay as they were. Re-opening the runbook starts its blocks from the runbook's directory again.
+- When the file changes, the main process sends a `watch:file-change` IPC event to the renderer.
+- The renderer reloads the runbook, which re-reads the file and rebuilds the executable registry unless `--disable-live-file-reload` is set.
+- A reload keeps the session. Environment variables that blocks exported, and the directory a block moved to with `cd`, stay as they were. Re-opening the runbook starts its blocks from the runbook's directory again.

@@ -4,22 +4,20 @@ sidebar:
   order: 1
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+Runbooks is a desktop app. Launch it from its app icon or with the `runbooks` command, which takes a local path or a remote URL as the runbook source.
 
-Runbooks is a desktop app for working with runbooks. You can launch it by double-clicking the app icon or via the CLI. All CLI commands accept a local path or a remote URL as the runbook source.
+- [`runbooks open`](/commands/open/) opens a runbook in the desktop app.
+- [Watch mode](/commands/watch/) reloads a runbook while you author it.
 
-- [`runbooks open`](/commands/open) -- Open a runbook in the desktop app
-- [Watch mode](/commands/watch) -- Live-reload a runbook while you author it
-
-### Launching from the command line
+## Launching from the command line
 
 ```bash
 runbooks open ./path/to/runbook
 ```
 
-### Remote URLs
+## Remote URLs
 
-You can open a runbook directly from a remote URL, removing the need to manually download any runbook files.
+You can open a runbook from a remote URL without downloading its files first.
 
 ```bash
 runbooks open https://github.com/org/repo/tree/main/runbooks/launch-rds

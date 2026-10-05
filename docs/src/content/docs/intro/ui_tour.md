@@ -1,47 +1,43 @@
 ---
-title: UI Tour
+title: UI tour
 sidebar:
    order: 2
 ---
 
-On this page, we'll walk through the **Runbooks consumer** experience when a user opens the [lambda feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/lambda). Our user's goal is to launch an AWS Lambda function on AWS in a way that matches their organization's standards.
+This page follows a runbook consumer who opens the [lambda sample runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/sample-runbooks/lambda). Their goal is to launch an AWS Lambda function in a way that matches their organization's standards.
 
-You can see either a [written walkthrough](#written-walkthrough) or [video walkthrough](#video-walkthrough).
+There is a [written walkthrough](#written-walkthrough) and a [video walkthrough](#video-walkthrough).
 
 ## Written walkthrough
 
-First, the user installs Runbooks and downloads the `lambda` feature demo to their local file system.
-
-Now, they open the runbook.
+The user installs Runbooks, downloads the `lambda` sample runbook, and opens it:
 
 ```bash
 runbooks open /path/to/lambda
 ```
 
-Runbooks launches a web browser to access `localhost` on the default port (7825) and renders the runbook.
+The Runbooks window opens and renders the runbook.
 
 ![Runbooks Example Screenshot 1](../../../assets/screenshots/intro/runbooks-example-1.webp)
 
-It looks like this runbook will help us launch an AWS Lambda function.
-
-So far, the runbook is just rendering markdown text. Useful, but not very interesting. Let's see what else this runbook contains.
+So far the runbook is rendering markdown text.
 
 :::tip[Find in page]
-Runbooks can get long. Press **Cmd+F** (**Ctrl+F** on Windows and Linux; on macOS you can also choose **Edit > Find…**) to search the runbook and any logs or outputs you have expanded. Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the find bar. Collapsed sections, such as logs you haven't opened, aren't searched, and neither is the text in form fields.
+Runbooks can get long. Press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux, to search the runbook and any logs or outputs you have expanded. Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the find bar. Collapsed sections, such as logs you haven't opened, aren't searched, and neither is the text in form fields.
 :::
 
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
 
-Here, the user is given some "pre-flight checks" to make sure their local system has the right tools installed (in this case `mise`, a package manager). The user can click "Check" and Runbooks will run the given command (in this case `mise --version && mise self-update --yes`) directly on their local machine.
+Next come pre-flight checks that confirm the user's machine has the right tools installed, in this case the `mise` tool version manager. When the user clicks "Check", Runbooks runs the command `mise --version && mise self-update --yes` on their machine.
 
 ![Runbooks Example Screenshot 3](../../../assets/screenshots/intro/runbooks-example-3.webp)
 
-The Runbooks consumer can just use the web UI without knowing anything about how the Runbook is written. For the Runbook author, that first gray box is is a [Check block](/authoring/blocks/check/) and is defined like this:
+The consumer uses the UI without knowing how the runbook is written. To the author, that first gray box is a [Check block](/authoring/blocks/check/), defined like this:
 
 ```mdx
 <Check
   id="check-mise"
-  command="mise --version && mise self-update --yes"
+  command="mise --version && mise self-update --yes;"
   title="Check mise Installation"
   description="We recommend `mise` as a tool version manager that can install and manage Terragrunt, OpenTofu, and other tools. This checks that mise is installed and up to date."
   successMessage="mise is installed and up to date!"
@@ -49,13 +45,13 @@ The Runbooks consumer can just use the web UI without knowing anything about how
 />
 ```
 
-The key point here is that authors declare what they want to happen, and Runbooks dynamically renders it as an interactive web UI.
+Authors declare what they want to happen, and Runbooks renders it as an interactive UI.
 
-Let's scroll a little further down so we can actually generate some of the code we need to launch our Lambda function.
+Further down, the runbook generates the code needed to launch the Lambda function.
 
 ![Runbooks Example Screenshot 4](../../../assets/screenshots/intro/runbooks-example-4.webp)
 
-Here the Runbook is dynamically rendering a web form to capture user values by using a [Template block](/authoring/blocks/template/). To collect these specific values from the user, the Runbooks author declared a set of variables in their runbook like this:
+This form comes from a [Template block](/authoring/blocks/template/). To collect these values from the user, the author declared a set of variables like this:
 
 ```yaml
 variables: 
@@ -100,30 +96,26 @@ variables:
   ...
 ```
 
-Back to the user, they click a "Generate" button at the bottom of the form (not shown), and Runbooks will generate a set of files based on a code template defined by the Runbook author, all parameterized by the values entered by the user.
+The user clicks the "Generate" button at the bottom of the form, which the screenshot does not show. Runbooks generates a set of files from the author's code template, using the values the user entered.
 
 ![Runbooks Example Screenshot 5](../../../assets/screenshots/intro/runbooks-example-5.webp)
 
-As the user changes values in the form, the rendered files will update in real time. This lets the user see exactly how their form values impact the code that's generated.
+As the user changes values in the form, the rendered files update, so the user sees how each value changes the generated code.
 
-The generated files are written directly to the user's local computer. That means we can easily create a GitHub Pull Request (or similar) with these files. In this case, the Runbook author included a script to do that just that.
+Runbooks writes the generated files to the user's machine, so a script can open a GitHub pull request with them. This runbook's author included one.
 
 ![Runbooks Example Screenshot 6](../../../assets/screenshots/intro/runbooks-example-6.webp)
 
-Here, the Runbook author is using a [Command block](/authoring/blocks/command/) to create the Pull Request, and notice how the author configured the Command block to ask for additional values (GitHub org name, GitHub repo name). Those values will be used to customize the script that runs.
+The author used a [Command block](/authoring/blocks/command/) to create the pull request, and configured it to ask for a GitHub org name and repo name. The script that runs uses those values.
 
-Finally, the user gets a Check block to validate that the Lambda function deployed successfully.
+The last block is a Check that validates the Lambda function deployed.
 
-![Runbooks Example Screenshot 7](../../../assets/screenshots/intro/runbooks-example-7.webp).
-
-And now you've seen the Runbook experience! 
+![Runbooks Example Screenshot 7](../../../assets/screenshots/intro/runbooks-example-7.webp)
 
 ## Video walkthrough
-
-You can also view the above as a full video walkthrough.
 
 <div style="position: relative; padding-bottom: 56.25%; height: 0;"><iframe src="https://www.loom.com/embed/0848381b1e174670895e3228a69b865a" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></iframe></div>
 
 ## Next
 
-Now that you understand how Runbooks work, it's time to install the CLI tool on your local machine!
+Next, [install Runbooks](/intro/installation/).

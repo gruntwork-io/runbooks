@@ -1,18 +1,16 @@
 ---
-title: Use Cases
+title: Use cases
 sidebar:
   order: 6
 ---
 
-import { Aside } from '@astrojs/starlight/components';
-
-Runbooks enables infrastructure experts to scale their expertise. Here are the most common practical scenarios where infrastructure expertise winds up being a painful bottleneck:
+These are the situations where teams most often wait on an infrastructure expert.
 
 ## Developer self-service
 
-It can be painful for app developers to look up how to use an infrastructure pattern, learn enough of the technology to write the code, debug it, and deploy it. Sometimes the pain is too much, so app developers lean on infrastructure experts, which shifts the pain from "learning more than I have capacity for right now" to "waiting for the expert to get back to me."
+To use an infrastructure pattern, an app developer has to look it up, learn enough of the technology to write the code, debug it, and deploy it. Many ask an infrastructure expert for help and then wait for an answer.
 
-Runbooks capture a subject matter expert's knowledge and experience in a runbook and enable app developers to easily launch new infrastructure that follows your organization's best practices. For example:
+A runbook written by that expert lets app developers launch new infrastructure that follows your organization's practices. For example:
 
 - Create a new K8s Service
 - Scaffold a new app repo
@@ -20,39 +18,37 @@ Runbooks capture a subject matter expert's knowledge and experience in a runbook
 - Launch a new static website
 
 :::tip
-In the [UI tour](../ui_tour), we walk through how an app developer might deploy a Lambda function.
+The [UI tour](/intro/ui_tour/) walks through how an app developer might deploy a Lambda function.
 :::
 
 ## Landing zones
 
-At some point, most engineering organizations need a way to systematically create new AWS accounts, GCP projects, or Azure subscription, organize them correctly, and install the proper baseline of resources for security and governance. This problem statement is broadly referred to as setting up a "Landing zone."
+Most engineering organizations eventually need a repeatable way to create new AWS accounts, GCP projects, or Azure subscriptions, organize them, and install a baseline of resources for security and governance. This is called setting up a landing zone.
 
-For a problem statement that can be summarized in one sentence, the solutions available for Landing Zones are surprisingly complex and often treat infrastructure-as-code as a second-class citizen.
+Setting up a landing zone means solving three problems:
 
-One way to think about setting up a landing zone is to solve the following problems:
+1. Define your baseline, for example as OpenTofu modules.
+2. Define a way to create a new AWS account, GCP project, or Azure subscription, for example through the cloud API or an OpenTofu module.
+3. Present a UI where users configure the account, project, or subscription they want.
 
-1. Define your baseline (e.g. as OpenTofu modules)
-2. Define a way to create a new AWS account, GCP project, or Azure subscription (e.g. via the cloud API, or as an OpenTofu module)
-3. Present a UI that allows users to configure their desired account/project/subscription
+OpenTofu modules and cloud APIs already solve the first two. A runbook solves the third by combining them. It asks the user for values such as an email, name, and description, calls the API to provision the account, and generates the code that installs the baseline.
 
-There are well-established solutions for [1] (like defining an OpenTofu module), and [2] (like calling a cloud API). Runbooks can serve as an excellent way to combine [1] and [2] into [3], a configurable, powerful UI that asks users to configure their desired new account/project/subscription (e.g. with an email, name, description), calls the relevant API to provision the account/project/subscription, and then generates the necessary code to install the baseline.
+A value the runbook asks for, such as an AWS account ID, is available to the code it generates and the scripts it runs.
 
-Because Runbooks can ask for a user-entered value like an AWS account ID, you can plumb this value through your generated code and scripts to accomplish whatever you need.
+The same runbook can provision SSO access, explain how to use the new resources, point the user at policies to review, and link to their account, without a custom user interface.
 
-You could even have the runbook provision SSO access, teach the user how to use the newly provisioned resources, guide them to review policies, or give them customized links to access their account, all without coding any custom user interface.
+## Internal processes
 
-## Streamline internal processes
-
-Many internal processes are captured as static documentation. But with Runbooks, you can complete the actual process by the time you're doing reading the Runbook! For example:
+Many internal processes are captured as static documentation. A runbook carries out the process as you read it. For example:
 
 - Provision a new AWS Account, configure the account baseline and all networking configurations, and validate everything along the way.
 - Stand up a new customer with all the infrastructure and all the information they need to get started.
 
 ## Document IaC modules
 
-When you create a reusable infrastructure-as-code (IaC) module, the code itself is not enough to be useful. You also need to document how to use the module, show common usage examples, and validate that it works as expected.
+A reusable infrastructure-as-code (IaC) module needs more than its code. Users need to know how to use it, see common usage examples, and confirm that it works.
 
-Traditional documentation describes your module, but Runbooks can actually collect configuration from the user, generate the module code, and validate that the module was created correctly. For example:
+A runbook collects configuration from the user, generates the module code, and validates the result. For example:
 
 - Create an SNS topic that notifies a Slack channel
 - Create an SNS topic that notifies an email address
@@ -60,6 +56,6 @@ Traditional documentation describes your module, but Runbooks can actually colle
 
 You might define one Runbook for each of these, or a single Runbook that can create any of these configurations.
 
-# Next
+## Next
 
-You're almost done with the intro! As a last step, let's see how [Runbooks compares to alternatives](/intro/runbooks_vs_other/).
+Next, see how [Runbooks compares to other tools](/intro/runbooks_vs_other/).

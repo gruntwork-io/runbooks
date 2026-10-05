@@ -2,29 +2,25 @@
 title: Overview
 ---
 
-# Authoring Runbooks
-
-This section covers everything you need to know to write your own Runbooks.
-
-## What's in a Runbook?
-
-A Runbook combines **markdown documentation** with **interactive blocks** that can:
+A runbook combines markdown with interactive blocks that:
 
 - Validate the user's current state with automated checks
 - Execute shell commands and scripts
 - Collect user input through forms
 - Generate files from templates
 
-All of this runs locally on the user's machine through a web interface.
+All of this runs locally on the user's machine in the Runbooks desktop app.
 
 ## Quick start
 
-For an initial walkthrough, see [Write Your First Runbook](/intro/write_your_first_runbook/) for a complete tutorial.
+For a complete tutorial, see [Write your first runbook](/intro/write_your_first_runbook/).
 
-## Section Guide
+## Section guide
 
-- **[Runbook Structure.](/authoring/runbook-structure/)** Learn the file format and folder organization for Runbooks.
-- **[Markdown.](/authoring/markdown/)** Reference for supported markdown elements.
-- **[Inputs & Outputs.](/authoring/inputs-and-outputs/)** How data flows between blocks — collecting user input, wiring it with `inputsId`, and passing runtime outputs downstream.
-- **[Boilerplate Templates.](/authoring/boilerplate/)** Guide to template syntax and `boilerplate.yml` files.
-- **[Blocks.](/authoring/blocks/)** Reference for all interactive block components:
+- [Runbook structure](/authoring/runbook-structure/) covers the file format and folder layout.
+- [Markdown](/authoring/markdown/) is the reference for supported markdown elements.
+- [Inputs and outputs](/authoring/inputs-and-outputs/) explains how data flows between blocks: collecting user input, wiring it with `inputsId`, and passing runtime outputs to later blocks.
+- [Boilerplate templates](/authoring/boilerplate/) covers template syntax and `boilerplate.yml` files.
+- [Blocks](/authoring/blocks/) is the reference for every interactive block.
+- [Opening runbooks](/authoring/opening-runbooks/) covers the ways to open a runbook, locally or from a remote URL.
+- [Testing](/authoring/testing/) covers `runbook_test.yml` and the test CLI.

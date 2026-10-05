@@ -5,13 +5,11 @@ description: How to write and run automated tests for your runbooks.
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Runbooks includes a built-in testing framework that lets you validate that your runbooks work correctly.
-
-To run a test, you define a YAML test configuration file alongside your runbook. Then call `runbooks-cli test /path/to/runbook` or `runbooks-cli test ./...` to run the tests. Tests are meant to run locally or in CI.
+A runbook test runs the runbook's blocks from the command line and checks their results. You describe the test cases in a `runbook_test.yml` file next to `runbook.mdx`, then run `runbooks-cli test /path/to/runbook`, or `runbooks-cli test ./...` for every runbook under the current directory. Tests run locally or in CI.
 
 The test runner is a standalone CLI in the [Runbooks repository](https://github.com/gruntwork-io/runbooks). From a checkout, `just compile-test-cli` builds it into a single binary at `resources/bin/runbooks-test`, which runs without Node.js or Bun. You can also run it from source with `bun cli/index.ts test`. The examples below use `runbooks-cli` as shorthand for either invocation.
 
-## Quick Start
+## Quick start
 
 1. Create a `runbook_test.yml` file next to your `runbook.mdx`. This minimal configuration runs every block in document order and expects each one to succeed:
 
@@ -30,9 +28,9 @@ Add inputs, steps, and assertions as you need them. For a fuller example to star
 runbooks-cli test ./my-runbook
 ```
 
-## Test Configuration
+## Test configuration
 
-Tests are defined in a `runbook_test.yml` file located in the same directory as your `runbook.mdx` file. Here's an example of a test configuration file:
+A fuller `runbook_test.yml`:
 
 ```yaml
 version: 1
@@ -41,7 +39,7 @@ settings:
   # use_temp_working_dir: true  # Default: use isolated temp directory
   # working_dir: .              # Alternative: use runbook's directory
   # output_path: generated      # Where to write generated files (relative to working_dir)
-  timeout: 5m            # Test timeout
+  timeout: 5m            # Limit for each script and git command
   parallelizable: true   # Can run in parallel with other runbooks
 
 tests:
@@ -58,7 +56,6 @@ tests:
       
       - block: create-project
         expect: success
-        outputs: [project_id]
     
     assertions:
       - type: file_exists
@@ -72,7 +69,7 @@ tests:
       - command: rm -rf /tmp/test-resources
 ```
 
-### Top-Level Structure
+### Top-level structure
 
 ```yaml
 version: 1              # Required. Must be 1.
@@ -86,7 +83,7 @@ tests: [ ... ]          # Required. Array of test cases (minimum 1).
 | `settings` | object | No | Global settings that apply to all tests. |
 | `tests` | array | Yes | Array of runbook tests to run. At least one test case is required. |
 
-### Settings Object
+### Settings object
 
 ```yaml
 settings:
@@ -100,12 +97,12 @@ settings:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `use_temp_working_dir` | boolean | `true` | Run each test case in its own fresh temporary directory, which is removed when that test case ends. Overrides `working_dir` when `true`. |
-| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Ignored when `use_temp_working_dir` is `true`. All test cases share this directory, so files one test case generates or clones are still there for the next. |
+| `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Any other relative path resolves against the runbook's directory. Ignored when `use_temp_working_dir` is `true`. All test cases share this directory, so files one test case generates or clones are still there for the next. |
 | `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
-| `timeout` | string | `"5m"` | Maximum time for each test case. Uses duration format (e.g., `30s`, `5m`, `1h`). |
-| `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. |
+| `timeout` | string | `"5m"` | Time limit for each script a block runs and each git command a `<GitClone>` runs, as a duration such as `500ms`, `30s`, `5m`, or `1h`. There is no limit on the test case as a whole. A `script` assertion is limited to this value or 30 seconds, whichever is lower, and each cleanup action to 30 seconds. |
+| `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. Runbooks are currently tested one at a time, so this only affects order: parallelizable runbooks run first. |
 
-### Test Case Object
+### Test case object
 
 ```yaml
 tests:
@@ -128,15 +125,19 @@ tests:
 | `assertions` | array | No | Validations to run after all steps complete. |
 | `cleanup` | array | No | Actions to run after the test's blocks and assertions, even if one of them fails. |
 
-Each test case starts clean, from the environment the `test` command was started with plus the test case's `env`. With `use_temp_working_dir`, it also gets its own empty working directory. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app. None of that carries over into the next test case, and neither do auth block credentials.
+#### Test case environment
 
-### Step Object
+Each test case starts from the environment the `test` command was started with. Within a test case, a bash block that succeeds or warns passes the variables it exports and the directory it `cd`s into on to the blocks after it, as in the app, and an auth block adds its credentials. The test case's `env` is applied on top of all of that. Blocks, `script` assertions, and cleanup actions all see this environment.
+
+None of it carries over into the next test case. With `use_temp_working_dir`, each test case also gets its own empty working directory.
+
+### Step object
 
 ```yaml
 steps:
   - block: "block-id"           # string, required
     expect: success             # ExpectedStatus, default: "success"
-    outputs: ["output1"]        # array of strings, optional
+    env_prefix: "PREFIX_"       # string, optional
     missing_outputs: ["..."]    # array of strings, optional
     error_contains: "..."       # string, optional
     assertions: [ ... ]         # array of Assertion objects, optional
@@ -146,45 +147,31 @@ steps:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `block` | string | Yes | ID of the block to execute. |
-| `expect` | string | No | Expected execution status. Default: `success`. See Expected Status values below. |
-| `outputs` | array | No | Output names to capture from the block. |
+| `expect` | string | No | Expected execution status. Default: `success`. See [Expected status values](#expected-status-values). |
+| `env_prefix` | string | No | Prefix for the environment variables an auth block reads its credentials from. See [Testing AwsAuth blocks](#testing-awsauth-blocks). |
 | `missing_outputs` | array | No | Expected missing outputs (used with `blocked` status to verify why a block is blocked). Write each one as templates reference it, with hyphens in the block ID turned into underscores: `outputs.create_account.account_id` for block `create-account`. Don't list an output the block reads only behind a [`hasKey` guard](/authoring/inputs-and-outputs/#outputs-a-block-emits-only-sometimes): once its block has run, the app doesn't wait for it, but the test would still report the block as blocked. |
 | `error_contains` | string | No | Expected error message substring (used with `config_error` status). |
 | `assertions` | array | No | Assertions to run immediately after this step completes. |
-| `set_outputs` | map | No | For an `<Iframe>` block, the outputs its page would set. Each name must be in the block's `outputs` prop, and each value must be a string. See [Testing Iframe Blocks](#testing-iframe-blocks). |
+| `set_outputs` | map | No | For an `<Iframe>` block, the outputs its page would set. Each name must be in the block's `outputs` prop, and each value must be a string. See [Testing Iframe blocks](#testing-iframe-blocks). |
 
-#### Expected Status Values
+#### Expected status values
 
 | Status | Description |
 |--------|-------------|
 | `success` | Block completed successfully (exit code 0). |
-| `fail` | Block failed (exit code 1+). |
+| `fail` | Block failed (any exit code other than 0 or 2). |
 | `warn` | Block completed with warning (exit code 2). |
-| `blocked` | Block should be blocked: an auth block it depends on hasn't run or was skipped, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
-| `skip` | Skip this block entirely (useful for AwsAuth in non-AWS tests). [Pull request blocks](#testing-pull-request-blocks) can only be tested with `skip` or `blocked`. |
-| `config_error` | Block has a configuration error (missing props, invalid config, etc.). |
+| `blocked` | Block is blocked: an auth block it depends on hasn't run or was skipped, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
+| `skip` | Don't run this block, for example an `<AwsAuth>` in a test that has no AWS credentials. [Pull request blocks](#testing-pull-request-blocks) can only be tested with `skip` or `blocked`. |
+| `config_error` | Block has a configuration error, such as a missing prop. |
+
+A script that runs past the `timeout` setting gets the status `timeout`. No `expect` value matches it, so the step fails.
 
 #### Block IDs
 
-Each step references a block by its ID. How a block gets its ID depends on the block type:
+Each step references a block by the value of its `id` prop. For example, `<Check id="verify-install" ... />` is `block: verify-install`.
 
-| Block Type | ID Source | Example |
-|------------|-----------|---------|
-| `<Check>` | Explicit `id` prop | `<Check id="verify-install" ...>` → `verify-install` |
-| `<Command>` | Explicit `id` prop | `<Command id="create-account" ...>` → `create-account` |
-| `<Template>` | Explicit `id` prop | `<Template id="generate-config" ...>` → `generate-config` |
-| `<TemplateInline>` | Explicit `id` prop | `<TemplateInline id="settings-preview" ...>` → `settings-preview` |
-| `<AwsAuth>` | Explicit `id` prop | `<AwsAuth id="aws-auth" ...>` → `aws-auth` |
-| `<GoogleAuth>` | Explicit `id` prop | `<GoogleAuth id="google-auth" ...>` → `google-auth` |
-| `<GitAuth>` | Explicit `id` prop | `<GitAuth id="git-auth" ...>` → `git-auth` |
-| `<GitHubAuth>` | Explicit `id` prop | `<GitHubAuth id="github-auth" ...>` → `github-auth` |
-| `<GitLabAuth>` | Explicit `id` prop | `<GitLabAuth id="gitlab-auth" ...>` → `gitlab-auth` |
-| `<GitClone>` | Explicit `id` prop | `<GitClone id="clone-repo" ...>` → `clone-repo` |
-| `<GitPullRequest>`, `<GitHubPullRequest>`, `<GitLabMergeRequest>` | Explicit `id` prop | `<GitPullRequest id="create-pr" ...>` → `create-pr` |
-
-All block types use the explicit `id` prop for identification in test steps.
-
-### Assertion Object
+### Assertion object
 
 All assertions have a `type` field that determines which other fields are required.
 
@@ -194,25 +181,25 @@ assertions:
     # Additional fields depend on the assertion type
 ```
 
-| Assertion Type | Required Fields | Optional Fields | Description |
+| Assertion type | Required fields | Optional fields | Description |
 |----------------|-----------------|-----------------|-------------|
-| `file_exists` | `path` | — | Check that a file exists at the given path. |
-| `file_not_exists` | `path` | — | Check that a file does not exist. |
-| `file_contains` | `path`, `contains` | — | Check that a file contains a substring. |
-| `file_not_contains` | `path`, `contains` | — | Check that a file does not contain a substring. |
-| `file_matches` | `path`, `pattern` | — | Check that file content matches a regex pattern. |
-| `file_equals` | `path`, `value` | — | Check that file content exactly equals a value. |
-| `dir_exists` | `path` | — | Check that a directory exists. |
-| `dir_not_exists` | `path` | — | Check that a directory does not exist. |
-| `output_equals` | `block`, `output`, `value` | — | Check that a block output equals a value. |
-| `output_matches` | `block`, `output`, `pattern` | — | Check that a block output matches a regex pattern. |
-| `output_exists` | `block`, `output` | — | Check that a block output exists (is not empty). |
+| `file_exists` | `path` | none | Check that a file exists at the given path. |
+| `file_not_exists` | `path` | none | Check that a file does not exist. |
+| `file_contains` | `path`, `contains` | none | Check that a file contains a substring. |
+| `file_not_contains` | `path`, `contains` | none | Check that a file does not contain a substring. |
+| `file_matches` | `path`, `pattern` | none | Check that file content matches a regex pattern. |
+| `file_equals` | `path`, `value` | none | Check that file content exactly equals a value. |
+| `dir_exists` | `path` | none | Check that a directory exists. |
+| `dir_not_exists` | `path` | none | Check that a directory does not exist. |
+| `output_equals` | `block`, `output`, `value` | none | Check that a block output equals a value. |
+| `output_matches` | `block`, `output`, `pattern` | none | Check that a block output matches a regex pattern. |
+| `output_exists` | `block`, `output` | none | Check that a block output exists (is not empty). |
 | `files_generated` | `block` | `min_count` | Check that a block generated files. |
-| `script` | `command` | — | Run a custom script (exit 0 = pass). |
+| `script` | `command` | none | Run a shell command. Exit code 0 passes. |
 
-`files_generated` counts only the files the named block wrote during the test case: the files a `<Template>` rendered, the file a `<TemplateInline>` with `generateFile` wrote, or the files a `<Command>` or `<Check>` wrote to `$GENERATED_FILES`. Templates with `target="worktree"` count too, even though they write into the cloned repository rather than the output directory. Files that other blocks or earlier test cases left in the output directory don't count.
+`files_generated` counts only the files the named block wrote during the test case: the files a `<Template>` rendered, the file a `<TemplateInline>` with `generateFile` wrote, or the files a `<Command>` or `<Check>` wrote to `$GENERATED_FILES`. Templates with `target="worktree"` count too, though they write into the cloned repository. Files that other blocks or earlier test cases left in the output directory don't count.
 
-#### Assertion Field Reference
+#### Assertion fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -224,9 +211,9 @@ assertions:
 | `block` | string | Block ID for output assertions or `files_generated`. |
 | `output` | string | Output name to check. |
 | `min_count` | integer | Minimum number of files generated (for `files_generated`). Default: 1. |
-| `command` | string | Shell command to execute (for `script` assertions). |
+| `command` | string | Shell command for a `script` assertion. It runs in bash from the output directory. |
 
-### Cleanup Action Object
+### Cleanup action object
 
 ```yaml
 cleanup:
@@ -239,13 +226,13 @@ cleanup:
 | `command` | string | Inline shell command to execute. |
 | `path` | string | Path to a script file to execute, relative to the runbook's directory. |
 
-Provide either `command` or `path`, not both.
+When both are set, `command` runs and `path` is ignored.
 
-### Input Value
+### Input values
 
-Input values can be specified as either literal values or fuzz configurations.
+An input value is a literal or a fuzz configuration.
 
-#### Literal Values
+#### Literal values
 
 ```yaml
 inputs:
@@ -254,9 +241,9 @@ inputs:
   config.Enabled: true          # boolean literal
 ```
 
-#### Fuzz Values
+#### Fuzz values
 
-Fuzz values are used to generate random values for testing. The test framework will generate a new random value that meets the given constraints for each test run.
+A fuzz value is generated at random within the given constraints, anew on each test run.
 
 ```yaml
 inputs:
@@ -266,7 +253,7 @@ inputs:
       # Additional fields depend on the fuzz type
 ```
 
-#### Variables a Test Doesn't Set
+#### Variables a test doesn't set
 
 A test only needs to set the variables it cares about. Every other variable of an `<Inputs>` or `<Template>` block gets the value the app's form starts it with, so a field a user can leave untouched in the app can be left out of the test too:
 
@@ -278,13 +265,13 @@ When a `<Template>` imports a block with `inputsId` and both define a variable, 
 
 A value the test sets always wins over one filled in this way.
 
-### Fuzz Configuration
+### Fuzz configuration
 
 The `fuzz` object specifies how to generate random values.
 
-| Field | Type | Applies To | Description |
+| Field | Type | Applies to | Description |
 |-------|------|------------|-------------|
-| `type` | string | All | Required. The fuzz type (see Fuzz Types below). |
+| `type` | string | All | Required. One of the [fuzz types](#fuzz-types). |
 | `length` | integer | `string` | Exact length of the generated string, not counting `prefix` and `suffix`. Overrides `minLength`/`maxLength`. `0` gives an empty string. |
 | `minLength` | integer | `string`, `list`, `map` | Minimum length of the string, of each `list` item, or of each `map` value (without `schema`). Default: 8 for strings, 5 for list items and map values, or `maxLength` when only a smaller `maxLength` is set. |
 | `maxLength` | integer | `string`, `list`, `map` | Maximum length. Must be at least `minLength`. Default: `minLength + 10` for strings, `minLength + 7` for list items and map values. |
@@ -309,7 +296,7 @@ The `fuzz` object specifies how to generate random values.
 
 A maximum below its minimum fails the test case with an error such as `fuzz string: maxLength (3) is less than minLength (5)`. Setting a minimum and maximum to the same value gives exactly that value. A field left empty (`max:` or `max: ~`) counts as unset.
 
-### Fuzz Types
+### Fuzz types
 
 | Type | Output | Description |
 |------|--------|-------------|
@@ -327,7 +314,7 @@ A maximum below its minimum fails the test case with an error such as `fuzz stri
 | `list` | `string` | JSON array of strings (e.g., `["abc", "def"]`). |
 | `map` | `string` or `map` | JSON object or nested map depending on `schema`. |
 
-### Complete Example
+### Complete example
 
 ```yaml
 version: 1
@@ -367,7 +354,6 @@ tests:
       
       - block: create-resources
         expect: success
-        outputs: [resource_id, resource_arn]
         assertions:
           - type: output_exists
             block: create-resources
@@ -425,26 +411,23 @@ cleanup:
   - path: cleanup/teardown.sh
 ```
 
-Both kinds of action run in bash from the output directory (`<working_dir>/<output_path>`), which is created first if no block has generated files yet. A `path` script is read relative to the runbook's directory. They see the same environment as the test's blocks: the environment the `test` command was started with, plus anything earlier blocks exported or authenticated, with the test case's `env` on top. A failing cleanup action doesn't fail the test and doesn't stop the remaining actions, but it is printed as a warning.
+Both kinds of action run in bash from the output directory (`<working_dir>/<output_path>`), which is created first if no block has generated files yet. A `path` script is read relative to the runbook's directory. They see the [test case environment](#test-case-environment), and each is limited to 30 seconds. A failing cleanup action doesn't fail the test and doesn't stop the remaining actions, but it is printed as a warning.
 
 A test that fails before any block runs skips cleanup, since nothing has run yet. That happens when the runbook has a block type the runner doesn't know, when the test's inputs don't validate, and when a step names a block the runbook doesn't have.
 
-## Testing AwsAuth Blocks
+## Testing AwsAuth blocks
 
-For runbooks with `<AwsAuth>` blocks, the test framework checks for AWS credentials in environment variables and injects them into the session for dependent blocks to use.
+For an `<AwsAuth>` block, the test runner looks for AWS credentials in environment variables. It never contacts AWS. It checks these sources in order:
 
-By default, the test framework checks for standard AWS environment variables:
+1. `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, with `AWS_SESSION_TOKEN` and `AWS_REGION` if they are set
+2. `AWS_PROFILE`
+3. `AWS_ROLE_ARN` together with `AWS_WEB_IDENTITY_TOKEN_FILE`
 
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_SESSION_TOKEN` (optional)
-- `AWS_REGION` (optional)
+Static keys go into the test case environment, so every later block sees them. A profile, or a role and token file, is passed only to blocks that reference the auth block with `awsAuthId`. If none of the three is set, the step is skipped and blocks that reference the auth block are blocked.
 
-It also checks for `AWS_PROFILE` and `AWS_ROLE_ARN` as alternative authentication methods.
+### Using a test prefix
 
-### Using a Test Prefix
-
-To avoid conflicts with your local AWS credentials, use the `env_prefix` option on the test step to specify a prefix for test-only environment variables:
+To keep test credentials apart from your local AWS credentials, set `env_prefix` on the test step:
 
 ```yaml
 # runbook_test.yml
@@ -456,20 +439,18 @@ tests:
         expect: success
 ```
 
-This tells the test executor to check for the following environment variables:
+The runner then reads:
 
 - `RUNBOOKS_TEST_AWS_ACCESS_KEY_ID`
 - `RUNBOOKS_TEST_AWS_SECRET_ACCESS_KEY`
 - `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
 - `RUNBOOKS_TEST_AWS_REGION`
 
-If no prefixed credentials are found, the executor falls back to standard env vars (`AWS_ACCESS_KEY_ID`, etc.).
+If the prefixed key pair isn't set, it falls back to the unprefixed variables. The prefix applies only to these four. `AWS_PROFILE`, `AWS_ROLE_ARN`, and `AWS_WEB_IDENTITY_TOKEN_FILE` are read without it.
 
-The `env_prefix` is configured in the test config file, not in the runbook MDX. This keeps test infrastructure concerns separate from the runtime `detectCredentials` behavior that end users experience.
+### CI example
 
-### CI Example
-
-In CI, set the environment variables before running tests. Example for GitHub Actions:
+In GitHub Actions:
 
 ```yaml
 # .github/workflows/test.yml
@@ -488,20 +469,20 @@ In CI, set the environment variables before running tests. Example for GitHub Ac
     RUNBOOKS_TEST_AWS_REGION: ${{ env.AWS_REGION }}
 ```
 
-## Testing GoogleAuth Blocks
+## Testing GoogleAuth blocks
 
-For runbooks with `<GoogleAuth>` blocks, the test framework checks for Google Cloud credentials in environment variables and injects them into the session for dependent blocks to use. Like AwsAuth, this never reaches the network — the credential is taken at face value, so the test asserts wiring rather than validity.
+For a `<GoogleAuth>` block, the test runner looks for Google Cloud credentials in environment variables and adds them to the test case environment. As with AwsAuth, it never contacts Google, so a test shows that the block is wired up and says nothing about whether the credential is valid.
 
-By default, the test framework checks these credential variables, in this order:
+It checks these credential variables in order:
 
-- `GOOGLE_APPLICATION_CREDENTIALS` (path to a credentials JSON — a service account key *or* an `authorized_user` document)
+- `GOOGLE_APPLICATION_CREDENTIALS` (path to a credentials JSON file, either a service account key or an `authorized_user` document)
 - `GOOGLE_CREDENTIALS` (inline credentials JSON)
 - `GOOGLE_OAUTH_ACCESS_TOKEN`
 - `CLOUDSDK_AUTH_ACCESS_TOKEN`
 
-If none is set, it falls back to gcloud's well-known `application_default_credentials.json` — the block's `'adc'` detection source. If that is missing too, the step is **skipped** and every step that references the block with `googleAuthId` skips with it.
+If none is set, it falls back to gcloud's `application_default_credentials.json`, the block's `'adc'` detection source. If that is missing too, the step is skipped and every block that references it with `googleAuthId` is blocked.
 
-It also reads (but never treats as a credential — a bare project authenticates nothing):
+It also reads these variables, none of which counts as a credential:
 
 - Project: `CLOUDSDK_CORE_PROJECT`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_PROJECT`, `GCLOUD_PROJECT`
 - Region: `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_CLOUD_REGION`
@@ -509,11 +490,11 @@ It also reads (but never treats as a credential — a bare project authenticates
 
 When none of those is set, the block's own `project`, `defaultRegion`, and `defaultZone` props are used.
 
-On success the executor writes the same variables the app's session environment writes, so scripts see every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`. A credentials file also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, so `gcloud` uses that file rather than an account from `gcloud auth login`; an access token clears it.
+On success the runner writes the same variables the app's session environment writes, so scripts see every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`. A credentials file also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, so `gcloud` uses that file and ignores any account from `gcloud auth login`. An access token clears it.
 
-### Using a Test Prefix
+### Using a test prefix
 
-As with AwsAuth, use `env_prefix` on the test step to keep test credentials away from your local ones:
+As with AwsAuth, set `env_prefix` on the test step to keep test credentials apart from your local ones:
 
 ```yaml
 # runbook_test.yml
@@ -525,7 +506,7 @@ tests:
         expect: success
 ```
 
-This tells the test executor to check for:
+The runner then checks:
 
 - `RUNBOOKS_TEST_GOOGLE_APPLICATION_CREDENTIALS`
 - `RUNBOOKS_TEST_GOOGLE_CREDENTIALS`
@@ -533,9 +514,9 @@ This tells the test executor to check for:
 - `RUNBOOKS_TEST_CLOUDSDK_AUTH_ACCESS_TOKEN`
 - `RUNBOOKS_TEST_CLOUDSDK_CORE_PROJECT` (and the other project/region/zone names above, prefixed)
 
-If no prefixed credential is found, the executor falls back to the unprefixed variables.
+If no prefixed credential is found, it falls back to the unprefixed variables.
 
-### CI Example
+### CI example
 
 ```yaml
 # .github/workflows/test.yml
@@ -553,19 +534,17 @@ If no prefixed credential is found, the executor falls back to the unprefixed va
     RUNBOOKS_TEST_CLOUDSDK_COMPUTE_REGION: us-central1
 ```
 
-## Testing GitHubAuth Blocks
+## Testing GitHubAuth blocks
 
-For runbooks with `<GitHubAuth>` blocks, the test framework checks for GitHub tokens in environment variables.
-
-By default, the test framework checks in this order:
+For a `<GitHubAuth>` block, the test runner looks for a GitHub token in these environment variables, in order:
 
 1. `RUNBOOKS_GITHUB_TOKEN` (recommended for tests)
 2. `GITHUB_TOKEN`
 3. `GH_TOKEN`
 
-### Using a Test Prefix
+### Using a test prefix
 
-Similar to AwsAuth, you can use `env_prefix` on the test step to check for custom environment variables:
+With `env_prefix` on the step, the runner reads the prefixed names:
 
 ```yaml
 # runbook_test.yml
@@ -577,9 +556,9 @@ tests:
         expect: success
 ```
 
-This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
+This step reads `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
 
-### CI Example
+### CI example
 
 ```yaml
 # .github/workflows/test.yml
@@ -589,9 +568,9 @@ This tells the test executor to check for `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
     RUNBOOKS_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-## Testing GitLabAuth and GitAuth Blocks
+## Testing GitLabAuth and GitAuth blocks
 
-For runbooks with `<GitLabAuth>` blocks, the test framework checks for a GitLab token in these environment variables, in this order:
+For a `<GitLabAuth>` block, the test runner looks for a GitLab token in these environment variables, in order:
 
 1. `GITLAB_TOKEN`
 2. `GITLAB_ACCESS_TOKEN`
@@ -601,7 +580,7 @@ With `env_prefix` on the step, it checks the prefixed names instead (`CI_GITLAB_
 
 On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too, and a block whose pinned value isn't a valid URL or host always skips.
 
-The test framework never sends the token anywhere, so a fake one is enough to test that the block authenticates:
+The test runner never sends the token anywhere, so a fake one is enough to test that the block authenticates:
 
 ```yaml
 # runbook_test.yml
@@ -616,9 +595,11 @@ tests:
 
 A `<GitAuth>` block is tested like `<GitHubAuth>` or `<GitLabAuth>`, depending on its `provider` prop (`github` by default).
 
-### Cloning with a Token
+### Cloning with a token
 
-A `<GitClone>` that references an auth block with `gitAuthId` or `githubAuthId` clones an `https` URL with that block's token, whatever the host: as user `oauth2` for GitLab, and `x-access-token` for GitHub. Without a reference, a `github.com` or `gitlab.com` URL uses that provider's token (`GITHUB_TOKEN` or `GH_TOKEN` for GitHub, `GITLAB_TOKEN` for GitLab) from the session environment: the environment the `test` command was started with, plus anything earlier blocks exported or authenticated, with the test case's `env` on top. A token already set where the tests run counts too, so to clone without one, blank it in the test case's `env`:
+A `<GitClone>` that references an auth block with `gitAuthId` or `githubAuthId` clones an `https` URL with that block's token when the URL is on the host the block authenticated to. That includes GitHub Enterprise Server and self-managed GitLab hosts. The username is `oauth2` for GitLab and `x-access-token` for GitHub.
+
+Without a reference, the runner recognizes `github.com`, `*.ghe.com`, and `gitlab.com` URLs and uses that provider's token from the [test case environment](#test-case-environment): `GITHUB_TOKEN` or `GH_TOKEN` for GitHub, `GITLAB_TOKEN` for GitLab. A token already set where the tests run counts too, so to clone without one, blank it in the test case's `env`:
 
 ```yaml
 tests:
@@ -628,7 +609,7 @@ tests:
       GH_TOKEN: ""
 ```
 
-## Testing Pull Request Blocks
+## Testing pull request blocks
 
 `<GitPullRequest>`, `<GitHubPullRequest>`, and `<GitLabMergeRequest>` blocks never run in tests, since they would push a branch and open a real pull request. A step that names one must use `expect: skip`, or `expect: blocked` when the auth block it references hasn't run or was skipped. A test with no `steps` expects them to skip.
 
@@ -643,7 +624,7 @@ tests:
         expect: skip
 ```
 
-## Testing Iframe Blocks
+## Testing Iframe blocks
 
 Tests can't run the page an [`<Iframe>`](/authoring/blocks/iframe/) block shows, so a step for the block stands in for the page: its `set_outputs` become the block's outputs, as if the page had set them. Only an `<Iframe>` with an `id` can be a step.
 
@@ -661,23 +642,13 @@ tests:
 
 A step whose `set_outputs` names an output the block's `outputs` prop doesn't list fails, just as the app refuses that output from the page. Without `set_outputs`, the step succeeds and sets nothing, so blocks that read the block's outputs stay blocked. A test with no `steps` runs each `<Iframe>` with an `id` that way.
 
-## Running Tests
+## Running tests
 
-When you run a runbook test, the test framework will:
-- Run the runbook in a temporary directory
-- Capture the output of any scripts or generated files
-- Validate the output of the runbook against the assertions in your test configuration file, if any
-- Exit with status 0 if every test passed, or 1 if any test failed, a `runbook_test.yml` couldn't be loaded, or no runbook has the test case named with `--test`
+The runner executes each test case's blocks in a temporary directory by default, captures script output and generated files, and checks them against the test's assertions. For a failed test it prints which block failed and why.
 
-:::note[Script output differences]
-When scripts run in tests, they execute without a PTY (pseudo-terminal), so you may see less output than when running the runbook interactively. For example, `git clone` shows progress messages ("Receiving objects: 47%...") only when connected to a terminal. In runbook tests, you'll see just the essential output. If you do need verbose output for debugging, many commands have flags to force it (e.g., `git clone --progress`), or just open the runbook and manually run the script.
-:::
+It exits with status 0 if every test passed. It exits with 1 if any test failed, a `runbook_test.yml` couldn't be loaded, or no runbook has the test case named with `--test`.
 
-If a runbook test fails, you will see additional details about which block failed and why.
-
-### Single Runbook
-
-You can run a test on a single runbook.
+### Single runbook
 
 ```bash
 # Run all tests for a runbook
@@ -690,9 +661,9 @@ runbooks-cli test ./my-runbook --test happy-path
 runbooks-cli test ./my-runbook -v
 ```
 
-### Multiple Runbooks
+### Multiple runbooks
 
-Use the `...` glob pattern to discover and test all runbooks:
+End the path with `/...` to test every runbook under a directory:
 
 ```bash
 # Test all runbooks in a directory tree
@@ -701,9 +672,9 @@ runbooks-cli test ./runbooks/...
 
 Runbooks are tested one at a time. The `--max-parallel` flag is accepted but currently has no effect.
 
-### CI Output
+### CI output
 
-Generate JUnit XML for CI integration:
+To write a JUnit XML report:
 
 ```bash
 runbooks-cli test ./runbooks/... --output junit --output-file results.xml
@@ -711,13 +682,11 @@ runbooks-cli test ./runbooks/... --output junit --output-file results.xml
 
 The file is written before the command exits, including when tests fail. If it can't be written, the CLI prints the error and writes the report to stdout instead.
 
-## Out-of-Order Testing
+## Out-of-order testing
 
-In some cases, for testing purposes, you may wish to execute blocks in an order different than how they're defined in the runbook. You can do this by explicitly specifying the order of the blocks in the test configuration file. Steps run in the order listed, and a block listed more than once runs once per step, each time with that step's expectation.
+To run blocks in a different order than the runbook defines them, list them under `steps`. Steps run in the order listed, and a block listed more than once runs once per step, each time with that step's expectation.
 
-Keep in mind, though, that when new blocks are added to the runbook, they will not be included in the test unless you explicitly add them to the test configuration file.
-
-That's why we recommend leaving the `steps` section empty in your test configuration file if possible. This will ensure that all future blocks are included in the test.
+A block added to the runbook later is not tested until you add it to `steps`. Leave `steps` empty where you can, so new blocks are covered without a change to the test.
 
 ```yaml
 tests:
@@ -740,7 +709,7 @@ tests:
         expect: success
 ```
 
-## Example Workflow
+## Example workflow
 
 These jobs run in your own repository, which has no copy of the test runner. So each one checks out the Runbooks repository into `.runbooks`, builds the runner there, and then runs it against the runbooks in your repository's `runbooks` directory. Point the runner at that directory rather than `./...`, which would also find the test runbooks in `.runbooks`.
 
@@ -829,15 +798,13 @@ test-runbooks:
   </TabItem>
 </Tabs>
 
-## Testing with External Dependencies
+## Testing with external dependencies
 
-Runbooks that interact with external services (GitHub, AWS, Terraform, etc.) require special testing strategies. We recommend a tiered approach.
+For runbooks that call external services such as GitHub or AWS, test in tiers. Each tier covers more than the one before it and is slower and harder to set up, as in the [test pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
 
-As you ascend the tiers, you will gain more completeness at the expense of slower speed and more complexity. This builds on the concepts of the [traditional test pyramid](https://martinfowler.com/articles/practical-test-pyramid.html).
+### Tier 1: template validation
 
-### Tier 1: Template Validation
-
-Template validation tests that templates generate correct files without making any external calls.
+Tier 1 checks that templates generate files and makes no external calls.
 
 ```yaml
 tests:
@@ -860,13 +827,11 @@ tests:
         min_count: 1
 ```
 
-### Tier 2: Dry-Run Mode
+### Tier 2: dry-run mode
 
-Dry-run mode tests that script logic works correctly without making any external calls. They leverage the fact that the script was written to support a `RUNBOOK_DRY_RUN` environment variable.
+Tier 2 runs scripts with their external calls switched off. The script checks an environment variable, and the test sets it. `RUNBOOK_DRY_RUN` is a convention, and any variable name works.
 
-Use the `RUNBOOK_DRY_RUN` environment variable pattern to test script logic without side effects. Note that the `RUNBOOK_DRY_RUN` environment variable is not special in any way, it is just a convention. You can use any environment variable you want to trigger the dry-run mode.
-
-**In your Command or Check script:**
+In the Command or Check script:
 
 ```bash
 #!/bin/bash
@@ -885,7 +850,7 @@ fi
 gh pr create --title "$TITLE" --body "$BODY"
 ```
 
-**In your test configuration file:**
+In the test configuration:
 
 ```yaml
 tests:
@@ -902,9 +867,9 @@ tests:
         expect: success  # Succeeds in dry-run mode
 ```
 
-### Tier 3: Integration Tests
+### Tier 3: integration tests
 
-For full integration testing with real services, set environment variables for credentials in CI and run tests manually or on a schedule:
+Tier 3 runs against real services. Set credentials as environment variables in CI, and run these tests manually or on a schedule:
 
 ```yaml
 tests:
@@ -912,8 +877,8 @@ tests:
     description: Full integration (requires credentials)
     
     env:
-      # Credentials set in CI environment will automatically be available to the test.
-      # So no need to set them in the runbook_test.yml file.
+      # Credentials set in the CI environment are available to the test,
+      # so they don't need to be set here.
     
     steps:
       - block: deploy-resources
@@ -923,22 +888,7 @@ tests:
       - path: scripts/cleanup-test-resources.sh
 ```
 
-## Best Practices
+## Best practices
 
-1. **Start small**: Begin with one test case and no `steps`, so every block runs in document order, then add inputs, steps, and assertions.
-
-2. **Test happy paths first**: Ensure your runbook works when everything goes right.
-
-3. **Test edge cases**: Add tests for expected failures, missing dependencies, and error handling.
-
-4. **Use fuzz values**: Generate random inputs to catch edge cases you might not think of.
-
-5. **Keep tests fast**: Use `use_temp_working_dir: true` and avoid slow external dependencies when possible.
-
-6. **Clean up resources**: Use the `cleanup` section to remove any resources created during testing.
-
-7. **Use CI**: Run tests on every pull request to catch issues early.
-
-8. **Use tiered testing**: For runbooks with external dependencies, use dry-run mode in CI and save integration tests for manual/scheduled runs.
-
-Finally, note that tests are not free to write or maintain. But it is generally worth the investment to know that your runbooks work as expected. Choose accordingly how much to invest in testing your runbooks.
+- Start with one test case and no `steps`, so every block runs in document order. Add inputs, steps, and assertions from there.
+- Cover the failure paths too: `expect: fail` for a script that should exit non-zero, `expect: blocked` with `missing_outputs` for a block whose dependency hasn't run, and `expect: config_error` with `error_contains` for a misconfigured block.
