@@ -8,6 +8,9 @@
  * Returns flattened values matching the template namespaces ({{ .inputs.* }}, {{ .outputs.*.* }})
  * plus readiness state and unmet dependency lists for warning display.
  *
+ * Props that resolve client-side (resolveTemplateReferences) can't evaluate a
+ * `hasKey` guard, so pass their dependencies through requireAllOutputs.
+ *
  * @example
  * ```tsx
  * const deps = useMemo(() => extractTemplateDependenciesFromString(command), [command])
@@ -17,7 +20,7 @@
  */
 
 import { useMemo } from "react"
-import { useInputs, useAllOutputs, flattenInputs } from "@/contexts/useRunbook"
+import { useInputs, useAllOutputs, flattenInputs, type TemplateValue } from "@/contexts/useRunbook"
 import {
   flattenBlockOutputs,
   computeUnmetInputDependencies,
@@ -25,13 +28,19 @@ import {
 } from "@/lib/templateUtils"
 import type { InputName, TemplateInputs, TemplateOutputs, BlockOutput } from "@/lib/templateUtils"
 import { splitDependencies } from "@/lib/extractTemplateDependencies"
-import type { TemplateDependency } from "@/lib/extractTemplateDependencies"
+import type { OutputDependency, TemplateDependency } from "@/lib/extractTemplateDependencies"
 
 export interface UseTemplateDependenciesResult {
+  /** The inputs as registered, with their types, for a render request */
+  rawInputs: TemplateValue[]
   /** Flattened input values — matches {{ .inputs.* }} */
   inputs: TemplateInputs
   /** Flattened output values — matches {{ .outputs.*.* }} */
   outputs: TemplateOutputs
+  /** Every input name the dependencies reference, deduplicated */
+  inputDeps: InputName[]
+  /** Every output the dependencies reference, deduplicated */
+  outputDeps: OutputDependency[]
   /** Input dependency names that don't have values yet */
   unmetInputDeps: InputName[]
   /** Output dependencies that haven't been produced yet */
@@ -44,11 +53,11 @@ export interface UseTemplateDependenciesResult {
  * Resolves template dependencies against the shared RunbookContext.
  *
  * Flattens raw storage formats internally:
- * - InputValue[] (from useInputs) → flattenInputs → TemplateInputs
+ * - TemplateValue[] (from useInputs) → flattenInputs → TemplateInputs
  * - Record<string, BlockOutputs> (from useAllOutputs) → flattenBlockOutputs → TemplateOutputs
  *
- * Callers never see the raw storage formats — they get flat maps matching the
- * template namespace structure.
+ * Callers get flat maps matching the template namespace structure, and the
+ * typed inputs (rawInputs) that a render request needs.
  */
 export function useTemplateDependencies(
   dependencies: TemplateDependency[],
@@ -81,5 +90,14 @@ export function useTemplateDependencies(
   // 4. Derive readiness from unmet lists
   const hasAllDependencies = unmetInputDeps.length === 0 && unmetOutputDeps.length === 0
 
-  return { inputs, outputs, unmetInputDeps, unmetOutputDeps, hasAllDependencies }
+  return {
+    rawInputs,
+    inputs,
+    outputs,
+    inputDeps,
+    outputDeps,
+    unmetInputDeps,
+    unmetOutputDeps,
+    hasAllDependencies,
+  }
 }
