@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { createElement, type ReactNode } from "react"
+import { createElement, useLayoutEffect, useRef, type ReactNode } from "react"
 import { renderHook, act, cleanup } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
@@ -83,18 +83,32 @@ afterEach(() => {
 
 type Props = Omit<Parameters<typeof useScriptExecution>[0], "componentId" | "componentType">
 
+function Providers({ children }: { children: ReactNode }) {
+  return createElement(ApiProvider, { api }, createElement(RunbookContextProvider, null, children))
+}
+
 function renderScriptExecution(props: Props) {
   return renderHook(
     (p: Props) => ({
       exec: useScriptExecution({ componentId: "target", componentType: "command", ...p }),
       runbook: useRunbookContext(),
     }),
-    {
-      initialProps: props,
-      wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(ApiProvider, { api }, createElement(RunbookContextProvider, null, children)),
-    },
+    { initialProps: props, wrapper: Providers },
   )
+}
+
+/** Records what a run subscribes to, so a test can send the run's IPC events. */
+function recordHandlers() {
+  const handlers = new Map<string, (data: unknown) => void>()
+  vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
+    handlers.set(channel, handler)
+    return () => {
+      if (handlers.get(channel) === handler) handlers.delete(channel)
+    }
+  }) as unknown as RunbooksAPI["on"])
+  return {
+    send: (channel: string, data: unknown) => handlers.get(channel)?.(data),
+  }
 }
 
 function renderWithOutputs(props: Props, outputs: Record<string, OutputValues>) {
@@ -264,6 +278,55 @@ describe("useScriptExecution — outputs", () => {
     const registered = result.current.runbook.blockOutputs.target?.values ?? {}
     expect(isSensitiveOutput(registered.TOKEN!)).toBe(true)
     expect(revealOutputs(registered)).toEqual({ TOKEN: "x", user: "u" })
+  })
+
+  it("keeps outputs that arrive after the success render, before its effects run", () => {
+    const ipc = recordHandlers()
+    const { result } = renderHook(
+      () => {
+        const exec = useScriptExecution({
+          componentId: "target",
+          componentType: "command",
+          command: "create-accounts",
+        })
+        // Main sends exec:status before exec:outputs, and React commits the
+        // success render before it runs that render's effects. Delivering the
+        // outputs from a layout effect lands them in that gap.
+        const delivered = useRef(false)
+        useLayoutEffect(() => {
+          if (exec.status === "success" && !delivered.current) {
+            delivered.current = true
+            ipc.send("exec:outputs", { outputs: { AccountId: { value: "1", sensitive: false } } })
+          }
+        })
+        return { exec, runbook: useRunbookContext() }
+      },
+      { wrapper: Providers },
+    )
+
+    act(() => result.current.exec.execute())
+    act(() => ipc.send("exec:status", { status: "success", exitCode: 0 }))
+
+    expect(result.current.exec.outputs).toEqual({ AccountId: "1" })
+    // What downstream blocks read: losing it leaves them "Waiting for outputs"
+    // from a block that shows success and lists those outputs
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
+  })
+
+  it("withdraws its outputs when a later run finishes without any", () => {
+    const ipc = recordHandlers()
+    const { result } = renderScriptExecution({ command: "create-accounts" })
+    act(() => result.current.exec.execute())
+    act(() => ipc.send("exec:status", { status: "success", exitCode: 0 }))
+    act(() =>
+      ipc.send("exec:outputs", { outputs: { AccountId: { value: "1", sensitive: false } } }),
+    )
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
+
+    act(() => result.current.exec.execute())
+    act(() => ipc.send("exec:status", { status: "fail", exitCode: 1 }))
+
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({})
   })
 })
 
