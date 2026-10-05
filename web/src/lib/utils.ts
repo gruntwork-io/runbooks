@@ -21,8 +21,8 @@ export function cn(...inputs: ClassValue[]) {
  * - When checking for ID collisions (ComponentIdRegistry)
  * - When resolving AWS auth dependencies (useScriptExecution)
  *
- * The backend (boilerplate_config.go) also normalizes block IDs when extracting
- * output dependencies, ensuring frontend-backend consistency.
+ * The template dependency extractor shared with main
+ * (src/domain/boilerplate/templateDependencies.ts) normalizes block IDs the same way.
  *
  * @param id - The raw block ID (may contain hyphens)
  * @returns The normalized ID with hyphens replaced by underscores

@@ -154,7 +154,7 @@ function templateStringsIn(value: unknown): string[] {
 
 /** The block outputs a value's templates use, wherever in the value they are. */
 export function outputDependenciesIn(value: unknown): OutputDependency[] {
-  return splitDependencies(templateStringsIn(value).flatMap(extractTemplateDependenciesFromString))
+  return splitDependencies(extractTemplateDependenciesFromString(...templateStringsIn(value)))
     .outputs
 }
 
