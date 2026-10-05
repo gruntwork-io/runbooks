@@ -130,7 +130,9 @@ jobs:
           # arch by scanning files[] for an "arm64" url; an arch-incomplete
           # manifest serves arm64 Macs the x64 build (which then runs under
           # Rosetta). arm64 first so the legacy top-level path/sha512 match a
-          # single both-arch build.
+          # single both-arch build. The merge also sets minimumSystemVersion
+          # (MINIMUM_DARWIN_VERSION in the script), so Macs older than the
+          # oldest supported macOS aren't offered the update.
           mise x node -- node .github/scripts/release/merge-mac-latest.mjs \
             out/latest-mac.yml out/latest-mac-arm64.yml out/latest-mac.yml
           rm -f out/latest-mac-arm64.yml
