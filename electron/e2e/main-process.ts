@@ -32,7 +32,14 @@ export async function runInMain<Arg>(
   }
 }
 
-/** Resize the app's only window. */
+/**
+ * Resize the app's only window. setSize sets Electron's logical window size,
+ * which is the size the page's viewport (window.innerWidth/innerHeight) gets.
+ * window.outerWidth/outerHeight can read larger, because they also count any
+ * frame border drawn outside that size. Since Electron 43 a frameless window on
+ * Linux has one: under Xvfb, with no shadow to draw, it is 4px on the left,
+ * right and bottom, so a 900px-wide window reports an outerWidth of 908.
+ */
 export async function resizeMainWindow(
   app: ElectronApplication,
   width: number,

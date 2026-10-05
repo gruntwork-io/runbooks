@@ -289,8 +289,10 @@ ipcMain.handle(
 )
 
 // Open dialogs at the current runbook's directory when one is loaded, so the
-// file browser lands where the user expects. On cold launch, before any
-// runbook has been opened, it sets nothing and the OS default applies.
+// file browser lands where the user expects. Before any runbook has been
+// opened it sets nothing. Since Electron 43 the dialog then opens at
+// ~/Downloads (or the home directory if there is none), and the OS no longer
+// restores the folder the user last browsed to.
 function dialogDefaultPath(): Pick<Electron.OpenDialogOptions, "defaultPath"> {
   if (runbookConfig.localPath) {
     return { defaultPath: path.dirname(runbookConfig.localPath) }

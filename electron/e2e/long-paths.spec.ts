@@ -5,8 +5,8 @@
  * A path or URL is one long word. Inside a flex item that keeps the default
  * `min-width: auto`, that word sets the item's min-content width, so the item
  * (and everything it holds) overflows the block and the runbook pane grows a
- * horizontal scrollbar. This launches the real app at a ~900px window on a
- * runbook generated at test time — Admonitions, Command/Check descriptions,
+ * horizontal scrollbar. This launches the real app with a 900px-wide viewport
+ * on a runbook generated at test time — Admonitions, Command/Check descriptions,
  * every auth block's description, a GitClone local-checkout completion for a
  * repo under a long temp path, and a "Can't use this directory" error panel —
  * and measures the rendered layout. A second test checks that the full-width
@@ -151,7 +151,9 @@ test.beforeAll(async () => {
   page = await app.firstWindow()
   await page.waitForLoadState("domcontentloaded")
   await resizeMainWindow(app, WINDOW_WIDTH, 900)
-  await expect.poll(() => page.evaluate(() => window.outerWidth)).toBe(WINDOW_WIDTH)
+  // Wait on the viewport, which the layout uses, not window.outerWidth: on Linux
+  // that also counts a frame border drawn outside the window (see resizeMainWindow).
+  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(WINDOW_WIDTH)
   await page.waitForSelector("h1", { timeout: 60_000 })
 
   const trustButton = page.getByRole("button", { name: "I trust this Runbook" })
