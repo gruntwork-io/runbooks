@@ -87,9 +87,11 @@ function GitCloneInteractive({
     () =>
       requireAllOutputs(
         extractTemplateDependenciesFromString(
-          [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir]
-            .filter(Boolean)
-            .join("\n"),
+          prefilledUrl,
+          prefilledRef,
+          prefilledRepoPath,
+          prefilledLocalPath,
+          prefilledRepoDir,
         ),
       ),
     [prefilledUrl, prefilledRef, prefilledRepoPath, prefilledLocalPath, prefilledRepoDir],
