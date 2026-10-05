@@ -250,8 +250,11 @@ describe("useScriptExecution — outputs", () => {
     const { result } = renderScriptExecution({ command: "mint-token" })
 
     act(() => result.current.exec.execute())
+    const run = invoke.mock.calls.find(([channel]) => channel === "exec:run")
+    const { executionId } = run![1] as { executionId: string }
     act(() =>
       handlers.get("exec:outputs")?.({
+        executionId,
         outputs: { TOKEN: { value: "x", sensitive: true }, user: { value: "u", sensitive: false } },
       }),
     )

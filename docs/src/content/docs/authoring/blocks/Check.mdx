@@ -45,6 +45,8 @@ A Check has a **Check** button where a Command has **Run**. It also accepts a `w
 - `failMessage` (string): message shown when the check fails. Default "Failed". Supports inline markdown.
 - `runningMessage` (string): message shown while running. Default "Checking...". Supports inline markdown.
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Lower it so a hung check fails sooner, for example `timeoutMs={120000}` for a 2-minute probe, or raise it for checks that run longer.
+- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must finish with a success or a warning before this block can run. See [Run order](/authoring/blocks/command/#run-order).
+- `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](/authoring/blocks/command/#run-order).
 
 ### Inline content
 
@@ -245,7 +247,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```
 
-A Check that references another block's outputs keeps its Check button disabled, and names the blocks that need to run first, until those outputs exist.
+A Check that references another block's outputs keeps its Check button disabled, and names the blocks that need to run first, until those outputs exist. The button is also disabled while the upstream block is running again. See [Run order](/authoring/blocks/command/#run-order).
 
 See [Block outputs](/authoring/inputs-and-outputs/#block-outputs) in Inputs and outputs. The [block-outputs feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/block-outputs) includes a Check that consumes outputs from upstream Command blocks.
 

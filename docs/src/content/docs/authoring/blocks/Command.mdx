@@ -43,6 +43,8 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
 - `runningMessage` (string): message shown while running. Default "Running...". Supports inline markdown.
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner.
+- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must finish with a success or a warning before this block can run. See [Run order](#run-order).
+- `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](#run-order).
 
 ### Inline content
 
@@ -339,6 +341,24 @@ Scripts run in a persistent environment. Environment variable changes (`export`,
 Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
 
 See [Shell execution context](/security/shell-execution-context/) for the details.
+
+#### Run order
+
+Command and Check blocks can run at the same time. A block's Run button is disabled while the block has to wait for another one:
+
+- **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` has produced that output, and can't run while `build` is running again.
+- **It names another block in `dependsOn`.** Use this when a script needs something an earlier script did that isn't an output, such as a variable it exported, a directory it changed into, or a resource it created. The block can't run until every block it names has finished with a success or a warning. If one of them later fails or is stopped, the block waits again.
+- **It would overlap with an `exclusive` block.** No other Command or Check block can start while an `exclusive` block runs, and an `exclusive` block can't start while another one is running. Use this for a script that can't share its resources, such as one that takes a state lock.
+
+```mdx
+<Command id="login" command="export API_TOKEN=$(vault read -field=token secret/api)" />
+
+<Command id="deploy" dependsOn="login" command="./deploy.sh" />
+
+<Command id="migrate" dependsOn={["login", "deploy"]} exclusive command="./migrate.sh" />
+```
+
+A block that is waiting names the blocks it is waiting for. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
 
 #### Background processes
 

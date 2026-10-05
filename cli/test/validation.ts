@@ -352,6 +352,36 @@ export function parseAuthDependencies(runbookPath: string): Map<string, AuthDepe
 }
 
 // ---------------------------------------------------------------------------
+// Run dependency parsing
+// ---------------------------------------------------------------------------
+
+const RUN_DEPENDENT_TYPES = ["Check", "Command"] as const
+
+/**
+ * The ids each Check and Command block names in its `dependsOn` prop, by block
+ * id. A block without the prop has no entry.
+ */
+export function parseRunDependencies(runbookPath: string): Map<string, string[]> {
+  const content = fs.readFileSync(runbookPath, "utf-8")
+  const deps = new Map<string, string[]>()
+  const codeBlockRanges = findFencedCodeBlockRanges(content)
+
+  for (const blockType of RUN_DEPENDENT_TYPES) {
+    const re = getComponentRegex(blockType)
+    let match: RegExpExecArray | null
+    while ((match = re.exec(content)) !== null) {
+      if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) continue
+      const props = match[1] ?? ""
+      const blockId = extractProp(props, "id")
+      const dependsOn = extractIdList(props, "dependsOn")
+      if (blockId && dependsOn.length > 0) deps.set(blockId, dependsOn)
+    }
+  }
+
+  return deps
+}
+
+// ---------------------------------------------------------------------------
 // Template block parsing (for the test runner)
 // ---------------------------------------------------------------------------
 
@@ -405,7 +435,7 @@ export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBl
     blocks.set(comp.id, {
       id: comp.id,
       templatePath,
-      inputsIds: extractInputsIds(comp.props),
+      inputsIds: extractIdList(comp.props, "inputsId"),
       target: extractProp(comp.props, "target"),
     })
   }
@@ -414,13 +444,14 @@ export function parseTemplateBlocks(runbookPath: string): Map<string, TemplateBl
 }
 
 /**
- * The ids an `inputsId` prop names, in order: one for `inputsId="a"`, each
- * quoted id for `inputsId={["a", "b"]}`, none without the prop.
+ * The ids a prop such as `inputsId` or `dependsOn` names, in order: one for
+ * `inputsId="a"`, each quoted id for `inputsId={["a", "b"]}`, none without the
+ * prop.
  */
-export function extractInputsIds(props: string): string[] {
-  const single = extractProp(props, "inputsId")
+export function extractIdList(props: string, propName: "inputsId" | "dependsOn"): string[] {
+  const single = extractProp(props, propName)
   if (single) return [single]
-  const list = /(?:^|\s)inputsId=\{\s*\[([^\]]*)\]\s*\}/.exec(props)
+  const list = new RegExp(`(?:^|\\s)${propName}=\\{\\s*\\[([^\\]]*)\\]\\s*\\}`).exec(props)
   if (!list) return []
   return [...list[1]!.matchAll(/"([^"]*)"|'([^']*)'/g)]
     .map((m) => m[1] ?? m[2] ?? "")

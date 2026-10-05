@@ -14,6 +14,7 @@ const baseExecution = {
   hasAllInputDependencies: true,
   inlineInputsId: null,
   outputDependencies: [],
+  outputDependencyBlockIds: [] as string[],
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
   templateContext: { inputs: {}, outputs: {} },

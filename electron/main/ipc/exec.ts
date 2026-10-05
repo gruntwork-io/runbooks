@@ -19,6 +19,8 @@ import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
 
+type ExecEventChannel = Extract<keyof IpcEventMap, `exec:${string}`>
+
 // ---------------------------------------------------------------------------
 // Active execution tracking for cancellation support
 // ---------------------------------------------------------------------------
@@ -57,13 +59,20 @@ export async function cancelAllExecutions(): Promise<void> {
 export function registerExecHandlers(): void {
   ipcMain.handle("exec:run", async (event, params: ExecRequest) => {
     log.debug("handler called for:", params.executableId)
-    // Only one execution runs at a time: cancel (interrupt + kill) any others.
-    for (const { controller } of activeExecutions.values()) controller.abort()
-    activeExecutions.clear()
-
     const executionId = params.executionId ?? `main-${++execSeq}`
+    // The entry below would replace a run still registered under this id and
+    // leave it unreachable by Stop and by quit.
+    abortExecution(executionId)
     const abortController = new AbortController()
     mostRecentExecutionId = executionId
+
+    // Every event names its run, since several runs stream to one renderer.
+    // Interruption takes effect at the fiber's next yield point, so an aborted
+    // run can still reach a send.
+    const send = (channel: ExecEventChannel, payload: object) => {
+      if (abortController.signal.aborted) return
+      event.sender.send(channel, { ...payload, executionId })
+    }
 
     try {
       // Run execution directly (no forkDaemon). The IPC handler awaits
@@ -73,9 +82,7 @@ export function registerExecHandlers(): void {
       // The abort signal is passed to runPromise: when exec:cancel aborts it,
       // Effect interrupts this fiber, which closes the scope and runs the
       // process.kill finalizer (executor.ts) — that's what actually stops the
-      // running child (and its process group). The signal.aborted checks below
-      // are a belt-and-suspenders guard against a stray send in the small
-      // window before interruption takes effect at the next yield point.
+      // running child (and its process group).
       const run = runtime.runPromise(
         Effect.scoped(
           Effect.gen(function* () {
@@ -115,17 +122,13 @@ export function registerExecHandlers(): void {
 
             // Surface the on-disk log path up front so the UI can offer it
             // (e.g. a "copy log path" action) while the script is still running.
-            if (!abortController.signal.aborted) {
-              event.sender.send("exec:log-file", { path: logFilePath })
-            }
+            send("exec:log-file", { path: logFilePath })
 
             // Phase 1: Stream log events to renderer in real-time
             log.debug("Phase 1: starting log stream drain")
             yield* Stream.runForEach(logStream, (logEvent) =>
               Effect.sync(() => {
-                if (!abortController.signal.aborted) {
-                  event.sender.send("exec:log", logEvent.event)
-                }
+                send("exec:log", logEvent.event)
               }),
             )
             log.debug("Phase 1 complete, starting Phase 2")
@@ -139,21 +142,17 @@ export function registerExecHandlers(): void {
               if (abortController.signal.aborted) break
               switch (execEvent._tag) {
                 case "log":
-                  event.sender.send("exec:log", execEvent.event)
+                  send("exec:log", execEvent.event)
                   break
                 case "status":
                   finalStatus = execEvent.event
-                  event.sender.send("exec:status", execEvent.event)
+                  send("exec:status", execEvent.event)
                   break
-                case "outputs": {
-                  const payload: IpcEventMap["exec:outputs"] = {
-                    outputs: encodeOutputs(execEvent.event.outputs),
-                  }
-                  event.sender.send("exec:outputs", payload)
+                case "outputs":
+                  send("exec:outputs", { outputs: encodeOutputs(execEvent.event.outputs) })
                   break
-                }
                 case "files_captured":
-                  event.sender.send("exec:files-captured", execEvent.event)
+                  send("exec:files-captured", execEvent.event)
                   break
                 case "env_captured": {
                   // Applied as a delta against the env the script started

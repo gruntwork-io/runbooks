@@ -95,9 +95,13 @@ Everything else in the session is left as it is. If the session changed while th
 
 If you open a different runbook while a script is running, the finished script's changes are discarded. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
 
-### One script at a time
+### Running scripts at the same time
 
-Starting a script cancels any script that is already running, and the cancelled script's environment changes are discarded. If a script depends on environment changes from an earlier one, wait for the earlier one to finish before you click Run.
+You can click Run on a block while another block's script is still going, and both keep running. Runbooks holds a block back when it can tell the block has to wait: the block uses the outputs of a block that is running, names a block in `dependsOn` that hasn't succeeded, or would overlap with an `exclusive` block. See [Run order](/authoring/blocks/command/#run-order).
+
+Runbooks can't tell that one script reads a variable or a directory another script sets. A script gets the session as it stood when you clicked Run, and Runbooks applies its changes when it finishes, so two scripts running together don't see each other's changes. If a script needs what an earlier block exported, name the earlier block in its `dependsOn`. When overlapping scripts set the same variable, or both change directory, the last one to finish wins.
+
+Runbooks discards the environment changes of a script you stop.
 
 ## Built-in environment variables
 
