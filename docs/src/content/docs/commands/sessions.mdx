@@ -18,7 +18,9 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and nothing else about the runbook, neither its path nor its URL. The window title starts with the name too.
 
-The copy button before the name copies it. The folder button after the name copies the path of the session's directory. Hover over it to see the path. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+The copy button before the name copies it. The folder button after the name copies the path of the session's directory. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
+
+Paths on screen are shortened: a path in the session's directory starts with `session/`, as in `session/generated`, and any other path in your home directory starts with `~/`. Hover over one to see it in full. Copy buttons copy the full path, and scripts and other blocks get the full path too.
 
 Runbooks picks the name when it creates the session, and the session keeps it until you rename it. No two sessions share a name. If a random pick is already taken, Runbooks picks again, and after ten tries it adds a number, as in `elegant-elephant-2`.
 

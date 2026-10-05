@@ -17,6 +17,7 @@ import { GoogleCloudMark } from "./GoogleCloudLogo"
 import { RegionPicker } from "./RegionPicker"
 import { DEFAULT_GOOGLE_SCOPES } from "../constants"
 import type { GoogleAuthStatus } from "../types"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 
 interface OAuthFlowProps {
   authStatus: GoogleAuthStatus
@@ -74,6 +75,7 @@ export function OAuthFlow({
   onStartOAuth,
   onCancelOAuth,
 }: OAuthFlowProps) {
+  const displayPath = useDisplayPath()
   const { didCopy: copied, copy: doCopy } = useCopyToClipboard(2000)
   const [showScopeInfo, setShowScopeInfo] = useState(false)
   const isAuthenticating = authStatus === "authenticating"
@@ -172,7 +174,7 @@ export function OAuthFlow({
           <div className="flex-1 min-w-0">
             <div className="font-medium truncate">{oauthClientFileName}</div>
             <div className="text-xs text-muted-foreground truncate" title={oauthClientFilePath}>
-              {oauthClientFilePath}
+              {displayPath(oauthClientFilePath)}
             </div>
           </div>
           <Button

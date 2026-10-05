@@ -53,7 +53,7 @@ describe("SessionName", () => {
     await user.click(screen.getByRole("button", { name: "Copy session name" }))
 
     expect(await navigator.clipboard.readText()).toBe("elegant-elephant")
-    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument()
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Session name copied")
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
     expect(invoke).not.toHaveBeenCalled()
   })

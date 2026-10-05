@@ -5,7 +5,8 @@
  * Layout mirrors RepositoryMetadataBar for visual consistency.
  */
 
-import { basename, cn } from "@/lib/utils"
+import { cn } from "@/lib/utils"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { LocalPathRow } from "./rows/LocalPathRow"
 
 interface GeneratedFilesMetadataBarProps {
@@ -25,10 +26,11 @@ export const GeneratedFilesMetadataBar = ({
   fileCount,
   className = "",
 }: GeneratedFilesMetadataBarProps) => {
-  const displayText = relativePath
-    ? `./${relativePath}`
-    : absolutePath
-      ? `./${basename(absolutePath)}`
+  const displayPath = useDisplayPath()
+  const displayText = absolutePath
+    ? displayPath(absolutePath)
+    : relativePath
+      ? `./${relativePath}`
       : null
 
   return (
@@ -40,7 +42,7 @@ export const GeneratedFilesMetadataBar = ({
         </span>
       </div>
 
-      {/* Row 2: Output path (relative display, copies absolute) */}
+      {/* Row 2: Output path (shortened display, copies absolute) */}
       {displayText && (
         <LocalPathRow displayText={displayText} copyPath={absolutePath} className="mt-1.5" />
       )}

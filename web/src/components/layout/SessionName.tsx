@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { Check, Copy, Pencil } from "lucide-react"
+import { Copy, Pencil } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
 import { useApi } from "@/contexts/ApiContext"
-import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
+import { CopyIconButton } from "./CopyIconButton"
 import { cn } from "@/lib/utils"
 import { errorMessage } from "../../../../src/errors/message"
 import { SESSION_NAME_MAX_LENGTH, sessionNameProblem } from "../../../../src/domain/session/names"
@@ -30,7 +30,12 @@ const PILL = "rounded-full border px-2 py-0.5 text-xs text-foreground font-mono 
 export function SessionName({ name, isRenaming, onRenamingChange, onRenamed }: SessionNameProps) {
   return (
     <TooltipProvider delayDuration={400}>
-      <CopyNameButton name={name} />
+      <CopyIconButton
+        value={name}
+        icon={Copy}
+        label="Copy session name"
+        copiedLabel="Session name copied"
+      />
       {isRenaming ? (
         <SessionNameField
           // A session that replaces this one mid-edit starts the field over.
@@ -49,26 +54,6 @@ export function SessionName({ name, isRenaming, onRenamingChange, onRenamed }: S
   )
 }
 
-function CopyNameButton({ name }: { name: string }) {
-  const { didCopy, copy } = useCopyToClipboard()
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={didCopy ? "Copied" : "Copy session name"}
-          className="flex-shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-          style={NO_DRAG}
-          onClick={() => void copy(name)}
-        >
-          {didCopy ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{didCopy ? "Copied" : "Copy session name"}</TooltipContent>
-    </Tooltip>
-  )
-}
-
 function SessionNameLabel({ name, onRename }: { name: string; onRename: () => void }) {
   return (
     <Tooltip>
@@ -77,7 +62,8 @@ function SessionNameLabel({ name, onRename }: { name: string; onRename: () => vo
           type="button"
           className={cn(
             PILL,
-            "group flex flex-shrink-0 items-center gap-1 border-border cursor-text transition-colors hover:bg-accent focus-visible:bg-accent",
+            // Plain text until hovered or focused. A transparent border keeps its size.
+            "group flex flex-shrink-0 items-center gap-1 border-transparent cursor-default transition-colors hover:cursor-text hover:border-border hover:bg-accent focus-visible:border-border focus-visible:bg-accent",
           )}
           style={NO_DRAG}
           aria-label={`Rename session ${name}`}

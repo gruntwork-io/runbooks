@@ -906,6 +906,8 @@ export interface IpcChannelMap {
   "native:close-runbook": { params: void; result: { ok: true } }
   /** Replace the open runbook's session with a new one, as File > Reset Session does. */
   "native:reset-session": { params: void; result: { ok: true } }
+  /** The user's home directory, which paths on screen are shortened against (as `~`). */
+  "native:get-home-dir": { params: void; result: { path: string } }
   "native:get-cli-config": {
     params: void
     result: {

@@ -9,6 +9,7 @@ import { app, shell, ipcMain, dialog, protocol, net, nativeTheme, session } from
 import type { BrowserWindow } from "electron"
 import * as path from "path"
 import * as fs from "fs"
+import * as os from "node:os"
 import { pathToFileURL } from "node:url"
 import { createMainWindow, focusOrCreateWindow, getMainWindow, setTitleBarTheme } from "./window.ts"
 import { openRunbookInWindow, openRemoteRunbookInWindow } from "./open-runbook.ts"
@@ -395,6 +396,9 @@ ipcMain.handle("native:reset-session", () => {
 // CLI symlink management
 ipcMain.handle("cli:check-install", () => checkCliInstall())
 ipcMain.handle("cli:install", () => installCli())
+
+// $HOME first, as a shell's ~ is, and as launch-dir.ts reads it.
+ipcMain.handle("native:get-home-dir", () => ({ path: os.homedir() }))
 
 ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: startupRunbookPath,

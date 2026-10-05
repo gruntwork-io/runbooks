@@ -27,6 +27,7 @@ import { useErrorReporting } from "./contexts/useErrorReporting"
 import { useLogs } from "./contexts/useLogs"
 import { useApi } from "./contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "./contexts/IpcSessionHistoryContext"
+import { DisplayPathProvider } from "./contexts/DisplayPathContext"
 import { cn } from "./lib/utils"
 import type { AppError } from "./types/error"
 
@@ -330,7 +331,7 @@ function App() {
   }
 
   return (
-    <>
+    <DisplayPathProvider sessionDir={getRunbookResult.data?.sessionDir}>
       <ClearLogsOnRunbookChange sessionKey={loadedSessionKey} />
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
@@ -528,7 +529,7 @@ function App() {
 
       {/* Edit > Find… (Cmd/Ctrl+F) */}
       <FindBar />
-    </>
+    </DisplayPathProvider>
   )
 }
 

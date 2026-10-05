@@ -10,6 +10,7 @@ import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { parseSavedClone, type SavedClone } from "@/lib/sessionHistory"
 import { omitUndefined } from "@/lib/omitUndefined"
 import { useGitClone } from "./hooks/useGitClone"
@@ -148,6 +149,7 @@ function GitCloneInteractive({
 
   // Git worktree context for registering cloned repos with the workspace
   const { registerWorkTree, unregisterWorkTree } = useGitWorkTree()
+  const displayPath = useDisplayPath()
 
   useEffect(() => {
     trackBlockRender("GitClone")
@@ -348,21 +350,12 @@ function GitCloneInteractive({
     }
     if (!effectivePath) return null
 
-    // An absolute path (POSIX, Windows drive or UNC) inside the working
-    // directory is shown relative to it, as the result panel shows it once
-    // cloned. Only one outside it, which the clone rejects, is shown as-is.
-    if (/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(effectivePath)) {
-      const base = workingDir.replace(/[\\/]+$/, "")
-      const rest = effectivePath.startsWith(base) ? effectivePath.slice(base.length) : ""
-      const inside = /^[\\/]/.test(rest) ? rest.replace(/^[\\/]+/, "") : ""
-      return { relative: inside ? `./${inside}` : effectivePath, absolute: effectivePath }
-    }
-
-    const relative = effectivePath.startsWith("./") ? effectivePath : `./${effectivePath}`
-    const absolute = `${workingDir}/${effectivePath.replace(/^\.\//, "")}`
-
-    return { relative, absolute }
-  }, [workingDir, localPath, gitUrl])
+    // An absolute path (POSIX, Windows drive or UNC) is the destination as it is.
+    const absolute = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(effectivePath)
+      ? effectivePath
+      : `${workingDir}/${effectivePath.replace(/^\.\//, "")}`
+    return { shown: displayPath(absolute), absolute }
+  }, [workingDir, localPath, gitUrl, displayPath])
 
   // Check for GitHub token once the auth dependency is met
   useEffect(() => {
@@ -815,10 +808,10 @@ function GitCloneInteractive({
                           disabled={isFormDisabled}
                           className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                         />
-                        {/* Relative destination; hover shows, and copy copies, the absolute path. */}
+                        {/* Shortened destination; hover shows, and copy copies, the absolute path. */}
                         {pathPreview && (
                           <LocalPathRow
-                            displayText={pathPreview.relative}
+                            displayText={pathPreview.shown}
                             copyPath={pathPreview.absolute}
                             className="mt-1.5"
                           />
@@ -837,7 +830,9 @@ function GitCloneInteractive({
                     <p className="text-sm font-medium text-destructive m-0">
                       {isLocalSource ? "Couldn't use that repository" : "Clone failed"}
                     </p>
-                    <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
+                    <p className="text-xs text-destructive m-0 mt-0.5 font-mono">
+                      {displayPath(errorMessage)}
+                    </p>
                   </div>
                 </div>
               )}
@@ -852,12 +847,12 @@ function GitCloneInteractive({
                     </p>
                     <p className="text-xs text-warning-foreground m-0 mt-0.5">
                       The local path
-                      {pathPreview?.relative ? (
+                      {pathPreview ? (
                         <>
                           {" "}
                           (
                           <code className="text-warning-foreground" title={pathPreview.absolute}>
-                            {pathPreview.relative}
+                            {pathPreview.shown}
                           </code>
                           )
                         </>

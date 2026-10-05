@@ -190,9 +190,10 @@ test.describe("Saved sessions", () => {
       await expect(first.page.getByText(/^Resumed session/)).toHaveCount(0)
       sessionDir = await showSession(first.page, "unset")
       expect(path.dirname(sessionDir)).toBe(sessionDirs)
-      // The folder button next to the name is for copying that directory.
-      await first.page.getByRole("button", { name: "Copy session directory" }).first().hover()
-      await expect(first.page.getByRole("tooltip")).toContainText(sessionDir)
+      // The folder button next to the name copies that directory.
+      await first.page.getByRole("button", { name: "Copy session directory" }).click()
+      await expect(first.page.getByRole("tooltip")).toHaveText("Session directory copied")
+      expect(await first.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(sessionDir)
       // The directory is named after the session's id, a version 7 UUID.
       expect(path.basename(sessionDir)).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,

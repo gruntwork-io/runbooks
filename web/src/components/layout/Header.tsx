@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from "react"
-import { ChevronDown, Download, History, Info, Pencil, RotateCcw, X } from "lucide-react"
+import {
+  ChevronDown,
+  Download,
+  FolderOpen,
+  History,
+  Info,
+  Pencil,
+  RotateCcw,
+  X,
+} from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
@@ -19,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
-import { SessionDirButton } from "./SessionDirButton"
+import { CopyIconButton } from "./CopyIconButton"
 import { SessionName } from "./SessionName"
 import { SessionsDialog } from "./SessionsDialog"
 import { ThemeToggle } from "./ThemeToggle"
@@ -149,7 +158,15 @@ export function Header({ sessionName, sessionDir, onSessionRenamed }: HeaderProp
               onRenamed={onSessionRenamed}
             />
           )}
-          {sessionDir !== undefined && <SessionDirButton dir={sessionDir} />}
+          {/* The session's own directory, where its scripts start and its files are */}
+          {sessionDir !== undefined && (
+            <CopyIconButton
+              value={sessionDir}
+              icon={FolderOpen}
+              label="Copy session directory"
+              copiedLabel="Session directory copied"
+            />
+          )}
         </div>
         <div
           className={`hidden md:block md:absolute ${menuRightClass} md:top-1/2 md:transform md:-translate-y-1/2 font-normal text-md`}

@@ -22,6 +22,7 @@ import { useApi } from "@/contexts/ApiContext"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import { formatTimeAgo } from "@/lib/relativeTime"
 import type { ListedSession } from "../../../../src/domain/session/store"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 
 interface SessionsDialogProps {
   open: boolean
@@ -43,6 +44,7 @@ interface RunbookSessions {
  * files go to the trash.
  */
 export function SessionsDialog({ open, onOpenChange }: SessionsDialogProps) {
+  const displayPath = useDisplayPath()
   const api = useApi()
   const [sessions, setSessions] = useState<ListedSession[] | null>(null)
   const [query, setQuery] = useState("")
@@ -182,7 +184,7 @@ export function SessionsDialog({ open, onOpenChange }: SessionsDialogProps) {
                   className="truncate font-mono text-xs text-muted-foreground"
                   title={group.runbook}
                 >
-                  {group.runbook}
+                  {displayPath(group.runbook)}
                 </h3>
                 <ul className="mt-1 space-y-1">
                   <TooltipProvider delayDuration={400}>

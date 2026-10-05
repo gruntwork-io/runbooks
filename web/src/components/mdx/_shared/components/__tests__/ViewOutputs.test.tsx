@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ViewOutputs } from "../ViewOutputs"
 import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
+import { ShortenedPaths } from "@/test/ShortenedPaths"
 
 // Outputs a script marked `sensitive:` must never be shown on screen (screen
 // shares, recordings, screenshots), but the row's copy button still copies
@@ -96,5 +97,31 @@ describe("ViewOutputs sensitive outputs", () => {
 
     await user.click(screen.getByRole("button", { name: /Copy JSON/ }))
     expect(writeText).toHaveBeenLastCalledWith(JSON.stringify(PLAIN_OUTPUTS, null, 2))
+  })
+})
+
+describe("ViewOutputs paths", () => {
+  const SESSION = "/Users/me/Library/Application Support/Runbooks/v0/sessions/dirs/0199a5c2"
+
+  it("shows a path in the session's directory shortened, and copies it in full", async () => {
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, "writeText")
+    const outputs: OutputValues = { clone_path: `${SESSION}/infra`, region: "us-west-2" }
+    render(
+      <ShortenedPaths roots={{ sessionDir: SESSION, homeDir: "/Users/me" }}>
+        <ViewOutputs outputs={outputs} autoOpen />
+      </ShortenedPaths>,
+    )
+
+    const shown = screen.getByText("session/infra")
+    expect(document.body.textContent).not.toContain(SESSION)
+    expect(screen.getByText("us-west-2")).toBeInTheDocument()
+    await user.hover(shown)
+    expect((await screen.findAllByText(`${SESSION}/infra`)).length).toBeGreaterThan(0)
+
+    await user.click(screen.getByRole("button", { name: "Copy value of clone_path" }))
+    expect(writeText).toHaveBeenLastCalledWith(`${SESSION}/infra`)
+    await user.click(screen.getByRole("button", { name: /Copy JSON/ }))
+    expect(writeText).toHaveBeenLastCalledWith(JSON.stringify(outputs, null, 2))
   })
 })
