@@ -14,10 +14,9 @@
  * recognised as a guard leaves its references required too: that keeps the
  * block waiting, where a wrong guess would let the render fail.
  *
- * Shared by the backend extractor (src/domain/boilerplate/config.ts) and the
- * frontend one (web/src/lib/extractTemplateDependencies.ts). The renderer
- * bundles this module directly, so it must stay free of Node and Electron
- * imports.
+ * Used by the template dependency extractor (templateDependencies.ts), which
+ * main and the renderer share. The renderer bundles this module directly, so
+ * it must stay free of Node and Electron imports.
  */
 
 /** Template code and the outputs a guard guarantees exist where it runs. */

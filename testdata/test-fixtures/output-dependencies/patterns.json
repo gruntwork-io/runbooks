@@ -1,6 +1,6 @@
 {
-  "description": "Shared test cases for output dependency extraction regex. Both Go (api/boilerplate_config.go) and TypeScript (web/src/lib/extractTemplateDependencies.ts) implementations must pass these tests to ensure they stay in sync.",
-  "pattern_description": "Matches {{ .outputs.blockId.outputName }} patterns with optional whitespace and pipe functions",
+  "description": "Test cases for output dependency extraction. Main (Template blocks) and the renderer (every other block) share one extractor, extractTemplateDependenciesFromString in src/domain/boilerplate/templateDependencies.ts; templateDependencies.test.ts runs these cases against it.",
+  "pattern_description": "Matches {{ .outputs.blockId.outputName }} patterns with optional whitespace and pipe functions. An output name is an identifier, like every key a block can output.",
   "cases": [
     {
       "name": "basic pattern with spaces",
@@ -133,6 +133,32 @@
       "input": ".outputs.outside.nope {{ .outputs.inside.yes }}",
       "expected": [
         { "blockId": "inside", "outputName": "yes" }
+      ]
+    },
+    {
+      "name": "reference in a template comment should not match",
+      "input": "{{/* needs .outputs.setup.id */}}",
+      "expected": []
+    },
+    {
+      "name": "output name ends at a character an identifier can't contain",
+      "input": "{{ .outputs.my-block.my-key }}",
+      "expected": [
+        { "blockId": "my-block", "outputName": "my" }
+      ]
+    },
+    {
+      "name": "field access on an output value depends on that output",
+      "input": "{{ .outputs.my-block.a.b }}",
+      "expected": [
+        { "blockId": "my-block", "outputName": "a" }
+      ]
+    },
+    {
+      "name": "output read behind a hasKey guard is still a dependency",
+      "input": "{{ if hasKey .outputs.clone_repo \"org_id\" }}{{ .outputs.clone_repo.org_id }}{{ end }}",
+      "expected": [
+        { "blockId": "clone_repo", "outputName": "org_id" }
       ]
     }
   ]
