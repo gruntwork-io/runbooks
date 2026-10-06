@@ -97,7 +97,10 @@ function renderScriptExecution(props: Props) {
   )
 }
 
-/** Records what a run subscribes to, so a test can send the run's IPC events. */
+/**
+ * Records what a run subscribes to, so a test can send IPC events to the
+ * latest run. Each event gets that run's id, as the main process sends it.
+ */
 function recordHandlers() {
   const handlers = new Map<string, (data: unknown) => void>()
   vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
@@ -107,7 +110,11 @@ function recordHandlers() {
     }
   }) as unknown as RunbooksAPI["on"])
   return {
-    send: (channel: string, data: unknown) => handlers.get(channel)?.(data),
+    send: (channel: string, data: object) => {
+      const run = invoke.mock.calls.filter(([invoked]) => invoked === "exec:run").at(-1)
+      const { executionId } = run![1] as { executionId: string }
+      handlers.get(channel)?.({ executionId, ...data })
+    },
   }
 }
 

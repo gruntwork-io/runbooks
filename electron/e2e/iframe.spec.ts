@@ -281,12 +281,24 @@ test.describe("Iframe block", () => {
       await expect(page.locator("#secret")).toHaveValue("hunter2")
       expect(await inGuest(app, grabber, `document.getElementById("grab").value`)).toBe("")
 
-      // A click into the page does give it the keyboard.
-      await page.locator("webview[title=Grabber]").click()
-      await page.keyboard.type("ok", { delay: 60 })
-      await expect
-        .poll(() => inGuest(app, grabber, `document.getElementById("grab").value`))
-        .toBe("ok")
+      // A click into the page does move focus out of the app and into it.
+      // Typing can't check this: keys Playwright types after its click
+      // reaches the page arrive nowhere. Its click doesn't always take
+      // either, so click until one does.
+      const frame = page.locator("webview[title=Grabber]")
+      await expect(async () => {
+        await frame.click()
+        await expect
+          .poll(
+            () =>
+              page.evaluate(() => ({
+                focused: document.activeElement?.getAttribute("title"),
+                inApp: document.hasFocus(),
+              })),
+            { timeout: 1_000 },
+          )
+          .toEqual({ focused: "Grabber", inApp: false })
+      }).toPass({ timeout: 30_000 })
     } finally {
       await app.close()
     }
