@@ -69,8 +69,10 @@ afterEach(() => {
   window.api = originalApi
 })
 
-const emit = (channel: string, data: unknown) => {
-  listeners.get(channel)?.forEach((listener) => listener(data))
+const emit = (channel: string, data: Record<string, unknown>) => {
+  const run = invoke.mock.calls.filter(([invoked]) => invoked === "exec:run").at(-1)
+  const { executionId } = run![1] as { executionId: string }
+  listeners.get(channel)?.forEach((listener) => listener({ ...data, executionId }))
 }
 
 /** The payload of each run event sent to the main process, oldest first. */
