@@ -161,7 +161,7 @@ steps:
 | `success` | Block completed successfully (exit code 0). |
 | `fail` | Block failed (any exit code other than 0 or 2). |
 | `warn` | Block completed with warning (exit code 2). |
-| `blocked` | Block is blocked: an auth block it depends on hasn't run or was skipped, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
+| `blocked` | Block is blocked: an auth block it depends on hasn't run or was skipped, a block its `dependsOn` names hasn't finished with a success or a warning, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
 | `skip` | Don't run this block, for example an `<AwsAuth>` in a test that has no AWS credentials. [Pull request blocks](#testing-pull-request-blocks) can only be tested with `skip` or `blocked`. |
 | `config_error` | Block has a configuration error, such as a missing prop. |
 

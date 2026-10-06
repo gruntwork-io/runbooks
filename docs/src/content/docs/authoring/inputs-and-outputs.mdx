@@ -234,6 +234,8 @@ Use `fromJson` to parse JSON output values, then `range` to iterate:
 
 When a block references outputs from a block that hasn't run yet, a warning names the blocks that need to run first, the Run or Generate button is disabled, and the template shows the raw `{{ }}` syntax.
 
+A Command or Check block's button is also disabled while the upstream block is running again. See [Run order](/authoring/blocks/command/#run-order).
+
 After a block runs, **View Outputs** below the log viewer lists its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 
 <Aside type="note">

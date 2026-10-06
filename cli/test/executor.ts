@@ -63,6 +63,7 @@ import { runAssertion, countFiles, envListToRecord, type AssertionContext } from
 import {
   InputValidator,
   parseAuthDependencies,
+  parseRunDependencies,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
   lowercaseFirst,
@@ -268,6 +269,7 @@ export class TestExecutor {
   private templateInlines!: Map<string, TemplateInlineBlock>
   private templates!: Map<string, TemplateBlock>
   private authDeps!: Map<string, AuthDependency>
+  private runDeps!: Map<string, string[]>
 
   // process.env as captured by init(); every test starts from a copy
   private initialSessionEnv: string[] = []
@@ -283,6 +285,9 @@ export class TestExecutor {
   private testInputs: Record<string, unknown> = {}
   private testEnv: Record<string, string> = {}
   private blockStates = new Map<string, BlockState>()
+  // Check and Command blocks whose latest run this test case ended in success
+  // or warn, by normalized block ID, for `dependsOn`
+  private passedScripts = new Set<string>()
   private authBlockCredentials = new Map<string, Record<string, string>>()
   // The token each git auth block found, and for which provider, for GitClone
   private gitAuthTokens = new Map<string, { provider: GitProvider; token: string }>()
@@ -322,6 +327,7 @@ export class TestExecutor {
 
     // Parse auth dependencies
     this.authDeps = parseAuthDependencies(this.runbookPath)
+    this.runDeps = parseRunDependencies(this.runbookPath)
 
     // Capture initial environment
     this.initialSessionEnv = Object.entries(process.env)
@@ -459,6 +465,7 @@ export class TestExecutor {
     this.blockOutputs = new Map()
     this.generatedFileCounts = new Map()
     this.blockStates = new Map()
+    this.passedScripts = new Set()
     this.authBlockCredentials = new Map()
     this.gitAuthTokens = new Map()
     this.activeWorkTreePath = ""
@@ -624,7 +631,22 @@ export class TestExecutor {
       }
     }
 
-    // 4. Dispatch block
+    // 4. Check `dependsOn`. A block is blocked until every block it names has
+    // run and ended in success or warn, as its Run button is in the app.
+    if (step.expect !== "skip") {
+      const unmet = (this.runDeps.get(block.id) ?? []).filter(
+        (id) => !this.passedScripts.has(normalizeBlockId(id)),
+      )
+      if (unmet.length > 0) {
+        result.passed = step.expect === "blocked"
+        result.actualStatus = "blocked"
+        result.error = `Block depends on ${unmet.map((id) => `"${id}"`).join(", ")} which hasn't run successfully`
+        result.duration = Date.now() - start
+        return result
+      }
+    }
+
+    // 5. Dispatch block
     return this.dispatchBlock(block, step, start)
   }
 
@@ -950,6 +972,12 @@ export class TestExecutor {
       result.actualStatus = status
       result.exitCode = exitCode
       result.logs = logs
+
+      if (status === "success" || status === "warn") {
+        this.passedScripts.add(normalizeBlockId(block.id))
+      } else {
+        this.passedScripts.delete(normalizeBlockId(block.id))
+      }
 
       // Parse outputs. Sensitive ones come back Redacted: later blocks'
       // templates and assertions reveal them, and printing them shows <redacted>.
@@ -1864,7 +1892,7 @@ export class TestExecutor {
 
     const outputs: Record<string, unknown> = {}
     for (const [blockId, blockOutputs] of this.blockOutputs) {
-      const templateBlockId = blockId.replace(/-/g, "_")
+      const templateBlockId = normalizeBlockId(blockId)
       outputs[templateBlockId] = outputValues(Object.fromEntries(blockOutputs))
     }
 
@@ -1902,7 +1930,7 @@ export class TestExecutor {
     for (const p of expected) {
       const [root, rawBlockId, outputName] = p.split(".")
       if (root === "outputs" && rawBlockId !== undefined && outputName !== undefined) {
-        const blockId = rawBlockId.replace(/-/g, "_")
+        const blockId = normalizeBlockId(rawBlockId)
         const outputs = templateOutputs[blockId]
         if (!outputs || !outputs[outputName]) {
           missing.push(p)
@@ -2038,4 +2066,9 @@ function describeCleanupError(e: unknown): string {
     return detail ? `exit code ${status}: ${detail}` : `exit code ${status}`
   }
   return errorMessage(e)
+}
+
+/** A block ID as templates name it, with hyphens turned into underscores. */
+function normalizeBlockId(id: string): string {
+  return id.replace(/-/g, "_")
 }

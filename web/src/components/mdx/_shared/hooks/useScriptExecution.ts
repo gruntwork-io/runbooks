@@ -206,6 +206,8 @@ interface UseScriptExecutionReturn {
   inlineInputsId: string | null
 
   // Output dependencies
+  /** Ids of the blocks whose outputs the script references */
+  outputDependencyBlockIds: string[]
   unmetOutputDependencies: BlockOutput[]
   hasAllOutputDependencies: boolean
 
@@ -445,6 +447,11 @@ export function useScriptExecution({
   const { inputs: inputDeps, outputs: outputDeps } = useMemo(
     () => splitDependencies(allDeps),
     [allDeps],
+  )
+
+  const outputDependencyBlockIds = useMemo(
+    () => [...new Set(outputDeps.map((dep) => dep.blockId))],
+    [outputDeps],
   )
 
   // Check which input dependencies are not yet satisfied
@@ -883,6 +890,7 @@ export function useScriptExecution({
     inlineInputsId,
 
     // Output dependencies
+    outputDependencyBlockIds,
     unmetOutputDependencies,
     hasAllOutputDependencies,
 

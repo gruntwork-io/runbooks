@@ -846,12 +846,19 @@ export interface IpcChannelMap {
 export type FindAction = "open" | "next" | "previous"
 
 export interface IpcEventMap {
-  "exec:log": { line: string; timestamp: string; replace?: boolean }
-  "exec:log-file": { path: string }
-  "exec:status": { status: string; exitCode: number }
+  // Every exec event has the `executionId` of its exec:run, since several runs
+  // can be streaming at once.
+  "exec:log": { executionId: string; line: string; timestamp: string; replace?: boolean }
+  "exec:log-file": { executionId: string; path: string }
+  "exec:status": { executionId: string; status: string; exitCode: number }
   /** Encoded, since a sensitive output's `Redacted` can't cross IPC (see encodeOutputs). */
-  "exec:outputs": { outputs: EncodedOutputValues }
-  "exec:files-captured": { files: string[]; count: number; fileTree: unknown }
+  "exec:outputs": { executionId: string; outputs: EncodedOutputValues }
+  "exec:files-captured": {
+    executionId: string
+    files: string[]
+    count: number
+    fileTree: unknown
+  }
   /**
    * `path` is the runbook the watcher watches (as runbook:get resolved it), so
    * after a failed open the renderer reloads that runbook, not the failed one.

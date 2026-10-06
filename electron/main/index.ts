@@ -451,8 +451,18 @@ app
 
     setupApplicationMenu()
     registerAllIpcHandlers()
-    createMainWindow()
+    const mainWindow = createMainWindow()
     initAutoUpdater()
+
+    // View > Reload replaces the page without unmounting its blocks, so no
+    // block cancels its run, and no block on the new page shows it or can stop
+    // it.
+    mainWindow.webContents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return
+      cancelAllExecutions().catch((err: unknown) => {
+        log.error("Error cancelling executions:", err)
+      })
+    })
 
     // Keep the (Windows/Linux) title bar overlay + window background in sync with
     // the effective theme. Fires both when the renderer changes themeSource via

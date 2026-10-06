@@ -1,4 +1,6 @@
 /**
+ * exec:run leaves the other runs going, and exec:cancel stops the run it names.
+ *
  * cancelAllExecutions is what will-quit calls to stop running scripts. Scripts
  * run in their own process group, so nothing else signals them when the app
  * exits. This drives the real exec:run handler on the real runtime (only
@@ -48,7 +50,7 @@ async function waitUntil(pred: () => boolean, timeoutMs: number): Promise<boolea
   return pred()
 }
 
-describe("cancelAllExecutions", () => {
+describe("exec:run and cancelAllExecutions", () => {
   let tmpDir = ""
   let pidFile = ""
   let executableId = ""
@@ -131,10 +133,39 @@ describe("cancelAllExecutions", () => {
     expect(await waitUntil(() => !isAlive(childPid), 10000)).toBe(true)
   }, 20000)
 
+  it("leaves the first run going when a second one starts, and stops each on its own", async () => {
+    const first = await startLongRun("first")
+    const second = await startLongRun("second")
+    expect(isAlive(first.childPid)).toBe(true)
+
+    await handlers.get("exec:cancel")!({}, { executionId: "first" })
+
+    expect(await first.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(first.childPid), 10000)).toBe(true)
+    expect(isAlive(second.childPid)).toBe(true)
+
+    await handlers.get("exec:cancel")!({}, { executionId: "second" })
+
+    expect(await second.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
+  }, 30000)
+
+  it("stops every run on quit", async () => {
+    const first = await startLongRun("quit-first")
+    const second = await startLongRun("quit-second")
+
+    await cancelAllExecutions()
+
+    expect(await first.run).toEqual({ status: null, cancelled: true })
+    expect(await second.run).toEqual({ status: null, cancelled: true })
+    expect(await waitUntil(() => !isAlive(first.childPid), 10000)).toBe(true)
+    expect(await waitUntil(() => !isAlive(second.childPid), 10000)).toBe(true)
+  }, 30000)
+
   it("still cancels a run that reused the id of the run it replaced", async () => {
-    // Renderer execution ids restart after a reload, so a new run can arrive
-    // under the id of one that is still running. exec:run cancels the old run;
-    // its cleanup must not remove the new run's entry.
+    // A new run can arrive under the id of one that is still running. exec:run
+    // cancels the old run, which the new entry would otherwise hide from Stop
+    // and from quit; the old run's cleanup must not remove the new run's entry.
     const first = await startLongRun("1")
     const second = await startLongRun("1")
     expect(await first.run).toEqual({ status: null, cancelled: true })
@@ -186,6 +217,7 @@ describe("exec:outputs", () => {
     expect(result).toEqual({ status: { status: "success", exitCode: 0 } })
     const outputs = sent.filter((s) => s.channel === "exec:outputs").map((s) => s.payload)
     const expected = {
+      executionId: "outputs-test",
       outputs: {
         user: { value: "alice", sensitive: false },
         token: { value: "s3cr3t", sensitive: true },
@@ -194,5 +226,10 @@ describe("exec:outputs", () => {
     expect(outputs).toEqual([expected])
     // What the renderer receives: nothing is lost in the clone
     expect(structuredClone(outputs[0])).toEqual(expected)
+    // Every event names its run, so the renderer can tell concurrent runs apart
+    expect(sent.length).toBeGreaterThan(1)
+    for (const { payload } of sent) {
+      expect(payload).toMatchObject({ executionId: "outputs-test" })
+    }
   }, 20000)
 })

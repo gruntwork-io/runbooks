@@ -95,14 +95,22 @@ export interface UseApiExecReturn {
 }
 
 // ---------------------------------------------------------------------------
-// Global execution ID
+// Execution IDs
 // ---------------------------------------------------------------------------
-// Only one script can execute at a time (the main process cancels any active
-// execution before starting a new one). This counter lets each hook instance
-// know whether *it* owns the current execution. Listeners registered by a
-// previous execution will see that `activeExecId` has moved on and silently
-// discard events that belong to a newer run.
-let activeExecId = 0
+// Every hook instance with a run in flight listens on the same exec:*
+// channels. The main process puts the run's id on each event, and each
+// listener drops the events of other runs. All instances share the counter so
+// that ids don't repeat.
+let execSeq = 0
+
+/** Reports whether an exec:* event came from the run named `executionId`. */
+function isEventOf(executionId: string, data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { executionId?: unknown }).executionId === executionId
+  )
+}
 
 /**
  * Hook to execute scripts via IPC with streaming event listeners.
@@ -195,12 +203,9 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       cancel()
       const generation = ++executionGenRef.current
 
-      // Claim global ownership so that listeners from previously-run blocks
-      // (which are still subscribed) will silently discard our events.
-      const execId = ++activeExecId
-      // Stable string id for this run, sent to the backend so a later exec:cancel
-      // can target this specific execution. Held in a ref for cancel() to read.
-      const executionId = String(execId)
+      // Sent to the backend, which puts it on the run's events and cancels by
+      // it. Held in a ref for cancel() to read.
+      const executionId = String(++execSeq)
       runningExecIdRef.current = executionId
       lastExecIdRef.current = executionId
       selfCancelledRef.current = false
@@ -216,13 +221,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       })
 
       // Subscribe to IPC streaming events before starting execution.
-      // Each listener guards against stale delivery: if another block has
-      // started a newer execution (activeExecId moved on), we ignore the event.
       const unsubs: (() => void)[] = []
 
       unsubs.push(
         api.on("exec:log", (data: unknown) => {
-          if (activeExecId !== execId) return
+          if (!isEventOf(executionId, data)) return
           const parsed = ExecLogEventSchema.safeParse(data)
           if (parsed.success) {
             const newEntry = createLogEntry(parsed.data.line, parsed.data.timestamp)
@@ -239,7 +242,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
       unsubs.push(
         api.on("exec:log-file", (data: unknown) => {
-          if (activeExecId !== execId) return
+          if (!isEventOf(executionId, data)) return
           const parsed = ExecLogFileEventSchema.safeParse(data)
           if (parsed.success) {
             setState((prev) => ({ ...prev, logFilePath: parsed.data.path }))
@@ -249,7 +252,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
       unsubs.push(
         api.on("exec:outputs", (data: unknown) => {
-          if (activeExecId !== execId) return
+          if (!isEventOf(executionId, data)) return
           const parsed = BlockOutputsEventSchema.safeParse(data)
           if (parsed.success) {
             setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
@@ -260,7 +263,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
       unsubs.push(
         api.on("exec:files-captured", (data: unknown) => {
-          if (activeExecId !== execId) return
+          if (!isEventOf(executionId, data)) return
           const parsed = FilesCapturedEventSchema.safeParse(data)
           if (parsed.success) {
             options?.onFilesCaptured?.(parsed.data)
@@ -270,7 +273,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
 
       unsubs.push(
         api.on("exec:status", (data: unknown) => {
-          if (activeExecId !== execId) return
+          if (!isEventOf(executionId, data)) return
           const parsed = ExecStatusEventSchema.safeParse(data)
           if (parsed.success) {
             setState((prev) => ({
@@ -294,9 +297,9 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           runningExecIdRef.current = null
 
           // Reconcile the final status from the invoke's return value. The streamed
-          // `exec:status` event can be silently dropped — listeners get detached, a
-          // newer run claims activeExecId, or the main process suppressed sends after
-          // an abort — which would otherwise leave a *finished* block stuck showing
+          // `exec:status` event can be silently dropped, when listeners get detached
+          // or the main process suppressed sends after an abort, which would otherwise
+          // leave a *finished* block stuck showing
           // "running". The invoke result is the source of truth, so apply it whenever
           // the UI is still in a non-terminal state.
           if (result?.status) {
@@ -311,14 +314,12 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
                 : prev,
             )
           } else {
-            // No status means the run was interrupted before it could report one:
-            // the main process aborts every in-flight execution when a new one
-            // starts, and an aborted run resolves as { status: null, cancelled:
-            // true }. Its `exec:status` event never arrives either — main stops
-            // sending after the abort, and these listeners are already ignoring
-            // events now that a newer run owns `activeExecId`. Without this the
-            // block spins on "running" forever, over a child process that was
-            // killed. Self-cancellation is already reported by cancel().
+            // No status means the main process aborted the run and resolved it
+            // as { status: null, cancelled: true }. It sends no `exec:status`
+            // after an abort, so without this the block would show "running"
+            // forever. cancel() has already logged a stop this hook asked for.
+            // A stop from the app quitting or the window reloading is logged
+            // here.
             const explain = !selfCancelledRef.current
             setState((prev) =>
               prev.status === "running" || prev.status === "pending"
@@ -326,12 +327,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
                     ...prev,
                     status: "pending",
                     logs: explain
-                      ? [
-                          ...prev.logs,
-                          createLogEntry(
-                            "Execution stopped: another block was run before this one finished.",
-                          ),
-                        ]
+                      ? [...prev.logs, createLogEntry("Execution stopped before it finished.")]
                       : prev.logs,
                   }
                 : prev,

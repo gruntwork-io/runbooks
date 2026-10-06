@@ -1,0 +1,48 @@
+# Run Order Demo
+
+Command and Check blocks can run at the same time. This runbook shows the three cases where a block waits for another one.
+
+## Outputs
+
+`show-tag` uses an output of `build`, so its Run button is disabled until `build` has run. Run `build` a second time and `show-tag` waits again until it finishes.
+
+<Command
+  id="build"
+  title="Build"
+  command='sleep 5; echo "tag=v1.2.3" >> "$RUNBOOK_OUTPUT"'
+/>
+
+<Command
+  id="show-tag"
+  title="Show the tag"
+  command="echo Built {{ .outputs.build.tag }}"
+/>
+
+## dependsOn
+
+`use-token` reads a variable that `log-in` exports. That isn't an output, so `use-token` names `log-in` in `dependsOn`.
+
+<Command
+  id="log-in"
+  title="Log in"
+  command="sleep 5; export DEMO_TOKEN=secret"
+/>
+
+<Check
+  id="use-token"
+  title="Use the token"
+  dependsOn="log-in"
+  command='test "$DEMO_TOKEN" = secret'
+/>
+
+## exclusive
+
+`migrate` is `exclusive`. While it runs, no other block can start, and it can't start while another block is running.
+
+<Command
+  id="migrate"
+  title="Migrate"
+  exclusive
+  dependsOn={["log-in", "use-token"]}
+  command="sleep 5; echo migrated"
+/>
