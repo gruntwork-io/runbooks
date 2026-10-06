@@ -11,6 +11,17 @@
 import type { ExecRequest, ScriptFileChange, Section, SessionMetadata } from "../../src/types.ts"
 export type { ExecRequest, ScriptFileChange, Section, SessionMetadata }
 import type { EncodedOutputValues } from "../../src/domain/exec/outputValues.ts"
+import type { SavedBlockState, SessionEventKind } from "../../src/domain/session/history.ts"
+import type { ListedSession } from "../../src/domain/session/store.ts"
+
+/** What session:switch did. */
+export type SessionSwitchResult =
+  /** The renderer is opening the session's runbook in that session. */
+  | { status: "switched" }
+  /** Nothing was done: a script is running, and the request did not say to stop it. */
+  | { status: "script-running" }
+  /** Nothing was done, for `error`, a sentence fit to show the user. */
+  | { status: "failed"; error: string }
 
 // ---------------------------------------------------------------------------
 // Invoke channels (request/response, replaces REST GET/POST/DELETE)
@@ -20,13 +31,19 @@ export interface IpcChannelMap {
   // Runbook
   "runbook:get": {
     /**
-     * `reload: "watch"` marks a reload for a watch-mode change: it keeps the
-     * session's working dir, which any other load of the same runbook resets.
      * A load that a newer runbook:get overtook resolves to `{ superseded: true }`,
      * which useIpc ignores. `assetHost` is the host of the runbook's
      * runbook-asset:// URLs, the only one the protocol handler serves.
+     * `sessionId` identifies the session the runbook was opened in: File > Reset
+     * Session reloads the same runbook under a new one. `sessionName` is what
+     * the title bar shows it as, e.g. `elegant-elephant`, and `sessionDir` is
+     * the session's own directory, which the title bar's folder button copies.
+     * `blockStates` is what the session's history says each block was left as,
+     * which the blocks start from. `sessionResumedFrom` is when a saved session
+     * was last used, on the load that resumed it; a new session, and a reload
+     * of the runbook in the session it has open, have none.
      */
-    params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" }
+    params: { path: string; watchMode?: boolean; remoteSource?: string }
     result: {
       path: string
       content: string
@@ -37,6 +54,11 @@ export interface IpcChannelMap {
       warnings?: string[]
       remoteSource?: string
       assetHost: string
+      sessionId: string
+      sessionName: string
+      sessionDir: string
+      sessionResumedFrom?: string
+      blockStates: SavedBlockState[]
     }
   }
   "runbook:open-remote": {
@@ -70,6 +92,44 @@ export interface IpcChannelMap {
   "session:get": { params: void; result: SessionMetadata }
   "session:reset": { params: void; result: { ok: true } }
   "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
+  /**
+   * Rename the open runbook's session. Resolves to the name it now has, and
+   * rejects with a sentence for the user when the name is not allowed (see
+   * sessionNameProblem) or is another session's.
+   */
+  "session:rename": { params: { name: string }; result: { name: string } }
+  /**
+   * Mark the open session finished (SessionPersistence.finishCurrent): opening
+   * its runbook again starts a new session.
+   */
+  "session:finish": { params: void; result: { ok: true } }
+  /** The most recently used saved sessions, most recent first (SessionPersistence.listSessions). */
+  "session:list": { params: void; result: { sessions: ListedSession[] } }
+  /**
+   * Open saved session `id` in the window (session-switch.ts). Stops a running
+   * script only with `stopRunningScript`; without it, a running script makes
+   * the switch answer `script-running` and do nothing.
+   */
+  "session:switch": {
+    params: { id: string; stopRunningScript?: boolean }
+    result: SessionSwitchResult
+  }
+  /**
+   * Delete saved session `id` and its history, and move its directory to the
+   * trash. Rejects with a sentence for the user when `id` is the open session,
+   * or its directory can't be moved to the trash.
+   */
+  "session:delete": { params: { id: string }; result: { ok: true } }
+  /**
+   * Add what the user did to a block to the history of session `sessionId`
+   * (src/domain/session/history.ts). `payload` is the block's state after it,
+   * as JSON. An event for a session that is no longer the open one is dropped.
+   * Rejects when the event is not one, e.g. its payload is too long.
+   */
+  "session:record-event": {
+    params: { sessionId: string; blockId: string; kind: SessionEventKind; payload: unknown }
+    result: { ok: true }
+  }
 
   // Execution
   "exec:run": {
@@ -124,12 +184,14 @@ export interface IpcChannelMap {
       region?: string
       credentials?: AwsCredentials
     }
+    // `unreachable`: AWS gave no answer, so `valid: false` says nothing about the credentials.
     result: {
       valid: boolean
       accountId?: string
       accountName?: string
       arn?: string
       error?: string
+      unreachable?: boolean
     }
   }
   "aws:profiles": {
@@ -171,6 +233,7 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      expiresAt?: string
       error?: string
     }
   }
@@ -181,6 +244,7 @@ export interface IpcChannelMap {
       accessKeyId?: string
       secretAccessKey?: string
       sessionToken?: string
+      expiresAt?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -219,6 +283,7 @@ export interface IpcChannelMap {
       secretAccessKey?: string
       region?: string
       sessionToken?: string
+      expiresAt?: string
     }
   }
   "aws:profile-auth": {
@@ -231,6 +296,7 @@ export interface IpcChannelMap {
       sessionToken?: string
       /** The region the credentials were validated in: the profile's own, else `defaultRegion`. */
       region?: string
+      expiresAt?: string
       accountId?: string
       accountName?: string
       arn?: string
@@ -570,6 +636,8 @@ export interface IpcChannelMap {
       user?: GitHubUser
       scopes?: string[]
       tokenType?: string
+      /** When the token expires, as an ISO timestamp. Absent when it doesn't. */
+      expiresAt?: string
       /** GitHub answered slow_down: back off before the next poll. */
       slowDown?: boolean
       /** With slowDown: the minimum interval GitHub now requires, in seconds. */
@@ -769,7 +837,21 @@ export interface IpcChannelMap {
   "workspace:set-active": { params: { worktreePath: string }; result: { ok: true } }
 
   // Generated Files
-  "generated-files:check": { params: void; result: { hasFiles: boolean; fileCount: number } }
+  /**
+   * Whether the session's generated directory has files. When it has, `fileTree`
+   * and its truncation fields are that directory's tree, as a render returns it.
+   */
+  "generated-files:check": {
+    params: void
+    result: {
+      hasFiles: boolean
+      fileCount: number
+      fileTree?: WorkspaceTreeNode[]
+      truncatedTree?: boolean
+      totalFiles?: number
+      heavyDirs?: Array<{ path: string; fileCount: number }>
+    }
+  }
   "generated-files:delete": {
     params: void
     result: { ok: true; success?: boolean; deletedCount?: number; message?: string }
@@ -822,6 +904,10 @@ export interface IpcChannelMap {
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
   "native:close-runbook": { params: void; result: { ok: true } }
+  /** Replace the open runbook's session with a new one, as File > Reset Session does. */
+  "native:reset-session": { params: void; result: { ok: true } }
+  /** The user's home directory, which paths on screen are shortened against (as `~`). */
+  "native:get-home-dir": { params: void; result: { path: string } }
   "native:get-cli-config": {
     params: void
     result: {
@@ -881,6 +967,10 @@ export interface IpcEventMap {
   "file:open-runbook": { path: string; remoteSource?: string }
   "menu:open-url-prompt": void
   "menu:close-runbook": void
+  /** File > Rename Session…: the title bar turns the session's name into a field. */
+  "menu:rename-session": void
+  /** File > Switch Session…: the renderer shows the saved sessions. */
+  "menu:switch-session": void
   "menu:preferences": void
   "menu:find": { action: FindAction }
   "registry:updated": void
@@ -988,6 +1078,8 @@ export interface GoogleAccountInfo {
   principal: string
   accountType: "service_account" | "user"
   scopes?: string[]
+  /** When a bare access token expires, as an ISO timestamp. Absent for credentials that refresh. */
+  expiresAt?: string
 }
 
 export interface GoogleProjectIpc {
@@ -1029,6 +1121,8 @@ export type VcsErrorKind = "tls" | "server-cert" | "network"
 /** Tri-state metadata carried by detection/validation results. */
 export interface VcsDetectionMeta {
   outcome?: VcsAuthOutcome
+  /** When a valid token expires, as an ISO timestamp. Absent when it doesn't, or isn't known. */
+  expiresAt?: string
   /** Which source produced the credential (cli-channel results may be "config" — hosts.yml/config.yml fallbacks). */
   source?: "env" | "cli" | "config"
   /** "cli" marks probe-validated degraded auth (success-card transparency line). */

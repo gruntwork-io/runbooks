@@ -34,6 +34,7 @@ import type { AddressInfo } from "net"
 import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import { readFromMain, runInMain } from "./main-process.ts"
 import { guestUrls, inGuest } from "./webview-guests.ts"
 
@@ -139,6 +140,7 @@ async function launch(name = "runbook"): Promise<{ app: ElectronApplication; pag
     // --user-data-dir isolates the single-instance lock and trust state.
     args: [
       MAIN_ENTRY,
+      MOCK_KEYCHAIN,
       `--user-data-dir=${path.join(tmpDir, "user-data")}`,
       path.join(tmpDir, name),
     ],

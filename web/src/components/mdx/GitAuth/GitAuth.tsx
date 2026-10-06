@@ -8,10 +8,14 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useTemplateContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedGitAuth } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GitAuthInstruction } from "./GitAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
+import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { GitAuthProps, GitProvider } from "./types"
@@ -105,8 +109,17 @@ function GitAuthInteractive({
 
   const { trackBlockRender } = useTelemetry()
 
+  // The sign-in the session's history has for this block. The block starts
+  // on its provider, when the picker lets the user choose one.
+  const history = useSessionHistory()
+  const [restored] = useState(() => {
+    const saved = parseSavedGitAuth(history.saved(id, "auth"))
+    if (saved?.status !== "signed-in") return undefined
+    return saved.provider === initialProvider || !hideProviderSelect ? saved : undefined
+  })
+
   // Selected provider (GitHub | GitLab)
-  const [provider, setProvider] = useState<GitProvider>(initialProvider)
+  const [provider, setProvider] = useState<GitProvider>(restored?.provider ?? initialProvider)
   // An invalid `provider` prop renders the validation error below, but the
   // hooks still run first — give them a real config instead of undefined.
   const providerConfig = isGitProvider(provider) ? PROVIDERS[provider] : PROVIDERS.github
@@ -132,6 +145,8 @@ function GitAuthInteractive({
     detectCredentials: configError ? false : detectCredentials,
     host: provider === initialProvider ? host : undefined,
     defaultTab,
+    // Behind a configuration error, nothing is restored either.
+    restored: configError ? undefined : restored,
   })
 
   // Switch providers: cancel any in-flight OAuth poll, drop the prior
@@ -150,6 +165,10 @@ function GitAuthInteractive({
     setUseDefaultOAuth(false)
     setProvider(next)
   }
+
+  const expiry = useCredentialExpiry(
+    auth.authStatus === "authenticated" ? auth.expiresAt : undefined,
+  )
 
   // Track block render on mount
   useEffect(() => {
@@ -230,8 +249,10 @@ function GitAuthInteractive({
     )
   }
 
-  const statusClasses = getStatusClasses(auth.authStatus)
-  const iconClasses = getStatusIconClasses(auth.authStatus)
+  // A token that has expired, or is about to, shows as a failed sign-in.
+  const shownStatus = expiry === "expiring" || expiry === "expired" ? "failed" : auth.authStatus
+  const statusClasses = getStatusClasses(shownStatus)
+  const iconClasses = getStatusIconClasses(shownStatus)
 
   // Provider picker is hidden when the author locks it or once authenticated.
   const showProviderSelect = !hideProviderSelect && auth.authStatus !== "authenticated"
@@ -258,7 +279,7 @@ function GitAuthInteractive({
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-border pr-3 mr-0 self-stretch">
           <StatusIcon
-            status={auth.authStatus}
+            status={shownStatus}
             className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
           />
         </div>
@@ -335,6 +356,13 @@ function GitAuthInteractive({
               gitSslBackend={auth.cliStatus?.git?.sslBackend}
               onApplySchannel={auth.applySchannel}
               onReAuthenticate={auth.reAuthenticate}
+            />
+          )}
+          {expiry && auth.expiresAt && (
+            <CredentialExpiryNotice
+              expiresAt={auth.expiresAt}
+              expiry={expiry}
+              onSignInAgain={auth.reAuthenticate}
             />
           )}
 

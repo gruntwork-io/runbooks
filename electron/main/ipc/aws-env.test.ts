@@ -173,10 +173,37 @@ describe("aws:env-credentials-confirm", () => {
       secretAccessKey: "dev-secret",
       sessionToken: undefined,
       region: "us-west-2",
+      expiresAt: undefined,
     })
     // The renderer publishes the keys once it knows the attempt is still
     // current, so a reply nobody is waiting for changes nothing.
     expect(sessionEnv()).toEqual(before)
+  })
+
+  it("returns when the credentials expire, from AWS_CREDENTIAL_EXPIRATION", async () => {
+    processEnv = {
+      PROD_AWS_ACCESS_KEY_ID: "ASIA_DEV",
+      PROD_AWS_SECRET_ACCESS_KEY: "dev-secret",
+      PROD_AWS_SESSION_TOKEN: "dev-token",
+      PROD_AWS_CREDENTIAL_EXPIRATION: "2026-10-03T14:30:00+02:00",
+      AWS_CREDENTIAL_EXPIRATION: "2030-01-01T00:00:00Z",
+    }
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "PROD_", defaultRegion: "us-west-2" })
+
+    expect(reply).toMatchObject({ valid: true, expiresAt: "2026-10-03T12:30:00.000Z" })
+  })
+
+  it("ignores an AWS_CREDENTIAL_EXPIRATION that isn't a date", async () => {
+    processEnv = {
+      AWS_ACCESS_KEY_ID: "ASIA_DEV",
+      AWS_SECRET_ACCESS_KEY: "dev-secret",
+      AWS_CREDENTIAL_EXPIRATION: "soon",
+    }
+
+    const reply = await handleEnvCredentialsConfirm({ prefix: "", defaultRegion: "us-west-2" })
+
+    expect(reply).toMatchObject({ valid: true, expiresAt: undefined })
   })
 
   it("confirms when the account is the one the prompt showed", async () => {

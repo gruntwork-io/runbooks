@@ -18,6 +18,12 @@ export interface GitLabTokenValidation {
    * failure).
    */
   readonly scopes?: string[] | undefined
+  /**
+   * When the token expires, as an ISO timestamp, introspected with the
+   * scopes. Undefined for a token that doesn't expire or whose expiry can't
+   * be determined.
+   */
+  readonly expiresAt?: string | undefined
 }
 
 export type GitLabTokenType = "pat" | "oauth" | "unknown"

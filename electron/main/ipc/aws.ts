@@ -6,6 +6,7 @@
  * (aws-profiles.ts), SSO device flow, and region checking.
  */
 import { ipcMain } from "electron"
+import { Effect, Either } from "effect"
 import { runtime } from "./runtime.ts"
 import {
   validateCredentials,
@@ -44,8 +45,15 @@ export function registerAwsHandlers(): void {
     const credentials = unwrapCredentials(params)
     const region = params.region ?? credentials.region
     try {
-      const identity = await runtime.runPromise(validateCredentials(credentials, region))
-      return { valid: true, ...identity }
+      const outcome = await runtime.runPromise(
+        Effect.either(validateCredentials(credentials, region)),
+      )
+      if (Either.isRight(outcome)) return { valid: true, ...outcome.right }
+      return {
+        valid: false,
+        error: errorMessage(outcome.left),
+        ...(outcome.left.unreachable ? { unreachable: true } : {}),
+      }
     } catch (err) {
       return {
         valid: false,
@@ -77,6 +85,7 @@ export function registerAwsHandlers(): void {
         secretAccessKey: credentials.secretAccessKey,
         sessionToken: credentials.sessionToken,
         region: credentials.region,
+        expiresAt: credentials.expiresAt,
       }
     } catch (err) {
       return {

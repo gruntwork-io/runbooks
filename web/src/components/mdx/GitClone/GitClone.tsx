@@ -1,5 +1,5 @@
 import { GitBranch, CheckCircle, XCircle, Loader2, AlertTriangle } from "lucide-react"
-import { useState, useEffect, useEffectEvent, useMemo, useCallback } from "react"
+import { useState, useEffect, useEffectEvent, useMemo, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
 import { ViewLogs, ViewOutputs, InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
@@ -9,6 +9,10 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
+import { parseSavedClone, type SavedClone } from "@/lib/sessionHistory"
+import { omitUndefined } from "@/lib/omitUndefined"
 import { useGitClone } from "./hooks/useGitClone"
 import { GitHubBrowser } from "./components/GitHubBrowser"
 import { hostFromRepoUrl } from "@/components/mdx/_shared/lib/gitProvider"
@@ -145,10 +149,22 @@ function GitCloneInteractive({
 
   // Git worktree context for registering cloned repos with the workspace
   const { registerWorkTree, unregisterWorkTree } = useGitWorkTree()
+  const displayPath = useDisplayPath()
 
   useEffect(() => {
     trackBlockRender("GitClone")
   }, [id, trackBlockRender])
+
+  // The repository the block had when the session was last open, from the
+  // session's history. The block starts on it, and the hook checks it is
+  // still there.
+  const history = useSessionHistory()
+  const [restored] = useState(() => {
+    const saved = parseSavedClone(history.saved(id, "clone"))
+    return saved?.status === "ready" ? saved : undefined
+  })
+  // What the block published for its repository, and so what the history keeps
+  const [publishedOutputs, setPublishedOutputs] = useState(restored?.outputs ?? null)
 
   const {
     cloneStatus,
@@ -156,6 +172,8 @@ function GitCloneInteractive({
     logs,
     cloneResult,
     errorMessage,
+    restoreError,
+    refMismatch,
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
@@ -178,7 +196,17 @@ function GitCloneInteractive({
     fetchOrgs,
     fetchRepos,
     fetchRefs,
-  } = useGitClone({ id, githubAuthId, gitAuthId })
+  } = useGitClone({
+    id,
+    githubAuthId,
+    gitAuthId,
+    restored: restored && { result: restored.result, outputs: restored.outputs },
+    onReady: (_result, published) => setPublishedOutputs(published),
+    onRestoreLost: () => {
+      setPublishedOutputs(null)
+      unregisterWorkTree(id)
+    },
+  })
 
   const outputValues = useOutputs(id)
   const registeredOutputs = useMemo(() => {
@@ -186,19 +214,63 @@ function GitCloneInteractive({
     return Object.fromEntries(outputValues.map((o) => [o.name, o.value]))
   }, [outputValues])
 
-  // Form state — initialized from resolved values
-  const [gitUrl, setGitUrl] = useState(resolvedUrl)
-  const [ref, setRef] = useState(resolvedRef)
-  const [repoPath, setRepoPath] = useState(resolvedRepoPath)
-  const [localPath, setLocalPath] = useState(resolvedLocalPath)
-  const [repoDir, setRepoDir] = useState(resolvedRepoDir)
+  // Form state — initialized from resolved values, or the restored repository's
+  const [gitUrl, setGitUrl] = useState(restored?.form.gitUrl ?? resolvedUrl)
+  const [ref, setRef] = useState(restored?.form.ref ?? resolvedRef)
+  const [repoPath, setRepoPath] = useState(restored?.form.repoPath ?? resolvedRepoPath)
+  const [localPath, setLocalPath] = useState(restored?.form.localPath ?? resolvedLocalPath)
+  const [repoDir, setRepoDir] = useState(restored?.form.repoDir ?? resolvedRepoDir)
   // Which source the block is on. A prefilled checkout directory means the
   // author expects a local repo, so start there unless told otherwise.
-  const [activeSource, setActiveSource] = useState<GitCloneSource>(initialSource)
+  const [activeSource, setActiveSource] = useState<GitCloneSource>(
+    restored?.source ?? initialSource,
+  )
   // Metadata of the checkout the user confirmed, kept so the shared worktree
   // registration effect can read it — including on a later pass, once an empty
   // repo has been given its default branch.
-  const [selectedLocalInfo, setSelectedLocalInfo] = useState<LocalRepoInfo | null>(null)
+  const [selectedLocalInfo, setSelectedLocalInfo] = useState<LocalRepoInfo | null>(() =>
+    restored?.localInfo ? omitUndefined(restored.localInfo) : null,
+  )
+  // The form as it was when the user cloned or selected the repository shown
+  const [submittedForm, setSubmittedForm] = useState(restored?.form ?? null)
+
+  // Keep the repository in the session's history once it is published, and
+  // record nothing when it is what the history already has.
+  const lastSavedCloneRef = useRef(restored && JSON.stringify(restored))
+  useEffect(() => {
+    if (cloneStatus !== "success" || !cloneResult || !publishedOutputs || !submittedForm) return
+    if (activeSource === "local" && !selectedLocalInfo) return
+    const saved: SavedClone = {
+      status: "ready",
+      source: activeSource,
+      form: submittedForm,
+      result: omitUndefined({
+        fileCount: cloneResult.fileCount,
+        absolutePath: cloneResult.absolutePath,
+        relativePath: cloneResult.relativePath,
+        ref: cloneResult.ref,
+        hasCommits: cloneResult.hasCommits,
+      }),
+      localInfo: activeSource === "local" ? selectedLocalInfo : null,
+      outputs: publishedOutputs,
+    }
+    // Parsed, so the payload has only the schema's fields (a checkout's
+    // git:local-repo result has more), in the order the restored one has them.
+    const normalized = parseSavedClone(saved)
+    const json = JSON.stringify(normalized)
+    if (json === lastSavedCloneRef.current) return
+    lastSavedCloneRef.current = json
+    history.record(id, "clone", normalized)
+  }, [
+    history,
+    id,
+    cloneStatus,
+    cloneResult,
+    publishedOutputs,
+    submittedForm,
+    activeSource,
+    selectedLocalInfo,
+  ])
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(
     !!(prefilledRef || prefilledRepoPath || prefilledLocalPath),
   )
@@ -257,12 +329,13 @@ function GitCloneInteractive({
   }, [browseForRepoDir])
 
   const handleUseLocalRepo = useCallback(async () => {
+    setSubmittedForm({ gitUrl, ref, repoPath, localPath, repoDir })
     const info = await selectLocalRepo(repoDir)
     if (!info) return
     // Registration itself happens in the effect below, which serves both
     // sources and holds off while the repo has no commits.
     setSelectedLocalInfo(info)
-  }, [selectLocalRepo, repoDir])
+  }, [selectLocalRepo, gitUrl, ref, repoPath, localPath, repoDir])
 
   // Compute path preview from the current form state
   const pathPreview = useMemo(() => {
@@ -277,21 +350,12 @@ function GitCloneInteractive({
     }
     if (!effectivePath) return null
 
-    // An absolute path (POSIX, Windows drive or UNC) inside the working
-    // directory is shown relative to it, as the result panel shows it once
-    // cloned. Only one outside it, which the clone rejects, is shown as-is.
-    if (/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(effectivePath)) {
-      const base = workingDir.replace(/[\\/]+$/, "")
-      const rest = effectivePath.startsWith(base) ? effectivePath.slice(base.length) : ""
-      const inside = /^[\\/]/.test(rest) ? rest.replace(/^[\\/]+/, "") : ""
-      return { relative: inside ? `./${inside}` : effectivePath, absolute: effectivePath }
-    }
-
-    const relative = effectivePath.startsWith("./") ? effectivePath : `./${effectivePath}`
-    const absolute = `${workingDir}/${effectivePath.replace(/^\.\//, "")}`
-
-    return { relative, absolute }
-  }, [workingDir, localPath, gitUrl])
+    // An absolute path (POSIX, Windows drive or UNC) is the destination as it is.
+    const absolute = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(effectivePath)
+      ? effectivePath
+      : `${workingDir}/${effectivePath.replace(/^\.\//, "")}`
+    return { shown: displayPath(absolute), absolute }
+  }, [workingDir, localPath, gitUrl, displayPath])
 
   // Check for GitHub token once the auth dependency is met
   useEffect(() => {
@@ -411,6 +475,7 @@ function GitCloneInteractive({
     async (force?: boolean) => {
       if (!gitUrl.trim()) return
       setShowOverwriteConfirm(false)
+      setSubmittedForm({ gitUrl, ref, repoPath, localPath, repoDir })
       const result = await clone(
         gitUrl.trim(),
         ref.trim(),
@@ -422,7 +487,7 @@ function GitCloneInteractive({
         setShowOverwriteConfirm(true)
       }
     },
-    [gitUrl, ref, repoPath, localPath, clone],
+    [gitUrl, ref, repoPath, localPath, repoDir, clone],
   )
 
   const handleRepoSelected = useCallback((url: string) => {
@@ -441,7 +506,11 @@ function GitCloneInteractive({
     reset()
     unregisterWorkTree(id)
     setShowOverwriteConfirm(false)
-  }, [reset, unregisterWorkTree, id])
+    setPublishedOutputs(null)
+    const none: SavedClone = { status: "none" }
+    lastSavedCloneRef.current = JSON.stringify(none)
+    history.record(id, "clone", none)
+  }, [reset, unregisterWorkTree, id, history])
 
   // Status-driven styling (matches Command/Check/AwsAuth/GitHubAuth pattern)
   const statusConfig: Record<
@@ -467,7 +536,9 @@ function GitCloneInteractive({
     bg: statusClasses,
     icon: IconComponent,
     iconColor: iconClasses,
-  } = statusConfig[cloneStatus]
+    // A restored repository on another branch than the session saved is red
+    // until the user switches it back or starts over.
+  } = statusConfig[cloneStatus === "success" && refMismatch ? "fail" : cloneStatus]
 
   const isLocalSource = activeSource === "local"
   // Browsing and checking a directory needs no credentials, so the local form
@@ -544,9 +615,44 @@ function GitCloneInteractive({
             </div>
           )}
 
+          {/* The repository the session's history had is gone from disk */}
+          {restoreError && cloneStatus !== "success" && (
+            <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
+              <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-warning-foreground m-0">
+                  This block&apos;s repository is gone
+                </p>
+                <p className="text-xs text-warning-foreground m-0 mt-0.5 break-words">
+                  {restoreError} Clone it again, or select another checkout.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Success state */}
           {cloneStatus === "success" && cloneResult ? (
             <div className="space-y-3">
+              {refMismatch && (
+                <div
+                  role="alert"
+                  className="p-3 bg-destructive-muted border border-destructive/30 rounded-md flex items-start gap-2"
+                >
+                  <AlertTriangle className="size-4 text-destructive mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-destructive m-0">
+                      {refMismatch.current
+                        ? `This repository is on ${refMismatch.current}, not ${refMismatch.saved}`
+                        : `This repository is no longer on ${refMismatch.saved}`}
+                    </p>
+                    <p className="text-xs text-destructive m-0 mt-0.5 break-words">
+                      This session was working on <code>{refMismatch.saved}</code>, and the blocks
+                      that follow expect it. Run <code>git checkout {refMismatch.saved}</code> in
+                      the repository, or clone again.
+                    </p>
+                  </div>
+                </div>
+              )}
               {/* An empty repo is a success as far as the clone goes, but it
                   can't take a pull request yet — say so here rather than
                   letting later blocks discover it the hard way. */}
@@ -561,7 +667,7 @@ function GitCloneInteractive({
               <CloneResultDisplay
                 result={cloneResult}
                 source={activeSource}
-                remoteUrl={localPreview?.remoteUrl}
+                remoteUrl={localPreview?.remoteUrl ?? selectedLocalInfo?.remoteUrl}
                 warn={cloneResult.hasCommits === false}
                 onCloneAgain={handleCloneAgain}
               />
@@ -702,10 +808,10 @@ function GitCloneInteractive({
                           disabled={isFormDisabled}
                           className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card focus:outline-none focus:ring-2 focus:ring-ring focus:border-ring disabled:bg-muted disabled:text-muted-foreground placeholder:text-muted-foreground"
                         />
-                        {/* Relative destination; hover shows, and copy copies, the absolute path. */}
+                        {/* Shortened destination; hover shows, and copy copies, the absolute path. */}
                         {pathPreview && (
                           <LocalPathRow
-                            displayText={pathPreview.relative}
+                            displayText={pathPreview.shown}
                             copyPath={pathPreview.absolute}
                             className="mt-1.5"
                           />
@@ -724,7 +830,9 @@ function GitCloneInteractive({
                     <p className="text-sm font-medium text-destructive m-0">
                       {isLocalSource ? "Couldn't use that repository" : "Clone failed"}
                     </p>
-                    <p className="text-xs text-destructive m-0 mt-0.5 font-mono">{errorMessage}</p>
+                    <p className="text-xs text-destructive m-0 mt-0.5 font-mono">
+                      {displayPath(errorMessage)}
+                    </p>
                   </div>
                 </div>
               )}
@@ -739,12 +847,12 @@ function GitCloneInteractive({
                     </p>
                     <p className="text-xs text-warning-foreground m-0 mt-0.5">
                       The local path
-                      {pathPreview?.relative ? (
+                      {pathPreview ? (
                         <>
                           {" "}
                           (
                           <code className="text-warning-foreground" title={pathPreview.absolute}>
-                            {pathPreview.relative}
+                            {pathPreview.shown}
                           </code>
                           )
                         </>

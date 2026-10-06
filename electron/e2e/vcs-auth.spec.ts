@@ -27,6 +27,7 @@ import * as https from "node:https"
 import * as os from "node:os"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import type { AddressInfo } from "node:net"
 import { readFromMain } from "./main-process.ts"
 
@@ -74,13 +75,16 @@ async function launchApp(runbook: string, env: Record<string, string>): Promise<
   }
   const collected: string[] = []
   const app = await electron.launch({
-    args: [MAIN_ENTRY, runbook],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, runbook],
     env: {
       ...cleanEnv,
       ELECTRON_NO_UPDATER: "1",
       RUNBOOKS_TELEMETRY_DISABLE: "1",
       // Skip populateShellEnv so the test-controlled PATH survives.
       TERM_PROGRAM: "runbooks-e2e",
+      // A throwaway profile, unless the test passes its own to restart on:
+      // the app saves a session for every runbook it opens.
+      RUNBOOKS_TEST_USER_DATA_DIR: makeTempDir("rb-userdata-"),
       ...env,
     },
   })

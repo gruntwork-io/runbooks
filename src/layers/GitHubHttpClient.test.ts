@@ -417,6 +417,29 @@ describe("GitHubHttpClient host routing", () => {
       expect(calls[0]!.url).toBe("https://ghes.example.com/api/v3/user")
     })
 
+    it("reads when the token expires from GitHub-Authentication-Token-Expiration", async () => {
+      const expiring = (expiration: string, url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes("/installation/") ? { total_count: 0, repositories: [] } : { login: "a" },
+          ),
+          { status: 200, headers: { "GitHub-Authentication-Token-Expiration": expiration } },
+        )
+
+      recordFetch((url) => expiring("2026-11-30 21:04:01 UTC", url))
+      expect((await run((c) => c.validateToken("github_pat_x"))).expiresAt).toBe(
+        "2026-11-30T21:04:01.000Z",
+      )
+      recordFetch((url) => expiring("2026-11-30 13:04:01 -0800", url))
+      expect((await run((c) => c.validateToken("ghs_x"))).expiresAt).toBe(
+        "2026-11-30T21:04:01.000Z",
+      )
+      recordFetch((url) => expiring("next tuesday", url))
+      expect((await run((c) => c.validateToken("ghp_x"))).expiresAt).toBeUndefined()
+      recordFetch(userResponse)
+      expect((await run((c) => c.validateToken("ghp_x"))).expiresAt).toBeUndefined()
+    })
+
     it("http:// input still goes over https", async () => {
       const calls = recordFetch(userResponse)
       await run((c) => c.validateToken("ghp_x", "http://ghes.internal"))

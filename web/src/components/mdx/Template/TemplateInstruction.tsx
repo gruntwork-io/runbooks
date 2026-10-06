@@ -10,7 +10,8 @@ import { useBlockCompletion } from "../_shared/hooks/useBlockCompletion"
 import { useApiGetBoilerplateConfig } from "@/hooks/useApiGetBoilerplateConfig"
 import { useRunbookContext, useInputs, flattenInputs } from "@/contexts/useRunbook"
 import { buildBoilerplateInvocation } from "@/components/mdx/_shared/lib/instructionCommands"
-import { useSharedTemplateVars } from "./useSharedTemplateVars"
+import { localOnlyValues, useSharedTemplateVars } from "./useSharedTemplateVars"
+import { useFormHistory } from "../_shared/hooks/useFormHistory"
 
 interface TemplateInstructionProps {
   id: string
@@ -38,7 +39,14 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   // are also imported are read-only in the form and live-synced to the imported
   // values. liveVarValues is spread last below, so the command and context never
   // show a stale form copy of an imported value.
-  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(config, inputValues)
+  // The form resumes from, and keeps, the same values in the session's history
+  // as the interactive Template's, so a switch of mode carries them over.
+  const { saved: savedForm, noteValues } = useFormHistory(id)
+  const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(
+    config,
+    inputValues,
+    savedForm,
+  )
 
   const [formValues, setFormValues] = useState<Record<string, unknown>>({})
 
@@ -47,11 +55,16 @@ export function TemplateInstruction({ id, path, inputsId, target }: TemplateInst
   const handleFormChange = useCallback(
     (data: Record<string, unknown>) => {
       setFormValues(data)
+      // The form reports {} before it has its initial values.
+      if (Object.keys(data).length > 0) {
+        // Nothing is generated in this mode, so the flag stays as it was left.
+        noteValues(localOnlyValues(data, sharedVarNames), savedForm?.submitted ?? false)
+      }
       if (config) {
         registerInputs(id, { ...inputValues, ...data, ...liveVarValues }, config)
       }
     },
-    [config, id, inputValues, liveVarValues, registerInputs],
+    [config, id, inputValues, liveVarValues, registerInputs, noteValues, sharedVarNames, savedForm],
   )
 
   // Publish defaults/imported values, but let any value the user has already

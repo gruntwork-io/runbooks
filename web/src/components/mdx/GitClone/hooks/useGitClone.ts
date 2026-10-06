@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { z } from "zod"
 import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -35,24 +35,51 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
   }
 }
 
+/** A repository the block had ready when the session was last open. */
+interface RestoredClone {
+  result: CloneResult
+  outputs: Record<string, string>
+}
+
 interface UseGitCloneOptions {
   id: string
   githubAuthId?: string | undefined
   /** Reference to a GitAuth block (GitHub or GitLab) by ID. */
   gitAuthId?: string | undefined
+  /**
+   * The repository to start from, from the session's history. The block shows
+   * it and publishes its outputs at once, then checks that it is still a
+   * repository on disk, and starts over if it is not.
+   */
+  restored?: RestoredClone | undefined
+  /** Called when the block publishes a repository's outputs, from a clone or a local checkout. */
+  onReady?: ((result: CloneResult, outputs: Record<string, string>) => void) | undefined
+  /** Called when the restored repository turned out to be gone, and the block started over. */
+  onRestoreLost?: (() => void) | undefined
 }
 
-export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions) {
+export function useGitClone({
+  id,
+  githubAuthId,
+  gitAuthId,
+  restored,
+  onReady,
+  onRestoreLost,
+}: UseGitCloneOptions) {
   const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
 
   // State
-  const [cloneStatus, setCloneStatus] = useState<GitCloneStatus>("pending")
+  const [cloneStatus, setCloneStatus] = useState<GitCloneStatus>(restored ? "success" : "pending")
   // A cancelled clone still being stopped in main; cloneStatus stays 'running'.
   const [cancelling, setCancelling] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [cloneResult, setCloneResult] = useState<CloneResult | null>(null)
+  const [cloneResult, setCloneResult] = useState<CloneResult | null>(restored?.result ?? null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // Why the repository the session's history had is not shown: it is gone.
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  // The restored repository is on another branch or tag than the session saved.
+  const [refMismatch, setRefMismatch] = useState<{ saved: string; current: string } | null>(null)
   const [hasGitHubToken, setHasGitHubToken] = useState(false)
   const [tokenChecked, setTokenChecked] = useState(false)
   const [workingDir, setWorkingDir] = useState<string | null>(null)
@@ -86,6 +113,57 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
   const cloneRunRef = useRef(0)
   // Backend id of the clone in flight, so cancel() can stop git itself.
   const cloneIdRef = useRef<string | null>(null)
+
+  const onReadyRef = useRef(onReady)
+  const onRestoreLostRef = useRef(onRestoreLost)
+  useEffect(() => {
+    onReadyRef.current = onReady
+    onRestoreLostRef.current = onRestoreLost
+  })
+
+  // Hand downstream blocks the repository: its outputs, and the block's caller
+  // the news that it is ready.
+  const publish = useCallback(
+    (result: CloneResult, outputs: Record<string, string>) => {
+      registerOutputs(id, outputs)
+      onReadyRef.current?.(result, outputs)
+    },
+    [id, registerOutputs],
+  )
+
+  // A restored repository is shown and published at once, and then checked:
+  // the session's history says it was there when the session was last open,
+  // not that it still is. Restoring publishes nothing new, so onReady stays
+  // out of it. A repository someone moved to another branch since is left
+  // alone, and the block says so.
+  const [restoredAtMount] = useState(restored)
+  useEffect(() => {
+    if (restoredAtMount === undefined) return
+    registerOutputs(id, restoredAtMount.outputs)
+    const runId = cloneRunRef.current
+    void api
+      .invoke("git:local-repo", { path: restoredAtMount.result.absolutePath })
+      .then((check) => {
+        // The user has moved on (Clone again) since: the check is moot.
+        if (runId !== cloneRunRef.current) return
+        if (check.status === "success") {
+          const saved = restoredAtMount.result.ref
+          const current = check.ref ?? ""
+          if (saved && current !== saved) setRefMismatch({ saved, current })
+          return
+        }
+        cloneRunRef.current++
+        setCloneStatus("ready")
+        setCloneResult(null)
+        registerOutputs(id, {})
+        setRestoreError(
+          `The repository at ${restoredAtMount.result.absolutePath} is gone: ${check.error ?? "it is no longer a git repository"}.`,
+        )
+        onRestoreLostRef.current?.()
+      })
+      // An IPC failure says nothing about the repository: keep showing it.
+      .catch(() => {})
+  }, [api, id, registerOutputs, restoredAtMount])
 
   // Check if the auth dependency is met. Supports githubAuthId (GitHub) and the
   // provider-agnostic gitAuthId (GitHub or GitLab); a referenced block is met
@@ -201,6 +279,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
       setLogs([])
       setCloneResult(null)
       setErrorMessage(null)
+      setRestoreError(null)
 
       let unsubLog: (() => void) | null = null
 
@@ -240,6 +319,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         }
 
         if (result.status === "success") {
+          const cloned = result as unknown as CloneResult
           if (result.outputs) {
             // Hold the outputs back for an empty repo — publishing clone_path
             // would let downstream blocks start work this repo can't yet accept
@@ -247,10 +327,10 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
             if (result.hasCommits === false) {
               pendingOutputsRef.current = result.outputs
             } else {
-              registerOutputs(id, result.outputs)
+              publish(cloned, result.outputs)
             }
           }
-          setCloneResult(result as unknown as typeof cloneResult)
+          setCloneResult(cloned)
           setCloneStatus("success")
         } else {
           setErrorMessage(result.error || "Clone failed")
@@ -278,7 +358,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         if (cloneIdRef.current === cloneId) cloneIdRef.current = null
       }
     },
-    [api, id, registerOutputs, authProvider],
+    [api, publish, authProvider],
   )
 
   // Open the native folder picker and return the chosen directory, if any.
@@ -342,6 +422,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     async (repoDir: string): Promise<LocalRepoInfo | null> => {
       setCloneStatus("running")
       setErrorMessage(null)
+      setRestoreError(null)
       setCloneResult(null)
 
       try {
@@ -357,20 +438,21 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
           return null
         }
 
-        if (result.outputs) {
-          if (result.hasCommits === false) {
-            pendingOutputsRef.current = result.outputs
-          } else {
-            registerOutputs(id, result.outputs)
-          }
-        }
-        setCloneResult({
+        const selected: CloneResult = {
           fileCount: result.fileCount ?? 0,
           absolutePath: result.absolutePath ?? "",
           relativePath: result.relativePath ?? "",
           ref: result.ref,
           hasCommits: result.hasCommits,
-        })
+        }
+        if (result.outputs) {
+          if (result.hasCommits === false) {
+            pendingOutputsRef.current = result.outputs
+          } else {
+            publish(selected, result.outputs)
+          }
+        }
+        setCloneResult(selected)
         setCloneStatus("success")
         return result as LocalRepoInfo
       } catch (error) {
@@ -383,7 +465,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         return null
       }
     },
-    [api, id, registerOutputs, authProvider],
+    [api, publish, authProvider],
   )
 
   // Seed an empty repo's default branch with an empty initial commit, then
@@ -412,13 +494,14 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
           return
         }
 
-        if (pendingOutputsRef.current) {
-          registerOutputs(id, pendingOutputsRef.current)
-          pendingOutputsRef.current = null
-        }
         // The seeded branch is now the repo's only ref, so it is what a pull
         // request should target.
-        setCloneResult((prev) => (prev ? { ...prev, hasCommits: true, ref: result.branch } : prev))
+        const seeded: CloneResult = { ...cloneResult, hasCommits: true, ref: result.branch }
+        if (pendingOutputsRef.current) {
+          publish(seeded, pendingOutputsRef.current)
+          pendingOutputsRef.current = null
+        }
+        setCloneResult(seeded)
         setSeedStatus("idle")
       } catch (error) {
         if (runId !== cloneRunRef.current) return
@@ -430,7 +513,7 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
         setSeedStatus("fail")
       }
     },
-    [api, id, cloneResult, registerOutputs, authProvider],
+    [api, cloneResult, publish, authProvider],
   )
 
   // Cancel an in-progress clone: stop git in the main process, and detach
@@ -476,6 +559,8 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     setLogs([])
     setCloneResult(null)
     setErrorMessage(null)
+    setRestoreError(null)
+    setRefMismatch(null)
     pendingOutputsRef.current = null
     registerOutputs(id, {})
     setSeedStatus("idle")
@@ -498,6 +583,8 @@ export function useGitClone({ id, githubAuthId, gitAuthId }: UseGitCloneOptions)
     logs,
     cloneResult,
     errorMessage,
+    restoreError,
+    refMismatch,
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,

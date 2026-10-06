@@ -8,7 +8,7 @@
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, executableRegistry } from "./runtime.ts"
-import { resolveGeneratedDir } from "./path-guard.ts"
+import { resolveGeneratedDir, resolveRunLogsDir } from "./path-guard.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
@@ -45,10 +45,16 @@ function abortExecution(id: string): boolean {
   return true
 }
 
+/** Whether a script is running. exec:run runs one at a time. */
+export function isExecutionRunning(): boolean {
+  return activeExecutions.size > 0
+}
+
 /**
  * Cancel every running execution and wait until each has been interrupted,
  * i.e. its kill finalizer has sent SIGTERM to the script's process group.
- * Called on quit: scripts run detached, so nothing else stops them.
+ * Called on quit and before switching sessions: scripts run detached, so
+ * nothing else stops them.
  */
 export async function cancelAllExecutions(): Promise<void> {
   const pending = [...activeExecutions.values()]
@@ -109,6 +115,7 @@ export function registerExecHandlers(): void {
 
             const workTreePath = sessionManager.getActiveWorkTreePath()
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
+            const logsDir = yield* resolveRunLogsDir(executable.componentId)
 
             // Execute the script — returns log stream + completion effect
             const { logStream, completionEffect, logFilePath } = yield* executeScript(
@@ -118,6 +125,7 @@ export function registerExecHandlers(): void {
               context,
               workTreePath,
               outputPath,
+              logsDir,
             )
 
             // Surface the on-disk log path up front so the UI can offer it

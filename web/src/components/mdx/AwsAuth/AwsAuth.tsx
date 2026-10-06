@@ -14,6 +14,8 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { AwsAuthInstruction } from "./AwsAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
+import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
@@ -88,6 +90,10 @@ function AwsAuthInteractive({
     defaultTab,
   })
 
+  const expiry = useCredentialExpiry(
+    auth.authStatus === "authenticated" ? auth.expiresAt : undefined,
+  )
+
   // Track block render on mount
   useEffect(() => {
     trackBlockRender("AwsAuth")
@@ -156,8 +162,10 @@ function AwsAuthInteractive({
     )
   }
 
-  const statusClasses = getStatusClasses(auth.authStatus)
-  const iconClasses = getStatusIconClasses(auth.authStatus)
+  // Credentials that have expired, or are about to, show as a failed sign-in.
+  const shownStatus = expiry === "expiring" || expiry === "expired" ? "failed" : auth.authStatus
+  const statusClasses = getStatusClasses(shownStatus)
+  const iconClasses = getStatusIconClasses(shownStatus)
 
   const showTabs = auth.authStatus !== "select_account" && auth.authStatus !== "select_role"
   const showSsoAccountSelector = auth.authStatus === "select_account"
@@ -177,7 +185,7 @@ function AwsAuthInteractive({
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-warning/30 pr-3 mr-0 self-stretch">
           <StatusIcon
-            status={auth.authStatus}
+            status={shownStatus}
             className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
           />
         </div>
@@ -231,6 +239,13 @@ function AwsAuthInteractive({
               warningMessage={auth.warningMessage}
               detectionSource={auth.detectedCredentials?.source}
               onReAuthenticate={auth.handleManualAuth}
+            />
+          )}
+          {expiry && auth.expiresAt && (
+            <CredentialExpiryNotice
+              expiresAt={auth.expiresAt}
+              expiry={expiry}
+              onSignInAgain={auth.handleManualAuth}
             />
           )}
 

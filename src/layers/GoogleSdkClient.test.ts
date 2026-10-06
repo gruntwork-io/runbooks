@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
 import * as http from "node:http"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect, Either } from "effect"
-import { gaxios as gaxiosLib } from "google-auth-library"
+import { OAuth2Client, gaxios as gaxiosLib } from "google-auth-library"
 import {
   GoogleSdkClientLive,
   classifyProjectAccessError,
@@ -672,5 +672,27 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
       }
       expect(hits()).toBe(0)
     })
+  })
+})
+
+describe("validateAccessToken", () => {
+  it("returns when a bare access token expires, from tokeninfo", async () => {
+    const tokenInfo = spyOn(OAuth2Client.prototype, "getTokenInfo").mockResolvedValue({
+      email: "me@example.com",
+      expiry_date: Date.parse("2026-10-03T13:00:00Z"),
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      aud: "client",
+    } as never)
+    try {
+      const identity = await run((client) => client.validateAccessToken("ya29.token"))
+
+      expect(identity).toMatchObject({
+        email: "me@example.com",
+        credentialType: "access_token",
+        expiresAt: "2026-10-03T13:00:00.000Z",
+      })
+    } finally {
+      tokenInfo.mockRestore()
+    }
   })
 })

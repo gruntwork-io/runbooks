@@ -8,6 +8,7 @@ import { OpenUrlModal } from "./components/layout/OpenUrlModal"
 import { FindBar } from "./components/layout/FindBar"
 import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
+import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
 import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
@@ -25,13 +26,18 @@ import { useWheelScrollFallback } from "./hooks/useWheelScrollFallback"
 import { useErrorReporting } from "./contexts/useErrorReporting"
 import { useLogs } from "./contexts/useLogs"
 import { useApi } from "./contexts/ApiContext"
+import { IpcSessionHistoryProvider } from "./contexts/IpcSessionHistoryContext"
+import { DisplayPathProvider } from "./contexts/DisplayPathContext"
 import { cn } from "./lib/utils"
 import type { AppError } from "./types/error"
 
+/** The window title while no runbook is open, as in index.html. */
+const APP_TITLE = "Gruntwork Runbooks"
+
 /**
- * Clears the root logs store whenever the loaded runbook changes, including
- * on close (the path becomes undefined), so the previous runbook's logs don't
- * end up in the "download logs" zip.
+ * Clears the root logs store whenever the loaded runbook or its session
+ * changes, including on close (the key becomes undefined), so the previous
+ * runbook's logs don't end up in the "download logs" zip.
  *
  * A separate child so App itself doesn't read LogsContext: its value changes
  * whenever hasLogs flips (e.g. on the first log line, or a clear), and App
@@ -39,11 +45,11 @@ import type { AppError } from "./types/error"
  * in the same commit, which is fine, because the next runbook's blocks only
  * register logs once its MDX has compiled.
  */
-function ClearLogsOnRunbookChange({ runbookPath }: { runbookPath?: string | undefined }) {
+function ClearLogsOnRunbookChange({ sessionKey }: { sessionKey?: string | undefined }) {
   const { clearLogs } = useLogs()
   useEffect(() => {
     clearLogs()
-  }, [runbookPath, clearLogs])
+  }, [sessionKey, clearLogs])
   return null
 }
 
@@ -75,13 +81,20 @@ function App() {
 
   const getRunbookResult = useIpcGetRunbook()
 
+  // The loaded runbook together with the session it was opened in. File > New
+  // Session reloads the same path under a new session, and has to reset
+  // everything that opening a different runbook resets.
+  const loadedSessionKey = getRunbookResult.data
+    ? `${getRunbookResult.data.path}\n${getRunbookResult.data.sessionId ?? ""}`
+    : undefined
+
   // Check for existing generated files when runbook loads.
   // Disabled until a runbook is open — the IPC handler requires a session,
   // which only exists after the main process has loaded a runbook. Keyed by
-  // the runbook's path so opening a different runbook checks again.
+  // the session so opening a different runbook or session checks again.
   const generatedFilesCheck = useIpcGeneratedFilesCheck({
     disabled: !getRunbookResult.data,
-    runbookPath: getRunbookResult.data?.path,
+    sessionKey: loadedSessionKey,
   })
 
   // Get error counts from the error reporting context (populated by MDX components)
@@ -98,8 +111,7 @@ function App() {
   // process reports that the runbook it watches changed. A failed open leaves
   // the previous runbook on screen, and main keeps watching it, while the last
   // request is the failed one: re-sending that would raise its error again on
-  // every save, so reload the displayed runbook instead. Either way the reload
-  // keeps the session's working dir, unlike re-opening the runbook.
+  // every save, so reload the displayed runbook instead.
   const { data: displayedRunbook, error: runbookError, reloadForWatch } = getRunbookResult
   const handleRunbookFileChange = useCallback(
     (changedPath: string) => {
@@ -171,7 +183,11 @@ function App() {
   // 4. User hasn't dismissed it this session
   // 5. User hasn't checked "don't ask again" in localStorage
   // It then stays open until dismissed or the runbook changes.
+  // A session whose blocks resume from its history is not asked about: its
+  // files are what those blocks left, and its Generated panel shows them.
+  const resumesBlocks = (getRunbookResult.data?.blockStates?.length ?? 0) > 0
   const alertReady = Boolean(
+    !resumesBlocks &&
     !getRunbookResult.isLoading &&
     !generatedFilesCheck.isLoading &&
     generatedFilesCheck.data !== staleFilesCheck &&
@@ -185,14 +201,13 @@ function App() {
     if (alertReady) setShowGeneratedFilesAlert(true)
   }
 
-  // Reset the generated-files alert whenever the loaded runbook actually
-  // changes, including on close (the path becomes undefined), but not on
-  // watch-mode reloads, which keep the same path. Done after the alert update
+  // Reset the generated-files alert whenever the loaded runbook or its session
+  // actually changes, including on close (the key becomes undefined), but not
+  // on watch-mode reloads, which keep both. Done after the alert update
   // above, so this reset wins in the render that switches runbooks.
-  const loadedRunbookPath = getRunbookResult.data?.path
-  const [prevLoadedRunbookPath, setPrevLoadedRunbookPath] = useState(loadedRunbookPath)
-  if (loadedRunbookPath !== prevLoadedRunbookPath) {
-    setPrevLoadedRunbookPath(loadedRunbookPath)
+  const [prevLoadedSessionKey, setPrevLoadedSessionKey] = useState(loadedSessionKey)
+  if (loadedSessionKey !== prevLoadedSessionKey) {
+    setPrevLoadedSessionKey(loadedSessionKey)
     setStaleFilesCheck(generatedFilesCheck.data)
     setShowGeneratedFilesAlert(false)
     setAlertDismissedThisSession(false)
@@ -201,19 +216,77 @@ function App() {
   // The worktree and generated-files providers are mounted once at the app
   // root, so they otherwise keep whatever the previously opened runbook left
   // there (a stale "active" repo, its file tree). Clear them on the same
-  // runbook changes as the alert above. The per-runbook block state is reset
-  // by keying MDXContainer on the same path below, and the logs store by
-  // ClearLogsOnRunbookChange. Both setters are stable, so only a path change
-  // re-runs this.
+  // changes as the alert above. The per-runbook block state is reset by
+  // keying MDXContainer's session history provider on the same key below, and
+  // the logs store by ClearLogsOnRunbookChange. Both setters are stable, so
+  // only a change of the key re-runs this.
   useEffect(() => {
     resetWorkTrees()
     updateGeneratedFileTree(null)
-  }, [loadedRunbookPath, resetWorkTrees, updateGeneratedFileTree])
+  }, [loadedSessionKey, resetWorkTrees, updateGeneratedFileTree])
+
+  // The files a resumed session's blocks wrote, once the check for this
+  // session has read them.
+  const resumedFiles =
+    resumesBlocks && generatedFilesCheck.data !== staleFilesCheck
+      ? generatedFilesCheck.data
+      : undefined
+  useEffect(() => {
+    if (!resumedFiles?.fileTree) return
+    updateGeneratedFileTree({
+      fileTree: resumedFiles.fileTree,
+      truncatedTree: resumedFiles.truncatedTree,
+      totalFiles: resumedFiles.totalFiles,
+      heavyDirs: resumedFiles.heavyDirs,
+    })
+  }, [resumedFiles, updateGeneratedFileTree])
 
   // Prefer remoteSource (original GitHub/GitLab URL) over local temp path for display
   const pathName = getRunbookResult.data?.remoteSource || getRunbookResult.data?.path || ""
   const content = getRunbookResult.data?.content || ""
   const runbookPath = getDirectoryPath(getRunbookResult.data?.path || "")
+
+  // The session's name goes in the Header, which is the title bar people see,
+  // and in the window title, which the OS shows in its window list and taskbar.
+  // A rename from the Header takes effect here at once: the loaded runbook's
+  // data only has the new name after its next load.
+  const loadedSessionId = getRunbookResult.data?.sessionId
+  const [renamed, setRenamed] = useState<{ sessionId: string | undefined; name: string } | null>(
+    null,
+  )
+  const sessionName =
+    renamed !== null && renamed.sessionId === loadedSessionId
+      ? renamed.name
+      : getRunbookResult.data?.sessionName
+  useEffect(() => {
+    document.title = sessionName ? `${sessionName} - ${APP_TITLE}` : APP_TITLE
+  }, [sessionName])
+
+  // Says that opening the runbook resumed a saved session with history. Only
+  // the load that resumed it says when it was last used, so the notice is kept
+  // through later reloads in that session, until dismissed.
+  const [resumeNotice, setResumeNotice] = useState<{
+    sessionKey: string
+    resumedFrom: string
+  } | null>(null)
+  const [prevRunbookData, setPrevRunbookData] = useState(getRunbookResult.data)
+  if (getRunbookResult.data !== prevRunbookData) {
+    setPrevRunbookData(getRunbookResult.data)
+    const resumedFrom = getRunbookResult.data?.sessionResumedFrom
+    if (loadedSessionKey && resumedFrom && resumesBlocks) {
+      setResumeNotice({ sessionKey: loadedSessionKey, resumedFrom })
+    }
+  }
+  const shownResumeNotice =
+    resumeNotice !== null && resumeNotice.sessionKey === loadedSessionKey && sessionName
+      ? { ...resumeNotice, sessionName }
+      : null
+  const handleStartNewSession = () => {
+    setResumeNotice(null)
+    api.invoke("native:reset-session").catch((err: unknown) => {
+      console.error("Failed to reset the session:", err)
+    })
+  }
 
   // Track whether we've ever successfully loaded runbook content.
   // Once true, never let loading/error states unmount MDXContainer — doing so
@@ -258,12 +331,16 @@ function App() {
   }
 
   return (
-    <>
-      <ClearLogsOnRunbookChange runbookPath={getRunbookResult.data?.path} />
+    <DisplayPathProvider sessionDir={getRunbookResult.data?.sessionDir}>
+      <ClearLogsOnRunbookChange sessionKey={loadedSessionKey} />
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
-        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
+        <Header
+          sessionName={sessionName}
+          sessionDir={getRunbookResult.data?.sessionDir}
+          onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}
+        />
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
@@ -349,19 +426,36 @@ function App() {
                     hidden: activeMobileSection !== "markdown",
                   })}
                 >
-                  {/* Keyed by the runbook's file path so opening a different
-                      runbook starts from fresh block inputs/outputs and trust
-                      banner, while same-path reloads keep them. */}
-                  <MDXContainer
-                    key={getRunbookResult.data?.path}
-                    ref={runbookScrollRef}
-                    content={content}
-                    runbookPath={runbookPath}
-                    runbookFilePath={getRunbookResult.data?.path}
-                    remoteSource={getRunbookResult.data?.remoteSource}
-                    assetHost={getRunbookResult.data?.assetHost}
-                    className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
-                  />
+                  {/* Keyed by the runbook's file path and session so opening
+                      a different runbook, or starting a new session, starts
+                      from fresh block inputs/outputs and trust banner, while
+                      same-path reloads keep them. The blocks start from
+                      what the session's history says they were left as. */}
+                  <IpcSessionHistoryProvider
+                    key={loadedSessionKey}
+                    sessionId={getRunbookResult.data?.sessionId}
+                    blockStates={getRunbookResult.data?.blockStates}
+                  >
+                    <MDXContainer
+                      ref={runbookScrollRef}
+                      content={content}
+                      runbookPath={runbookPath}
+                      runbookFilePath={getRunbookResult.data?.path}
+                      remoteSource={getRunbookResult.data?.remoteSource}
+                      assetHost={getRunbookResult.data?.assetHost}
+                      banner={
+                        shownResumeNotice && (
+                          <SessionResumedNotice
+                            sessionName={shownResumeNotice.sessionName}
+                            resumedFrom={shownResumeNotice.resumedFrom}
+                            onStartNew={handleStartNewSession}
+                            onDismiss={() => setResumeNotice(null)}
+                          />
+                        )
+                      }
+                      className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
+                    />
+                  </IpcSessionHistoryProvider>
 
                   {/* Show code icon button - desktop only, when artifacts panel is hidden */}
                   {showCodeButton && (
@@ -412,12 +506,12 @@ function App() {
         )}
       </div>
 
-      {/* Generated Files Alert Dialog. Keyed by the runbook's file path so
-          the delete result (success or failure) from the previous runbook
-          doesn't replace the next runbook's Keep/Delete prompt. */}
+      {/* Generated Files Alert Dialog. Keyed like the runbook's blocks so the delete
+          result (success or failure) from the previous runbook doesn't
+          replace the next runbook's Keep/Delete prompt. */}
       {generatedFilesCheck.data && (
         <GeneratedFilesAlert
-          key={getRunbookResult.data?.path}
+          key={loadedSessionKey}
           isOpen={showGeneratedFilesAlert}
           fileCount={generatedFilesCheck.data.fileCount}
           absoluteOutputPath={generatedFilesCheck.data.absoluteOutputPath}
@@ -435,7 +529,7 @@ function App() {
 
       {/* Edit > Find… (Cmd/Ctrl+F) */}
       <FindBar />
-    </>
+    </DisplayPathProvider>
   )
 }
 

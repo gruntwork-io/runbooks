@@ -20,7 +20,9 @@ import { markStage } from "@/lib/renderPerf"
 import { XCircle } from "lucide-react"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { TemplateInstruction } from "./TemplateInstruction"
-import { useSharedTemplateVars } from "./useSharedTemplateVars"
+import { localOnlyValues, useSharedTemplateVars } from "./useSharedTemplateVars"
+import { useFormHistory } from "../_shared/hooks/useFormHistory"
+import { useRenderHistory } from "../_shared/hooks/useRenderHistory"
 
 /**
  * Template component - generates files from a boilerplate template directory.
@@ -76,13 +78,20 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     trackBlockRender("Template")
   }, [trackBlockRender])
 
-  const [shouldRender, setShouldRender] = useState(false)
+  // The form resumes from the values the session's history has for it. One it
+  // has as generated resumes as generated: it renders again on every change,
+  // without the Generate button.
+  const { saved: savedForm, noteValues } = useFormHistory(id)
+  const { hasWriteBeforeMount, isUnchangedSinceMount, noteWritten } = useRenderHistory(id)
+  const savedGenerated = savedForm?.submitted === true
+
+  const [shouldRender, setShouldRender] = useState(savedGenerated)
   const [renderFormData, setRenderFormData] = useState<Record<string, unknown>>({})
   // Bumped on every Generate click so the auto-render effect re-runs (see handleGenerate)
   const [generateNonce, setGenerateNonce] = useState(0)
 
   // Track if we've ever successfully generated (stays true even if subsequent renders fail)
-  const [hasEverGenerated, setHasEverGenerated] = useState(false)
+  const [hasEverGenerated, setHasEverGenerated] = useState(savedGenerated)
 
   // (Worktree/file tree updates are handled by useApiBoilerplateRender via useFileTreeUpdater)
 
@@ -162,6 +171,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   const { sharedVarNames, liveVarValues, initialData } = useSharedTemplateVars(
     boilerplateConfig,
     inputValues,
+    savedForm,
   )
 
   // Compute unmet output dependencies - outputs from other blocks that this template needs
@@ -236,6 +246,48 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
   )
 
   const lastRenderedKeyRef = useRef<string | null>(null)
+  // Set by Generate: the next render writes the files even if they would come
+  // out as the session's history says they were written.
+  const generateClickedRef = useRef(false)
+
+  // Render the files for `key`. A resumed block whose files would come out
+  // as they were written before renders nothing: writing them again would
+  // undo changes made to them since.
+  const dispatchRender = useCallback(
+    (mergedData: Record<string, unknown>, key: string) => {
+      // The template's own files count too: a change to them, with the same
+      // values, renders different files.
+      const written = JSON.stringify([
+        path,
+        boilerplateConfig?.contentHash ?? null,
+        mergedData,
+        target ?? null,
+      ])
+      const write = () => {
+        autoRender(path, mergedData)
+        noteWritten(written)
+      }
+      if (generateClickedRef.current || !hasWriteBeforeMount()) {
+        generateClickedRef.current = false
+        write()
+        return
+      }
+      void isUnchangedSinceMount(written).then((unchanged) => {
+        // A newer render has taken this one's place.
+        if (lastRenderedKeyRef.current !== key || unchanged) return
+        write()
+      })
+    },
+    [
+      path,
+      target,
+      boilerplateConfig?.contentHash,
+      autoRender,
+      hasWriteBeforeMount,
+      isUnchangedSinceMount,
+      noteWritten,
+    ],
+  )
 
   // Dispatch the IPC inline rather than waiting for an effect — RunbookContext
   // reconciliation between commit and effect-flush added ~200 ms otherwise.
@@ -244,6 +296,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     (localVarValues: Record<string, unknown>) => {
       markStage("Template:handleAutoRender", { id })
       localVarValuesRef.current = localVarValues
+      noteValues(localOnlyValues(localVarValues, sharedVarNames), shouldRender)
 
       if (
         shouldRender &&
@@ -259,7 +312,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
             flattenedOutputs,
           )
           markStage("Template:inline-autoRender-call", { id })
-          autoRender(path, mergedData)
+          dispatchRender(mergedData, key)
         }
       }
 
@@ -281,8 +334,9 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
       hasAllOutputDependencies,
       flattenedOutputs,
       hasAllRequiredValues,
-      autoRender,
-      path,
+      dispatchRender,
+      noteValues,
+      sharedVarNames,
     ],
   )
 
@@ -307,7 +361,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
 
     const mergedData = buildRenderVariables({ ...inputValues, ...effectiveLocal }, flattenedOutputs)
     markStage("Template:effect-autoRender-call", { id })
-    autoRender(path, mergedData)
+    dispatchRender(mergedData, key)
   }, [
     shouldRender,
     generateNonce,
@@ -317,8 +371,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     liveVarValues,
     flattenedOutputs,
     hasAllRequiredValues,
-    autoRender,
-    path,
+    dispatchRender,
     id,
   ])
 
@@ -327,6 +380,7 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
     (localVarValues: Record<string, unknown>) => {
       // Store latest form data
       localVarValuesRef.current = localVarValues
+      noteValues(localOnlyValues(localVarValues, sharedVarNames), true)
 
       const mergedData = buildRenderVariables(
         { ...inputValues, ...localVarValues },
@@ -345,9 +399,18 @@ function TemplateInteractive({ id, path, inputsId, target }: TemplateProps) {
       setRenderFormData(mergedData)
       setShouldRender(true)
       lastRenderedKeyRef.current = null
+      generateClickedRef.current = true
       setGenerateNonce((n) => n + 1)
     },
-    [id, boilerplateConfig, registerInputs, inputValues, flattenedOutputs],
+    [
+      id,
+      boilerplateConfig,
+      registerInputs,
+      inputValues,
+      flattenedOutputs,
+      noteValues,
+      sharedVarNames,
+    ],
   )
 
   // Early return for duplicate ID error

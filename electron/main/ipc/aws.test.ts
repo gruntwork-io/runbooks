@@ -10,6 +10,10 @@
  * rejected send into `true`, so nothing at that boundary ends the check in a
  * defect or an interruption: those cases stub `runtime.runPromise` once and
  * exercise only the handler's own catch.
+ *
+ * The aws:validate cases stub STS and IAM the same way. A resumed AwsAuth
+ * block keeps its sign-in on an `unreachable` reply, so only a failure AWS
+ * never answered may carry it.
  */
 import { describe, it, expect, afterEach, spyOn } from "bun:test"
 import { Effect } from "effect"
@@ -18,6 +22,8 @@ import {
   AccessDeniedException,
   GetRegionOptStatusCommand,
 } from "@aws-sdk/client-account"
+import { STSClient } from "@aws-sdk/client-sts"
+import { IAMClient } from "@aws-sdk/client-iam"
 import { mockElectron } from "../test-utils/mock-electron.ts"
 
 type Handler = (event: unknown, params?: unknown) => unknown
@@ -73,6 +79,90 @@ const captureHandlerErrors = () => {
   spies.push(spy)
   return () => spy.mock.calls.filter((args) => args[0] === "[ipc:aws]")
 }
+
+describe("aws:validate", () => {
+  const invokeValidate = async () => {
+    const handler = handlers.get("aws:validate")
+    if (!handler) throw new Error("no handler for aws:validate")
+    return (await handler({}, PARAMS)) as Record<string, unknown>
+  }
+
+  const stubSts = (reply: () => Promise<unknown>) => {
+    spies.push(spyOn(STSClient.prototype, "send").mockImplementation(reply as never))
+    spies.push(
+      spyOn(IAMClient.prototype, "send").mockImplementation((() =>
+        Promise.resolve({ AccountAliases: ["acme-prod"] })) as never),
+    )
+  }
+
+  it("returns the account the credentials belong to", async () => {
+    stubSts(() =>
+      Promise.resolve({ Account: "123456789012", Arn: "arn:aws:iam::123456789012:user/me" }),
+    )
+
+    expect(await invokeValidate()).toStrictEqual({
+      valid: true,
+      accountId: "123456789012",
+      accountName: "acme-prod",
+      arn: "arn:aws:iam::123456789012:user/me",
+    })
+  })
+
+  it("says AWS refused the credentials, and nothing more", async () => {
+    stubSts(() =>
+      Promise.reject(
+        Object.assign(new Error("The security token included in the request is invalid."), {
+          name: "InvalidClientTokenId",
+          $metadata: { httpStatusCode: 403 },
+        }),
+      ),
+    )
+
+    const reply = await invokeValidate()
+
+    expect(reply).toStrictEqual({ valid: false, error: expect.stringContaining("token") })
+  })
+
+  it("says AWS could not be reached when no answer came back", async () => {
+    stubSts(() => Promise.reject(new Error("getaddrinfo ENOTFOUND sts.amazonaws.com")))
+
+    expect(await invokeValidate()).toStrictEqual({
+      valid: false,
+      error: expect.stringContaining("ENOTFOUND"),
+      unreachable: true,
+    })
+  })
+
+  it("validates in the credentials' own region when the request names none", async () => {
+    const regions: string[] = []
+    spies.push(
+      spyOn(STSClient.prototype, "send").mockImplementation(async function (this: STSClient) {
+        regions.push(await this.config.region())
+        return { Account: "123456789012", Arn: "arn:aws-cn:iam::123456789012:user/me" }
+      } as never),
+      spyOn(IAMClient.prototype, "send").mockImplementation((() =>
+        Promise.resolve({ AccountAliases: [] })) as never),
+    )
+    const handler = handlers.get("aws:validate")!
+    const { region: _region, ...flat } = PARAMS
+
+    await handler({}, { credentials: { ...flat, region: "cn-north-1" } })
+
+    // STS for the China partition, where cn-north-1 is.
+    expect(regions).toEqual(["cn-northwest-1"])
+  })
+
+  it("reports a check that ends in a defect as invalid", async () => {
+    const runPromise = spyOn(runtime, "runPromise").mockImplementationOnce((() =>
+      Effect.runPromise(Effect.die(new Error("boom")))) as unknown as typeof runtime.runPromise)
+    spies.push(runPromise)
+
+    expect(await invokeValidate()).toStrictEqual({
+      valid: false,
+      error: expect.stringContaining("boom"),
+    })
+  })
+})
 
 describe("aws:check-region", () => {
   it.each([

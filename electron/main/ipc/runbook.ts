@@ -13,6 +13,7 @@ import {
   runbookConfig,
   executableRegistry,
   sessionManager,
+  sessionPersistence,
   vcsSessionMeta,
   manifestStore,
   setExecutableRegistry,
@@ -26,6 +27,9 @@ import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-en
 import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
 import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
+import type { SessionNotFoundError } from "../../../src/errors/index.ts"
+import { registerSecret, VCS_TOKEN_ENV_VARS } from "../../../src/domain/vcs/redact.ts"
+import type { OpenRunbookPayload } from "../open-runbook.ts"
 import { resolveRemoteRunbook } from "../remote.ts"
 import { getMainWindow } from "../window.ts"
 import { makeLogger } from "../logger.ts"
@@ -60,22 +64,88 @@ function describeRunbookOpenError(inputPath: string): string {
 let loadGeneration = 0
 const SUPERSEDED = { superseded: true } as const
 
+let sessionTurns: Promise<unknown> = Promise.resolve()
+
 /**
- * End every runbook:get still running as superseded, as a newer one would.
- * Closing the runbook calls this, so a load in flight at the close doesn't
+ * Run `switchSession` after every session switch requested before it has
+ * finished. Starting a session reads the file system, so two loads could
+ * otherwise switch at once, and the older one finishing last would leave the
+ * renderer showing one runbook over another runbook's session.
+ */
+function inSessionTurn<A>(switchSession: () => Promise<A>): Promise<A> {
+  const turn = sessionTurns.then(switchSession)
+  sessionTurns = turn.catch(() => {})
+  return turn
+}
+
+/** The runbook the renderer shows, as the last runbook:get loaded it. */
+let openRunbook: OpenRunbookPayload | null = null
+
+/**
+ * Record that the runbook was closed, and end every runbook:get still running
+ * as superseded, as a newer one would: a load in flight at the close must not
  * start a watcher or set a registry for a runbook that is no longer open.
  */
-export function supersedeRunbookLoads(): void {
+export function markRunbookClosed(): void {
   loadGeneration++
+  openRunbook = null
+}
+
+/** How the command line asked for a runbook, kept for the runbook:get that loads it. */
+export interface Launch {
+  /** The `path`, or for a remote runbook the `remoteSource`, that the renderer will ask runbook:get for. */
+  source: string
+  /** The directory `runbooks` was run from, or undefined when the launch has none (the dock, a file manager). */
+  launchDir: string | undefined
+  /** The session to resume, when the launch named no runbook and one was found for it. */
+  sessionId: string | undefined
+}
+
+let pendingLaunch: Launch | null = null
+
+/** Tell the next runbook:get for `launch.source` how it was launched. */
+export function expectLaunch(launch: Launch): void {
+  pendingLaunch = launch
+}
+
+/** The open runbook's path while File > Reset Session waits for its reload. */
+let newSessionFor: string | null = null
+
+/**
+ * File > Reset Session: replace the open runbook's session with a new one.
+ * Its blocks start over in a new, empty session directory, under a new name,
+ * with the environment the app was launched with. The session it replaces
+ * stays on disk, and only a switch to it (session:switch) opens it again.
+ * Does nothing while no runbook is open.
+ */
+export function resetToNewSession(): void {
+  const win = getMainWindow()
+  if (!win || openRunbook === null) return
+  newSessionFor = openRunbook.path
+  win.webContents.send("file:open-runbook", openRunbook)
+}
+
+/** Whether the renderer is showing the session with this id. */
+export function isSessionOpen(id: string): boolean {
+  return openRunbook !== null && sessionPersistence?.currentSession()?.id === id
+}
+
+/**
+ * Session tokens for log redaction. A resumed session has the tokens its auth
+ * blocks set in an earlier run, which nothing registered in this one.
+ */
+function registerSessionSecrets(): Effect.Effect<void, SessionNotFoundError> {
+  return Effect.map(sessionManager.getSession(), (session) => {
+    for (const tokenVar of VCS_TOKEN_ENV_VARS) {
+      registerSecret(session.env.get(tokenVar))
+    }
+  })
 }
 
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (
-      _event,
-      params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: "watch" },
-    ) => {
+    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
       const generation = ++loadGeneration
       const superseded = () => generation !== loadGeneration
 
@@ -113,63 +183,106 @@ export function registerRunbookHandlers(): void {
       }
       setRunbookConfig(config)
 
-      // The session's working dir is always the runbook's parent directory.
-      // realpath'ing keeps macOS /var and /private/var paths aligned with
-      // the rest of the pipeline (containment checks elsewhere realpath too).
-      let sessionDir = path.dirname(runbookPath)
-      try {
-        sessionDir = fs.realpathSync(sessionDir)
-      } catch {
-        // Path may not exist yet — fall back to the lexical resolution.
-      }
-
       // Read the runbook file content (before the session is created: whether
       // it has an <AwsAuth> block decides which env vars the session strips)
       const fileData = await runtime.runPromise(readFileMetadata(runbookPath))
       if (superseded()) return SUPERSEDED
-      const isSameRunbook = sessionManager.getRunbookPath() === runbookPath
 
-      // A different runbook than the one the current session belongs to
-      // (including "no session yet") gets a fully fresh session: env,
-      // working dir, AND registered/active git worktrees. Without this, a
-      // worktree registered by a GitClone block in one runbook stays "active"
-      // (session/manager.ts's getActiveWorkTreePath) after switching to an
-      // unrelated runbook in the same running app, so REPO_FILES / worktree
-      // templates resolve to a stale, possibly already-deleted, checkout.
-      // Reloading the SAME runbook (watch mode, re-opening the same file)
-      // must NOT do this — it would wipe env vars a script exported mid-run.
-      if (!isSameRunbook) {
-        // The previous runbook's executables must not stay runnable (or be
-        // kept as this runbook's frozen registry below) if building this
-        // runbook's registry fails. Cleared before the awaits, so a load of
-        // this runbook that overtakes this one can't keep them either.
-        setExecutableRegistry(null)
-        watchScripts([])
-        // A runbook with <AwsAuth> starts without the inherited AWS keys, so
-        // no script sees them until the user confirms an account. Set on every
-        // new session (even to []) so one runbook's list can't carry over.
-        sessionManager.setProtectedEnvVars(protectedEnvVarsForRunbook(fileData.content))
-        await runtime.runPromise(sessionManager.createSession(sessionDir, runbookPath))
+      // index.ts sets this at startup, before any window can call a handler.
+      const persistence = sessionPersistence
+      if (!persistence) throw new Error("session persistence is not initialized")
+
+      const launch =
+        pendingLaunch?.source === (params.remoteSource ?? params.path) ? pendingLaunch : null
+
+      const turn = await inSessionTurn(async () => {
+        // A newer load took this one's place while it waited for its turn.
+        if (superseded()) return SUPERSEDED
+        const sameRunbook = sessionManager.getRunbookPath() === runbookPath
+        const startNew = newSessionFor === runbookPath
+        const resumesOtherSession =
+          launch?.sessionId !== undefined && launch.sessionId !== persistence.currentSession()?.id
+
+        // A different runbook than the one the live session belongs to
+        // (including "no session yet") replaces the session, with the one
+        // saved for this runbook or a new one: env, working dir, AND
+        // registered/active git worktrees. Without this, a worktree registered
+        // by a GitClone block in one runbook stays "active"
+        // (session/manager.ts's getActiveWorkTreePath) after switching to an
+        // unrelated runbook in the same running app, so REPO_FILES / worktree
+        // templates resolve to another runbook's checkout. So does File >
+        // Reset Session, and a launch that resumes another of this runbook's
+        // sessions.
+        // Reloading the SAME runbook (watch mode, re-opening the same file)
+        // must NOT do this — it would wipe env vars a script exported mid-run.
+        // It keeps the session as it is, working dir included, as the blocks
+        // resume from the session's history.
+        const switched = !sameRunbook || startNew || resumesOtherSession
+        if (switched) {
+          // The previous runbook's executables must not stay runnable (or be
+          // kept as this runbook's frozen registry below) if building this
+          // runbook's registry fails. Cleared before the session starts, so a
+          // load of this runbook that overtakes this one, and takes its turn
+          // after it, can't keep them either.
+          if (!sameRunbook) {
+            setExecutableRegistry(null)
+            watchScripts([])
+          }
+          // A runbook with <AwsAuth> starts without the inherited AWS keys, so
+          // no script sees them until the user confirms an account. Set on
+          // every new session (even to []) so one runbook's list can't carry
+          // over.
+          sessionManager.setProtectedEnvVars(protectedEnvVarsForRunbook(fileData.content))
+          await runtime.runPromise(
+            Effect.andThen(
+              persistence.open({
+                runbook: { path: runbookPath, remoteSource: params.remoteSource },
+                launchDir: launch?.launchDir,
+                sessionId: launch?.sessionId,
+                startNew,
+              }),
+              registerSessionSecrets(),
+            ),
+          )
+          if (launch) pendingLaunch = null
+          if (startNew) newSessionFor = null
+        }
+        return { sameRunbook, switched }
+      })
+      if ("superseded" in turn) return turn
+      const isSameRunbook = turn.sameRunbook
+
+      if (turn.switched) {
         // These mirror the same "most recent wins across the whole process"
         // pattern as the worktree state above — reset them at the same
         // boundary so a Google credential or git-host auth banner from the
         // previous runbook can't leak into this one.
         resetGoogleCredentialRegistry()
         vcsSessionMeta.clear()
+        // A resumed session's git credentials stay bound to the hosts they
+        // were bound to: the env's GITHUB_HOST and GH_HOST alone would let a
+        // GitHub Enterprise token go to github.com.
+        const bindings = persistence.currentSession()?.vcsBindings ?? {}
+        for (const provider of ["github", "gitlab"] as const) {
+          const binding = bindings[provider]
+          if (binding) vcsSessionMeta.set(provider, binding)
+        }
         // Template render state is keyed by the author-chosen Template id,
         // which the next runbook may reuse for a different template or
         // output dir. Drop the warm-render bundles, handles and vars
         // baselines, and the file manifests, so its first render starts clean.
         await runtime.runPromise(Effect.flatMap(WarmRenderDispatcher, (d) => d.reset))
         manifestStore.clear()
-      } else if (params.reload !== "watch") {
-        // Re-opening the runbook starts its blocks from its directory again.
-        // A watch-mode reload keeps the session as it is, env vars included:
-        // saving runbook.mdx must not undo a block's `cd`.
-        sessionManager.setWorkingDir(sessionDir)
+      } else if (launch) {
+        // `runbooks <this runbook>` run again, perhaps from another directory.
+        await runtime.runPromise(persistence.recordLaunch(runbookPath, launch.launchDir))
+        pendingLaunch = null
       }
       // The new session's resets await: a newer load may have started.
       if (superseded()) return SUPERSEDED
+
+      const session = persistence.currentSession()
+      if (session === undefined) throw new Error("the open runbook has no saved session")
 
       // Watch mode: reload the renderer when this runbook changes. A no-op if
       // it's already watched; a watcher on a previous runbook is stopped.
@@ -195,12 +308,31 @@ export function registerRunbookHandlers(): void {
         }
       }
 
+      // Read on every load, not only when the session starts: the renderer
+      // remounts its blocks when the same runbook is opened again after a
+      // close, and they resume from the history as it is now. A history that
+      // can't be read leaves the blocks to start over: the runbook still opens.
+      const blockStates = await runtime.runPromise(
+        persistence.blockStates().pipe(
+          Effect.catchAll((err) => {
+            log.warn("failed to read the session's history:", err.message)
+            return Effect.succeed([])
+          }),
+        ),
+      )
+      if (superseded()) return SUPERSEDED
+
       // Watched with or without --watch, so a block can offer to reload a
       // script that changed on disk. A no-op when a reload of the runbook
       // leaves the same script files registered.
       watchScripts(registry.getScriptPaths())
 
       const ext = path.extname(runbookPath).replace(/^\./, "")
+
+      openRunbook = {
+        path: runbookPath,
+        ...(params.remoteSource !== undefined ? { remoteSource: params.remoteSource } : {}),
+      }
 
       return {
         path: runbookPath,
@@ -212,6 +344,13 @@ export function registerRunbookHandlers(): void {
         warnings: registry.getWarnings(),
         remoteSource: params.remoteSource,
         assetHost: runbookAssetHost(config),
+        sessionId: session.id,
+        sessionName: session.name,
+        sessionDir: session.dir,
+        ...(turn.switched && session.resumedFrom !== undefined
+          ? { sessionResumedFrom: session.resumedFrom }
+          : {}),
+        blockStates,
       }
     },
   )

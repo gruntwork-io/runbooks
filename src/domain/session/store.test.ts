@@ -1,0 +1,605 @@
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
+import { Effect } from "effect"
+import {
+  SessionStore,
+  type SessionRecord,
+  type SqlDatabase,
+  type StoredSessionEvent,
+} from "./store.ts"
+import { openSqliteDatabase } from "../../layers/NodeSqlite.ts"
+
+const run = Effect.runSync
+
+/** A session record. Its name follows its id unless `overrides` names it. */
+function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
+  const id = overrides.id ?? "s1"
+  return {
+    id,
+    name: `name-of-${id}`,
+    path: "/repo/runbook.mdx",
+    remoteSource: undefined,
+    dir: "/sessions/dirs/s1",
+    workingDir: "/sessions/dirs/s1",
+    launchDir: undefined,
+    env: undefined,
+    worktrees: [],
+    activeWorktree: "",
+    executionCount: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    lastLaunchedAt: "2026-01-01T00:00:00.000Z",
+    lastActivityAt: "2026-01-01T00:00:00.000Z",
+    vcsBindings: {},
+    finishedAt: undefined,
+    ...overrides,
+  }
+}
+
+/** An event of session s1. Its payload is the text of `payload`. */
+function event(
+  blockId: string,
+  kind: string,
+  payload: string,
+  overrides: Partial<StoredSessionEvent> = {},
+): StoredSessionEvent {
+  return {
+    sessionId: "s1",
+    at: "2026-01-01T00:00:00.000Z",
+    blockId,
+    kind,
+    payload: new TextEncoder().encode(payload),
+    ...overrides,
+  }
+}
+
+describe("SessionStore", () => {
+  let database: SqlDatabase
+  let store: SessionStore
+
+  beforeEach(() => {
+    database = openSqliteDatabase(":memory:")
+    store = run(SessionStore.open(database))
+  })
+
+  /** Every event in the database as `block kind payload`, oldest first. */
+  function history(sessionId = "s1"): string[] {
+    const rows = database
+      .prepare(
+        "SELECT block_id, kind, payload FROM session_events WHERE session_id = ? ORDER BY seq",
+      )
+      .all(sessionId) as Array<{ block_id: string; kind: string; payload: Uint8Array }>
+    return rows.map((row) => `${row.block_id} ${row.kind} ${new TextDecoder().decode(row.payload)}`)
+  }
+
+  it("returns a session as it was inserted", () => {
+    const session = record({
+      remoteSource: "https://github.com/acme/runbooks//deploy",
+      launchDir: "/home/me/project",
+      env: new Uint8Array([1, 2, 3]),
+      worktrees: ["/sessions/dirs/s1/b", "/sessions/dirs/s1/a"],
+      activeWorktree: "/sessions/dirs/s1/a",
+      executionCount: 4,
+    })
+
+    run(store.insert(session))
+
+    expect(run(store.get("s1"))).toEqual(session)
+  })
+
+  it("returns undefined for an unknown id", () => {
+    expect(run(store.get("missing"))).toBeUndefined()
+  })
+
+  it("rolls back an insert that fails part way, and keeps working", () => {
+    // The session row goes in, then a worktree path the schema refuses.
+    const broken = record({ worktrees: [null as unknown as string] })
+
+    const failed = run(Effect.either(store.insert(broken)))
+
+    expect(failed).toMatchObject({ _tag: "Left", left: { _tag: "SessionStoreError" } })
+    expect(String((failed as { left: Error }).left.message)).toStartWith(
+      "failed to save a new session:",
+    )
+    expect(run(store.get("s1"))).toBeUndefined()
+    run(store.insert(record()))
+    expect(run(store.get("s1"))).toEqual(record())
+  })
+
+  it("fails to insert a second session with the same id, leaving the first intact", () => {
+    run(store.insert(record({ worktrees: ["/a"] })))
+
+    expect(() => run(store.insert(record({ worktrees: ["/b"] })))).toThrow(
+      /failed to save a new session/,
+    )
+    expect(run(store.get("s1"))?.worktrees).toEqual(["/a"])
+  })
+
+  describe("names", () => {
+    it("reports whether a session has a name", () => {
+      run(store.insert(record({ name: "elegant-elephant" })))
+
+      expect(run(store.isNameTaken("elegant-elephant"))).toBe(true)
+      expect(run(store.isNameTaken("brave-otter"))).toBe(false)
+    })
+
+    it("refuses a second session with a name that is taken", () => {
+      run(store.insert(record({ id: "first", name: "elegant-elephant" })))
+
+      expect(() => run(store.insert(record({ id: "second", name: "elegant-elephant" })))).toThrow(
+        /failed to save a new session/,
+      )
+      expect(run(store.get("second"))).toBeUndefined()
+    })
+
+    it("renames a session and frees its old name", () => {
+      run(store.insert(record({ name: "elegant-elephant", worktrees: ["/a"] })))
+
+      run(store.rename("s1", "prod-deploy"))
+
+      expect(run(store.get("s1"))).toEqual(record({ name: "prod-deploy", worktrees: ["/a"] }))
+      expect(run(store.isNameTaken("elegant-elephant"))).toBe(false)
+    })
+
+    it("refuses to rename a session to another session's name", () => {
+      run(store.insert(record({ id: "first", name: "elegant-elephant" })))
+      run(store.insert(record({ id: "second", name: "brave-otter" })))
+
+      expect(() => run(store.rename("second", "elegant-elephant"))).toThrow(
+        /failed to rename a session/,
+      )
+      expect(run(store.get("second"))?.name).toBe("brave-otter")
+    })
+  })
+
+  describe("saveState", () => {
+    it("replaces the changing state and leaves the rest of the session alone", () => {
+      run(store.insert(record({ launchDir: "/home/me", worktrees: ["/a", "/b"] })))
+
+      run(
+        store.saveState("s1", {
+          workingDir: "/sessions/dirs/s1/repo",
+          env: new Uint8Array([9]),
+          worktrees: ["/b"],
+          activeWorktree: "/b",
+          executionCount: 2,
+          lastActivityAt: "2026-02-01T00:00:00.000Z",
+        }),
+      )
+
+      expect(run(store.get("s1"))).toEqual(
+        record({
+          launchDir: "/home/me",
+          workingDir: "/sessions/dirs/s1/repo",
+          env: new Uint8Array([9]),
+          worktrees: ["/b"],
+          activeWorktree: "/b",
+          executionCount: 2,
+          lastActivityAt: "2026-02-01T00:00:00.000Z",
+        }),
+      )
+    })
+
+    it("clears a saved env when the new state has none", () => {
+      run(store.insert(record({ env: new Uint8Array([1]) })))
+
+      run(
+        store.saveState("s1", {
+          workingDir: "/w",
+          env: undefined,
+          worktrees: [],
+          activeWorktree: "",
+          executionCount: 0,
+          lastActivityAt: "2026-01-01T00:00:00.000Z",
+        }),
+      )
+
+      expect(run(store.get("s1"))?.env).toBeUndefined()
+    })
+  })
+
+  describe("saveVcsBindings", () => {
+    it("replaces a session's git host bindings and leaves the rest of the session alone", () => {
+      run(store.insert(record({ vcsBindings: { gitlab: { host: "gitlab.com" } } })))
+
+      run(
+        store.saveVcsBindings("s1", {
+          github: { host: "ghe.example.com", source: "oauth" },
+        }),
+      )
+
+      expect(run(store.get("s1"))).toEqual(
+        record({ vcsBindings: { github: { host: "ghe.example.com", source: "oauth" } } }),
+      )
+    })
+
+    it("leaves out a saved binding that isn't one", () => {
+      run(store.insert(record()))
+      database
+        .prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = 's1'")
+        .run(JSON.stringify({ github: { host: 42 }, gitlab: { host: "gitlab.com", source: 1 } }))
+
+      expect(run(store.get("s1"))?.vcsBindings).toEqual({ gitlab: { host: "gitlab.com" } })
+    })
+
+    it("reads bindings that aren't JSON, or aren't an object of objects, as none", () => {
+      run(store.insert(record()))
+      for (const json of ["{", "null", "42", '"github"', '{"github":null,"gitlab":"gitlab.com"}']) {
+        database.prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = 's1'").run(json)
+
+        expect(run(store.get("s1"))?.vcsBindings).toEqual({})
+      }
+    })
+  })
+
+  describe("latestForRunbook", () => {
+    it("returns the most recently launched session of a local runbook", () => {
+      run(store.insert(record({ id: "old", lastLaunchedAt: "2026-01-01T00:00:00.000Z" })))
+      run(store.insert(record({ id: "new", lastLaunchedAt: "2026-01-03T00:00:00.000Z" })))
+      run(
+        store.insert(
+          record({
+            id: "other",
+            path: "/other/runbook.mdx",
+            lastLaunchedAt: "2026-01-09T00:00:00.000Z",
+          }),
+        ),
+      )
+
+      const found = run(
+        store.latestForRunbook({ path: "/repo/runbook.mdx", remoteSource: undefined }),
+      )
+
+      expect(found?.id).toBe("new")
+    })
+
+    it("finds a remote runbook by its URL, wherever its clone landed", () => {
+      const url = "https://github.com/acme/runbooks//deploy"
+      run(
+        store.insert(record({ id: "remote", path: "/tmp/clone-1/runbook.mdx", remoteSource: url })),
+      )
+
+      const found = run(
+        store.latestForRunbook({ path: "/tmp/clone-2/runbook.mdx", remoteSource: url }),
+      )
+
+      expect(found?.id).toBe("remote")
+    })
+
+    it("keeps a local runbook's sessions apart from a remote one cloned to the same path", () => {
+      run(store.insert(record({ id: "remote", remoteSource: "https://example.com/r" })))
+
+      expect(
+        run(store.latestForRunbook({ path: "/repo/runbook.mdx", remoteSource: undefined })),
+      ).toBeUndefined()
+    })
+
+    it("prefers the session created later when two were launched at the same instant", () => {
+      run(store.insert(record({ id: "first" })))
+      run(store.insert(record({ id: "second" })))
+
+      expect(
+        run(store.latestForRunbook({ path: "/repo/runbook.mdx", remoteSource: undefined }))?.id,
+      ).toBe("second")
+    })
+  })
+
+  describe("latestForLaunchDir", () => {
+    it("returns the session most recently launched from that directory", () => {
+      run(
+        store.insert(
+          record({ id: "a1", launchDir: "/a", lastLaunchedAt: "2026-01-01T00:00:00.000Z" }),
+        ),
+      )
+      run(
+        store.insert(
+          record({ id: "a2", launchDir: "/a", lastLaunchedAt: "2026-01-02T00:00:00.000Z" }),
+        ),
+      )
+      run(
+        store.insert(
+          record({ id: "b", launchDir: "/b", lastLaunchedAt: "2026-01-05T00:00:00.000Z" }),
+        ),
+      )
+      run(store.insert(record({ id: "none", lastLaunchedAt: "2026-01-09T00:00:00.000Z" })))
+
+      expect(run(store.latestForLaunchDir("/a"))?.id).toBe("a2")
+      expect(run(store.latestForLaunchDir("/c"))).toBeUndefined()
+    })
+  })
+
+  describe("latest", () => {
+    it("returns the most recently launched session of all", () => {
+      expect(run(store.latest())).toBeUndefined()
+
+      run(
+        store.insert(
+          record({ id: "a", launchDir: "/a", lastLaunchedAt: "2026-01-02T00:00:00.000Z" }),
+        ),
+      )
+      run(store.insert(record({ id: "b", lastLaunchedAt: "2026-01-05T00:00:00.000Z" })))
+
+      expect(run(store.latest())?.id).toBe("b")
+    })
+  })
+
+  describe("list", () => {
+    it("lists sessions by when they were last opened or changed, whichever is later", () => {
+      run(
+        store.insert(
+          record({
+            id: "launched",
+            lastLaunchedAt: "2026-01-05T00:00:00.000Z",
+            lastActivityAt: "2026-01-01T00:00:00.000Z",
+          }),
+        ),
+      )
+      run(
+        store.insert(
+          record({
+            id: "changed",
+            lastLaunchedAt: "2026-01-02T00:00:00.000Z",
+            lastActivityAt: "2026-01-07T00:00:00.000Z",
+          }),
+        ),
+      )
+      run(store.insert(record({ id: "old" })))
+
+      expect(run(store.list(10)).map((s) => [s.id, s.lastUsedAt])).toEqual([
+        ["changed", "2026-01-07T00:00:00.000Z"],
+        ["launched", "2026-01-05T00:00:00.000Z"],
+        ["old", "2026-01-01T00:00:00.000Z"],
+      ])
+    })
+
+    it("lists what a list of sessions shows of each", () => {
+      run(
+        store.insert(
+          record({
+            id: "r",
+            remoteSource: "https://github.com/acme/runbooks//deploy",
+            executionCount: 4,
+            createdAt: "2025-12-31T00:00:00.000Z",
+          }),
+        ),
+      )
+
+      expect(run(store.list(10))).toEqual([
+        {
+          id: "r",
+          name: "name-of-r",
+          path: "/repo/runbook.mdx",
+          remoteSource: "https://github.com/acme/runbooks//deploy",
+          dir: "/sessions/dirs/s1",
+          createdAt: "2025-12-31T00:00:00.000Z",
+          lastUsedAt: "2026-01-01T00:00:00.000Z",
+          executionCount: 4,
+          finishedAt: undefined,
+        },
+      ])
+    })
+
+    it("lists the most recent first among sessions last used at the same time, and stops at the limit", () => {
+      for (const id of ["a", "b", "c"]) run(store.insert(record({ id })))
+
+      expect(run(store.list(2)).map((s) => s.id)).toEqual(["c", "b"])
+    })
+  })
+
+  describe("markFinished", () => {
+    it("marks a session finished, keeping the first time it was marked", () => {
+      run(store.insert(record()))
+      run(store.insert(record({ id: "other" })))
+
+      run(store.markFinished("s1", "2026-02-01T00:00:00.000Z"))
+      run(store.markFinished("s1", "2026-03-01T00:00:00.000Z"))
+
+      expect(run(store.get("s1"))?.finishedAt).toBe("2026-02-01T00:00:00.000Z")
+      expect(run(store.get("other"))?.finishedAt).toBeUndefined()
+      expect(run(store.list(10)).map((s) => [s.id, s.finishedAt])).toEqual([
+        ["other", undefined],
+        ["s1", "2026-02-01T00:00:00.000Z"],
+      ])
+    })
+  })
+
+  describe("delete", () => {
+    it("deletes a session with its history and worktrees, and leaves the others", () => {
+      run(store.insert(record({ id: "gone", worktrees: ["/w"] })))
+      run(store.insert(record({ id: "kept", worktrees: ["/k"] })))
+      for (const sessionId of ["gone", "kept"]) {
+        run(
+          store.appendEvent(
+            {
+              sessionId,
+              at: "2026-01-01T00:00:00.000Z",
+              blockId: "b",
+              kind: "inputs",
+              payload: new Uint8Array([1]),
+            },
+            { replacePrevious: false },
+          ),
+        )
+      }
+
+      run(store.delete("gone"))
+
+      expect(run(store.get("gone"))).toBeUndefined()
+      expect(run(store.get("kept"))?.worktrees).toEqual(["/k"])
+      const rows = (table: string) =>
+        database.prepare(`SELECT session_id FROM ${table}`).all() as Array<{ session_id: string }>
+      expect(rows("session_events").map((r) => r.session_id)).toEqual(["kept"])
+      expect(rows("session_worktrees").map((r) => r.session_id)).toEqual(["kept"])
+    })
+
+    it("does nothing for a session that does not exist", () => {
+      run(store.insert(record()))
+
+      run(store.delete("missing"))
+
+      expect(run(store.list(10)).map((s) => s.id)).toEqual(["s1"])
+    })
+  })
+
+  describe("markLaunched", () => {
+    it("makes the session the latest and records where it was launched from", () => {
+      run(store.insert(record({ id: "a", lastLaunchedAt: "2026-01-01T00:00:00.000Z" })))
+      run(store.insert(record({ id: "b", lastLaunchedAt: "2026-01-02T00:00:00.000Z" })))
+
+      run(
+        store.markLaunched("a", {
+          at: "2026-01-03T00:00:00.000Z",
+          runbookPath: "/tmp/clone-2/runbook.mdx",
+          launchDir: "/home/me/project",
+        }),
+      )
+
+      expect(run(store.latest())).toMatchObject({
+        id: "a",
+        path: "/tmp/clone-2/runbook.mdx",
+        launchDir: "/home/me/project",
+        lastLaunchedAt: "2026-01-03T00:00:00.000Z",
+      })
+    })
+
+    it("keeps the recorded launch directory when the new launch has none", () => {
+      run(store.insert(record({ launchDir: "/home/me/project" })))
+
+      run(
+        store.markLaunched("s1", {
+          at: "2026-01-03T00:00:00.000Z",
+          runbookPath: "/repo/runbook.mdx",
+          launchDir: undefined,
+        }),
+      )
+
+      expect(run(store.get("s1"))?.launchDir).toBe("/home/me/project")
+    })
+  })
+
+  describe("history", () => {
+    const APPEND = { replacePrevious: false }
+    const REPLACE = { replacePrevious: true }
+
+    beforeEach(() => {
+      run(store.insert(record()))
+    })
+
+    it("keeps every event in the order it was added", () => {
+      run(store.appendEvent(event("deploy", "run", "started"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "failed"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "started"), APPEND))
+
+      expect(history()).toEqual(["deploy run started", "deploy run failed", "deploy run started"])
+    })
+
+    it("replaces the event before it when asked to and both are the same block's and kind", () => {
+      run(store.appendEvent(event("config", "inputs", "a"), REPLACE))
+      run(
+        store.appendEvent(
+          event("config", "inputs", "ab", { at: "2026-01-02T00:00:00.000Z" }),
+          REPLACE,
+        ),
+      )
+
+      expect(history()).toEqual(["config inputs ab"])
+      expect(run(store.latestEvents("s1"))).toEqual([
+        event("config", "inputs", "ab", { at: "2026-01-02T00:00:00.000Z" }),
+      ])
+    })
+
+    it("adds an event that follows another block's, or another kind, whatever it was asked", () => {
+      run(store.appendEvent(event("config", "inputs", "a"), REPLACE))
+      run(store.appendEvent(event("deploy", "run", "ok"), APPEND))
+      run(store.appendEvent(event("config", "inputs", "b"), REPLACE))
+      run(store.appendEvent(event("other", "inputs", "c"), REPLACE))
+      run(store.appendEvent(event("other", "run", "ok"), REPLACE))
+
+      expect(history()).toEqual([
+        "config inputs a",
+        "deploy run ok",
+        "config inputs b",
+        "other inputs c",
+        "other run ok",
+      ])
+    })
+
+    it("returns the newest event of each kind for each block, oldest first", () => {
+      run(store.appendEvent(event("config", "inputs", "a"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "failed"), APPEND))
+      run(store.appendEvent(event("config", "inputs", "b"), APPEND))
+      run(store.appendEvent(event("deploy", "inputs", "x"), APPEND))
+      run(store.appendEvent(event("deploy", "run", "ok"), APPEND))
+
+      const latest = run(store.latestEvents("s1")).map(
+        (e) => `${e.blockId} ${e.kind} ${new TextDecoder().decode(e.payload)}`,
+      )
+
+      expect(latest).toEqual(["config inputs b", "deploy inputs x", "deploy run ok"])
+    })
+
+    it("keeps each session's events to itself", () => {
+      run(store.insert(record({ id: "s2" })))
+      run(store.appendEvent(event("config", "inputs", "one"), REPLACE))
+      run(store.appendEvent(event("config", "inputs", "two", { sessionId: "s2" }), REPLACE))
+
+      expect(history("s1")).toEqual(["config inputs one"])
+      expect(history("s2")).toEqual(["config inputs two"])
+      expect(run(store.latestEvents("s2"))).toHaveLength(1)
+      expect(run(store.latestEvents("missing"))).toEqual([])
+    })
+
+    it("refuses an event of a session that does not exist", () => {
+      expect(() =>
+        run(store.appendEvent(event("config", "inputs", "a", { sessionId: "missing" }), APPEND)),
+      ).toThrow(/failed to save a session event/)
+    })
+  })
+
+  describe("a database file", () => {
+    let dir: string
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-session-store-"))
+    })
+
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    it("keeps sessions after the database is closed and reopened", () => {
+      const file = path.join(dir, "sessions.db")
+      const first = run(SessionStore.open(openSqliteDatabase(file)))
+      run(first.insert(record({ worktrees: ["/a"] })))
+      run(first.close())
+
+      const second = run(SessionStore.open(openSqliteDatabase(file)))
+
+      expect(run(second.get("s1"))).toEqual(record({ worktrees: ["/a"] }))
+      run(second.close())
+    })
+
+    it("writes ahead to a log, so a reader never waits on a writer", () => {
+      const file = path.join(dir, "sessions.db")
+      const fileStore = run(SessionStore.open(openSqliteDatabase(file)))
+      run(fileStore.close())
+
+      const db = openSqliteDatabase(file)
+      const { journal_mode: mode } = db.prepare("PRAGMA journal_mode").get() as {
+        journal_mode: string
+      }
+      db.close()
+      expect(mode).toBe("wal")
+    })
+
+    it("refuses a database written by a newer schema version", () => {
+      const file = path.join(dir, "sessions.db")
+      const db = openSqliteDatabase(file)
+      db.exec("PRAGMA user_version = 99")
+      db.close()
+
+      expect(() => run(SessionStore.open(openSqliteDatabase(file)))).toThrow(/schema version 99/)
+    })
+  })
+})

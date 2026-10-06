@@ -3,6 +3,7 @@ import { Loader2, Eye, EyeOff, Upload, FileJson } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { RegionPicker } from "./RegionPicker"
 import type { GoogleAuthStatus } from "../types"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 
 interface ServiceAccountKeyFormProps {
   authStatus: GoogleAuthStatus
@@ -64,6 +65,7 @@ export function ServiceAccountKeyForm({
   setSelectedRegion,
   onSubmit,
 }: ServiceAccountKeyFormProps) {
+  const displayPath = useDisplayPath()
   const isAuthenticating = authStatus === "authenticating"
 
   // Parse for display only. Never touches `private_key`; a parse failure is not
@@ -117,7 +119,7 @@ export function ServiceAccountKeyForm({
           <div className="flex items-center gap-2 px-3 py-2 border border-input rounded-md text-sm">
             <FileJson className="size-4 flex-shrink-0 text-muted-foreground" />
             <span className="font-mono truncate" title={keyFilePath ?? undefined}>
-              {keyFileName ?? keyFilePath}
+              {keyFileName ?? (keyFilePath && displayPath(keyFilePath))}
             </span>
           </div>
         ) : (

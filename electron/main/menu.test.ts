@@ -35,6 +35,44 @@ function editItems(): MenuItemConstructorOptions[] {
   return edit!.submenu as MenuItemConstructorOptions[]
 }
 
+describe("File menu", () => {
+  const fileItems = () => {
+    setupApplicationMenu()
+    return template.find((m) => m.label === "File")!.submenu as MenuItemConstructorOptions[]
+  }
+
+  it("has Switch, Rename and Reset Session, with no shortcut that could reset by accident", () => {
+    const items = fileItems().filter((i) => i.id?.endsWith("-session"))
+
+    expect(items.map(({ label, accelerator }) => ({ label, accelerator }))).toEqual([
+      { label: "Switch Session…", accelerator: undefined },
+      { label: "Rename Session…", accelerator: undefined },
+      { label: "Reset Session", accelerator: undefined },
+    ])
+  })
+
+  it.each([
+    ["switch-session", "menu:switch-session"],
+    ["rename-session", "menu:rename-session"],
+  ])("sends %s to the renderer", (id, channel) => {
+    const item = fileItems().find((i) => i.id === id)!
+    sent.length = 0
+
+    ;(item.click as () => void)()
+
+    expect(sent).toEqual([{ channel, payload: undefined }])
+  })
+
+  it("does nothing on Reset Session while no runbook is open", () => {
+    const reset = fileItems().find((i) => i.id === "reset-session")!
+    sent.length = 0
+
+    ;(reset.click as () => void)()
+
+    expect(sent).toEqual([])
+  })
+})
+
 describe("Edit menu", () => {
   it("has Find, Find Next and Find Previous with the browser shortcuts", () => {
     const find = editItems().filter((item) => item.label?.startsWith("Find"))

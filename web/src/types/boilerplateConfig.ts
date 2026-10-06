@@ -29,4 +29,7 @@ export interface BoilerplateConfig {
   // Output dependencies found by scanning template files for {{ .outputs.*.* }} patterns.
   // The Template component uses this to show warnings when dependent blocks haven't been executed.
   outputDependencies?: OutputDependency[]
+  // A hash of the template directory's files, when the config came from one.
+  // A Template block keeps it with what it wrote, to tell when its files changed.
+  contentHash?: string
 }

@@ -249,6 +249,10 @@ async function identityFromAccessToken(
     projectId,
     projectName: await lookupProjectName(client, projectId),
     scopes: info.scopes,
+    expiresAt:
+      credentialType === "access_token" && Number.isFinite(info.expiry_date)
+        ? new Date(info.expiry_date).toISOString()
+        : undefined,
   }
 }
 

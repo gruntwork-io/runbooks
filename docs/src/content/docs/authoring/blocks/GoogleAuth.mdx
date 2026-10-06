@@ -521,6 +521,8 @@ Only one `{ block: 'id' }` entry is allowed per GoogleAuth block. More than one 
 
 If the only credential found is an access token (`GOOGLE_OAUTH_ACCESS_TOKEN` or `CLOUDSDK_AUTH_ACCESS_TOKEN`), confirming it re-exports that same value under both canonical names and writes no `GOOGLE_APPLICATION_CREDENTIALS`. Runbooks does not mint a bearer token of its own, because access tokens expire after about an hour, which would break a long runbook halfway through.
 
+Google says when an access token expires. Five minutes before then, the block turns red, says when it expires, and offers **Sign in again**. Once it has expired, the block says so. It stays signed in until you sign in again. The other credential types renew their own tokens, so the block never warns about them.
+
 With no credentials file, GoogleAuth cannot [bridge to the `gcloud` CLI](#bridging-to-the-gcloud-cli). `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` is left unset, and a bare `gcloud` command uses whatever CLI login is already configured on the machine. Client libraries, OpenTofu/Terraform, and any script that reads `GOOGLE_OAUTH_ACCESS_TOKEN` directly are unaffected.
 
 ### When users reject detected credentials

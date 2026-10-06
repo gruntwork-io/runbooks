@@ -3,6 +3,7 @@ import { FolderGit2, FolderOpen, Loader2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { InfoTooltip } from "@/components/mdx/GitPullRequest/components/InfoTooltip"
 import type { LocalRepoInfo } from "../types"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 
 export type LocalPreviewStatus = "idle" | "checking" | "valid" | "invalid"
 
@@ -35,6 +36,7 @@ export function LocalRepoForm({
   // A runbook can hold several GitClone blocks; a shared literal id would point
   // every label at the first input.
   const inputId = useId()
+  const displayPath = useDisplayPath()
 
   return (
     <div className="space-y-3">
@@ -88,7 +90,10 @@ export function LocalRepoForm({
           </div>
           <div className="text-xs text-muted-foreground space-y-0.5">
             <div>
-              Root: <code className="font-mono">{preview.absolutePath}</code>
+              Root:{" "}
+              <code className="font-mono" title={preview.absolutePath}>
+                {displayPath(preview.absolutePath)}
+              </code>
             </div>
             {preview.remoteUrl && (
               <div>

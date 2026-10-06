@@ -9,6 +9,7 @@ import { ipcMain } from "electron"
 import { runtime, sessionManager, runbookConfig } from "./runtime.ts"
 import { readFileMetadata } from "../../../src/domain/workspace/file.ts"
 import { checkGeneratedFiles, deleteGeneratedFiles } from "../../../src/domain/files/generated.ts"
+import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
 import { containsPathTraversal, isContainedInReal } from "../../../src/path-validation.ts"
 import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
 
@@ -43,7 +44,14 @@ export function registerFileHandlers(): void {
       Effect.gen(function* () {
         const dir = yield* resolveGeneratedDir(params?.outputPath)
         yield* validateSessionPath(dir.absolutePath)
-        return yield* checkGeneratedFiles(dir.baseDir, dir.outputPath)
+        const checked = yield* checkGeneratedFiles(dir.baseDir, dir.outputPath)
+        if (!checked.hasFiles) return checked
+        // The tree a resumed session's Generated panel shows, built the way
+        // boilerplate:render builds it. A failed walk leaves the panel as it is.
+        const built = yield* buildFileTree(checked.absoluteOutputPath).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
+        return built ? { ...checked, fileTree: built.tree, ...built.meta } : checked
       }),
     )
   })

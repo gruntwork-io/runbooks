@@ -72,6 +72,61 @@ afterEach(() => {
 
 const POLL = { clientId: "cid", clientSecret: "csecret", deviceCode: "dc-1", region: SSO_REGION }
 
+describe("AwsSdkClient.validateCredentials", () => {
+  const CREDS = { accessKeyId: "AKIA", secretAccessKey: "secret", region: "us-east-1" }
+
+  /** Validate CREDS with STS failing with `error`; resolves to whether AWS was unreachable. */
+  async function unreachableWhen(error: unknown) {
+    const spy = spyOn(STSClient.prototype, "send").mockImplementation((async () => {
+      throw error
+    }) as never)
+    spies.push(spy)
+    const result = await run((c) => c.validateCredentials(CREDS, "us-east-1"))
+    if (Either.isRight(result)) throw new Error("validation succeeded")
+    return result.left.unreachable
+  }
+
+  it("blames the credentials when AWS refuses them", async () => {
+    const refused = Object.assign(
+      new Error("The security token included in the request is invalid."),
+      {
+        name: "InvalidClientTokenId",
+        $metadata: { httpStatusCode: 403 },
+      },
+    )
+
+    expect(await unreachableWhen(refused)).toBe(false)
+  })
+
+  it("says AWS was unreachable when no answer came back", async () => {
+    const offline = Object.assign(new Error("getaddrinfo ENOTFOUND sts.amazonaws.com"), {
+      code: "ENOTFOUND",
+      $metadata: { attempts: 3 },
+    })
+
+    expect(await unreachableWhen(offline)).toBe(true)
+  })
+
+  it.each([500, 503])(
+    "says AWS was unreachable when AWS itself failed with a %d",
+    async (status) => {
+      const outage = Object.assign(new Error("Service Unavailable"), {
+        $metadata: { httpStatusCode: status },
+      })
+
+      expect(await unreachableWhen(outage)).toBe(true)
+    },
+  )
+
+  it("blames the credentials for any answer below 500", async () => {
+    const throttled = Object.assign(new Error("Rate exceeded"), {
+      $metadata: { httpStatusCode: 499 },
+    })
+
+    expect(await unreachableWhen(throttled)).toBe(false)
+  })
+})
+
 describe("AwsSdkClient.pollSsoToken", () => {
   it("sends CreateToken to the SSO region and returns the token", async () => {
     const sent = stub(SSOOIDCClient, () => ({ accessToken: "sso-token" }))
@@ -180,6 +235,44 @@ describe("AwsSdkClient.listSsoRoles", () => {
       accountId: "111111111111",
       nextToken: "page-2",
     })
+  })
+})
+
+describe("AwsSdkClient.completeSsoAuth", () => {
+  const COMPLETE = { accessToken: "sso-token", accountId: "111111111111", roleName: "Admin" }
+
+  it("returns the role's credentials with when they expire", async () => {
+    const expiration = Date.parse("2026-10-03T13:00:00Z")
+    stub(SSOClient, () => ({
+      roleCredentials: {
+        accessKeyId: "ASIA_ROLE",
+        secretAccessKey: "role-secret",
+        sessionToken: "role-token",
+        expiration,
+      },
+    }))
+
+    const result = await run((c) => c.completeSsoAuth({ ...COMPLETE, region: SSO_REGION }))
+
+    expect(result).toEqual(
+      Either.right({
+        accessKeyId: "ASIA_ROLE",
+        secretAccessKey: "role-secret",
+        sessionToken: "role-token",
+        region: SSO_REGION,
+        expiresAt: "2026-10-03T13:00:00.000Z",
+      }),
+    )
+  })
+
+  it("leaves the expiry out when AWS gives none", async () => {
+    stub(SSOClient, () => ({
+      roleCredentials: { accessKeyId: "ASIA_ROLE", secretAccessKey: "role-secret" },
+    }))
+
+    const result = await run((c) => c.completeSsoAuth({ ...COMPLETE, region: SSO_REGION }))
+
+    expect(Either.isRight(result) && result.right.expiresAt).toBeUndefined()
   })
 })
 
@@ -330,6 +423,44 @@ describe("AwsSdkClient local profiles", () => {
       const result = await run((c) => c.authenticateProfile("dev"))
 
       expect(Either.isRight(result) && result.right.region).toBe("")
+    })
+
+    it("returns when a profile's temporary credentials expire", async () => {
+      // The SDK refuses credentials that have already expired.
+      const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString()
+      const process = path.join(dir, "get-creds.sh")
+      fs.writeFileSync(
+        process,
+        `#!/bin/sh\necho '${JSON.stringify({
+          Version: 1,
+          AccessKeyId: "ASIA_PROC",
+          SecretAccessKey: "proc-secret",
+          SessionToken: "proc-token",
+          Expiration: expiresAt,
+        })}'\n`,
+        { mode: 0o755 },
+      )
+      writeConfig(`[profile proc]\ncredential_process = ${process}\nregion = us-east-2\n`)
+
+      const result = await run((c) => c.authenticateProfile("proc"))
+
+      expect(result).toEqual(
+        Either.right({
+          accessKeyId: "ASIA_PROC",
+          secretAccessKey: "proc-secret",
+          sessionToken: "proc-token",
+          region: "us-east-2",
+          expiresAt,
+        }),
+      )
+    })
+
+    it("leaves the expiry out for long-lived keys", async () => {
+      writeCredentials(`[dev]\n${keys("AKIA_DEV")}`)
+
+      const result = await run((c) => c.authenticateProfile("dev"))
+
+      expect(Either.isRight(result) && result.right.expiresAt).toBeUndefined()
     })
   })
 })

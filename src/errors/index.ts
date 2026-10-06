@@ -40,6 +40,8 @@ export class PathValidationError extends Data.TaggedError("PathValidationError")
 export class AwsAuthError extends Data.TaggedError("AwsAuthError")<{
   readonly message: string
   readonly cause?: unknown
+  /** AWS gave no answer about the credentials (no network, DNS, a 5xx). */
+  readonly unreachable?: boolean
 }> {}
 
 export class AwsConfigError extends Data.TaggedError("AwsConfigError")<{
@@ -151,6 +153,27 @@ export class SessionError extends Data.TaggedError("SessionError")<{
 }> {}
 
 export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{}> {}
+
+/** A session can't be deleted. `message` says why, in words fit to show the user. */
+export class SessionDeleteError extends Data.TaggedError("SessionDeleteError")<{
+  readonly message: string
+}> {}
+
+/** A session can't take the name it was asked to. `message` says why, in words fit to show the user. */
+export class SessionNameError extends Data.TaggedError("SessionNameError")<{
+  readonly message: string
+}> {}
+
+/** A block reported an event that can't go in the session's history. `message` says why. */
+export class SessionEventError extends Data.TaggedError("SessionEventError")<{
+  readonly message: string
+}> {}
+
+/** The sessions database could not be opened or migrated, or rejected a statement. */
+export class SessionStoreError extends Data.TaggedError("SessionStoreError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
 
 // Execution
 export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{

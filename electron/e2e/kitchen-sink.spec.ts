@@ -22,6 +22,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -40,15 +41,16 @@ const consoleErrors: string[] = []
 test.beforeAll(async () => {
   // Launch a temp copy with a throwaway profile so runs never write into
   // testdata/ or the real app profile. Scripts and Templates write to the
-  // runbook's generated/ dir, and files an earlier run left there open the
-  // modal "existing generated files" alert, which hides the app from getByRole.
+  // generated/ dir of the runbook's session, which the profile keeps, and
+  // files an earlier run left there open the modal "existing generated files"
+  // alert, which hides the app from getByRole.
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-kitchen-sink-e2e-"))
   const runbookDir = path.join(workDir, "kitchen-sink")
   const userDataDir = path.join(workDir, "user-data")
   fs.cpSync(KITCHEN_SINK, runbookDir, { recursive: true })
   fs.mkdirSync(userDataDir)
   app = await electron.launch({
-    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, runbookDir],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
@@ -362,9 +364,13 @@ test.describe("Templates", () => {
   test("template inline with generateFile writes the rendered file", async () => {
     // Pins boilerplate:render-inline's write path end to end: the component
     // tests mock IPC, so only a real run shows the file lands on disk.
-    // The `gen-file-tpl` block writes into the runbook copy's generated-files
-    // dir, which starts empty, so the check can only pass if this run wrote it.
-    const written = path.join(workDir, "kitchen-sink", "generated", "generated.yaml")
+    // The `gen-file-tpl` block writes into the generated-files dir of the
+    // session, the only one in this throwaway profile. It starts empty, so
+    // the check can only pass if this run wrote the file.
+    const sessionDirs = path.join(workDir, "user-data", "v0", "sessions", "dirs")
+    const [sessionId, ...others] = fs.readdirSync(sessionDirs)
+    expect(others).toEqual([])
+    const written = path.join(sessionDirs, sessionId!, "generated", "generated.yaml")
     await expect
       .poll(() => (fs.existsSync(written) ? fs.readFileSync(written, "utf-8") : ""))
       .toContain("name: hello world")

@@ -1,5 +1,6 @@
 import { AlertTriangle, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 
 interface RunbookOpenErrorProps {
   /** User-facing reason the open failed (may contain newlines). */
@@ -32,6 +33,7 @@ export function RunbookOpenError({
   onDismiss,
   className,
 }: RunbookOpenErrorProps) {
+  const displayPath = useDisplayPath()
   if (variant === "inline") {
     return (
       <div
@@ -45,10 +47,15 @@ export function RunbookOpenError({
           <AlertTriangle className="size-5 mt-0.5 flex-shrink-0 text-destructive" />
           <div className="flex-1 min-w-0">
             <h3 className="font-medium text-destructive mb-1">Couldn't open runbook</h3>
-            <p className="text-sm text-destructive whitespace-pre-line break-words">{message}</p>
+            <p className="text-sm text-destructive whitespace-pre-line break-words">
+              {displayPath(message)}
+            </p>
             {currentPath && (
               <p className="text-sm text-destructive mt-2 break-all">
-                Still showing <span className="font-mono">{currentPath}</span>
+                Still showing{" "}
+                <span className="font-mono" title={currentPath}>
+                  {displayPath(currentPath)}
+                </span>
               </p>
             )}
             <div className="flex items-center gap-3 mt-3">

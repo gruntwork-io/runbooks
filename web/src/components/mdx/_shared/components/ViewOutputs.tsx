@@ -1,3 +1,4 @@
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { ChevronDown, ChevronRight, Database, Copy, Check } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -126,17 +127,8 @@ export function ViewOutputs({ outputs, autoOpen = false }: ViewOutputsProps) {
                             <span aria-hidden="true">{SENSITIVE_MASK}</span>
                             <span className="sr-only">Sensitive value hidden</span>
                           </span>
-                        ) : value.length > 100 ? (
-                          <Tooltip delayDuration={350}>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help">{value.substring(0, 100)}...</span>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" className="max-w-md">
-                              <pre className="text-xs whitespace-pre-wrap break-all">{value}</pre>
-                            </TooltipContent>
-                          </Tooltip>
                         ) : (
-                          value
+                          <OutputValue value={value} />
                         )}
                       </span>
                       <button
@@ -159,5 +151,27 @@ export function ViewOutputs({ outputs, autoOpen = false }: ViewOutputsProps) {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * An output's value as the table shows it: with paths shortened (see
+ * useDisplayPath) and cut to 100 characters. A value shown otherwise than it
+ * is has the full value on hover.
+ */
+function OutputValue({ value }: { value: string }) {
+  const displayPath = useDisplayPath()
+  const shown = displayPath(value)
+  const short = shown.length > 100 ? `${shown.substring(0, 100)}...` : shown
+  if (short === value) return value
+  return (
+    <Tooltip delayDuration={350}>
+      <TooltipTrigger asChild>
+        <span className="cursor-help">{short}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-md">
+        <pre className="text-xs whitespace-pre-wrap break-all">{value}</pre>
+      </TooltipContent>
+    </Tooltip>
   )
 }

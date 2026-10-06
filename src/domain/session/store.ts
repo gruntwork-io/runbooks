@@ -1,0 +1,533 @@
+/**
+ * The sessions database: one row per session and one per event of its
+ * history, kept across app restarts.
+ *
+ * The store speaks SQL through SqlDatabase, the part of `node:sqlite` it
+ * needs, so that this module imports no Node API. src/layers/NodeSqlite.ts
+ * opens one.
+ */
+import { Effect } from "effect"
+import { SessionStoreError } from "../../errors/index.ts"
+
+/** A value bound to a `?` placeholder. */
+export type SqlValue = string | number | null | Uint8Array
+
+export interface SqlStatement {
+  run(...params: SqlValue[]): void
+  /** The first row, or undefined when there is none. */
+  get(...params: SqlValue[]): unknown
+  all(...params: SqlValue[]): unknown[]
+}
+
+export interface SqlDatabase {
+  exec(sql: string): void
+  prepare(sql: string): SqlStatement
+  close(): void
+}
+
+/** The runbook a session belongs to. */
+export interface RunbookSource {
+  /** The runbook file. For a remote runbook, where its latest clone put it. */
+  path: string
+  /** The URL the runbook was opened from. A remote runbook is identified by it, since every clone lands in a new folder. */
+  remoteSource: string | undefined
+}
+
+/** A session's state that changes while its runbook is open. */
+export interface StoredSessionState {
+  workingDir: string
+  /** The session env's changes since it started, encrypted. Undefined when they could not be encrypted. */
+  env: Uint8Array | undefined
+  /** The git checkouts the session's GitClone blocks registered, oldest first. */
+  worktrees: string[]
+  /** The checkout the user selected, or "" for the last registered one. */
+  activeWorktree: string
+  executionCount: number
+  lastActivityAt: string
+}
+
+/**
+ * The host each git provider's session credential belongs to, as the auth
+ * block that wrote it bound it. Not secret. The env has the credentials; this
+ * says which host each may go to, which the env's own variables can't be
+ * trusted to say.
+ */
+export type VcsBindings = Partial<
+  Record<"github" | "gitlab", { host: string; source?: string | undefined }>
+>
+
+export interface SessionRecord extends StoredSessionState, RunbookSource {
+  id: string
+  /** What the app shows the session as, e.g. `elegant-elephant` (names.ts). No two sessions share one. */
+  name: string
+  /** The session's own directory, where its scripts start and its files are written. */
+  dir: string
+  /** The directory `runbooks` was last run from to start this session. */
+  launchDir: string | undefined
+  createdAt: string
+  lastLaunchedAt: string
+  vcsBindings: VcsBindings
+  /** When the session was marked finished; undefined while it isn't. */
+  finishedAt: string | undefined
+}
+
+/** What a list of sessions shows of each (SessionStore.list). */
+export interface SessionSummary extends RunbookSource {
+  id: string
+  name: string
+  dir: string
+  createdAt: string
+  /** When the session was last opened, or a block last changed it, whichever is later. */
+  lastUsedAt: string
+  executionCount: number
+  /** When the session was marked finished; undefined while it isn't. */
+  finishedAt: string | undefined
+}
+
+/** A saved session as a list of sessions shows it (SessionPersistence.listSessions). */
+export interface ListedSession extends SessionSummary {
+  /** Whether this is the session the app has open. */
+  isCurrent: boolean
+  /**
+   * Whether the session's local runbook file is gone, so it can't be opened.
+   * Never true for a remote runbook, which is cloned again when it opens.
+   */
+  runbookMissing: boolean
+}
+
+/** One event of a session's history (history.ts), as the database has it. */
+export interface StoredSessionEvent {
+  sessionId: string
+  /** When the event was recorded, or last replaced. */
+  at: string
+  blockId: string
+  kind: string
+  /** The event's payload: JSON, encrypted. */
+  payload: Uint8Array
+}
+
+/** A `sessions` row. Every table is STRICT, so each column has its declared type. */
+interface SessionRow {
+  id: string
+  name: string
+  runbook_path: string
+  remote_source: string | null
+  dir: string
+  working_dir: string
+  launch_dir: string | null
+  env: Uint8Array | null
+  active_worktree: string
+  execution_count: number
+  created_at: string
+  last_launched_at: string
+  last_activity_at: string
+  vcs_bindings: string
+  finished_at: string | null
+}
+
+const MIGRATIONS = [
+  `CREATE TABLE sessions (
+     id TEXT PRIMARY KEY,
+     name TEXT NOT NULL UNIQUE,
+     runbook_path TEXT NOT NULL,
+     remote_source TEXT,
+     dir TEXT NOT NULL,
+     working_dir TEXT NOT NULL,
+     launch_dir TEXT,
+     env BLOB,
+     active_worktree TEXT NOT NULL,
+     execution_count INTEGER NOT NULL,
+     created_at TEXT NOT NULL,
+     last_launched_at TEXT NOT NULL,
+     last_activity_at TEXT NOT NULL,
+     vcs_bindings TEXT NOT NULL,
+     finished_at TEXT
+   ) STRICT;
+   CREATE TABLE session_worktrees (
+     session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+     position INTEGER NOT NULL,
+     path TEXT NOT NULL,
+     PRIMARY KEY (session_id, position)
+   ) STRICT;
+   CREATE TABLE session_events (
+     seq INTEGER PRIMARY KEY,
+     session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+     at TEXT NOT NULL,
+     block_id TEXT NOT NULL,
+     kind TEXT NOT NULL,
+     payload BLOB NOT NULL
+   ) STRICT;
+   CREATE INDEX session_events_by_session ON session_events (session_id, seq);`,
+]
+
+/** A `session_events` row. */
+interface SessionEventRow {
+  seq: number
+  session_id: string
+  at: string
+  block_id: string
+  kind: string
+  payload: Uint8Array
+}
+
+// Timestamps are ISO 8601 in UTC, so they sort as text. rowid breaks a tie
+// between two sessions launched in the same millisecond.
+const MOST_RECENT_FIRST = "ORDER BY last_launched_at DESC, rowid DESC LIMIT 1"
+
+export class SessionStore {
+  private constructor(private readonly db: SqlDatabase) {}
+
+  /** Wrap `db`, creating or upgrading its schema. */
+  static open(db: SqlDatabase): Effect.Effect<SessionStore, SessionStoreError> {
+    return attempt("open the sessions database", () => {
+      db.exec("PRAGMA journal_mode = WAL")
+      db.exec("PRAGMA foreign_keys = ON")
+      const { user_version: version } = db.prepare("PRAGMA user_version").get() as {
+        user_version: number
+      }
+      if (version > MIGRATIONS.length) {
+        throw new Error(
+          `the database has schema version ${version}, newer than this version of Runbooks supports (${MIGRATIONS.length})`,
+        )
+      }
+      MIGRATIONS.slice(version).forEach((migration, i) => {
+        transaction(db, () => {
+          db.exec(migration)
+          db.exec(`PRAGMA user_version = ${version + i + 1}`)
+        })
+      })
+      return new SessionStore(db)
+    })
+  }
+
+  insert(record: SessionRecord): Effect.Effect<void, SessionStoreError> {
+    return attempt("save a new session", () => {
+      transaction(this.db, () => {
+        this.db
+          .prepare(
+            `INSERT INTO sessions (
+               id, name, runbook_path, remote_source, dir, working_dir, launch_dir, env,
+               active_worktree, execution_count, created_at, last_launched_at, last_activity_at,
+               vcs_bindings, finished_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            record.id,
+            record.name,
+            record.path,
+            record.remoteSource ?? null,
+            record.dir,
+            record.workingDir,
+            record.launchDir ?? null,
+            record.env ?? null,
+            record.activeWorktree,
+            record.executionCount,
+            record.createdAt,
+            record.lastLaunchedAt,
+            record.lastActivityAt,
+            JSON.stringify(record.vcsBindings),
+            record.finishedAt ?? null,
+          )
+        this.replaceWorktrees(record.id, record.worktrees)
+      })
+    })
+  }
+
+  get(id: string): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
+    return this.selectOne("WHERE id = ?", [id])
+  }
+
+  /** Whether a session already has this name. */
+  isNameTaken(name: string): Effect.Effect<boolean, SessionStoreError> {
+    return attempt("look up a session name", () => {
+      const row = this.db.prepare("SELECT 1 FROM sessions WHERE name = ?").get(name)
+      return row !== undefined
+    })
+  }
+
+  /** Give the session a new name. Fails when another session has it. */
+  rename(id: string, name: string): Effect.Effect<void, SessionStoreError> {
+    return attempt("rename a session", () => {
+      this.db.prepare("UPDATE sessions SET name = ? WHERE id = ?").run(name, id)
+    })
+  }
+
+  /** The most recently launched session of `runbook`. */
+  latestForRunbook(
+    runbook: RunbookSource,
+  ): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
+    return runbook.remoteSource === undefined
+      ? this.selectOne(`WHERE remote_source IS NULL AND runbook_path = ? ${MOST_RECENT_FIRST}`, [
+          runbook.path,
+        ])
+      : this.selectOne(`WHERE remote_source = ? ${MOST_RECENT_FIRST}`, [runbook.remoteSource])
+  }
+
+  /** The session most recently launched from `launchDir`. */
+  latestForLaunchDir(
+    launchDir: string,
+  ): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
+    return this.selectOne(`WHERE launch_dir = ? ${MOST_RECENT_FIRST}`, [launchDir])
+  }
+
+  /** The most recently launched session. */
+  latest(): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
+    return this.selectOne(MOST_RECENT_FIRST, [])
+  }
+
+  /**
+   * Record that the session was launched at `at` for the runbook file at
+   * `runbookPath`. An undefined `launchDir` (a launch from the file dialog or
+   * the dock) keeps the directory of the last launch that had one.
+   */
+  markLaunched(
+    id: string,
+    launch: { at: string; runbookPath: string; launchDir: string | undefined },
+  ): Effect.Effect<void, SessionStoreError> {
+    return attempt("record a session launch", () => {
+      this.db
+        .prepare(
+          `UPDATE sessions
+              SET last_launched_at = ?, runbook_path = ?, launch_dir = COALESCE(?, launch_dir)
+            WHERE id = ?`,
+        )
+        .run(launch.at, launch.runbookPath, launch.launchDir ?? null, id)
+    })
+  }
+
+  saveState(id: string, state: StoredSessionState): Effect.Effect<void, SessionStoreError> {
+    return attempt("save a session", () => {
+      transaction(this.db, () => {
+        this.db
+          .prepare(
+            `UPDATE sessions
+                SET working_dir = ?, env = ?, active_worktree = ?, execution_count = ?,
+                    last_activity_at = ?
+              WHERE id = ?`,
+          )
+          .run(
+            state.workingDir,
+            state.env ?? null,
+            state.activeWorktree,
+            state.executionCount,
+            state.lastActivityAt,
+            id,
+          )
+        this.replaceWorktrees(id, state.worktrees)
+      })
+    })
+  }
+
+  /**
+   * Add `event` to the end of its session's history. With `replacePrevious`,
+   * an event that follows one of the same block and kind takes its place
+   * instead, and keeps its position.
+   */
+  appendEvent(
+    event: StoredSessionEvent,
+    options: { replacePrevious: boolean },
+  ): Effect.Effect<void, SessionStoreError> {
+    return attempt("save a session event", () => {
+      transaction(this.db, () => {
+        const previous = options.replacePrevious
+          ? (this.db
+              .prepare(
+                `SELECT seq, block_id, kind FROM session_events
+                  WHERE session_id = ? ORDER BY seq DESC LIMIT 1`,
+              )
+              .get(event.sessionId) as
+              | Pick<SessionEventRow, "seq" | "block_id" | "kind">
+              | undefined)
+          : undefined
+        if (previous?.block_id === event.blockId && previous.kind === event.kind) {
+          this.db
+            .prepare("UPDATE session_events SET at = ?, payload = ? WHERE seq = ?")
+            .run(event.at, event.payload, previous.seq)
+          return
+        }
+        this.db
+          .prepare(
+            `INSERT INTO session_events (session_id, at, block_id, kind, payload)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(event.sessionId, event.at, event.blockId, event.kind, event.payload)
+      })
+    })
+  }
+
+  /**
+   * The newest event of each kind for each of the session's blocks, oldest
+   * first: what each block was left as.
+   */
+  latestEvents(sessionId: string): Effect.Effect<StoredSessionEvent[], SessionStoreError> {
+    return attempt("read a session's history", () => {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM session_events
+            WHERE seq IN (
+              SELECT MAX(seq) FROM session_events WHERE session_id = ? GROUP BY block_id, kind
+            )
+            ORDER BY seq`,
+        )
+        .all(sessionId) as SessionEventRow[]
+      return rows.map((row) => ({
+        sessionId: row.session_id,
+        at: row.at,
+        blockId: row.block_id,
+        kind: row.kind,
+        payload: row.payload,
+      }))
+    })
+  }
+
+  /** The `limit` most recently used sessions, most recent first. */
+  list(limit: number): Effect.Effect<SessionSummary[], SessionStoreError> {
+    return attempt("list the sessions", () => {
+      const rows = this.db
+        .prepare(
+          `SELECT id, name, runbook_path, remote_source, dir, created_at, execution_count,
+             finished_at, MAX(last_launched_at, last_activity_at) AS last_used_at
+           FROM sessions ORDER BY last_used_at DESC, rowid DESC LIMIT ?`,
+        )
+        .all(limit) as Array<
+        Pick<
+          SessionRow,
+          | "id"
+          | "name"
+          | "runbook_path"
+          | "remote_source"
+          | "dir"
+          | "created_at"
+          | "execution_count"
+          | "finished_at"
+        > & { last_used_at: string }
+      >
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        path: row.runbook_path,
+        remoteSource: row.remote_source ?? undefined,
+        dir: row.dir,
+        createdAt: row.created_at,
+        lastUsedAt: row.last_used_at,
+        executionCount: row.execution_count,
+        finishedAt: row.finished_at ?? undefined,
+      }))
+    })
+  }
+
+  /** Mark a session finished at `at`. A session already finished keeps its first time. */
+  markFinished(id: string, at: string): Effect.Effect<void, SessionStoreError> {
+    return attempt("mark a session finished", () => {
+      this.db
+        .prepare("UPDATE sessions SET finished_at = ? WHERE id = ? AND finished_at IS NULL")
+        .run(at, id)
+    })
+  }
+
+  /** Delete a session with its history and worktrees. Deleting one that does not exist does nothing. */
+  delete(id: string): Effect.Effect<void, SessionStoreError> {
+    return attempt("delete a session", () => {
+      this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id)
+    })
+  }
+
+  saveVcsBindings(id: string, bindings: VcsBindings): Effect.Effect<void, SessionStoreError> {
+    return attempt("save a session's git host bindings", () => {
+      this.db
+        .prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = ?")
+        .run(JSON.stringify(bindings), id)
+    })
+  }
+
+  close(): Effect.Effect<void, SessionStoreError> {
+    return attempt("close the sessions database", () => {
+      this.db.close()
+    })
+  }
+
+  private replaceWorktrees(id: string, worktrees: string[]): void {
+    this.db.prepare("DELETE FROM session_worktrees WHERE session_id = ?").run(id)
+    const insert = this.db.prepare(
+      "INSERT INTO session_worktrees (session_id, position, path) VALUES (?, ?, ?)",
+    )
+    worktrees.forEach((worktree, position) => {
+      insert.run(id, position, worktree)
+    })
+  }
+
+  private selectOne(
+    clause: string,
+    params: SqlValue[],
+  ): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
+    return attempt("read a session", () => {
+      const row = this.db.prepare(`SELECT * FROM sessions ${clause}`).get(...params) as
+        | SessionRow
+        | undefined
+      if (row === undefined) return undefined
+      const worktrees = this.db
+        .prepare("SELECT path FROM session_worktrees WHERE session_id = ? ORDER BY position")
+        .all(row.id) as Array<{ path: string }>
+      return {
+        id: row.id,
+        name: row.name,
+        path: row.runbook_path,
+        remoteSource: row.remote_source ?? undefined,
+        dir: row.dir,
+        workingDir: row.working_dir,
+        launchDir: row.launch_dir ?? undefined,
+        env: row.env ?? undefined,
+        worktrees: worktrees.map((w) => w.path),
+        activeWorktree: row.active_worktree,
+        executionCount: row.execution_count,
+        createdAt: row.created_at,
+        lastLaunchedAt: row.last_launched_at,
+        lastActivityAt: row.last_activity_at,
+        vcsBindings: parseVcsBindings(row.vcs_bindings),
+        finishedAt: row.finished_at ?? undefined,
+      }
+    })
+  }
+}
+
+/** The bindings a row has, leaving out any entry that isn't one. */
+function parseVcsBindings(json: string): VcsBindings {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return {}
+  }
+  const bindings: VcsBindings = {}
+  if (typeof parsed !== "object" || parsed === null) return bindings
+  for (const provider of ["github", "gitlab"] as const) {
+    const entry: unknown = (parsed as Record<string, unknown>)[provider]
+    if (typeof entry !== "object" || entry === null) continue
+    const { host, source } = entry as { host?: unknown; source?: unknown }
+    if (typeof host !== "string") continue
+    bindings[provider] = typeof source === "string" ? { host, source } : { host }
+  }
+  return bindings
+}
+
+function attempt<A>(action: string, run: () => A): Effect.Effect<A, SessionStoreError> {
+  return Effect.try({
+    try: run,
+    catch: (cause) =>
+      new SessionStoreError({
+        message: `failed to ${action}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        cause,
+      }),
+  })
+}
+
+function transaction(db: SqlDatabase, run: () => void): void {
+  db.exec("BEGIN IMMEDIATE")
+  try {
+    run()
+    db.exec("COMMIT")
+  } catch (err) {
+    db.exec("ROLLBACK")
+    throw err
+  }
+}

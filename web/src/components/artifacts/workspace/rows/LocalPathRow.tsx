@@ -15,7 +15,7 @@ export function LocalPathRow({
   copyPath,
   className,
 }: {
-  /** Text shown next to the folder icon (e.g. "./my-repo" or a relative path). */
+  /** Text shown next to the folder icon, e.g. "session/my-repo" (see useDisplayPath). */
   displayText: string
   /** Absolute path copied to clipboard. When omitted the copy button is hidden. */
   copyPath?: string | undefined

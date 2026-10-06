@@ -206,6 +206,41 @@ describe("GoogleAuth — service account tab", () => {
     })
   })
 
+  it("turns red when the access token expires within minutes, and signs in again on request", async () => {
+    installApi((channel) => {
+      if (channel === "google:env-credentials") return { found: false }
+      if (channel === "google:validate-credentials") {
+        return {
+          valid: true,
+          account: {
+            principal: "dev@example.com",
+            accountType: "user",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          },
+          projectId: "proj-x",
+          credentialType: "access_token",
+        }
+      }
+      if (channel === "google:check-project") return { enabled: true }
+      return {}
+    })
+    renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
+
+    fireEvent.change(await screen.findByLabelText("Service account key JSON"), {
+      target: { value: SA_KEY },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Authenticate" }))
+
+    expect(
+      await screen.findByText("These credentials expire in less than 5 minutes"),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId("gcp")).toHaveClass("bg-destructive-muted")
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
+    expect(screen.queryByText("✓ Authenticated to Google Cloud")).toBeNull()
+    expect(screen.queryByText(/These credentials/)).toBeNull()
+  })
+
   it("renders a rejected key inline as a runtime error, not a reported one", async () => {
     installApi((channel) => {
       if (channel === "google:env-credentials") return { found: false }

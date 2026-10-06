@@ -17,6 +17,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import { readFromMain } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -28,7 +29,7 @@ function launch(userDataDir: string): Promise<ElectronApplication> {
   return electron.launch({
     // --user-data-dir isolates theme.json + the single-instance lock per test.
     // parseCliArgs ignores it (it skips anything starting with "-").
-    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
