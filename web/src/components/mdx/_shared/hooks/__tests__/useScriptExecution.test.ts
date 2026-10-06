@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { createElement, useLayoutEffect, useRef, type ReactNode } from "react"
+import { createElement, type ReactNode } from "react"
 import { renderHook, act, cleanup } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { RunbookContextProvider } from "@/contexts/RunbookContext"
@@ -97,24 +97,28 @@ function renderScriptExecution(props: Props) {
   )
 }
 
-/**
- * Records what a run subscribes to, so a test can send IPC events to the
- * latest run. Each event gets that run's id, as the main process sends it.
- */
-function recordHandlers() {
-  const handlers = new Map<string, (data: unknown) => void>()
-  vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
-    handlers.set(channel, handler)
-    return () => {
-      if (handlers.get(channel) === handler) handlers.delete(channel)
+type EncodedOutputs = Record<string, { value: string; sensitive: boolean }>
+
+/** Holds each exec:run open, so a test can end the latest one with a result. */
+function holdRuns() {
+  const pending: ((result: unknown) => void)[] = []
+  invoke.mockImplementation(async (channel: string, args?: unknown) => {
+    if (channel === "boilerplate:render-inline") return fakeRenderInline(args)
+    if (channel === "exec:run") {
+      return new Promise((resolve) => {
+        pending.push(resolve)
+      })
     }
-  }) as unknown as RunbooksAPI["on"])
+    return {}
+  })
+  const settle = (result: unknown) =>
+    act(async () => {
+      pending.at(-1)!(result)
+    })
   return {
-    send: (channel: string, data: object) => {
-      const run = invoke.mock.calls.filter(([invoked]) => invoked === "exec:run").at(-1)
-      const { executionId } = run![1] as { executionId: string }
-      handlers.get(channel)?.({ executionId, ...data })
-    },
+    finish: (status: "success" | "fail", exitCode: number, outputs: EncodedOutputs = {}) =>
+      settle({ status: { status, exitCode }, outputs }),
+    stop: () => settle({ status: null, cancelled: true }),
   }
 }
 
@@ -261,24 +265,15 @@ describe("useScriptExecution — execute", () => {
 })
 
 describe("useScriptExecution — outputs", () => {
-  it("keeps a sensitive output wrapped, for display and for downstream blocks", () => {
-    // Record what the run subscribes to, so the test can send its events
-    const handlers = new Map<string, (data: unknown) => void>()
-    vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
-      handlers.set(channel, handler)
-      return () => handlers.delete(channel)
-    }) as unknown as RunbooksAPI["on"])
+  it("keeps a sensitive output wrapped, for display and for downstream blocks", async () => {
+    const runs = holdRuns()
     const { result } = renderScriptExecution({ command: "mint-token" })
 
     act(() => result.current.exec.execute())
-    const run = invoke.mock.calls.find(([channel]) => channel === "exec:run")
-    const { executionId } = run![1] as { executionId: string }
-    act(() =>
-      handlers.get("exec:outputs")?.({
-        executionId,
-        outputs: { TOKEN: { value: "x", sensitive: true }, user: { value: "u", sensitive: false } },
-      }),
-    )
+    await runs.finish("success", 0, {
+      TOKEN: { value: "x", sensitive: true },
+      user: { value: "u", sensitive: false },
+    })
 
     // ViewOutputs gets the wrapped value, so it masks it
     const shown = result.current.exec.outputs ?? {}
@@ -290,8 +285,12 @@ describe("useScriptExecution — outputs", () => {
     expect(revealOutputs(registered)).toEqual({ TOKEN: "x", user: "u" })
   })
 
-  it("keeps outputs that arrive after the success render, before its effects run", () => {
-    const ipc = recordHandlers()
+  it("publishes a finished run's outputs in the render that shows it succeeded", async () => {
+    const runs = holdRuns()
+    // What downstream blocks read in each render where the block shows success.
+    // An empty map there leaves them "Waiting for outputs" from a block that
+    // shows success and lists those outputs.
+    const publishedOnSuccess: unknown[] = []
     const { result } = renderHook(
       () => {
         const exec = useScriptExecution({
@@ -299,44 +298,46 @@ describe("useScriptExecution — outputs", () => {
           componentType: "command",
           command: "create-accounts",
         })
-        // Main sends exec:status before exec:outputs, and React commits the
-        // success render before it runs that render's effects. Delivering the
-        // outputs from a layout effect lands them in that gap.
-        const delivered = useRef(false)
-        useLayoutEffect(() => {
-          if (exec.status === "success" && !delivered.current) {
-            delivered.current = true
-            ipc.send("exec:outputs", { outputs: { AccountId: { value: "1", sensitive: false } } })
-          }
-        })
-        return { exec, runbook: useRunbookContext() }
+        const runbook = useRunbookContext()
+        if (exec.status === "success") publishedOnSuccess.push(runbook.blockOutputs.target?.values)
+        return { exec, runbook }
       },
       { wrapper: Providers },
     )
 
     act(() => result.current.exec.execute())
-    act(() => ipc.send("exec:status", { status: "success", exitCode: 0 }))
+    await runs.finish("success", 0, { AccountId: { value: "1", sensitive: false } })
 
     expect(result.current.exec.outputs).toEqual({ AccountId: "1" })
-    // What downstream blocks read: losing it leaves them "Waiting for outputs"
-    // from a block that shows success and lists those outputs
-    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
+    expect(publishedOnSuccess.length).toBeGreaterThan(0)
+    for (const published of publishedOnSuccess) {
+      expect(published).toEqual({ AccountId: "1" })
+    }
   })
 
-  it("withdraws its outputs when a later run finishes without any", () => {
-    const ipc = recordHandlers()
+  it("withdraws its outputs when a later run finishes without any", async () => {
+    const runs = holdRuns()
     const { result } = renderScriptExecution({ command: "create-accounts" })
     act(() => result.current.exec.execute())
-    act(() => ipc.send("exec:status", { status: "success", exitCode: 0 }))
-    act(() =>
-      ipc.send("exec:outputs", { outputs: { AccountId: { value: "1", sensitive: false } } }),
-    )
+    await runs.finish("success", 0, { AccountId: { value: "1", sensitive: false } })
     expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
 
     act(() => result.current.exec.execute())
-    act(() => ipc.send("exec:status", { status: "fail", exitCode: 1 }))
+    await runs.finish("fail", 1)
 
     expect(result.current.runbook.blockOutputs.target?.values).toEqual({})
+  })
+
+  it("keeps its outputs when a later run is stopped", async () => {
+    const runs = holdRuns()
+    const { result } = renderScriptExecution({ command: "create-accounts" })
+    act(() => result.current.exec.execute())
+    await runs.finish("success", 0, { AccountId: { value: "1", sensitive: false } })
+
+    act(() => result.current.exec.execute())
+    await runs.stop()
+
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
   })
 })
 

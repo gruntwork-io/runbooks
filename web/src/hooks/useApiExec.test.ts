@@ -9,9 +9,10 @@ import { isSensitiveOutput, revealOutputs } from "@/lib/outputValues"
 // useApiExec IPC State Machine Tests
 // =============================================================================
 //
-// These tests verify the core execution engine's state transitions via IPC events.
-// useApiExec subscribes to api.on('exec:log'), api.on('exec:status'), etc., and
-// calls api.invoke('exec:run', payload) to start execution.
+// These tests verify the core execution engine's state transitions over IPC.
+// useApiExec subscribes to api.on('exec:log'), api.on('exec:files-captured'),
+// etc., and calls api.invoke('exec:run', payload) to start execution. The
+// invoke resolves with the run's final status and outputs.
 //
 // Mock boundary: the API from ApiProvider is mocked. The IPC event listeners
 // and Zod parsing run as real production code.
@@ -90,6 +91,17 @@ function createMockApi() {
   }
 }
 
+type EncodedOutputs = Record<string, { value: string; sensitive: boolean }>
+
+/** The exec:run result of a run that ended as `status`. */
+function finished(
+  status: "success" | "warn" | "fail",
+  exitCode: number,
+  outputs: EncodedOutputs = {},
+) {
+  return { status: { status, exitCode }, outputs }
+}
+
 describe("useApiExec state machine", () => {
   let mock: ReturnType<typeof createMockApi>
 
@@ -141,8 +153,7 @@ describe("useApiExec state machine", () => {
     act(() => {
       mock.emit("exec:log", { line: "Starting...", timestamp: "2024-01-01T00:00:00Z" })
       mock.emit("exec:log", { line: "Done!", timestamp: "2024-01-01T00:00:01Z" })
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -154,7 +165,7 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.logs[1]!.line).toBe("Done!")
   })
 
-  it("status fail event: running -> fail with exit code", async () => {
+  it("failed run: running -> fail with exit code", async () => {
     const { result } = renderExec()
 
     act(() => {
@@ -163,8 +174,7 @@ describe("useApiExec state machine", () => {
 
     act(() => {
       mock.emit("exec:log", { line: "Running...", timestamp: "2024-01-01T00:00:00Z" })
-      mock.emit("exec:status", { status: "fail", exitCode: 1 })
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("fail", 1))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
@@ -228,24 +238,20 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.status).toBe("pending")
   })
 
-  it("reconciles final status from the invoke result when the status event is dropped", async () => {
-    const { result } = renderExec()
+  it("IPC error: reports the run as finished with no outputs", async () => {
+    const onFinished = vi.fn()
+    const { result } = renderExec({ onFinished })
 
     act(() => {
-      result.current.execute("long-running-script")
+      result.current.execute("test-executable")
     })
-    expect(result.current.state.status).toBe("running")
-
-    // No exec:status event is emitted (it was dropped: detached listeners, or
-    // the main process suppressed sends). The
-    // invoke still resolves with the authoritative result, which must move the UI
-    // off "running" — this is the fix for a finished block stuck on "running".
-    await act(async () => {
-      mock.resolveInvoke({ status: { status: "success", exitCode: 0 } })
+    act(() => {
+      mock.rejectInvoke(new Error("IPC channel not found"))
     })
 
-    await waitFor(() => expect(result.current.state.status).toBe("success"))
-    expect(result.current.state.exitCode).toBe(0)
+    await waitFor(() => expect(result.current.state.status).toBe("fail"))
+    expect(onFinished).toHaveBeenCalledTimes(1)
+    expect(onFinished).toHaveBeenCalledWith({})
   })
 
   // ---------------------------------------------------------------------------
@@ -269,10 +275,10 @@ describe("useApiExec state machine", () => {
   })
 
   it("routes each run's events to the block that started it", async () => {
-    const onFirstOutputs = vi.fn()
-    const onSecondOutputs = vi.fn()
-    const first = renderExec({ onOutputsCaptured: onFirstOutputs })
-    const second = renderExec({ onOutputsCaptured: onSecondOutputs })
+    const onFirstFinished = vi.fn()
+    const onSecondFinished = vi.fn()
+    const first = renderExec({ onFinished: onFirstFinished })
+    const second = renderExec({ onFinished: onSecondFinished })
 
     act(() => {
       first.result.current.execute("slow-script")
@@ -282,32 +288,31 @@ describe("useApiExec state machine", () => {
     })
 
     // Interleaved, as two scripts running at once produce them
-    act(() => {
+    await act(async () => {
       mock.emitNth(0, "exec:log-file", { path: "/logs/first.log" })
       mock.emitNth(1, "exec:log-file", { path: "/logs/second.log" })
       mock.emitNth(0, "exec:log", { line: "first: a", timestamp: "2024-01-01T00:00:00Z" })
       mock.emitNth(1, "exec:log", { line: "second: a", timestamp: "2024-01-01T00:00:01Z" })
       mock.emitNth(0, "exec:log", { line: "first: b", timestamp: "2024-01-01T00:00:02Z" })
-      mock.emitNth(1, "exec:outputs", { outputs: { id: { value: "2", sensitive: false } } })
-      mock.emitNth(1, "exec:status", { status: "fail", exitCode: 1 })
+      mock.resolveInvokeNth(1, finished("warn", 2, { id: { value: "2", sensitive: false } }))
     })
 
     expect(first.result.current.state.logs.map((l) => l.line)).toEqual(["first: a", "first: b"])
     expect(first.result.current.state.logFilePath).toBe("/logs/first.log")
     expect(first.result.current.state.status).toBe("running")
     expect(first.result.current.state.outputs).toBeNull()
-    expect(onFirstOutputs).not.toHaveBeenCalled()
+    expect(onFirstFinished).not.toHaveBeenCalled()
 
     expect(second.result.current.state.logs.map((l) => l.line)).toEqual(["second: a"])
     expect(second.result.current.state.logFilePath).toBe("/logs/second.log")
-    expect(second.result.current.state.status).toBe("fail")
-    expect(onSecondOutputs).toHaveBeenCalledWith({ id: "2" })
+    expect(second.result.current.state.status).toBe("warn")
+    expect(onSecondFinished).toHaveBeenCalledWith({ id: "2" })
 
-    act(() => {
-      mock.emitNth(0, "exec:status", { status: "success", exitCode: 0 })
+    await act(async () => {
+      mock.resolveInvokeNth(0, finished("success", 0))
     })
     expect(first.result.current.state.status).toBe("success")
-    expect(second.result.current.state.status).toBe("fail")
+    expect(second.result.current.state.status).toBe("warn")
   })
 
   it("stopping one block leaves another block's run going", async () => {
@@ -413,8 +418,7 @@ describe("useApiExec state machine", () => {
 
     act(() => {
       mock.emit("exec:log", { line: "Output", timestamp: "2024-01-01T00:00:00Z" })
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -432,48 +436,78 @@ describe("useApiExec state machine", () => {
     expect(result.current.state.outputs).toBeNull()
   })
 
-  it("outputs event: captures block outputs and invokes callback", async () => {
-    const onOutputsCaptured = vi.fn()
-    const { result } = renderExec({ onOutputsCaptured })
+  it("outputs: reports a finished run's outputs once, with its status", async () => {
+    const onFinished = vi.fn()
+    const { result } = renderExec({ onFinished })
 
     act(() => {
       result.current.execute("test-executable")
     })
+    expect(onFinished).not.toHaveBeenCalled()
 
     act(() => {
-      mock.emit("exec:outputs", {
-        outputs: {
+      mock.resolveInvoke(
+        finished("success", 0, {
           account_id: { value: "123", sensitive: false },
           region: { value: "us-west-2", sensitive: false },
-        },
-      })
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
-      mock.resolveInvoke()
+        }),
+      )
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
 
     expect(result.current.state.outputs).toEqual({ account_id: "123", region: "us-west-2" })
-    expect(onOutputsCaptured).toHaveBeenCalledWith({ account_id: "123", region: "us-west-2" })
+    expect(onFinished).toHaveBeenCalledTimes(1)
+    expect(onFinished).toHaveBeenCalledWith({ account_id: "123", region: "us-west-2" })
   })
 
-  it("outputs event: wraps a sensitive output again, keeping its real value for downstream blocks", async () => {
-    const onOutputsCaptured = vi.fn()
-    const { result } = renderExec({ onOutputsCaptured })
+  it("outputs: a run that published none finishes with empty outputs", async () => {
+    const onFinished = vi.fn()
+    const { result } = renderExec({ onFinished })
+
+    act(() => {
+      result.current.execute("test-executable")
+    })
+    act(() => {
+      mock.resolveInvoke(finished("fail", 1))
+    })
+
+    await waitFor(() => expect(result.current.state.status).toBe("fail"))
+    expect(result.current.state.outputs).toBeNull()
+    expect(onFinished).toHaveBeenCalledTimes(1)
+    expect(onFinished).toHaveBeenCalledWith({})
+  })
+
+  it("outputs: a stopped run reports none", async () => {
+    const onFinished = vi.fn()
+    const { result } = renderExec({ onFinished })
+
+    act(() => {
+      result.current.execute("test-executable")
+    })
+    await act(async () => {
+      mock.resolveInvoke({ status: null, cancelled: true })
+    })
+
+    expect(result.current.state.status).toBe("pending")
+    expect(onFinished).not.toHaveBeenCalled()
+  })
+
+  it("outputs: wraps a sensitive output again, keeping its real value for downstream blocks", async () => {
+    const onFinished = vi.fn()
+    const { result } = renderExec({ onFinished })
 
     act(() => {
       result.current.execute("test-executable")
     })
 
     act(() => {
-      mock.emit("exec:outputs", {
-        outputs: {
+      mock.resolveInvoke(
+        finished("success", 0, {
           AWS_SECRET_ACCESS_KEY: { value: "topsecret", sensitive: true },
           region: { value: "us-west-2", sensitive: false },
-        },
-      })
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
-      mock.resolveInvoke()
+        }),
+      )
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -484,7 +518,7 @@ describe("useApiExec state machine", () => {
     expect(JSON.stringify(outputs)).not.toContain("topsecret")
     // Downstream blocks get the same wrapped outputs, and read the real value
     // through revealOutput
-    expect(onOutputsCaptured).toHaveBeenCalledWith(outputs)
+    expect(onFinished).toHaveBeenCalledWith(outputs)
     expect(revealOutputs(outputs)).toEqual({
       AWS_SECRET_ACCESS_KEY: "topsecret",
       region: "us-west-2",
@@ -525,9 +559,8 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.emit("exec:files-captured", payload)
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -546,9 +579,8 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
       mock.emit("exec:files-captured", { files: [{ path: "main.tf", size: 19 }], count: 1 })
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))
@@ -566,8 +598,7 @@ describe("useApiExec state machine", () => {
     })
 
     act(() => {
-      mock.emit("exec:status", { status: "warn", exitCode: 2 })
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("warn", 2))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("warn"))
@@ -583,13 +614,10 @@ describe("useApiExec state machine", () => {
 
     // Event subscriptions should be registered
     expect(mock.api.on).toHaveBeenCalledWith("exec:log", expect.any(Function))
-    expect(mock.api.on).toHaveBeenCalledWith("exec:status", expect.any(Function))
-    expect(mock.api.on).toHaveBeenCalledWith("exec:outputs", expect.any(Function))
     expect(mock.api.on).toHaveBeenCalledWith("exec:files-captured", expect.any(Function))
 
     act(() => {
-      mock.emit("exec:status", { status: "success", exitCode: 0 })
-      mock.resolveInvoke()
+      mock.resolveInvoke(finished("success", 0))
     })
 
     await waitFor(() => expect(result.current.state.status).toBe("success"))

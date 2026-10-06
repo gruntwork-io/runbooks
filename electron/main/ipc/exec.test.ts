@@ -180,9 +180,9 @@ describe("exec:run and cancelAllExecutions", () => {
 })
 
 // A sensitive output is a Redacted in the main process, which structured clone
-// would turn into `{}`. exec:outputs sends every output flat instead, as
+// would turn into `{}`. exec:run returns every output flat instead, as
 // { value, sensitive }, and the renderer wraps the sensitive ones again.
-describe("exec:outputs", () => {
+describe("exec:run outputs", () => {
   let tmpDir = ""
 
   beforeAll(async () => {
@@ -196,7 +196,7 @@ describe("exec:outputs", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it("sends each output's real value and whether it's sensitive, in a form IPC can clone", async () => {
+  it("returns each output's real value and whether it's sensitive, with the status, in a form IPC can clone", async () => {
     const registry = new ExecutableRegistry()
     await runtime.runPromise(
       registry.parseAndRegister(
@@ -214,22 +214,39 @@ describe("exec:outputs", () => {
       { executableId, executionId: "outputs-test" },
     )
 
-    expect(result).toEqual({ status: { status: "success", exitCode: 0 } })
-    const outputs = sent.filter((s) => s.channel === "exec:outputs").map((s) => s.payload)
     const expected = {
-      executionId: "outputs-test",
+      status: { status: "success", exitCode: 0 },
       outputs: {
         user: { value: "alice", sensitive: false },
         token: { value: "s3cr3t", sensitive: true },
       },
     }
-    expect(outputs).toEqual([expected])
+    expect(result).toEqual(expected)
     // What the renderer receives: nothing is lost in the clone
-    expect(structuredClone(outputs[0])).toEqual(expected)
+    expect(structuredClone(result)).toEqual(expected)
     // Every event names its run, so the renderer can tell concurrent runs apart
-    expect(sent.length).toBeGreaterThan(1)
+    expect(sent.length).toBeGreaterThan(0)
     for (const { payload } of sent) {
       expect(payload).toMatchObject({ executionId: "outputs-test" })
     }
+  }, 20000)
+
+  it("returns no outputs for a run that fails after writing some", async () => {
+    const registry = new ExecutableRegistry()
+    await runtime.runPromise(
+      registry.parseAndRegister(
+        path.join(tmpDir, "runbook.mdx"),
+        `<Command id="half" command='echo "user=alice" >> "$RUNBOOK_OUTPUT"; exit 1' />\n`,
+      ),
+    )
+    setExecutableRegistry(registry)
+    const [executableId] = Object.keys(registry.getAllExecutables())
+
+    const result = await handlers.get("exec:run")!(
+      { sender: { send: () => {} } },
+      { executableId, executionId: "failed-outputs-test" },
+    )
+
+    expect(result).toEqual({ status: { status: "fail", exitCode: 1 }, outputs: {} })
   }, 20000)
 })

@@ -97,8 +97,6 @@ const INVOKE_CHANNELS = {
 const EVENT_CHANNELS = {
   "exec:log": true,
   "exec:log-file": true,
-  "exec:status": true,
-  "exec:outputs": true,
   "exec:files-captured": true,
   "watch:file-change": true,
   "watch:script-change": true,

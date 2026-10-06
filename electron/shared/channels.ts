@@ -74,7 +74,14 @@ export interface IpcChannelMap {
   // Execution
   "exec:run": {
     params: ExecRequest
-    result: { status: { status: string; exitCode: number } | null; cancelled?: boolean }
+    /**
+     * A run that finished has a status and its outputs, encoded since a
+     * sensitive output's `Redacted` can't cross IPC (see encodeOutputs). A run
+     * stopped before it finished has neither.
+     */
+    result:
+      | { status: { status: string; exitCode: number }; outputs: EncodedOutputValues }
+      | { status: null; cancelled?: boolean }
   }
   // `executionId` targets a specific run; when omitted, the most-recent active
   // execution is cancelled (back-compat).
@@ -850,9 +857,6 @@ export interface IpcEventMap {
   // can be streaming at once.
   "exec:log": { executionId: string; line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { executionId: string; path: string }
-  "exec:status": { executionId: string; status: string; exitCode: number }
-  /** Encoded, since a sensitive output's `Redacted` can't cross IPC (see encodeOutputs). */
-  "exec:outputs": { executionId: string; outputs: EncodedOutputValues }
   "exec:files-captured": {
     executionId: string
     files: string[]

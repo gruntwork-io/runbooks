@@ -12,11 +12,6 @@ const ExecLogEventSchema = z.object({
   replace: z.boolean().optional(), // If true, replace the previous line (for progress updates)
 })
 
-const ExecStatusEventSchema = z.object({
-  status: z.enum(["success", "warn", "fail"]),
-  exitCode: z.number(),
-})
-
 const CapturedFileSchema = z.object({
   path: z.string(),
   size: z.number(),
@@ -32,14 +27,6 @@ const FilesCapturedEventSchema = z.object({
   truncatedTree: z.boolean().optional(),
   totalFiles: z.number().optional(),
   heavyDirs: z.array(z.object({ path: z.string(), fileCount: z.number() })).optional(),
-})
-
-// Main sends each output flat, since a Redacted can't cross IPC. Parsing turns
-// the sensitive ones back into Redacted values (see outputValues.ts).
-const BlockOutputsEventSchema = z.object({
-  outputs: z
-    .record(z.string(), z.object({ value: z.string(), sensitive: z.boolean() }))
-    .transform(decodeOutputs),
 })
 
 // Inferred types from Zod schemas
@@ -77,8 +64,12 @@ const ExecLogFileEventSchema = z.object({
 export interface UseApiExecOptions {
   /** Callback invoked when files are captured from a command execution */
   onFilesCaptured?: (event: FilesCapturedEvent) => void
-  /** Callback invoked when block outputs are captured from script execution */
-  onOutputsCaptured?: (outputs: OutputValues) => void
+  /**
+   * Called once for each run that ends as success, warn or fail, with the
+   * outputs the script published. They are empty when it published none,
+   * which includes every failed run. A stopped run doesn't call it.
+   */
+  onFinished?: (outputs: OutputValues) => void
 }
 
 export interface UseApiExecReturn {
@@ -251,36 +242,11 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
       )
 
       unsubs.push(
-        api.on("exec:outputs", (data: unknown) => {
-          if (!isEventOf(executionId, data)) return
-          const parsed = BlockOutputsEventSchema.safeParse(data)
-          if (parsed.success) {
-            setState((prev) => ({ ...prev, outputs: parsed.data.outputs }))
-            options?.onOutputsCaptured?.(parsed.data.outputs)
-          }
-        }),
-      )
-
-      unsubs.push(
         api.on("exec:files-captured", (data: unknown) => {
           if (!isEventOf(executionId, data)) return
           const parsed = FilesCapturedEventSchema.safeParse(data)
           if (parsed.success) {
             options?.onFilesCaptured?.(parsed.data)
-          }
-        }),
-      )
-
-      unsubs.push(
-        api.on("exec:status", (data: unknown) => {
-          if (!isEventOf(executionId, data)) return
-          const parsed = ExecStatusEventSchema.safeParse(data)
-          if (parsed.success) {
-            setState((prev) => ({
-              ...prev,
-              status: parsed.data.status as ExecState["status"],
-              exitCode: parsed.data.exitCode ?? null,
-            }))
           }
         }),
       )
@@ -296,30 +262,24 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         if (generation === executionGenRef.current) {
           runningExecIdRef.current = null
 
-          // Reconcile the final status from the invoke's return value. The streamed
-          // `exec:status` event can be silently dropped, when listeners get detached
-          // or the main process suppressed sends after an abort, which would otherwise
-          // leave a *finished* block stuck showing
-          // "running". The invoke result is the source of truth, so apply it whenever
-          // the UI is still in a non-terminal state.
-          if (result?.status) {
+          // The status and the outputs are applied together, and the outputs
+          // reported once, so nothing can observe a finished run that is still
+          // waiting for its outputs.
+          if (result.status) {
             const finalStatus = result.status
-            setState((prev) =>
-              prev.status === "running" || prev.status === "pending"
-                ? {
-                    ...prev,
-                    status: finalStatus.status as ExecState["status"],
-                    exitCode: finalStatus.exitCode,
-                  }
-                : prev,
-            )
+            const outputs = decodeOutputs(result.outputs)
+            setState((prev) => ({
+              ...prev,
+              status: finalStatus.status as ExecState["status"],
+              exitCode: finalStatus.exitCode,
+              outputs: Object.keys(outputs).length > 0 ? outputs : null,
+            }))
+            options?.onFinished?.(outputs)
           } else {
             // No status means the main process aborted the run and resolved it
-            // as { status: null, cancelled: true }. It sends no `exec:status`
-            // after an abort, so without this the block would show "running"
-            // forever. cancel() has already logged a stop this hook asked for.
-            // A stop from the app quitting or the window reloading is logged
-            // here.
+            // as { status: null, cancelled: true }. cancel() has already logged
+            // a stop this hook asked for. A stop from the app quitting or the
+            // window reloading is logged here.
             const explain = !selfCancelledRef.current
             setState((prev) =>
               prev.status === "running" || prev.status === "pending"
@@ -359,6 +319,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           // Clean up listeners on error (no more events expected)
           cleanup()
           cleanupRef.current = null
+          options?.onFinished?.({})
         }
       }
     },
