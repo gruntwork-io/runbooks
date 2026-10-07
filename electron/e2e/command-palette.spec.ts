@@ -137,6 +137,19 @@ test.describe("Command palette", () => {
     await expect.poll(() => runbook.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
   })
 
+  test("typing a heading's name jumps to it without the Jump to section step", async () => {
+    const verify = page.getByRole("heading", { name: "Verify" })
+    await openPalette()
+    await expect(palette().getByRole("option", { name: /Jump to section › Verify/ })).toBeHidden()
+
+    await page.keyboard.type("verify")
+    await expect(palette().getByRole("option", { name: /Jump to section › Verify/ })).toBeVisible()
+    await page.keyboard.press("Enter")
+
+    await expect(palette()).toBeHidden()
+    await expect(verify).toBeInViewport()
+  })
+
   test("Find in page opens the find bar with focus", async () => {
     await openPalette()
     await run("find")

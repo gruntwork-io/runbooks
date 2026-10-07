@@ -387,6 +387,27 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
             </CommandGroup>
           ))}
 
+        {/* Headings are searchable from the root too, once there is a query,
+            so typing a section's name jumps to it without the Jump to section
+            step. With no query they stay out of the way of the commands.
+            " (section)" in the value keeps a heading named like a command
+            apart from it, and makes "section" list every heading. */}
+        {mode === "commands" && query.trim() !== "" && (
+          <CommandGroup heading="Sections">
+            {headings.map((entry) => (
+              <CommandItem
+                key={entry.label}
+                value={`${entry.label} (section)`}
+                onSelect={() => jumpToHeading(entry)}
+              >
+                <Hash />
+                <span className="text-muted-foreground">Jump to section › </span>
+                <span>{entry.label}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
         {mode === "sections" && (
           <CommandGroup heading="Sections">
             {headings.map((entry) => (

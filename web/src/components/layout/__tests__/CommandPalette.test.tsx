@@ -271,6 +271,51 @@ describe("CommandPalette", () => {
       }
     })
 
+    it("surfaces matching headings from the root list once the user types", async () => {
+      vi.useFakeTimers({ toFake: ["requestAnimationFrame"] })
+      try {
+        const { ctx, onOpenChange } = renderPalette({ runbook })
+        // Nothing from the runbook until there is a query.
+        expect(within(dialog()).queryByRole("option", { name: /Jump to section › / })).toBeNull()
+
+        // Fuzzy matching lets "ship" reach a command too (s-h-i-p across
+        // "Show generated files" and its "panel" keyword); the heading is what matters.
+        fireEvent.change(input(), { target: { value: "ship" } })
+        expect(optionNames()).toContain("Jump to section › Ship")
+        expect(optionNames()).not.toContain("Jump to section › Deploy")
+
+        // "section" lists every heading.
+        fireEvent.change(input(), { target: { value: "section" } })
+        expect(optionNames()).toEqual([
+          "Jump to section…5 sections",
+          "Jump to section › Deploy",
+          "Jump to section › Prepare",
+          "Jump to section › Verify",
+          "Jump to section › Ship",
+          "Jump to section › Verify (2)",
+        ])
+
+        await select("Jump to section › Ship")
+        expect(onOpenChange).toHaveBeenCalledWith(false)
+        expect(ctx.onRevealRunbook).toHaveBeenCalledOnce()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("keeps a heading named like a command apart from that command", async () => {
+      const { ctx } = renderPalette({ runbook: <h2>Close Runbook</h2> })
+      fireEvent.change(input(), { target: { value: "close runbook" } })
+      expect(optionNames()).toEqual([
+        `Close Runbook${formatShortcut("W", { shift: true })}`,
+        "Jump to section › Close Runbook",
+      ])
+
+      await select("Jump to section › Close Runbook")
+      expect(ctx.onRevealRunbook).toHaveBeenCalledOnce()
+      expect(ctx.onCloseRunbook).not.toHaveBeenCalled()
+    })
+
     it("goes back to the commands on Backspace in an empty search", async () => {
       renderPalette({ runbook })
       await select(/Jump to section/)
