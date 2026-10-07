@@ -1,4 +1,5 @@
 import { useState, type ComponentType, type ReactNode } from "react"
+import { defaultFilter } from "cmdk"
 import {
   BookOpen,
   Bug,
@@ -20,7 +21,6 @@ import {
 } from "lucide-react"
 import {
   CommandDialog,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -51,7 +51,8 @@ export interface CommandPaletteContext {
   onToggleGeneratedFiles: () => void
   /** Bring the runbook on screen in the narrow layout, where the Code tab can hide it. */
   onRevealRunbook: () => void
-  onFind: () => void
+  /** Open the find bar, on `text` when given. */
+  onFind: (text?: string) => void
 }
 
 interface CommandPaletteProps {
@@ -82,6 +83,33 @@ interface HeadingEntry {
   /** The heading's text, with a " (2)", " (3)"… suffix when an earlier heading reads the same. */
   label: string
   el: HTMLElement
+}
+
+/** A group of the root list after filtering, with the score of its best match. */
+type RankedGroup =
+  | { kind: "commands"; heading: string; entries: Command[]; best: number }
+  | { kind: "headings"; heading: string; entries: HeadingEntry[]; best: number }
+
+/**
+ * The entries matching `search`, best first, with cmdk's own fuzzy scoring.
+ * Without a search, every entry in its given order. The palette filters
+ * itself, rather than letting cmdk, so the "Find … in page" row can stay
+ * last whatever it scores, in both layout and arrow-key order.
+ */
+function rank<T>(
+  entries: T[],
+  search: string,
+  key: (entry: T) => { value: string; keywords?: string[] },
+): { entries: T[]; best: number } {
+  if (!search) return { entries, best: 1 }
+  const scored = entries
+    .map((entry) => {
+      const { value, keywords = [] } = key(entry)
+      return { entry, score: defaultFilter(value, search, keywords) }
+    })
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => b.score - a.score)
+  return { entries: scored.map(({ entry }) => entry), best: scored[0]?.score ?? 0 }
 }
 
 // Keywords are per theme: a shared "dark mode" would make "dark" match all three.
@@ -130,7 +158,12 @@ function collectHeadings(): HeadingEntry[] {
  */
 export function CommandPalette({ open, onOpenChange, ctx }: CommandPaletteProps) {
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} showCloseButton={false}>
+    <CommandDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      showCloseButton={false}
+      shouldFilter={false}
+    >
       <CommandPaletteBody onOpenChange={onOpenChange} ctx={ctx} />
     </CommandDialog>
   )
@@ -320,17 +353,23 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
     },
   ]
 
+  /**
+   * Close, then run `action` on the next tick, not now: the dialog's focus
+   * trap stays armed until its effects clean up after this commit, and would
+   * pull focus back from anything the action focuses, such as the find bar.
+   */
+  const closeThen = (action: () => void) => {
+    onOpenChange(false)
+    setTimeout(action, 0)
+  }
+
   const runCommand = (cmd: Command) => {
     // "Jump to section" stays open to show the headings.
     if (cmd.id === "jump-to-section") {
       cmd.run()
       return
     }
-    onOpenChange(false)
-    // Next tick, not now: the dialog's focus trap stays armed until its
-    // effects clean up after this commit, and would pull focus back from
-    // anything the command focuses, such as the find bar.
-    setTimeout(cmd.run, 0)
+    closeThen(cmd.run)
   }
 
   const jumpToHeading = (entry: HeadingEntry) => {
@@ -351,6 +390,34 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   }
 
   const minLevel = Math.min(...headings.map((h) => h.level))
+  const search = query.trim()
+
+  // The root list: command groups, plus the headings once there is a query,
+  // so typing a section's name jumps to it without the Jump to section step.
+  // " (section)" in a heading's value keeps one named like a command apart
+  // from it, and makes "section" list every heading. Groups are ordered by
+  // their best match, as cmdk would, with ties in declaration order.
+  const rootGroups: RankedGroup[] = sections.map((section) => ({
+    kind: "commands",
+    heading: section.heading,
+    ...rank(section.commands, search, (cmd) => ({
+      value: cmd.label,
+      keywords: cmd.keywords ?? [],
+    })),
+  }))
+  if (search) {
+    rootGroups.push({
+      kind: "headings",
+      heading: "Sections",
+      ...rank(headings, search, (entry) => ({ value: `${entry.label} (section)` })),
+    })
+    rootGroups.sort((a, b) => b.best - a.best)
+  }
+  const visibleGroups = rootGroups.filter((group) => group.entries.length > 0)
+  // Whatever was typed can always be searched for in the runbook, so the list
+  // never dead-ends while one is open.
+  const showFindRow = search !== "" && ctx.hasRunbookOpen
+  const browsedHeadings = rank(headings, search, (entry) => ({ value: entry.label })).entries
 
   return (
     <>
@@ -361,67 +428,80 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
         onKeyDown={handleInputKeyDown}
       />
       <CommandList>
-        <CommandEmpty>
-          {mode === "sections" ? "No matching sections." : "No matching commands."}
-        </CommandEmpty>
+        {mode === "commands" && (
+          <>
+            {visibleGroups.length === 0 && !showFindRow && (
+              <EmptyNotice>No matching commands.</EmptyNotice>
+            )}
 
-        {mode === "commands" &&
-          sections.map((section) => (
-            <CommandGroup key={section.heading} heading={section.heading}>
-              {section.commands.map((cmd) => {
-                const Icon = cmd.icon
-                return (
-                  <CommandItem
-                    key={cmd.id}
-                    value={cmd.label}
-                    keywords={cmd.keywords ?? []}
-                    disabled={cmd.disabled ?? false}
-                    onSelect={() => runCommand(cmd)}
-                  >
-                    <Icon />
-                    <span>{cmd.label}</span>
-                    {cmd.trailing}
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          ))}
-
-        {/* Headings are searchable from the root too, once there is a query,
-            so typing a section's name jumps to it without the Jump to section
-            step. With no query they stay out of the way of the commands.
-            " (section)" in the value keeps a heading named like a command
-            apart from it, and makes "section" list every heading. */}
-        {mode === "commands" && query.trim() !== "" && (
-          <CommandGroup heading="Sections">
-            {headings.map((entry) => (
-              <CommandItem
-                key={entry.label}
-                value={`${entry.label} (section)`}
-                onSelect={() => jumpToHeading(entry)}
-              >
-                <Hash />
-                <span className="text-muted-foreground">Jump to section › </span>
-                <span>{entry.label}</span>
-              </CommandItem>
+            {visibleGroups.map((group) => (
+              <CommandGroup key={group.heading} heading={group.heading}>
+                {group.kind === "commands"
+                  ? group.entries.map((cmd) => {
+                      const Icon = cmd.icon
+                      return (
+                        <CommandItem
+                          key={cmd.id}
+                          value={cmd.label}
+                          disabled={cmd.disabled ?? false}
+                          onSelect={() => runCommand(cmd)}
+                        >
+                          <Icon />
+                          <span>{cmd.label}</span>
+                          {cmd.trailing}
+                        </CommandItem>
+                      )
+                    })
+                  : group.entries.map((entry) => (
+                      <CommandItem
+                        key={entry.label}
+                        value={`${entry.label} (section)`}
+                        onSelect={() => jumpToHeading(entry)}
+                      >
+                        <Hash />
+                        <span className="text-muted-foreground">Jump to section › </span>
+                        <span>{entry.label}</span>
+                      </CommandItem>
+                    ))}
+              </CommandGroup>
             ))}
-          </CommandGroup>
+
+            {showFindRow && (
+              <CommandGroup>
+                <CommandItem
+                  value="find-typed-text"
+                  onSelect={() => closeThen(() => ctx.onFind(search))}
+                >
+                  <Search />
+                  <span>
+                    <span className="text-muted-foreground">Find </span>
+                    <span>"{search}"</span>
+                    <span className="text-muted-foreground"> in page</span>
+                  </span>
+                  <CommandShortcut>{formatShortcut("F")}</CommandShortcut>
+                </CommandItem>
+              </CommandGroup>
+            )}
+          </>
         )}
 
         {mode === "sections" && (
-          <CommandGroup heading="Sections">
-            {headings.map((entry) => (
-              <CommandItem
-                key={entry.label}
-                value={entry.label}
-                onSelect={() => jumpToHeading(entry)}
-                style={{ paddingLeft: `${0.5 + (entry.level - minLevel) * 1}rem` }}
-              >
-                <Hash />
-                <span>{entry.label}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
+          <>
+            {browsedHeadings.length === 0 && <EmptyNotice>No matching sections.</EmptyNotice>}
+            <CommandGroup heading="Sections">
+              {browsedHeadings.map((entry) => (
+                <CommandItem
+                  key={entry.label}
+                  value={entry.label}
+                  onSelect={() => jumpToHeading(entry)}
+                  style={{ paddingLeft: `${0.5 + (entry.level - minLevel) * 1}rem` }}
+                >
+                  <Hash />
+                  <span>{entry.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
         )}
       </CommandList>
 
@@ -433,6 +513,11 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
       </div>
     </>
   )
+}
+
+/** The list's empty state. cmdk's own is tied to its filter, which this palette doesn't use. */
+function EmptyNotice({ children }: { children: ReactNode }) {
+  return <div className="py-6 text-center text-sm">{children}</div>
 }
 
 function KeyHint({ keys, children }: { keys: string; children: ReactNode }) {

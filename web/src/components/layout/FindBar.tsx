@@ -38,8 +38,11 @@ function coveredByModal(bar: Element): boolean {
 
 /** What the rest of the renderer can ask of the find bar. */
 export interface FindBarHandle {
-  /** Open the bar, or focus its input again when it is already open, like Find…. */
-  open: () => void
+  /**
+   * Open the bar, or focus its input again when it is already open, like
+   * Find…. With `text`, search for it instead of the kept query.
+   */
+  open: (text?: string) => void
 }
 
 /**
@@ -151,7 +154,25 @@ export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
     [api, openBar, step],
   )
 
-  useImperativeHandle(ref, () => ({ open: openBar }), [openBar])
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: (text) => {
+        if (text === undefined) {
+          openBar()
+          return
+        }
+        queryRef.current = text
+        setQuery(text)
+        // Opening searches the kept query itself (the reopen effect below);
+        // an already open bar needs the search run here.
+        const wasOpen = openRef.current
+        openBar()
+        if (wasOpen) search(text, true)
+      },
+    }),
+    [openBar, search],
+  )
 
   // Focus the input, with its text selected, on open and on every Find….
   useLayoutEffect(() => {

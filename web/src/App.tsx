@@ -486,7 +486,7 @@ function App() {
           onCloseRunbook: handleCloseRunbook,
           onToggleGeneratedFiles: toggleGeneratedFiles,
           onRevealRunbook: () => setActiveMobileSection("markdown"),
-          onFind: () => findBarRef.current?.open(),
+          onFind: (text) => findBarRef.current?.open(text),
         }}
       />
     </>

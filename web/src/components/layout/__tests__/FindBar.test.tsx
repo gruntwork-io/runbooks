@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { FIND_ACTIVE_HIGHLIGHT, FIND_MATCH_HIGHLIGHT } from "@/lib/findInPage"
-import { FindBar } from "../FindBar"
+import { FindBar, type FindBarHandle } from "../FindBar"
 
 type Listener = (payload: unknown) => void
 
@@ -76,6 +76,32 @@ afterEach(() => {
 const lastScrolled = () => scrollSpy.mock.contexts.at(-1) as Element | undefined
 
 describe("FindBar", () => {
+  it("opens with a given text and searches for it, through its handle", async () => {
+    const { api } = makeApi()
+    const ref = { current: null as FindBarHandle | null }
+    render(
+      <ApiProvider api={api}>
+        <p>alpha one</p>
+        <p>alpha two</p>
+        <FindBar ref={ref} />
+      </ApiProvider>,
+    )
+
+    act(() => ref.current?.open("alpha"))
+    expect(input()).toHaveValue("alpha")
+    expect(input()).toHaveFocus()
+    expect(status()).toHaveTextContent("1 of 2")
+
+    // Already open: a new text replaces the search.
+    act(() => ref.current?.open("two"))
+    expect(input()).toHaveValue("two")
+    expect(status()).toHaveTextContent("1 of 1")
+
+    // No text: the kept query stays, as with Find….
+    act(() => ref.current?.open())
+    expect(input()).toHaveValue("two")
+  })
+
   it("is hidden until the Find menu item opens it, focused", async () => {
     const { api, find } = makeApi()
     renderPage(api)

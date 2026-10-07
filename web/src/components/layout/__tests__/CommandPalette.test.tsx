@@ -148,12 +148,37 @@ describe("CommandPalette", () => {
   it("filters by label and by keyword", () => {
     renderPalette()
     fireEvent.change(input(), { target: { value: "artifacts" } })
-    expect(optionNames()).toEqual(["Show generated files"])
+    expect(optionNames()).toEqual([
+      "Show generated files",
+      `Find "artifacts" in page${formatShortcut("F")}`,
+    ])
 
     // "dark" finds the dark theme alone, not every theme through a shared keyword.
     fireEvent.change(input(), { target: { value: "dark" } })
-    expect(optionNames()).toEqual(["Theme: Dark"])
+    expect(optionNames()).toEqual(["Theme: Dark", `Find "dark" in page${formatShortcut("F")}`])
 
+    // With a runbook open, a miss still offers to find the text in the page.
+    fireEvent.change(input(), { target: { value: "zzz" } })
+    expect(optionNames()).toEqual([`Find "zzz" in page${formatShortcut("F")}`])
+    expect(dialog()).not.toHaveTextContent("No matching commands.")
+  })
+
+  it("ends every search with a row that finds the typed text in the page", async () => {
+    const { ctx, onOpenChange } = renderPalette({ runbook: <h2>Prepare</h2> })
+    expect(within(dialog()).queryByRole("option", { name: /^Find "/ })).toBeNull()
+
+    fireEvent.change(input(), { target: { value: "pre" } })
+    const names = optionNames()
+    expect(names.at(-1)).toBe(`Find "pre" in page${formatShortcut("F")}`)
+    expect(names).toContain("Jump to section › Prepare")
+
+    await select(/^Find "pre" in page/)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(ctx.onFind).toHaveBeenCalledWith("pre")
+  })
+
+  it("reports no matches without a runbook, where there is nothing to search", () => {
+    renderPalette({ ctx: { hasRunbookOpen: false } })
     fireEvent.change(input(), { target: { value: "zzz" } })
     expect(within(dialog()).queryAllByRole("option")).toHaveLength(0)
     expect(dialog()).toHaveTextContent("No matching commands.")
@@ -279,9 +304,10 @@ describe("CommandPalette", () => {
         expect(within(dialog()).queryByRole("option", { name: /Jump to section › / })).toBeNull()
 
         // Fuzzy matching lets "ship" reach a command too (s-h-i-p across
-        // "Show generated files" and its "panel" keyword); the heading is what matters.
+        // "Show generated files" and its "panel" keyword), but the heading,
+        // a word-start match, ranks first.
         fireEvent.change(input(), { target: { value: "ship" } })
-        expect(optionNames()).toContain("Jump to section › Ship")
+        expect(optionNames()[0]).toBe("Jump to section › Ship")
         expect(optionNames()).not.toContain("Jump to section › Deploy")
 
         // "section" lists every heading.
@@ -293,6 +319,7 @@ describe("CommandPalette", () => {
           "Jump to section › Verify",
           "Jump to section › Ship",
           "Jump to section › Verify (2)",
+          `Find "section" in page${formatShortcut("F")}`,
         ])
 
         await select("Jump to section › Ship")
@@ -309,6 +336,7 @@ describe("CommandPalette", () => {
       expect(optionNames()).toEqual([
         `Close Runbook${formatShortcut("W", { shift: true })}`,
         "Jump to section › Close Runbook",
+        `Find "close runbook" in page${formatShortcut("F")}`,
       ])
 
       await select("Jump to section › Close Runbook")

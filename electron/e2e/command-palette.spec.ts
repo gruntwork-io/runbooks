@@ -150,6 +150,22 @@ test.describe("Command palette", () => {
     await expect(verify).toBeInViewport()
   })
 
+  test("the last row finds the typed text in the page", async () => {
+    await openPalette()
+    await page.keyboard.type("Deployment step 7")
+    const findRow = palette().getByRole("option", { name: 'Find "Deployment step 7" in page' })
+    await expect(findRow).toBeVisible()
+    await expect(palette().getByRole("option").last()).toHaveText(/Find "Deployment step 7"/)
+
+    await page.keyboard.press("End")
+    await page.keyboard.press("Enter")
+    await expect(palette()).toBeHidden()
+    const input = page.getByRole("textbox", { name: "Find in page" })
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue("Deployment step 7")
+    await expect(page.getByRole("search").getByRole("status")).toHaveText("1 of 1")
+  })
+
   test("Find in page opens the find bar with focus", async () => {
     await openPalette()
     await run("find")
