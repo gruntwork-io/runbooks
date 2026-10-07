@@ -229,7 +229,7 @@ describe("GitAuth — provider switch (real hook)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reload" }))
 
     await screen.findByText(/Authenticated to GitLab \(git\.corp\.example\)/i)
-    expect(screen.getAllByText(/corp-user/).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/corp-user/)).length).toBeGreaterThan(0)
     const afterReload = detectionCalls().slice(before)
     expect(afterReload.length).toBeGreaterThan(0)
     expect(afterReload.every((c) => (c[1] as { host?: string }).host === "git.corp.example")).toBe(
