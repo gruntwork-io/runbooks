@@ -37,6 +37,14 @@ function menuItems(label: string): MenuItemConstructorOptions[] {
 
 const editItems = () => menuItems("Edit")
 
+/** Every item of `items`, submenus included. */
+function allItems(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
+  return items.flatMap((item) => [
+    item,
+    ...(Array.isArray(item.submenu) ? allItems(item.submenu) : []),
+  ])
+}
+
 describe("Edit menu", () => {
   it("has Find, Find Next and Find Previous with the browser shortcuts", () => {
     const find = editItems().filter((item) => item.label?.startsWith("Find"))
@@ -74,6 +82,9 @@ describe("View menu", () => {
   it("opens the command palette with Cmd/Ctrl+K, the only binding of that shortcut", () => {
     const [palette] = menuItems("View")
     expect(palette).toMatchObject({ label: "Command Palette…", accelerator: "CmdOrCtrl+K" })
+    const bound = allItems(template).filter((item) => item.accelerator === "CmdOrCtrl+K")
+    expect(bound).toHaveLength(1)
+    expect(bound[0]).toBe(palette)
 
     sent.length = 0
     ;(palette!.click as () => void)()

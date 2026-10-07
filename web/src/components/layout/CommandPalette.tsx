@@ -8,6 +8,7 @@ import {
   Download,
   FolderOpen,
   Hash,
+  Info,
   Link as LinkIcon,
   ListChecks,
   Monitor,
@@ -32,8 +33,12 @@ import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useTheme } from "@/contexts/useTheme"
 import { INSTRUCTION_MODE_NAME } from "@/contexts/InstructionModeContext.types"
 import type { Theme } from "@/contexts/ThemeContext.types"
+import { useAppVersion } from "@/hooks/useAppVersion"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
+import { FIND_IGNORE_ATTRIBUTE } from "@/lib/findInPage"
 import { formatShortcut } from "@/lib/platform"
+import { copyTextToClipboard } from "@/lib/utils"
+import { FIND_BAR_WAITS_ATTRIBUTE } from "./FindBar"
 
 // The same pages as the Help menu (electron/main/menu.ts).
 const DOCS_URL = "https://docs.gruntwork.io/runbooks"
@@ -70,6 +75,8 @@ interface Command {
   /** Shown at the right edge: a shortcut, or a check mark for the current choice. */
   trailing?: ReactNode
   disabled?: boolean
+  /** Leave the palette open after running: the command shows a list of its own. */
+  keepsOpen?: boolean
   run: () => void
 }
 
@@ -128,18 +135,23 @@ const THEMES: {
  * The runbook's own section headings, top to bottom. Headings that blocks
  * render for themselves (form groups, warnings, a pull request description's
  * preview) sit inside `.runbook-block` or `.markdown-preview` and are left
- * out, as are headings not on screen, such as those in a collapsed block,
- * which can't be scrolled to.
+ * out. So are headings the runbook doesn't show, such as those in a
+ * collapsed block, which can't be scrolled to; but only while the runbook
+ * itself is laid out. In the narrow layout the Code tab hides all of it,
+ * which tells nothing about any heading, and a jump reveals it first.
  */
 function collectHeadings(): HeadingEntry[] {
-  const nodes = document.querySelectorAll<HTMLElement>(
-    ".markdown-body :is(h1, h2, h3, h4, h5, h6):not(.runbook-block *):not(.markdown-preview *)",
+  const runbook = document.querySelector<HTMLElement>(".markdown-body:not(.markdown-preview)")
+  if (!runbook) return []
+  const laidOut = runbook.getClientRects().length > 0
+  const nodes = runbook.querySelectorAll<HTMLElement>(
+    ":is(h1, h2, h3, h4, h5, h6):not(.runbook-block *):not(.markdown-preview *)",
   )
   const seen = new Map<string, number>()
   const entries: HeadingEntry[] = []
   for (const el of nodes) {
     const text = (el.textContent || "").trim()
-    if (!text || el.getClientRects().length === 0) continue
+    if (!text || (laidOut && el.getClientRects().length === 0)) continue
     const count = (seen.get(text) ?? 0) + 1
     seen.set(text, count)
     entries.push({
@@ -158,11 +170,14 @@ function collectHeadings(): HeadingEntry[] {
  */
 export function CommandPalette({ open, onOpenChange, ctx }: CommandPaletteProps) {
   return (
+    // The find bar neither searches the palette's text nor closes for it: a
+    // command can open the bar, and an open bar keeps its matches meanwhile.
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
       showCloseButton={false}
       shouldFilter={false}
+      contentProps={{ [FIND_IGNORE_ATTRIBUTE]: "", [FIND_BAR_WAITS_ATTRIBUTE]: "" }}
     >
       <CommandPaletteBody onOpenChange={onOpenChange} ctx={ctx} />
     </CommandDialog>
@@ -178,11 +193,12 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   const api = useApi()
   const [mode, setMode] = useState<"commands" | "sections">("commands")
   const [query, setQuery] = useState("")
-  // The runbook can't change while the modal palette is open.
+  // Collected once per open; jumpToHeading looks the heading up again.
   const [headings] = useState(collectHeadings)
   const { theme, setTheme } = useTheme()
   const { enabled: instructionMode, setEnabled: setInstructionMode } = useInstructionMode()
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
+  const version = useAppVersion()
 
   const openExternal = (url: string) => {
     api.invoke("native:open-external", { url }).catch((err: unknown) => {
@@ -252,6 +268,7 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
           {headings.length === 1 ? "1 section" : `${headings.length} sections`}
         </span>
       ),
+      keepsOpen: true,
       run: () => {
         setQuery("")
         setMode("sections")
@@ -349,6 +366,28 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
           keywords: ["bug", "feedback", "github"],
           run: () => openExternal(ISSUES_URL),
         },
+        // Windows and Linux have no About panel, so with a runbook open this
+        // is the one place the version shows.
+        ...(version
+          ? [
+              {
+                id: "copy-version",
+                label: `Runbooks v${version}`,
+                icon: Info,
+                keywords: ["version", "about", "copy"],
+                trailing: <span className="ml-auto text-xs text-muted-foreground">Copy</span>,
+                run: () => {
+                  copyTextToClipboard(version)
+                    .then((ok) => {
+                      if (!ok) console.error("Failed to copy the version")
+                    })
+                    .catch((err: unknown) => {
+                      console.error("Failed to copy the version:", err)
+                    })
+                },
+              },
+            ]
+          : []),
       ],
     },
   ]
@@ -364,21 +403,28 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
   }
 
   const runCommand = (cmd: Command) => {
-    // "Jump to section" stays open to show the headings.
-    if (cmd.id === "jump-to-section") {
+    if (cmd.keepsOpen) {
       cmd.run()
       return
     }
     closeThen(cmd.run)
   }
 
+  /**
+   * Scroll to `entry`'s heading. A watch-mode reload while the palette was
+   * open may have replaced the runbook's elements, so a detached one is
+   * looked up again by its label.
+   */
   const jumpToHeading = (entry: HeadingEntry) => {
     onOpenChange(false)
     ctx.onRevealRunbook()
     // Next frame: the runbook is on screen by then, and the dialog's closing
     // animation doesn't fight the scroll.
     requestAnimationFrame(() => {
-      entry.el.scrollIntoView({ behavior: "smooth", block: "start" })
+      const el = entry.el.isConnected
+        ? entry.el
+        : collectHeadings().find((h) => h.label === entry.label)?.el
+      el?.scrollIntoView({ behavior: "smooth", block: "start" })
     })
   }
 
@@ -478,7 +524,6 @@ function CommandPaletteBody({ onOpenChange, ctx }: Omit<CommandPaletteProps, "op
                     <span>"{search}"</span>
                     <span className="text-muted-foreground"> in page</span>
                   </span>
-                  <CommandShortcut>{formatShortcut("F")}</CommandShortcut>
                 </CommandItem>
               </CommandGroup>
             )}

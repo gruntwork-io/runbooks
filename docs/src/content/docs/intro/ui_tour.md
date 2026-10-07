@@ -27,7 +27,7 @@ Runbooks can get long. Press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Li
 :::
 
 :::tip[Command palette]
-Press **Cmd+K** on macOS, or **Ctrl+K** on Windows and Linux, to open the command palette, then type to filter. It holds everything in the **Menu** and the application menus: open or close a runbook, show the generated files, download logs, switch the theme or [instruction mode](/intro/instruction-mode/), and open the docs. **Jump to section** lists the runbook's headings, so you can move to any part of a long runbook without scrolling, and typing a heading's name offers it directly. Whatever you type, the last row is **Find "…" in page**, which opens the find bar on that text. Press **Backspace** in an empty search to go back to the commands, and **Esc** to close.
+Press **Cmd+K** on macOS, or **Ctrl+K** on Windows and Linux, to open the command palette, then type to filter. It holds everything in the **Menu** and the application menus: open or close a runbook, show the generated files, download logs, switch the theme or [instruction mode](/intro/instruction-mode/), open the docs, and copy the app's version for a bug report. **Jump to section** lists the runbook's headings, so you can move to any part of a long runbook without scrolling, and typing a heading's name offers it directly. Whatever you type, the last row is **Find "…" in page**, which opens the find bar on that text. Press **Backspace** in an empty search to go back to the commands, and **Esc** to close.
 :::
 
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)

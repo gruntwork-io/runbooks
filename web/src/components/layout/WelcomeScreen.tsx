@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from "lucide-react"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
+import { useAppVersion } from "@/hooks/useAppVersion"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import { errorMessage } from "../../../../src/errors/message"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
@@ -32,22 +33,13 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
   const [cliLoading, setCliLoading] = useState(false)
   const [cliError, setCliError] = useState<string | null>(null)
-  const [version, setVersion] = useState("")
+  const version = useAppVersion()
 
   useEffect(() => {
     api
       .invoke("cli:check-install")
       .then((result) => setCliInstalled(result.installed))
       .catch(() => setCliInstalled(false))
-  }, [api])
-
-  // Shown so a bug report can name the version; the line is simply absent if
-  // the lookup fails.
-  useEffect(() => {
-    api
-      .invoke("native:app-version")
-      .then((result) => setVersion(result.version))
-      .catch(() => setVersion(""))
   }, [api])
 
   const handleInstallCli = useCallback(async () => {

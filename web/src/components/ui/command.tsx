@@ -33,6 +33,7 @@ function CommandDialog({
   className,
   showCloseButton = true,
   shouldFilter = true,
+  contentProps,
   ...props
 }: React.ComponentProps<typeof Dialog> & {
   title?: string
@@ -41,6 +42,8 @@ function CommandDialog({
   showCloseButton?: boolean
   /** false: the caller filters and orders the items itself. */
   shouldFilter?: boolean
+  /** Attributes for the dialog's content element, such as `data-*` markers. */
+  contentProps?: Record<`data-${string}`, string>
 }) {
   return (
     <Dialog {...props}>
@@ -49,6 +52,7 @@ function CommandDialog({
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <DialogContent
+        {...contentProps}
         className={cn("overflow-hidden p-0", className)}
         showCloseButton={showCloseButton}
       >

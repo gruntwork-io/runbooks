@@ -826,8 +826,8 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
-  // The app's version, for the welcome screen: the only place it shows on
-  // Windows and Linux, which have no About panel.
+  // The app's version, for the welcome screen and the command palette: the
+  // only places it shows on Windows and Linux, which have no About panel.
   "native:app-version": { params: void; result: { version: string } }
   "native:close-runbook": { params: void; result: { ok: true } }
   "native:get-cli-config": {
