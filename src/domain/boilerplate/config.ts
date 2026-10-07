@@ -4,11 +4,13 @@
  * Parses boilerplate.yml directly using the `yaml` npm package.
  */
 
-import { Effect } from "effect"
+import { Chunk, Effect, Stream } from "effect"
 import YAML from "yaml"
 
 import { BoilerplateConfigError } from "../../errors/index.js"
 import { errorMessage } from "../../errors/message.ts"
+import { FileSystem } from "../../services/FileSystem.js"
+import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
 import { scanGuardedCode } from "./outputGuards.ts"
 import type {
   BoilerplateConfig,
@@ -384,4 +386,59 @@ export function extractOutputDependencies(content: string): OutputDependency[] {
   }
 
   return [...dependencies.values()]
+}
+
+/** Most files {@link collectOutputDependencies} reads from one template directory. */
+const MAX_SCANNED_TEMPLATE_FILES = 2000
+
+/** Largest file, in bytes, that {@link collectOutputDependencies} reads. */
+const MAX_SCANNED_TEMPLATE_FILE_BYTES = 1024 * 1024
+
+/**
+ * Collects the output dependencies of every file under `templateDir`,
+ * subdirectories included, deduplicated by full path.
+ *
+ * Reads at most {@link MAX_SCANNED_TEMPLATE_FILES} files and skips any larger
+ * than {@link MAX_SCANNED_TEMPLATE_FILE_BYTES}, so a reference past either
+ * limit is not reported. A file that cannot be read is skipped.
+ */
+export function collectOutputDependencies(templateDir: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+
+    const files = yield* fs.walk(templateDir).pipe(
+      Stream.filter((entry) => entry.isFile && entry.size <= MAX_SCANNED_TEMPLATE_FILE_BYTES),
+      Stream.take(MAX_SCANNED_TEMPLATE_FILES),
+      Stream.runCollect,
+    )
+
+    const contents = yield* Effect.forEach(
+      Chunk.toReadonlyArray(files),
+      (entry) => Effect.either(fs.readFile(entry.path)),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+
+    return mergeOutputDependencies(
+      ...contents.map((content) =>
+        content._tag === "Right" ? extractOutputDependencies(content.right) : [],
+      ),
+    )
+  })
+}
+
+/**
+ * Merges dependency lists into one, deduplicated by full path. An output stays
+ * optional only when every reference to it across the lists is optional.
+ */
+export function mergeOutputDependencies(...lists: OutputDependency[][]): OutputDependency[] {
+  const byFullPath = new Map<string, OutputDependency>()
+  for (const dep of lists.flat()) {
+    const existing = byFullPath.get(dep.fullPath)
+    if (!existing) {
+      byFullPath.set(dep.fullPath, { ...dep })
+      continue
+    }
+    if (!dep.optional) delete existing.optional
+  }
+  return [...byFullPath.values()]
 }

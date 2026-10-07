@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, act, fireEvent } from "@testing-library/react"
+import type React from "react"
 import { useEffect } from "react"
 import { TestWrapper } from "@/test/test-utils"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -27,9 +28,9 @@ vi.mock("@/hooks/useApiGetBoilerplateConfig", () => ({
 }))
 
 // Render IPC boundary: tests set data/error to simulate the outcome of the last
-// render and inspect what autoRender was asked to render.
+// render and inspect what render was asked to render.
 const renderMock = vi.hoisted(() => ({
-  autoRender: vi.fn(),
+  render: vi.fn(),
   data: null as Record<string, unknown> | null,
   error: null as { message: string } | null,
 }))
@@ -39,19 +40,23 @@ vi.mock("@/hooks/useApiBoilerplateRender", () => ({
     data: renderMock.data,
     isLoading: false,
     error: renderMock.error,
-    isAutoRendering: false,
-    autoRender: renderMock.autoRender,
+    render: renderMock.render,
   }),
 }))
 
 import Template from "../Template"
 
-function renderTemplate(props: Record<string, unknown> = {}) {
-  return render(
+function testTemplate() {
+  return (
     <TestWrapper>
-      <Template id="test-template" path="templates/test" {...props} />
-    </TestWrapper>,
+      <CaptureContext />
+      <Template id="test-template" path="templates/test" />
+    </TestWrapper>
   )
+}
+
+function renderTemplate() {
+  return render(testTemplate())
 }
 
 // Captures the live RunbookContext so tests can play the part of an upstream <Inputs> block.
@@ -74,19 +79,26 @@ function setUpstreamRegion(region: string) {
   })
 }
 
-// Long enough for useFormState's 50 ms trailing debounce to fire.
+function renderedRegions() {
+  return renderMock.render.mock.calls.map(
+    ([vars]) => (vars as { inputs: Record<string, unknown> }).inputs.region,
+  )
+}
+
+// Plays the last requested render succeeding: the hook returns its result on
+// the next render of the tree.
+function succeedRender(rerender: (ui: React.ReactElement) => void, tree: React.ReactElement) {
+  renderMock.data = { fileTree: [] }
+  rerender(tree)
+}
+
+// Gives the linked-default resolution time to come back.
 async function settle() {
   await act(
     () =>
       new Promise((resolve) => {
         setTimeout(resolve, 120)
       }),
-  )
-}
-
-function renderedRegions() {
-  return renderMock.autoRender.mock.calls.map(
-    ([, vars]) => (vars as { inputs: Record<string, unknown> }).inputs.region,
   )
 }
 
@@ -108,7 +120,7 @@ describe("Template", () => {
       refetch: vi.fn(),
       silentRefetch: vi.fn(),
     }
-    renderMock.autoRender.mockReset()
+    renderMock.render.mockReset()
     renderMock.data = null
     renderMock.error = null
   })
@@ -165,6 +177,7 @@ describe("Template", () => {
               type: "string",
               description: "",
               default: "tpl-default",
+              required: true,
               validations: [{ type: "required" }],
             },
             { name: "name", type: "string", description: "", default: "app" },
@@ -174,41 +187,46 @@ describe("Template", () => {
       }
     })
 
-    async function renderAndGenerate(initialRegion: string) {
-      const utils = render(
-        <TestWrapper>
-          <CaptureContext />
-          <Template id="vpc" path="templates/vpc" inputsId="cfg" />
-        </TestWrapper>,
-      )
+    const vpcTemplate = () => (
+      <TestWrapper>
+        <CaptureContext />
+        <Template id="vpc" path="templates/vpc" inputsId="cfg" />
+      </TestWrapper>
+    )
+
+    function renderAndGenerate(initialRegion: string) {
+      const utils = render(vpcTemplate())
       setUpstreamRegion(initialRegion)
-      await settle()
       fireEvent.click(screen.getByRole("button", { name: "Generate" }))
-      await settle()
       expect(renderedRegions()).toEqual([initialRegion])
-      renderMock.autoRender.mockClear()
+      renderMock.render.mockClear()
+      succeedRender(utils.rerender, vpcTemplate())
       return utils
     }
 
-    it("renders once, with the new value, when a shared var changes upstream", async () => {
-      await renderAndGenerate("us-east-1")
+    it("goes stale without rendering when a shared var changes upstream, and Regenerate renders the new value", () => {
+      const { container, rerender } = renderAndGenerate("us-east-1")
+      expect(formBlock(container).className).toContain("bg-success-muted")
 
       setUpstreamRegion("eu-west-1")
-      await settle()
+      expect(renderedRegions()).toEqual([])
+      expect(formBlock(container).className).toContain("bg-warning-muted")
 
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
       expect(renderedRegions()).toEqual(["eu-west-1"])
+      succeedRender(rerender, vpcTemplate())
+      expect(formBlock(container).className).toContain("bg-success-muted")
     })
 
-    it("renders once when a required shared var is refilled upstream in one step", async () => {
-      await renderAndGenerate("us-east-1")
+    it("does not regenerate while a required shared var is empty upstream", () => {
+      renderAndGenerate("us-east-1")
 
-      // Emptying a required var must not render at all (not even the old value).
       setUpstreamRegion("")
-      await settle()
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
       expect(renderedRegions()).toEqual([])
 
       setUpstreamRegion("eu-west-1")
-      await settle()
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
       expect(renderedRegions()).toEqual(["eu-west-1"])
     })
   })
@@ -275,50 +293,139 @@ describe("Template", () => {
     })
   })
 
-  // A Template writes files, so it renders a sensitive output's real value.
-  // The dedupe key has to see that value too, or a new token would never
-  // reach the files.
-  describe("sensitive outputs", () => {
+  describe("outputs", () => {
+    beforeEach(() => {
+      mockConfigReturn = {
+        ...mockConfigReturn,
+        data: {
+          variables: [],
+          outputDependencies: [
+            { blockId: "mint", outputName: "token", fullPath: "outputs.mint.token" },
+          ],
+        },
+      }
+    })
+
     function renderedTokens() {
-      return renderMock.autoRender.mock.calls.map(
-        ([, vars]) =>
+      return renderMock.render.mock.calls.map(
+        ([vars]) =>
           (vars as { outputs: Record<string, Record<string, unknown>> }).outputs.mint?.token,
       )
     }
 
-    it("renders a sensitive output's real value, and renders again when it changes", async () => {
-      render(
-        <TestWrapper>
-          <CaptureContext />
-          <Template id="app" path="templates/app" />
-        </TestWrapper>,
-      )
+    function renderAndGenerate() {
+      const utils = renderTemplate()
       act(() => ctx.registerOutputs("mint", { token: sensitiveOutput("first-token") }))
-      await settle()
       fireEvent.click(screen.getByRole("button", { name: "Generate" }))
-      await settle()
+      // A Template writes files, so it renders a sensitive output's real value.
       expect(renderedTokens()).toEqual(["first-token"])
-      renderMock.autoRender.mockClear()
+      renderMock.render.mockClear()
+      succeedRender(utils.rerender, testTemplate())
+      return utils
+    }
+
+    // The change key has to see a sensitive output's real value, or a new
+    // token would never mark the files stale.
+    it("goes stale when a sensitive output it reads changes, and Regenerate renders the new value", () => {
+      const { container } = renderAndGenerate()
 
       act(() => ctx.registerOutputs("mint", { token: sensitiveOutput("second-token") }))
-      await settle()
+      expect(renderedTokens()).toEqual([])
+      expect(formBlock(container).className).toContain("bg-warning-muted")
 
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
       expect(renderedTokens()).toEqual(["second-token"])
+    })
+
+    it("stays up to date when a block it does not read produces an output", () => {
+      const { container } = renderAndGenerate()
+
+      act(() => ctx.registerOutputs("unrelated", { value: "anything" }))
+
+      expect(formBlock(container).className).toContain("bg-success-muted")
+      expect(screen.getByText("Up to date")).toBeInTheDocument()
+    })
+  })
+
+  describe("editing after generating", () => {
+    function renderAndGenerate() {
+      const utils = renderTemplate()
+      fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+      renderMock.render.mockClear()
+      succeedRender(utils.rerender, testTemplate())
+      return utils
+    }
+
+    function typeRegion(value: string) {
+      fireEvent.change(screen.getByLabelText(/Region/), { target: { value } })
+    }
+
+    it("turns yellow and waits for Regenerate, without rendering", () => {
+      const { container, rerender } = renderAndGenerate()
+      expect(formBlock(container).className).toContain("bg-success-muted")
+
+      typeRegion("eu-west-1")
+
+      expect(renderMock.render).not.toHaveBeenCalled()
+      expect(formBlock(container).className).toContain("bg-warning-muted")
+      expect(formBlock(container).className).not.toContain("bg-success-muted")
+      expect(screen.queryByText("Up to date")).toBeNull()
+
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+
+      expect(renderedRegions()).toEqual(["eu-west-1"])
+      // The files hold the old value until the render succeeds.
+      expect(formBlock(container).className).toContain("bg-warning-muted")
+
+      succeedRender(rerender, testTemplate())
+      expect(formBlock(container).className).toContain("bg-success-muted")
+      expect(screen.getByText("Up to date")).toBeInTheDocument()
+    })
+
+    it("returns to up to date when the edit is undone", () => {
+      const { container } = renderAndGenerate()
+
+      typeRegion("eu-west-1")
+      expect(formBlock(container).className).toContain("bg-warning-muted")
+
+      typeRegion("us-east-1")
+      expect(formBlock(container).className).toContain("bg-success-muted")
+      expect(screen.getByText("Up to date")).toBeInTheDocument()
+      expect(renderMock.render).not.toHaveBeenCalled()
+    })
+
+    it("regenerates with unchanged values while up to date", () => {
+      renderAndGenerate()
+
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+
+      expect(renderedRegions()).toEqual(["us-east-1"])
+    })
+
+    it("returns to up to date, without the error, when an edit whose regeneration failed is undone", () => {
+      const { container, rerender } = renderAndGenerate()
+
+      typeRegion("eu-west-1")
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+      renderMock.error = { message: "template error" }
+      rerender(testTemplate())
+      expect(screen.getByText(/template error/)).toBeInTheDocument()
+      expect(formBlock(container).className).toContain("bg-warning-muted")
+
+      typeRegion("us-east-1")
+      expect(formBlock(container).className).toContain("bg-success-muted")
+      expect(screen.queryByText(/template error/)).toBeNull()
     })
   })
 
   describe("generate outcome", () => {
-    it("keeps the Generate button after a failed first render, and a retry renders again", async () => {
+    it("keeps the Generate button after a failed first render, and a retry renders again", () => {
       const { container, rerender } = renderTemplate()
       fireEvent.click(screen.getByRole("button", { name: "Generate" }))
-      expect(renderMock.autoRender).toHaveBeenCalledTimes(1)
+      expect(renderMock.render).toHaveBeenCalledTimes(1)
 
       renderMock.error = { message: "template error" }
-      rerender(
-        <TestWrapper>
-          <Template id="test-template" path="templates/test" />
-        </TestWrapper>,
-      )
+      rerender(testTemplate())
 
       expect(screen.getByText(/template error/)).toBeInTheDocument()
       expect(formBlock(container).className).not.toContain("bg-success-muted")
@@ -326,31 +433,27 @@ describe("Template", () => {
 
       // Same values as the failed render: the retry must still dispatch.
       fireEvent.click(screen.getByRole("button", { name: "Generate" }))
-      expect(renderMock.autoRender).toHaveBeenCalledTimes(2)
+      expect(renderMock.render).toHaveBeenCalledTimes(2)
     })
 
-    it("turns green only after a render succeeds, and not while a later render has failed", () => {
+    it("turns green only after a render succeeds, and offers a retry when a later render fails", () => {
       const { container, rerender } = renderTemplate()
-      const rerenderTemplate = () =>
-        rerender(
-          <TestWrapper>
-            <Template id="test-template" path="templates/test" />
-          </TestWrapper>,
-        )
 
       fireEvent.click(screen.getByRole("button", { name: "Generate" }))
       expect(formBlock(container).className).not.toContain("bg-success-muted")
 
-      renderMock.data = { fileTree: [] }
-      rerenderTemplate()
+      succeedRender(rerender, testTemplate())
       expect(formBlock(container).className).toContain("bg-success-muted")
       expect(screen.getByText("Up to date")).toBeInTheDocument()
 
       renderMock.error = { message: "template error" }
-      rerenderTemplate()
+      rerender(testTemplate())
       expect(formBlock(container).className).not.toContain("bg-success-muted")
       expect(screen.queryByText("Up to date")).toBeNull()
       expect(screen.getByText(/Generation failed/)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+      expect(renderMock.render).toHaveBeenCalledTimes(2)
     })
   })
 })

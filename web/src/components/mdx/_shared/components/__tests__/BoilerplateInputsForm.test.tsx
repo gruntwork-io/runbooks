@@ -67,6 +67,69 @@ describe("BoilerplateInputsForm success state", () => {
     expect(screen.queryByText("Up to date")).toBeNull()
     expect(screen.getByText(/Generation failed/)).toBeInTheDocument()
   })
+
+  it("keeps Regenerate available while the files are up to date", () => {
+    const { onGenerate } = renderForm({ hasGeneratedSuccessfully: true })
+
+    expect(screen.getByText("Up to date")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ region: "us-east-1" })
+  })
+
+  it("drops the button once an inline form has been submitted", () => {
+    renderForm({ hasGeneratedSuccessfully: true, isInlineMode: true })
+
+    expect(screen.queryByRole("button", { name: /Submit|Regenerate/ })).toBeNull()
+  })
+
+  it("offers Regenerate to retry a later render that failed", () => {
+    const { onGenerate } = renderForm({ hasGeneratedSuccessfully: true, hasRenderError: true })
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ region: "us-east-1" })
+  })
+})
+
+// Stale is controlled by the parent, which knows what the last generation read.
+describe("BoilerplateInputsForm stale state", () => {
+  it("turns yellow and asks the user to regenerate", () => {
+    const { onGenerate, block } = renderForm({ hasGeneratedSuccessfully: true, isStale: true })
+
+    expect(block().className).toContain("bg-warning-muted")
+    expect(block().className).not.toContain("bg-success-muted")
+    expect(screen.queryByText("Up to date")).toBeNull()
+    expect(screen.getByText(/Inputs changed since the files were generated/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }))
+    expect(onGenerate).toHaveBeenCalledWith({ region: "us-east-1" })
+  })
+
+  it("stays yellow while the latest render has failed", () => {
+    const { block } = renderForm({
+      hasGeneratedSuccessfully: true,
+      isStale: true,
+      hasRenderError: true,
+    })
+
+    expect(block().className).toContain("bg-warning-muted")
+    expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument()
+  })
+
+  it("shows the regeneration in progress in place of the stale message", () => {
+    renderForm({ hasGeneratedSuccessfully: true, isStale: true, isGenerating: true })
+
+    expect(screen.queryByText(/Inputs changed since the files were generated/)).toBeNull()
+    expect(screen.getByText("Updating...")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Regenerate" })).toBeDisabled()
+  })
+
+  it("stays neutral with the Generate button before the first successful generation", () => {
+    const { block } = renderForm({ hasGeneratedSuccessfully: false, isStale: true })
+
+    expect(block().className).not.toContain("bg-warning-muted")
+    expect(screen.getByRole("button", { name: "Generate" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Regenerate" })).toBeNull()
+  })
 })
 
 // A required tuple starts from the elements its controls display, and is only
