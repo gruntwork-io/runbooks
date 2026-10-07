@@ -2,10 +2,10 @@ import { useState, useEffect, type ComponentType, type ComponentPropsWithRef } f
 import {
   ChevronDown,
   Download,
-  Info,
   Check,
   FolderOpen,
   Copy,
+  SquareTerminal,
   X,
   type LucideProps,
 } from "lucide-react"
@@ -18,6 +18,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
 import { ThemeToggle } from "./ThemeToggle"
@@ -25,6 +26,7 @@ import { InstructionModeToggle } from "./InstructionModeToggle"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
+import { formatShortcut, isMac } from "@/lib/platform"
 import { getDirectoryPath } from "@/lib/utils"
 
 function CopyButton({
@@ -63,7 +65,8 @@ interface HeaderProps {
   pathName: string
   /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
   localPath?: string | undefined
-  onShowAbout: () => void
+  onOpenCommandPalette: () => void
+  onCloseRunbook: () => void
 }
 
 /**
@@ -78,8 +81,10 @@ interface HeaderProps {
  * @param props - The component props
  * @param props.pathName - The display string (remote URL or local path) for the header
  * @param props.localPath - The local filesystem path (for copy button when remote)
+ * @param props.onOpenCommandPalette - Called by the menu's Command Palette… item
+ * @param props.onCloseRunbook - Called by the menu's Close Runbook item
  */
-export function Header({ pathName, localPath, onShowAbout }: HeaderProps) {
+export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbook }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const { didCopy, copy } = useCopyToClipboard()
@@ -95,17 +100,11 @@ export function Header({ pathName, localPath, onShowAbout }: HeaderProps) {
   }, [api])
 
   const hasRunbookOpen = Boolean(pathName)
-  const handleCloseRunbook = () => {
-    api.invoke("native:close-runbook").catch((err: unknown) => {
-      console.error("Failed to close the runbook:", err)
-    })
-  }
 
   // On Windows/Linux, Electron draws min/max/close controls via titleBarOverlay
   // in the top-right (~140px wide). Shift the Menu further from the edge on
   // those platforms so it doesn't sit under the overlay. macOS keeps the tight
   // right-5 position since its traffic lights live top-left.
-  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
   const menuRightClass = isMac ? "md:right-5" : "md:right-40"
 
   // Show the copy-local-path button when we have a local path that differs from the display name
@@ -190,6 +189,15 @@ export function Header({ pathName, localPath, onShowAbout }: HeaderProps) {
               <ChevronDown className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* First, as the visible way to learn the shortcut: on Windows
+                  and Linux the native menu bar is hidden, so this is the only
+                  place the palette is mentioned on screen. */}
+              <DropdownMenuItem onClick={onOpenCommandPalette}>
+                <SquareTerminal className="size-4" />
+                Command Palette…
+                <DropdownMenuShortcut>{formatShortcut("K")}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={downloadRaw}
                 disabled={!hasLogs}
@@ -208,7 +216,7 @@ export function Header({ pathName, localPath, onShowAbout }: HeaderProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleCloseRunbook}
+                onClick={onCloseRunbook}
                 disabled={!hasRunbookOpen}
                 className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
               >
@@ -219,11 +227,6 @@ export function Header({ pathName, localPath, onShowAbout }: HeaderProps) {
               <ThemeToggle />
               <DropdownMenuSeparator />
               <InstructionModeToggle />
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={onShowAbout}>
-                <Info className="size-4" />
-                About
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

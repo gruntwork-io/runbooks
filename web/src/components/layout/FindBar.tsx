@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from "react"
 import { ChevronDown, ChevronUp, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useApi } from "@/contexts/ApiContext"
@@ -28,14 +36,21 @@ function coveredByModal(bar: Element): boolean {
   )
 }
 
+/** What the rest of the renderer can ask of the find bar. */
+export interface FindBarHandle {
+  /** Open the bar, or focus its input again when it is already open, like Find…. */
+  open: () => void
+}
+
 /**
- * The find-in-page bar, opened by Edit > Find… (Cmd/Ctrl+F). It searches the
- * rendered page, highlights every match, and steps through them with Enter /
- * Shift+Enter, the buttons, or Edit > Find Next / Find Previous
- * (Cmd/Ctrl+G / Shift+Cmd/Ctrl+G). Escape closes it. See lib/findInPage for
- * why this doesn't use webContents.findInPage.
+ * The find-in-page bar, opened by Edit > Find… (Cmd/Ctrl+F) or through `ref`
+ * (the command palette). It searches the rendered page, highlights every
+ * match, and steps through them with Enter / Shift+Enter, the buttons, or
+ * Edit > Find Next / Find Previous (Cmd/Ctrl+G / Shift+Cmd/Ctrl+G). Escape
+ * closes it. See lib/findInPage for why this doesn't use
+ * webContents.findInPage.
  */
-export function FindBar() {
+export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
   const api = useApi()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -135,6 +150,8 @@ export function FindBar() {
       }),
     [api, openBar, step],
   )
+
+  useImperativeHandle(ref, () => ({ open: openBar }), [openBar])
 
   // Focus the input, with its text selected, on open and on every Find….
   useLayoutEffect(() => {

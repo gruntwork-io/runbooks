@@ -28,12 +28,14 @@ await mock.module("./window.ts", () => ({ getMainWindow: () => fakeWindow }))
 
 const { setupApplicationMenu } = await import("./menu.ts")
 
-function editItems(): MenuItemConstructorOptions[] {
+function menuItems(label: string): MenuItemConstructorOptions[] {
   setupApplicationMenu()
-  const edit = template.find((m) => m.label === "Edit")
-  expect(edit).toBeDefined()
-  return edit!.submenu as MenuItemConstructorOptions[]
+  const menu = template.find((m) => m.label === label)
+  expect(menu).toBeDefined()
+  return menu!.submenu as MenuItemConstructorOptions[]
 }
+
+const editItems = () => menuItems("Edit")
 
 describe("Edit menu", () => {
   it("has Find, Find Next and Find Previous with the browser shortcuts", () => {
@@ -65,5 +67,16 @@ describe("Edit menu", () => {
       { channel: "menu:find", payload: { action: "next" } },
       { channel: "menu:find", payload: { action: "previous" } },
     ])
+  })
+})
+
+describe("View menu", () => {
+  it("opens the command palette with Cmd/Ctrl+K, the only binding of that shortcut", () => {
+    const [palette] = menuItems("View")
+    expect(palette).toMatchObject({ label: "Command Palette…", accelerator: "CmdOrCtrl+K" })
+
+    sent.length = 0
+    ;(palette!.click as () => void)()
+    expect(sent).toEqual([{ channel: "menu:open-command-palette", payload: undefined }])
   })
 })

@@ -15,7 +15,7 @@ interface WelcomeScreenProps {
 /**
  * Dismissing the administrator password prompt is not an error worth showing:
  * osascript reports "User canceled. (-128)" and pkexec "Request dismissed".
- * Matches showCliError in electron/main/menu.ts.
+ * Matches showCliError in electron/main/cli-install-dialogs.ts.
  */
 function isUserCancel(message: string): boolean {
   return message.includes("User canceled") || message.includes("dismissed")
@@ -32,12 +32,22 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
   const [cliLoading, setCliLoading] = useState(false)
   const [cliError, setCliError] = useState<string | null>(null)
+  const [version, setVersion] = useState("")
 
   useEffect(() => {
     api
       .invoke("cli:check-install")
       .then((result) => setCliInstalled(result.installed))
       .catch(() => setCliInstalled(false))
+  }, [api])
+
+  // Shown so a bug report can name the version; the line is simply absent if
+  // the lookup fails.
+  useEffect(() => {
+    api
+      .invoke("native:app-version")
+      .then((result) => setVersion(result.version))
+      .catch(() => setVersion(""))
   }, [api])
 
   const handleInstallCli = useCallback(async () => {
@@ -159,6 +169,7 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
             </div>
           </div>
         </div>
+        {version && <p className="mt-8 text-xs text-muted-foreground">Runbooks v{version}</p>}
       </div>
     </div>
   )

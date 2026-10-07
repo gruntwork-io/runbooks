@@ -5,18 +5,10 @@
  * plus app-specific actions (Open Runbook, docs links, etc.).
  */
 import * as path from "path"
-import {
-  app,
-  Menu,
-  dialog,
-  shell,
-  type MenuItemConstructorOptions,
-  type MessageBoxOptions,
-} from "electron"
-import { errorMessage } from "../../src/errors/message.ts"
+import { app, Menu, dialog, shell, type MenuItemConstructorOptions } from "electron"
 import type { FindAction } from "../shared/channels.ts"
 import { getMainWindow } from "./window.ts"
-import { checkCliInstall, installCli, uninstallCli } from "./cli-install.ts"
+import { installCliWithDialog, uninstallCliWithDialog } from "./cli-install-dialogs.ts"
 import { runbookConfig } from "./ipc/runtime.ts"
 import { closeRunbook } from "./ipc/watch.ts"
 import { makeLogger } from "./logger.ts"
@@ -28,71 +20,11 @@ const isMac = process.platform === "darwin"
 const DOCS_URL = "https://docs.gruntwork.io/runbooks"
 const ISSUES_URL = "https://github.com/gruntwork-io/runbooks/issues"
 
-/** Show a CLI error dialog, suppressing user-cancelled admin prompts. */
-function showCliError(err: unknown, title: string, message: string): void {
-  const detail = errorMessage(err)
-  if (detail.includes("User canceled") || detail.includes("dismissed")) return
-  dialog.showErrorBox(title, `${message}\n\n${detail}`)
-}
-
-/**
- * Show an informational dialog without waiting for the user to dismiss it.
- * The dialog has no parent window and nothing to report back.
- */
-function showInfo(options: Omit<MessageBoxOptions, "type">): void {
-  dialog.showMessageBox({ type: "info", ...options }).catch((err: unknown) => {
-    log.error("Failed to show dialog:", err)
-  })
-}
-
 /** Open a fixed URL in the user's default browser. */
 function openExternal(url: string): void {
   shell.openExternal(url).catch((err: unknown) => {
     log.error("Failed to open external URL:", err)
   })
-}
-
-async function installCliFromMenu(): Promise<void> {
-  try {
-    const status = await checkCliInstall()
-    if (status.installed) {
-      showInfo({
-        title: "CLI Already Installed",
-        message: `The 'runbooks' command is already installed at ${status.symlinkPath}.`,
-      })
-      return
-    }
-    const result = await installCli()
-    showInfo({
-      title: "CLI Installed",
-      message: `The 'runbooks' command was installed successfully.`,
-      detail: `You can now run 'runbooks' from any terminal.\nInstalled at: ${result.symlinkPath}`,
-    })
-  } catch (err: unknown) {
-    showCliError(err, "CLI Installation Failed", "Could not install the 'runbooks' command:")
-  }
-}
-
-async function uninstallCliFromMenu(): Promise<void> {
-  try {
-    // No status pre-check: uninstallCli decides what is ours, which
-    // includes a launcher left behind by a moved copy of the app that
-    // checkCliInstall reports as not installed.
-    const { removed } = await uninstallCli()
-    if (!removed) {
-      showInfo({
-        title: "CLI Not Installed",
-        message: "The 'runbooks' command is not currently installed.",
-      })
-      return
-    }
-    showInfo({
-      title: "CLI Uninstalled",
-      message: "The 'runbooks' command has been removed from your PATH.",
-    })
-  } catch (err: unknown) {
-    showCliError(err, "CLI Uninstall Failed", "Could not uninstall the 'runbooks' command:")
-  }
 }
 
 /** Ask for a runbook file or directory and open it in the main window. */
@@ -120,11 +52,11 @@ function buildCliMenuItems(): MenuItemConstructorOptions[] {
   return [
     {
       label: "Install 'runbooks' command in PATH",
-      click: () => void installCliFromMenu(),
+      click: () => void installCliWithDialog(),
     },
     {
       label: "Uninstall 'runbooks' command from PATH",
-      click: () => void uninstallCliFromMenu(),
+      click: () => void uninstallCliWithDialog(),
     },
   ]
 }
@@ -228,6 +160,7 @@ function buildTemplate(): MenuItemConstructorOptions[] {
     label: "View",
     submenu: [
       {
+        id: "command-palette",
         label: "Command Palette…",
         accelerator: "CmdOrCtrl+K",
         click: () => getMainWindow()?.webContents.send("menu:open-command-palette"),

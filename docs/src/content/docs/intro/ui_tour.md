@@ -26,6 +26,10 @@ So far the runbook is rendering markdown text.
 Runbooks can get long. Press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Linux, to search the runbook and any logs or outputs you have expanded. Press **Enter** / **Shift+Enter** (or **Cmd/Ctrl+G** / **Shift+Cmd/Ctrl+G**) to move between matches, and **Esc** to close the find bar. Collapsed sections, such as logs you haven't opened, aren't searched, and neither is the text in form fields.
 :::
 
+:::tip[Command palette]
+Press **Cmd+K** on macOS, or **Ctrl+K** on Windows and Linux, to open the command palette, then type to filter. It holds everything in the **Menu** and the application menus: open or close a runbook, show the generated files, download logs, switch the theme or [instruction mode](/intro/instruction-mode/), and open the docs. **Jump to section** lists the runbook's headings, so you can move to any part of a long runbook without scrolling. Press **Backspace** in an empty search to go back to the commands, and **Esc** to close.
+:::
+
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
 
 Next come pre-flight checks that confirm the user's machine has the right tools installed, in this case the `mise` tool version manager. When the user clicks "Check", Runbooks runs the command `mise --version && mise self-update --yes` on their machine.

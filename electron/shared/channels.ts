@@ -796,6 +796,11 @@ export interface IpcChannelMap {
     params: void
     result: { ok: true; symlinkPath: string }
   }
+  // The command palette's Install / Uninstall: the same flows as the menu
+  // items, which report the outcome (or that there was nothing to do) in a
+  // native dialog rather than to the caller.
+  "cli:install-with-dialog": { params: void; result: { ok: true } }
+  "cli:uninstall-with-dialog": { params: void; result: { ok: true } }
 
   // VCS CLI diagnostics: which provider CLIs are
   // installed, their versions / probe floors, and (Windows) git's TLS
@@ -821,6 +826,9 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
+  // The app's version, for the welcome screen: the only place it shows on
+  // Windows and Linux, which have no About panel.
+  "native:app-version": { params: void; result: { version: string } }
   "native:close-runbook": { params: void; result: { ok: true } }
   "native:get-cli-config": {
     params: void
