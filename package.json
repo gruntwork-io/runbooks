@@ -80,7 +80,7 @@
     "jsdom": "^23.0.0",
     "jszip": "^3.10.2",
     "knip": "^6.39.0",
-    "lucide-react": "^0.544.0",
+    "lucide-react": "^1.49.0",
     "mixpanel-browser": "^2.83.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
