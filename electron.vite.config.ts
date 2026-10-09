@@ -1,10 +1,10 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite"
 import type { Plugin } from "vite"
-import react from "@vitejs/plugin-react-swc"
 import tailwindcss from "@tailwindcss/vite"
 import fs from "fs"
 import path from "path"
 import { assertNoNestedNodeModules } from "./scripts/no-nested-node-modules.ts"
+import { reactWithCompiler } from "./scripts/vite-react.ts"
 
 // A leftover web/node_modules would shadow the root tree for renderer imports.
 assertNoNestedNodeModules(__dirname)
@@ -62,7 +62,7 @@ export default defineConfig({
   renderer: {
     root: path.resolve(__dirname, "web"),
     base: "./",
-    plugins: [react(), tailwindcss()],
+    plugins: [reactWithCompiler(), tailwindcss()],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "web/src"),

@@ -65,9 +65,9 @@ test.describe("Command palette", () => {
     })
     page = await app.firstWindow()
     await page.waitForLoadState("domcontentloaded")
-    await expect(page.getByRole("heading", { name: "Command palette" })).toBeVisible({
-      timeout: 60_000,
-    })
+    await expect(
+      page.getByTestId("runbook-content").getByRole("heading", { name: "Command palette" }),
+    ).toBeVisible({ timeout: 60_000 })
   })
 
   test.afterEach(async () => {

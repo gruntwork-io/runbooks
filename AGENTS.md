@@ -27,6 +27,7 @@
 | **knip** | ts-prune | Unused files, exports and dependencies (`knip.json`) |
 | **electron-vite** | manual vite | Builds main, preload, renderer |
 | **Effect** | raw promises | Services, layers, typed errors, streams |
+| **React Compiler** | `useMemo` / `useCallback` | Memoizes components at build time (`scripts/vite-react.ts`); oxlint's `react-compiler` rules keep them compilable |
 | **OpenTofu** | Terraform | IaC examples |
 
 Add shadcn/ui components: `bunx shadcn@latest add <name>` (from the repo root)

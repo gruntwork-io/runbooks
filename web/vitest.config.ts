@@ -1,15 +1,15 @@
 /// <reference types="vitest" />
 import path from "path"
 import { defineConfig } from "vite"
-import react from "@vitejs/plugin-react-swc"
 import { assertNoNestedNodeModules } from "../scripts/no-nested-node-modules.ts"
+import { reactWithCompiler } from "../scripts/vite-react.ts"
 
 // A leftover web/node_modules would take precedence over the root tree for
 // these tests.
 assertNoNestedNodeModules(path.resolve(__dirname, ".."))
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [reactWithCompiler()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
