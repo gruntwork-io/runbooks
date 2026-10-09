@@ -11,7 +11,7 @@ import { BoilerplateConfigError } from "../../errors/index.js"
 import { errorMessage } from "../../errors/message.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
-import { scanGuardedCode } from "./outputGuards.ts"
+import { extractTemplateDependenciesFromString } from "./templateDependencies.ts"
 import type {
   BoilerplateConfig,
   BoilerplateVariable,
@@ -63,14 +63,6 @@ interface RawSkipFile {
 interface RawConfig {
   variables?: RawVariable[]
   skip_files?: unknown
-}
-
-// ---------------------------------------------------------------------------
-// Block ID normalisation (keep in sync with Go normalizeBlockID)
-// ---------------------------------------------------------------------------
-
-function normalizeBlockID(id: string): string {
-  return id.replaceAll("-", "_")
 }
 
 // ---------------------------------------------------------------------------
@@ -348,14 +340,8 @@ export function parseBoilerplateConfig(
 // ---------------------------------------------------------------------------
 
 /**
- * An `.outputs.X.Y` reference. Keep in sync with the frontend extractor in
- * web/src/lib/extractTemplateDependencies.ts.
- */
-const OUTPUT_DEP_REGEX = /\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)/g
-
-/**
- * Extract `.outputs.blockId.outputName` references from template content.
- * Returns deduplicated dependencies found inside `{{ }}` template blocks.
+ * The `.outputs.blockId.outputName` references in template content: the
+ * output dependencies extractTemplateDependenciesFromString finds.
  *
  * An output is optional when every reference to it sits behind a `hasKey`
  * guard (see scanGuardedCode): the block still has to run, but the Generate
@@ -364,32 +350,18 @@ const OUTPUT_DEP_REGEX = /\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)/g
  * any of them makes the output required.
  */
 export function extractOutputDependencies(...contents: ReadonlyArray<string>): OutputDependency[] {
-  const dependencies = new Map<string, OutputDependency>()
-
-  for (const content of contents) {
-    for (const { code, guarded } of scanGuardedCode(content)) {
-      for (const [, originalBlockId, outputName] of code.matchAll(OUTPUT_DEP_REGEX)) {
-        if (!originalBlockId || !outputName) continue
-        const fullPath = `outputs.${normalizeBlockID(originalBlockId)}.${outputName}`
-        const optional = guarded.has(fullPath)
-
-        const existing = dependencies.get(fullPath)
-        if (existing) {
-          // One unguarded reference makes the output required.
-          if (!optional) delete existing.optional
-          continue
-        }
-        dependencies.set(fullPath, {
-          blockId: originalBlockId,
-          outputName,
-          fullPath,
-          ...(optional ? { optional: true } : {}),
-        })
-      }
-    }
-  }
-
-  return [...dependencies.values()]
+  return extractTemplateDependenciesFromString(...contents).flatMap((dep) =>
+    dep.type === "output"
+      ? [
+          {
+            blockId: dep.blockId,
+            outputName: dep.outputName,
+            fullPath: dep.fullPath,
+            ...(dep.optional ? { optional: true } : {}),
+          },
+        ]
+      : [],
+  )
 }
 
 /**
