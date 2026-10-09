@@ -4,11 +4,13 @@
  * Parses boilerplate.yml directly using the `yaml` npm package.
  */
 
-import { Effect } from "effect"
+import { Chunk, Effect, Stream } from "effect"
 import YAML from "yaml"
 
 import { BoilerplateConfigError } from "../../errors/index.js"
 import { errorMessage } from "../../errors/message.ts"
+import { FileSystem } from "../../services/FileSystem.ts"
+import { BATCH_IO_CONCURRENCY } from "../files/manifest.ts"
 import { scanGuardedCode } from "./outputGuards.ts"
 import type {
   BoilerplateConfig,
@@ -357,31 +359,72 @@ const OUTPUT_DEP_REGEX = /\.outputs\.([a-zA-Z0-9_-]+)\.(\w+)/g
  *
  * An output is optional when every reference to it sits behind a `hasKey`
  * guard (see scanGuardedCode): the block still has to run, but the Generate
- * gate no longer waits for that output to exist.
+ * gate no longer waits for that output to exist. A guard covers only the
+ * content it's in, so pass each file separately: one unguarded reference in
+ * any of them makes the output required.
  */
-export function extractOutputDependencies(content: string): OutputDependency[] {
+export function extractOutputDependencies(...contents: ReadonlyArray<string>): OutputDependency[] {
   const dependencies = new Map<string, OutputDependency>()
 
-  for (const { code, guarded } of scanGuardedCode(content)) {
-    for (const [, originalBlockId, outputName] of code.matchAll(OUTPUT_DEP_REGEX)) {
-      if (!originalBlockId || !outputName) continue
-      const fullPath = `outputs.${normalizeBlockID(originalBlockId)}.${outputName}`
-      const optional = guarded.has(fullPath)
+  for (const content of contents) {
+    for (const { code, guarded } of scanGuardedCode(content)) {
+      for (const [, originalBlockId, outputName] of code.matchAll(OUTPUT_DEP_REGEX)) {
+        if (!originalBlockId || !outputName) continue
+        const fullPath = `outputs.${normalizeBlockID(originalBlockId)}.${outputName}`
+        const optional = guarded.has(fullPath)
 
-      const existing = dependencies.get(fullPath)
-      if (existing) {
-        // One unguarded reference makes the output required.
-        if (!optional) delete existing.optional
-        continue
+        const existing = dependencies.get(fullPath)
+        if (existing) {
+          // One unguarded reference makes the output required.
+          if (!optional) delete existing.optional
+          continue
+        }
+        dependencies.set(fullPath, {
+          blockId: originalBlockId,
+          outputName,
+          fullPath,
+          ...(optional ? { optional: true } : {}),
+        })
       }
-      dependencies.set(fullPath, {
-        blockId: originalBlockId,
-        outputName,
-        fullPath,
-        ...(optional ? { optional: true } : {}),
-      })
     }
   }
 
   return [...dependencies.values()]
+}
+
+/**
+ * Output dependencies of a template on disk: `boilerplateYaml` (variable
+ * defaults often read outputs), every file under `templateDir` at any depth,
+ * and the file and directory names, which boilerplate renders too.
+ *
+ * Best-effort: an unreadable file is skipped, and if the directory can't be
+ * walked only `boilerplateYaml` is scanned, so the config still loads.
+ */
+export function extractTemplateOutputDependencies(templateDir: string, boilerplateYaml: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem
+
+    const walked = yield* fs.walk(templateDir).pipe(Stream.runCollect, Effect.either)
+    if (walked._tag === "Left") {
+      console.warn(
+        `[boilerplate config] can't scan ${templateDir} for output references: ${errorMessage(walked.left.cause)}`,
+      )
+      return extractOutputDependencies(boilerplateYaml)
+    }
+
+    const entries = Chunk.toReadonlyArray(walked.right)
+    // Not filtered with isFile: a symlink is neither, and reading follows it
+    // like boilerplate does. A link to a directory fails to read and is skipped.
+    const contents = yield* Effect.forEach(
+      entries.filter((entry) => !entry.isDirectory),
+      (entry) => fs.readFile(entry.path).pipe(Effect.orElseSucceed(() => "")),
+      { concurrency: BATCH_IO_CONCURRENCY },
+    )
+
+    return extractOutputDependencies(
+      boilerplateYaml,
+      ...contents,
+      ...entries.map((entry) => entry.relativePath),
+    )
+  })
 }
