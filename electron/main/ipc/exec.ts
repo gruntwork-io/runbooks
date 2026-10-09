@@ -1,9 +1,9 @@
 /**
  * IPC handler for script execution with streaming.
  *
- * Runs a script via the executeScript Effect, then forwards events to the
+ * Runs a script via the executeScript Effect and streams its logs to the
  * renderer process via event.sender.send(). The handler returns the final
- * status when execution completes.
+ * status and the script's outputs together when execution completes.
  */
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
@@ -13,7 +13,7 @@ import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
-import { encodeOutputs } from "../../../src/domain/exec/outputValues.ts"
+import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
 import type { IpcEventMap } from "../../shared/channels.ts"
 import { makeLogger } from "../logger.ts"
 
@@ -135,6 +135,7 @@ export function registerExecHandlers(): void {
 
             // Phase 2: After logs drain, run completion
             let finalStatus: ExecStatusEvent | null = null
+            let outputs: OutputValues = {}
             const completionEvents = yield* completionEffect
             log.debug("Phase 2 complete, got", completionEvents.length, "events")
 
@@ -146,10 +147,9 @@ export function registerExecHandlers(): void {
                   break
                 case "status":
                   finalStatus = execEvent.event
-                  send("exec:status", execEvent.event)
                   break
                 case "outputs":
-                  send("exec:outputs", { outputs: encodeOutputs(execEvent.event.outputs) })
+                  outputs = execEvent.event.outputs
                   break
                 case "files_captured":
                   send("exec:files-captured", execEvent.event)
@@ -179,7 +179,11 @@ export function registerExecHandlers(): void {
             }
 
             log.debug("execution complete, status:", finalStatus?.status)
-            return { status: finalStatus }
+            if (!finalStatus) return { status: null }
+            // The status and the outputs go back in one reply. Sent as
+            // separate events, the renderer can see a finished run before its
+            // outputs and take it for a run that published none.
+            return { status: finalStatus, outputs: encodeOutputs(outputs) }
           }),
         ),
         { signal: abortController.signal },
