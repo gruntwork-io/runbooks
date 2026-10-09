@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react"
 import { useApi } from "./ApiContext"
+import { useMediaQuery } from "@/hooks/useMediaQuery"
 import {
   ThemeContext,
   THEME_STORAGE_KEY,
@@ -7,6 +8,7 @@ import {
   type ResolvedTheme,
 } from "./ThemeContext.types"
 
+/** The OS theme, which 'system' mode follows live. */
 const DARK_QUERY = "(prefers-color-scheme: dark)"
 
 /** Read the persisted preference, defaulting to 'system'. */
@@ -20,10 +22,6 @@ function readStoredTheme(): Theme {
     /* localStorage unavailable (e.g. private mode) */
   }
   return "system"
-}
-
-function systemPrefersDark(): boolean {
-  return typeof window !== "undefined" && window.matchMedia(DARK_QUERY).matches
 }
 
 /** Toggle the `.dark` class on <html> — the hook for the `dark:` Tailwind variant. */
@@ -40,7 +38,7 @@ function applyThemeClass(resolved: ResolvedTheme): void {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const api = useApi()
   const [theme, setThemeState] = useState<Theme>(readStoredTheme)
-  const [systemDark, setSystemDark] = useState(systemPrefersDark)
+  const systemDark = useMediaQuery(DARK_QUERY)
   const resolvedTheme: ResolvedTheme = theme === "system" ? (systemDark ? "dark" : "light") : theme
 
   useEffect(() => {
@@ -56,14 +54,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       /* native chrome update is best-effort */
     })
   }, [theme, api])
-
-  // Track the OS theme, which 'system' mode follows live.
-  useEffect(() => {
-    const mq = window.matchMedia(DARK_QUERY)
-    const onChange = () => setSystemDark(mq.matches)
-    mq.addEventListener("change", onChange)
-    return () => mq.removeEventListener("change", onChange)
-  }, [])
 
   const setTheme = useCallback((next: Theme) => {
     try {

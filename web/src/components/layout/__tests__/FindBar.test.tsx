@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { FIND_ACTIVE_HIGHLIGHT, FIND_MATCH_HIGHLIGHT } from "@/lib/findInPage"
-import { FindBar } from "../FindBar"
+import { FIND_BAR_WAITS_ATTRIBUTE, FindBar, type FindBarHandle } from "../FindBar"
 
 type Listener = (payload: unknown) => void
 
@@ -76,6 +76,32 @@ afterEach(() => {
 const lastScrolled = () => scrollSpy.mock.contexts.at(-1) as Element | undefined
 
 describe("FindBar", () => {
+  it("opens with a given text and searches for it, through its handle", async () => {
+    const { api } = makeApi()
+    const ref = { current: null as FindBarHandle | null }
+    render(
+      <ApiProvider api={api}>
+        <p>alpha one</p>
+        <p>alpha two</p>
+        <FindBar ref={ref} />
+      </ApiProvider>,
+    )
+
+    act(() => ref.current?.open("alpha"))
+    expect(input()).toHaveValue("alpha")
+    expect(input()).toHaveFocus()
+    expect(status()).toHaveTextContent("1 of 2")
+
+    // Already open: a new text replaces the search.
+    act(() => ref.current?.open("two"))
+    expect(input()).toHaveValue("two")
+    expect(status()).toHaveTextContent("1 of 1")
+
+    // No text: the kept query stays, as with Find….
+    act(() => ref.current?.open())
+    expect(input()).toHaveValue("two")
+  })
+
   it("is hidden until the Find menu item opens it, focused", async () => {
     const { api, find } = makeApi()
     renderPage(api)
@@ -289,6 +315,41 @@ describe("FindBar", () => {
 
     await waitFor(() => expect(barMounted()).toBe(false))
     expect(registry.size).toBe(0)
+  })
+
+  it("waits out a modal marked to be waited out, such as the command palette", async () => {
+    const { api, find } = makeApi()
+    function Page() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <p>alpha one</p>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogContent aria-describedby={undefined} {...{ [FIND_BAR_WAITS_ATTRIBUTE]: "" }}>
+              <DialogTitle>Palette</DialogTitle>
+            </DialogContent>
+          </Dialog>
+          <FindBar />
+        </>
+      )
+    }
+    render(
+      <ApiProvider api={api}>
+        <Page />
+      </ApiProvider>,
+    )
+    await find("open")
+    fireEvent.change(input(), { target: { value: "alpha" } })
+
+    fireEvent.click(screen.getByRole("button", { name: "Open" }))
+    await act(async () => {})
+
+    expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement)
+    expect(barMounted()).toBe(true)
+    expect(activeText()).toEqual(["alpha"])
   })
 
   it("stays open for menus and popovers, which leave the page usable", async () => {

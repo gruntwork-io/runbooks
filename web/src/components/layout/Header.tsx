@@ -2,46 +2,32 @@ import { useState, useEffect, type ComponentType, type ComponentPropsWithRef } f
 import {
   ChevronDown,
   Download,
-  Info,
   Check,
   FolderOpen,
   Copy,
+  SquareTerminal,
   X,
   type LucideProps,
 } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
-import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
-import logoLightColor from "@/assets/runbooks-logo-light-color.svg"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "../ui/alert-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
-import { useLogs } from "@/contexts/useLogs"
+import { useDownloadLogs } from "@/hooks/useDownloadLogs"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
+import { formatShortcut, isMac } from "@/lib/platform"
 import { getDirectoryPath } from "@/lib/utils"
-import {
-  createLogsZipRaw,
-  createLogsZipJson,
-  downloadBlob,
-  generateAllLogsZipFilename,
-} from "@/lib/logs"
 
 function CopyButton({
   onClick,
@@ -79,6 +65,8 @@ interface HeaderProps {
   pathName: string
   /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
   localPath?: string | undefined
+  onOpenCommandPalette: () => void
+  onCloseRunbook: () => void
 }
 
 /**
@@ -93,11 +81,12 @@ interface HeaderProps {
  * @param props - The component props
  * @param props.pathName - The display string (remote URL or local path) for the header
  * @param props.localPath - The local filesystem path (for copy button when remote)
+ * @param props.onOpenCommandPalette - Called by the menu's Command Palette… item
+ * @param props.onCloseRunbook - Called by the menu's Close Runbook item
  */
-export function Header({ pathName, localPath }: HeaderProps) {
-  const [isAboutDialogOpen, setIsAboutDialogOpen] = useState(false)
+export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbook }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const { getAllLogs, hasLogs } = useLogs()
+  const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
   const { didCopy, copy } = useCopyToClipboard()
   const api = useApi()
   const { resolvedTheme } = useTheme()
@@ -111,35 +100,17 @@ export function Header({ pathName, localPath }: HeaderProps) {
   }, [api])
 
   const hasRunbookOpen = Boolean(pathName)
-  const handleCloseRunbook = () => {
-    api.invoke("native:close-runbook").catch((err: unknown) => {
-      console.error("Failed to close the runbook:", err)
-    })
-  }
 
   // On Windows/Linux, Electron draws min/max/close controls via titleBarOverlay
   // in the top-right (~140px wide). Shift the Menu further from the edge on
   // those platforms so it doesn't sit under the overlay. macOS keeps the tight
   // right-5 position since its traffic lights live top-left.
-  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent)
   const menuRightClass = isMac ? "md:right-5" : "md:right-40"
 
   // Show the copy-local-path button when we have a local path that differs from the display name
   // (i.e., when viewing a remote runbook)
   const isRemote = localPath && localPath !== pathName
   const localDir = getDirectoryPath(localPath) || localPath
-
-  const handleDownloadRaw = async () => {
-    const logsMap = getAllLogs()
-    const blob = await createLogsZipRaw(logsMap)
-    downloadBlob(blob, generateAllLogsZipFilename())
-  }
-
-  const handleDownloadJson = async () => {
-    const logsMap = getAllLogs()
-    const blob = await createLogsZipJson(logsMap)
-    downloadBlob(blob, generateAllLogsZipFilename())
-  }
 
   return (
     <>
@@ -218,8 +189,17 @@ export function Header({ pathName, localPath }: HeaderProps) {
               <ChevronDown className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {/* First, as the visible way to learn the shortcut: on Windows
+                  and Linux the native menu bar is hidden, so this is the only
+                  place the palette is mentioned on screen. */}
+              <DropdownMenuItem onClick={onOpenCommandPalette}>
+                <SquareTerminal className="size-4" />
+                Command Palette…
+                <DropdownMenuShortcut>{formatShortcut("K")}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleDownloadRaw}
+                onClick={downloadRaw}
                 disabled={!hasLogs}
                 className={!hasLogs ? "opacity-50 cursor-not-allowed" : ""}
               >
@@ -227,7 +207,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
                 Download logs (Raw)
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={handleDownloadJson}
+                onClick={downloadJson}
                 disabled={!hasLogs}
                 className={!hasLogs ? "opacity-50 cursor-not-allowed" : ""}
               >
@@ -236,7 +216,7 @@ export function Header({ pathName, localPath }: HeaderProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={handleCloseRunbook}
+                onClick={onCloseRunbook}
                 disabled={!hasRunbookOpen}
                 className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
               >
@@ -247,62 +227,10 @@ export function Header({ pathName, localPath }: HeaderProps) {
               <ThemeToggle />
               <DropdownMenuSeparator />
               <InstructionModeToggle />
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setIsAboutDialogOpen(true)}>
-                <Info className="size-4" />
-                About
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </header>
-
-      <AlertDialog open={isAboutDialogOpen} onOpenChange={setIsAboutDialogOpen}>
-        <AlertDialogContent>
-          <div className="relative">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="sr-only">About Gruntwork Runbooks</AlertDialogTitle>
-              <img
-                src={isDark ? logoLightColor : logoDarkColor}
-                alt="Gruntwork Runbooks"
-                className="h-16 mb-2"
-              />
-
-              <AlertDialogDescription className="text-left space-y-4">
-                <p>
-                  Runbooks enables DevOps subject matter experts to capture and share their
-                  expertise in a way that is easy to understand and use.
-                </p>
-                <p>
-                  Runbooks is published by{" "}
-                  <a target="_blank" rel="noreferrer" href="https://gruntwork.io">
-                    Gruntwork
-                  </a>{" "}
-                  and is{" "}
-                  <a
-                    target="_blank"
-                    rel="noreferrer"
-                    href="https://github.com/gruntwork-io/runbooks"
-                  >
-                    open source
-                  </a>
-                  ! Check out the{" "}
-                  <a target="_blank" rel="noreferrer" href="https://runbooks.gruntwork.io">
-                    Runbooks docs
-                  </a>{" "}
-                  for more information.
-                </p>
-                <AlertDialogAction
-                  className="block mt-4"
-                  onClick={() => setIsAboutDialogOpen(false)}
-                >
-                  Close
-                </AlertDialogAction>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }

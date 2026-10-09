@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { FileText, Terminal, Mouse, Globe, Check, Download, Loader2 } from "lucide-react"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
+import { useAppVersion } from "@/hooks/useAppVersion"
 import { cleanIpcErrorMessage } from "@/lib/ipcError"
 import { errorMessage } from "../../../../src/errors/message"
 import logoDarkColor from "@/assets/runbooks-logo-dark-color.svg"
@@ -15,7 +16,7 @@ interface WelcomeScreenProps {
 /**
  * Dismissing the administrator password prompt is not an error worth showing:
  * osascript reports "User canceled. (-128)" and pkexec "Request dismissed".
- * Matches showCliError in electron/main/menu.ts.
+ * Matches showCliError in electron/main/cli-install-dialogs.ts.
  */
 function isUserCancel(message: string): boolean {
   return message.includes("User canceled") || message.includes("dismissed")
@@ -32,6 +33,7 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null)
   const [cliLoading, setCliLoading] = useState(false)
   const [cliError, setCliError] = useState<string | null>(null)
+  const version = useAppVersion()
 
   useEffect(() => {
     api
@@ -159,6 +161,7 @@ export function WelcomeScreen({ onOpenUrl, onOpenRunbook }: WelcomeScreenProps) 
             </div>
           </div>
         </div>
+        {version && <p className="mt-8 text-xs text-muted-foreground">Runbooks v{version}</p>}
       </div>
     </div>
   )

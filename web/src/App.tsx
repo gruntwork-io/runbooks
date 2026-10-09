@@ -5,7 +5,8 @@ import { BookOpen, Code } from "lucide-react"
 import { Header } from "./components/layout/Header"
 import { WelcomeScreen } from "./components/layout/WelcomeScreen"
 import { OpenUrlModal } from "./components/layout/OpenUrlModal"
-import { FindBar } from "./components/layout/FindBar"
+import { CommandPalette } from "./components/layout/CommandPalette"
+import { FindBar, type FindBarHandle } from "./components/layout/FindBar"
 import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
 import MDXContainer from "./components/MDXContainer"
@@ -22,6 +23,7 @@ import { useGitWorkTree } from "./contexts/useGitWorkTree"
 import { useIpcWatchMode } from "./hooks/useIpcWatchMode"
 import { useIpcGeneratedFilesCheck } from "./hooks/useIpcGeneratedFilesCheck"
 import { useWheelScrollFallback } from "./hooks/useWheelScrollFallback"
+import { DESKTOP_LAYOUT_QUERY, useMediaQuery } from "./hooks/useMediaQuery"
 import { useErrorReporting } from "./contexts/useErrorReporting"
 import { useLogs } from "./contexts/useLogs"
 import { useApi } from "./contexts/ApiContext"
@@ -55,20 +57,39 @@ function App() {
   const [showGeneratedFilesAlert, setShowGeneratedFilesAlert] = useState(false)
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false)
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false)
+  const [isPaletteOpen, setIsPaletteOpen] = useState(false)
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
   const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null)
   const runbookScrollRef = useRef<HTMLDivElement>(null)
+  const findBarRef = useRef<FindBarHandle>(null)
   const handleWheel = useWheelScrollFallback(runbookScrollRef)
+  const isDesktopLayout = useMediaQuery(DESKTOP_LAYOUT_QUERY)
 
   const handleOpenRunbook = useCallback(async () => {
     await api.invoke("native:open-runbook-dialog")
+  }, [api])
+
+  const handleCloseRunbook = useCallback(() => {
+    api.invoke("native:close-runbook").catch((err: unknown) => {
+      console.error("Failed to close the runbook:", err)
+    })
   }, [api])
 
   // Listen for "Open from URL" menu command
   useEffect(() => {
     const cleanup = api.on("menu:open-url-prompt", () => {
       setIsUrlModalOpen(true)
+    })
+    return cleanup
+  }, [api])
+
+  // View > Command Palette… (Cmd/Ctrl+K). The native accelerator is the only
+  // binding, as with Find…, so the shortcut toggles the palette the same way
+  // on every platform.
+  useEffect(() => {
+    const cleanup = api.on("menu:open-command-palette", () => {
+      setIsPaletteOpen((open) => !open)
     })
     return cleanup
   }, [api])
@@ -129,6 +150,18 @@ function App() {
   const revealArtifacts = () => {
     setIsArtifactsHidden(false)
     setShowCodeButton(false)
+  }
+
+  // What "generated files" means depends on the layout: the artifacts panel
+  // beside the runbook on desktop, the Code tab in place of it when narrow.
+  const generatedFilesVisible = isDesktopLayout ? showArtifacts : activeMobileSection === "code"
+  const toggleGeneratedFiles = () => {
+    if (!isDesktopLayout) {
+      setActiveMobileSection((v) => (v === "code" ? "markdown" : "code"))
+      return
+    }
+    if (isArtifactsHidden) revealArtifacts()
+    else setIsArtifactsHidden(true)
   }
 
   // Auto-show artifacts panel and switch mobile view when files are
@@ -263,7 +296,12 @@ function App() {
       {/* The runbook scrolls inside its own box, so a wheel gesture over the
           gutters beside it reaches nothing scrollable. Forward it to the runbook. */}
       <div className="flex flex-col" onWheel={handleWheel}>
-        <Header pathName={pathName} localPath={getRunbookResult.data?.path} />
+        <Header
+          pathName={pathName}
+          localPath={getRunbookResult.data?.path}
+          onOpenCommandPalette={() => setIsPaletteOpen(true)}
+          onCloseRunbook={handleCloseRunbook}
+        />
 
         {/* Failed-open and Error Summary banners, stacked in one fixed
             container so they never overlap each other */}
@@ -433,8 +471,24 @@ function App() {
         onOpened={getRunbookResult.openRunbook}
       />
 
-      {/* Edit > Find… (Cmd/Ctrl+F) */}
-      <FindBar />
+      {/* Edit > Find… (Cmd/Ctrl+F), also opened by the palette's Find in page */}
+      <FindBar ref={findBarRef} />
+
+      {/* View > Command Palette… (Cmd/Ctrl+K) */}
+      <CommandPalette
+        open={isPaletteOpen}
+        onOpenChange={setIsPaletteOpen}
+        ctx={{
+          hasRunbookOpen: Boolean(getRunbookResult.data),
+          generatedFilesVisible,
+          onOpenRunbook: () => void handleOpenRunbook(),
+          onOpenUrl: () => setIsUrlModalOpen(true),
+          onCloseRunbook: handleCloseRunbook,
+          onToggleGeneratedFiles: toggleGeneratedFiles,
+          onRevealRunbook: () => setActiveMobileSection("markdown"),
+          onFind: (text) => findBarRef.current?.open(text),
+        }}
+      />
     </>
   )
 }

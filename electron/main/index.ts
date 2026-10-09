@@ -19,6 +19,7 @@ import { parseCliArgs, secondInstanceArgv } from "./cli.ts"
 import { requestLaunchLock, secondInstanceLaunchDirectory } from "./launch-dir.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
+import { installCliWithDialog, uninstallCliWithDialog } from "./cli-install-dialogs.ts"
 import { runtime, setRunbookConfig, runbookConfig } from "./ipc/runtime.ts"
 import { closeRunbook, stopWatchers } from "./ipc/watch.ts"
 import { resolveRemoteRunbook, cleanupTempClones } from "./remote.ts"
@@ -325,9 +326,27 @@ ipcMain.handle("native:close-runbook", () => {
   return { ok: true } as const
 })
 
+// Unpackaged, app.getVersion() is Electron's own version (there is no
+// package.json beside dist/main/index.js), so read the repo's instead.
+ipcMain.handle("native:app-version", () => {
+  if (app.isPackaged) return { version: app.getVersion() }
+  const pkg = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8"),
+  ) as { version: string }
+  return { version: pkg.version }
+})
+
 // CLI symlink management
 ipcMain.handle("cli:check-install", () => checkCliInstall())
 ipcMain.handle("cli:install", () => installCli())
+ipcMain.handle("cli:install-with-dialog", async () => {
+  await installCliWithDialog()
+  return { ok: true } as const
+})
+ipcMain.handle("cli:uninstall-with-dialog", async () => {
+  await uninstallCliWithDialog()
+  return { ok: true } as const
+})
 
 ipcMain.handle("native:get-cli-config", () => ({
   runbookPath: cliConfig.runbookPath,

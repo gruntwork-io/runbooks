@@ -796,6 +796,11 @@ export interface IpcChannelMap {
     params: void
     result: { ok: true; symlinkPath: string }
   }
+  // The command palette's Install / Uninstall: the same flows as the menu
+  // items, which report the outcome (or that there was nothing to do) in a
+  // native dialog rather than to the caller.
+  "cli:install-with-dialog": { params: void; result: { ok: true } }
+  "cli:uninstall-with-dialog": { params: void; result: { ok: true } }
 
   // VCS CLI diagnostics: which provider CLIs are
   // installed, their versions / probe floors, and (Windows) git's TLS
@@ -821,6 +826,9 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
+  // The app's version, for the welcome screen and the command palette: the
+  // only places it shows on Windows and Linux, which have no About panel.
+  "native:app-version": { params: void; result: { version: string } }
   "native:close-runbook": { params: void; result: { ok: true } }
   "native:get-cli-config": {
     params: void
@@ -883,6 +891,7 @@ export interface IpcEventMap {
   "menu:close-runbook": void
   "menu:preferences": void
   "menu:find": { action: FindAction }
+  "menu:open-command-palette": void
   "registry:updated": void
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
