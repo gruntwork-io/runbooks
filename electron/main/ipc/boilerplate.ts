@@ -340,11 +340,9 @@ export function registerBoilerplateHandlers(): void {
           templateId,
           errors: warmResult.renderErrors,
         })
-        return yield* Effect.fail(
-          new RenderError({
-            message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
-          }),
-        )
+        return yield* new RenderError({
+          message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
+        })
       }
 
       const needsCold = warmResult.warmDisabled || warmResult.coldNeeded.length > 0

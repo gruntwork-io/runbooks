@@ -36,9 +36,7 @@ function resolveAgainstRunbook(p: string): string {
 export const validateSessionPath = (p: string) =>
   Effect.gen(function* () {
     if (!p) {
-      return yield* Effect.fail(
-        new PathTraversalError({ path: p, message: "path must not be empty" }),
-      )
+      return yield* new PathTraversalError({ path: p, message: "path must not be empty" })
     }
 
     const resolved = resolveAgainstRunbook(p)
@@ -69,12 +67,10 @@ export const validateSessionPath = (p: string) =>
       return resolved
     }
 
-    return yield* Effect.fail(
-      new PathTraversalError({
-        path: p,
-        message: `path is outside session working directory and registered worktrees`,
-      }),
-    )
+    return yield* new PathTraversalError({
+      path: p,
+      message: `path is outside session working directory and registered worktrees`,
+    })
   })
 
 /**

@@ -88,11 +88,7 @@ describe("toIpcError", () => {
   })
 
   it("uses a defect's head message for a die", async () => {
-    const err = await rejectionOf(
-      Effect.sync(() => {
-        throw new Error("boom")
-      }),
-    )
+    const err = await rejectionOf(Effect.die(new Error("boom")))
     expect(toIpcError(err).message).toBe("boom")
   })
 
@@ -123,9 +119,7 @@ describe("toIpcError", () => {
       Effect.fail(new PathTraversalError({ path: "/x", message: "outside" })),
       Effect.fail(new FileReadError({ path: "/x", cause: enoent() })),
       Effect.fail(new GitError({ command: "git clone", stderr: "", exitCode: 1 })),
-      Effect.sync(() => {
-        throw new Error("boom")
-      }),
+      Effect.die(new Error("boom")),
       Effect.die("a string defect"),
       Effect.interrupt,
     ]

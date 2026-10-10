@@ -293,12 +293,10 @@ const buildWorkspaceTreeRecursive = (
         fileCount.value++
 
         if (fileCount.value > MAX_WORKSPACE_FILES) {
-          return yield* Effect.fail(
-            new FileReadError({
-              path: fullPath,
-              cause: `too many files: exceeded limit of ${MAX_WORKSPACE_FILES}`,
-            }),
-          )
+          return yield* new FileReadError({
+            path: fullPath,
+            cause: `too many files: exceeded limit of ${MAX_WORKSPACE_FILES}`,
+          })
         }
 
         const entryFullPath = path.join(rootPath, entryRelPath)

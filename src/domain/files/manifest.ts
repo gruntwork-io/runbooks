@@ -22,7 +22,7 @@ import {
   isContainedIn,
   isFilesystemRoot,
 } from "../../path-validation.js"
-import { PathTraversalError } from "../../errors/index.js"
+import { FileWriteError, PathTraversalError } from "../../errors/index.js"
 import type { ManifestEntry, TemplateManifest, ManifestDiffResult } from "../../types.js"
 
 /**
@@ -397,7 +397,10 @@ export function applyDiffFromContent(
         // Missing-content for a path the diff said to write is a caller bug —
         // failing loudly here beats silently leaving the file stale.
         if (content === undefined) {
-          return yield* Effect.fail(new Error(`applyDiffFromContent: no content for "${relPath}"`))
+          return yield* new FileWriteError({
+            path: relPath,
+            cause: new Error("applyDiffFromContent: the caller passed no content for this path"),
+          })
         }
         const dstPath = path.join(outputDir, relPath)
         yield* fs.mkdir(path.dirname(dstPath), { recursive: true })

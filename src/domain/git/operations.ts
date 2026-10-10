@@ -173,7 +173,7 @@ const resolveGitHubAuthor = (token: string, host?: string) =>
     const gh = yield* GitHubClient
     const validation = yield* gh.validateToken(token, host)
     return toCommitIdentity(validation.user)
-  }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 /**
  * The GitLab instance (API origin) of a repo whose `origin` remote is
@@ -215,7 +215,7 @@ const resolveGitLabAuthor = (token: string, baseUrl: string) =>
     const gl = yield* GitLabClient
     const validation = yield* gl.validateToken(token, baseUrl)
     return toCommitIdentity(validation.user)
-  }).pipe(Effect.catchAll(() => Effect.succeed<GitIdentity | undefined>(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 /**
  * Whether HEAD has commits that the base branch doesn't, i.e. anything a PR/MR
@@ -540,13 +540,11 @@ export const seedDefaultBranch = (
     // This exists purely to rescue the empty case. A repo with history already
     // has a branch to target, and manufacturing commits in one is never right.
     if (yield* gitClient.hasCommits(params.repoPath)) {
-      return yield* Effect.fail(
-        new GitError({
-          command: "git commit --allow-empty",
-          stderr: "Repository already has commits, so it needs no initial branch.",
-          exitCode: 1,
-        }),
-      )
+      return yield* new GitError({
+        command: "git commit --allow-empty",
+        stderr: "Repository already has commits, so it needs no initial branch.",
+        exitCode: 1,
+      })
     }
 
     // Same fallback-author treatment as the PR/MR flows: only used when the
@@ -606,7 +604,7 @@ export const unbornBranchName = (repoPath: string) =>
         .filter(Boolean)
       return (yield* proc.exitCode) === 0 ? lines[0] : undefined
     }).pipe(Effect.ensuring(proc.kill.pipe(Effect.ignore)))
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 // ---------------------------------------------------------------------------
 // Path Resolution
