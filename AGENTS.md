@@ -47,7 +47,7 @@ just test-runbooks    # CLI integration tests
 just lint             # oxlint
 just fmt              # oxfmt (fmt-check in CI)
 just knip             # Unused files, exports and dependencies
-just typecheck        # tsc -b
+just typecheck        # bun check
 ```
 
 ## Conventions

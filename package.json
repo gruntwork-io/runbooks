@@ -14,7 +14,7 @@
     "build": "electron-vite build",
     "preview": "install-electron && electron-vite preview",
     "package": "electron-builder",
-    "typecheck": "bun scripts/no-nested-node-modules.ts && tsc -b",
+    "typecheck": "bun scripts/no-nested-node-modules.ts && bun check",
     "lint": "oxlint .",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
