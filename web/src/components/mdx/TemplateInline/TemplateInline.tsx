@@ -3,13 +3,13 @@ import type { ReactNode } from "react"
 import { LoadingDisplay } from "@/components/mdx/_shared/components/LoadingDisplay"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
-import { useInputs, useAllOutputs, flattenInputs, useRunbookContext } from "@/contexts/useRunbook"
+import { useAllOutputs, useRunbookContext } from "@/contexts/useRunbook"
 import {
   extractTemplateDependencies,
   extractTemplateDependenciesFromString,
   requireAllOutputs,
-  splitDependencies,
 } from "@/lib/extractTemplateDependencies"
+import { useTemplateDependencies } from "../_shared/hooks/useTemplateDependencies"
 import { extractTemplateFiles } from "./lib/extractTemplateFiles"
 import type { File, FileTreeNode } from "@/components/artifacts/code/FileTree"
 import type { AppError } from "@/types/error"
@@ -25,9 +25,6 @@ import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
 import {
   buildTemplatePayload,
-  computeUnmetInputDependencies,
-  computeUnmetOutputDependencies,
-  flattenBlockOutputs,
   hasEmptyNumericInputs,
   maskTemplateOutputs,
   referencesSensitiveOutput,
@@ -147,10 +144,6 @@ function TemplateInline({
   // File tree updater — handles Generated tab vs worktree updates
   const { applyFileTreeUpdate } = useFileTreeUpdater(target)
 
-  // Get inputs for API requests and derive values map for lookups
-  const inputs = useInputs(inputsId)
-  const inputValues = useMemo(() => flattenInputs(inputs), [inputs])
-
   // Track which inputsId blocks haven't registered values yet (for the waiting message)
   const { blockInputs } = useRunbookContext()
   const unmetInputsIds = useMemo(() => {
@@ -159,7 +152,7 @@ function TemplateInline({
     return ids.filter((inputsBlockId) => !blockInputs[inputsBlockId])
   }, [inputsId, blockInputs])
 
-  // Get all block outputs to check dependencies and pass to template rendering
+  // Get all block outputs to detect changes and spot sensitive ones
   const allOutputs = useAllOutputs()
 
   // Extract all template dependencies from children and outputPath. outputPath
@@ -172,13 +165,18 @@ function TemplateInline({
     ],
     [children, outputPath],
   )
-  const { inputs: inputDeps, outputs: outputDeps } = useMemo(
-    () => splitDependencies(allDeps),
-    [allDeps],
-  )
 
-  // Compute flattened outputs for template context
-  const flattenedOutputs = useMemo(() => flattenBlockOutputs(allOutputs), [allOutputs])
+  // Resolve them against the inputs (typed for the render request, flattened
+  // for lookups) and block outputs
+  const {
+    rawInputs: inputs,
+    inputs: inputValues,
+    outputs: flattenedOutputs,
+    outputDeps,
+    unmetInputDeps,
+    unmetOutputDeps,
+    hasAllDependencies,
+  } = useTemplateDependencies(allDeps, inputsId)
 
   // Resolve {{ .outputs.X.Y }} expressions in outputPath using block outputs.
   // This enables dynamic file paths like "{{ .outputs.target_path.PATH }}/terragrunt.hcl".
@@ -189,18 +187,6 @@ function TemplateInline({
         : outputPath,
     [outputPath, inputValues, flattenedOutputs],
   )
-
-  // Check which input/output dependencies are not yet satisfied
-  const unmetInputDeps = useMemo(
-    () => computeUnmetInputDependencies(inputDeps, inputValues),
-    [inputDeps, inputValues],
-  )
-  const unmetOutputDeps = useMemo(
-    () => computeUnmetOutputDependencies(outputDeps, allOutputs),
-    [outputDeps, allOutputs],
-  )
-  const hasAllInputDeps = unmetInputDeps.length === 0
-  const hasAllOutputDeps = unmetOutputDeps.length === 0
 
   // A preview-only render shows a sensitive output as <redacted> (see the
   // render effect). A template that processes its value (e.g. fromJson) can
@@ -227,7 +213,7 @@ function TemplateInline({
   // Auto-render when inputs or outputs change
   useEffect(() => {
     if (isDuplicate) return
-    if (!hasAllInputDeps || !hasAllOutputDeps) return
+    if (!hasAllDependencies) return
     // Don't render when inputsId blocks haven't submitted values yet.
     // Templates may reference root-level keys injected by
     // upstream blocks that aren't tracked as .inputs.X deps.
@@ -270,8 +256,7 @@ function TemplateInline({
     inputs,
     inputValues,
     allOutputs,
-    hasAllInputDeps,
-    hasAllOutputDeps,
+    hasAllDependencies,
     unmetInputsIds,
     templateFiles,
     flattenedOutputs,
