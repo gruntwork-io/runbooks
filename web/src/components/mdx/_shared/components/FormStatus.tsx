@@ -6,7 +6,7 @@ type FormStatusState = "valid" | "updating" | "error" | "failed"
 interface FormStatusProps {
   /** Whether the form is currently valid */
   isValid: boolean
-  /** Whether auto-rendering is in progress */
+  /** Whether a render is in progress */
   isUpdating: boolean
   /** Whether this is for inline mode (variables) vs file generation mode */
   isInlineMode?: boolean
@@ -20,8 +20,8 @@ interface FormStatusProps {
  * FormStatus component that shows the current state of the form after initial generation.
  *
  * Displays one of four states:
- * - Valid: Green checkmark with "Fields will update automatically" message
- * - Updating: Spinner with "Updating..." message (shown briefly during auto-render)
+ * - Valid: Green checkmark with "Up to date" message
+ * - Updating: Spinner with "Updating..." message (shown while a render is in progress)
  * - Error: Red X with "Fix validation errors above" message
  * - Failed: Red X with "Generation failed" message (the latest render failed)
  *
@@ -30,7 +30,7 @@ interface FormStatusProps {
  *
  * @param props - Component props
  * @param props.isValid - Whether the form currently passes validation
- * @param props.isUpdating - Whether an auto-render is in progress
+ * @param props.isUpdating - Whether a render is in progress
  * @param props.isInlineMode - Whether using inline mode (updates variables) vs file generation
  * @param props.hasRenderError - Whether the latest render failed
  * @param props.className - Additional CSS classes
@@ -84,10 +84,6 @@ export const FormStatus: React.FC<FormStatusProps> = ({
     return () => clearTimeout(timeout)
   }, [isUpdating, lingering])
 
-  const autoUpdateMessage = isInlineMode
-    ? "Variable values will update automatically as you type."
-    : "Generated files will update automatically as you type."
-
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
       <div className="flex items-center gap-2">
@@ -124,9 +120,11 @@ export const FormStatus: React.FC<FormStatusProps> = ({
         )}
       </div>
 
-      {/* Help text shown when valid or updating */}
-      {displayState !== "error" && (
-        <p className="text-sm text-muted-foreground italic">{autoUpdateMessage}</p>
+      {/* Only inline mode updates as the user types. Generated files wait for a click. */}
+      {isInlineMode && displayState !== "error" && (
+        <p className="text-sm text-muted-foreground italic">
+          Variable values will update automatically as you type.
+        </p>
       )}
     </div>
   )

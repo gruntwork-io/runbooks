@@ -181,7 +181,6 @@ function Inputs({
         onAutoRender={handleAutoUpdate}
         onGenerate={handleSubmit}
         isGenerating={false}
-        isAutoRendering={false}
         enableAutoRender={true}
         hasGeneratedSuccessfully={hasSubmitted}
         variant={variant}

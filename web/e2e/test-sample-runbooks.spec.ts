@@ -456,6 +456,43 @@ test.describe("sample-runbooks/my-first-runbook", () => {
 
     expectNoConsoleErrors(consoleMessages)
   })
+
+  test("regenerates template files only when Regenerate is clicked", async ({
+    launchRunbook,
+    consoleMessages,
+  }) => {
+    const page = await launchRunbook("testdata/sample-runbooks/my-first-runbook")
+    await deleteFilesIfPrompted(page)
+
+    const markdownBody = page.getByTestId("runbook-content")
+    await expect(markdownBody).toBeVisible({ timeout: 15_000 })
+
+    const templateBlock = page.getByTestId("project")
+    await templateBlock.getByRole("textbox", { name: "Author" }).fill("Alice")
+    await templateBlock.getByRole("button", { name: "Generate" }).click()
+
+    const generated = getFilesPanel(page, "generated")
+    await expect(generated.getTreeItem("README.md")).toBeVisible({ timeout: 5_000 })
+    await generated.getTreeItem("README.md").click()
+    await expect(generated.getCodeFile("README.md")).toContainText("Alice")
+    await expect(templateBlock.getByText("Up to date")).toBeVisible()
+
+    // Editing an input marks the files stale and leaves them as they were.
+    await templateBlock.getByRole("textbox", { name: "Author" }).fill("Bob")
+    await expect(
+      templateBlock.getByText(/Inputs changed since the files were generated/),
+    ).toBeVisible()
+    await expect(templateBlock.getByText("Up to date")).not.toBeVisible()
+    // A render started by the edit would land after it, so give one time to show up.
+    await page.waitForTimeout(1_000)
+    await expect(generated.getCodeFile("README.md")).toContainText("Alice")
+
+    await templateBlock.getByRole("button", { name: "Regenerate" }).click()
+    await expect(generated.getCodeFile("README.md")).toContainText("Bob")
+    await expect(templateBlock.getByText("Up to date")).toBeVisible()
+
+    expectNoConsoleErrors(consoleMessages)
+  })
 })
 
 // ---------------------------------------------------------------------------

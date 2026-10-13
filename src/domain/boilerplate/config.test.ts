@@ -1,6 +1,14 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { Effect } from "effect"
-import { parseBoilerplateConfig, extractOutputDependencies } from "./config.ts"
+import * as nodeFs from "node:fs"
+import * as nodePath from "node:path"
+import * as os from "node:os"
+import {
+  parseBoilerplateConfig,
+  extractOutputDependencies,
+  collectOutputDependencies,
+} from "./config.ts"
+import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
 function parse(yaml: string) {
   return Effect.runPromise(parseBoilerplateConfig(yaml))
@@ -512,5 +520,61 @@ b={{ .outputs.clone_repo.org_id }}`,
     expect(deps).toEqual([
       { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
     ])
+  })
+})
+
+describe("collectOutputDependencies", () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "collect-output-deps-"))
+  })
+
+  afterEach(() => {
+    nodeFs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  function write(relativePath: string, content: string) {
+    const filePath = nodePath.join(dir, relativePath)
+    nodeFs.mkdirSync(nodePath.dirname(filePath), { recursive: true })
+    nodeFs.writeFileSync(filePath, content)
+  }
+
+  function collect() {
+    return Effect.runPromise(
+      collectOutputDependencies(dir).pipe(Effect.provide(NodeFileSystemLive)),
+    )
+  }
+
+  it("finds references in subdirectories", async () => {
+    write("main.tf", "{{ .outputs.account.id }}")
+    write("modules/vpc/vpc.hcl", "{{ .outputs.mint.token }}")
+
+    const deps = await collect()
+
+    expect(deps.map((d) => d.fullPath).sort()).toEqual(["outputs.account.id", "outputs.mint.token"])
+  })
+
+  it("reports a reference once when several files share it", async () => {
+    write("a.tf", "{{ .outputs.mint.token }}")
+    write("nested/b.tf", "{{ .outputs.mint.token }}")
+
+    expect(await collect()).toHaveLength(1)
+  })
+
+  it("keeps an output optional only while every file guards it", async () => {
+    const guarded = `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}`
+    write("a.tf", guarded)
+    write("nested/b.tf", guarded)
+    expect((await collect())[0]!.optional).toBe(true)
+
+    write("nested/c.tf", "{{ .outputs.clone_repo.org_id }}")
+    expect((await collect())[0]!.optional).toBeUndefined()
+  })
+
+  it("skips a file over the size limit", async () => {
+    write("big.txt", "{{ .outputs.mint.token }}" + "x".repeat(1024 * 1024))
+
+    expect(await collect()).toEqual([])
   })
 })

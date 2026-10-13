@@ -92,8 +92,7 @@ export const useFormState = (
 
   // Trigger auto-rendering when form data is first populated and on every
   // change after that (leading + trailing debounced). The initial fire is
-  // intentional: it is how consumers publish their initial values to context
-  // (e.g. Template fills its local values and registers its defaults from it).
+  // intentional: it is how consumers publish their initial values to context.
   useEffect(() => {
     // Only trigger auto-render if auto-rendering is enabled and we have form data
     if (enableAutoRender && onAutoRenderRef.current && Object.keys(formData).length > 0) {
