@@ -131,26 +131,22 @@ const resolveGitHubTokenForRepo = (
       ),
     )
     if (origin === undefined && isHttpRemoteUrl(remoteUrl)) {
-      return yield* Effect.fail(
-        failWith(
-          `The GitHub credential in this session is for ${session.host}, but this repository's origin is ` +
-            `${remoteHost ?? "an unknown host"}, which is not a GitHub host. Point origin at a GitHub host before ${purpose}.`,
-        ),
+      return yield* failWith(
+        `The GitHub credential in this session is for ${session.host}, but this repository's origin is ` +
+          `${remoteHost ?? "an unknown host"}, which is not a GitHub host. Point origin at a GitHub host before ${purpose}.`,
       )
     }
     if (origin === undefined && callsApi) {
       // The remote itself stays out of the message: one that doesn't parse
       // may still carry credentials stripUrlCredentials couldn't find.
-      return yield* Effect.fail(
-        failWith(
-          remoteUrl
-            ? "Couldn't tell which GitHub host this repository's origin remote is on" +
-                (remoteHost ? ` (${remoteHost} is not a GitHub host name)` : "") +
-                ", so the GitHub token was not sent anywhere. Point origin at the repository on your " +
-                `GitHub host before ${purpose}.`
-            : "This repository has no origin remote, so there is no GitHub host to send the GitHub token " +
-                `to. Add an origin that points at the repository on your GitHub host before ${purpose}.`,
-        ),
+      return yield* failWith(
+        remoteUrl
+          ? "Couldn't tell which GitHub host this repository's origin remote is on" +
+              (remoteHost ? ` (${remoteHost} is not a GitHub host name)` : "") +
+              ", so the GitHub token was not sent anywhere. Point origin at the repository on your " +
+              `GitHub host before ${purpose}.`
+          : "This repository has no origin remote, so there is no GitHub host to send the GitHub token " +
+              `to. Add an origin that points at the repository on your GitHub host before ${purpose}.`,
       )
     }
     if (origin === undefined || origin === session.host) return session
@@ -344,13 +340,11 @@ export function registerGitHandlers(): void {
           Effect.gen(function* () {
             // Validate the clone URL before any other processing
             if (!isValidGitURL(params.url)) {
-              return yield* Effect.fail(
-                new GitError({
-                  command: "git clone",
-                  stderr: `invalid or disallowed git URL: ${params.url}`,
-                  exitCode: 1,
-                }),
-              )
+              return yield* new GitError({
+                command: "git clone",
+                stderr: `invalid or disallowed git URL: ${params.url}`,
+                exitCode: 1,
+              })
             }
 
             // Validate the sparse-checkout path too, before a forced clone
@@ -567,13 +561,11 @@ export function registerGitHandlers(): void {
                         `\n\nThe SSH host key for ${remote?.host || "<host>"} isn't trusted yet. Add it to ` +
                         `known_hosts, then clone again:\n  ssh-keyscan ${keyscanTarget} >> ~/.ssh/known_hosts`
                     }
-                    return yield* Effect.fail(
-                      new GitError({
-                        command: "git clone",
-                        stderr: stderrOut,
-                        exitCode,
-                      }),
-                    )
+                    return yield* new GitError({
+                      command: "git clone",
+                      stderr: stderrOut,
+                      exitCode,
+                    })
                   }
                 }),
               )

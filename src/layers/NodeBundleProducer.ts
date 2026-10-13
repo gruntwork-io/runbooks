@@ -61,28 +61,23 @@ function buildBundle(templateId: string, templatePath: string) {
     )
 
     const json = stdout.join("\n").trim()
-    let parsed: InputsMapResult & { bundle?: unknown }
-    try {
-      parsed = JSON.parse(json) as InputsMapResult & { bundle?: unknown }
-    } catch (err) {
-      return yield* Effect.fail(
+    const parsed = yield* Effect.try({
+      try: () => JSON.parse(json) as InputsMapResult & { bundle?: unknown },
+      catch: (err) =>
         new RenderError({
           message: "Failed to parse boilerplate inputs map JSON output",
           cause: err,
         }),
-      )
-    }
+    })
 
     if (!parsed.bundle || typeof parsed.bundle !== "object") {
       // --include-bundle is supposed to set this; if it's missing the
       // vendored CLI pre-dates the flag (boilerplate_version in the
       // justfile was rolled back too far).
-      return yield* Effect.fail(
-        new RenderError({
-          message:
-            "boilerplate inputs map produced no `bundle` field. The vendored boilerplate release is too old for `inputs map --include-bundle`; check boilerplate_version in the justfile.",
-        }),
-      )
+      return yield* new RenderError({
+        message:
+          "boilerplate inputs map produced no `bundle` field. The vendored boilerplate release is too old for `inputs map --include-bundle`; check boilerplate_version in the justfile.",
+      })
     }
 
     // The bundle field on the CLI output is the same shape WASM

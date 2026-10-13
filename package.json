@@ -47,6 +47,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@effect/language-service": "^0.87.4",
     "@mdx-js/mdx": "^3.1.1",
     "@playwright/test": "1.63.0",
     "@radix-ui/react-alert-dialog": "^1.1.23",

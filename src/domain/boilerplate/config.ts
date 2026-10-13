@@ -255,15 +255,14 @@ export function parseBoilerplateConfig(
   yamlContent: string,
 ): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
   return Effect.gen(function* () {
-    let raw: RawConfig
-    try {
-      raw = YAML.parse(yamlContent) as RawConfig
-    } catch (err) {
-      return yield* new BoilerplateConfigError({
-        message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
-        cause: err,
-      })
-    }
+    const raw = yield* Effect.try({
+      try: () => YAML.parse(yamlContent) as RawConfig,
+      catch: (err) =>
+        new BoilerplateConfigError({
+          message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    })
 
     if (!raw || !raw.variables) {
       return {

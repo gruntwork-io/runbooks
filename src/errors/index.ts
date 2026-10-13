@@ -152,6 +152,20 @@ export class SessionError extends Data.TaggedError("SessionError")<{
 
 export class SessionNotFoundError extends Data.TaggedError("SessionNotFoundError")<{}> {}
 
+/** The session has no credential it may send to the requested host. */
+export class MissingSessionCredentialError extends Data.TaggedError(
+  "MissingSessionCredentialError",
+)<{
+  readonly message: string
+}> {}
+
+// TLS
+/** The child process that reads the OS trust store exited non-zero or printed something other than a JSON array of PEMs. */
+export class SystemCaReadError extends Data.TaggedError("SystemCaReadError")<{
+  readonly message: string
+  readonly cause?: unknown
+}> {}
+
 // Execution
 export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
   readonly timeoutMs: number

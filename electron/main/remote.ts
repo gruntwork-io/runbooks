@@ -9,7 +9,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Cause, Effect, Exit } from "effect"
-import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
+import { runtime, getSessionTokenForHost, noSessionCredential } from "./ipc/runtime.ts"
 import { describeCause } from "./ipc/ipc-error.ts"
 import { parseRemoteSource, redactSourceCredentials, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
@@ -294,11 +294,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // and the provider detection alone must never gate a credential.
     const sessionToken =
       overHttps && provider
-        ? yield* getSessionTokenForHost(
-            provider,
-            parsed.host,
-            () => new Error("no session token"),
-          ).pipe(Effect.orElseSucceed(() => undefined))
+        ? yield* getSessionTokenForHost(provider, parsed.host, noSessionCredential).pipe(
+            Effect.orElseSucceed(() => undefined),
+          )
         : undefined
     const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
     log.info("Token:", token ? "found" : "none")
@@ -369,12 +367,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const at = ref ? ` at ${ref}` : ""
     const target = parsed.path ? path.join(dest, parsed.path) : dest
     if (!fs.existsSync(target)) {
-      return yield* Effect.fail(
-        new RemoteSourceError({
-          url: source,
-          message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
-        }),
-      )
+      return yield* new RemoteSourceError({
+        url: source,
+        message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
+      })
     }
     log.info("Resolving runbook in:", target)
     const localPath = yield* resolveRunbookPath(target).pipe(
@@ -389,12 +385,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // The repo is untrusted: a symlink in it must not open a file outside
     // the clone.
     if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
-      return yield* Effect.fail(
-        new RemoteSourceError({
-          url: source,
-          message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
-        }),
-      )
+      return yield* new RemoteSourceError({
+        url: source,
+        message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
+      })
     }
     log.info("Resolved runbook path:", localPath)
 

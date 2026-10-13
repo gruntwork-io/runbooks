@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { Effect } from "effect"
+import { SystemCaReadError } from "../../errors/index.ts"
 import { classifyTlsError, dedupePems, installSystemTrust, refreshSystemPems } from "./system-ca.ts"
 import type { CaSources } from "./system-ca.ts"
 
@@ -80,7 +81,7 @@ describe("refreshSystemPems", () => {
 
   it("falls back to the launch-time set on any cold-read failure (coldReadOk: false)", async () => {
     const result = await Effect.runPromise(
-      refreshSystemPems(Effect.fail(new Error("spawn ENOENT")), [PEM_B]),
+      refreshSystemPems(Effect.fail(new SystemCaReadError({ message: "spawn ENOENT" })), [PEM_B]),
     )
     expect(result).toEqual({ pems: [PEM_B], coldReadOk: false })
   })
@@ -88,7 +89,7 @@ describe("refreshSystemPems", () => {
   it("feeds the fallback set into installSystemTrust unchanged", async () => {
     const { io: base, installed } = makeFakeTls([PEM_A], [])
     const refreshed = await Effect.runPromise(
-      refreshSystemPems(Effect.fail(new Error("timeout")), [PEM_B]),
+      refreshSystemPems(Effect.fail(new SystemCaReadError({ message: "timeout" })), [PEM_B]),
     )
     const io: CaSources = { ...base, systemPems: () => Effect.succeed(refreshed.pems) }
     await Effect.runPromise(installSystemTrust([], io))

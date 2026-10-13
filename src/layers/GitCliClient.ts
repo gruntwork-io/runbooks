@@ -53,13 +53,11 @@ function runGit(
       // "nothing to commit, working tree clean" and exiting 1. Fall back to
       // stdout so the real reason surfaces instead of a bare "exit 1".
       const stderr = pick("stderr") || pick("stdout")
-      return yield* Effect.fail(
-        new GitError({
-          command: `git ${args.join(" ")}`,
-          stderr,
-          exitCode: code,
-        }),
-      )
+      return yield* new GitError({
+        command: `git ${args.join(" ")}`,
+        stderr,
+        exitCode: code,
+      })
     }
 
     return lines.filter((l) => l.source === "stdout").map((l) => l.line)
@@ -119,6 +117,8 @@ function nulFields(lines: string[]): string[] {
 function resolveHead(spawner: ProcessSpawner["Type"], repoPath: string) {
   return runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
     Effect.map((lines): string | undefined => lines[0]?.trim() || undefined),
+    // `undefined` is the "no HEAD" result callers read, and Effect.void's void does not assign to it.
+    // @effect-diagnostics-next-line effect/effectSucceedWithVoid:off
     Effect.catchTag("GitError", (e) =>
       e.exitCode === 1 ? Effect.succeed(undefined) : Effect.fail(e),
     ),
@@ -288,9 +288,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       }),
 
     deleteBranch: (repoPath: string, branch: string) =>
-      Effect.gen(function* () {
-        yield* runGit(spawner, ["branch", "-d", "--", branch], repoPath)
-      }),
+      Effect.asVoid(runGit(spawner, ["branch", "-d", "--", branch], repoPath)),
 
     getCurrentBranch: (repoPath: string) =>
       Effect.gen(function* () {
@@ -342,7 +340,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
         // returned to the renderer (git:local-repo, workspace:tree).
         const remoteUrl = yield* runGit(spawner, ["remote", "get-url", "origin"], repoPath).pipe(
           Effect.map((lines) => lines[0] && stripUrlCredentials(lines[0])),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
         )
 
         // Get commit SHA
@@ -413,7 +411,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
                   ? undefined
                   : yield* runGit(spawner, ["show", `${head}:${diffPath}`], repoPath).pipe(
                       Effect.map((lines): string | undefined => lines.join("\n")),
-                      Effect.catchAll(() => Effect.succeed(undefined)),
+                      Effect.orElseSucceed(() => undefined),
                     )
 
               return {
@@ -492,9 +490,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
       }),
 
     createBranch: (repoPath: string, branch: string) =>
-      Effect.gen(function* () {
-        yield* runGit(spawner, ["checkout", "-b", branch], repoPath)
-      }),
+      Effect.asVoid(runGit(spawner, ["checkout", "-b", branch], repoPath)),
 
     stageAll: (repoPath: string, excludePaths: string[] = []) =>
       Effect.gen(function* () {
