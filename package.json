@@ -39,7 +39,7 @@
     "@smithy/core": "^3.35.1",
     "chokidar": "^5.0.0",
     "commander": "^15.0.0",
-    "effect": "^3.22.2",
+    "effect": "^4.0.2",
     "electron-updater": "^6.8.9",
     "google-auth-library": "^11.1.0",
     "ini": "^6.0.0",

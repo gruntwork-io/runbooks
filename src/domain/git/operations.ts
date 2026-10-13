@@ -2,7 +2,7 @@
  * Git operations: clone, push, branch management, and pull request creation.
  */
 import path from "path"
-import { Effect, Stream, Chunk } from "effect"
+import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitIdentity } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -143,7 +143,7 @@ const detectEmbeddedRepos = (repoPath: string) =>
       }
     }
     return embedded
-  }).pipe(Effect.catchAll(() => Effect.succeed<string[]>([])))
+  }).pipe(Effect.catch(() => Effect.succeed<string[]>([])))
 
 /**
  * Last-resort committer email used when the authenticated account exposes no
@@ -227,7 +227,7 @@ const hasCommitsNotOnBase = (repoPath: string, baseBranch: string) =>
   Effect.gen(function* () {
     const gitClient = yield* GitClient
     return yield* gitClient.hasCommitsNotIn(repoPath, `refs/remotes/origin/${baseBranch}`).pipe(
-      Effect.orElse(() => gitClient.hasCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
+      Effect.catch(() => gitClient.hasCommitsNotIn(repoPath, `refs/heads/${baseBranch}`)),
       Effect.orElseSucceed(() => false),
     )
   })
@@ -445,7 +445,7 @@ export const createPullRequest = (
       yield* ghClient
         .addLabels(token, params.owner, params.repo, pr.number, params.labels, params.host)
         .pipe(
-          Effect.catchAll((e) =>
+          Effect.catch((e) =>
             report(
               `Warning: PR #${pr.number} was created but labels could not be applied: ${
                 e.message || `status ${e.status}`
@@ -598,7 +598,7 @@ export const unbornBranchName = (repoPath: string) =>
     })
 
     return yield* Effect.gen(function* () {
-      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+      const lines = (yield* Stream.runCollect(proc.output))
         .filter((l) => l.source === "stdout")
         .map((l) => l.line.trim())
         .filter(Boolean)
@@ -641,12 +641,11 @@ export const countFiles = (dir: string) =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
     const proc = yield* spawner.spawn("git", ["ls-files"], { cwd: dir, env: gitSpawnEnv() })
-    const chunks = yield* Stream.runCollect(proc.output)
-    const lines = Chunk.toArray(chunks)
+    const lines = yield* Stream.runCollect(proc.output)
     const code = yield* proc.exitCode
     if (code !== 0) return 0
     return lines.filter((l) => l.source === "stdout" && l.line.trim() !== "").length
-  }).pipe(Effect.catchAll(() => Effect.succeed(0)))
+  }).pipe(Effect.catch(() => Effect.succeed(0)))
 
 // ---------------------------------------------------------------------------
 // URL Parsing

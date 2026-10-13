@@ -142,4 +142,4 @@ export interface GitClientShape {
   ) => Effect.Effect<void, GitError | SpawnError>
 }
 
-export class GitClient extends Context.Tag("GitClient")<GitClient, GitClientShape>() {}
+export class GitClient extends Context.Service<GitClient, GitClientShape>()("GitClient") {}

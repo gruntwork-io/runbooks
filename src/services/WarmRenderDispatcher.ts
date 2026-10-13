@@ -146,7 +146,7 @@ export interface WarmRenderDispatcherShape {
   readonly invalidate: (templateId: string) => Effect.Effect<void>
 }
 
-export class WarmRenderDispatcher extends Context.Tag("WarmRenderDispatcher")<
+export class WarmRenderDispatcher extends Context.Service<
   WarmRenderDispatcher,
   WarmRenderDispatcherShape
->() {}
+>()("WarmRenderDispatcher") {}

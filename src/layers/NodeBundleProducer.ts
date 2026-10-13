@@ -33,7 +33,7 @@ const cache = new Map<string, BundleArtifact>()
  * subprocess. A build is interrupted, which kills its subprocess, only by
  * `clear`/`invalidate` or by BUNDLE_BUILD_TIMEOUT.
  */
-const inFlight = new Map<string, Fiber.RuntimeFiber<BundleArtifact, RenderError>>()
+const inFlight = new Map<string, Fiber.Fiber<BundleArtifact, RenderError>>()
 
 /**
  * Upper bound on one bundle build. Every render of a template waits on the
@@ -121,14 +121,16 @@ export const NodeBundleProducerLive = Layer.effect(
     const startBuild = (templateId: string, templatePath: string) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
-          const fiber = yield* Effect.forkDaemon(
+          const fiber = yield* Effect.forkDetach(
             buildBundle(templateId, templatePath).pipe(
-              Effect.timeoutFail({
+              Effect.timeoutOrElse({
                 duration: BUNDLE_BUILD_TIMEOUT,
-                onTimeout: () =>
-                  new RenderError({
-                    message: `boilerplate inputs map timed out after ${Duration.format(BUNDLE_BUILD_TIMEOUT)}`,
-                  }),
+                orElse: () =>
+                  Effect.fail(
+                    new RenderError({
+                      message: `boilerplate inputs map timed out after ${Duration.format(BUNDLE_BUILD_TIMEOUT)}`,
+                    }),
+                  ),
               }),
               Effect.provideService(ProcessSpawner, spawner),
               Effect.interruptible,

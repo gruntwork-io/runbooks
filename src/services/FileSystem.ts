@@ -69,4 +69,4 @@ export interface FileSystemShape {
   ) => Stream.Stream<FileChangeEvent, FileWatchError>
 }
 
-export class FileSystem extends Context.Tag("FileSystem")<FileSystem, FileSystemShape>() {}
+export class FileSystem extends Context.Service<FileSystem, FileSystemShape>()("FileSystem") {}

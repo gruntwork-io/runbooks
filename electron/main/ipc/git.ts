@@ -203,16 +203,16 @@ const resolveGitLabTokenForRepo = (repoPath: string, purpose: string) =>
  * Cause goes to MAIN's log instead.
  */
 function failureMessage(cause: Cause.Cause<unknown>): string {
-  if (Cause.isDie(cause)) log.error("git handler defect:", Cause.pretty(cause))
+  if (Cause.hasDies(cause)) log.error("git handler defect:", Cause.pretty(cause))
   return describeCause(cause)
 }
 
 /**
  * Run an Effect program and surface failures as plain Errors whose message is
- * failureMessage(), so the real detail, not a FiberFailure dump, crosses IPC.
+ * failureMessage(), so the real detail crosses IPC.
  */
 async function runAndUnwrap<A, E extends { _tag: string }>(
-  program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Context<typeof runtime>>,
+  program: Effect.Effect<A, E, ManagedRuntime.ManagedRuntime.Services<typeof runtime>>,
   signal?: AbortSignal,
 ): Promise<A> {
   const exit = await runtime.runPromiseExit(program, { signal })
@@ -349,7 +349,7 @@ export function registerGitHandlers(): void {
 
             // Validate the sparse-checkout path too, before a forced clone
             // deletes the destination below.
-            const repoPath = yield* normalizeRepoPath(params.repo_path)
+            const repoPath = yield* Effect.fromResult(normalizeRepoPath(params.repo_path))
 
             // Resolve clone destination paths
             const session = yield* sessionManager.getSession()
@@ -390,7 +390,7 @@ export function registerGitHandlers(): void {
             // self-hosted GitHub/GitLab (arbitrary hostnames) resolve the right
             // token. For older callers that don't pass a provider, fall back to
             // the well-known SaaS hostnames. Public repos still clone with no
-            // token (Effect.either turns "no session token" into "no auth").
+            // token (Effect.result turns "no session token" into "no auth").
             //
             // A session token is also HOST-BOUND: it is released only when the
             // clone URL's host is the host the credential belongs to (the GitHub
@@ -416,10 +416,10 @@ export function registerGitHandlers(): void {
                   stderr: "no session token",
                   exitCode: 1,
                 })
-              const sessionToken = yield* Effect.either(
+              const sessionToken = yield* Effect.result(
                 getSessionTokenForHost(cloneProvider, cloneHost, noToken),
               )
-              resolvedToken = sessionToken._tag === "Right" ? sessionToken.right : undefined
+              resolvedToken = sessionToken._tag === "Success" ? sessionToken.success : undefined
             }
 
             const options: CloneOptions = {
@@ -442,10 +442,12 @@ export function registerGitHandlers(): void {
             // clone the same way. `--` (inside gitCloneArgs, which builds the
             // clone step) backs up isValidGitURL: the URL is never read as a git
             // option.
-            const cloneSteps = yield* buildCloneSteps(params.url, paths.absolutePath, {
-              ...(options.ref !== undefined ? { ref: options.ref } : {}),
-              ...(repoPath !== undefined ? { repoPath } : {}),
-            })
+            const cloneSteps = yield* Effect.fromResult(
+              buildCloneSteps(params.url, paths.absolutePath, {
+                ...(options.ref !== undefined ? { ref: options.ref } : {}),
+                ...(repoPath !== undefined ? { repoPath } : {}),
+              }),
+            )
 
             // gitSpawnEnv keeps git/ssh non-interactive: an SSH clone of a host
             // not yet in known_hosts fails fast instead of hanging on the
@@ -480,11 +482,11 @@ export function registerGitHandlers(): void {
             // still writing into the directory when it goes.
             if (createsDestination) {
               yield* Effect.addFinalizer((exit) =>
-                Exit.isInterrupted(exit)
+                Exit.hasInterrupts(exit)
                   ? Effect.tryPromise(() =>
                       rm(paths.absolutePath, { recursive: true, force: true }),
                     ).pipe(
-                      Effect.catchAll((e) =>
+                      Effect.catch((e) =>
                         Effect.sync(() => log.warn("failed to remove cancelled clone:", e)),
                       ),
                     )
@@ -519,8 +521,8 @@ export function registerGitHandlers(): void {
                   const proc = yield* Effect.acquireRelease(
                     spawner.spawn("git", step.args, { env }),
                     (spawned, exit) =>
-                      Exit.isInterrupted(exit)
-                        ? spawned.kill.pipe(Effect.zipRight(spawned.exitCode.pipe(Effect.ignore)))
+                      Exit.hasInterrupts(exit)
+                        ? spawned.kill.pipe(Effect.andThen(spawned.exitCode.pipe(Effect.ignore)))
                         : Effect.void,
                   )
 
@@ -614,14 +616,14 @@ export function registerGitHandlers(): void {
             }
 
             if (parsed && resolvedToken && cloneProvider === "github" && cloneHost) {
-              const repoResult = yield* Effect.either(
+              const repoResult = yield* Effect.result(
                 getRepo(resolvedToken, parsed.owner, parsed.repo, cloneHost),
               )
-              if (repoResult._tag === "Right") {
-                outputs.org_id = String(repoResult.right.ownerId)
-                outputs.repo_id = String(repoResult.right.id)
+              if (repoResult._tag === "Success") {
+                outputs.org_id = String(repoResult.success.ownerId)
+                outputs.repo_id = String(repoResult.success.id)
               } else {
-                log.debug("failed to resolve GitHub org/repo IDs (non-fatal):", repoResult.left)
+                log.debug("failed to resolve GitHub org/repo IDs (non-fatal):", repoResult.failure)
               }
             }
 
@@ -707,7 +709,7 @@ export function registerGitHandlers(): void {
           params.provider !== "gitlab" &&
           remoteHost !== undefined
         ) {
-          const token = yield* Effect.either(
+          const token = yield* Effect.result(
             getGitHubSessionCredential(
               remoteHost,
               () =>
@@ -718,15 +720,15 @@ export function registerGitHandlers(): void {
                 }),
             ),
           )
-          if (token._tag === "Right") {
-            const repoResult = yield* Effect.either(
-              getRepo(token.right.token, info.owner, info.repo, token.right.host),
+          if (token._tag === "Success") {
+            const repoResult = yield* Effect.result(
+              getRepo(token.success.token, info.owner, info.repo, token.success.host),
             )
-            if (repoResult._tag === "Right") {
-              outputs.org_id = String(repoResult.right.ownerId)
-              outputs.repo_id = String(repoResult.right.id)
+            if (repoResult._tag === "Success") {
+              outputs.org_id = String(repoResult.success.ownerId)
+              outputs.repo_id = String(repoResult.success.id)
             } else {
-              log.debug("failed to resolve GitHub org/repo IDs (non-fatal):", repoResult.left)
+              log.debug("failed to resolve GitHub org/repo IDs (non-fatal):", repoResult.failure)
             }
           }
         }

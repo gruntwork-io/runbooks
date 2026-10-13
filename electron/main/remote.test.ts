@@ -788,7 +788,7 @@ describe("valueOrUserError / resolveRemoteRunbook", () => {
     expect(valueOrUserError(Exit.succeed(42))).toBe(42)
   })
 
-  it("rejects a typed failure with its bare message, not a FiberFailure", () => {
+  it("rejects a typed failure with its bare message", () => {
     const exit = Exit.fail(
       new RemoteSourceError({ url: "x", message: '"a" was not found in h/o/r' }),
     )

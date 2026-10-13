@@ -238,7 +238,7 @@ export class ExecutableRegistry {
    * Parse the runbook MDX content and register all Command/Check entries.
    */
   parseAndRegister(runbookPath: string, contentOverride?: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fs = yield* FileSystem
 
       const content = contentOverride ?? (yield* fs.readFile(runbookPath))
@@ -302,11 +302,11 @@ export class ExecutableRegistry {
     scriptPath: string,
     runbookDir: string,
   ) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fullPath = path.join(runbookDir, scriptPath)
 
       // Try to read the script file; on failure add a warning and skip
-      const scriptContent = yield* Effect.catchAll(fs.readFile(fullPath), () => {
+      const scriptContent = yield* Effect.catch(fs.readFile(fullPath), () => {
         this.warnings.push(
           `<${componentType} id="${componentId}">: Script file not found: ${scriptPath}`,
         )
@@ -362,12 +362,12 @@ export class ExecutableRegistry {
    * can't be read, and when the component has no file entry.
    */
   getScriptFileChange(componentId: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fs = yield* FileSystem
       const found = this.findFileEntry(componentId)
       if (!found) return null
 
-      const diskContent = yield* Effect.catchAll(fs.readFile(found.scriptPath), () =>
+      const diskContent = yield* Effect.catch(fs.readFile(found.scriptPath), () =>
         Effect.succeed(null),
       )
       if (diskContent === null) return null
@@ -394,7 +394,7 @@ export class ExecutableRegistry {
    * ExecutableNotFoundError when the component has no file entry.
    */
   reloadFileEntry(componentId: string, reviewedHash: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fs = yield* FileSystem
       const found = this.findFileEntry(componentId)
       if (!found) {
@@ -441,7 +441,7 @@ export class ExecutableRegistry {
 
   /** Retrieve an entry by its ID. Returns Effect with typed error. */
   getExecutable(id: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const entry = this.entries.get(id)
       if (!entry) {
         return yield* new ExecutableNotFoundError({ id })

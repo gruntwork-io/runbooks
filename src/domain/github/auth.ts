@@ -389,7 +389,7 @@ export const cliScopes = (host: string = DEFAULT_GITHUB_HOST) =>
     const spawner = yield* ProcessSpawner
     const environment = yield* Environment
 
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       Effect.gen(function* () {
         const childEnv = buildCliEnv(yield* environment.getAll(), GH_ENV_OVERRIDES)
         const proc = yield* spawner.spawn("gh", ["auth", "status", "--hostname", host], {
@@ -400,7 +400,7 @@ export const cliScopes = (host: string = DEFAULT_GITHUB_HOST) =>
       }),
     )
 
-    return result._tag === "Left" ? undefined : result.right
+    return result._tag === "Failure" ? undefined : result.success
   })
 
 // ---------------------------------------------------------------------------

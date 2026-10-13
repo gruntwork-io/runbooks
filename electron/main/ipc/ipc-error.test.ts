@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll, afterEach } from "bun:test"
-import { Cause, Effect, FiberId, Layer, ManagedRuntime } from "effect"
+import { Cause, Effect, Layer, ManagedRuntime } from "effect"
 import type { IpcMain, IpcMainInvokeEvent } from "electron"
 import {
   ExecutableNotFoundError,
@@ -19,8 +19,8 @@ import {
   toIpcError,
 } from "./ipc-error.ts"
 
-// A real ManagedRuntime, so failures reject with the same FiberFailure the
-// handlers' `runtime.runPromise(...)` produces.
+// A real ManagedRuntime, so failures reject the way the handlers'
+// `runtime.runPromise(...)` does.
 const runtime = ManagedRuntime.make(Layer.empty)
 afterAll(() => runtime.dispose())
 
@@ -114,7 +114,7 @@ describe("toIpcError", () => {
     expect(toIpcError(err).message).toBe("The operation was interrupted")
   })
 
-  it("never sends the FiberFailure prefix or stack frames", async () => {
+  it("never sends stack frames", async () => {
     const failures: Array<Effect.Effect<unknown, unknown>> = [
       Effect.fail(new PathTraversalError({ path: "/x", message: "outside" })),
       Effect.fail(new FileReadError({ path: "/x", cause: enoent() })),
@@ -125,13 +125,9 @@ describe("toIpcError", () => {
     ]
     for (const program of failures) {
       const err = await rejectionOf(program)
-      // Precondition: this is exactly what Electron would otherwise send.
-      expect(String(err)).toContain("(FiberFailure)")
-
       // Electron sends `error.toString()`.
       const sent = toIpcError(err).toString()
       expect(sent).toStartWith("Error: ")
-      expect(sent).not.toContain("(FiberFailure)")
       expect(sent).not.toContain("\n    at ")
     }
   })
@@ -224,13 +220,13 @@ describe("describeCause", () => {
     expect(describeCause(Cause.fail(new SessionNotFoundError()))).toBe("SessionNotFoundError")
     expect(
       describeCause(
-        Cause.sequential(Cause.fail(new SessionNotFoundError()), Cause.die(new Error("finalizer"))),
+        Cause.combine(Cause.fail(new SessionNotFoundError()), Cause.die(new Error("finalizer"))),
       ),
     ).toBe("SessionNotFoundError")
   })
 
   it("says the operation was interrupted for an interrupt only", () => {
-    expect(describeCause(Cause.interrupt(FiberId.none))).toBe("The operation was interrupted")
+    expect(describeCause(Cause.interrupt())).toBe("The operation was interrupted")
   })
 
   it("describes a defect by its own message, with no stack frames", () => {
@@ -241,7 +237,7 @@ describe("describeCause", () => {
         Cause.die(new FileReadError({ path: "/x", cause: enoent() })),
         `FileReadError (/x): ${enoent().message}`,
       ],
-      [Cause.sequential(Cause.die(new Error("boom")), Cause.interrupt(FiberId.none)), "boom"],
+      [Cause.combine(Cause.die(new Error("boom")), Cause.interrupt()), "boom"],
     ] as const) {
       const text = describeCause(cause)
       expect(text).toBe(expected)

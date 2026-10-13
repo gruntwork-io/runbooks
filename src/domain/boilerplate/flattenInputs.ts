@@ -147,10 +147,10 @@ function renderString(
   varsJSON: string,
 ): Effect.Effect<{ value: string; changed: boolean }, never, never> {
   return wasm.renderTemplate(value, varsJSON).pipe(
-    Effect.either,
-    Effect.map((either) => {
-      if (either._tag === "Right" && !TEMPLATE_EXPR_RE.test(either.right)) {
-        return { value: either.right, changed: either.right !== value }
+    Effect.result,
+    Effect.map((result) => {
+      if (result._tag === "Success" && !TEMPLATE_EXPR_RE.test(result.success)) {
+        return { value: result.success, changed: result.success !== value }
       }
       return { value, changed: false }
     }),

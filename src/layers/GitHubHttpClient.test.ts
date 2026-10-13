@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "bun:test"
 import { Effect } from "effect"
 import { GitHubHttpClientLive } from "./GitHubHttpClient.ts"
-import { GitHubClient } from "../services/GitHubClient.ts"
+import { GitHubClient, type GitHubClientShape } from "../services/GitHubClient.ts"
 import type { CreatePRParams } from "../services/GitHubClient.ts"
 
 const originalFetch = globalThis.fetch
@@ -366,11 +366,11 @@ describe("GitHubHttpClient host routing", () => {
     return calls
   }
 
-  const run = <A, E>(f: (client: GitHubClient["Type"]) => Effect.Effect<A, E>) =>
+  const run = <A, E>(f: (client: GitHubClientShape) => Effect.Effect<A, E>) =>
     Effect.runPromise(withClient(Effect.flatMap(GitHubClient, f)))
 
-  const runEither = <A, E>(f: (client: GitHubClient["Type"]) => Effect.Effect<A, E>) =>
-    Effect.runPromise(withClient(Effect.either(Effect.flatMap(GitHubClient, f))))
+  const runResult = <A, E>(f: (client: GitHubClientShape) => Effect.Effect<A, E>) =>
+    Effect.runPromise(withClient(Effect.result(Effect.flatMap(GitHubClient, f))))
 
   const userResponse = () =>
     new Response(JSON.stringify({ login: "octocat" }), {
@@ -447,11 +447,11 @@ describe("GitHubHttpClient host routing", () => {
     for (const bad of BAD_HOSTS) {
       it(`validateToken(${JSON.stringify(bad)})`, async () => {
         const calls = recordFetch()
-        const result = await runEither((c) => c.validateToken("ghp_secret", bad))
-        expect(result._tag).toBe("Left")
-        if (result._tag === "Left") {
-          expect(result.left._tag).toBe("GitHubApiError")
-          expect(result.left.status).toBe(400)
+        const result = await runResult((c) => c.validateToken("ghp_secret", bad))
+        expect(result._tag).toBe("Failure")
+        if (result._tag === "Failure") {
+          expect(result.failure._tag).toBe("GitHubApiError")
+          expect(result.failure.status).toBe(400)
         }
         expect(calls).toHaveLength(0)
       })
@@ -461,25 +461,25 @@ describe("GitHubHttpClient host routing", () => {
       const calls = recordFetch()
       const bad = "ftp://ghes.example.com"
       const attempts = [
-        runEither((c) => c.startOAuthDeviceFlow("cid", ["repo"], bad)),
-        runEither((c) => c.pollOAuthToken("cid", "dev", bad)),
-        runEither((c) => c.listOrgs("t", bad)),
-        runEither((c) => c.listRepos("t", "o", undefined, bad)),
-        runEither((c) => c.getRepo("t", "o", "r", bad)),
-        runEither((c) => c.listRefs("t", "o", "r", undefined, bad)),
-        runEither((c) => c.listLabels("t", "o", "r", bad)),
-        runEither((c) =>
+        runResult((c) => c.startOAuthDeviceFlow("cid", ["repo"], bad)),
+        runResult((c) => c.pollOAuthToken("cid", "dev", bad)),
+        runResult((c) => c.listOrgs("t", bad)),
+        runResult((c) => c.listRepos("t", "o", undefined, bad)),
+        runResult((c) => c.getRepo("t", "o", "r", bad)),
+        runResult((c) => c.listRefs("t", "o", "r", undefined, bad)),
+        runResult((c) => c.listLabels("t", "o", "r", bad)),
+        runResult((c) =>
           c.createPullRequest(
             "t",
             { owner: "o", repo: "r", title: "x", body: "", baseBranch: "main", headBranch: "f" },
             bad,
           ),
         ),
-        runEither((c) => c.addLabels("t", "o", "r", 1, ["bug"], bad)),
+        runResult((c) => c.addLabels("t", "o", "r", 1, ["bug"], bad)),
       ]
       for (const result of await Promise.all(attempts)) {
-        expect(result._tag).toBe("Left")
-        if (result._tag === "Left") expect(result.left.status).toBe(400)
+        expect(result._tag).toBe("Failure")
+        if (result._tag === "Failure") expect(result.failure.status).toBe(400)
       }
       expect(calls).toHaveLength(0)
     })

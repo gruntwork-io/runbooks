@@ -52,10 +52,9 @@ export interface ProcessSpawnerShape {
   ) => Effect.Effect<SpawnedProcess, SpawnError>
 }
 
-export class ProcessSpawner extends Context.Tag("ProcessSpawner")<
-  ProcessSpawner,
-  ProcessSpawnerShape
->() {}
+export class ProcessSpawner extends Context.Service<ProcessSpawner, ProcessSpawnerShape>()(
+  "ProcessSpawner",
+) {}
 
 /** Everything a short-lived process wrote, in arrival order, plus its exit code. */
 export interface CollectedOutput {
@@ -73,7 +72,7 @@ export interface CollectedOutput {
 export const collectOutput = (
   proc: SpawnedProcess,
   timeoutMs: number,
-): Effect.Effect<CollectedOutput, Cause.TimeoutException> =>
+): Effect.Effect<CollectedOutput, Cause.TimeoutError> =>
   Effect.gen(function* () {
     const lines: OutputLine[] = []
     yield* proc.output.pipe(
