@@ -123,11 +123,7 @@ const coldReadChildEnv = (): Record<string, string | undefined> => {
 export const coldReadSystemPems = (
   execPath: string = process.execPath,
   timeoutMs: number = COLD_READ_TIMEOUT_MS,
-): Effect.Effect<
-  string[],
-  SystemCaReadError | SpawnError | Cause.TimeoutException,
-  ProcessSpawner
-> =>
+): Effect.Effect<string[], SystemCaReadError | SpawnError | Cause.TimeoutError, ProcessSpawner> =>
   Effect.gen(function* () {
     const spawner = yield* ProcessSpawner
     const proc = yield* spawner.spawn(execPath, ["-e", COLD_READ_SCRIPT], {
@@ -171,7 +167,7 @@ export const refreshSystemPems = <E, R>(
 ): Effect.Effect<{ pems: string[]; coldReadOk: boolean }, never, R> =>
   coldRead.pipe(
     Effect.map((pems) => ({ pems, coldReadOk: true })),
-    Effect.catchAll(() => Effect.succeed({ pems: [...launchSet], coldReadOk: false })),
+    Effect.catch(() => Effect.succeed({ pems: [...launchSet], coldReadOk: false })),
   )
 
 // ---------------------------------------------------------------------------

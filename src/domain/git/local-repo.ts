@@ -9,7 +9,7 @@
  * `<DirPicker>` — behave identically either way.
  */
 import path from "path"
-import { Effect, Stream, Chunk } from "effect"
+import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitInfo } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -112,7 +112,7 @@ export const inspectLocalRepo = (
     // lookup as best-effort so an empty checkout is still selectable.
     const info = yield* git
       .getInfo(absolutePath)
-      .pipe(Effect.catchAll(() => Effect.succeed({ branch: "", refType: "branch" } as GitInfo)))
+      .pipe(Effect.catch(() => Effect.succeed({ branch: "", refType: "branch" } as GitInfo)))
 
     // getInfo only knows about `origin`. A checkout can legitimately name its
     // remote something else — a fork whose upstream is the interesting one, or
@@ -175,7 +175,7 @@ const readGitLines = (repoPath: string, args: string[]) =>
     const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env: gitSpawnEnv() })
 
     return yield* Effect.gen(function* () {
-      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+      const lines = (yield* Stream.runCollect(proc.output))
         .filter((l) => l.source === "stdout")
         .map((l) => l.line.trim())
         .filter(Boolean)

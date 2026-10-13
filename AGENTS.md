@@ -61,10 +61,8 @@ just typecheck        # tsc -b
 - Domain: `src/domain/<module>/` (camelCase files)
 
 ### Effect Patterns
-- External operations return `Effect<A, E, R>`, never raw Promises in domain code
-- Errors use `Data.TaggedError` subclasses
-- Resource cleanup via `Scope` (`acquireRelease` / `addFinalizer`)
-- Tests swap layers for mock implementations
+
+Read [node_modules/effect/AGENTS.md](node_modules/effect/AGENTS.md) before interacting with any Effect code.
 
 ### Error Reporting in MDX Components
 `reportError()` is for **configuration errors only** (duplicate IDs, missing props, invalid configs) — not runtime errors (auth failures, network errors). Runtime errors display inline within the component.

@@ -187,9 +187,9 @@ describe("deleteBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      deleteBranch("/repo", branch).pipe(Effect.either, Effect.provide(layer)),
+      deleteBranch("/repo", branch).pipe(Effect.result, Effect.provide(layer)),
     )
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
   })
 
   it("allows deleting non-protected branch", async () => {
@@ -200,9 +200,9 @@ describe("deleteBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      deleteBranch("/repo", "feature/my-branch").pipe(Effect.either, Effect.provide(layer)),
+      deleteBranch("/repo", "feature/my-branch").pipe(Effect.result, Effect.provide(layer)),
     )
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
   })
 
   it("refuses to delete the checked-out branch with a clear message", async () => {
@@ -215,12 +215,12 @@ describe("deleteBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      deleteBranch("/repo", "runbook/123").pipe(Effect.either, Effect.provide(layer)),
+      deleteBranch("/repo", "runbook/123").pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toMatchObject({
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toMatchObject({
         stderr: "Cannot delete branch runbook/123 because it is currently checked out",
       })
     }
@@ -466,13 +466,13 @@ describe("createMergeRequest", () => {
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createMergeRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitError)
-      expect((result.left as GitError).stderr).toMatch(
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitError)
+      expect((result.failure as GitError).stderr).toMatch(
         /GitLab instance.*origin.*before creating a merge request/,
       )
     }
@@ -501,14 +501,14 @@ describe("createMergeRequest", () => {
     })
 
     const result = await Effect.runPromise(
-      createMergeRequest("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      createMergeRequest("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitLabApiError)
-      expect((result.left as GitLabApiError).status).toBe(409)
-      expect(result.left.message).toContain("already exists")
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitLabApiError)
+      expect((result.failure as GitLabApiError).status).toBe(409)
+      expect(result.failure.message).toContain("already exists")
     }
   })
 
@@ -613,10 +613,10 @@ describe("seedDefaultBranch", () => {
     })
 
     const result = await Effect.runPromise(
-      seedDefaultBranch("tok", params).pipe(Effect.either, Effect.provide(layer)),
+      seedDefaultBranch("tok", params).pipe(Effect.result, Effect.provide(layer)),
     )
 
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     // Nothing was written: a repo with history already has a base branch.
     expect(steps).toEqual([])
   })
@@ -725,14 +725,14 @@ describe("seedDefaultBranch", () => {
 
     const result = await Effect.runPromise(
       seedDefaultBranch("glpat-secret", { ...params, provider: "gitlab" }).pipe(
-        Effect.either,
+        Effect.result,
         Effect.provide(layer),
       ),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect((result.left as GitError).stderr).toMatch(
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect((result.failure as GitError).stderr).toMatch(
         /GitLab instance.*origin.*before creating the default branch/,
       )
     }

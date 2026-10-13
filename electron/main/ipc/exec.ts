@@ -75,8 +75,8 @@ export function registerExecHandlers(): void {
     }
 
     try {
-      // Run execution directly (no forkDaemon). The IPC handler awaits
-      // the result, which is exactly the same as forkDaemon + Fiber.await
+      // Run execution directly (no forkDetach). The IPC handler awaits
+      // the result, which is exactly the same as forkDetach + Fiber.await
       // but without the scope/fiber lifecycle issues that caused hangs.
       //
       // The abort signal is passed to runPromise: when exec:cancel aborts it,

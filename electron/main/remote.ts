@@ -337,7 +337,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         parsed.cloneURL,
         parsed.refAndPath,
         withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
-      ).pipe(Effect.catchAll(failWithCloneHint))
+      ).pipe(Effect.catch(failWithCloneHint))
       const { refAndPath: _split, ...unsplit } = parsed
       parsed = { ...unsplit, ref: resolved.ref, path: resolved.path }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
@@ -358,7 +358,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         ...(token !== undefined ? { token } : {}),
         username,
       })
-      .pipe(Effect.catchAll(failWithCloneHint))
+      .pipe(Effect.catch(failWithCloneHint))
     log.info("Clone complete")
 
     // Resolve the runbook within the clone: a directory opens its
@@ -401,13 +401,12 @@ export const openRemoteRunbook = (rawUrl: string) =>
 /**
  * The value of a finished run, or a plain Error whose message is fit to show
  * the user: describeCause() (ipc/ipc-error.ts), so a typed failure gives its
- * message and a defect its message without stack frames. Across IPC a
- * FiberFailure would reach the renderer as "(FiberFailure) RemoteSourceError:
- * …". A defect is a bug, so its full Cause goes to MAIN's log instead.
+ * message and a defect its message without stack frames. A defect is a bug,
+ * so its full Cause goes to MAIN's log instead.
  */
 export function valueOrUserError<A, E>(exit: Exit.Exit<A, E>): A {
   if (Exit.isSuccess(exit)) return exit.value
-  if (Cause.isDie(exit.cause))
+  if (Cause.hasDies(exit.cause))
     log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
   throw new Error(describeCause(exit.cause))
 }

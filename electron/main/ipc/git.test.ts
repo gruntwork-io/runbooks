@@ -1302,7 +1302,6 @@ describe("git handler error text", () => {
     const expectNoFrames = (message: string | undefined) => {
       expect(message).toBeTruthy()
       expect(message).not.toContain("    at ")
-      expect(message).not.toContain("FiberFailure")
     }
 
     it.each([

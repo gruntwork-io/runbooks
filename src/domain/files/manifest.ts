@@ -12,7 +12,7 @@
  */
 
 import path from "node:path"
-import { Chunk, Effect, Stream } from "effect"
+import { Effect, Stream } from "effect"
 import crypto from "node:crypto"
 
 import { FileSystem } from "../../services/FileSystem.js"
@@ -157,11 +157,10 @@ export function buildManifestFromDirectoryWithContent(rootDir: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const walkEntries = yield* fs.walk(rootDir).pipe(
+    const files = yield* fs.walk(rootDir).pipe(
       Stream.filter((e) => e.isFile),
       Stream.runCollect,
     )
-    const files = Chunk.toReadonlyArray(walkEntries)
 
     const entries = yield* Effect.forEach(
       files,
@@ -312,13 +311,13 @@ export function cleanupEmptyParentDirs(dir: string, stopAt: string) {
     let current = dir
     while (current !== stopAt && current !== "." && !isFilesystemRoot(current)) {
       if (!isContainedIn(current, stopAt)) return
-      const entries = yield* fs.readdir(current).pipe(Effect.either)
-      if (entries._tag === "Left" || entries.right.length > 0) return
+      const entries = yield* fs.readdir(current).pipe(Effect.result)
+      if (entries._tag === "Failure" || entries.success.length > 0) return
       // `fs.rm` without `recursive: true` fails on directories. Since the
       // readdir check above confirmed `current` is empty, recursive is safe
       // — it just means "use the directory-aware path".
-      const removed = yield* fs.rm(current, { recursive: true }).pipe(Effect.either)
-      if (removed._tag === "Left") return
+      const removed = yield* fs.rm(current, { recursive: true }).pipe(Effect.result)
+      if (removed._tag === "Failure") return
       current = path.dirname(current)
     }
   })

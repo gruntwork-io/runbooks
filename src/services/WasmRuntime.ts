@@ -158,4 +158,4 @@ export interface WasmRuntimeShape {
   readonly isReady: Effect.Effect<boolean>
 }
 
-export class WasmRuntime extends Context.Tag("WasmRuntime")<WasmRuntime, WasmRuntimeShape>() {}
+export class WasmRuntime extends Context.Service<WasmRuntime, WasmRuntimeShape>()("WasmRuntime") {}

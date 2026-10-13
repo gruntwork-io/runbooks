@@ -257,7 +257,7 @@ setRunbookConfig({
 // Importing ./ipc/index.ts above already wrapped ipcMain.handle with
 // installIpcErrorNormalization() (ipc/ipc-error.ts), so a rejection from
 // these handlers, like every other, crosses to the renderer as a clean
-// message instead of a FiberFailure dump.
+// message.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])

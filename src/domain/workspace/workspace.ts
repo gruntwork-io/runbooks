@@ -330,9 +330,9 @@ const buildWorkspaceTreeRecursive = (
 const checkDirLarge = (dirPath: string): Effect.Effect<boolean, FileReadError, FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem
-    const entries = yield* Effect.either(fs.readdir(dirPath))
-    if (entries._tag === "Left") return false
-    return entries.right.length > MAX_DIR_ENTRIES
+    const entries = yield* Effect.result(fs.readdir(dirPath))
+    if (entries._tag === "Failure") return false
+    return entries.success.length > MAX_DIR_ENTRIES
   })
 
 // ---------------------------------------------------------------------------
@@ -690,10 +690,10 @@ const populateDiffContent = (
         // Defense-in-depth: any unreadable path (an EISDIR we missed, EACCES, a
         // TOCTOU race) degrades to empty content instead of failing the batch —
         // mirroring the "modified" branch below.
-        const contentResult = yield* Effect.either(fs.readFile(absFilePath))
-        if (contentResult._tag === "Right") {
-          ;(change as { newContent: string }).newContent = contentResult.right
-          ;(change as { additions: number }).additions = countFileLines(contentResult.right)
+        const contentResult = yield* Effect.result(fs.readFile(absFilePath))
+        if (contentResult._tag === "Success") {
+          ;(change as { newContent: string }).newContent = contentResult.success
+          ;(change as { additions: number }).additions = countFileLines(contentResult.success)
         }
         break
       }
@@ -722,14 +722,14 @@ const populateDiffContent = (
         }
 
         // Read current file content
-        const currentResult = yield* Effect.either(fs.readFile(absFilePath))
-        if (currentResult._tag === "Right") {
-          ;(change as { newContent: string }).newContent = currentResult.right
+        const currentResult = yield* Effect.result(fs.readFile(absFilePath))
+        if (currentResult._tag === "Success") {
+          ;(change as { newContent: string }).newContent = currentResult.success
           // Listed by status yet unchanged against HEAD: a change staged and
           // then put back in the worktree (MM). The file is its own original.
           if (matchesHead) {
             ;(change as { originalContent: string }).originalContent = asShownContent(
-              currentResult.right,
+              currentResult.success,
             )
           }
         } else {

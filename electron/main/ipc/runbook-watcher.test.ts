@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, spyOn } from "bun:test"
-import { Effect, Layer, ManagedRuntime, Stream } from "effect"
+import { Effect, Layer, ManagedRuntime, Queue, Stream } from "effect"
 import { makeRunbookWatcher, makeScriptWatcher, type RunbookWatcher } from "./runbook-watcher.ts"
 import { FileSystem, type FileChangeEvent } from "../../../src/services/FileSystem.ts"
 import { FileWatchError } from "../../../src/errors/index.ts"
@@ -18,13 +18,18 @@ const watchRuntime = ManagedRuntime.make(
     Effect.map(FileSystem, (fs) => ({
       ...fs,
       watch: (paths: string[]) =>
-        Stream.async<FileChangeEvent, FileWatchError>((emit) => {
-          opened.push(paths)
-          emitters.push((event) => void emit.single(event))
-          return Effect.sync(() => {
-            closed++
-          })
-        }),
+        Stream.callback<FileChangeEvent, FileWatchError>((queue) =>
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              opened.push(paths)
+              emitters.push((event) => void Queue.offerUnsafe(queue, event))
+            }),
+            () =>
+              Effect.sync(() => {
+                closed++
+              }),
+          ),
+        ),
     })),
   ).pipe(Layer.provide(makeTestFileSystem())),
 )

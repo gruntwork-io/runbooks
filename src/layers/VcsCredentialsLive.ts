@@ -240,7 +240,7 @@ export const VcsCredentialsLive = Layer.effect(
     const validateGitHubDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
       githubClient.validateToken(token, host).pipe(
         Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
-        Effect.catchAll((err: GitHubApiError) =>
+        Effect.catch((err: GitHubApiError) =>
           Effect.succeed<DirectValidation>({
             ok: false,
             status: err.status,
@@ -253,7 +253,7 @@ export const VcsCredentialsLive = Layer.effect(
     const validateGitLabDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
       gitlabClient.validateToken(token, normalizeGitLabBaseUrl(host)).pipe(
         Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
-        Effect.catchAll((err: GitLabApiError) =>
+        Effect.catch((err: GitLabApiError) =>
           Effect.succeed<DirectValidation>({
             ok: false,
             status: err.status,

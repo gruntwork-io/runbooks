@@ -6,7 +6,7 @@
  */
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { Effect, Layer, Stream, Chunk } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { GitClient } from "../services/GitClient.ts"
 import type {
   GitClientShape,
@@ -17,7 +17,7 @@ import type {
   GitInfo,
   CommitOptions,
 } from "../services/GitClient.ts"
-import { ProcessSpawner } from "../services/ProcessSpawner.ts"
+import { ProcessSpawner, type ProcessSpawnerShape } from "../services/ProcessSpawner.ts"
 import { GitError } from "../errors/index.ts"
 import { sameHttpOrigin, stripUrlCredentials, withGitHttpAuth } from "../domain/git/url.ts"
 import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
@@ -31,7 +31,7 @@ import { gitSpawnEnv, resolveSshCommand } from "../domain/git/env.ts"
  * `gitSpawnEnv()` so PATH/HOME/SSH_AUTH_SOCK and the no-prompt guards survive.
  */
 function runGit(
-  spawner: ProcessSpawner["Type"],
+  spawner: ProcessSpawnerShape,
   args: string[],
   cwd: string,
   stdin?: string,
@@ -39,8 +39,7 @@ function runGit(
 ) {
   return Effect.gen(function* () {
     const proc = yield* spawner.spawn("git", args, { cwd, stdin, env: env ?? gitSpawnEnv() })
-    const chunks = yield* Stream.runCollect(proc.output)
-    const lines = Chunk.toArray(chunks)
+    const lines = yield* Stream.runCollect(proc.output)
     const code = yield* proc.exitCode
 
     if (code !== 0) {
@@ -69,7 +68,7 @@ function runGit(
  * no-prompt guards wrapped around the user's core.sshCommand as seen from
  * `cwd`. See gitSpawnEnv.
  */
-function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
+function sshSpawnEnv(spawner: ProcessSpawnerShape, cwd: string) {
   return resolveSshCommand(cwd).pipe(
     Effect.provideService(ProcessSpawner, spawner),
     Effect.map((sshCommand) => gitSpawnEnv(sshCommand)),
@@ -82,12 +81,12 @@ function sshSpawnEnv(spawner: ProcessSpawner["Type"], cwd: string) {
  * key is unset, which `runGit` surfaces as a GitError — caught here as "not
  * configured". Used to decide whether a fallback author identity is needed.
  */
-function hasConfiguredIdentity(spawner: ProcessSpawner["Type"], repoPath: string) {
+function hasConfiguredIdentity(spawner: ProcessSpawnerShape, repoPath: string) {
   return Effect.gen(function* () {
     const isSet = (key: string) =>
       runGit(spawner, ["config", key], repoPath).pipe(
         Effect.map((lines) => lines.join("").trim().length > 0),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       )
     return (yield* isSet("user.name")) && (yield* isSet("user.email"))
   })
@@ -114,7 +113,7 @@ function nulFields(lines: string[]): string[] {
  * nothing; any other failure (not a repo, dubious ownership, spawn error)
  * propagates.
  */
-function resolveHead(spawner: ProcessSpawner["Type"], repoPath: string) {
+function resolveHead(spawner: ProcessSpawnerShape, repoPath: string) {
   return runGit(spawner, ["rev-parse", "--verify", "--quiet", "HEAD"], repoPath).pipe(
     Effect.map((lines): string | undefined => lines[0]?.trim() || undefined),
     // `undefined` is the "no HEAD" result callers read, and Effect.void's void does not assign to it.
@@ -132,10 +131,10 @@ const SHOW_CONCURRENCY = 8
  * Whether the checkout is a sparse checkout (`git sparse-checkout init` sets
  * core.sparseCheckout). An unset key, or a failure to read it, counts as not.
  */
-function isSparseCheckout(spawner: ProcessSpawner["Type"], repoPath: string) {
+function isSparseCheckout(spawner: ProcessSpawnerShape, repoPath: string) {
   return runGit(spawner, ["config", "--bool", "--get", "core.sparseCheckout"], repoPath).pipe(
     Effect.map((lines) => lines.join("").trim() === "true"),
-    Effect.catchAll(() => Effect.succeed(false)),
+    Effect.catch(() => Effect.succeed(false)),
   )
 }
 
@@ -172,7 +171,7 @@ function pathsOnDisk(repoRoot: string, paths: readonly string[]): string[] {
  * out of the commit without a word. A file that is not on disk keeps its bit,
  * so it is never staged as a deletion.
  */
-function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawner["Type"], repoPath: string) {
+function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawnerShape, repoPath: string) {
   return Effect.gen(function* () {
     // `-t` tags skip-worktree entries "S "; `-z` ends each entry with NUL and
     // leaves paths unquoted. The spawner splits output at line breaks, so the
@@ -198,7 +197,7 @@ function clearSkipWorktreeOfPresentFiles(spawner: ProcessSpawner["Type"], repoPa
 /** A full or abbreviated commit id (SHA-1 or SHA-256). */
 const COMMIT_SHA = /^[0-9a-f]{7,64}$/i
 
-function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
+function makeGitClient(spawner: ProcessSpawnerShape): GitClientShape {
   return {
     cloneSimple: (url: string, dest: string, options?: CloneOptions) =>
       Effect.gen(function* () {
@@ -326,7 +325,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
             spawner,
             ["describe", "--tags", "--exact-match", "HEAD"],
             repoPath,
-          ).pipe(Effect.catchAll(() => Effect.succeed([] as string[])))
+          ).pipe(Effect.catch(() => Effect.succeed([] as string[])))
           const tag = tagResult[0]?.trim()
           if (tag) {
             branch = tag
@@ -345,7 +344,7 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
 
         // Get commit SHA
         const shaLines = yield* runGit(spawner, ["rev-parse", "HEAD"], repoPath).pipe(
-          Effect.catchAll(() => Effect.succeed([] as string[])),
+          Effect.catch(() => Effect.succeed([] as string[])),
         )
         const commitSha = shaLines[0]
 
@@ -481,9 +480,8 @@ function makeGitClient(spawner: ProcessSpawner["Type"]): GitClientShape {
           stdin,
           env: gitSpawnEnv(),
         })
-        const chunks = yield* Stream.runCollect(proc.output)
         // Ignore exit code — 1 just means "no ignored files found"
-        const lines = Chunk.toArray(chunks)
+        const lines = (yield* Stream.runCollect(proc.output))
           .filter((l) => l.source === "stdout")
           .map((l) => l.line)
         return new Set(nulFields(lines))
