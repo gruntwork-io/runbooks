@@ -1,6 +1,14 @@
-import { describe, it, expect } from "bun:test"
+import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { Effect } from "effect"
-import { parseBoilerplateConfig, extractOutputDependencies } from "./config.ts"
+import * as nodeFs from "node:fs"
+import * as nodePath from "node:path"
+import * as os from "node:os"
+import {
+  parseBoilerplateConfig,
+  extractOutputDependencies,
+  extractTemplateOutputDependencies,
+} from "./config.ts"
+import { NodeFileSystemLive } from "../../layers/NodeFileSystem.ts"
 
 function parse(yaml: string) {
   return Effect.runPromise(parseBoilerplateConfig(yaml))
@@ -512,5 +520,104 @@ b={{ .outputs.clone_repo.org_id }}`,
     expect(deps).toEqual([
       { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
     ])
+  })
+})
+
+describe("extractTemplateOutputDependencies", () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "template-output-deps-"))
+  })
+
+  afterEach(() => {
+    nodeFs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  function write(relativePath: string, content: string) {
+    const filePath = nodePath.join(tmp, relativePath)
+    nodeFs.mkdirSync(nodePath.dirname(filePath), { recursive: true })
+    nodeFs.writeFileSync(filePath, content)
+  }
+
+  function extract(templateDir: string, boilerplateYaml = "variables: []") {
+    return Effect.runPromise(
+      extractTemplateOutputDependencies(templateDir, boilerplateYaml).pipe(
+        Effect.provide(NodeFileSystemLive),
+      ),
+    )
+  }
+
+  it("finds references in files nested at any depth", async () => {
+    write("boilerplate.yml", "variables: []")
+    write("{{ .inputs.Account }}/account.hcl", "id = {{ .outputs.detect_account.account_id }}")
+    write(
+      "{{ .inputs.Account }}/{{ .inputs.Region }}/unit/terragrunt.hcl",
+      "{{ .outputs.check.ok }}",
+    )
+
+    const deps = await extract(tmp)
+    expect(deps.map((d) => d.fullPath).sort()).toEqual([
+      "outputs.check.ok",
+      "outputs.detect_account.account_id",
+    ])
+  })
+
+  it("finds references in file and directory names", async () => {
+    write("{{ .outputs.detect_account.account_id }}/main.tf", "")
+    write("env/{{ .outputs.pick_env.name }}.hcl", "")
+
+    const deps = await extract(tmp)
+    expect(deps.map((d) => d.fullPath).sort()).toEqual([
+      "outputs.detect_account.account_id",
+      "outputs.pick_env.name",
+    ])
+  })
+
+  it("lists references from boilerplate.yml first and once", async () => {
+    const yaml = "variables:\n  - name: Id\n    default: '{{ .outputs.detect_account.account_id }}'"
+    write("boilerplate.yml", yaml)
+    write("nested/main.tf", "{{ .outputs.detect_account.account_id }} {{ .outputs.check.ok }}")
+
+    expect(await extract(tmp, yaml)).toEqual([
+      {
+        blockId: "detect_account",
+        outputName: "account_id",
+        fullPath: "outputs.detect_account.account_id",
+      },
+      { blockId: "check", outputName: "ok", fullPath: "outputs.check.ok" },
+    ])
+  })
+
+  it("keeps an output required when another file reads it without a guard", async () => {
+    write(
+      "a.tf",
+      `{{ if hasKey .outputs.clone_repo "org_id" }}{{ .outputs.clone_repo.org_id }}{{ end }}`,
+    )
+    write("nested/b.tf", "{{ .outputs.clone_repo.org_id }}")
+
+    expect(await extract(tmp)).toEqual([
+      { blockId: "clone_repo", outputName: "org_id", fullPath: "outputs.clone_repo.org_id" },
+    ])
+  })
+
+  it("reads through a symlinked file and skips a symlinked directory", async () => {
+    const shared = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), "template-output-deps-shared-"))
+    try {
+      nodeFs.writeFileSync(nodePath.join(shared, "linked.tf"), "{{ .outputs.check.ok }}")
+      nodeFs.symlinkSync(nodePath.join(shared, "linked.tf"), nodePath.join(tmp, "linked.tf"))
+      nodeFs.symlinkSync(shared, nodePath.join(tmp, "linked-dir"))
+
+      expect(await extract(tmp)).toEqual([
+        { blockId: "check", outputName: "ok", fullPath: "outputs.check.ok" },
+      ])
+    } finally {
+      nodeFs.rmSync(shared, { recursive: true, force: true })
+    }
+  })
+
+  it("scans only boilerplate.yml when the directory can't be walked", async () => {
+    const deps = await extract(nodePath.join(tmp, "missing"), "{{ .outputs.check.ok }}")
+    expect(deps).toEqual([{ blockId: "check", outputName: "ok", fullPath: "outputs.check.ok" }])
   })
 })
