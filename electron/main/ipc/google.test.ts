@@ -333,7 +333,7 @@ describe("google:check-project", () => {
 
   /** The Google SDK boundary; the handler, domain and registry are real. */
   let checkProject: GoogleClientShape["checkProject"]
-  let runPromise: ReturnType<typeof spyOn<typeof runtime, "runPromise">>
+  let runPromiseExit: ReturnType<typeof spyOn<typeof runtime, "runPromiseExit">>
   let consoleError: ReturnType<typeof spyOn<typeof console, "error">>
 
   beforeEach(() => {
@@ -346,14 +346,14 @@ describe("google:check-project", () => {
     const google = makeTestGoogleClient({
       checkProject: (projectId, creds) => checkProject(projectId, creds),
     })
-    runPromise = spyOn(runtime, "runPromise").mockImplementation((<A, E>(
+    runPromiseExit = spyOn(runtime, "runPromiseExit").mockImplementation((<A, E>(
       effect: Effect.Effect<A, E, GoogleClient>,
-    ) => Effect.runPromise(Effect.provide(effect, google))) as typeof runtime.runPromise)
+    ) => Effect.runPromiseExit(Effect.provide(effect, google))) as typeof runtime.runPromiseExit)
     consoleError = spyOn(console, "error").mockImplementation(() => {})
   })
 
   afterEach(() => {
-    runPromise.mockRestore()
+    runPromiseExit.mockRestore()
     consoleError.mockRestore()
   })
 

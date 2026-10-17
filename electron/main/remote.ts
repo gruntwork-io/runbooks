@@ -9,7 +9,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Cause, Effect, Exit } from "effect"
-import { runtime, getSessionTokenForHost } from "./ipc/runtime.ts"
+import { runtime, getSessionTokenForHost, noSessionCredential } from "./ipc/runtime.ts"
 import { describeCause } from "./ipc/ipc-error.ts"
 import { parseRemoteSource, redactSourceCredentials, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
@@ -294,11 +294,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // and the provider detection alone must never gate a credential.
     const sessionToken =
       overHttps && provider
-        ? yield* getSessionTokenForHost(
-            provider,
-            parsed.host,
-            () => new Error("no session token"),
-          ).pipe(Effect.orElseSucceed(() => undefined))
+        ? yield* getSessionTokenForHost(provider, parsed.host, noSessionCredential).pipe(
+            Effect.orElseSucceed(() => undefined),
+          )
         : undefined
     const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
     log.info("Token:", token ? "found" : "none")
@@ -339,7 +337,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         parsed.cloneURL,
         parsed.refAndPath,
         withGitHttpAuth(gitSpawnEnv(yield* resolveSshCommand()), parsed.cloneURL, token, username),
-      ).pipe(Effect.catchAll(failWithCloneHint))
+      ).pipe(Effect.catch(failWithCloneHint))
       const { refAndPath: _split, ...unsplit } = parsed
       parsed = { ...unsplit, ref: resolved.ref, path: resolved.path }
       log.info("Resolved ref:", resolved.ref, "path:", resolved.path)
@@ -360,7 +358,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
         ...(token !== undefined ? { token } : {}),
         username,
       })
-      .pipe(Effect.catchAll(failWithCloneHint))
+      .pipe(Effect.catch(failWithCloneHint))
     log.info("Clone complete")
 
     // Resolve the runbook within the clone: a directory opens its
@@ -369,12 +367,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     const at = ref ? ` at ${ref}` : ""
     const target = parsed.path ? path.join(dest, parsed.path) : dest
     if (!fs.existsSync(target)) {
-      return yield* Effect.fail(
-        new RemoteSourceError({
-          url: source,
-          message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
-        }),
-      )
+      return yield* new RemoteSourceError({
+        url: source,
+        message: `"${parsed.path}" was not found in ${repoLabel}${at}`,
+      })
     }
     log.info("Resolving runbook in:", target)
     const localPath = yield* resolveRunbookPath(target).pipe(
@@ -389,12 +385,10 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // The repo is untrusted: a symlink in it must not open a file outside
     // the clone.
     if (!(yield* Effect.promise(() => isContainedInReal(localPath, dest)))) {
-      return yield* Effect.fail(
-        new RemoteSourceError({
-          url: source,
-          message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
-        }),
-      )
+      return yield* new RemoteSourceError({
+        url: source,
+        message: `"${parsed.path}" in ${repoLabel} points outside the repository`,
+      })
     }
     log.info("Resolved runbook path:", localPath)
 
@@ -407,13 +401,12 @@ export const openRemoteRunbook = (rawUrl: string) =>
 /**
  * The value of a finished run, or a plain Error whose message is fit to show
  * the user: describeCause() (ipc/ipc-error.ts), so a typed failure gives its
- * message and a defect its message without stack frames. Across IPC a
- * FiberFailure would reach the renderer as "(FiberFailure) RemoteSourceError:
- * …". A defect is a bug, so its full Cause goes to MAIN's log instead.
+ * message and a defect its message without stack frames. A defect is a bug,
+ * so its full Cause goes to MAIN's log instead.
  */
 export function valueOrUserError<A, E>(exit: Exit.Exit<A, E>): A {
   if (Exit.isSuccess(exit)) return exit.value
-  if (Cause.isDie(exit.cause))
+  if (Cause.hasDies(exit.cause))
     log.error("Opening a remote runbook hit a defect:", Cause.pretty(exit.cause))
   throw new Error(describeCause(exit.cause))
 }

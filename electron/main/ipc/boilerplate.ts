@@ -4,7 +4,7 @@
  * Provides config parsing, template rendering, inline template rendering, and
  * resolving template-valued inputs for display.
  */
-import { Cause, Effect, Exit, Fiber } from "effect"
+import { Cause, Effect, Exit, Fiber, Semaphore } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
@@ -67,7 +67,7 @@ import { resolveGeneratedDir, validateSessionPath } from "./path-guard.ts"
  * Either way, the interrupted call resolves to a `superseded` sentinel that
  * the renderer-side `useApi` ignores, so the latest call drives the UI.
  */
-const activeRenders = new Map<string, Fiber.RuntimeFiber<unknown, unknown>>()
+const activeRenders = new Map<string, Fiber.Fiber<unknown, unknown>>()
 
 /**
  * Per-templateId start times for renders currently in flight. Used to estimate
@@ -105,7 +105,7 @@ const inlineWriteKey = (blockId: string) =>
  * Inline writes run one at a time, so two overlapping renders of a block
  * cannot both start from the same previous record and each leave a file.
  */
-const inlineWriteLock = Effect.unsafeMakeSemaphore(1)
+const inlineWriteLock = Semaphore.makeUnsafe(1)
 
 /**
  * Resolve the directory a render writes into: the active git worktree for
@@ -174,8 +174,8 @@ export function registerBoilerplateHandlers(): void {
             // Try boilerplate.yml, then boilerplate.yaml
             const ymlPath = `${resolvedTemplatePath}/boilerplate.yml`
             const yamlPath = `${resolvedTemplatePath}/boilerplate.yaml`
-            const ymlExists = yield* Effect.either(fs.stat(ymlPath))
-            if (ymlExists._tag === "Right") {
+            const ymlExists = yield* Effect.result(fs.stat(ymlPath))
+            if (ymlExists._tag === "Success") {
               resolvedTemplatePath = ymlPath
             } else {
               resolvedTemplatePath = yamlPath
@@ -204,15 +204,15 @@ export function registerBoilerplateHandlers(): void {
         if (resolvedTemplatePath) {
           const fs = yield* FileSystem
           const templateDir = resolvedTemplatePath.replace(/\/[^/]+$/, "")
-          const entries = yield* Effect.either(fs.readdir(templateDir))
+          const entries = yield* Effect.result(fs.readdir(templateDir))
 
-          if (entries._tag === "Right") {
-            for (const entry of entries.right) {
+          if (entries._tag === "Success") {
+            for (const entry of entries.success) {
               if (entry === "boilerplate.yml" || entry === "boilerplate.yaml") continue
               const filePath = `${templateDir}/${entry}`
-              const content = yield* Effect.either(fs.readFile(filePath))
-              if (content._tag === "Right") {
-                const deps = extractOutputDependencies(content.right)
+              const content = yield* Effect.result(fs.readFile(filePath))
+              if (content._tag === "Success") {
+                const deps = extractOutputDependencies(content.success)
                 config.outputDependencies.push(...deps)
               }
             }
@@ -317,7 +317,7 @@ export function registerBoilerplateHandlers(): void {
           // Any warm-path failure (loader/bundle producer/structural) is
           // recoverable — fall through to the cold path. We don't want a
           // WASM init bug to break renders.
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.sync(() => {
               console.log("[ipc boilerplate:render] warm path errored, falling back to cold", {
                 templateId,
@@ -340,11 +340,9 @@ export function registerBoilerplateHandlers(): void {
           templateId,
           errors: warmResult.renderErrors,
         })
-        return yield* Effect.fail(
-          new RenderError({
-            message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
-          }),
-        )
+        return yield* new RenderError({
+          message: `Template render failed: ${describeRenderErrors(warmResult.renderErrors)}`,
+        })
       }
 
       const needsCold = warmResult.warmDisabled || warmResult.coldNeeded.length > 0
@@ -579,7 +577,7 @@ export function registerBoilerplateHandlers(): void {
     )
 
     const fiber = runtime.runFork(program)
-    activeRenders.set(templateId, fiber as Fiber.RuntimeFiber<unknown, unknown>)
+    activeRenders.set(templateId, fiber as Fiber.Fiber<unknown, unknown>)
 
     try {
       // Use Fiber.await (returns an Exit) instead of Fiber.join so we can
@@ -590,7 +588,7 @@ export function registerBoilerplateHandlers(): void {
       if (Exit.isSuccess(exit)) {
         return exit.value
       }
-      if (Cause.isInterruptedOnly(exit.cause)) {
+      if (Cause.hasInterruptsOnly(exit.cause)) {
         console.log("[ipc boilerplate:render] superseded, discarding result", {
           templateId,
           elapsed: Date.now() - t0,
@@ -601,7 +599,7 @@ export function registerBoilerplateHandlers(): void {
     } finally {
       // Only clear if *our* fiber is still the registered one — a superseding
       // call may have already registered a newer fiber under this templateId.
-      if (activeRenders.get(templateId) === (fiber as Fiber.RuntimeFiber<unknown, unknown>)) {
+      if (activeRenders.get(templateId) === (fiber as Fiber.Fiber<unknown, unknown>)) {
         activeRenders.delete(templateId)
         renderStartTimes.delete(templateId)
       }

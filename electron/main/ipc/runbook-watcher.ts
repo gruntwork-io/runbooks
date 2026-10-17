@@ -17,7 +17,7 @@ const log = makeLogger("ipc:watch")
 
 /** The part of a ManagedRuntime the watcher needs to fork its fiber. */
 export interface WatcherRuntime {
-  runFork: <A, E>(effect: Effect.Effect<A, E, FileSystem>) => Fiber.RuntimeFiber<A, E>
+  runFork: <A, E>(effect: Effect.Effect<A, E, FileSystem>) => Fiber.Fiber<A, E>
 }
 
 export interface RunbookWatcher {
@@ -92,7 +92,7 @@ interface WatchTarget<T> {
 }
 
 function makeKeyedWatch<T>(runtime: WatcherRuntime) {
-  let active: { key: string; fiber: Fiber.RuntimeFiber<void> } | null = null
+  let active: { key: string; fiber: Fiber.Fiber<void> } | null = null
 
   const run = (target: WatchTarget<T>) =>
     Effect.gen(function* () {
@@ -105,9 +105,7 @@ function makeKeyedWatch<T>(runtime: WatcherRuntime) {
         }),
       )
     }).pipe(
-      Effect.catchAll((err) =>
-        Effect.sync(() => log.warn(`stopped watching ${target.label}:`, err)),
-      ),
+      Effect.catch((err) => Effect.sync(() => log.warn(`stopped watching ${target.label}:`, err))),
     )
 
   const stop = (): Promise<void> => {
@@ -119,7 +117,7 @@ function makeKeyedWatch<T>(runtime: WatcherRuntime) {
 
   const start = (target: WatchTarget<T>): void => {
     // A watcher that died (e.g. a file watcher error) is replaced, not kept.
-    if (active?.key === target.key && active.fiber.unsafePoll() === null) {
+    if (active?.key === target.key && active.fiber.pollUnsafe() === undefined) {
       return
     }
     void stop()
