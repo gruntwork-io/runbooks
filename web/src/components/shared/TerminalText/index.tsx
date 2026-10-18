@@ -1,6 +1,11 @@
-import Ansi from "ansi-to-react"
+import ansiToReact from "ansi-to-react"
 import { LinkifiedText } from "../LinkifiedText"
 import "./TerminalText.css"
+
+// ansi-to-react is CommonJS that sets __esModule and exports.default. Vite
+// gives an importer in a "type": "module" package Node's interop, so in the
+// build the default import is module.exports; vitest and tsc see the component.
+const Ansi = (ansiToReact as unknown as { default?: typeof ansiToReact }).default ?? ansiToReact
 
 interface TerminalTextProps {
   text: string
