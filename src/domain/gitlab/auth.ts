@@ -8,7 +8,7 @@
  * CLI reads are PER HOST: `glab config get token --host <H>` —
  * glab has no `auth token` subcommand.
  */
-import { Effect } from "effect"
+import { Effect, Semaphore } from "effect"
 import YAML from "yaml"
 import { join } from "node:path"
 import type { GitLabTokenType } from "../../services/GitLabClient.ts"
@@ -87,12 +87,12 @@ export const GLAB_ENV_OVERRIDES: CliEnvOverrides = {
 // deliberately triggers such a rewrite (`glab auth status`). Serializing OUR
 // spawns per host guarantees we never race glab's rewrite against our own
 // re-read. (A user-run glab in a terminal can still race it — accepted.)
-const glabHostSemaphores = new Map<string, Effect.Semaphore>()
+const glabHostSemaphores = new Map<string, Semaphore.Semaphore>()
 
-const glabSemaphoreFor = (host: string): Effect.Semaphore => {
+const glabSemaphoreFor = (host: string): Semaphore.Semaphore => {
   let semaphore = glabHostSemaphores.get(host)
   if (!semaphore) {
-    semaphore = Effect.unsafeMakeSemaphore(1)
+    semaphore = Semaphore.makeUnsafe(1)
     glabHostSemaphores.set(host, semaphore)
   }
   return semaphore
@@ -234,15 +234,15 @@ const readTokenRun = (
   host: string,
 ): Effect.Effect<GlabCliRead, never, ProcessSpawner | Environment> =>
   Effect.gen(function* () {
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       runGlab(["config", "get", "token", "--host", host], GLAB_CLI_TIMEOUT_MS),
     )
-    if (result._tag === "Left") {
-      return isSpawnEnoent(result.left)
+    if (result._tag === "Failure") {
+      return isSpawnEnoent(result.failure)
         ? ({ kind: "not-installed" } as const)
         : ({ kind: "absent" } as const)
     }
-    const { exitCode, stdout, stderr } = result.right
+    const { exitCode, stdout, stderr } = result.success
     const token = stdout.map((line) => line.trim()).find((line) => line.length > 0)
     if (exitCode === 0) {
       // Contract (a) token / contract (b) empty-stdout = host not configured.
@@ -279,11 +279,11 @@ const classifyGlabAuthStatus = (result: GlabRunResult): GlabAuthStatus => {
  */
 const authStatusRun = (host: string) =>
   Effect.gen(function* () {
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       runGlab(["auth", "status", "--hostname", host], GLAB_STATUS_TIMEOUT_MS),
     )
-    if (result._tag === "Left") return "error" as const
-    return classifyGlabAuthStatus(result.right)
+    if (result._tag === "Failure") return "error" as const
+    return classifyGlabAuthStatus(result.success)
   })
 
 /** `glab auth status` under the per-host semaphore. */

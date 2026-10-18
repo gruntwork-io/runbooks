@@ -500,13 +500,11 @@ export const resolveRef = (
     })
     const code = yield* proc.exitCode
     if (code !== 0) {
-      return yield* Effect.fail(
-        new GitError({
-          command: "git ls-remote",
-          stderr: redactSecrets(stderr.join("\n")),
-          exitCode: code,
-        }),
-      )
+      return yield* new GitError({
+        command: "git ls-remote",
+        stderr: redactSecrets(stderr.join("\n")),
+        exitCode: code,
+      })
     }
 
     // Build set of known ref names (strip refs/heads/ and refs/tags/)

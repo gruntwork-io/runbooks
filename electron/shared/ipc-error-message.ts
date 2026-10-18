@@ -7,7 +7,7 @@
  * The preload applies this to every `api.invoke` rejection, and
  * web/src/lib/ipcError.ts re-exports it for the renderer. MAIN's half of the
  * contract is toIpcError() (electron/main/ipc/ipc-error.ts), which makes sure
- * "<message>" is the real failure detail rather than a FiberFailure dump.
+ * "<message>" is the real failure detail.
  */
 export function cleanIpcErrorMessage(raw: string): string {
   let msg = raw.replace(/^Error invoking remote method '[^']*':\s*/, "")

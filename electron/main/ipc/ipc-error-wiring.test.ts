@@ -64,8 +64,8 @@ mockElectron({
   },
 })
 
-// A real ManagedRuntime, so failures reject with the same FiberFailure the
-// handlers' `runtime.runPromise(...)` produces.
+// A real ManagedRuntime, so failures reject the way the handlers'
+// `runtime.runPromise(...)` does.
 const runtime = ManagedRuntime.make(Layer.empty)
 afterAll(async () => {
   await runtime.dispose()
@@ -122,7 +122,6 @@ describe("ipc/index.ts", () => {
 
     const err = await rendererRejection("workspace:tree")
     expect(err.message).toBe("FileReadError (/ws/a.txt): ENOENT: no such file or directory")
-    expect(err.message).not.toContain("FiberFailure")
     expect(err.message).not.toContain("    at ")
   })
 

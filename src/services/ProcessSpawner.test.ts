@@ -32,9 +32,9 @@ describe("collectOutput", () => {
 
   it("times out and kills a process whose output never ends", async () => {
     const { proc, kills } = fakeProcess(Stream.never, Effect.succeed(0))
-    const result = await Effect.runPromise(Effect.either(collectOutput(proc, 20)))
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") expect(Cause.isTimeoutException(result.left)).toBe(true)
+    const result = await Effect.runPromise(Effect.result(collectOutput(proc, 20)))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect(Cause.isTimeoutError(result.failure)).toBe(true)
     expect(kills()).toBe(1)
   })
 
@@ -43,9 +43,9 @@ describe("collectOutput", () => {
       Stream.fromIterable<OutputLine>([{ line: "done", source: "stdout" }]),
       Effect.never,
     )
-    const result = await Effect.runPromise(Effect.either(collectOutput(proc, 20)))
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") expect(Cause.isTimeoutException(result.left)).toBe(true)
+    const result = await Effect.runPromise(Effect.result(collectOutput(proc, 20)))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") expect(Cause.isTimeoutError(result.failure)).toBe(true)
     expect(kills()).toBe(1)
   })
 

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import * as os from "node:os"
-import { Effect, Either, Layer } from "effect"
+import { Effect, Result, Layer } from "effect"
 import {
   getWorkspaceDirs,
   readWorkspaceFile,
@@ -1001,7 +1001,7 @@ describe("getWorkspaceChanges (real repo)", () => {
     gitIn(origin, "add", ".")
     gitIn(origin, "commit", "-m", "initial")
     const work = nodePath.join(root, "work")
-    const steps = Either.getOrThrow(
+    const steps = Result.getOrThrow(
       buildCloneSteps(`file://${origin}`, work, { repoPath: "modules/vpc" }),
     )
     for (const step of steps) gitIn(root, ...step.args)

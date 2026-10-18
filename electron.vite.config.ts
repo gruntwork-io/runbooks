@@ -1,7 +1,5 @@
 import { defineConfig, externalizeDepsPlugin } from "electron-vite"
-import type { Plugin } from "vite"
 import tailwindcss from "@tailwindcss/vite"
-import fs from "fs"
 import path from "path"
 import { assertNoNestedNodeModules } from "./scripts/no-nested-node-modules.ts"
 import { reactWithCompiler } from "./scripts/vite-react.ts"
@@ -9,36 +7,24 @@ import { reactWithCompiler } from "./scripts/vite-react.ts"
 // A leftover web/node_modules would shadow the root tree for renderer imports.
 assertNoNestedNodeModules(__dirname)
 
-/**
- * Bundles a file imported `with { type: "text" }` as a string, as Bun does
- * natively for `bun test`. The main process imports the templates of the
- * installed `runbooks` launchers (electron/main/cli-launcher/) this way.
- */
-function textImports(): Plugin {
-  return {
-    name: "runbooks:text-imports",
-    enforce: "pre",
-    load(id) {
-      if (this.getModuleInfo(id)?.attributes.type !== "text") return null
-      return `export default ${JSON.stringify(fs.readFileSync(id, "utf8"))}`
-    },
-  }
-}
-
 export default defineConfig({
   main: {
     plugins: [
       externalizeDepsPlugin({
         exclude: ["electron-updater"],
       }),
-      textImports(),
     ],
     build: {
       outDir: "dist/main",
-      rollupOptions: {
+      rolldownOptions: {
         input: {
           index: path.resolve(__dirname, "electron/main/index.ts"),
         },
+        // Bundles the templates of the installed `runbooks` launchers
+        // (electron/main/cli-launcher/), which the main process imports
+        // `with { type: "text" }`, as strings, as Bun does natively for
+        // `bun test`. Rolldown ignores the import attribute itself.
+        moduleTypes: { ".sh": "text", ".cmd": "text" },
       },
     },
   },
@@ -46,7 +32,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       outDir: "dist/preload",
-      rollupOptions: {
+      rolldownOptions: {
         input: {
           index: path.resolve(__dirname, "electron/preload/index.ts"),
           // The Iframe block's local pages (main/embeds.ts).
@@ -55,6 +41,9 @@ export default defineConfig({
         output: {
           format: "cjs",
           entryFileNames: "[name].cjs",
+          // Rolldown only keeps the sources' own "use strict" directives, and
+          // these ES module sources have none, so ask for it as Rollup did.
+          strict: true,
         },
       },
     },
@@ -70,16 +59,27 @@ export default defineConfig({
     },
     build: {
       outDir: path.resolve(__dirname, "dist/renderer"),
-      rollupOptions: {
+      rolldownOptions: {
         input: {
           index: path.resolve(__dirname, "web/index.html"),
         },
         output: {
-          manualChunks: {
-            "react-vendor": ["react", "react-dom"],
-            "mdx-vendor": ["@mdx-js/mdx", "react-markdown", "remark-gfm"],
-            "ui-vendor": ["@radix-ui/react-alert-dialog", "@radix-ui/react-tooltip"],
-            "syntax-highlighter": ["react-syntax-highlighter"],
+          codeSplitting: {
+            groups: [
+              { name: "react-vendor", test: /node_modules[\\/](react|react-dom)[\\/]/ },
+              {
+                name: "mdx-vendor",
+                test: /node_modules[\\/](@mdx-js[\\/]mdx|react-markdown|remark-gfm)[\\/]/,
+              },
+              {
+                name: "ui-vendor",
+                test: /node_modules[\\/]@radix-ui[\\/](react-alert-dialog|react-tooltip)[\\/]/,
+              },
+              {
+                name: "syntax-highlighter",
+                test: /node_modules[\\/]react-syntax-highlighter[\\/]/,
+              },
+            ],
           },
         },
       },

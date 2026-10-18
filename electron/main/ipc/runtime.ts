@@ -12,6 +12,7 @@ import { githubSessionCredential } from "../../../src/domain/github/auth.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { FileManifestStore, getManifestStore } from "../../../src/domain/files/manifest.ts"
+import { MissingSessionCredentialError } from "../../../src/errors/index.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,10 @@ export const getGitHubSessionCredential = <E>(host: string | undefined, onMissin
     return credential
   })
 
+/** The `onMissing` for callers that discard the failure and go on without a session credential. */
+export const noSessionCredential = () =>
+  new MissingSessionCredentialError({ message: "no session credential" })
+
 /**
  * Resolve an auth token for a git PROVIDER from the current session's
  * environment.
@@ -79,7 +84,7 @@ export const getGitHubSessionCredential = <E>(host: string | undefined, onMissin
  * block does. Callers that send the token to a host they know (a clone URL,
  * a repo's origin) should use getSessionTokenForHost instead. Callers supply
  * `onMissing` so each can fail with the error type its pipeline expects (a
- * typed GitError for git handlers, a plain Error for API handlers).
+ * GitError for git handlers, a MissingSessionCredentialError for API handlers).
  */
 export const getSessionTokenForProvider = <E>(provider: GitProvider, onMissing: () => E) =>
   Effect.gen(function* () {

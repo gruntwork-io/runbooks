@@ -6,7 +6,7 @@
  */
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { Effect, Either } from "effect"
+import { Effect, Result } from "effect"
 import { parseBoilerplateConfig } from "../../src/domain/boilerplate/config.ts"
 import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
 import {
@@ -585,9 +585,9 @@ function extractInlineYAML(content: string): string | null {
  * and `validations` are normalised exactly as the Inputs form sees them.
  */
 function parseConfig(yamlContent: string): BoilerplateConfig {
-  const result = Effect.runSync(Effect.either(parseBoilerplateConfig(yamlContent)))
-  if (Either.isLeft(result)) throw result.left
-  return result.right
+  const result = Effect.runSync(Effect.result(parseBoilerplateConfig(yamlContent)))
+  if (Result.isFailure(result)) throw result.failure
+  return result.success
 }
 
 export function lowercaseFirst(s: string): string {

@@ -21,7 +21,7 @@
  * inline in the block, never via reportError().
  */
 import { ipcMain } from "electron"
-import { Cause, Option, Runtime } from "effect"
+import { Cause, Exit, Option } from "effect"
 import { runtime, sessionManager } from "./runtime.ts"
 import {
   validateServiceAccountKey,
@@ -1227,9 +1227,9 @@ export function registerGoogleHandlers(): void {
           warning: "No Google Cloud credentials available to check project access",
         }
       }
-      try {
-        const access = await runtime.runPromise(checkProject(params.projectId, ref))
-        if (access === "denied") {
+      const exit = await runtime.runPromiseExit(checkProject(params.projectId, ref))
+      if (Exit.isSuccess(exit)) {
+        if (exit.value === "denied") {
           return {
             enabled: false,
             warning: `Project ${params.projectId} is not accessible with these credentials`,
@@ -1238,20 +1238,17 @@ export function registerGoogleHandlers(): void {
         // "accessible" and "unknown" both read as enabled; only the former is
         // proof, and there is nothing useful to say about the latter.
         return { enabled: true }
-      } catch (err) {
-        // A typed failure: the credential itself could not be turned into a
-        // client — that is worth saying out loud.
-        if (
-          Runtime.isFiberFailure(err) &&
-          Option.isSome(Cause.failureOption(err[Runtime.FiberFailureCauseId]))
-        ) {
-          return { enabled: false, warning: toErrorMessage(err) }
-        }
-        // A defect or an interruption says nothing about the project, so it
-        // fails open like aws:check-region. `err` only: never the credential.
-        log.error("Project access check crashed:", err)
-        return { enabled: true }
       }
+      // A typed failure: the credential itself could not be turned into a
+      // client — that is worth saying out loud.
+      const failure = Cause.findErrorOption(exit.cause)
+      if (Option.isSome(failure)) {
+        return { enabled: false, warning: toErrorMessage(failure.value) }
+      }
+      // A defect or an interruption says nothing about the project, so it
+      // fails open like aws:check-region. The cause only: never the credential.
+      log.error("Project access check crashed:", Cause.pretty(exit.cause))
+      return { enabled: true }
     },
   )
 

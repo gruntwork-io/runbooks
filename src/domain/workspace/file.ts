@@ -308,7 +308,7 @@ export const resolveRunbookPath = (
       const exists = yield* fs.exists(fullPath)
 
       if (!exists) {
-        return yield* Effect.fail(new FileNotFoundError({ path: fullPath }))
+        return yield* new FileNotFoundError({ path: fullPath })
       }
 
       return fullPath
