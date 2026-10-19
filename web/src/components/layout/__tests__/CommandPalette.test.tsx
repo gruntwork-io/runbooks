@@ -103,7 +103,18 @@ async function renderPalette({ ctx: overrides, runbook, withLogs = false }: Rend
 
 const dialog = () => screen.getByRole("dialog")
 const input = () => within(dialog()).getByRole("combobox")
-const option = (name: string | RegExp) => within(dialog()).getByRole("option", { name })
+// Matches the option's text, not its accessible name: jsdom drops the spaces
+// between inline spans when it computes a name, which a browser keeps.
+const option = (name: string | RegExp) => {
+  const found = within(dialog())
+    .getAllByRole("option")
+    .filter((o) =>
+      typeof name === "string" ? o.textContent === name : name.test(o.textContent ?? ""),
+    )
+  if (found.length !== 1)
+    throw new Error(`Expected one option matching ${name}, found ${found.length}`)
+  return found[0]!
+}
 const optionNames = () =>
   within(dialog())
     .getAllByRole("option")
@@ -353,9 +364,9 @@ describe("CommandPalette", () => {
       await select(/Jump to section/)
       expect(groupNames()).toEqual(["Sections"])
       expect(optionNames()).toEqual(["Deploy", "Prepare", "Verify", "Ship", "Verify (2)"])
-      expect(option("Deploy")).toHaveStyle({ paddingLeft: "0.5rem" })
-      expect(option("Prepare")).toHaveStyle({ paddingLeft: "1.5rem" })
-      expect(option("Verify")).toHaveStyle({ paddingLeft: "2.5rem" })
+      expect(option("Deploy").style.paddingLeft).toBe("0.5rem")
+      expect(option("Prepare").style.paddingLeft).toBe("1.5rem")
+      expect(option("Verify").style.paddingLeft).toBe("2.5rem")
       expect(input()).toHaveAttribute("placeholder", "Jump to section…")
     })
 
