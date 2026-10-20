@@ -279,5 +279,5 @@ export const resolveOAuthClient = (input: ResolveOAuthClientInput = {}) =>
 export const isOAuthClientConfigured = (input: ResolveOAuthClientInput = {}) =>
   resolveOAuthClient(input).pipe(
     Effect.as(true),
-    Effect.catchAll(() => Effect.succeed(false)),
+    Effect.catch(() => Effect.succeed(false)),
   )

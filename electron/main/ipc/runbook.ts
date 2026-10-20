@@ -39,10 +39,9 @@ const log = makeLogger("ipc:runbook")
 /**
  * Build a clean, user-facing message for a failed runbook resolution.
  *
- * `resolveRunbookPath` fails with an Effect `FiberFailure` whose message leaks
- * internal stack detail — surfacing that verbatim in the renderer is the "ugly
- * error" we're replacing. This returns a short explanation the error screen can
- * show directly while offering a "choose another folder" retry.
+ * `resolveRunbookPath` rejects with a tagged error whose toString() is only its
+ * tag. This returns a short explanation the error screen can show directly
+ * while offering a "choose another folder" retry.
  */
 function describeRunbookOpenError(inputPath: string): string {
   try {
@@ -162,8 +161,8 @@ export function registerRunbookHandlers(): void {
 
       // Resolve the path — if it's a directory, look for runbook.mdx inside it.
       // Translate any resolution failure into a clean, user-facing message so
-      // the renderer can show a friendly error (and a retry) instead of a raw
-      // Effect FiberFailure dump.
+      // the renderer can show a friendly error (and a retry) instead of a bare
+      // error tag.
       let runbookPath: string
       try {
         runbookPath = await runtime.runPromise(resolveRunbookPath(params.path))
@@ -314,7 +313,7 @@ export function registerRunbookHandlers(): void {
       // can't be read leaves the blocks to start over: the runbook still opens.
       const blockStates = await runtime.runPromise(
         persistence.blockStates().pipe(
-          Effect.catchAll((err) => {
+          Effect.catch((err) => {
             log.warn("failed to read the session's history:", err.message)
             return Effect.succeed([])
           }),

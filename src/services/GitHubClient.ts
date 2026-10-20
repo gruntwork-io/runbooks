@@ -146,4 +146,6 @@ export interface GitHubClientShape {
   ) => Effect.Effect<void, GitHubApiError>
 }
 
-export class GitHubClient extends Context.Tag("GitHubClient")<GitHubClient, GitHubClientShape>() {}
+export class GitHubClient extends Context.Service<GitHubClient, GitHubClientShape>()(
+  "GitHubClient",
+) {}

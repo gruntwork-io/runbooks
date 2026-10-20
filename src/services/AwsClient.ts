@@ -103,4 +103,4 @@ export interface AwsClientShape {
   ) => Effect.Effect<boolean, AwsAuthError>
 }
 
-export class AwsClient extends Context.Tag("AwsClient")<AwsClient, AwsClientShape>() {}
+export class AwsClient extends Context.Service<AwsClient, AwsClientShape>()("AwsClient") {}

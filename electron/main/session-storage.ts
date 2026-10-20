@@ -68,7 +68,7 @@ export function openSessionStorage(userDataDir: string): SessionStorage {
     close: () => {
       Effect.runSync(
         store.close().pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.sync(() => {
               log.error("Failed to close the sessions database:", err)
             }),

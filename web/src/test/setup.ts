@@ -1,4 +1,4 @@
-import "@testing-library/jest-dom"
+import "@testing-library/jest-dom/vitest"
 import { expect, vi } from "vitest"
 import { Equal, Redacted } from "effect"
 

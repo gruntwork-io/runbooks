@@ -48,7 +48,7 @@ export const detectCliToken = (
     const spawner = yield* ProcessSpawner
     const environment = yield* Environment
 
-    const result = yield* Effect.either(
+    const result = yield* Effect.result(
       Effect.gen(function* () {
         const childEnv = envOverrides
           ? buildCliEnv(yield* environment.getAll(), envOverrides)
@@ -67,9 +67,9 @@ export const detectCliToken = (
     )
 
     // If the command failed for any reason, return undefined
-    if (result._tag === "Left") {
+    if (result._tag === "Failure") {
       return undefined
     }
 
-    return result.right
+    return result.success
   })

@@ -171,7 +171,7 @@ export class SessionManager {
    * the session this one replaces.
    */
   createSession(initialWorkingDir: string, runbookPath: string = "") {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const env = yield* this.startingEnv()
       const now = new Date()
 
@@ -203,7 +203,7 @@ export class SessionManager {
     createdAt: Date
     state: SessionState
   }) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const initialEnv = yield* this.startingEnv()
       const env = copyEnvMap(initialEnv)
       for (const [key, value] of Object.entries(saved.state.env.set)) {
@@ -239,7 +239,7 @@ export class SessionManager {
 
   /** The running process's environment without the protected vars. */
   private startingEnv() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const envService = yield* Environment
       const env = recordToMap(yield* envService.getAll())
       for (const key of this.protectedEnvVars) {
@@ -272,7 +272,7 @@ export class SessionManager {
    * SessionNotFoundError.
    */
   getSession() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
         return yield* new SessionNotFoundError()
       }
@@ -317,7 +317,7 @@ export class SessionManager {
    * Reset the session to its initial environment and working directory.
    */
   resetSession() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
         return yield* new SessionNotFoundError()
       }
@@ -347,7 +347,7 @@ export class SessionManager {
    * run. The env is a plain-record copy, safe to use after this call.
    */
   getExecContext(): Effect.Effect<SessionExecSnapshot, SessionNotFoundError, never> {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
         return yield* new SessionNotFoundError()
       }
@@ -418,7 +418,7 @@ export class SessionManager {
    * Omit it only when the write happens in the same tick the request arrived.
    */
   appendToEnv(env: Record<string, string>, generation?: number) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
         return yield* new SessionError({ message: "no active session" })
       }
@@ -444,7 +444,7 @@ export class SessionManager {
    * `generation` works as for `appendToEnv`.
    */
   removeFromEnv(keys: string[], generation?: number) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
         return yield* new SessionError({ message: "no active session" })
       }
@@ -466,7 +466,7 @@ export class SessionManager {
    * Return the public-safe metadata for the current session.
    */
   getMetadata() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
         return yield* new SessionNotFoundError()
       }

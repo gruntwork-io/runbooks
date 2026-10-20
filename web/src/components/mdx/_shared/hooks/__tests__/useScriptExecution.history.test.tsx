@@ -124,15 +124,16 @@ describe("useScriptExecution in a session", () => {
     act(() => {
       emit("exec:log-file", { path: LOG_FILE })
       emit("exec:log", LOG)
-      emit("exec:outputs", {
+    })
+    await act(async () =>
+      endRun({
+        status: { status: "success", exitCode: 0 },
         outputs: {
           url: { value: "https://x", sensitive: false },
           token: { value: "s3cret", sensitive: true },
         },
-      })
-      emit("exec:status", { status: "success", exitCode: 0 })
-    })
-    await act(async () => endRun({ status: { status: "success", exitCode: 0 } }))
+      }),
+    )
 
     await waitFor(() => expect(recorded()).toHaveLength(2))
     expect(recorded()[1]).toEqual({
@@ -195,6 +196,23 @@ describe("useScriptExecution in a session", () => {
     expect(revealOutputs(registered)).toEqual({ url: "https://x", token: "s3cret" })
     // Starting from a saved run is not a run.
     expect(recorded()).toEqual([])
+  })
+
+  it("puts empty outputs in the runbook context for a last run that ended without any", async () => {
+    const { result } = renderBlock({
+      status: "success",
+      exitCode: 0,
+      logs: [LOG],
+      omittedLogLines: 0,
+      logFile: LOG_FILE,
+      outputsOmitted: false,
+      outputs: null,
+      error: null,
+    })
+
+    // As the run did when it ended: blocks that wait on it see it ran.
+    await waitFor(() => expect(result.current.runbook.blockOutputs.deploy).toBeDefined())
+    expect(result.current.runbook.blockOutputs.deploy!.values).toEqual({})
   })
 
   it("starts a block whose run never ended as not run, with an error that says so", () => {

@@ -134,7 +134,14 @@ export interface IpcChannelMap {
   // Execution
   "exec:run": {
     params: ExecRequest
-    result: { status: { status: string; exitCode: number } | null; cancelled?: boolean }
+    /**
+     * A run that finished has a status and its outputs, encoded since a
+     * sensitive output's `Redacted` can't cross IPC (see encodeOutputs). A run
+     * stopped before it finished has neither.
+     */
+    result:
+      | { status: { status: string; exitCode: number }; outputs: EncodedOutputValues }
+      | { status: null; cancelled?: boolean }
   }
   // `executionId` targets a specific run; when omitted, the most-recent active
   // execution is cancelled (back-compat).
@@ -878,6 +885,11 @@ export interface IpcChannelMap {
     params: void
     result: { ok: true; symlinkPath: string }
   }
+  // The command palette's Install / Uninstall: the same flows as the menu
+  // items, which report the outcome (or that there was nothing to do) in a
+  // native dialog rather than to the caller.
+  "cli:install-with-dialog": { params: void; result: { ok: true } }
+  "cli:uninstall-with-dialog": { params: void; result: { ok: true } }
 
   // VCS CLI diagnostics: which provider CLIs are
   // installed, their versions / probe floors, and (Windows) git's TLS
@@ -903,6 +915,9 @@ export interface IpcChannelMap {
     result: { filePaths: string[] }
   }
   "native:open-runbook-dialog": { params: void; result: { ok: boolean } }
+  // The app's version, for the welcome screen and the command palette: the
+  // only places it shows on Windows and Linux, which have no About panel.
+  "native:app-version": { params: void; result: { version: string } }
   "native:close-runbook": { params: void; result: { ok: true } }
   /** Replace the open runbook's session with a new one, as File > Reset Session does. */
   "native:reset-session": { params: void; result: { ok: true } }
@@ -936,9 +951,6 @@ export interface IpcEventMap {
   // can be streaming at once.
   "exec:log": { executionId: string; line: string; timestamp: string; replace?: boolean }
   "exec:log-file": { executionId: string; path: string }
-  "exec:status": { executionId: string; status: string; exitCode: number }
-  /** Encoded, since a sensitive output's `Redacted` can't cross IPC (see encodeOutputs). */
-  "exec:outputs": { executionId: string; outputs: EncodedOutputValues }
   "exec:files-captured": {
     executionId: string
     files: string[]
@@ -973,6 +985,7 @@ export interface IpcEventMap {
   "menu:switch-session": void
   "menu:preferences": void
   "menu:find": { action: FindAction }
+  "menu:open-command-palette": void
   "registry:updated": void
   // Pushed by main on every VCS session-env write:
   // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a

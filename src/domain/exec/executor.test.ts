@@ -55,8 +55,7 @@ async function collectEvents(
         outputPath,
         "/logs/block",
       )
-      const logChunk = yield* Stream.runCollect(logStream)
-      const logEvents = Array.from(logChunk)
+      const logEvents = yield* Stream.runCollect(logStream)
       // Run completion to get remaining events
       const completionEvents = yield* completionEffect
       return [...logEvents, ...completionEvents]

@@ -22,6 +22,7 @@ import { planSecondLaunch, planStartupLaunch } from "./launch-session.ts"
 import { openSessionStorage, type SessionStorage } from "./session-storage.ts"
 import { registerAllIpcHandlers } from "./ipc/index.ts"
 import { checkCliInstall, installCli } from "./cli-install.ts"
+import { installCliWithDialog, uninstallCliWithDialog } from "./cli-install-dialogs.ts"
 import {
   runtime,
   setRunbookConfig,
@@ -316,7 +317,7 @@ setRunbookConfig({
 // Importing ./ipc/index.ts above already wrapped ipcMain.handle with
 // installIpcErrorNormalization() (ipc/ipc-error.ts), so a rejection from
 // these handlers, like every other, crosses to the renderer as a clean
-// message instead of a FiberFailure dump.
+// message.
 // ---------------------------------------------------------------------------
 
 const ALLOWED_EXTERNAL_SCHEMES = new Set(["http:", "https:", "mailto:"])
@@ -393,9 +394,27 @@ ipcMain.handle("native:reset-session", () => {
   return { ok: true } as const
 })
 
+// Unpackaged, app.getVersion() is Electron's own version (there is no
+// package.json beside dist/main/index.js), so read the repo's instead.
+ipcMain.handle("native:app-version", () => {
+  if (app.isPackaged) return { version: app.getVersion() }
+  const pkg = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, "..", "..", "package.json"), "utf8"),
+  ) as { version: string }
+  return { version: pkg.version }
+})
+
 // CLI symlink management
 ipcMain.handle("cli:check-install", () => checkCliInstall())
 ipcMain.handle("cli:install", () => installCli())
+ipcMain.handle("cli:install-with-dialog", async () => {
+  await installCliWithDialog()
+  return { ok: true } as const
+})
+ipcMain.handle("cli:uninstall-with-dialog", async () => {
+  await uninstallCliWithDialog()
+  return { ok: true } as const
+})
 
 // $HOME first, as a shell's ~ is, and as launch-dir.ts reads it.
 ipcMain.handle("native:get-home-dir", () => ({ path: os.homedir() }))

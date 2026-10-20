@@ -3,7 +3,7 @@ import * as fs from "node:fs"
 import * as http from "node:http"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Either } from "effect"
+import { Effect, Result } from "effect"
 import { OAuth2Client, gaxios as gaxiosLib } from "google-auth-library"
 import {
   GoogleSdkClientLive,
@@ -267,11 +267,11 @@ describe("classifyProjectAccessError", () => {
 const run = <A, E>(f: (client: GoogleClientShape) => Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(Effect.provide(Effect.flatMap(GoogleClient, f), GoogleSdkClientLive))
 
-const runEither = <A, E>(
+const runResult = <A, E>(
   f: (client: GoogleClientShape) => Effect.Effect<A, E>,
-): Promise<Either.Either<A, E>> =>
+): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    Effect.provide(Effect.either(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive),
+    Effect.provide(Effect.result(Effect.flatMap(GoogleClient, f)), GoogleSdkClientLive),
   )
 
 /**
@@ -598,9 +598,9 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         },
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
-      if (Either.isLeft(result)) expect(result.left.message).toContain("credential_source")
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure.message).toContain("credential_source")
       expect(hits()).toBe(0)
     })
   })
@@ -615,8 +615,8 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         credential_source: { file: "/etc/hosts", format: { type: "text" } },
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
       expect(hits()).toBe(0)
     })
   })
@@ -636,17 +636,17 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         },
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
       // Assert the POLICY rejected it, not merely that something failed. A bare
       // isLeft() passes with the gate disabled too: the planted refresh_token
       // dies at Google's real token endpoint long before `endpoint` is reached,
       // so that assertion alone proves nothing about the gate.
-      if (Either.isLeft(result)) {
+      if (Result.isFailure(result)) {
         // Only assertGoogleApiUrl phrases a rejection this way, and it names the
         // offending field. (The https: check fires before the host check here,
         // so matching on "not a Google API endpoint" would miss.)
-        expect(result.left.message).toMatch(/credentials document field "endpoint"/)
+        expect(result.failure.message).toMatch(/credentials document field "endpoint"/)
       }
       expect(hits()).toBe(0)
     })
@@ -665,10 +665,10 @@ describe("validateAdcDocument rejects federated credentials that steer the libra
         client_secret: "secret",
       })
 
-      const result = await runEither((client) => client.validateAdcDocument(document))
-      expect(Either.isLeft(result)).toBe(true)
-      if (Either.isLeft(result)) {
-        expect(result.left.message).toMatch(/credentials document field "token_url"/)
+      const result = await runResult((client) => client.validateAdcDocument(document))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure.message).toMatch(/credentials document field "token_url"/)
       }
       expect(hits()).toBe(0)
     })

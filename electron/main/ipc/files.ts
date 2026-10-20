@@ -49,7 +49,7 @@ export function registerFileHandlers(): void {
         // The tree a resumed session's Generated panel shows, built the way
         // boilerplate:render builds it. A failed walk leaves the panel as it is.
         const built = yield* buildFileTree(checked.absoluteOutputPath).pipe(
-          Effect.catchAll(() => Effect.succeed(null)),
+          Effect.catch(() => Effect.succeed(null)),
         )
         return built ? { ...checked, fileTree: built.tree, ...built.meta } : checked
       }),

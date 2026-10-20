@@ -2,7 +2,7 @@ import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { Effect, Either } from "effect"
+import { Effect, Result } from "effect"
 import {
   SSOOIDCClient,
   CreateTokenCommand,
@@ -33,8 +33,8 @@ const SSO_REGION = "ap-southeast-4"
 
 const run = <A, E>(
   f: (client: AwsClientShape) => Effect.Effect<A, E>,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.provide(Effect.either(Effect.flatMap(AwsClient, f)), AwsSdkClientLive))
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(Effect.provide(Effect.result(Effect.flatMap(AwsClient, f)), AwsSdkClientLive))
 
 const exception = <T>(Ctor: new (opts: { message: string; $metadata: object }) => T) =>
   new Ctor({ message: "from AWS", $metadata: {} })
@@ -82,8 +82,8 @@ describe("AwsSdkClient.validateCredentials", () => {
     }) as never)
     spies.push(spy)
     const result = await run((c) => c.validateCredentials(CREDS, "us-east-1"))
-    if (Either.isRight(result)) throw new Error("validation succeeded")
-    return result.left.unreachable
+    if (Result.isSuccess(result)) throw new Error("validation succeeded")
+    return result.failure.unreachable
   }
 
   it("blames the credentials when AWS refuses them", async () => {
@@ -133,7 +133,7 @@ describe("AwsSdkClient.pollSsoToken", () => {
 
     const result = await run((c) => c.pollSsoToken(POLL))
 
-    expect(result).toEqual(Either.right({ accessToken: "sso-token" }))
+    expect(result).toEqual(Result.succeed({ accessToken: "sso-token" }))
     expect(sent).toHaveLength(1)
     expect(sent[0]!.region).toBe(SSO_REGION)
     expect(sent[0]!.command).toBeInstanceOf(CreateTokenCommand)
@@ -143,14 +143,14 @@ describe("AwsSdkClient.pollSsoToken", () => {
     stub(SSOOIDCClient, () => {
       throw exception(AuthorizationPendingException)
     })
-    expect(await run((c) => c.pollSsoToken(POLL))).toEqual(Either.right({ pending: true }))
+    expect(await run((c) => c.pollSsoToken(POLL))).toEqual(Result.succeed({ pending: true }))
   })
 
   it("is pending, not failed, when AWS asks the client to slow down", async () => {
     stub(SSOOIDCClient, () => {
       throw exception(SlowDownException)
     })
-    expect(await run((c) => c.pollSsoToken(POLL))).toEqual(Either.right({ pending: true }))
+    expect(await run((c) => c.pollSsoToken(POLL))).toEqual(Result.succeed({ pending: true }))
   })
 
   it("explains a denied sign-in", async () => {
@@ -158,8 +158,8 @@ describe("AwsSdkClient.pollSsoToken", () => {
       throw exception(AccessDeniedException)
     })
     const result = await run((c) => c.pollSsoToken(POLL))
-    expect(Either.isLeft(result) && result.left._tag).toBe("AwsSsoError")
-    expect(Either.isLeft(result) && result.left.message).toBe(
+    expect(Result.isFailure(result) && result.failure._tag).toBe("AwsSsoError")
+    expect(Result.isFailure(result) && result.failure.message).toBe(
       "SSO sign-in was denied or cancelled in the browser",
     )
   })
@@ -169,7 +169,7 @@ describe("AwsSdkClient.pollSsoToken", () => {
       throw exception(ExpiredTokenException)
     })
     const result = await run((c) => c.pollSsoToken(POLL))
-    expect(Either.isLeft(result) && result.left.message).toBe(
+    expect(Result.isFailure(result) && result.failure.message).toBe(
       "The SSO sign-in request expired. Please try again.",
     )
   })
@@ -179,8 +179,8 @@ describe("AwsSdkClient.pollSsoToken", () => {
       throw new Error("socket hang up")
     })
     const result = await run((c) => c.pollSsoToken(POLL))
-    expect(Either.isLeft(result) && result.left.message).toContain("Failed to poll SSO token")
-    expect(Either.isLeft(result) && result.left.message).toContain("socket hang up")
+    expect(Result.isFailure(result) && result.failure.message).toContain("Failed to poll SSO token")
+    expect(Result.isFailure(result) && result.failure.message).toContain("socket hang up")
   })
 })
 
@@ -198,7 +198,7 @@ describe("AwsSdkClient.listSsoAccounts", () => {
     const result = await run((c) => c.listSsoAccounts("sso-token", SSO_REGION))
 
     expect(result).toEqual(
-      Either.right([
+      Result.succeed([
         { accountId: "111111111111", accountName: "prod", emailAddress: "p@x" },
         { accountId: "222222222222", accountName: "dev", emailAddress: undefined },
       ]),
@@ -223,7 +223,7 @@ describe("AwsSdkClient.listSsoRoles", () => {
     const result = await run((c) => c.listSsoRoles("sso-token", "111111111111", SSO_REGION))
 
     expect(result).toEqual(
-      Either.right([
+      Result.succeed([
         { roleName: "ReadOnly", accountId: "111111111111" },
         { roleName: "Admin", accountId: "111111111111" },
       ]),
@@ -255,7 +255,7 @@ describe("AwsSdkClient.completeSsoAuth", () => {
     const result = await run((c) => c.completeSsoAuth({ ...COMPLETE, region: SSO_REGION }))
 
     expect(result).toEqual(
-      Either.right({
+      Result.succeed({
         accessKeyId: "ASIA_ROLE",
         secretAccessKey: "role-secret",
         sessionToken: "role-token",
@@ -272,7 +272,7 @@ describe("AwsSdkClient.completeSsoAuth", () => {
 
     const result = await run((c) => c.completeSsoAuth({ ...COMPLETE, region: SSO_REGION }))
 
-    expect(Either.isRight(result) && result.right.expiresAt).toBeUndefined()
+    expect(Result.isSuccess(result) && result.success.expiresAt).toBeUndefined()
   })
 })
 
@@ -314,7 +314,7 @@ describe("AwsSdkClient local profiles", () => {
       writeCredentials(`[default]\n${keys("AKIA_DEFAULT")}\n[staging]\n${keys("AKIA_STAGING")}`)
 
       expect(await run((c) => c.listProfiles())).toEqual(
-        Either.right([
+        Result.succeed([
           { name: "default", region: "us-west-2", authType: "static" },
           { name: "staging", region: "eu-west-1", authType: "static" },
         ]),
@@ -326,7 +326,7 @@ describe("AwsSdkClient local profiles", () => {
       writeCredentials(`[acme.prod]\n${keys("AKIA_ACME")}`)
 
       expect(await run((c) => c.listProfiles())).toEqual(
-        Either.right([{ name: "acme.prod", region: "eu-central-1", authType: "static" }]),
+        Result.succeed([{ name: "acme.prod", region: "eu-central-1", authType: "static" }]),
       )
     })
 
@@ -360,8 +360,8 @@ describe("AwsSdkClient local profiles", () => {
 
       const result = await run((c) => c.listProfiles())
 
-      expect(Either.isRight(result)).toBe(true)
-      const byName = Object.fromEntries(Either.getOrThrow(result).map((p) => [p.name, p.authType]))
+      expect(Result.isSuccess(result)).toBe(true)
+      const byName = Object.fromEntries(Result.getOrThrow(result).map((p) => [p.name, p.authType]))
       expect(byName).toEqual({
         "sso-new": "sso",
         "sso-legacy": "sso",
@@ -374,17 +374,17 @@ describe("AwsSdkClient local profiles", () => {
     it("re-reads the files on every call, so a refresh sees edits", async () => {
       writeCredentials(`[first]\n${keys("AKIA_FIRST")}`)
       expect(await run((c) => c.listProfiles())).toEqual(
-        Either.right([{ name: "first", region: undefined, authType: "static" }]),
+        Result.succeed([{ name: "first", region: undefined, authType: "static" }]),
       )
 
       writeCredentials(`[second]\n${keys("AKIA_SECOND")}`)
       expect(await run((c) => c.listProfiles())).toEqual(
-        Either.right([{ name: "second", region: undefined, authType: "static" }]),
+        Result.succeed([{ name: "second", region: undefined, authType: "static" }]),
       )
     })
 
     it("lists nothing when neither file exists", async () => {
-      expect(await run((c) => c.listProfiles())).toEqual(Either.right([]))
+      expect(await run((c) => c.listProfiles())).toEqual(Result.succeed([]))
     })
   })
 
@@ -398,7 +398,7 @@ describe("AwsSdkClient local profiles", () => {
       const result = await run((c) => c.authenticateProfile("acme.prod"))
 
       expect(result).toEqual(
-        Either.right({
+        Result.succeed({
           accessKeyId: "AKIA_ACME",
           secretAccessKey: "secret-AKIA_ACME",
           sessionToken: undefined,
@@ -414,7 +414,7 @@ describe("AwsSdkClient local profiles", () => {
 
       const result = await run((c) => c.authenticateProfile("dev"))
 
-      expect(Either.isRight(result) && result.right.region).toBe("ap-south-1")
+      expect(Result.isSuccess(result) && result.success.region).toBe("ap-south-1")
     })
 
     it("returns an empty region when the profile names none, rather than guessing one", async () => {
@@ -422,7 +422,7 @@ describe("AwsSdkClient local profiles", () => {
 
       const result = await run((c) => c.authenticateProfile("dev"))
 
-      expect(Either.isRight(result) && result.right.region).toBe("")
+      expect(Result.isSuccess(result) && result.success.region).toBe("")
     })
 
     it("returns when a profile's temporary credentials expire", async () => {
@@ -445,7 +445,7 @@ describe("AwsSdkClient local profiles", () => {
       const result = await run((c) => c.authenticateProfile("proc"))
 
       expect(result).toEqual(
-        Either.right({
+        Result.succeed({
           accessKeyId: "ASIA_PROC",
           secretAccessKey: "proc-secret",
           sessionToken: "proc-token",
@@ -460,7 +460,7 @@ describe("AwsSdkClient local profiles", () => {
 
       const result = await run((c) => c.authenticateProfile("dev"))
 
-      expect(Either.isRight(result) && result.right.expiresAt).toBeUndefined()
+      expect(Result.isSuccess(result) && result.success.expiresAt).toBeUndefined()
     })
   })
 })
@@ -477,13 +477,13 @@ describe("AwsSdkClient.checkRegion", () => {
   it("fails open: an error from GetRegionOptStatus reports the region as enabled", async () => {
     stubAccount(() => Promise.reject(new Error("AccessDeniedException")))
 
-    expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Either.right(true))
+    expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Result.succeed(true))
   })
 
   it("reports a disabled region as not enabled", async () => {
     const spy = stubAccount(() => Promise.resolve({ RegionOptStatus: "DISABLED" }))
 
-    expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Either.right(false))
+    expect(await run((c) => c.checkRegion("ap-east-1", CREDS))).toEqual(Result.succeed(false))
     const command = spy.mock.calls[0]![0] as unknown as GetRegionOptStatusCommand
     expect(command).toBeInstanceOf(GetRegionOptStatusCommand)
     expect(command.input).toEqual({ RegionName: "ap-east-1" })
@@ -492,6 +492,6 @@ describe("AwsSdkClient.checkRegion", () => {
   it("reports an enabled-by-default region as enabled", async () => {
     stubAccount(() => Promise.resolve({ RegionOptStatus: "ENABLED_BY_DEFAULT" }))
 
-    expect(await run((c) => c.checkRegion("us-west-2", CREDS))).toEqual(Either.right(true))
+    expect(await run((c) => c.checkRegion("us-west-2", CREDS))).toEqual(Result.succeed(true))
   })
 })

@@ -115,10 +115,10 @@ describe("SessionStore over node:sqlite", () => {
     Effect.runSync(store.insert(session))
 
     const duplicate = Effect.runSync(
-      Effect.either(store.insert({ ...session, worktrees: ["/other"] })),
+      Effect.result(store.insert({ ...session, worktrees: ["/other"] })),
     )
 
-    expect(duplicate).toMatchObject({ _tag: "Left", left: { _tag: "SessionStoreError" } })
+    expect(duplicate).toMatchObject({ _tag: "Failure", failure: { _tag: "SessionStoreError" } })
     expect(Effect.runSync(store.get("s1"))?.worktrees).toEqual(session.worktrees)
     Effect.runSync(store.close())
   })

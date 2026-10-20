@@ -96,10 +96,10 @@ describe("SessionStore", () => {
     // The session row goes in, then a worktree path the schema refuses.
     const broken = record({ worktrees: [null as unknown as string] })
 
-    const failed = run(Effect.either(store.insert(broken)))
+    const failed = run(Effect.result(store.insert(broken)))
 
-    expect(failed).toMatchObject({ _tag: "Left", left: { _tag: "SessionStoreError" } })
-    expect(String((failed as { left: Error }).left.message)).toStartWith(
+    expect(failed).toMatchObject({ _tag: "Failure", failure: { _tag: "SessionStoreError" } })
+    expect(String((failed as { failure: Error }).failure.message)).toStartWith(
       "failed to save a new session:",
     )
     expect(run(store.get("s1"))).toBeUndefined()

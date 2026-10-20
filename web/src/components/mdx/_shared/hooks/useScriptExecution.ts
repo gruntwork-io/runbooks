@@ -317,16 +317,13 @@ export function useScriptExecution({
     [updateGeneratedFileTree, invalidateGitFileTree],
   )
 
-  // Whether the current run has delivered outputs. Set as they arrive and
-  // cleared when a run starts, so the effect that withdraws a finished run's
-  // outputs can tell when it is acting on a render from before they arrived.
-  const outputsCapturedRef = useRef(false)
-
-  // Callback to handle outputs captured from script execution
-  const handleOutputsCaptured = useCallback(
+  // Publishes a finished run's outputs for other blocks to read. This is the
+  // only place a run writes them. A run that published none registers an
+  // empty map, which withdraws the outputs of the run before it and tells
+  // downstream watchers (e.g. AwsAuth block-based detection) "ran but produced
+  // no outputs" (an empty entry) apart from "hasn't run yet" (no entry).
+  const handleFinished = useCallback(
     (outputValues: OutputValues) => {
-      outputsCapturedRef.current = true
-      // Register outputs in the runbook context so other blocks can access them
       registerOutputs(componentId, outputValues)
     },
     [componentId, registerOutputs],
@@ -610,10 +607,15 @@ export function useScriptExecution({
 
   // The block's last run, from the session's history. The block starts from
   // it, and its outputs go back in the runbook context for the blocks that
-  // read them.
+  // read them. A run that ended without outputs registers an empty map, as
+  // handleFinished did when it ended.
   const [restoredRun] = useState(() => restoreRun(history.saved(componentId, "run")))
   useEffect(() => {
-    if (restoredRun?.outputs) registerOutputs(componentId, restoredRun.outputs)
+    const ended =
+      restoredRun?.status === "success" ||
+      restoredRun?.status === "warn" ||
+      restoredRun?.status === "fail"
+    if (ended) registerOutputs(componentId, restoredRun.outputs ?? {})
   }, [restoredRun, componentId, registerOutputs])
 
   const handleRunStarted = useCallback(() => {
@@ -628,14 +630,14 @@ export function useScriptExecution({
   )
 
   // Files written to $GENERATED_FILES are auto-captured after successful execution:
-  // onFilesCaptured updates the file tree, onOutputsCaptured registers outputs.
+  // onFilesCaptured updates the file tree, onFinished registers outputs.
   const {
     state: execState,
     execute: executeScript,
     cancel: cancelExec,
   } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
-    onOutputsCaptured: handleOutputsCaptured,
+    onFinished: handleFinished,
     initialState: restoredRun,
     onRunStarted: handleRunStarted,
     onRunEnded: handleRunEnded,
@@ -657,22 +659,6 @@ export function useScriptExecution({
   useEffect(() => {
     registerLogs(componentId, logs)
   }, [componentId, logs, registerLogs])
-
-  // When execution finishes without producing outputs, register an empty outputs map.
-  // This lets downstream watchers (e.g. AwsAuth block-based detection) distinguish
-  // "block hasn't run yet" (no entry in blockOutputs) from "block ran but produced
-  // no outputs" (entry exists with empty values).
-  //
-  // `outputs` can be out of date here. Main sends exec:status before
-  // exec:outputs, and React can run the success render's effects after the
-  // outputs have arrived and been registered. Registering {} then would wipe
-  // them, and downstream blocks would wait on a block that shows its outputs.
-  useEffect(() => {
-    const isTerminal = status === "success" || status === "fail" || status === "warn"
-    if (isTerminal && outputs === null && !outputsCapturedRef.current) {
-      registerOutputs(componentId, {})
-    }
-  }, [status, outputs, componentId, registerOutputs])
 
   // Trigger immediate changelog refresh when execution completes successfully.
   // Scripts may write directly to $REPO_FILES without using $GENERATED_FILES,
@@ -869,8 +855,6 @@ export function useScriptExecution({
       return
     }
 
-    // A new run: its outputs, if it has any, are still to come
-    outputsCapturedRef.current = false
     executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
   }, [
     executeScript,

@@ -8,14 +8,14 @@ import {
 } from "./history.ts"
 
 const parse = (request: Parameters<typeof parseSessionEvent>[0]) =>
-  Effect.runSync(Effect.either(parseSessionEvent(request)))
+  Effect.runSync(Effect.result(parseSessionEvent(request)))
 
 /** The message parseSessionEvent refuses `request` with. */
 function refusal(request: Parameters<typeof parseSessionEvent>[0]): string {
   const result = parse(request)
-  if (result._tag === "Right") throw new Error("the event was accepted")
-  expect(result.left._tag).toBe("SessionEventError")
-  return result.left.message
+  if (result._tag === "Success") throw new Error("the event was accepted")
+  expect(result.failure._tag).toBe("SessionEventError")
+  return result.failure.message
 }
 
 describe("parseSessionEvent", () => {
@@ -27,8 +27,8 @@ describe("parseSessionEvent", () => {
     })
 
     expect(result).toMatchObject({
-      _tag: "Right",
-      right: {
+      _tag: "Success",
+      success: {
         blockId: "config",
         kind: "inputs",
         payload: '{"values":{"region":"us-east-1","count":2,"tags":["a"]},"submitted":true}',
@@ -41,7 +41,7 @@ describe("parseSessionEvent", () => {
     expect(refusal({ blockId: 7, kind: "run", payload: {} })).toContain("the id of its block")
 
     const longest = "b".repeat(SESSION_EVENT_BLOCK_ID_MAX_LENGTH)
-    expect(parse({ blockId: longest, kind: "run", payload: {} })._tag).toBe("Right")
+    expect(parse({ blockId: longest, kind: "run", payload: {} })._tag).toBe("Success")
     expect(refusal({ blockId: `${longest}b`, kind: "run", payload: {} })).toContain(
       `at most ${SESSION_EVENT_BLOCK_ID_MAX_LENGTH} characters`,
     )
@@ -69,7 +69,7 @@ describe("parseSessionEvent", () => {
   it("refuses a payload longer than the limit, without repeating it", () => {
     // A JSON string is its characters and two quotes.
     const fits = "x".repeat(SESSION_EVENT_PAYLOAD_MAX_LENGTH - 2)
-    expect(parse({ blockId: "deploy", kind: "run", payload: fits })._tag).toBe("Right")
+    expect(parse({ blockId: "deploy", kind: "run", payload: fits })._tag).toBe("Success")
 
     const message = refusal({ blockId: "deploy", kind: "run", payload: `${fits}x` })
     expect(message).toContain(`${SESSION_EVENT_PAYLOAD_MAX_LENGTH + 1} characters of JSON`)

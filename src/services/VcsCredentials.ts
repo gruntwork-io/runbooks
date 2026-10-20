@@ -159,7 +159,6 @@ export interface VcsCredentialsShape {
   readonly markTransportDegraded: (host: string, code: string) => Effect.Effect<void>
 }
 
-export class VcsCredentials extends Context.Tag("VcsCredentials")<
-  VcsCredentials,
-  VcsCredentialsShape
->() {}
+export class VcsCredentials extends Context.Service<VcsCredentials, VcsCredentialsShape>()(
+  "VcsCredentials",
+) {}

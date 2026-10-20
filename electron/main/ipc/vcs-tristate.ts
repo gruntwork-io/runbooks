@@ -11,7 +11,7 @@
 import { Effect, Exit } from "effect"
 import { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } from "./runtime.ts"
 import type { GitProvider } from "./runtime.ts"
-import { VcsCredentials } from "../../../src/services/VcsCredentials.ts"
+import { VcsCredentials, type VcsCredentialsShape } from "../../../src/services/VcsCredentials.ts"
 import type {
   DetectionResult,
   VcsCredentialSource,
@@ -67,7 +67,7 @@ export async function appendSessionEnvAndRecord(
   return undefined
 }
 
-export const withVcs = <A>(use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>): Promise<A> =>
+export const withVcs = <A>(use: (vcs: VcsCredentialsShape) => Effect.Effect<A>): Promise<A> =>
   runtime.runPromise(Effect.flatMap(VcsCredentials, use))
 
 /**

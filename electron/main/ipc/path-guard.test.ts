@@ -65,15 +65,15 @@ describe("validateSessionPath", () => {
     setRunbookConfig(savedConfig)
   })
 
-  const validate = (p: string) => Effect.runPromise(Effect.either(validateSessionPath(p)))
+  const validate = (p: string) => Effect.runPromise(Effect.result(validateSessionPath(p)))
 
   it("rejects a path in the session that is a symlink to outside it", async () => {
     // workspace:register with this path would otherwise make all of outside/
     // a trusted root.
     for (const p of [path.join(work, "link"), path.join(work, "link", "secret.txt")]) {
       const result = await validate(p)
-      expect(result._tag).toBe("Left")
-      if (result._tag === "Left") expect(result.left._tag).toBe("PathTraversalError")
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") expect(result.failure._tag).toBe("PathTraversalError")
     }
   })
 
@@ -81,9 +81,9 @@ describe("validateSessionPath", () => {
     // git:local-repo registers the local checkout picked in a <GitClone> block.
     sessionManager.registerWorkTreePath(outside)
     const result = await validate(outside)
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") expect(result.right).toBe(outside)
-    expect((await validate(path.join(outside, "secret.txt")))._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") expect(result.success).toBe(outside)
+    expect((await validate(path.join(outside, "secret.txt")))._tag).toBe("Success")
   })
 
   it("accepts the session's own directory after a script moved the working directory out of it", async () => {
@@ -110,17 +110,18 @@ describe("validateSessionPath", () => {
 
     const generated = await validate(path.join(sessionDir, "generated"))
 
-    expect(generated._tag).toBe("Right")
-    expect((await validate(path.join(sessionDir, "escape", "secret.txt")))._tag).toBe("Left")
-    expect((await validate(path.join(root, "sessions", "s2")))._tag).toBe("Left")
+    expect(generated._tag).toBe("Success")
+    expect((await validate(path.join(sessionDir, "escape", "secret.txt")))._tag).toBe("Failure")
+    expect((await validate(path.join(root, "sessions", "s2")))._tag).toBe("Failure")
   })
 
   it("resolves a relative path against the runbook directory and returns it", async () => {
     // Callers must use the returned path: the raw relative path would be
     // resolved against the process cwd ("/" for a Finder-launched app).
     const result = await validate("Users/me/.ssh")
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") expect(result.right).toBe(path.join(work, "Users", "me", ".ssh"))
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success")
+      expect(result.success).toBe(path.join(work, "Users", "me", ".ssh"))
   })
 })
 
@@ -134,15 +135,15 @@ describe("validateCloneDestination", () => {
           "https://github.com/acme/repo.git",
           workingDir,
         )
-        return yield* Effect.either(validateCloneDestination(absolutePath, workingDir, runbookPath))
+        return yield* Effect.result(validateCloneDestination(absolutePath, workingDir, runbookPath))
       }),
     )
 
   const expectRejected = async (result: Awaited<ReturnType<typeof check>>, message: string) => {
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("PathTraversalError")
-      expect(result.left.message).toContain(message)
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("PathTraversalError")
+      expect(result.failure.message).toContain(message)
     }
   }
 
@@ -175,15 +176,15 @@ describe("validateCloneDestination", () => {
   })
 
   it.each(["repo", "nested/repo", undefined])("accepts %p", async (localPath) => {
-    expect((await check(localPath))._tag).toBe("Right")
+    expect((await check(localPath))._tag).toBe("Success")
   })
 
   it("accepts a sibling of the runbook's directory from a parent working dir", async () => {
-    expect((await check("other", root))._tag).toBe("Right")
+    expect((await check("other", root))._tag).toBe("Success")
   })
 
   it("skips the runbook check when the session has no runbook", async () => {
-    expect((await check("work", root, ""))._tag).toBe("Right")
+    expect((await check("work", root, ""))._tag).toBe("Success")
   })
 })
 

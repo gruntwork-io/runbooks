@@ -140,8 +140,8 @@ describe("SessionPersistence", () => {
   describe("renameCurrent", () => {
     /** The failure a rename ends in, as the IPC handler's caller sees it. */
     const renameFailure = async (app: ReturnType<typeof startApp>, name: string) => {
-      const exit = await run(Effect.either(app.persistence.renameCurrent(name)))
-      return exit._tag === "Left" ? exit.left : undefined
+      const exit = await run(Effect.result(app.persistence.renameCurrent(name)))
+      return exit._tag === "Failure" ? exit.failure : undefined
     }
 
     it("renames the open session, and the name is still there after a restart", async () => {
@@ -693,9 +693,9 @@ describe("SessionPersistence", () => {
     })
 
     it("fails while no session is open", async () => {
-      const result = await run(Effect.either(startApp().persistence.finishCurrent()))
+      const result = await run(Effect.result(startApp().persistence.finishCurrent()))
 
-      expect(result).toMatchObject({ _tag: "Left", left: { _tag: "SessionNotFoundError" } })
+      expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "SessionNotFoundError" } })
     })
   })
 
@@ -722,11 +722,11 @@ describe("SessionPersistence", () => {
       await app.open({ startNew: true })
       moveToTrash = () => Promise.reject(new Error("no trash on this volume"))
 
-      const result = await run(Effect.either(app.persistence.deleteSession(old.id)))
+      const result = await run(Effect.result(app.persistence.deleteSession(old.id)))
 
       expect(result).toMatchObject({
-        _tag: "Left",
-        left: {
+        _tag: "Failure",
+        failure: {
           _tag: "SessionDeleteError",
           message:
             "The session's files could not be moved to the trash, so it was not deleted (no trash on this volume).",
@@ -756,11 +756,11 @@ describe("SessionPersistence", () => {
       const app = startApp()
       const open = await app.open()
 
-      const result = await run(Effect.either(app.persistence.deleteSession(open.id)))
+      const result = await run(Effect.result(app.persistence.deleteSession(open.id)))
 
       expect(result).toMatchObject({
-        _tag: "Left",
-        left: {
+        _tag: "Failure",
+        failure: {
           _tag: "SessionDeleteError",
           message: "This session is open. Switch to another session before deleting it.",
         },

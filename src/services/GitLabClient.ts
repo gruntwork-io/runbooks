@@ -89,4 +89,6 @@ export interface GitLabClientShape {
   ) => Effect.Effect<string[], GitLabApiError>
 }
 
-export class GitLabClient extends Context.Tag("GitLabClient")<GitLabClient, GitLabClientShape>() {}
+export class GitLabClient extends Context.Service<GitLabClient, GitLabClientShape>()(
+  "GitLabClient",
+) {}

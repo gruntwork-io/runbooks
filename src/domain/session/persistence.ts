@@ -115,7 +115,7 @@ export class SessionPersistence {
 
   /** The most recently used saved sessions, at most MAX_LISTED_SESSIONS, most recent first. */
   listSessions() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const fs = yield* FileSystem
       const listed: ListedSession[] = []
       for (const session of yield* this.options.store.list(MAX_LISTED_SESSIONS)) {
@@ -140,7 +140,7 @@ export class SessionPersistence {
    * the trash. Nothing is deleted then.
    */
   deleteSession(id: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (id === this.current?.id) {
         return yield* new SessionDeleteError({
           message: "This session is open. Switch to another session before deleting it.",
@@ -173,7 +173,7 @@ export class SessionPersistence {
    * `request` names that session.
    */
   open(request: OpenSessionRequest) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const { store, manager } = this.options
       const saved = yield* this.findSaved(request)
       const now = new Date()
@@ -267,7 +267,7 @@ export class SessionPersistence {
    * Fails with a SessionNotFoundError when no session is open.
    */
   finishCurrent() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const current = this.current
       if (current === undefined) return yield* new SessionNotFoundError()
       yield* this.options.store.markFinished(current.id, new Date().toISOString())
@@ -283,7 +283,7 @@ export class SessionPersistence {
    * SessionNotFoundError when no session is open.
    */
   renameCurrent(requested: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const current = this.current
       if (current === undefined) return yield* new SessionNotFoundError()
 
@@ -316,7 +316,7 @@ export class SessionPersistence {
       this.options.store
         .saveVcsBindings(current.id, bindings)
         .pipe(
-          Effect.catchAllCause((cause) =>
+          Effect.catchCause((cause) =>
             Effect.sync(() => this.options.onSaveError(Cause.squash(cause))),
           ),
         ),
@@ -336,7 +336,7 @@ export class SessionPersistence {
    * (parseSessionEvent).
    */
   recordEvent(sessionId: string, request: SessionEventRequest) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const event = yield* parseSessionEvent(request)
       if (this.current?.id !== sessionId) return
       const { store, cipher, onSaveError } = this.options
@@ -356,7 +356,7 @@ export class SessionPersistence {
         )
       })
       yield* saved.pipe(
-        Effect.catchAllCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause)))),
+        Effect.catchCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause)))),
       )
     })
   }
@@ -367,7 +367,7 @@ export class SessionPersistence {
    * left out, and its block starts over.
    */
   blockStates() {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const states: SavedBlockState[] = []
       if (this.current === undefined) return states
       for (const event of yield* this.options.store.latestEvents(this.current.id)) {
@@ -387,7 +387,7 @@ export class SessionPersistence {
    * list never runs out.
    */
   private newName(id: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const candidates = sessionNameCandidates(this.options.random, id)
       for (const candidate of candidates) {
         if (!(yield* this.options.store.isNameTaken(candidate))) return candidate
@@ -397,7 +397,7 @@ export class SessionPersistence {
   }
 
   private findSaved(request: OpenSessionRequest) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       if (request.startNew) return undefined
       if (request.sessionId !== undefined) {
         const session = yield* this.options.store.get(request.sessionId)
@@ -414,7 +414,7 @@ export class SessionPersistence {
    * directory, and deleted worktrees are dropped.
    */
   private restoreState(saved: SessionRecord, dir: string) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const worktrees: string[] = []
       for (const worktree of saved.worktrees) {
         if (yield* isDirectory(worktree)) worktrees.push(worktree)
@@ -432,7 +432,7 @@ export class SessionPersistence {
   }
 
   private restoreEnv(encrypted: Uint8Array | undefined) {
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const env = this.decryptEnv(encrypted)
       const fs = yield* FileSystem
       for (const name of this.options.ephemeralFileEnvVars) {
@@ -482,9 +482,7 @@ export class SessionPersistence {
       }),
     )
     Effect.runSync(
-      saved.pipe(
-        Effect.catchAllCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause)))),
-      ),
+      saved.pipe(Effect.catchCause((cause) => Effect.sync(() => onSaveError(Cause.squash(cause))))),
     )
   }
 
@@ -507,7 +505,7 @@ function isDirectory(dir: string) {
     const fs = yield* FileSystem
     return yield* fs.stat(dir).pipe(
       Effect.map((stat) => stat.isDirectory),
-      Effect.catchAll(() => Effect.succeed(false)),
+      Effect.catch(() => Effect.succeed(false)),
     )
   })
 }

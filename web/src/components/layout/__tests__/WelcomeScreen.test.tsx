@@ -10,6 +10,7 @@ function renderWelcome(install: () => Promise<unknown>) {
     if (channel === "cli:check-install") return { installed: false, platform: "darwin" }
     if (channel === "cli:install") return install()
     if (channel === "native:set-theme") return { ok: true }
+    if (channel === "native:app-version") return { version: "1.2.3" }
     throw new Error(`No mock response for channel: ${channel}`)
   })
   const api = { invoke, on: () => () => {} } as unknown as RunbooksAPI
@@ -29,6 +30,13 @@ async function clickInstall() {
   fireEvent.click(button)
   return button
 }
+
+describe("WelcomeScreen", () => {
+  it("shows the app version", async () => {
+    renderWelcome(() => Promise.resolve({ ok: true, symlinkPath: "/usr/local/bin/runbooks" }))
+    expect(await screen.findByText("Runbooks v1.2.3")).toBeInTheDocument()
+  })
+})
 
 describe("WelcomeScreen CLI install", () => {
   it("shows why the install failed, without Electron's IPC wrapper", async () => {

@@ -195,4 +195,6 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GoogleProjectAccess, GoogleAuthError>
 }
 
-export class GoogleClient extends Context.Tag("GoogleClient")<GoogleClient, GoogleClientShape>() {}
+export class GoogleClient extends Context.Service<GoogleClient, GoogleClientShape>()(
+  "GoogleClient",
+) {}

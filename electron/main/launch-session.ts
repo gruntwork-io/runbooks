@@ -84,7 +84,7 @@ export function sessionToResume(
 ): SessionRecord | undefined {
   const session = Effect.runSync(
     persistence.findForLaunch(launchDir).pipe(
-      Effect.catchAll((err) =>
+      Effect.catch((err) =>
         Effect.sync(() => {
           log.error("Can't look up the session to resume:", err)
           return undefined

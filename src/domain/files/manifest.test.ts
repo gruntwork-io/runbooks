@@ -362,13 +362,13 @@ describe("applyDiffFromContent", () => {
       const result = await Effect.runPromise(
         applyDiffFromContent(diff, new Map([[pathValue, "x"]]), outputDir).pipe(
           Effect.provide(NodeFileSystemLive),
-          Effect.either,
+          Effect.result,
         ),
       )
 
-      expect(result._tag).toBe("Left")
-      if (result._tag === "Left") {
-        expect((result.left as unknown as { _tag: string })._tag).toBe("PathTraversalError")
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") {
+        expect((result.failure as unknown as { _tag: string })._tag).toBe("PathTraversalError")
       }
       // The tripwire file must still exist.
       expect(nodeFs.existsSync(tripwire)).toBe(true)

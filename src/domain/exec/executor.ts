@@ -257,12 +257,12 @@ export const executeScript = (
     // sees it. The kill also ends `output`, which unblocks the log drain.
     const timedOutRef = yield* Ref.make(false)
     yield* process.exitCode.pipe(
-      Effect.timeoutFail({
+      Effect.timeoutOrElse({
         duration: effectiveTimeoutMs,
-        onTimeout: () => new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs }),
+        orElse: () => Effect.fail(new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs })),
       }),
       Effect.catchTag("ExecTimeoutError", () =>
-        Ref.set(timedOutRef, true).pipe(Effect.zipRight(process.kill)),
+        Ref.set(timedOutRef, true).pipe(Effect.andThen(process.kill)),
       ),
       Effect.forkScoped,
     )
@@ -283,7 +283,7 @@ export const executeScript = (
 
     // Build completion events as an Effect that runs after logs drain.
     // We return logStream and completionEffect separately because
-    // Stream.concat is unreliable within forkDaemon + Effect.scoped —
+    // Stream.concat is unreliable within forkDetach + Effect.scoped —
     // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
       const exitCode = yield* process.exitCode
@@ -330,7 +330,7 @@ export const executeScript = (
 
       if (isSuccessOrWarn) {
         const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(filesDir, outputPath).pipe(
-          Effect.catchAll(() => Effect.succeed([] as CapturedFile[])),
+          Effect.catch(() => Effect.succeed([] as CapturedFile[])),
         )
 
         if (capturedFiles.length > 0) {
@@ -339,7 +339,7 @@ export const executeScript = (
           // captured files. A failed walk must not fail a successful run; the
           // event then carries no tree and the panel keeps what it had.
           const built = yield* buildFileTree(outputPath).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catch(() => Effect.succeed(null)),
           )
           events.push({
             _tag: "files_captured",

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Ref,
+} from "react"
 import { ChevronDown, ChevronUp, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useApi } from "@/contexts/ApiContext"
@@ -16,26 +24,43 @@ import "./FindBar.css"
 const RESCAN_DELAY_MS = 150
 
 /**
+ * Marks a modal dialog the bar waits out rather than closes for: one gone
+ * again in a moment, such as the command palette, which can itself open the
+ * bar and shouldn't lose its matches on the way.
+ */
+export const FIND_BAR_WAITS_ATTRIBUTE = "data-find-bar-waits"
+
+/**
  * Whether a modal dialog (such as maximized logs) has taken over the page:
  * focus is in a dialog, and the rest of the page, `bar` included, is hidden
  * from assistive technology or inert. A popover is a dialog that hides
- * nothing, and a menu hides the page but isn't a dialog, so neither counts.
+ * nothing, and a menu hides the page but isn't a dialog, so neither counts,
+ * nor does a dialog marked with FIND_BAR_WAITS_ATTRIBUTE.
  */
 function coveredByModal(bar: Element): boolean {
-  return (
-    bar.closest('[aria-hidden="true"], [inert]') !== null &&
-    !!document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')
-  )
+  if (bar.closest('[aria-hidden="true"], [inert]') === null) return false
+  const dialog = document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')
+  return dialog != null && !dialog.hasAttribute(FIND_BAR_WAITS_ATTRIBUTE)
+}
+
+/** What the rest of the renderer can ask of the find bar. */
+export interface FindBarHandle {
+  /**
+   * Open the bar, or focus its input again when it is already open, like
+   * Find…. With `text`, search for it instead of the kept query.
+   */
+  open: (text?: string) => void
 }
 
 /**
- * The find-in-page bar, opened by Edit > Find… (Cmd/Ctrl+F). It searches the
- * rendered page, highlights every match, and steps through them with Enter /
- * Shift+Enter, the buttons, or Edit > Find Next / Find Previous
- * (Cmd/Ctrl+G / Shift+Cmd/Ctrl+G). Escape closes it. See lib/findInPage for
- * why this doesn't use webContents.findInPage.
+ * The find-in-page bar, opened by Edit > Find… (Cmd/Ctrl+F) or through `ref`
+ * (the command palette). It searches the rendered page, highlights every
+ * match, and steps through them with Enter / Shift+Enter, the buttons, or
+ * Edit > Find Next / Find Previous (Cmd/Ctrl+G / Shift+Cmd/Ctrl+G). Escape
+ * closes it. See lib/findInPage for why this doesn't use
+ * webContents.findInPage.
  */
-export function FindBar() {
+export function FindBar({ ref }: { ref?: Ref<FindBarHandle> }) {
   const api = useApi()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -134,6 +159,26 @@ export function FindBar() {
         else step(action === "next" ? 1 : -1)
       }),
     [api, openBar, step],
+  )
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: (text) => {
+        if (text === undefined) {
+          openBar()
+          return
+        }
+        queryRef.current = text
+        setQuery(text)
+        // Opening searches the kept query itself (the reopen effect below);
+        // an already open bar needs the search run here.
+        const wasOpen = openRef.current
+        openBar()
+        if (wasOpen) search(text, true)
+      },
+    }),
+    [openBar, search],
   )
 
   // Focus the input, with its text selected, on open and on every Find….

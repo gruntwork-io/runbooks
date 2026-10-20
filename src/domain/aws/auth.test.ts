@@ -336,7 +336,7 @@ describe("pollSsoFlow", () => {
 
   const failureMessage = (exit: Exit.Exit<unknown, unknown>) => {
     if (!Exit.isFailure(exit)) throw new Error("expected the poll to fail")
-    const err = Cause.failureOption(exit.cause)
+    const err = Cause.findErrorOption(exit.cause)
     if (err._tag === "None") throw new Error("expected a typed failure")
     return (err.value as { message: string }).message
   }
