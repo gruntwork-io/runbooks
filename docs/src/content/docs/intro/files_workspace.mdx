@@ -21,7 +21,7 @@ There are two ways a runbook generates files. The workspace opens automatically 
 
 ### Template blocks
 
-The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/blocks/templateinline/) blocks generate files from [Boilerplate templates](/authoring/boilerplate/). When you fill in the form fields and click "Generate", the template engine renders the output files. The default `target` is `"generated"`.
+The [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/blocks/templateinline/) blocks generate files from [Boilerplate templates](/authoring/boilerplate/). A Template renders its files when you fill in its form and click **Generate**. A TemplateInline has no form: with `generateFile={true}`, it writes its file once every input it uses has a value. The default `target` is `"generated"`.
 
 ```mdx
 <Template id="vpc-setup" path="templates/vpc" />
@@ -31,7 +31,7 @@ Template blocks re-render when you change input values, so the generated files m
 
 ### Command and Check blocks with $GENERATED_FILES
 
-Scripts run by [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks can write files to the directory named by the `$GENERATED_FILES` environment variable:
+Scripts run by [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/) and [Finish](/authoring/blocks/finish/) blocks can write files to the directory named by the `$GENERATED_FILES` environment variable:
 
 ```mdx
 <Command
@@ -78,11 +78,11 @@ echo '{}' > "$GENERATED_FILES/config/app.json"
 
 ## Repository files
 
-Repository files come from a git repository that a [GitClone](/authoring/blocks/gitclone/) block cloned. When the clone completes, the workspace switches to the **Repository** tab.
+Repository files come from a git repository that a [GitClone](/authoring/blocks/gitclone/) block cloned, or from a local checkout the user selected in one. When the clone completes, the workspace switches to the **Repository** tab.
 
 The clone is stored at the local path set in the GitClone block, relative to the working directory. The working directory starts as the runbook's [session directory](/commands/sessions/), and it [follows any `cd`](/authoring/blocks/command/#execution-context) that an earlier script made.
 
-Later changes to the repository come from a [Template](/authoring/blocks/template/) block that sets `target="worktree"`, or from Command and Check scripts that write to the directory named by `$REPO_FILES`.
+Later changes to the repository come from a [Template](/authoring/blocks/template/) or [TemplateInline](/authoring/blocks/templateinline/) block that sets `target="worktree"`, or from Command, Check and Finish scripts that write to the directory named by `$REPO_FILES`.
 
 The Repository tab has two sub-tabs.
 
@@ -104,7 +104,7 @@ The **Changed files** tab appears the first time Runbooks detects a change.
 
 ### Multiple repositories
 
-If a runbook clones more than one repository, a dropdown at the top of the **Repository** tab replaces the repository and branch name and switches between them.
+If a runbook's `<GitClone>` blocks add more than one repository, a dropdown at the top of the **Repository** tab replaces the repository and branch name and switches between them. The selected repository is the one `$REPO_FILES` points to, that `target="worktree"` writes to, and that a [GitPullRequest](/authoring/blocks/gitpullrequest/) block works on. Until the user selects another, it's the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout).
 
 ## Where Runbooks reads and writes files
 
@@ -114,12 +114,12 @@ Runbooks checks each path a block asks it to read or write. It resolves symlinks
 - the folder that contains the runbook
 - a repository registered by a GitClone block
 
-This covers the template folder a Template block reads, the folder Template and TemplateInline blocks write to, and the file tree, file contents, and git changes shown in the workspace. A symlink inside an allowed folder that points outside it is rejected.
+This covers the template folder a Template block reads, the folder Template and TemplateInline blocks write to, the directories a [DirPicker](/authoring/blocks/dirpicker/) lists, and the file tree, file contents, and git changes shown in the workspace. A symlink inside an allowed folder that points outside it is rejected.
 
 A GitClone destination has a stricter rule, because cloning can delete what is already there. It must be a subdirectory of the working directory, and it must not contain the open runbook.
 
 <Aside type="note">
-These checks apply to paths that blocks pass to Runbooks. Scripts run by Command and Check blocks have full filesystem access and can write anywhere the user has permissions.
+These checks apply to paths that blocks pass to Runbooks. Scripts run by Command, Check and Finish blocks have full filesystem access and can write anywhere the user has permissions.
 </Aside>
 
 ## Next

@@ -70,7 +70,7 @@ Freezing the registry does not stop you from [reloading a changed script file](#
 
 ### Reloading a changed script file
 
-Runbooks watches the script files that `<Check>` and `<Command>` blocks reference with `path`, in every mode. When one changes on disk after the registry was built, nothing about what runs changes. Its block shows a "Script changed" notice with a diff between the version in the registry and the version on disk, and a **Reload script** button.
+Runbooks watches the script files that `<Check>`, `<Command>` and `<Finish>` blocks reference with `path`, in every mode. When one changes on disk after the registry was built, nothing about what runs changes. Its block shows a "Script changed" notice with a diff between the version in the registry and the version on disk, and a **Reload script** button.
 
 **How it works:**
 1. Until you click **Reload script**, Run executes the version in the registry, which is also the version under "View Source Code"
@@ -86,7 +86,7 @@ Runbooks watches the script files that `<Check>` and `<Command>` blocks referenc
 ## How scripts run
 
 1. The main process checks that the executable ID is in the registry.
-2. It renders template variables such as `{{ .VarName }}` into the script.
+2. It renders template references such as `{{ .inputs.VarName }}` and `{{ .outputs.block_id.name }}` into the script.
 3. It writes the script to a temporary file.
 4. It reads the shebang line to pick the interpreter, defaulting to `bash`.
 5. It runs the interpreter on the file in a non-interactive shell.

@@ -85,6 +85,8 @@ On Windows, Runbooks uses the environment it was started with.
 
 A [resumed session](/commands/sessions/#resuming-a-session) starts from that same environment, and then gets back the variables its scripts and auth blocks had set or unset when it was last open.
 
+Scripts start in the [session's directory](/commands/sessions/), not in the folder that contains the runbook. A script that changes directory moves later scripts with it, as [How script changes are applied](#how-script-changes-are-applied) describes.
+
 ### How script changes are applied
 
 When a Bash script exits with code 0 or 2, Runbooks applies only what that script changed:
@@ -114,7 +116,7 @@ Runbooks sets the following environment variables for every script:
 | Variable | Description |
 |----------|-------------|
 | `GENERATED_FILES` | Path to a temporary directory where scripts can write files to be captured. Files written here appear in the **Generated files** tab when the script exits with code 0 or 2. |
-| `REPO_FILES` | Path to the active git worktree: the one you selected in the workspace, or the most recently registered one if you selected none. Unset if no repository has been cloned. |
+| `REPO_FILES` | Path to the active git worktree: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until you select another. Unset until a `<GitClone>` block has added a repository. |
 | `RUNBOOK_OUTPUT` | Path to a file where scripts can write `key=value` pairs to produce [block outputs](/authoring/blocks/command/#block-outputs) for later blocks. Write `sensitive:key=value` to mask a credential in the UI (see [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs)). |
 
 Each script also gets log files. The `log_info`, `log_warn`, `log_error` and `log_debug` functions append to `RUNBOOK_LOG`, and each of their lines names its level. `RUNBOOK_INFO_LOG`, `RUNBOOK_WARN_LOG`, `RUNBOOK_ERROR_LOG` and `RUNBOOK_DEBUG_LOG` take lines that don't name a level, which show up at the file's level. Any command or script can append to them all, and their lines appear in the block's logs as the script writes them. The files are deleted when the run ends. See [Log files](/authoring/blocks/command/#log-files).
@@ -164,6 +166,8 @@ Scripts run in a non-interactive shell, which limits what they can use:
 | Shell aliases | No | `ll`, `la`, custom aliases |
 | Shell functions | No | `nvm`, `rvm`, `assume` and so on |
 | RC files | No | Scripts do not source `.bashrc` or `.zshrc`. On a desktop launch Runbooks reads them once at startup for exported variables only (see [Starting environment](#starting-environment)). |
+| A terminal (TTY) | No | Tools may turn off colors and progress bars, and a `sudo` password prompt fails |
+| Standard input | No | Input is empty, so `read` and confirmation prompts get no answer. Use non-interactive flags such as `-auto-approve` or `-y` |
 
 ### Aliases and binaries
 

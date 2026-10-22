@@ -75,6 +75,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
+| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitHubAuth>`](/authoring/blocks/githubauth) block. Works like `githubAuthId`. If the linked block signed in to GitLab, the block shows a blocking error. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the PR title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
@@ -130,11 +131,11 @@ The block shows **Git Push** until you choose "create another".
 
 ### Prerequisites
 
-The block needs a completed `<GitHubAuth>` block, for the token, and a `<GitClone>` block that has cloned a repository, which the PR is created against. It checks both and shows an amber warning for whichever is missing. The Create PR button stays disabled until both are met.
+The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR is created against. With `githubAuthId` or `gitAuthId`, it also needs the auth block it names, a `<GitHubAuth>` block or a `<GitAuth provider="github">` block, to have signed in. It checks both and shows an amber warning for whichever is missing. The Create PR button stays disabled until both are met.
 
-For authentication, the block looks for a `GITHUB_TOKEN` output from the block referenced by `githubAuthId`. When that block picked up existing credentials (environment variables or the GitHub CLI) rather than running its OAuth flow, it registers an `__AUTHENTICATED` marker instead, which also satisfies the check. Until one is present, the block displays "Waiting for GitHub authentication" and names the block to complete.
+For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `githubAuthId` or `gitAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for GitHub authentication" and names the block to complete. Without `githubAuthId` or `gitAuthId`, the block doesn't wait for an auth block. It creates the PR with the session's GitHub token, and fails if the session has none.
 
-For the repository, the block checks whether a `GitClone` block has registered an active worktree. Until one has, it displays "No repository available".
+For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
 
 ### Labels
 
@@ -187,7 +188,7 @@ See [GitHub Enterprise support](/authoring/blocks/githubauth/#github-enterprise-
 <Command
   id="make-changes"
   title="Apply Configuration"
-  command="echo 'new_setting = true' >> config.hcl"
+  command='echo "new_setting = true" >> "{{ .outputs.clone_infra.clone_path }}/config.hcl"'
 />
 
 <GitHubPullRequest

@@ -42,15 +42,15 @@ banner at the top of every runbook says that nothing runs automatically.
 
 | Block | Interactive | Instruction mode |
 |---|---|---|
-| Command, Check | Run button. The app executes the script. | "Run this command:" or "Run this check:" with the resolved command in a copy block. A nested `<Inputs>` stays a form above the command. File-backed scripts keep the source viewer. |
-| Finish | Finish button. Runs the optional final check, then celebrates and shows the next steps. | "Run this final check:" with the final check in a copy block, if the block has one, and the next steps, always shown. Ticking **Mark as done** celebrates and [marks the session finished](/commands/sessions/#finishing-a-session). |
+| Command, Check | Run button. The app executes the script. | The block's title, or "Run this command:" or "Run this check:" if it has none, with the resolved command in a copy block. A nested `<Inputs>` stays a form above the command. File-backed scripts keep the source viewer. |
+| Finish | Finish button. Runs the optional final check, then celebrates and shows the next steps. | The block's title, "Finish this runbook" unless you set another, with the final check in a copy block, if the block has one, and the next steps, always shown. Ticking **Mark as done** celebrates and [marks the session finished](/commands/sessions/#finishing-a-session). |
 | AwsAuth | SSO, profile, or key UI. Captures credentials. | "Log into AWS in the `<account>` account", with the configured SSO details. No capture. |
 | GoogleAuth | Service account key, Google sign-in, or gcloud config UI. Captures credentials. | "Log into Google Cloud in the `<project>` project", noting the region, gcloud configuration, scopes, and the `gcloud auth application-default login` command. No capture. |
 | GitAuth, GitHubAuth, GitLabAuth | OAuth or token entry. Holds a token. | "Log into GitHub" or "Log into GitLab", noting the scopes the block needs. For GitLab it also names `glab auth login`. No capture. |
 | Inputs | Form you fill | Still a form. Its values are substituted into the displayed commands. |
 | Template | Generate button. Renders boilerplate to disk. | The variable form plus a copyable `boilerplate` invocation. No files written. |
 | TemplateInline | Inline rendered preview | The rendered text as a copy block. No files written. |
-| GitClone | Clone button | A copyable `git clone` command, with a sparse-checkout note for sub-paths. |
+| GitClone | Clone button | A copyable `git clone` command, with a sparse-checkout note for sub-paths. A block that uses a local checkout shows a `cd` to its `prefilledRepoDir` instead. |
 | GitPullRequest, GitHubPullRequest, GitLabMergeRequest | Create PR or MR button | A copyable `gh pr create` or `glab mr create` command, plus a reminder to commit and push your branch first. |
 | DirPicker | Cascading directory dropdowns | A text field for the directory path. The path you enter is substituted into later commands. |
 | Admonition, Iframe | Callout, embedded page | Unchanged. |

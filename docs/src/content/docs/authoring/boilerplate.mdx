@@ -108,8 +108,8 @@ Each variable supports these properties:
 
 | Property | Required | Description |
 |----------|----------|-------------|
-| `name` | Yes | Variable name (used in templates as `.Name`) |
-| `type` | No | Data type: `string`, `int`, `float`, `bool`, `enum`, `list`, `map` (defaults to `string`) |
+| `name` | Yes | Variable name, referenced as `{{ .inputs.Name }}`, or as `{{ .Name }}` in the files a `<Template>` renders |
+| `type` | No | Data type: `string`, `int`, `float`, `bool`, `enum`, `list`, `map` (defaults to `string`). Write it in lowercase. The form shows a field of any other type as text, but Boilerplate rejects it, so a `<Template>` that uses it fails |
 | `description` | No | Help text shown in the form |
 | `default` | No | Default value |
 | `options` | For `enum` | List of allowed values for dropdowns |
@@ -311,6 +311,8 @@ variables:
         message: Must be a valid email address
 ```
 
+Only an `<Inputs>` block's `boilerplate.yml` can use this form. Boilerplate itself accepts only the string form, so a `<Template>` whose `boilerplate.yml` uses the object form fails with "validation rule at index 0 must be a string".
+
 ### Validation types
 
 | Validation | Description |
@@ -340,9 +342,11 @@ variables:
       - length(0, 256)
 ```
 
+The form and [`runbooks test`](/authoring/testing/) don't check `length(...)` and `regex(...)` rules. Boilerplate checks them when a `<Template>` renders, so a value that breaks one fails generation there, and in an `<Inputs>` block the rules have no effect.
+
 ## Template syntax
 
-Template files use Go template syntax. Reference a variable from `boilerplate.yml` with dot notation. In a runbook, the same variable is also available as `{{ .inputs.BucketName }}`, as [Inputs and outputs](/authoring/inputs-and-outputs/#template-syntax) describes.
+Template files use Go template syntax. In the files a `<Template>` renders, reference a variable from `boilerplate.yml` with dot notation, as in `{{ .BucketName }}`, or as `{{ .inputs.BucketName }}`. Everywhere else in a runbook, such as a `<TemplateInline>` template, a `<Command>` or `<Check>` script, or a block's props, only `{{ .inputs.BucketName }}` works. See [Inputs and outputs](/authoring/inputs-and-outputs/#template-syntax).
 
 ### Variable substitution
 
@@ -401,16 +405,16 @@ description = "{{ .Description }}"
 
 ## Helper functions
 
-Boilerplate includes helper functions for common transformations:
+Boilerplate includes helper functions for common transformations. With `ProjectName` set to `my-project`:
 
 ```yaml
 # String case transformations
-{{ .ProjectName | snakeCase }}    # my_project
-{{ .ProjectName | camelCase }}    # myProject
-{{ .ProjectName | pascalCase }}   # MyProject
-{{ .ProjectName | kebabCase }}    # my-project
-{{ .ProjectName | upper }}        # MY-PROJECT
-{{ .ProjectName | lower }}        # my-project
+{{ .ProjectName | snakeCase }}        # my_project
+{{ .ProjectName | camelCase }}        # MyProject
+{{ .ProjectName | camelCaseLower }}   # myProject
+{{ .ProjectName | dasherize }}        # my-project
+{{ .ProjectName | upper }}            # MY-PROJECT
+{{ .ProjectName | lower }}            # my-project
 
 # String checks
 {{ hasPrefix "prod" .Environment }}  # true if starts with "prod"
@@ -501,11 +505,24 @@ A `map` variable collects key-value pairs where each value is a string. When eac
     id: string
 ```
 
-Each map entry renders with those three fields.
+Each map entry renders with those three fields. A field's type sets its control: `bool` renders a true/false dropdown, `int`, `float` and `number` render a number input, and any other type renders a text input.
+
+On a `list` variable, `x-schema` makes the list a fixed-length tuple. Its keys are the element positions, `"0"`, `"1"` and so on, and its values are the element types, with the same controls as a map's fields:
+
+```yaml
+- name: Endpoint
+  type: list
+  description: Host and port
+  x-schema:
+    "0": string
+    "1": int
+```
+
+The form renders one input per element, in position order.
 
 ### `x-schema-instance-label`
 
-Sets the label for each entry of a schema-based map:
+Sets the label for each entry of a schema-based map. It defaults to "Entry name":
 
 ```yaml
 - name: AWSAccounts
@@ -669,10 +686,10 @@ variables:
 ```
 </Inputs>
 
-<TemplateInline inputsId="config" outputPath="bucket.tf">
+<TemplateInline id="bucket-preview" inputsId="config" outputPath="bucket.tf">
 ```hcl
 resource "aws_s3_bucket" "main" {
-  bucket = "{{ .BucketName }}"
+  bucket = "{{ .inputs.BucketName }}"
 }
 ```
 </TemplateInline>

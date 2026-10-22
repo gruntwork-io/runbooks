@@ -10,7 +10,7 @@ The `<GitHubAuth>` block authenticates the user to GitHub.
 `<GitHubAuth>` is an alias of [`<GitAuth>`](/authoring/blocks/gitauth/) locked to GitHub. It is equivalent to `<GitAuth provider="github" hideProviderSelect />`. Use `<GitAuth>` if you also want to support GitLab.
 </Aside>
 
-It detects whether the user is already authenticated to GitHub by checking their environment variables and the GitHub CLI. Users can also authenticate manually with OAuth or a Personal Access Token (PAT). Once authenticated, the credentials are available to later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) blocks.
+It detects whether the user is already authenticated to GitHub by checking their environment variables and the GitHub CLI. Users can also authenticate manually with OAuth or a Personal Access Token (PAT). Once authenticated, the credentials are available to later [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
 
 Scripts in a runbook without this block still see a `GITHUB_TOKEN` set in the environment, but the block is the recommended way to authenticate.
 
@@ -23,18 +23,18 @@ Scripts in a runbook without this block still see a `GITHUB_TOKEN` set in the en
   description="Sign in to access private repositories"
 />
 
-<Command
+<GitClone
   id="clone-repo"
   githubAuthId="gh-auth"
   title="Clone Repository"
-  command="git clone https://github.com/gruntwork-io/runbooks.git"
+  prefilledUrl="https://github.com/acme-corp/infrastructure-live"
 />
 ```
 
 By default, Runbooks detects and uses credentials from:
 
 1. Environment variables: `GITHUB_TOKEN` or `GH_TOKEN`, and `GH_ENTERPRISE_TOKEN` or `GITHUB_ENTERPRISE_TOKEN` for a GitHub Enterprise Server host. See [Environment variables and hosts](#environment-variables-and-hosts).
-2. The GitHub CLI (`gh auth token --hostname <host>`)
+2. The GitHub CLI (`gh auth token --hostname <host>`). When `gh` isn't installed, Runbooks reads the token from gh's `hosts.yml` instead, unless gh keeps it in the system keyring.
 
 If no credentials are detected, users authenticate manually with OAuth or a PAT.
 
@@ -66,14 +66,14 @@ Set the `host` prop to pin the block to one GitHub host. The host picker is hidd
 ```mdx
 {/* GitHub Enterprise Server */}
 <GitHubAuth
-  id="gh-auth"
+  id="ghes-auth"
   title="Authenticate to GitHub Enterprise"
   host="github.example.com"
 />
 
 {/* GitHub Enterprise Cloud with data residency */}
 <GitHubAuth
-  id="gh-auth"
+  id="ghe-auth"
   title="Authenticate to Acme's GitHub"
   host="acme.ghe.com"
 />
@@ -138,7 +138,7 @@ The built-in Gruntwork Runbooks OAuth app only exists on `github.com`. To offer 
 ```mdx
 {/* Pinned host: the string applies to github.example.com */}
 <GitHubAuth
-  id="gh-auth"
+  id="ghes-auth"
   host="github.example.com"
   oauthClientId="0a1b2c3d4e5f6a7b8c9d"
 />
@@ -183,6 +183,10 @@ When authentication succeeds, these environment variables are set in the session
 
 Later Command and Check blocks have access to these credentials. If you authenticate more than once, the most recent credentials become the default.
 
+### Block outputs
+
+The block also publishes `GITHUB_USER`, `GITHUB_HOST`, `GIT_PROVIDER` (`github`) and `__AUTHENTICATED` as [block outputs](/authoring/blocks/gitauth/#block-outputs). Don't read the token from the outputs. Scripts get it as `GITHUB_TOKEN` through `githubAuthId` or `gitAuthId`, or from the session environment.
+
 ### Explicit block references
 
 A Command or Check block can reference a GitHubAuth block with the `githubAuthId` prop. Its Run or Check button is then disabled until the referenced block has valid credentials. When several GitHubAuth blocks exist, the block runs with the credentials of the one you named.
@@ -202,13 +206,15 @@ A Command or Check block can reference a GitHubAuth block with the `githubAuthId
 />
 
 <Command
-  id="clone-repo"
-  title="Clone Repository"
-  command="git clone https://github.com/org/repo.git"
+  id="list-repos"
+  title="List Repositories"
+  command="gh repo list --limit 10"
   githubAuthId="gh-auth"
-  successMessage="Repository cloned!"
+  successMessage="Repositories listed!"
 />
 ```
+
+`gh` reads `GITHUB_TOKEN`, but `git` doesn't. To clone a private repository, use a [`<GitClone>`](/authoring/blocks/gitclone/) block with `githubAuthId`, as in [Basic usage](#basic-usage).
 
 #### How environment variables work with references
 
@@ -283,13 +289,16 @@ To use a different prefix in automated tests, for example to avoid conflicts wit
 
 ```yaml
 # runbook_test.yml
-steps:
-  - block: gh-auth
-    env_prefix: CI_  # Checks CI_GITHUB_TOKEN, CI_GH_TOKEN
-    expect: success
+version: 1
+tests:
+  - name: happy-path
+    steps:
+      - block: gh-auth
+        env_prefix: CI_  # Checks CI_GITHUB_TOKEN, CI_GH_TOKEN
+        expect: success
 ```
 
-Without `env_prefix`, the test framework checks `RUNBOOKS_GITHUB_TOKEN` first, which lets you keep test credentials separate from the ones in your local environment. See [Testing GitHubAuth blocks](/authoring/testing/#testing-githubauth-blocks).
+Without `env_prefix`, the test framework checks `RUNBOOKS_GITHUB_TOKEN` first for a `github.com` block, which lets you keep test credentials separate from the ones in your local environment. See [Testing GitHubAuth blocks](/authoring/testing/#testing-githubauth-blocks).
 
 #### Disabling detection
 
@@ -453,11 +462,11 @@ Gruntwork has no server in this flow.
 
 **Scenario.** A runbook requests excessive permissions with `oauthScopes={["repo", "admin:org", "delete_repo"]}`.
 
-**What happens.** Runbooks displays the requested scopes in the UI before you authenticate. GitHub's authorization page displays them too. If you approve without reviewing either, you grant broader access than needed.
+**What happens.** GitHub's authorization page displays the requested scopes. Runbooks doesn't show them before you sign in. If you approve without reviewing them, you grant broader access than needed.
 
-**Risk.** Low. Both Runbooks and GitHub display the requested scopes before you grant access.
+**Risk.** Low. GitHub displays the requested scopes before you grant access.
 
-**Mitigation.** Review the scopes shown in Runbooks before clicking "Sign in with GitHub", and check them again on GitHub's authorization page. Be suspicious of runbooks requesting `admin:*`, `delete_repo`, or `write:*` scopes beyond the default `repo`.
+**Mitigation.** Review the scopes on GitHub's authorization page before approving. Be suspicious of runbooks requesting `admin:*`, `delete_repo`, or `write:*` scopes beyond the default `repo`.
 
 ### Managing your authorizations
 
@@ -470,4 +479,4 @@ You can manage authorizations at:
 
 On an enterprise host, use the same paths on that host, for example `https://github.example.com/settings/tokens`.
 
-Closing your Runbooks session also discards any tokens stored locally.
+Runbooks keeps a token in your local session, encrypted, until you [delete the session](/commands/sessions/#deleting-sessions). Quitting Runbooks or resetting the session doesn't delete it.

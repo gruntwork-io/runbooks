@@ -53,9 +53,11 @@ Inspecting a directory needs no credentials, so browsing works while a linked au
 <GitClone
   id="repo"
   title="Select Your Infrastructure Repo"
-  prefilledRepoDir="~/dev/infrastructure-live"
+  prefilledRepoDir="/Users/you/dev/infrastructure-live"
 />
 ```
+
+`prefilledRepoDir` takes an absolute path, or a path relative to the working directory rather than to the runbook. `~` isn't expanded, so a value such as `~/dev/infrastructure-live` doesn't find the checkout.
 
 Setting `prefilledRepoDir` starts the block on the local source. Use `source` to choose the starting source explicitly, and `hideSourceSelect` to remove the choice altogether:
 
@@ -67,10 +69,10 @@ Setting `prefilledRepoDir` starts the block on the local source. Use `source` to
 <GitClone id="repo" source="clone" hideSourceSelect prefilledUrl="https://github.com/acme/infra" />
 ```
 
-Later blocks behave the same with either source. They get the same `clone_path`, `repo_owner`, and `repo_name` outputs, the same `$REPO_FILES` variable, the same workspace file tree, and the same [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) integration. A pull request opens against the checkout's remote and current branch.
+Later blocks behave the same with either source. They get the same `clone_path`, `repo_owner`, and `repo_name` outputs, the same `$REPO_FILES` variable, the same workspace file tree, and the same [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) integration. A pull request opens against the checkout's `origin` remote and current branch.
 
 <Aside type="caution">
-A checkout with no remote at all can still be selected, but it produces no `repo_owner` or `repo_name`, nor the GitHub IDs derived from them, and blocks that open a pull request need one. The block says so inline when it finds no remote. `origin` is preferred; if the checkout names its remote something else, that one is used.
+A checkout with no remote at all can still be selected, but it produces no `repo_owner` or `repo_name`, nor the GitHub IDs derived from them, and blocks that open a pull request need one. The block says so inline when it finds no remote. `origin` is preferred. If the checkout names its remote something else, the block reads `repo_owner` and `repo_name` from that one, but blocks that open a pull request still fail, because they push to and open the pull request against a remote named `origin`.
 </Aside>
 
 ### Pre-filled values
@@ -102,10 +104,10 @@ You can pre-fill the URL, ref, sparse checkout path, and local path fields. User
 | `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
 | `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path: a directory relative to the repository root, such as `modules/vpc`. When set, only that directory is checked out, plus the loose files above it such as a top-level `README.md`. Empty or `.` clones the whole repository. See [Sparse checkout](#sparse-checkout). |
 | `prefilledLocalPath` | `string` | No | Pre-fills the local path (relative to the current working directory) where files will be cloned. Defaults to the repository name if empty. |
-| `showFileTree` | `boolean` | No | Whether to show the cloned repository's file tree in the workspace panel after cloning. Defaults to `true`. When enabled, the **All files** and **Changed files** tabs display the cloned files and any later modifications. |
+| `showFileTree` | `boolean` | No | Whether to show the cloned repository's file tree in the workspace panel after cloning. Defaults to `true`. When enabled, the **All files** and **Changed files** tabs display the cloned files and any later modifications. A repository kept out of the workspace can't be the target of a [`<GitPullRequest>`](/authoring/blocks/gitpullrequest) block. |
 | `source` | `'clone' \| 'local'` | No | Which source the block starts on: clone a remote repo, or use an existing local checkout. Defaults to `local` when `prefilledRepoDir` is set, otherwise `clone`. |
 | `hideSourceSelect` | `boolean` | No | Hides the source picker and locks the block to `source`. Defaults to `false`. |
-| `prefilledRepoDir` | `string` | No | Pre-fills the local checkout directory. Any directory inside the checkout works, because the repository root is resolved from it. |
+| `prefilledRepoDir` | `string` | No | Pre-fills the local checkout directory. Any directory inside the checkout works, because the repository root is resolved from it. Use an absolute path, or one relative to the working directory rather than to the runbook. `~` isn't expanded. |
 
 ### Ref selection
 
@@ -125,7 +127,7 @@ When `showFileTree` is `true` (the default), the GitClone block registers the cl
 - The **Changed files** tab shows a diff view, in the style of a GitHub pull request, of any files modified after cloning, for example by Command or Template blocks.
 - If multiple `<GitClone>` blocks are used in a single runbook, a dropdown in the workspace header lets the user switch between repositories.
 
-Set `showFileTree={false}` to keep the cloned repository out of the workspace panel, for example for a helper repository the user doesn't need to browse.
+Set `showFileTree={false}` to keep the cloned repository out of the workspace panel, for example for a helper repository the user doesn't need to browse. A `<GitPullRequest>` block can't open a pull request from a repository kept out of the workspace. It shows "No repository available" until another `<GitClone>` block adds one.
 
 A local checkout registers with the workspace the same way. The **Changed files** tab then also shows any uncommitted changes the checkout already had.
 
@@ -157,12 +159,13 @@ The seeded commit is empty. It gives the default branch something to point at, s
 | SSH | `git@github.com:org/repo.git` | Token auth does not apply to SSH URLs. Use HTTPS for token-based auth. |
 | SSH (other user) | `gitlab@gitlab.example.com:group/repo.git` | Any SSH user works, for self-managed instances whose SSH user isn't `git`. |
 | SSH, bracketed host | `git@[2001:db8::1]:org/repo.git`, `git@[git.example.com:2222]:org/repo.git` | As in git, an IPv6 address, or a host with a non-default SSH port, goes in brackets. Without brackets, the text after the colon is always the repository path. |
+| `ssh://` URL | `ssh://git@github.com/org/repo.git` | Not accepted. The block refuses it as an invalid git URL. Use the `git@host:org/repo.git` form above, with the host in brackets for a non-default port. |
 
 ### GitHub authentication
 
 The GitClone block resolves GitHub credentials in this order:
 
-1. `githubAuthId`. If set, the block uses the `GITHUB_TOKEN` from the referenced GitHubAuth block's outputs, for the host that block authenticated to.
+1. `githubAuthId`. If set, the block uses the token the referenced GitHubAuth block signed in with, for the host that block authenticated to.
 2. The session environment. The block looks for a GitHub token bound to the host (see [environment variables and hosts](/authoring/blocks/githubauth/#environment-variables-and-hosts)).
 3. No token. The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
 
@@ -247,7 +250,7 @@ echo "new_setting = true" >> "$REPO_FILES/config.hcl"
 ```
 
 <Aside type="note">
-With several `<GitClone>` blocks, `$REPO_FILES` points to the repository selected in the workspace's repository dropdown, or to the most recently registered one if the user hasn't selected any.
+With several repositories, `$REPO_FILES` points to the one selected in the workspace's repository dropdown: the first one added, whether by a clone or a [local checkout](#using-a-local-checkout), until the user selects another.
 </Aside>
 
 Template and TemplateInline blocks can also write directly into the cloned repository by setting `target="worktree"`:

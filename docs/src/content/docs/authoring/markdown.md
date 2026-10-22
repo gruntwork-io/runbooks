@@ -178,11 +178,17 @@ Runbooks never runs JavaScript from your `runbook.mdx`. The value inside `{...}`
 
 You can use HTML directly in markdown:
 
-```markdown
-<div style="color: red;">
+```mdx
+<div style={{ color: "red" }}>
 This text will be red.
 </div>
 ```
+
+MDX reads HTML as JSX, so it follows JSX's rules rather than HTML's:
+
+- Close every element, including void elements such as `<br />`, `<hr />` and `<img ... />`. A bare `<br>` fails with "Expected a closing tag".
+- Give `style` an object, as above. A string such as `style="color: red;"` fails when the runbook renders.
+- Write comments as `{/* comment */}`. An HTML comment, `<!-- comment -->`, fails to compile.
 
 Because Runbooks never runs JavaScript from your `runbook.mdx`, elements and props that load scripts, embed other documents or inject raw HTML are rejected with an error. These include `<script>`, `<iframe>`, `<object>`, `<embed>`, custom elements such as `<my-widget>`, namespaced elements such as `<svg:script>`, `dangerouslySetInnerHTML`, `srcDoc` and `javascript:` URLs in props. See the [execution security model](/security/execution-model/) for the full list.
 
@@ -195,6 +201,15 @@ To display a markdown character literally, escape it with a backslash:
 \# This won't be a header
 \`This won't be code\`
 ```
+
+In MDX, `<` before a letter starts a tag and `{` starts an expression, so escape those too, or put them in inline code:
+
+```mdx
+Use the \<Inputs\> block to collect values.
+Write `{{ .inputs.ProjectName }}` in a block's props to use the value.
+```
+
+Unescaped, `Use the <Inputs> block` fails with "Expected a closing tag for `<Inputs>`", and `{{ .inputs.ProjectName }}` fails with "Could not parse expression with acorn". Template expressions aren't resolved in prose. To show a value the user entered, use a block that resolves it, such as an [`<Admonition>`](/authoring/blocks/admonition/) with `inputsId`.
 
 ### Code blocks inside blocks
 

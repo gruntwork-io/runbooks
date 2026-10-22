@@ -72,6 +72,19 @@ When authentication succeeds, these environment variables are set for later Comm
 
 They are set in the session environment, so later blocks get them without setting `awsAuthId`.
 
+## Block outputs
+
+The block also publishes its credentials as block outputs, so a specific AwsAuth block can be referenced by ID:
+
+| Output | Value |
+|--------|-------|
+| `AWS_ACCESS_KEY_ID` | The AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | The AWS secret key, as a [sensitive output](/authoring/inputs-and-outputs/#sensitive-outputs) |
+| `AWS_SESSION_TOKEN` | The session token, as a sensitive output. Empty for credentials without one |
+| `AWS_REGION` | The selected region |
+
+Clicking **Re-authenticate** replaces them with a single output, `__AUTHENTICATED`, set to `false`, until the user signs in again.
+
 ## Using with Commands and Checks
 
 A Command or Check block that doesn't set `awsAuthId` uses the session environment, which has the credentials of the most recently authenticated AwsAuth block. Each new sign-in replaces them.
@@ -104,6 +117,8 @@ To make a Command or Check block use one specific AwsAuth block, regardless of w
   successMessage="Buckets listed!"
 />
 ```
+
+A block that sets `awsAuthId` gets the referenced block's four [outputs](#block-outputs) as environment variables for that run, in place of the session values. `AWS_SESSION_TOKEN` is set even when it is empty, so a session token from another sign-in is never paired with keys that don't use one. The block's Run or Check button stays disabled until the referenced block has published credentials.
 
 ## Pre-selecting the SSO account and role
 
@@ -202,7 +217,7 @@ If credentials are found and valid, the confirmation prompt shows:
 - Default Region
 - Whether credentials are temporary or static
 
-The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`. It is the value set as `AWS_REGION` once the user confirms, and it decides the partition the credentials are validated in, so GovCloud keys need a `us-gov-*` region. If none of the three is set, detection reports an error instead of assuming a region.
+The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`, which is `us-east-1` unless you set it. It is the value set as `AWS_REGION` once the user confirms, and it decides the partition the credentials are validated in. GovCloud keys need a `us-gov-*` region. Set `AWS_REGION` to one in the environment, or give the block a `us-gov-*` `defaultRegion`, which applies only when neither `AWS_REGION` nor `AWS_DEFAULT_REGION` is set. Otherwise they are validated in the commercial partition, and validation fails.
 
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
 
@@ -214,7 +229,9 @@ When the user clicks "Use These Credentials", AwsAuth reads and validates the en
 |--------|-------------|
 | `'env'` | Check standard AWS env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and so on) |
 | `{ env: { prefix: 'PREFIX_' } }` | Check prefixed env vars (`PREFIX_AWS_ACCESS_KEY_ID` and so on) |
-| `{ block: 'block-id' }` | Use credentials from a Command block's output |
+| `{ block: 'block-id' }` | Use credentials from a Command block's output. Only one block source is allowed per AwsAuth block. See [From Command output](#from-command-output) |
+
+Sources are tried in the order you list them.
 
 ### Disabling detection
 
@@ -257,13 +274,16 @@ To use a different prefix in automated tests, for example to avoid conflicts wit
 
 ```yaml
 # runbook_test.yml
-steps:
-  - block: aws-auth
-    env_prefix: CI_  # Checks CI_AWS_ACCESS_KEY_ID, CI_AWS_SECRET_ACCESS_KEY, and so on
-    expect: success
+version: 1
+tests:
+  - name: happy-path
+    steps:
+      - block: aws-auth
+        env_prefix: CI_  # Checks CI_AWS_ACCESS_KEY_ID, CI_AWS_SECRET_ACCESS_KEY, and so on
+        expect: success
 ```
 
-See [Testing AwsAuth blocks](/authoring/testing/#testing-awsauth-blocks).
+Unlike the block, the test runner falls back to the unprefixed `AWS_*` variables when the prefixed key pair isn't set. See [Testing AwsAuth blocks](/authoring/testing/#testing-awsauth-blocks).
 
 ### From Command output
 
@@ -307,6 +327,12 @@ The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defau
 
 The `AWS_CREDENTIAL_EXPIRATION` output is optional too. With it, the block warns before the credentials expire, as [Expiring credentials](#expiring-credentials) describes. AwsAuth reads `AWS_CREDENTIAL_EXPIRATION` from the environment as well, with the source's prefix if it has one.
 
+If the referenced block has not run yet, AwsAuth shows *Waiting for "assume-cross-account" to run...* and pauses detection there. It does not skip to a later source. If the block ran but its outputs hold no valid credentials, detection moves on to the next source.
+
+<Aside type="caution">
+Only one `{ block: 'id' }` entry is allowed per AwsAuth block. More than one is a configuration error, and the block renders an error card in place of the authentication UI.
+</Aside>
+
 When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers the result. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate, for example because temporary credentials have expired, the block shows the error and registers nothing.
 
 ### When users reject detected credentials
@@ -340,7 +366,9 @@ When a runbook contains an `<AwsAuth>` block, Runbooks strips AWS credentials fr
 2. When AwsAuth checks for credentials, it reads them from your environment without registering them to the session.
 3. Clicking "Use These Credentials" adds the credentials to the session, where later scripts can use them.
 
-For example, with production credentials set in your terminal, opening a runbook meant for development does not let its scripts run against production.
+Only those three variables are withheld. The AWS CLI and SDKs can still find credentials elsewhere, such as in a profile in `~/.aws` (the `default` profile, or the one `AWS_PROFILE` names) or through a web identity token file. For example, with production keys exported in your terminal, opening a runbook meant for development does not let its scripts run against production. A production `AWS_PROFILE` exported in your terminal still would.
+
+[Runbook tests](/authoring/testing/) don't withhold any of these variables.
 
 <Aside type="tip">
 A runbook with no AwsAuth block leaves environment credentials in place, and all scripts can use them.
