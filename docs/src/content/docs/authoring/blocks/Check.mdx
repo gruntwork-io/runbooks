@@ -33,19 +33,19 @@ A Check has a **Check** button where a Command has **Run**. It also accepts a `w
 
 - `title` (string): display title shown in the UI. Supports inline markdown (bold, italic, links, code).
 - `description` (string): longer description of what's being checked. Supports inline markdown.
-- `command` (string): inline command to execute. Use either this or `path`.
-- `path` (string): path to a shell script file relative to the runbook. Use either this or `command`.
-- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones.
+- `command` (string): inline command to execute. Set exactly one of `command` and `path`. If both are set, `command` runs.
+- `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/check.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A script that uses `{{ .inputs.* }}` needs this prop or a nested Inputs block. See [With variables](#with-variables).
 - `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Check button is disabled until authentication completes.
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Check button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Check button is disabled until authentication completes. Prefer `gitAuthId`.
-- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Check button is disabled until authentication completes.
+- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Check button is disabled until authentication completes.
 - `successMessage` (string): message shown when the check succeeds. Default "Success". Supports inline markdown.
 - `warnMessage` (string): message shown on warning. Default "Warning". Supports inline markdown.
 - `failMessage` (string): message shown when the check fails. Default "Failed". Supports inline markdown.
 - `runningMessage` (string): message shown while running. Default "Checking...". Supports inline markdown.
-- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Lower it so a hung check fails sooner, for example `timeoutMs={120000}` for a 2-minute probe, or raise it for checks that run longer.
-- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must finish with a success or a warning before this block can run. See [Run order](/authoring/blocks/command/#run-order).
+- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Lower it so a hung check fails sooner, for example `timeoutMs={120000}` for a 2-minute probe, or raise it for checks that run longer. [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
+- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must succeed before this block can run. A Check that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](/authoring/blocks/command/#run-order).
 
 ### Inline content
@@ -93,7 +93,7 @@ For simple checks, define the script directly in the `command` prop:
 />
 ```
 
-Inline scripts suit one-liners. For anything longer, use an external script file.
+Inline scripts suit one-liners. For anything longer, use an external script file. See [Inline scripts](/authoring/blocks/command/#inline-scripts) in the Command block docs for commands with quotes or several lines.
 
 #### External scripts
 
@@ -169,7 +169,7 @@ See [With variables](/authoring/blocks/command/#with-variables) in the Command b
 
 ### Execution context
 
-Check scripts run in the same persistent, non-interactive shell environment as Command scripts. A check that exits 0 or 2 carries its `export`, `unset` and `cd` changes forward to later blocks. See [Execution context](/authoring/blocks/command/#execution-context).
+Check scripts run in the same persistent, non-interactive shell environment as Command scripts. A check that exits 0 or 2 carries its `export`, `unset` and `cd` changes forward to later blocks. Like a Command script, it starts in the session's directory rather than the runbook's folder, and runs without a terminal or any input. See [Execution context](/authoring/blocks/command/#execution-context).
 
 ### Examples
 
@@ -246,6 +246,8 @@ A check script can write `key=value` pairs to the `$RUNBOOK_OUTPUT` file, and la
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```
+
+Write one output per line, with a key made of letters, digits and underscores. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the format.
 
 A Check that references another block's outputs keeps its Check button disabled, and names the blocks that need to run first, until those outputs exist. The button is also disabled while the upstream block is running again. See [Run order](/authoring/blocks/command/#run-order).
 

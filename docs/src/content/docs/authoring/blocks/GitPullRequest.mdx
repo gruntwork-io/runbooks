@@ -41,7 +41,7 @@ Pair it with `<GitAuth>` and `<GitClone>`. The provider comes from the linked `<
 4. Otherwise, `github`.
 
 <Aside type="note">
-If the linked auth block authenticated to a different provider than the block resolves to (for example, a GitLab `<GitAuth>` block linked while the cloned repo is on GitHub), the block shows a blocking error.
+If the linked auth block authenticated to a different provider than the one the block is locked to, the block shows a blocking error. The provider is locked by the `provider` prop or by the [provider-locked aliases](#provider-locked-aliases), so a GitLab `<GitAuth>` block linked to a `<GitHubPullRequest>` block shows the error. Without `provider`, the linked auth block decides the provider, so there is no mismatch to show. A GitLab `<GitAuth>` block linked while the cloned repo is on GitHub fails when you create the merge request instead, before anything is committed, because the repository's `origin` isn't on the auth block's GitLab host.
 </Aside>
 
 ### GitLab instance
@@ -96,7 +96,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
 | `title` | `string` | No | Display title for the block header. Supports inline markdown and template expressions. Defaults per provider (`Create Pull Request` / `Create Merge Request`). |
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
-| `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived as described in [Provider detection](#provider-detection). |
+| `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived as described in [Provider detection](#provider-detection). Write the value in lowercase. Any other value, such as `"GitHub"`, makes the block fail to render. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
 | `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |
 | `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub only. Prefer `gitAuthId`. |
@@ -155,11 +155,11 @@ The block shows **Git Push** until you choose "create another".
 
 ### Prerequisites
 
-The block needs a completed `<GitAuth>` or `<GitHubAuth>` block, for the token, and a `<GitClone>` block that has cloned a repository, which the PR/MR is created against. It checks both and shows an amber warning for whichever is missing. The create button stays disabled until both are met.
+The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR/MR is created against. With `gitAuthId` or `githubAuthId`, it also needs the auth block it names to have signed in. It checks both and shows an amber warning for whichever is missing. The create button stays disabled until both are met.
 
-For authentication, the block looks for a token output from the block referenced by `gitAuthId` or `githubAuthId`. When that block picked up existing credentials (environment variables or a CLI) rather than running its interactive flow, it registers an `__AUTHENTICATED` marker instead, which also satisfies the check. Until one is present, the block displays "Waiting for &lt;provider&gt; authentication" and names the block to complete.
+For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `gitAuthId` or `githubAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for &lt;provider&gt; authentication" and names the block to complete. Without `gitAuthId` or `githubAuthId`, the block doesn't wait for an auth block. It creates the PR/MR with the session's token for the provider, and fails if the session has none.
 
-For the repository, the block checks whether a `GitClone` block has registered an active worktree. Until one has, it displays "No repository available".
+For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one cloned until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
 
 ### Labels
 
@@ -222,7 +222,7 @@ Two aliases lock `<GitPullRequest>` to a single provider:
 <Command
   id="make-changes"
   title="Apply Configuration"
-  command="echo 'new_setting = true' >> config.hcl"
+  command='echo "new_setting = true" >> "{{ .outputs.clone_infra.clone_path }}/config.hcl"'
 />
 
 <GitPullRequest

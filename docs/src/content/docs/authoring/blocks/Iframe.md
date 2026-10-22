@@ -6,7 +6,7 @@ The `<Iframe>` block embeds a web page in your runbook. It can show an external 
 
 The page doesn't load when the runbook opens. The block shows a **Load page** button, so a runbook can't run its author's scripts until the user asks for it. Once loaded, the page stays loaded until the app quits, including across live reloads while you edit the runbook.
 
-The page has its own browser session. It can't read what you type into the runbook's other blocks, and it has no access to the Runbooks app.
+The page has its own browser session. It can't read what you type into the runbook's other blocks, except the values of the Inputs blocks you pass to a local page with [`inputsId`](#exchanging-values-with-a-local-page), and it has no access to the Runbooks app.
 
 ## Basic usage
 
@@ -76,7 +76,7 @@ variables:
 
 <Iframe id="region-picker" src="./assets/picker/index.html" inputsId="cluster" outputs={["region"]} />
 
-<Command id="deploy" command="./deploy.sh {{ .outputs.region_picker.region }}" />
+<Command id="configure-kubectl" command="aws eks update-kubeconfig --name my-cluster --region {{ .outputs.region_picker.region }}" />
 ````
 
 ### Receiving input values

@@ -4,7 +4,7 @@ title: <GitLabMergeRequest>
 
 import { Aside } from '@astrojs/starlight/components';
 
-The `<GitLabMergeRequest>` block creates a GitLab merge request from changes made during a runbook. It is a GitLab-locked alias of [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), equivalent to `<GitPullRequest provider="gitlab" />`, and accepts the same props.
+The `<GitLabMergeRequest>` block creates a GitLab merge request from changes made during a runbook. It is a GitLab-locked alias of [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/), equivalent to `<GitPullRequest provider="gitlab" />`, and accepts the same props except `provider`. The provider is always `gitlab`, and a `provider` prop you set is ignored.
 
 ### Basic usage
 
@@ -51,4 +51,27 @@ You can pre-populate the MR title, description, labels, branch name, and commit 
 
 <Aside type="note">
 The `prefilledPullRequest*` prop names are shared with `<GitPullRequest>` and apply to merge requests the same way.
+</Aside>
+
+### Block outputs
+
+After a successful create, the block produces outputs that can be referenced by downstream blocks. Their names are the same as on [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/#block-outputs), so there is no `MR_ID` or `MR_URL`:
+
+| Output | Description | Example |
+|--------|-------------|---------|
+| `PR_ID` | The merge request **iid**, its number within the project | `42` |
+| `PR_URL` | The full URL of the created merge request | `https://gitlab.com/acme-corp/infrastructure/-/merge_requests/42` |
+
+Reference outputs in downstream blocks using template variables:
+
+```mdx
+<Command
+  id="notify"
+  title="Post MR Link"
+  command="echo 'MR created: {{ .outputs.create_mr.PR_URL }}'"
+/>
+```
+
+<Aside type="note">
+  Block IDs with hyphens are converted to underscores in template variables. For example, `create-mr` becomes `create_mr`.
 </Aside>

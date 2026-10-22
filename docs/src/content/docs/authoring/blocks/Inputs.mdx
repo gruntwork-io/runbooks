@@ -2,7 +2,7 @@
 title: <Inputs>
 ---
 
-The `<Inputs>` block renders a form to collect user input. [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [Template](/authoring/blocks/template/) blocks use the collected values for variable substitution.
+The `<Inputs>` block renders a form to collect user input. Other blocks use the collected values through their `inputsId` prop: [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/) and [Finish](/authoring/blocks/finish/) blocks in their scripts, [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/blocks/templateinline/) blocks in their templates, and most other blocks in their props.
 
 ## Basic usage
 
@@ -38,7 +38,7 @@ Inputs and [Template](/authoring/blocks/template/) both render forms to collect 
 
 ### Optional props
 
-- `path` (string). Path to a directory containing a `boilerplate.yml` file, relative to the runbook. Required unless the block has inline YAML.
+- `path` (string). Path to a directory containing a `boilerplate.yml` (or `boilerplate.yaml`) file, or to the file itself, relative to the runbook. Required unless the block has inline YAML. [Runbook tests](/authoring/testing/) only read a file named `boilerplate.yml`.
 - `prefilledVariables` (object). An object of variable names to values that pre-populate the form fields. These values override any `default` values defined in the YAML.
 
 ## Declaring variables
@@ -93,9 +93,13 @@ Pre-populate form fields with specific values. These override any `default` valu
 />
 `````
 
+## When other blocks get the values
+
+Until the user first clicks **Submit**, other blocks get the values the form started with, such as each variable's `default`, not what the user has typed. Once the form has been submitted, other blocks get each change as the user makes it, without another Submit. An Inputs block [embedded in a Command or Check](#embedded-in-command-or-check) submits itself, so its parent always gets the current values.
+
 ## Using variables in Commands and Checks
 
-Command, Check and Template blocks read the values of an Inputs block through `inputsId`.
+Command, Check, Finish, Template and TemplateInline blocks read the values of an Inputs block through `inputsId`. A Command or Check whose script references `{{ .inputs.X }}` needs `inputsId` or an [embedded](#embedded-in-command-or-check) Inputs block. Without one, the block shows only a "Configuration Required" warning and can't run.
 
 ### Reference by `inputsId`
 

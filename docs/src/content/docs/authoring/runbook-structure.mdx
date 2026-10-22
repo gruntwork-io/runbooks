@@ -111,13 +111,17 @@ Blocks reference scripts and templates by path. You can store them anywhere, but
 Reference files relative to the runbook's folder:
 
 ```mdx
-<Check path="checks/prereq.sh" ... />
-<Template path="templates/my-template" ... />
+<Check id="prereq" path="checks/prereq1.sh" />
+<Template id="infra" path="templates/my-template" />
 ![Diagram](./assets/diagram.png)
 <img src="./assets/diagram.png" width="400" />
 <video src="./assets/demo.mp4" poster="./assets/demo-poster.png" controls />
 <Iframe src="./assets/dashboard/index.html" />
 ```
+
+A script `path` on a `<Command>`, `<Check>` or `<Finish>` block must stay inside the runbook's folder: a path with a `..` segment fails.
+
+These paths are for block props. A script itself starts in the [session's directory](/commands/sessions/), not in the runbook's folder, so it can't use them to find files next to the runbook. See [Execution context](/authoring/blocks/command/#execution-context).
 
 Asset paths must start with `./assets/`. Runbooks loads them from the runbook's `assets/` folder when they appear in markdown image syntax, including in a block prop that supports inline markdown such as `title` or `description`, or in one of these tag attributes:
 

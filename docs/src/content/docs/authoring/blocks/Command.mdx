@@ -32,18 +32,18 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 
 - `title` (string): display title shown in the UI. Supports inline markdown (bold, italic, links, code).
 - `description` (string): longer description of what the command does. Supports inline markdown.
-- `command` (string): inline command to execute. Use either this or `path`.
-- `path` (string): path to a shell script file relative to the runbook. Use either this or `command`.
-- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones.
+- `command` (string): inline command to execute. Set exactly one of `command` and `path`. If both are set, `command` runs.
+- `path` (string): path to a script file, relative to the runbook's folder, such as `scripts/deploy.sh`. The file must be inside that folder, so a path with a `..` segment fails. Use either this or `command`.
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones. A script that uses `{{ .inputs.* }}` needs this prop or a nested Inputs block. See [With variables](#with-variables).
 - `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
 - `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Run button is disabled until authentication completes.
 - `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes. Prefer `gitAuthId`.
-- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Run button is disabled until authentication completes.
+- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Run button is disabled until authentication completes.
 - `successMessage` (string): message shown when the command succeeds. Default "Success". Supports inline markdown.
 - `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
 - `runningMessage` (string): message shown while running. Default "Running...". Supports inline markdown.
-- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner.
-- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must finish with a success or a warning before this block can run. See [Run order](#run-order).
+- `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
+- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must succeed before this block can run. A Check that ends with a warning counts too. See [Run order](#run-order).
 - `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](#run-order).
 
 ### Inline content
@@ -93,6 +93,11 @@ For simple commands, define the script directly in the `command` prop:
 
 Inline scripts suit one-liners. For anything longer, use an external script file.
 
+A command that contains both kinds of quotes, or spans several lines, can go in a template literal: ``command={`echo "It's done"`}``. Two things work differently there:
+
+- `${...}` is a JavaScript substitution, which Runbooks rejects when the runbook opens. Write `$VAR`, not `${VAR}`.
+- Runbooks registers the command before JavaScript processes its backslash escapes, such as `\n` or a `\` at the end of a line. A command with one shows a "Script changed" notice that reloading doesn't clear, and it runs with the backslashes as written. Leave escapes out, or move the script to a file.
+
 #### External scripts
 
 ```mdx
@@ -112,7 +117,7 @@ External scripts are plain bash scripts. The referenced `scripts/deploy.sh` migh
 #!/bin/bash
 
 log_info "Starting deployment..."
-kubectl apply -f deployment.yaml
+kubectl apply -f "$REPO_FILES/k8s/deployment.yaml"
 
 if kubectl rollout status deployment/myapp; then
     log_info "Deployment complete!"
@@ -123,13 +128,15 @@ else
 fi
 ```
 
+Scripts start in the session's directory, not in the runbook's folder, so this one reads its manifest from the repository a [`<GitClone>`](/authoring/blocks/gitclone/) block cloned. See [Execution context](#execution-context).
+
 If you edit the script file while the runbook is open, the block shows a "Script changed" notice with the diff and keeps running the version it loaded. Click **Reload script** in the notice to run the new version. See [Reloading a changed script file](/security/execution-model/#reloading-a-changed-script-file).
 
 ### Exit codes
 
 Exit code 0 renders as success (green). Any other exit code renders as failure (red).
 
-Exit code 2 is a warning for [Check](/authoring/blocks/check/#exit-codes) blocks. A Command that exits 2 is shown as failed, but Runbooks still treats the run as a warning internally. Files written to `$GENERATED_FILES` are [captured](#capturing-output-files), and the script's environment changes [carry forward](#execution-context).
+Exit code 2 is a warning for [Check](/authoring/blocks/check/#exit-codes) blocks. A Command that exits 2 is shown as failed, but Runbooks still treats the run as a warning internally. Files written to `$GENERATED_FILES` are [captured](#capturing-output-files), and the script's environment changes [carry forward](#execution-context). Blocks whose [`dependsOn`](#run-order) names it keep waiting, as they would after a failure.
 
 ### Logging
 
@@ -331,7 +338,7 @@ Quoting keeps a value with spaces in one piece, but it does not make an untruste
 If the script can't be rendered, for example because it calls an unknown function or contains a `{{ }}` expression meant for another tool, the block fails with the template error and the script does not run. To pass `{{ }}` through to a tool such as `docker ps --format`, write it as a raw string: ``--format '{{`{{.Names}}`}}'``.
 
 :::note
-[Runbook tests](/authoring/testing/) use a simpler template renderer that doesn't handle `eq` comparisons or the raw-string form yet. It leaves `{{ if eq ... }}` unrendered and reports `{{.Names}}` as an undefined variable, so a script that uses either works in the app but not under test.
+[Runbook tests](/authoring/testing/) use a simpler template renderer. It handles references such as `{{ .inputs.Name }}` and `{{ .outputs.build.tag }}`, `{{ fromJson .outputs.build.data }}`, and an `{{ if .inputs.Flag }}...{{ else }}...{{ end }}` that isn't nested. It leaves anything else in the script as written, including functions and pipes such as `upper` or `hasKey`, `eq` comparisons, `range`, `with`, and the `{{-` and `-}}` trim markers, and it reports the `{{.Names}}` in the raw-string form as an undefined variable. A script that uses any of these works in the app but not under test.
 :::
 
 ### Execution context
@@ -340,6 +347,10 @@ Scripts run in a persistent environment. Environment variable changes (`export`,
 
 Scripts run in a non-interactive shell, so shell aliases such as `ll` and shell functions such as `nvm` or `rvm` are not available.
 
+Scripts start in the [session's directory](/commands/sessions/), not in the runbook's folder. A `cd` carries forward as described above, so later scripts start wherever it left off. No environment variable names the runbook's folder, so a script can't call another script or read a file that ships with the runbook. Give each script file its own block with `path`. To work with a cloned repository's files, use [`$REPO_FILES`](#writing-to-repository-files) or the `<GitClone>` block's `clone_path` output.
+
+Scripts run without a terminal, and their standard input is empty. A command that asks for input, such as `read`, a confirmation prompt, or a `sudo` password prompt, gets none and usually fails. Use non-interactive flags, such as `tofu apply -auto-approve` or `apt-get install -y`. Tools that check for a terminal may also turn off colors and progress bars.
+
 See [Shell execution context](/security/shell-execution-context/) for the details.
 
 #### Run order
@@ -347,18 +358,20 @@ See [Shell execution context](/security/shell-execution-context/) for the detail
 Command and Check blocks can run at the same time. A block's Run button is disabled while the block has to wait for another one:
 
 - **It uses another block's outputs.** A block that references `{{ .outputs.build.tag }}` can't run until `build` has produced that output, and can't run while `build` is running again.
-- **It names another block in `dependsOn`.** Use this when a script needs something an earlier script did that isn't an output, such as a variable it exported, a directory it changed into, or a resource it created. The block can't run until every block it names has finished with a success or a warning. If one of them later fails or is stopped, the block waits again.
+- **It names another block in `dependsOn`.** Use this when a script needs something an earlier script did that isn't an output, such as a variable it exported, a directory it changed into, or a resource it created. The block can't run until every block it names has succeeded, or for a Check, ended with a warning. A Command that exits 2 doesn't count. If one of them later fails or is stopped, the block waits again.
 - **It would overlap with an `exclusive` block.** No other Command or Check block can start while an `exclusive` block runs, and an `exclusive` block can't start while another one is running. Use this for a script that can't share its resources, such as one that takes a state lock.
 
 ```mdx
 <Command id="login" command="export API_TOKEN=$(vault read -field=token secret/api)" />
 
-<Command id="deploy" dependsOn="login" command="./deploy.sh" />
+<Command id="deploy" dependsOn="login" path="scripts/deploy.sh" />
 
-<Command id="migrate" dependsOn={["login", "deploy"]} exclusive command="./migrate.sh" />
+<Command id="migrate" dependsOn={["login", "deploy"]} exclusive path="scripts/migrate.sh" />
 ```
 
 A block that is waiting names the blocks it is waiting for. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
+
+Each ID in `dependsOn` must name a Command or Check block in the runbook. Runbooks doesn't report an ID that names another kind of block, or no block at all. The block just keeps waiting for it.
 
 #### Background processes
 
@@ -381,7 +394,7 @@ Without the redirect, the block keeps waiting on the background process until `t
 set -e  # Exit on error
 
 log_info "Starting deployment..."
-kubectl apply -f deployment.yaml
+kubectl apply -f "$REPO_FILES/k8s/deployment.yaml"
 kubectl rollout status deployment/myapp
 
 log_info "Deployment complete!"
@@ -424,13 +437,13 @@ function cleanup {
 trap cleanup EXIT
 
 log_info "Running pre-deployment checks..."
-./check-prerequisites.sh || { log_error "Pre-checks failed"; exit 1; }
+kubectl cluster-info > /dev/null || { log_error "Pre-checks failed"; exit 1; }
 
 log_info "Deploying..."
-./deploy.sh
+kubectl apply -f "$REPO_FILES/k8s/"
 
 log_info "Running post-deployment validation..."
-./validate-deployment.sh || { log_error "Validation failed"; exit 1; }
+kubectl rollout status deployment/myapp --timeout=5m || { log_error "Validation failed"; exit 1; }
 
 log_info "Deployment successful!"
 ```
@@ -455,8 +468,8 @@ Files written to `$GENERATED_FILES` appear in the file panel after the script ex
 # Export OpenTofu outputs to generated files
 tofu output -json > "$GENERATED_FILES/tf-outputs.json"
 
-# Copy a config file
-cp config.yaml "$GENERATED_FILES/"
+# Copy a file from the cloned repository
+cp "$REPO_FILES/config.yaml" "$GENERATED_FILES/"
 ```
 
 Or as an inline command:
@@ -511,7 +524,7 @@ If multiple commands run concurrently and write files with the same name, the la
 
 ### Writing to repository files
 
-Once a `<GitClone>` block has registered a repository, the `$REPO_FILES` environment variable points to its local path. With several repositories registered, it points to the one selected in the workspace's repository dropdown, or to the most recently registered one if the user hasn't selected any. Scripts can modify files inside the repository directly:
+Once a `<GitClone>` block has registered a repository, the `$REPO_FILES` environment variable points to its local path. With several repositories, it points to the one selected in the workspace's repository dropdown: the first one cloned, until the user selects another. Scripts can modify files inside the repository directly:
 
 ```bash
 #!/bin/bash
@@ -552,6 +565,8 @@ Commands can produce outputs that later blocks consume. Scripts write `key=value
 ACCOUNT_ID=$(aws organizations create-account ...)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```
+
+Write one output per line. A key starts with a letter or underscore and contains only letters, digits and underscores. Runbooks ignores a line with any other key. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the full format.
 
 After a block runs, click **View Outputs** below the log viewer to inspect its outputs. To keep a credential off screen there, write `sensitive:` before its key, as in `echo "sensitive:API_TOKEN=$TOKEN" >> "$RUNBOOK_OUTPUT"`. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 

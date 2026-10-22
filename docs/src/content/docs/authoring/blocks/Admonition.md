@@ -2,7 +2,7 @@
 title: <Admonition>
 ---
 
-The `<Admonition>` block renders a callout box for a note, tip, warning, or danger message.
+The `<Admonition>` block renders a callout box for a note, info, warning, or danger message.
 
 ## Basic usage
 

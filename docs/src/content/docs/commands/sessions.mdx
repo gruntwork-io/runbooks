@@ -55,7 +55,8 @@ The blocks come back as you left them. Each shows what the session's history has
 | [\<Template\>](/authoring/blocks/template/) | The values you typed, and whether you had generated its files. | |
 | [\<GitClone\>](/authoring/blocks/gitclone/) | The repository you cloned or selected, with its outputs. | That it is still a git repository on disk. |
 | [\<DirPicker\>](/authoring/blocks/dirpicker/) | The path, with a dropdown selection for each of its directories that is still there. | |
-| [\<GitPullRequest\>](/authoring/blocks/gitpullrequest/) | The pull or merge request you opened, with its outputs, and the form fields you edited. | |
+| [\<GitPullRequest\>](/authoring/blocks/gitpullrequest/), [\<GitHubPullRequest\>](/authoring/blocks/githubpullrequest/) and [\<GitLabMergeRequest\>](/authoring/blocks/gitlabmergerequest/) | The pull or merge request you opened, with its outputs, and the form fields you edited. | |
+| [\<Iframe\>](/authoring/blocks/iframe/) | Not the outputs its page set. Blocks that read them wait until the page sets them again. | |
 | [\<AwsAuth\>](/authoring/blocks/awsauth/) | The account you signed in to. | That its credentials still work. Temporary ones expire. |
 | [\<GitAuth\>](/authoring/blocks/gitauth/), [\<GitHubAuth\>](/authoring/blocks/githubauth/) and [\<GitLabAuth\>](/authoring/blocks/gitlabauth/) | The account you signed in to. The session's token is still sent only to the host you signed in to. | That the token still works for that host, and still belongs to that account. |
 | [\<GoogleAuth\>](/authoring/blocks/googleauth/) | The account you signed in to, when the sign-in can be done again. | That the credential still signs in as that account. Runbooks then signs in again the same way. |
@@ -116,7 +117,7 @@ Choose **File > Switch Session…**, or **Switch Session…** in the app's menu,
 
 Click a session to open its runbook in it. Its blocks, environment and working directory come back as [Resuming a session](#resuming-a-session) describes. A remote runbook is cloned again first. A session whose local runbook file has been deleted is listed but can't be opened.
 
-Only one script runs at a time. If one is running, Runbooks asks before switching, since the switch stops it.
+If a script is running, Runbooks asks before switching, since the switch stops every running script.
 
 The session you switch to counts as launched again. Launching Runbooks from the dock resumes it next, and so does `runbooks` run in the directory it was last launched from, unless it is a finished session.
 
@@ -162,7 +163,7 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
       - my-cloned-repo/
 </FileTree>
 
-Every \<Command\> and \<Check\> run writes its full log to `.runbooks/logs` in the session's directory, in a directory named after the block's `id`. **Copy log file path** on a block copies the path of its last run's log, in a resumed session too. Runbooks keeps the logs as long as the session.
+Every \<Command\> and \<Check\> run, and every final check of a \<Finish\> block, writes its full log to `.runbooks/logs` in the session's directory, in a directory named after the block's `id`. **Copy log file path** on a block copies the path of its last run's log, in a resumed session too. Runbooks keeps the logs as long as the session.
 
 The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, when you finished its runbook, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
 

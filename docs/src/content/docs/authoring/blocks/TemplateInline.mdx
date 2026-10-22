@@ -41,14 +41,14 @@ TemplateInline and [Template](/authoring/blocks/template/) both render Boilerpla
 ### Required props
 
 - `id` (string). Unique identifier for this block. See [Block IDs](/authoring/blocks/#block-ids).
-- Inline template content. The template to render, written as a fenced code block inside the `<TemplateInline>` tags. Give the code block a language hint (e.g., `hcl`, `yaml`, `dockerfile`) for syntax highlighting.
+- Inline template content. The template to render, written as a fenced code block inside the `<TemplateInline>` tags. The block uses one code block: if there are several, the last one is the template. The rendered output is shown without syntax highlighting, whatever language hint the code block has.
 
 ### Optional props
 
-- `inputsId` (string | string[]). ID of the Inputs block(s) to get variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones). If not provided, the template renders without variable substitution.
-- `outputPath` (string). File path for the rendered output (e.g., `config.yaml` or `docs/account.hcl`). This appears as the filename in the code block header. With `generateFile={true}`, it is also where the file is saved, relative to the output directory. Missing parent directories are created.
+- `inputsId` (string | string[]). ID of the Inputs block(s) to get variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones). The block waits to render until every input the template inserts, such as `{{ .inputs.Name }}`, has a value. An empty string doesn't count, so give an optional input a non-empty default. Without `inputsId`, a template that inserts an input never renders.
+- `outputPath` (string). File path for the rendered output (e.g., `config.yaml` or `docs/account.hcl`). Defaults to `template.txt`. This appears as the filename in the code block header. With `generateFile={true}`, it is also where the file is saved, relative to the output directory. Missing parent directories are created.
 - `generateFile` (boolean). Whether to save the rendered file to the workspace. When `false` (the default), the block only shows the rendered output inline.
-- `target` (`"generated"` | `"worktree"`). Where template output is written when `generateFile={true}`. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree: the one selected in the workspace, or else the most recently cloned repository. It requires a `<GitClone>` block to have run first. Until then, the block shows an error in place of the preview.
+- `target` (`"generated"` | `"worktree"`). Where template output is written when `generateFile={true}`. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree: the one selected in the workspace's repository dropdown, which is the first repository cloned until the user selects another. It requires a `<GitClone>` block to have run first. Until then, the block shows an error in place of the preview.
 
 <Aside type="note">
 `outputPath` must be a relative path. Absolute paths and paths that leave the output directory (e.g., `../`) are rejected.
@@ -160,7 +160,7 @@ ENVIRONMENT={{ .inputs.Environment }}
 
 ## With Boilerplate logic
 
-Templates can use Boilerplate template syntax, including conditionals and loops:
+Templates can use Boilerplate template syntax, including conditionals and loops. Reference an input as `{{ .inputs.Name }}`. The shorter `{{ .Name }}`, which works in the files a `<Template>` renders, shows a template error here.
 
 `````mdx
 <Inputs id="terraform-config">

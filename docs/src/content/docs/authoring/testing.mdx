@@ -99,7 +99,7 @@ settings:
 | `use_temp_working_dir` | boolean | `true` | Run each test case in its own fresh temporary directory, which is removed when that test case ends. Overrides `working_dir` when `true`. |
 | `working_dir` | string | current directory | Base directory for script execution and file generation. Use `.` for the runbook's directory. Any other relative path resolves against the runbook's directory. Ignored when `use_temp_working_dir` is `true`. All test cases share this directory, so files one test case generates or clones are still there for the next. |
 | `output_path` | string | `"generated"` | Directory where generated files are written, relative to the working directory. |
-| `timeout` | string | `"5m"` | Time limit for each script a block runs and each git command a `<GitClone>` runs, as a duration such as `500ms`, `30s`, `5m`, or `1h`. There is no limit on the test case as a whole. A `script` assertion is limited to this value or 30 seconds, whichever is lower, and each cleanup action to 30 seconds. |
+| `timeout` | string | `"5m"` | Time limit for each script a block runs and each git command a `<GitClone>` runs, as a duration such as `500ms`, `30s`, `5m`, or `1h`. Tests ignore a block's `timeoutMs`, so this limit applies to every script. There is no limit on the test case as a whole. A `script` assertion is limited to this value or 30 seconds, whichever is lower, and each cleanup action to 30 seconds. |
 | `parallelizable` | boolean | `true` | Whether this runbook's tests can run in parallel with tests from other runbooks. Runbooks are currently tested one at a time, so this only affects order: parallelizable runbooks run first. |
 
 ### Test case object
@@ -255,11 +255,16 @@ inputs:
 
 #### Variables a test doesn't set
 
-A test only needs to set the variables it cares about. Every other variable of an `<Inputs>` or `<Template>` block gets the value the app's form starts it with, so a field a user can leave untouched in the app can be left out of the test too:
+A test only needs to set the variables it cares about. Every other variable of an `<Inputs>` or `<Template>` block gets the value the app's form starts it with, with the two exceptions below, so a field a user can leave untouched in the app can be left out of the test too:
 
 - Its `default`, if it has one.
 - Otherwise, the value its field shows before anyone touches it: `false` for a `bool` (an unchecked checkbox), and for a `list` with an `x-schema` (a fixed row of fields), one element per schema key, `false` for a `bool` element and `""` for any other.
 - Any other variable without a default stays unset, as it does in the form, so set it in the test if a block uses it.
+
+Set the variable in the test in these two cases, where the runner doesn't start it the way the form does:
+
+- The `<Inputs>` block gives it a value with `prefilledVariables`. The runner ignores that prop.
+- Its `default` is built from other variables, such as `"{{ .ProjectName }}-state"`. The app fills in the other variables' values, but the runner uses the text as written.
 
 When a `<Template>` imports a block with `inputsId` and both define a variable, the app shows that variable read-only with the imported block's value, so the test gives it that value too. For example, setting `config.Environment` also sets `vpc.Environment` for `<Template id="vpc" inputsId="config" />`. With several `inputsId`s, the last one that has a value wins.
 
@@ -415,6 +420,20 @@ Both kinds of action run in bash from the output directory (`<working_dir>/<outp
 
 A test that fails before any block runs skips cleanup, since nothing has run yet. That happens when the runbook has a block type the runner doesn't know, when the test's inputs don't validate, and when a step names a block the runbook doesn't have.
 
+## How tests differ from the app
+
+The runner runs your scripts and renders your templates, but not always as the app does. A test can pass while the runbook fails in the app, or the other way around:
+
+- **Template syntax.** The runner renders scripts, templates and block props with its own renderer. It handles only references such as `{{ .inputs.Name }}` and `{{ .outputs.block_id.name }}`, `{{ if .inputs.Flag }}...{{ else }}...{{ end }}` without nesting, and `{{ fromJson .outputs.block_id.name }}`. Anything else is left in the result as written, including `eq` and the other functions, pipes such as `| upper`, `range`, `with`, the raw-string form, and the `{{-` and `-}}` markers. A reference inside one of those, such as the output behind a `hasKey` guard, is still filled in, or reported as undefined.
+- **Input values.** Every block sees every input. A script's `{{ .inputs.Name }}` gets the value from whichever block defines `Name`, even when the block has no `inputsId`. In the app, a `<Command>`, `<Check>` or `<Finish>` whose script uses `.inputs` without an `inputsId` or a nested `<Inputs>` shows **Configuration Required** and can't run. When two blocks define `Name`, a block can get the other block's value under test.
+- **Working directory.** In the app, scripts start in the [session's directory](/commands/sessions/), never in the runbook's folder. Under test they start in the [working directory](#settings-object): a fresh temporary directory by default, or the runbook's folder with `working_dir: .`. So a script that reads a file next to `runbook.mdx` can pass with `working_dir: .` and fail in the app.
+- **Script paths.** The app refuses a `path` with a `..` segment, such as `../shared/setup.sh`, and shows an error in place of the block. The runner reads the file anyway.
+- **Timeouts.** A block's `timeoutMs` doesn't apply. Every script gets the [`timeout` setting](#settings-object), 5 minutes by default.
+- **A Command that exits 2.** The runner reports it as `warn`, and the blocks whose `dependsOn` names it can run. In the app, the Command shows as failed and those blocks keep waiting. A `<Check>` that exits 2 lets them run in both.
+- **Auth blocks.** The runner ignores `detectCredentials`. It reads the environment variables listed in each auth block's section below, and for `<GoogleAuth>` gcloud's ADC file, whatever the prop says. A block with `detectCredentials={false}` still succeeds when they are set, a `{ block: ... }` source is never used, and a prefix in an `{ env: { prefix } }` source has no effect, since only the step's `env_prefix` sets one. The runner also checks only that an auth block has an `id`. Configuration errors that the app reports for an auth block, such as two `{ block }` sources, don't appear, and an `expect: config_error` step for one fails.
+- **Template blocks.** A `<Template>` renders each file with the runner's renderer. File and directory names aren't rendered, files and directories whose names start with `.` aren't written, and `boilerplate.yml` is read only for its variables, so settings such as `skip_files` are ignored. Only the Template's own variables can be written as `{{ .Name }}`. Write a variable that it only gets through `inputsId` as `{{ .inputs.Name }}`, which works in the app too.
+- **TemplateInline blocks.** The runner reports a `<TemplateInline>` without `outputPath` as a configuration error. In the app, `outputPath` defaults to `template.txt`.
+
 ## Testing AwsAuth blocks
 
 For an `<AwsAuth>` block, the test runner looks for AWS credentials in environment variables. It never contacts AWS. It checks these sources in order:
@@ -424,6 +443,8 @@ For an `<AwsAuth>` block, the test runner looks for AWS credentials in environme
 3. `AWS_ROLE_ARN` together with `AWS_WEB_IDENTITY_TOKEN_FILE`
 
 Static keys go into the test case environment, so every later block sees them. A profile, or a role and token file, is passed only to blocks that reference the auth block with `awsAuthId`. If none of the three is set, the step is skipped and blocks that reference the auth block are blocked.
+
+The runner sets `AWS_REGION` only from the `AWS_REGION` variable. The app falls back to `AWS_DEFAULT_REGION` and then to the block's `defaultRegion`, but the runner doesn't, so under test a script that reads `$AWS_REGION` gets nothing when `AWS_REGION` isn't set.
 
 ### Using a test prefix
 
@@ -446,7 +467,7 @@ The runner then reads:
 - `RUNBOOKS_TEST_AWS_SESSION_TOKEN`
 - `RUNBOOKS_TEST_AWS_REGION`
 
-If the prefixed key pair isn't set, it falls back to the unprefixed variables. The prefix applies only to these four. `AWS_PROFILE`, `AWS_ROLE_ARN`, and `AWS_WEB_IDENTITY_TOKEN_FILE` are read without it.
+If the prefixed key pair isn't set, it falls back to the unprefixed variables. The prefix applies only to these four. `AWS_PROFILE`, `AWS_ROLE_ARN`, and `AWS_WEB_IDENTITY_TOKEN_FILE` are read without it. A prefixed source in the app never falls back like this, so a test whose prefixed variables are missing can still pass, using whatever AWS credentials the machine running it has.
 
 ### CI example
 
@@ -488,9 +509,14 @@ It also reads these variables, none of which counts as a credential:
 - Region: `CLOUDSDK_COMPUTE_REGION`, `GOOGLE_CLOUD_REGION`
 - Zone: `CLOUDSDK_COMPUTE_ZONE`
 
-When none of those is set, the block's own `project`, `defaultRegion`, and `defaultZone` props are used.
+When none of those is set, the block's own `project`, `defaultRegion`, and `defaultZone` props are used. The app works the other way around: the `project` prop wins over a detected project, and the region and zone come from the block's region picker, which starts at `defaultRegion`, and from `defaultZone`, not from these variables.
 
-On success the runner writes the same variables the app's session environment writes, so scripts see every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`. A credentials file also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, so `gcloud` uses that file and ignores any account from `gcloud auth login`. An access token clears it.
+On success the runner writes the project, region, and zone under every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for, as the app does: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`. A credentials file also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, so `gcloud` uses that file and ignores any account from `gcloud auth login`. An access token is written as both `GOOGLE_OAUTH_ACCESS_TOKEN` and `CLOUDSDK_AUTH_ACCESS_TOKEN`, and clears the override.
+
+Two things differ from the session environment the app writes:
+
+- Inline JSON in `GOOGLE_CREDENTIALS` is passed on as it is, and `GOOGLE_APPLICATION_CREDENTIALS` and `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` are cleared. So only tools that read `GOOGLE_CREDENTIALS`, such as the OpenTofu `google` provider, find the credential, and `gcloud` and the client libraries don't. The app writes the JSON to a file and points both variables at it.
+- `CLOUDSDK_CORE_ACCOUNT` isn't set.
 
 ### Using a test prefix
 
@@ -514,13 +540,14 @@ The runner then checks:
 - `RUNBOOKS_TEST_CLOUDSDK_AUTH_ACCESS_TOKEN`
 - `RUNBOOKS_TEST_CLOUDSDK_CORE_PROJECT` (and the other project/region/zone names above, prefixed)
 
-If no prefixed credential is found, it falls back to the unprefixed variables.
+If no prefixed credential is found, it falls back to the unprefixed variables, and then to gcloud's ADC file. A prefixed source in the app never falls back, so a test whose prefixed variables are missing can still pass on your own Google credentials.
 
 ### CI example
 
 ```yaml
 # .github/workflows/test.yml
 - name: Authenticate to Google Cloud
+  id: auth
   uses: google-github-actions/auth@v2
   with:
     workload_identity_provider: projects/123/locations/global/workloadIdentityPools/ci/providers/github
@@ -536,11 +563,15 @@ If no prefixed credential is found, it falls back to the unprefixed variables.
 
 ## Testing GitHubAuth blocks
 
-For a `<GitHubAuth>` block, the test runner looks for a GitHub token in these environment variables, in order:
+For a `<GitHubAuth>` block, the test runner looks for a token for the block's host: the one its `host` prop names, or `github.com` without one. It ties each environment variable to a host the way the app does, so a token is only used for its own host:
 
-1. `RUNBOOKS_GITHUB_TOKEN` (recommended for tests)
-2. `GITHUB_TOKEN`
-3. `GH_TOKEN`
+- For `github.com`: `RUNBOOKS_GITHUB_TOKEN` (recommended for tests), then `GITHUB_TOKEN`, then `GH_TOKEN`. The last two count only while `GH_HOST` is unset or names `github.com` or a GitHub Enterprise Server host.
+- For a `*.ghe.com` tenant: `GITHUB_TOKEN`, then `GH_TOKEN`, when `GH_HOST` names the tenant.
+- For a GitHub Enterprise Server host: `GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, when `GH_HOST` names the host.
+
+On success, the blocks after it see `GITHUB_TOKEN` and `GITHUB_HOST`. The app also sets `GITHUB_USER` and `GH_HOST`, and for an Enterprise Server host `GH_ENTERPRISE_TOKEN`, so under test a script has those only if the environment the tests run in sets them.
+
+A `host` that isn't a valid host is a configuration error in the app. Under test, the block uses `github.com` instead.
 
 ### Using a test prefix
 
@@ -556,7 +587,7 @@ tests:
         expect: success
 ```
 
-This step reads `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`.
+This step reads `CI_GITHUB_TOKEN` and `CI_GH_TOKEN`, or for an Enterprise Server host `CI_GH_ENTERPRISE_TOKEN` and `CI_GITHUB_ENTERPRISE_TOKEN`. `CI_GH_HOST` ties them to a host, the way `GH_HOST` does for the unprefixed names. `RUNBOOKS_GITHUB_TOKEN` isn't read with a prefix.
 
 ### CI example
 
@@ -576,9 +607,9 @@ For a `<GitLabAuth>` block, the test runner looks for a GitLab token in these en
 2. `GITLAB_ACCESS_TOKEN`
 3. `OAUTH_TOKEN`
 
-With `env_prefix` on the step, it checks the prefixed names instead (`CI_GITLAB_TOKEN`, `CI_GITLAB_ACCESS_TOKEN`, `CI_OAUTH_TOKEN`).
+With `env_prefix` on the step, it checks the prefixed names instead (`CI_GITLAB_TOKEN`, `CI_GITLAB_ACCESS_TOKEN`, `CI_OAUTH_TOKEN`). The app reads only the first two of those with a prefix.
 
-On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too, and a block whose pinned value isn't a valid URL or host always skips.
+On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too, and a block whose pinned value isn't a valid URL or host always skips. Unlike the app, the runner ties a prefixed token to a host with these unprefixed variables too. The app uses the prefixed ones, such as `CI_GITLAB_HOST`.
 
 The test runner never sends the token anywhere, so a fake one is enough to test that the block authenticates:
 
@@ -594,6 +625,17 @@ tests:
 ```
 
 A `<GitAuth>` block is tested like `<GitHubAuth>` or `<GitLabAuth>`, depending on its `provider` prop (`github` by default).
+
+## Testing GitClone blocks
+
+A `<GitClone>` clones its `prefilledUrl` into the working directory. With `source="local"` or a `prefilledRepoDir`, it uses that checkout instead. A block without the prop it needs has nothing to clone, so its step is skipped. A test with no `steps` expects every block to succeed, so give the block its `prefilledUrl` or `prefilledRepoDir`, or list it as a step with `expect: skip`.
+
+The block's outputs under test differ from the app's:
+
+- It sets `clone_path` and `file_count`, and `ref` for a clone with a `prefilledRef`. `file_count` and `ref` exist only under test.
+- It doesn't set `repo_owner`, `repo_name`, `org_id` or `repo_id`. A block that references one of them fails under test, even behind a `hasKey` guard.
+
+Each `<GitClone>` that succeeds also becomes the repository that `$REPO_FILES` and `target="worktree"` use, so with several of them the last one to run wins. In the app, the first repository cloned stays in use until the user selects another.
 
 ### Cloning with a token
 
@@ -656,6 +698,10 @@ tests:
 ```
 
 A step whose `set_outputs` names an output the block's `outputs` prop doesn't list fails, just as the app refuses that output from the page. Without `set_outputs`, the step succeeds and sets nothing, so blocks that read the block's outputs stay blocked. A test with no `steps` runs each `<Iframe>` with an `id` that way.
+
+## Testing DirPicker blocks
+
+The runner doesn't run [`<DirPicker>`](/authoring/blocks/dirpicker/) blocks. A step that names one fails the test with `references unknown block`, and a test with no `steps` leaves the block out. Its `PATH` output never exists under test, so a block that reads it can only be tested with `expect: blocked` or `expect: skip`.
 
 ## Running tests
 

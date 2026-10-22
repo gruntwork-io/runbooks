@@ -6,20 +6,31 @@ import { Aside } from '@astrojs/starlight/components';
 
 Every runbook has a global context, a shared set of key-value pairs that blocks read and write. The keys are variables.
 
-Values enter the global context in two ways. [Input providers](#input-providers) such as `<Inputs>` and `<Template>` collect values from the user through a form, and consumer blocks pull them in with the [`inputsId` prop](#wiring-blocks-with-inputsid). Blocks that run something, such as `<Command>`, `<Check>` and `<DirPicker>`, publish results that later blocks read through the [`outputs` namespace](#block-outputs).
+Values enter the global context in two ways. [Input providers](#input-providers) such as `<Inputs>` and `<Template>` collect values from the user through a form, and consumer blocks pull them in with the [`inputsId` prop](#wiring-blocks-with-inputsid). Other blocks, such as `<Command>`, `<Check>`, `<GitClone>` and `<DirPicker>`, publish results that later blocks read through the [`outputs` namespace](#block-outputs).
 
 ## Variables
 
-Reference a variable in templates, scripts, and block props as `{{ .inputs.VarName }}`. For example:
+Reference a variable in templates, scripts, and block props as `{{ .inputs.VarName }}`. A block gets the values from the input providers it names with [`inputsId`](#wiring-blocks-with-inputsid). For example:
 
-```mdx
+`````mdx
+<Inputs id="account">
+```yaml
+variables:
+  - name: Email
+    type: string
+  - name: AccountName
+    type: string
+```
+</Inputs>
+
 <Command
   id="create-account"
+  inputsId="account"
   command='aws organizations create-account --email "{{ .inputs.Email }}" --account-name "{{ .inputs.AccountName }}"'
 />
-```
+`````
 
-When this block runs, Runbooks resolves `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` from the global context, producing a command like:
+When this block runs, Runbooks fills in `{{ .inputs.Email }}` and `{{ .inputs.AccountName }}` with the values entered in the `account` form, producing a command like:
 
 ```bash
 aws organizations create-account --email "alice@example.com" --account-name "my-account"
@@ -31,7 +42,7 @@ Runbooks uses [Gruntwork Boilerplate](/authoring/boilerplate/) as its template e
 
 - The same `{{ .inputs.VarName }}` syntax
 - The same types (`string`, `int`, `float`, `bool`, `enum`, `list`, `map`)
-- The same validation rules (`required`, `email`, `url`, `alpha`, `digit`, `alphanumeric`, `countrycode2`, `semver`, `regex`)
+- The same validation rules (`required`, `email`, `url`, `alpha`, `digit`, `alphanumeric`, `countrycode2`, `semver`, `length`, `regex`)
 - The same `boilerplate.yml` format for defining them
 - The Boilerplate helper functions and pipe modifiers (`upper`, `lower`, `snakeCase`, `camelCase`, `fromJson`, conditionals, loops)
 
@@ -39,7 +50,7 @@ The [Boilerplate templates](/authoring/boilerplate/) page covers the syntax, var
 
 #### Template syntax
 
-Reference inputs as `{{ .inputs.VarName }}` and outputs as `{{ .outputs.blockId.outputName }}`. Runbooks also exposes every input at the root of the context, so `{{ .VarName }}` works in every block and in templates written for the Boilerplate CLI.
+Reference inputs as `{{ .inputs.VarName }}` and outputs as `{{ .outputs.blockId.outputName }}`. In the files a `<Template>` renders, and in variable defaults that are themselves templates, every input is also available at the root of the context, so templates written for the Boilerplate CLI can keep using `{{ .VarName }}`. Everywhere else, such as Command and Check scripts, `<TemplateInline>` content and block props, `{{ .VarName }}` fails. Write `{{ .inputs.VarName }}` there.
 
 <Aside type="caution">
 `inputs` and `outputs` are reserved and cannot be variable names in `boilerplate.yml`.
@@ -76,7 +87,7 @@ Here the variables come from `templates/rds/boilerplate.yml`.
 
 ## Wiring blocks with `inputsId`
 
-Any block that consumes variables (`<Command>`, `<Check>`, `<Template>`, `<TemplateInline>`) accepts an `inputsId` prop naming an input provider by its `id`. This Command uses the value collected by the Inputs block:
+Any block that consumes variables, such as `<Command>`, `<Check>`, `<Finish>`, `<Template>` or `<TemplateInline>`, accepts an `inputsId` prop naming an input provider by its `id`. This Command uses the value collected by the Inputs block:
 
 `````mdx
 <Inputs id="config">
@@ -87,8 +98,10 @@ variables:
 ```
 </Inputs>
 
-<Command inputsId="config" command='mkdir "{{ .inputs.ProjectName }}"' />
+<Command id="create-dir" inputsId="config" command='mkdir "{{ .inputs.ProjectName }}"' />
 `````
+
+Values reach a block only through `inputsId` or a nested `<Inputs>`. A Command or Check that references `{{ .inputs.* }}` without either shows a **Configuration Required** message in place of its button.
 
 ### Multiple sources
 
@@ -96,6 +109,7 @@ Pass an array of IDs to `inputsId` to merge variables from more than one input p
 
 ```mdx
 <Command
+  id="deploy"
   inputsId={["global-config", "local-config"]}
   command='deploy --env "{{ .inputs.Environment }}" --name "{{ .inputs.AppName }}"'
 />
@@ -106,7 +120,7 @@ Pass an array of IDs to `inputsId` to merge variables from more than one input p
 An `<Inputs>` block nested inside a `<Command>` or `<Check>` feeds the parent without `inputsId`:
 
 `````mdx
-<Command command='echo "Hello, {{ .inputs.Name }}!"'>
+<Command id="greet" command='echo "Hello, {{ .inputs.Name }}!"'>
   <Inputs id="greeting">
   ```yaml
   variables:
@@ -135,7 +149,7 @@ A block that has run can publish outputs for later blocks to read.
 
 ### Producing outputs
 
-[`<Command>`](/authoring/blocks/command/) and [`<Check>`](/authoring/blocks/check/) blocks produce outputs by writing `key=value` pairs to the file specified by the `$RUNBOOK_OUTPUT` environment variable:
+Scripts in [`<Command>`](/authoring/blocks/command/), [`<Check>`](/authoring/blocks/check/) and [`<Finish>`](/authoring/blocks/finish/) blocks produce outputs by writing `key=value` lines to the file specified by the `$RUNBOOK_OUTPUT` environment variable:
 
 ```bash
 #!/bin/bash
@@ -151,7 +165,13 @@ For complex data (lists, maps), serialize as JSON:
 echo 'users=["alice","bob","charlie"]' >> "$RUNBOOK_OUTPUT"
 ```
 
-Runbooks sets `$RUNBOOK_OUTPUT` before the script runs.
+Runbooks sets `$RUNBOOK_OUTPUT` before the script runs, and reads the file when the script exits with code 0 or 2. Each line is one output:
+
+- The key starts with a letter or underscore and contains only letters, digits and underscores. Runbooks ignores a line with any other key, such as `account-id=...`, and a line without an `=`.
+- The value is everything after the first `=`, up to the end of the line. Put a multi-line value on one line, for example as JSON or base64.
+- When a script writes the same key more than once, the last value wins.
+
+Other blocks publish outputs of their own, which their pages list: the auth blocks, such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitClone>`](/authoring/blocks/gitclone/), [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/) and its wrappers, [`<DirPicker>`](/authoring/blocks/dirpicker/), and an [`<Iframe>`](/authoring/blocks/iframe/) whose local page sets outputs.
 
 ### Sensitive outputs
 
@@ -167,7 +187,7 @@ The prefix isn't part of the key. The second output above is named `AWS_SECRET_A
 
 Runbooks hands a sensitive output's real value only to what uses it:
 
-- A Command or Check script that references it in a template runs with the real value.
+- A Command, Check or Finish script that references it in a template runs with the real value.
 - A [`<Template>`](/authoring/blocks/template/), or a [`<TemplateInline>`](/authoring/blocks/templateinline/) with `generateFile`, writes the real value into the file it generates.
 - An auth block's `detectCredentials` block source reads the real value.
 - The copy button on the output's row in **View Outputs** copies the real value.
@@ -214,7 +234,7 @@ For example, a Command whose `id` is `create-account` that outputs `account_id` 
 {{ .outputs.create_account.account_id }}
 ```
 
-This syntax works in `<Command>` and `<Check>` scripts, `<Template>` files, and `<TemplateInline>` content.
+This syntax works in `<Command>`, `<Check>` and `<Finish>` scripts, `<Template>` files, and `<TemplateInline>` content.
 
 <Aside type="note">
 Block IDs can use hyphens or underscores (`id="create-account"` or `id="create_account"`). In template syntax, use underscores, because Go templates read a hyphen as subtraction. IDs that normalize to the same value, such as `create-account` and `create_account`, cannot coexist in one runbook.
@@ -239,7 +259,7 @@ A Command or Check block's button is also disabled while the upstream block is r
 After a block runs, **View Outputs** below the log viewer lists its outputs in a table. [Sensitive outputs](#sensitive-outputs) are masked there.
 
 <Aside type="note">
-Block outputs live in memory and are cleared when the runbook reloads.
+Block outputs are saved in the runbook's [session](/commands/sessions/). When the runbook reloads or the session resumes, blocks that ran publish their outputs again, except an `<Iframe>`. See [Resuming a session](/commands/sessions/#resuming-a-session).
 </Aside>
 
 ### Outputs a block emits only sometimes
