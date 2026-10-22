@@ -1496,10 +1496,9 @@ describe("TestExecutor — untouched values", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Filled-in values never replace the test's own. The CLI gives every block one
-// `.inputs` map, so a variable two blocks declare must end up with the value
-// the test set, and a Template variable it imports with inputsId (read-only
-// and synced in the app) takes the imported value, not its own default.
+// Filled-in values never replace the test's own, and a Template variable it
+// imports with inputsId (read-only and synced in the app) takes the imported
+// value, not its own default.
 // ---------------------------------------------------------------------------
 
 describe("TestExecutor — variables two blocks declare", () => {
@@ -1599,8 +1598,13 @@ describe("TestExecutor — variables two blocks declare", () => {
       ],
     )
 
-    // enable comes from base (opts doesn't declare it), Region from opts.
-    const result = executor.runTest({ name: "merge", inputs: { "base.enable": { literal: true } } })
+    // enable comes from base (opts doesn't declare it), Region from opts. The
+    // Command only imports opts, so it has no enable and isn't run.
+    const result = executor.runTest({
+      name: "merge",
+      inputs: { "base.enable": { literal: true } },
+      steps: [{ block: "tmpl", expect: "success" }],
+    })
 
     expect(result.error).toBeUndefined()
     expect(out()).toContain("top=true/opts-region")
@@ -1620,6 +1624,165 @@ describe("TestExecutor — variables two blocks declare", () => {
 
     expect(result.error).toBeUndefined()
     expect(out()).toContain("top=false/tmpl-set")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A block's `.inputs` holds only the values of the blocks it imports, as in
+// the app: those its inputsId names, merged in order with a later one's value
+// winning, then an <Inputs> nested in a Check or Command. Inputs a and b both
+// declare x, so a block that reads the wrong one shows it.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — each block's own inputs", () => {
+  let tmp: string
+
+  const inputsBlock = (id: string, x: string) =>
+    `<Inputs id="${id}">\n\`\`\`yaml\nvariables:\n  - name: x\n    type: string\n    default: ${x}\n\`\`\`\n</Inputs>`
+  const echoX = (id: string, props: string) =>
+    `<Command id="${id}" ${props} command="echo x={{ .inputs.x }}" />`
+
+  const makeExecutor = async (moreBlocks: string[]) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(
+      rb,
+      [
+        "# Own inputs",
+        inputsBlock("a", "a-default"),
+        inputsBlock("b", "b-default"),
+        echoX("from-a", 'inputsId="a"'),
+        echoX("from-b", 'inputsId="b"'),
+        ...moreBlocks,
+        "",
+      ].join("\n\n"),
+    )
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  const logsOf = (result: ReturnType<TestExecutor["runTest"]>, block: string) =>
+    result.stepResults.find((r) => r.block === block)?.logs
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-own-inputs-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("gives each block the value of the Inputs block it imports, not another's", async () => {
+    const executor = await makeExecutor([
+      '<TemplateInline id="inline-a" inputsId="a" outputPath="a.txt">\n```\nx={{ .inputs.x }}\n```\n</TemplateInline>',
+    ])
+
+    const result = executor.runTest({ name: "defaults" })
+
+    expect(result.error).toBeUndefined()
+    expect(logsOf(result, "command:from-a")).toContain("x=a-default")
+    expect(logsOf(result, "command:from-b")).toContain("x=b-default")
+    expect(logsOf(result, "inline-a")).toBe("x=a-default\n")
+  })
+
+  it("keeps a test's value from a block that doesn't import its Inputs block", async () => {
+    const executor = await makeExecutor([])
+
+    const result = executor.runTest({ name: "set-a", inputs: { "a.x": { literal: "set-a" } } })
+
+    expect(result.error).toBeUndefined()
+    expect(logsOf(result, "command:from-a")).toContain("x=set-a")
+    expect(logsOf(result, "command:from-b")).toContain("x=b-default")
+  })
+
+  it("takes the value of the later inputsId, whichever block the test sets", async () => {
+    const executor = await makeExecutor([echoX("from-ba", `inputsId={["b", "a"]}`)])
+
+    const result = executor.runTest({ name: "set-b", inputs: { "b.x": { literal: "set-b" } } })
+
+    expect(result.error).toBeUndefined()
+    expect(logsOf(result, "command:from-ba")).toContain("x=a-default")
+  })
+
+  it("takes an <Inputs> nested in a Check or Command last, but not one in a Finish", async () => {
+    const executor = await makeExecutor([
+      `<Check id="nested" inputsId="a" command="echo x={{ .inputs.x }}">\n\n${inputsBlock("inner", "inner-default")}\n\n</Check>`,
+      `<Finish id="done" inputsId="a" command="echo x={{ .inputs.x }}">\n\n${inputsBlock("next-steps", "next-default")}\n\n</Finish>`,
+    ])
+
+    const result = executor.runTest({ name: "nested" })
+
+    expect(result.error).toBeUndefined()
+    expect(logsOf(result, "check:nested")).toContain("x=inner-default")
+    expect(logsOf(result, "finish:done")).toContain("x=a-default")
+  })
+
+  it("gives a block that imports no Inputs block no inputs", async () => {
+    const executor = await makeExecutor([echoX("none", "")])
+
+    const result = executor.runTest({
+      name: "none",
+      steps: [{ block: "none", expect: "success" }],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toContain("{{.inputs.x}} but that variable is not defined")
+  })
+
+  it("renders a block's props with its own inputs", async () => {
+    const executor = await makeExecutor([
+      '<GitClone id="clone-a" inputsId="a" source="local" prefilledRepoDir="{{ .inputs.x }}" />',
+    ])
+
+    const result = executor.runTest({
+      name: "props",
+      steps: [{ block: "clone-a", expect: "fail" }],
+    })
+
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[0]?.error).toContain(path.join(tmp, "a-default"))
+  })
+
+  describe("a Template", () => {
+    const makeTemplateExecutor = async () => {
+      const tmplDir = path.join(tmp, "templates", "own")
+      fs.mkdirSync(tmplDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(tmplDir, "boilerplate.yml"),
+        "variables:\n  - name: z\n    type: string\n    default: tmpl-z\n",
+      )
+      fs.writeFileSync(
+        path.join(tmplDir, "out.txt"),
+        "top={{ .x }}/{{ .z }} inputs={{ .inputs.x }}/{{ .inputs.z }}\n",
+      )
+      return makeExecutor([
+        '<Template id="tmpl" path="templates/own" inputsId="a" />',
+        '<Command id="from-tmpl" inputsId="tmpl" command="echo x={{ .inputs.x }} z={{ .inputs.z }}" />',
+      ])
+    }
+
+    it("reads what it imports and its own variables, at the top level too", async () => {
+      const executor = await makeTemplateExecutor()
+
+      const result = executor.runTest({ name: "template" })
+
+      expect(result.error).toBeUndefined()
+      expect(fs.readFileSync(path.join(tmp, "generated", "out.txt"), "utf8")).toBe(
+        "top=a-default/tmpl-z inputs=a-default/tmpl-z\n",
+      )
+    })
+
+    it("passes both on to a block that imports it", async () => {
+      const executor = await makeTemplateExecutor()
+
+      const result = executor.runTest({
+        name: "import-template",
+        inputs: { "b.x": { literal: "set-b" } },
+        steps: [{ block: "from-tmpl", expect: "success" }],
+      })
+
+      expect(result.error).toBeUndefined()
+      expect(logsOf(result, "command:from-tmpl")).toContain("x=a-default z=tmpl-z")
+    })
   })
 })
 

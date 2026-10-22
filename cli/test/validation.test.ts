@@ -4,6 +4,7 @@ import * as path from "node:path"
 import * as os from "node:os"
 import {
   InputValidator,
+  inputsIdsOf,
   parseAuthDependencies,
   parseRunDependencies,
   parseTemplateInlineBlocks,
@@ -173,6 +174,67 @@ describe("parseRunDependencies", () => {
 `)
 
     expect(parseRunDependencies(p).size).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// inputsIdsOf
+// ---------------------------------------------------------------------------
+
+describe("inputsIdsOf", () => {
+  const inputsIdsByBlock = (content: string): Map<string, string[]> => {
+    const validator = new InputValidator(writeRunbook(content))
+    validator.init()
+    return new Map(validator.getComponents().map((block) => [block.id, inputsIdsOf(block)]))
+  }
+
+  const nestedInputs = (id: string) =>
+    `<Inputs id="${id}">\n\`\`\`yaml\nvariables:\n  - name: x\n    type: string\n\`\`\`\n</Inputs>`
+
+  it("reads the ids inputsId names, in order, and none without the prop", () => {
+    const ids = inputsIdsByBlock(`
+<Command id="list" command="true" inputsId={["base", 'env']} />
+
+<TemplateInline id="inline" inputsId="env" outputPath="out.txt">x</TemplateInline>
+
+<GitClone id="clone" />
+`)
+
+    expect(ids.get("list")).toEqual(["base", "env"])
+    expect(ids.get("inline")).toEqual(["env"])
+    expect(ids.get("clone")).toEqual([])
+  })
+
+  it("adds an <Inputs> nested in a Check or Command last, but not one in a Finish", () => {
+    const ids = inputsIdsByBlock(`
+<Check id="check" command="true" inputsId="base">
+
+${nestedInputs("check-inputs")}
+
+</Check>
+
+<Command id="command" command="true">
+
+${nestedInputs("command-inputs")}
+
+</Command>
+
+<Finish id="finish" command="true" inputsId="base">
+
+${nestedInputs("next-steps")}
+
+</Finish>
+`)
+
+    expect(ids.get("check")).toEqual(["base", "check-inputs"])
+    expect(ids.get("command")).toEqual(["command-inputs"])
+    expect(ids.get("finish")).toEqual(["base"])
+  })
+
+  it("gives a Template itself, since its own values start from what it imports", () => {
+    const ids = inputsIdsByBlock(`<Template id="vpc" path="./tpls/vpc" inputsId="config" />`)
+
+    expect(ids.get("vpc")).toEqual(["vpc"])
   })
 })
 

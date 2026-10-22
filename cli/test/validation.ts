@@ -467,6 +467,23 @@ export function extractIdList(props: string, propName: "inputsId" | "dependsOn")
     .filter((id) => id !== "")
 }
 
+/**
+ * The blocks whose values a block's templates read as `.inputs`, in the order
+ * the app merges them, a later block's value winning: each block its
+ * `inputsId` names, then, for a Check or Command, the first <Inputs> with an
+ * id nested in it. A Finish shows its children as next steps, not as a form.
+ * A Template reads its own values, which start from those it imports.
+ */
+export function inputsIdsOf(block: ParsedComponent): string[] {
+  if (block.type === "Template") return [block.id]
+  const ids = extractIdList(block.props, "inputsId")
+  if (block.type === "Check" || block.type === "Command") {
+    const nested = parseComponents(block.content, "Inputs").find((comp) => comp.hasExplicitId)
+    if (nested) ids.push(nested.id)
+  }
+  return ids
+}
+
 // ---------------------------------------------------------------------------
 // Component validation
 // ---------------------------------------------------------------------------
