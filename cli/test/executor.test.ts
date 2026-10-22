@@ -77,18 +77,28 @@ describe("TestExecutor — config-error surfacing", () => {
     await executor.init()
   })
 
-  it("fails to start, with the line it fails on, for a runbook that isn't valid MDX", async () => {
-    const rb = path.join(tmp, "runbook.mdx")
-    fs.writeFileSync(rb, '# Bad Runbook\n\n<Command id="c" command="echo \\"x\\"" />\n')
+  it.each([
+    ["isn't valid MDX", '<Command id="c" command="echo \\"x\\"" />', "Unexpected character"],
+    [
+      "has code in it, which the app refuses",
+      '<Command id="c" command={run()} />',
+      "the `command` prop of <Command> must be a literal value, not {run()}.",
+    ],
+  ])(
+    "fails to start, with the line it fails on, for a runbook that %s",
+    async (_name, block, error) => {
+      const rb = path.join(tmp, "runbook.mdx")
+      fs.writeFileSync(rb, `# Bad Runbook\n\n${block}\n`)
 
-    const executor = new TestExecutor(rb, tmp, "generated", {
-      timeout: 5_000,
-      verbose: false,
-    })
-    await expect(executor.init()).rejects.toThrow(
-      "runbook.mdx is not valid MDX: Line 3: Unexpected character",
-    )
-  })
+      const executor = new TestExecutor(rb, tmp, "generated", {
+        timeout: 5_000,
+        verbose: false,
+      })
+      await expect(executor.init()).rejects.toThrow(
+        `runbook.mdx is not a valid runbook: Line 3: ${error}`,
+      )
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,10 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect } from "bun:test"
 import { compile } from "@mdx-js/mdx"
-import remarkGfm from "remark-gfm"
-import { remarkLiteralOnly } from "./remarkLiteralOnly"
+import { RUNBOOK_REMARK_PLUGINS } from "./mdx.ts"
 
 // Compile only (no evaluation) with the same remark pipeline as MDXContainer.
 const compileRunbook = (source: string) =>
-  compile(source, { remarkPlugins: [remarkGfm, remarkLiteralOnly] })
+  compile(source, { remarkPlugins: [...RUNBOOK_REMARK_PLUGINS] })
 
 describe("remarkLiteralOnly", () => {
   describe("allows literal-only MDX", () => {

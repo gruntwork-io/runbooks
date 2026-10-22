@@ -2,10 +2,10 @@
  * Reads a runbook's blocks the way the renderer does.
  *
  * The renderer compiles a runbook with @mdx-js/mdx, which parses it with
- * remark-parse and remark-mdx plus RUNBOOK_SYNTAX_PLUGINS (compileMDX in
+ * remark-parse and remark-mdx plus RUNBOOK_REMARK_PLUGINS (compileMDX in
  * MDXContainer). The main process and the test CLI parse it here with the same
- * plugins, so they find the blocks the renderer shows, with the props it
- * passes them:
+ * plugins, so they refuse the runbooks the renderer refuses, and find the
+ * blocks it shows, with the props it passes them:
  * - a block in a code fence, in inline code or in a `{/* comment *\/}` is text;
  * - `prop="..."` decodes every HTML character reference and has no backslash
  *   escapes;
@@ -21,9 +21,14 @@ import remarkMdx from "remark-mdx"
 import remarkParse from "remark-parse"
 import { unified } from "unified"
 import { errorMessage } from "./errors/message.ts"
+import { remarkLiteralOnly } from "./remarkLiteralOnly.ts"
 
-/** The remark plugins compileMDX adds to MDX's own parser, so this parser adds them too. */
-export const RUNBOOK_SYNTAX_PLUGINS = [remarkGfm] as const
+/**
+ * The remark plugins compileMDX adds to MDX's own parser, so this parser adds
+ * them too: GitHub Flavored Markdown, and remarkLiteralOnly, which refuses a
+ * runbook that would run code when it opens.
+ */
+export const RUNBOOK_REMARK_PLUGINS = [remarkGfm, remarkLiteralOnly] as const
 
 /** A prop's value as the renderer passes it to a block. */
 export type PropValue =
@@ -42,8 +47,8 @@ export interface MdxElement {
   /** The element's name, such as "Command". */
   readonly name: string
   /**
-   * The props the renderer passes it. A prop whose value isn't a literal is
-   * left out: the renderer refuses to show a runbook with one.
+   * The props the renderer passes it, except a prop that holds a regex or
+   * bigint literal, which no block takes.
    */
   readonly props: Props
   /** The props as written in the runbook. */
@@ -54,13 +59,13 @@ export interface MdxElement {
   readonly index: number
 }
 
-/** A runbook's JSX elements in document order, or why it isn't valid MDX. */
+/** A runbook's JSX elements in document order, or why the renderer refuses it. */
 export type ParsedMdx = { ok: true; elements: readonly MdxElement[] } | { ok: false; error: string }
 
 /**
  * Parse a runbook's MDX into its JSX elements, nested ones included. For a
- * runbook that isn't valid MDX, which the renderer can't show either, it gives
- * the parse error instead.
+ * runbook the renderer refuses to show, because it isn't valid MDX or
+ * remarkLiteralOnly rejects it, it gives the error, with its line, instead.
  */
 export function parseMdx(content: string): ParsedMdx {
   const source = stripFrontMatter(content)
@@ -69,8 +74,8 @@ export function parseMdx(content: string): ParsedMdx {
     const processor = unified()
       .use(remarkParse)
       .use(remarkMdx)
-      .use([...RUNBOOK_SYNTAX_PLUGINS])
-    tree = processor.parse(source) as MdxNode
+      .use([...RUNBOOK_REMARK_PLUGINS])
+    tree = processor.runSync(processor.parse(source)) as MdxNode
   } catch (err) {
     return { ok: false, error: parseErrorMessage(err) }
   }
@@ -174,8 +179,7 @@ function toElement(node: MdxNode, name: string, source: string): MdxElement {
 
   return {
     name,
-    // Like the renderer's props object, a later duplicate prop wins, and a
-    // `__proto__` prop is an own prop rather than the object's prototype.
+    // Like the renderer's props object, a later duplicate prop wins.
     props: Object.fromEntries(props),
     propsSource: propsStart === undefined ? "" : source.slice(propsStart, propsEnd),
     content,
@@ -196,8 +200,8 @@ function attributeValue(value: MdxNode["value"]): PropValue | undefined {
 
 // The value of a literal as remarkLiteralOnly allows it: a string, number,
 // boolean or null; a template string without ${...}; a number with a leading
-// `-` or `+`; or an array or object of those. A regex literal is allowed there
-// but is no value a block takes, so it counts as no literal here.
+// `-` or `+`; or an array or object of those. A regex or bigint literal is
+// allowed there but is no value a block takes, so it counts as no literal here.
 function literalValue(node: EstreeNode | null): PropValue | undefined {
   switch (node?.type) {
     case "Literal":
@@ -239,11 +243,19 @@ function literalValue(node: EstreeNode | null): PropValue | undefined {
   }
 }
 
-// A parse error's reason, with the line it's on in the runbook.
+// An error's reason, with the line it's on in the runbook. A parse error, a
+// VFileMessage, has the two apart, and remarkLiteralOnly's message starts with
+// its line. Bun gives every Error a `line` too, but that's a line of the
+// JavaScript that made it.
 function parseErrorMessage(err: unknown): string {
-  if (err instanceof Error && "line" in err && typeof err.line === "number") {
-    const reason = "reason" in err && typeof err.reason === "string" ? err.reason : err.message
-    return `Line ${err.line}: ${reason}`
+  if (
+    err instanceof Error &&
+    "reason" in err &&
+    typeof err.reason === "string" &&
+    "line" in err &&
+    typeof err.line === "number"
+  ) {
+    return `Line ${err.line}: ${err.reason}`
   }
   return errorMessage(err)
 }

@@ -291,10 +291,19 @@ describe("ExecutableRegistry", () => {
     expect(componentIds.sort()).toEqual(["first", "second", "third"])
   })
 
-  it("warns, and registers nothing, for a runbook that isn't valid MDX", async () => {
-    const mdx = String.raw`<Command id="ok" command="echo ok" />
-<Command id="bad" command="echo \"Done\"" />
-`
+  it.each([
+    [
+      "isn't valid MDX",
+      String.raw`<Command id="bad" command="echo \"Done\"" />`,
+      "Unexpected character",
+    ],
+    [
+      "has code in it, which the renderer refuses",
+      '<Command id="bad" command={run()} />',
+      "the `command` prop of <Command> must be a literal value, not {run()}.",
+    ],
+  ])("warns, and registers nothing, for a runbook that %s", async (_name, block, error) => {
+    const mdx = `<Command id="ok" command="echo ok" />\n${block}\n`
     const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
 
     const registry = await Effect.runPromise(
@@ -304,7 +313,7 @@ describe("ExecutableRegistry", () => {
     expect(registry.getAllExecutables()).toEqual({})
     const warnings = registry.getWarnings()
     expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toStartWith("The runbook is not valid MDX: Line 2: Unexpected character")
+    expect(warnings[0]).toStartWith(`runbook.mdx is not a valid runbook: Line 2: ${error}`)
   })
 
   it("registers blocks that share an id-like flag under their own ids", async () => {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { render } from "@testing-library/react"
 import type { ComponentType, ReactNode } from "react"
 import { compileMDX, MDX_COMPONENTS } from "../MDXContainer"
+import { errorMessage } from "../../../../src/errors/message"
 import { parseMdx } from "../../../../src/mdx"
 
 interface BlockProps {
@@ -64,10 +65,10 @@ describe("MDXContainer block props", () => {
       "</Admonition>",
       "",
       "```mdx",
-      '<Command id="fenced" command="echo example" />',
+      '<Command id="fenced" command={buildCommand()} />',
       "```",
       "",
-      'Write `<Command id="inline-code" />` to add one.',
+      'Write `<Command id="inline-code" command={buildCommand()} />` to add one.',
       "",
       '{/* <Command id="in-comment" command="x" /> */}',
       "",
@@ -94,5 +95,29 @@ describe("MDXContainer block props", () => {
       "in-table",
     ])
     expect(parsedProps(runbook)).toEqual(rendered)
+  })
+})
+
+describe("A runbook MDXContainer refuses", () => {
+  it.each([
+    ["a prop that isn't a literal", '<Command id="c" command={run()} />'],
+    ["a template substitution", '<Command id="c" command={`echo ${HOME}`} />'],
+    ["a spread prop", '<Command id="c" {...rest} />'],
+    ["a __proto__ prop", '<Command id="c" __proto__={{ command: "evil" }} />'],
+    ["an expression in text", "Hello {name()} there"],
+    ["an export", "export const x = 1"],
+    ["a script element", '<script src="./x.js" />'],
+    ["a javascript: URL", '<a HREF="javascript:alert(1)">Next step</a>'],
+  ])("is refused by the main process too, with the same error: %s", async (_name, code) => {
+    // Front matter, so the line in the error is the line in the file for both.
+    const runbook = `---\ntitle: Refused\n---\n\n<Command id="before" command="echo hi" />\n\n${code}\n`
+
+    const error = await compileMDX(runbook).then(
+      () => "compiled",
+      (err: unknown) => errorMessage(err),
+    )
+
+    expect(error).toMatch(/^Line 7: /)
+    expect(parseMdx(runbook)).toEqual({ ok: false, error })
   })
 })

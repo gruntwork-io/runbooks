@@ -3,10 +3,9 @@ import type { ReactNode, Ref } from "react"
 import { evaluate } from "@mdx-js/mdx"
 import * as runtime from "react/jsx-runtime"
 import type { AppError } from "@/types/error"
-import { remarkLiteralOnly } from "@/lib/remarkLiteralOnly"
 import { rewriteAssetUrl } from "@/lib/assetPaths"
 import { errorMessage } from "../../../src/errors/message"
-import { RUNBOOK_SYNTAX_PLUGINS, stripFrontMatter } from "../../../src/mdx"
+import { RUNBOOK_REMARK_PLUGINS, stripFrontMatter } from "../../../src/mdx"
 
 // Support MDX components
 import { Inputs } from "@/components/mdx/Inputs"
@@ -354,12 +353,11 @@ export const compileMDX = async (
   const compiledMDX = await evaluate(mdxContent, {
     ...runtime,
     development: false, // Keep development false to avoid jsxDEV issues
-    remarkPlugins: [
-      // GitHub Flavored Markdown (strikethrough, tables, etc.). Shared with the
-      // main process and the test CLI, so they parse the runbook like this.
-      ...RUNBOOK_SYNTAX_PLUGINS,
-      remarkLiteralOnly, // Reject ESM and non-literal expressions so opening a runbook cannot run code
-    ],
+    // GitHub Flavored Markdown (strikethrough, tables, etc.), and
+    // remarkLiteralOnly, which rejects ESM and non-literal expressions so
+    // opening a runbook cannot run code. Shared with the main process and the
+    // test CLI, so they parse and refuse runbooks as this does.
+    remarkPlugins: [...RUNBOOK_REMARK_PLUGINS],
     rehypePlugins: [[rehypeTransformAssetPaths, { assetHost }], rehypeTaskListIds],
     useMDXComponents: () => MDX_COMPONENTS,
   })

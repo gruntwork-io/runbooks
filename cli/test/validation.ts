@@ -85,7 +85,7 @@ export class InputValidator {
 
   /**
    * Parse and validate all components. Call before using other methods.
-   * Throws when the runbook is not valid MDX.
+   * Throws for a runbook the app refuses to show.
    */
   init(): void {
     const elements = readRunbookElements(this.runbookPath)
@@ -462,11 +462,14 @@ export function extractIdList(props: Props, propName: "inputsId" | "dependsOn"):
 
 /**
  * The JSX elements of the runbook at `runbookPath`, as the app reads them.
- * Throws when the runbook is not valid MDX, which the app can't show either.
+ * Throws for a runbook the app refuses to show: one that isn't valid MDX or
+ * fails remarkLiteralOnly.
  */
 function readRunbookElements(runbookPath: string): readonly MdxElement[] {
   const parsed = parseMdx(fs.readFileSync(runbookPath, "utf-8"))
-  if (!parsed.ok) throw new Error(`${path.basename(runbookPath)} is not valid MDX: ${parsed.error}`)
+  if (!parsed.ok) {
+    throw new Error(`${path.basename(runbookPath)} is not a valid runbook: ${parsed.error}`)
+  }
   return parsed.elements
 }
 

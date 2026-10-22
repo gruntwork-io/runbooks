@@ -20,9 +20,9 @@ export const AWS_PROTECTED_ENV_VARS = [
  * vars when `content` has an <AwsAuth> block (a documented example in a code
  * fence doesn't count), and none otherwise.
  *
- * A runbook that isn't valid MDX shows no blocks, but the session outlives a
- * watch-mode fix to it, so it counts as having the block if `<AwsAuth`
- * appears anywhere in it.
+ * A runbook the renderer refuses, because it isn't valid MDX or has code in it,
+ * shows no blocks, but the session outlives a watch-mode fix to it, so it
+ * counts as having the block if `<AwsAuth` appears anywhere in it.
  */
 export function protectedEnvVarsForRunbook(content: string): string[] {
   const parsed = parseMdx(content)

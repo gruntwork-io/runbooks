@@ -726,6 +726,8 @@ The runner doesn't run [`<DirPicker>`](/authoring/blocks/dirpicker/) blocks. A s
 
 The runner executes each test case's blocks in a temporary directory by default, captures script output and generated files, and checks them against the test's assertions. For a failed test it prints which block failed and why.
 
+If `runbook.mdx` isn't valid MDX, or contains something that [Runbooks refuses to render](/security/execution-model/#opening-a-runbook-never-runs-its-code), the runner fails it before any block runs and names the line with the error.
+
 It exits with status 0 if every test passed. It exits with 1 if any test failed, a `runbook_test.yml` couldn't be loaded, or no runbook has the test case named with `--test`.
 
 ### Single runbook

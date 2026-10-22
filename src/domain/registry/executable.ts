@@ -172,11 +172,11 @@ export class ExecutableRegistry {
       const content = contentOverride ?? (yield* fs.readFile(runbookPath))
       const runbookDir = path.dirname(runbookPath)
 
-      // The renderer can't show a runbook that isn't valid MDX, so none of
-      // its blocks can run.
+      // The renderer refuses a runbook that isn't valid MDX or fails
+      // remarkLiteralOnly, so none of its blocks can run.
       const parsed = parseMdx(content)
       if (!parsed.ok) {
-        this.warnings.push(`The runbook is not valid MDX: ${parsed.error}`)
+        this.warnings.push(`${path.basename(runbookPath)} is not a valid runbook: ${parsed.error}`)
         return
       }
 

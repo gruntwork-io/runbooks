@@ -394,7 +394,9 @@ describe("InputValidator", () => {
   it("throws, with the line it fails on, for a runbook that isn't valid MDX", () => {
     const p = writeRunbook('# Title\n\n<Command id="c" command="echo \\"x\\"" />\n')
     const v = new InputValidator(p)
-    expect(() => v.init()).toThrow("runbook.mdx is not valid MDX: Line 3: Unexpected character")
+    expect(() => v.init()).toThrow(
+      "runbook.mdx is not a valid runbook: Line 3: Unexpected character",
+    )
   })
 
   it("flags Inputs missing both 'path' and inline content", () => {

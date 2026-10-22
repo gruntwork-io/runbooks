@@ -66,22 +66,14 @@ describe("parseMdx", () => {
       })
     })
 
-    it("leaves out a prop that isn't a literal, which the renderer refuses", () => {
-      const props = propsOf(
-        '<Command id="c" command={`echo ${HOME}`} path={run()} title={x} regex={/x/} ' +
-          "obj={{ __proto__: { a: 1 } }} {...rest} />",
-      )
-      expect(props).toEqual({ id: "c" })
+    it("leaves out a regex or bigint prop, which no block takes", () => {
+      expect(propsOf('<Command id="c" pattern={/x/} size={1n} list={[/y/]} />')).toEqual({
+        id: "c",
+      })
     })
 
     it("lets a later duplicate prop win, as JSX does", () => {
       expect(propsOf('<Command id="first" id="second" />').id).toBe("second")
-    })
-
-    it("reads a __proto__ prop as an own prop, not the props' prototype", () => {
-      const props = propsOf('<Command id="c" __proto__={{ command: "evil" }} />')
-      expect(props.command).toBeUndefined()
-      expect(Object.getPrototypeOf(props)).toBe(Object.prototype)
     })
   })
 
@@ -124,17 +116,17 @@ describe("parseMdx", () => {
     ])
   })
 
-  it("reads no block in a code fence, in inline code or in a comment", () => {
+  it("reads no block, and refuses no code, in a code fence, in inline code or in a comment", () => {
     const mdx = [
       "````mdx",
       "```mdx",
-      '<Command id="fenced" command="x" />',
+      '<Command id="fenced" command={run()} />',
       "```",
       "````",
       "",
-      'Write `<Command id="inline-code" />` to add one.',
+      'Write `<Command id="inline-code" command={run()} />` to add one.',
       "",
-      '{/* <Command id="commented" command="x" /> */}',
+      '{/* <Command id="commented" command={run()} /> */}',
       "",
       '<Command id="real" command="y" />',
     ].join("\n")
@@ -182,6 +174,50 @@ describe("parseMdx", () => {
     const parsed = parseMdx('# Title\n\n<Command id="c" command="echo \\"Done\\"" />\n')
     expect(parsed.ok).toBe(false)
     expect(!parsed.ok && parsed.error).toStartWith("Line 3: Unexpected character `\\` (U+005C)")
+  })
+
+  describe("refuses a runbook with code in it, as the renderer does, saying where", () => {
+    it.each([
+      [
+        "a prop that isn't a literal",
+        '<Command id="c" command={run()} />',
+        "the `command` prop of <Command> must be a literal value, not {run()}.",
+      ],
+      [
+        "a template substitution",
+        '<Command id="c" command={`echo ${HOME}`} />',
+        "the `command` prop of <Command> must be a literal value, not {`echo ${HOME}`}.",
+      ],
+      [
+        "a spread prop",
+        '<Command id="c" {...rest} />',
+        "spread props like {...rest} on <Command> are not allowed in runbooks.",
+      ],
+      [
+        "a __proto__ prop",
+        '<Command id="c" __proto__={{ command: "evil" }} />',
+        "the `__proto__` prop of <Command> is not allowed in runbooks.",
+      ],
+      [
+        "an expression in text",
+        "Hello {name()} there",
+        "the expression {name()} is not allowed in runbooks.",
+      ],
+      [
+        "an export",
+        "export const x = 1",
+        "`import` and `export` statements are not allowed in runbooks.",
+      ],
+      [
+        "a script element",
+        '<script src="./x.js" />',
+        "<script> elements are not allowed in runbooks.",
+      ],
+    ])("%s", (_name, code, error) => {
+      const parsed = parseMdx(`# Title\n\n${code}\n\n<Command id="after" command="echo hi" />\n`)
+      expect(parsed.ok).toBe(false)
+      expect(!parsed.ok && parsed.error).toStartWith(`Line 3: ${error}`)
+    })
   })
 })
 

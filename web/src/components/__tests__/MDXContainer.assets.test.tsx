@@ -58,7 +58,7 @@ describe("MDXContainer asset paths", () => {
   })
 
   // <embed> and <object> are rejected by remarkLiteralOnly (see
-  // web/src/lib/remarkLiteralOnly.test.ts), so they never reach the asset plugin.
+  // src/remarkLiteralOnly.test.ts), so they never reach the asset plugin.
   it("rewrites JSX <audio> and <a> asset URLs", async () => {
     renderRunbook(
       '<audio src="./assets/e.mp3" controls />\n\n' +
