@@ -159,7 +159,7 @@ The block needs a `<GitClone>` block that has cloned or selected a repository, w
 
 For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `gitAuthId` or `githubAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for &lt;provider&gt; authentication" and names the block to complete. Without `gitAuthId` or `githubAuthId`, the block doesn't wait for an auth block. It creates the PR/MR with the session's token for the provider, and fails if the session has none.
 
-For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one cloned until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
+For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
 
 ### Labels
 

@@ -635,7 +635,7 @@ The block's outputs under test differ from the app's:
 - It sets `clone_path` and `file_count`, and `ref` for a clone with a `prefilledRef`. `file_count` and `ref` exist only under test.
 - It doesn't set `repo_owner`, `repo_name`, `org_id` or `repo_id`. A block that references one of them fails under test, even behind a `hasKey` guard.
 
-Each `<GitClone>` that succeeds also becomes the repository that `$REPO_FILES` and `target="worktree"` use, so with several of them the last one to run wins. In the app, the first repository cloned stays in use until the user selects another.
+Each `<GitClone>` that succeeds also becomes the repository that `$REPO_FILES` and `target="worktree"` use, so with several of them the last one to run wins. In the app, the first repository added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), stays in use until the user selects another.
 
 ### Cloning with a token
 

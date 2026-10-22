@@ -104,7 +104,7 @@ The **Changed files** tab appears the first time Runbooks detects a change.
 
 ### Multiple repositories
 
-If a runbook clones more than one repository, a dropdown at the top of the **Repository** tab replaces the repository and branch name and switches between them. The selected repository is the one `$REPO_FILES` points to, that `target="worktree"` writes to, and that a [GitPullRequest](/authoring/blocks/gitpullrequest/) block works on. Until the user selects another, it's the first one cloned.
+If a runbook's `<GitClone>` blocks add more than one repository, a dropdown at the top of the **Repository** tab replaces the repository and branch name and switches between them. The selected repository is the one `$REPO_FILES` points to, that `target="worktree"` writes to, and that a [GitPullRequest](/authoring/blocks/gitpullrequest/) block works on. Until the user selects another, it's the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout).
 
 ## Where Runbooks reads and writes files
 

@@ -524,7 +524,7 @@ If multiple commands run concurrently and write files with the same name, the la
 
 ### Writing to repository files
 
-Once a `<GitClone>` block has registered a repository, the `$REPO_FILES` environment variable points to its local path. With several repositories, it points to the one selected in the workspace's repository dropdown: the first one cloned, until the user selects another. Scripts can modify files inside the repository directly:
+Once a `<GitClone>` block has registered a repository, the `$REPO_FILES` environment variable points to its local path. With several repositories, it points to the one selected in the workspace's repository dropdown: the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. Scripts can modify files inside the repository directly:
 
 ```bash
 #!/bin/bash

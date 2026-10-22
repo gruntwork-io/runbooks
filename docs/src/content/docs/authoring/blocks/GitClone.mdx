@@ -250,7 +250,7 @@ echo "new_setting = true" >> "$REPO_FILES/config.hcl"
 ```
 
 <Aside type="note">
-With several repositories, `$REPO_FILES` points to the one selected in the workspace's repository dropdown: the first one cloned, until the user selects another.
+With several repositories, `$REPO_FILES` points to the one selected in the workspace's repository dropdown: the first one added, whether by a clone or a [local checkout](#using-a-local-checkout), until the user selects another.
 </Aside>
 
 Template and TemplateInline blocks can also write directly into the cloned repository by setting `target="worktree"`:

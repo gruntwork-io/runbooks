@@ -37,7 +37,7 @@ Template and [TemplateInline](/authoring/blocks/templateinline/) both render Boi
 ### Optional props
 
 - `inputsId` (string | string[]). ID of Inputs or Template block(s) to import variable values from. When multiple IDs are provided as an array, variables are merged in order (later IDs override earlier ones).
-- `target` (`"generated"` | `"worktree"`). Where template output is written. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree and requires a `<GitClone>` block to have run first. The active worktree is the one selected in the workspace's repository dropdown, which is the first repository cloned until the user selects another.
+- `target` (`"generated"` | `"worktree"`). Where template output is written. Defaults to `"generated"`, which writes to the generated files directory (`$GENERATED_FILES`). `"worktree"` writes into the active git worktree and requires a `<GitClone>` block to have run first. The active worktree is the one selected in the workspace's repository dropdown, which is the first repository added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another.
 
 <Aside type="tip">
 Use `target="worktree"` to generate files into a cloned repository, for example to add new modules or configuration files to an existing repo.

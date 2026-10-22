@@ -217,7 +217,7 @@ If credentials are found and valid, the confirmation prompt shows:
 - Default Region
 - Whether credentials are temporary or static
 
-The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`, which is `us-east-1` unless you set it. It is the value set as `AWS_REGION` once the user confirms, and it decides the partition the credentials are validated in. GovCloud keys need a `us-gov-*` region, so set `AWS_REGION` in the environment or give the block a `us-gov-*` `defaultRegion`. Otherwise they are validated in the commercial partition, and validation fails.
+The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's `defaultRegion`, which is `us-east-1` unless you set it. It is the value set as `AWS_REGION` once the user confirms, and it decides the partition the credentials are validated in. GovCloud keys need a `us-gov-*` region. Set `AWS_REGION` to one in the environment, or give the block a `us-gov-*` `defaultRegion`, which applies only when neither `AWS_REGION` nor `AWS_DEFAULT_REGION` is set. Otherwise they are validated in the commercial partition, and validation fails.
 
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
 

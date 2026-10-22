@@ -247,7 +247,7 @@ ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "account_id=$ACCOUNT_ID" >> "$RUNBOOK_OUTPUT"
 ```
 
-Write one output per line, with a key made of letters, digits and underscores. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the format.
+Write one output per line. A key starts with a letter or underscore and contains only letters, digits and underscores. Runbooks ignores a line with any other key. See [Producing outputs](/authoring/inputs-and-outputs/#producing-outputs) for the format.
 
 A Check that references another block's outputs keeps its Check button disabled, and names the blocks that need to run first, until those outputs exist. The button is also disabled while the upstream block is running again. See [Run order](/authoring/blocks/command/#run-order).
 
