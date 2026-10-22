@@ -62,7 +62,7 @@ export function useSharedTemplateVars(
         data[variable.name] = inputValues[variable.name]
       } else {
         // Local-only: use the saved value or the template default (stable)
-        data[variable.name] = savedFormValue(saved, variable.name) ?? variable.default
+        data[variable.name] = savedFormValue(saved, variable) ?? variable.default
       }
     }
     return data

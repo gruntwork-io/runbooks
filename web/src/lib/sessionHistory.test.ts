@@ -44,12 +44,19 @@ describe("a saved form", () => {
   it("has a value only for a variable the form saved", () => {
     const saved = parseSavedForm({ values: { region: "", enabled: false }, submitted: false })
 
-    expect(savedFormValue(saved, "region")).toBe("")
-    expect(savedFormValue(saved, "enabled")).toBe(false)
-    expect(savedFormValue(saved, "missing")).toBeUndefined()
+    expect(savedFormValue(saved, { name: "region" })).toBe("")
+    expect(savedFormValue(saved, { name: "enabled" })).toBe(false)
+    expect(savedFormValue(saved, { name: "missing" })).toBeUndefined()
     // A variable named after something every object inherits.
-    expect(savedFormValue(saved, "toString")).toBeUndefined()
-    expect(savedFormValue(undefined, "region")).toBeUndefined()
+    expect(savedFormValue(saved, { name: "toString" })).toBeUndefined()
+    expect(savedFormValue(undefined, { name: "region" })).toBeUndefined()
+  })
+
+  it("has no value for a locked variable, which starts from the runbook's value", () => {
+    const saved = parseSavedForm({ values: { provider: "github" }, submitted: true })
+
+    expect(savedFormValue(saved, { name: "provider", locked: true })).toBeUndefined()
+    expect(savedFormValue(saved, { name: "provider", locked: false })).toBe("github")
   })
 })
 

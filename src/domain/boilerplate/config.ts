@@ -46,6 +46,8 @@ interface RawVariable {
   options?: string[]
   sensitive?: boolean
   validations?: (RawValidation | string)[]
+  // Boilerplate's own key for the order it prompts for variables in, lowest first
+  order?: unknown
   // Runbooks x-extensions (ignored by Boilerplate itself)
   "x-schema"?: Record<string, string>
   "x-schema-instance-label"?: string
@@ -53,6 +55,8 @@ interface RawVariable {
   // Enumerates the allowed values for a `list` variable so the form renders a multi-select picker. Boilerplate
   // forbids `options` on a non-enum type, so this rides the x-extension seam instead and the Go tool ignores it.
   "x-options"?: string[]
+  "x-locked"?: unknown
+  "x-hidden"?: unknown
 }
 
 interface RawSkipFile {
@@ -60,9 +64,24 @@ interface RawSkipFile {
   if?: unknown
 }
 
+interface RawSectionSettings {
+  name?: unknown
+  collapsed?: unknown
+}
+
 interface RawConfig {
   variables?: RawVariable[]
   skip_files?: unknown
+  // Runbooks x-extension: settings for the sections variables name with x-section
+  "x-sections"?: unknown
+}
+
+/** A yes/no setting: `true` or `false`. Anything else is ignored with a warning. */
+function flag(value: unknown, where: string): boolean {
+  if (value === undefined || value === false) return false
+  if (value === true) return true
+  console.warn(`[boilerplate config] ${where} must be true or false; ignoring.`)
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -151,10 +170,76 @@ function coerceVarType(raw: string | undefined): BoilerplateVarType {
 }
 
 // ---------------------------------------------------------------------------
+// Form order
+// ---------------------------------------------------------------------------
+
+/**
+ * A variable's `order`, Boilerplate's key for the order it prompts for
+ * variables in. A variable without one counts as 0, as it does in
+ * Boilerplate. Boilerplate rejects an `order` that isn't an integer, so the
+ * form ignores one too, and the render reports it.
+ */
+function variableOrder(rv: RawVariable): number {
+  if (rv.order === undefined) return 0
+  if (typeof rv.order === "number" && Number.isInteger(rv.order)) return rv.order
+  console.warn(`[boilerplate config] variable "${rv.name}": order must be an integer; ignoring.`)
+  return 0
+}
+
+/**
+ * The variables in the order the form shows them: by `order`, lowest first.
+ * The sort is stable, so variables with the same order (as every variable is
+ * without one) keep the order the file declares them in.
+ */
+function inFormOrder(rawVars: RawVariable[]): RawVariable[] {
+  return rawVars
+    .map((rv) => ({ rv, order: variableOrder(rv) }))
+    .sort((a, b) => a.order - b.order)
+    .map(({ rv }) => rv)
+}
+
+// ---------------------------------------------------------------------------
 // Section grouping
 // ---------------------------------------------------------------------------
 
-function buildSections(rawVars: RawVariable[]): Section[] {
+/**
+ * Parse the top-level `x-sections:` list: settings for the sections that
+ * variables name with `x-section`, as `{ name, collapsed? }` records. Like a
+ * `skip_files` entry, a malformed one is dropped with a `console.warn`.
+ */
+function parseSectionSettings(raw: unknown): Map<string, { collapsed: boolean }> {
+  const settings = new Map<string, { collapsed: boolean }>()
+  if (raw === undefined || raw === null) return settings
+  if (!Array.isArray(raw)) {
+    console.warn(`[boilerplate config] x-sections must be a list, got ${typeof raw}; ignoring.`)
+    return settings
+  }
+
+  for (let idx = 0; idx < raw.length; idx++) {
+    const entry = raw[idx] as RawSectionSettings | null | undefined
+    if (!entry || typeof entry !== "object" || typeof entry.name !== "string" || !entry.name) {
+      console.warn(
+        `[boilerplate config] x-sections[${idx}] missing or invalid "name"; dropping entry.`,
+      )
+      continue
+    }
+    settings.set(entry.name, {
+      collapsed: flag(entry.collapsed, `x-sections[${idx}] "collapsed"`),
+    })
+  }
+  return settings
+}
+
+/**
+ * Group the variables, in form order, by `x-section`. The unnamed section
+ * comes first: it has no heading, so after another section its fields would
+ * read as part of that one. Each named section follows in the order of its
+ * first variable, with its `x-sections` settings.
+ */
+function buildSections(
+  rawVars: RawVariable[],
+  settings: Map<string, { collapsed: boolean }>,
+): Section[] {
   const sectionVars = new Map<string, string[]>()
   const sectionOrder: string[] = []
   const seen = new Set<string>()
@@ -182,10 +267,19 @@ function buildSections(rawVars: RawVariable[]): Section[] {
     sectionOrder.push(...reordered)
   }
 
-  return sectionOrder.map((name) => ({
-    name,
-    variables: sectionVars.get(name) ?? [],
-  }))
+  for (const name of settings.keys()) {
+    if (!seen.has(name)) {
+      console.warn(
+        `[boilerplate config] x-sections names "${name}", but no variable has that x-section; ignoring.`,
+      )
+    }
+  }
+
+  return sectionOrder.map((name) => {
+    const section: Section = { name, variables: sectionVars.get(name) ?? [] }
+    if (settings.get(name)?.collapsed) section.collapsed = true
+    return section
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +352,7 @@ export function parseBoilerplateConfig(
         }),
     })
 
-    if (!raw || !raw.variables) {
+    if (!raw || !Array.isArray(raw.variables)) {
       return {
         variables: [],
         sections: [],
@@ -267,12 +361,10 @@ export function parseBoilerplateConfig(
       } satisfies BoilerplateConfig
     }
 
-    const rawVars = raw.variables
+    const rawVars = inFormOrder(raw.variables.filter((rv) => rv.name))
     const variables: BoilerplateVariable[] = []
 
     for (const rv of rawVars) {
-      if (!rv.name) continue
-
       const varType = coerceVarType(rv.type)
       const { validations, isRequired } = extractValidations(rv.validations)
 
@@ -319,10 +411,21 @@ export function parseBoilerplateConfig(
         variable.sectionName = section
       }
 
+      // A locked field's value comes from the runbook (its default, or what
+      // the block imports through inputsId), not from the person filling in
+      // the form. A hidden field is locked too.
+      const hidden = flag(rv["x-hidden"], `variable "${rv.name}": x-hidden`)
+      if (hidden || flag(rv["x-locked"], `variable "${rv.name}": x-locked`)) {
+        variable.locked = true
+      }
+      if (hidden) {
+        variable.hidden = true
+      }
+
       variables.push(variable)
     }
 
-    const sections = buildSections(rawVars)
+    const sections = buildSections(rawVars, parseSectionSettings(raw["x-sections"]))
     const skipFiles = parseSkipFiles(raw.skip_files)
 
     return {

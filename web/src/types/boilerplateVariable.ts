@@ -13,6 +13,8 @@ export interface BoilerplateVariable {
   schemaInstanceLabel?: string // Custom label for schema instances (YAML: x-schema-instance-label)
   // Which section this variable belongs to. See also: BoilerplateConfig.sections for ordered groupings.
   sectionName?: string // (YAML: x-section)
+  locked?: boolean // Shown, but nobody can change its value (YAML: x-locked, or x-hidden)
+  hidden?: boolean // Not shown in the form; a hidden field is locked too (YAML: x-hidden)
 }
 
 export enum BoilerplateVariableType {

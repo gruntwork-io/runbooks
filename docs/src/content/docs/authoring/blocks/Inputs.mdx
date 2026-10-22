@@ -93,6 +93,8 @@ Pre-populate form fields with specific values. These override any `default` valu
 />
 `````
 
+`prefilledVariables` also sets [locked and hidden](/authoring/boilerplate/#x-locked) fields, which the user can't change. A runbook that loads a shared `boilerplate.yml` can use it to set their values for itself.
+
 ## When other blocks get the values
 
 Until the user first clicks **Submit**, other blocks get the values the form started with, such as each variable's `default`, not what the user has typed. Once the form has been submitted, other blocks get each change as the user makes it, without another Submit. An Inputs block [embedded in a Command or Check](#embedded-in-command-or-check) submits itself, so its parent always gets the current values.
@@ -217,6 +219,8 @@ variables:
 ```
 
 Variables with the same `x-section` value are grouped together in the form under a section header.
+
+The same YAML can also lay the form out further. [`order`](/authoring/boilerplate/#field-order) places fields, [`x-sections`](/authoring/boilerplate/#x-sections) folds sections, and [`x-locked`](/authoring/boilerplate/#x-locked) and [`x-hidden`](/authoring/boilerplate/#x-hidden) show a field read-only or leave it out, for values the runbook sets itself.
 
 ## Complete example
 

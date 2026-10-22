@@ -8,6 +8,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 import { Effect, Result } from "effect"
 import { parseBoilerplateConfig } from "../../src/domain/boilerplate/config.ts"
+import { isTemplateString } from "../../src/domain/boilerplate/templateString.ts"
 import { validateVariableValue } from "../../src/domain/boilerplate/validators.ts"
 import {
   extractProp,
@@ -615,6 +616,9 @@ function validateValue(
 
   switch (variable.type) {
     case "enum": {
+      // A linked value ({{ .outputs.git_auth.GIT_PROVIDER }}) becomes one of
+      // the options only when the render resolves it, as the form shows it.
+      if (isTemplateString(value)) break
       const strVal = String(value)
       if (variable.options && !variable.options.includes(strVal)) {
         errors.push({

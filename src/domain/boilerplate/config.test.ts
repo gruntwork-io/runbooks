@@ -14,6 +14,20 @@ function parse(yaml: string) {
   return Effect.runPromise(parseBoilerplateConfig(yaml))
 }
 
+/** Parse `yaml`, collecting what the parser warns about. */
+async function parseWarning(yaml: string) {
+  const originalWarn = console.warn
+  const warnings: string[] = []
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "))
+  }
+  try {
+    return { result: await parse(yaml), warnings }
+  } finally {
+    console.warn = originalWarn
+  }
+}
+
 describe("parseBoilerplateConfig", () => {
   it("returns empty config for null/empty YAML", async () => {
     const result = await parse("")
@@ -296,6 +310,154 @@ variables:
 `)
     expect(result.sections[0]!.name).toBe("")
     expect(result.sections[1]!.name).toBe("First")
+  })
+
+  it("orders variables by order, lowest first, keeping declaration order for ties", async () => {
+    const result = await parse(`
+variables:
+  - name: c
+    order: 2
+  - name: a
+  - name: b
+    order: -1
+  - name: d
+    order: 2
+  - name: e
+`)
+    // Without an order a variable counts as 0, as it does in Boilerplate
+    expect(result.variables.map((v) => v.name)).toEqual(["b", "a", "e", "c", "d"])
+    expect(result.sections).toEqual([{ name: "", variables: ["b", "a", "e", "c", "d"] }])
+  })
+
+  it("orders sections by their first variable in form order, the unnamed one first", async () => {
+    const result = await parse(`
+variables:
+  - name: a
+    x-section: Advanced
+    order: 10
+  - name: b
+    x-section: Basic
+  - name: c
+    order: 20
+  - name: d
+    x-section: Advanced
+`)
+    expect(result.sections).toEqual([
+      { name: "", variables: ["c"] },
+      { name: "Basic", variables: ["b"] },
+      { name: "Advanced", variables: ["d", "a"] },
+    ])
+  })
+
+  it("ignores an order that isn't an integer, as Boilerplate rejects it, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: a
+    order: "1"
+  - name: b
+    order: 1.5
+  - name: c
+    order: -1
+`)
+    expect(result.variables.map((v) => v.name)).toEqual(["c", "a", "b"])
+    expect(warnings.some((w) => w.includes('variable "a": order must be an integer'))).toBe(true)
+    expect(warnings.some((w) => w.includes('variable "b": order must be an integer'))).toBe(true)
+  })
+
+  it("locks an x-locked variable, and hides and locks an x-hidden one", async () => {
+    const result = await parse(`
+variables:
+  - name: open
+  - name: locked
+    x-locked: true
+  - name: hidden
+    x-hidden: true
+  - name: not_locked
+    x-locked: false
+`)
+    const byName = new Map(result.variables.map((v) => [v.name, v]))
+    expect(byName.get("open")).not.toHaveProperty("locked")
+    expect(byName.get("open")).not.toHaveProperty("hidden")
+    expect(byName.get("locked")).toMatchObject({ locked: true })
+    expect(byName.get("locked")).not.toHaveProperty("hidden")
+    expect(byName.get("hidden")).toMatchObject({ locked: true, hidden: true })
+    expect(byName.get("not_locked")).not.toHaveProperty("locked")
+  })
+
+  it("ignores an x-hidden or x-locked that isn't true or false, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+variables:
+  - name: a
+    x-hidden: "yes"
+  - name: b
+    x-locked: 1
+`)
+    expect(result.variables[0]).not.toHaveProperty("hidden")
+    expect(result.variables[0]).not.toHaveProperty("locked")
+    expect(result.variables[1]).not.toHaveProperty("locked")
+    expect(warnings.some((w) => w.includes('variable "a": x-hidden must be true or false'))).toBe(
+      true,
+    )
+    expect(warnings.some((w) => w.includes('variable "b": x-locked must be true or false'))).toBe(
+      true,
+    )
+  })
+
+  it("folds the sections x-sections marks collapsed", async () => {
+    const result = await parse(`
+x-sections:
+  - name: Advanced
+    collapsed: true
+  - name: Basic
+    collapsed: false
+variables:
+  - name: a
+    x-section: Basic
+  - name: b
+    x-section: Advanced
+`)
+    // x-sections only sets how a section shows: the variables still order the sections
+    expect(result.sections).toEqual([
+      { name: "Basic", variables: ["a"] },
+      { name: "Advanced", variables: ["b"], collapsed: true },
+    ])
+  })
+
+  it("drops malformed x-sections entries and names no variable uses, and warns", async () => {
+    const { result, warnings } = await parseWarning(`
+x-sections:
+  - collapsed: true
+  - name: Advanced Setings
+    collapsed: true
+  - name: Advanced Settings
+    collapsed: maybe
+variables:
+  - name: a
+    x-section: Advanced Settings
+`)
+    expect(result.sections).toEqual([{ name: "Advanced Settings", variables: ["a"] }])
+    expect(warnings.some((w) => w.includes('x-sections[0] missing or invalid "name"'))).toBe(true)
+    expect(
+      warnings.some((w) =>
+        w.includes('x-sections names "Advanced Setings", but no variable has that x-section'),
+      ),
+    ).toBe(true)
+    expect(
+      warnings.some((w) => w.includes('x-sections[2] "collapsed" must be true or false')),
+    ).toBe(true)
+  })
+
+  it("warns and ignores when x-sections is not a list", async () => {
+    const { result, warnings } = await parseWarning(`
+x-sections:
+  Advanced:
+    collapsed: true
+variables:
+  - name: a
+    x-section: Advanced
+`)
+    expect(result.sections).toEqual([{ name: "Advanced", variables: ["a"] }])
+    expect(warnings.some((w) => w.includes("x-sections must be a list"))).toBe(true)
   })
 
   it("skips variables without names", async () => {

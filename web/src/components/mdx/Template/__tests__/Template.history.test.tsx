@@ -125,12 +125,15 @@ const settle = () =>
       }),
   )
 
+const templateVariables = configReturn.data.variables
+
 describe("Template in a session", () => {
   beforeEach(() => {
     invoke.mockClear()
     autoRender.mockClear()
     mode.instruction = false
     delete configReturn.data.contentHash
+    configReturn.data.variables = templateVariables
   })
 
   it("starts from the values it was left with, and writes nothing until Generate is pressed", async () => {
@@ -146,6 +149,22 @@ describe("Template in a session", () => {
     expect(screen.getByRole("button", { name: "Generate" })).toBeInTheDocument()
     expect(autoRender).not.toHaveBeenCalled()
     expect(recorded()).toEqual([])
+  })
+
+  it("starts a locked variable from the runbook's value, not the one it was left with", async () => {
+    configReturn.data.variables = templateVariables.map((v) =>
+      (v as { name: string }).name === "name" ? { ...(v as object), locked: true } : v,
+    )
+    const { container } = render(
+      <Session saved={{ values: { name: "billing" }, submitted: false }}>
+        <Template id="vpc" path="templates/vpc" />
+      </Session>,
+    )
+    await settle()
+
+    // The runbook may have changed it since: nobody could have
+    expect(field(container, "name")).toHaveValue("app")
+    expect(field(container, "name")).toBeDisabled()
   })
 
   /** Generate with `name`, and return the render event that wrote the files. */

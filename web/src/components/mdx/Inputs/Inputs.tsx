@@ -99,12 +99,15 @@ function Inputs({
     variant === "embedded" ? blockInputs[id]?.values : undefined,
   )
 
-  // Apply prefilled variables, then any registered values, to the boilerplate config
+  // Apply prefilled variables, then any registered values, to the boilerplate config.
+  // A locked variable takes no registered value: nobody could have typed it,
+  // so it starts from what the runbook says, as it does from the history.
   const boilerplateConfigWithPrefilledVariables = useMemo(() => {
     if (!boilerplateConfig) return null
     const overrides: Record<string, unknown> = { ...prefilledVariables }
+    const locked = new Set(boilerplateConfig.variables.filter((v) => v.locked).map((v) => v.name))
     for (const [name, value] of Object.entries(registeredValues ?? {})) {
-      if (value !== undefined) overrides[name] = value
+      if (value !== undefined && !locked.has(name)) overrides[name] = value
     }
     if (Object.keys(overrides).length === 0) return boilerplateConfig
     return {

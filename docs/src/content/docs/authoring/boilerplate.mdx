@@ -115,6 +115,31 @@ Each variable supports these properties:
 | `options` | For `enum` | List of allowed values for dropdowns |
 | `validations` | No | [Validation rules](#validations) |
 | `sensitive` | No | For a `string`, masks the field like a password input, with a button to show the value |
+| `order` | No | An integer that places the field in the form, lowest first. See [Field order](#field-order) |
+
+### Field order
+
+The form shows fields in the order `boilerplate.yml` declares them. To place a field elsewhere, give it an `order`, the integer Boilerplate also prompts for variables by. Fields appear lowest `order` first, a variable without one counts as `0`, and fields with the same `order` keep the order they're declared in:
+
+```yaml
+variables:
+  - name: Region
+    type: string
+    default: us-east-1
+
+  - name: AccountName
+    type: string
+    order: -1
+
+  - name: Tags
+    type: map
+    default: {}
+    order: 10
+```
+
+This form shows Account Name, then Region, then Tags.
+
+In a form with [sections](#x-section), `order` sorts the fields within each section, and a section appears where its first field would. Fields without an `x-section` stay at the top.
 
 ### Defaults that use other variables
 
@@ -449,6 +474,8 @@ With `ProjectName: "vpc"` and `Environment: "prod"`, this generates:
 
 Runbooks reads extra YAML properties, prefixed with `x-`, that change how the form renders. The Boilerplate CLI ignores them.
 
+Together with [`order`](#field-order), they lay the form out for the person filling it in: [`x-section`](#x-section) groups fields under headings, [`x-sections`](#x-sections) folds the groups they rarely need, and [`x-locked`](#x-locked) and [`x-hidden`](#x-hidden) keep them from changing values the runbook sets itself. The [form-layout demo runbook](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/form-layout) uses each one.
+
 ### `x-section`
 
 `x-section` groups fields under a named heading. This form renders two sections, Basic Settings and Advanced Settings:
@@ -475,7 +502,64 @@ variables:
     x-section: Advanced Settings
 ```
 
-Variables without `x-section` appear in an unnamed section at the top.
+Variables without `x-section` appear in an unnamed section at the top. The other sections follow in the order of their first field, which [`order`](#field-order) can change.
+
+### `x-sections`
+
+A top-level list of settings for the sections that `x-section` names. `collapsed: true` folds a section under its heading until someone clicks it open, so fields whose defaults rarely need changing stay out of the way:
+
+```yaml
+x-sections:
+  - name: Advanced Settings
+    collapsed: true
+
+variables:
+  - name: FunctionName
+    type: string
+    x-section: Basic Settings
+
+  - name: MemorySize
+    type: int
+    default: 128
+    x-section: Advanced Settings
+
+  - name: Timeout
+    type: int
+    default: 30
+    x-section: Advanced Settings
+```
+
+The fields of a folded section keep their values, and the block uses them as it does any other field's. If one of them has an error, such as a required field that is still empty when you click **Generate**, the section opens to show it. So give the fields of a folded section defaults that work.
+
+### `x-locked`
+
+`x-locked: true` shows a field read-only, marked **(locked)**. Its value is the variable's `default`, or in a `<Template>`, the value the block [imports through `inputsId`](/authoring/blocks/template/#variable-categories). Nobody filling in the form can change it.
+
+A locked `default` that [uses other variables or block outputs](#defaults-that-use-other-variables) still follows them. This field shows the provider that the `<GitAuth>` block with the id `git-auth` signed in to, from its [`GIT_PROVIDER` output](/authoring/blocks/gitauth/#block-outputs):
+
+```yaml
+- name: GitProvider
+  type: enum
+  options: [github, gitlab]
+  default: "{{ .outputs.git_auth.GIT_PROVIDER }}"
+  x-locked: true
+```
+
+When a session is resumed, a locked field starts from the runbook's value, not from the one the session saved, because the runbook may have changed it since. If a locked field's value is invalid, for example because its `default` uses a block that isn't on the page, the field shows the error, and the runbook itself has to be fixed.
+
+### `x-hidden`
+
+`x-hidden: true` leaves a field out of the form. A hidden field is locked too: the block uses its `default`, or the value it imports, as is. Use it for values the runbook works out by itself, such as the provider above when there's no need to show it:
+
+```yaml
+- name: GitProvider
+  type: enum
+  options: [github, gitlab]
+  default: "{{ .outputs.git_auth.GIT_PROVIDER }}"
+  x-hidden: true
+```
+
+A hidden field is still validated. If its value is invalid, for example because it's `required` and empty, the form shows the field, locked, with its error, so the block never fails on something you can't see. A section whose fields are all hidden doesn't appear.
 
 ### `x-options`
 

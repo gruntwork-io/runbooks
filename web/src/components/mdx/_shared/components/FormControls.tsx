@@ -47,6 +47,8 @@ interface BaseFormControlProps {
   id: string
   /** Whether the field is disabled (read-only) */
   disabled?: boolean | undefined
+  /** Why a disabled list or map is read-only, as its header says: "inherited" (the default) or "locked" */
+  readOnlyLabel?: string | undefined
 }
 
 /**
@@ -74,15 +76,16 @@ function valueText(value: unknown): string {
   return JSON.stringify(value)
 }
 
-/** Header row showing the entry count (and an "(inherited)" badge when disabled). */
-const EntryCountHeader: React.FC<{ count: number; disabled?: boolean | undefined }> = ({
-  count,
-  disabled,
-}) => (
+/** Header row showing the entry count (and an "(inherited)" or other `label` badge when disabled). */
+const EntryCountHeader: React.FC<{
+  count: number
+  disabled?: boolean | undefined
+  label?: string | undefined
+}> = ({ count, disabled, label = "inherited" }) => (
   <div className="px-3 py-2 bg-muted border-b border-border rounded-t-md">
     <span className="text-sm font-medium text-foreground">
       {count} entr{count !== 1 ? "ies" : "y"}
-      {disabled && <span className="text-muted-foreground ml-2">(inherited)</span>}
+      {disabled && <span className="text-muted-foreground ml-2">({label})</span>}
     </span>
   </div>
 )
@@ -348,6 +351,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
   onChange,
   onBlur,
   disabled,
+  readOnlyLabel,
 }) => {
   const currentList = Array.isArray(value) ? value : []
   const resolvedList = resolvedItems(currentList, resolvedValue)
@@ -407,7 +411,7 @@ export const ListInput: React.FC<BaseFormControlProps> = ({
       {/* List items */}
       {currentList.length > 0 && (
         <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
-          <EntryCountHeader count={currentList.length} disabled={disabled} />
+          <EntryCountHeader count={currentList.length} disabled={disabled} label={readOnlyLabel} />
           <div className="divide-y divide-border">
             {currentList.map((item, index) => (
               <div
@@ -443,6 +447,7 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
   onBlur,
   id,
   disabled,
+  readOnlyLabel,
 }) => {
   const options = variable.options ?? []
   const selected = Array.isArray(value)
@@ -538,7 +543,7 @@ export const MultiSelectInput: React.FC<BaseFormControlProps> = ({
       {/* Selected entries, always visible so the choice is readable without opening the picker. */}
       {selected.length > 0 && (
         <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
-          <EntryCountHeader count={selected.length} disabled={disabled} />
+          <EntryCountHeader count={selected.length} disabled={disabled} label={readOnlyLabel} />
           <div className="flex flex-wrap gap-1.5 p-2">
             {selected.map((option) => (
               <span
@@ -592,6 +597,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
   onBlur,
   id,
   disabled,
+  readOnlyLabel,
 }) => {
   const currentMap =
     typeof value === "object" && value !== null
@@ -738,7 +744,7 @@ export const StructuredMapInput: React.FC<BaseFormControlProps> = ({
       {/* Map entries */}
       {entries.length > 0 ? (
         <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
-          <EntryCountHeader count={entries.length} disabled={disabled} />
+          <EntryCountHeader count={entries.length} disabled={disabled} label={readOnlyLabel} />
           <div className="divide-y divide-border">
             {entries.map(([key, val], index) => (
               <div
@@ -792,6 +798,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
   onBlur,
   id,
   disabled,
+  readOnlyLabel,
 }) => {
   const currentMap =
     typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {}
@@ -854,7 +861,7 @@ export const MapInput: React.FC<BaseFormControlProps> = ({
       {/* Map entries */}
       {entries.length > 0 ? (
         <div className={`border border-border rounded-md ${disabled ? "bg-muted" : "bg-card"}`}>
-          <EntryCountHeader count={entries.length} disabled={disabled} />
+          <EntryCountHeader count={entries.length} disabled={disabled} label={readOnlyLabel} />
           <div className="divide-y divide-border">
             {entries.map(([key, val], index) => (
               <div

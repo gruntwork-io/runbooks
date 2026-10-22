@@ -74,12 +74,18 @@ export interface BoilerplateVariable {
   schema?: Record<string, string>
   schemaInstanceLabel?: string
   sectionName?: string
+  /** The form shows the field but nobody can change its value (x-locked, or x-hidden) */
+  locked?: boolean
+  /** The form doesn't show the field (x-hidden). A hidden field is locked too. */
+  hidden?: boolean
 }
 
 export interface Section {
   name: string
   description?: string
   variables: string[]
+  /** The form shows the section folded until it's opened (x-sections) */
+  collapsed?: boolean
 }
 
 export interface OutputDependency {
