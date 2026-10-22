@@ -42,8 +42,16 @@ export interface IpcChannelMap {
      * which the blocks start from. `sessionResumedFrom` is when a saved session
      * was last used, on the load that resumed it; a new session, and a reload
      * of the runbook in the session it has open, have none.
+     * `sessionFinishedAt` is when the session was marked finished
+     * (session:finish), if it was. `finishedSession` is the runbook's most
+     * recent session, on the load that started a new session in its place
+     * because it was finished.
+     *
+     * `reload` marks a watch-mode reload of the runbook the window shows. It
+     * keeps the open session, even a finished one, where opening the runbook
+     * again starts a new session in place of a finished one.
      */
-    params: { path: string; watchMode?: boolean; remoteSource?: string }
+    params: { path: string; watchMode?: boolean; remoteSource?: string; reload?: boolean }
     result: {
       path: string
       content: string
@@ -58,6 +66,8 @@ export interface IpcChannelMap {
       sessionName: string
       sessionDir: string
       sessionResumedFrom?: string
+      sessionFinishedAt?: string
+      finishedSession?: { name: string; finishedAt: string }
       blockStates: SavedBlockState[]
     }
   }
@@ -99,10 +109,12 @@ export interface IpcChannelMap {
    */
   "session:rename": { params: { name: string }; result: { name: string } }
   /**
-   * Mark the open session finished (SessionPersistence.finishCurrent): opening
-   * its runbook again starts a new session.
+   * Mark session `sessionId` finished, because a <Finish> block finished its
+   * runbook (SessionPersistence.finishSession): opening the runbook again
+   * starts a new session. A session that is no longer the open one is left
+   * as it is.
    */
-  "session:finish": { params: void; result: { ok: true } }
+  "session:finish": { params: { sessionId: string }; result: { ok: true } }
   /** The most recently used saved sessions, most recent first (SessionPersistence.listSessions). */
   "session:list": { params: void; result: { sessions: ListedSession[] } }
   /**

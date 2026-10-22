@@ -6,6 +6,7 @@ import {
 } from "@/components/mdx/_shared/components/ScriptBlock"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
 import type { ExecutionStatus } from "@/components/mdx/_shared/types"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { celebrate } from "./celebrate"
 
 const FINISH_VARIANT: ScriptBlockVariant = {
@@ -56,7 +57,8 @@ type FinishProps = Omit<ScriptBlockProps, "variant" | "successContent" | "onComp
 /**
  * Marks the end of a runbook. Clicking Finish runs the optional final check
  * (`command` or `path`, like a <Check>); once the runbook is finished it
- * celebrates and shows the author's next steps (the block's children).
+ * celebrates, shows the author's next steps (the block's children), and marks
+ * the session finished, so opening the runbook again starts a new session.
  */
 function Finish({
   title = "Finish this runbook",
@@ -65,6 +67,14 @@ function Finish({
   children,
   ...props
 }: FinishProps) {
+  const history = useSessionHistory()
+  // Each time the block goes to success, and when it is marked done in
+  // instruction mode. Marking a session finished again changes nothing.
+  const complete = () => {
+    celebrate()
+    history.finish()
+  }
+
   // Markdown lists lose their bullets inside a block (App.css resets them for
   // block chrome), so give the author's next steps theirs back, and keep a
   // leading heading's top margin from pushing them down.
@@ -81,7 +91,7 @@ function Finish({
       successMessage={successMessage}
       failMessage={failMessage}
       successContent={nextSteps}
-      onComplete={celebrate}
+      onComplete={complete}
       variant={FINISH_VARIANT}
     />
   )

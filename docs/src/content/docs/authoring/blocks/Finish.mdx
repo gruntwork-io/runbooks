@@ -2,11 +2,11 @@
 title: <Finish>
 ---
 
-The `<Finish>` block marks the end of a runbook. When the user clicks **Finish**, it can run a final check to confirm the runbook did its job. Once the runbook is finished, the block celebrates with a burst of confetti and shows your next steps.
+The `<Finish>` block marks the end of a runbook. When the user clicks **Finish**, it can run a final check to confirm the runbook did its job. Once the runbook is finished, the block celebrates with a burst of confetti, shows your next steps, and marks the [session](/commands/sessions/) finished, so the next time the runbook opens it starts over in a new session.
 
 Put it at the end of the runbook, after the last block the user runs.
 
-## Basic Usage
+## Basic usage
 
 ```mdx
 <Finish id="finish">
@@ -23,7 +23,17 @@ Clicking **Finish** finishes the runbook straight away: there is no final check,
 
 Leave a blank line after the opening tag and before the closing tag, so that the content between them is read as markdown.
 
-## With a Final Check
+To keep the **Finish** button disabled until other blocks have run, name them in `dependsOn`:
+
+```mdx
+<Finish id="finish" dependsOn={["deploy", "smoke-test"]}>
+
+Your service is deployed and answering requests.
+
+</Finish>
+```
+
+## With a final check
 
 To confirm the runbook worked before celebrating, give the block a final check with `command` or `path`, exactly as you would a [Check](/authoring/blocks/check/):
 
@@ -47,55 +57,62 @@ Clicking **Finish** runs the check, and its exit code decides what happens:
 
 The final check runs like any other script: it has the logging helpers, the session's environment, `$RUNBOOK_OUTPUT` and `$GENERATED_FILES`, and it waits for the Inputs, outputs and authentication it references. See [Check](/authoring/blocks/check/#writing-scripts) for how to write one.
 
+## Finishing the session
+
+Finishing the runbook also marks the session it runs in as finished. A final check that ends in a warning or a failure doesn't finish the runbook, so it leaves the session as it was.
+
+A finished session keeps its directory, files and history, but Runbooks doesn't resume it on its own again. The next time the runbook opens, in the running app or after a restart, it opens in a new session, with a notice that names the finished session and a **Switch session…** button to go back to it. Switching to the finished session shows the `<Finish>` block finished, without the confetti. See [Finishing a session](/commands/sessions/#finishing-a-session).
+
 ## Props
 
-### Required Props
+### Required props
 
-- `id` (string) - Unique identifier for this block.
+- `id` (string): unique identifier for this block
 
-### Optional Props
+### Optional props
 
-- `title` (string) - Heading shown in the block (default: "Finish this runbook"). Supports inline markdown.
-- `description` (string) - Text shown under the title. Supports inline markdown.
-- `command` (string) - Inline final check to run (alternative to `path`).
-- `path` (string) - Path to a final-check script, relative to the runbook (alternative to `command`).
-- `inputsId` (string | string[]) - ID of one or more [Inputs](/authoring/blocks/inputs/) blocks to get template variables from. When several IDs are given, later ones override earlier ones.
-- `awsAuthId` (string) - ID of an [AwsAuth](/authoring/blocks/awsauth/) block whose credentials the final check needs. **Finish** is disabled until that block has authenticated.
-- `gitAuthId` (string) - ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block whose credentials the final check needs. **Finish** is disabled until that block has authenticated.
-- `githubAuthId` (string) - ID of a [GitHubAuth](/authoring/blocks/githubauth/) block whose credentials the final check needs. GitHub only; prefer `gitAuthId`.
-- `googleAuthId` (string) - ID of a [GoogleAuth](/authoring/blocks/googleauth/) block whose credentials the final check needs. **Finish** is disabled until that block has authenticated.
-- `successMessage` (string) - Message shown once the runbook is finished (default: "You finished this runbook!"). Supports inline markdown.
-- `warnMessage` (string) - Message shown when the final check exits with code 2 (default: "Warning"). Supports inline markdown.
-- `failMessage` (string) - Message shown when the final check fails (default: "The final check failed. Check the logs, fix the problem, and run it again."). Supports inline markdown.
-- `runningMessage` (string) - Message shown while the final check runs (default: "Running the final check..."). Supports inline markdown.
-- `usePty` (boolean) - Whether to run the final check in a pseudo-terminal (default: `true`). See [PTY Support](/authoring/blocks/advanced#pseudo-terminal-pty-support).
-- `timeoutMs` (number) - Maximum time, in milliseconds, the final check may run before it is stopped and fails (default: 60 minutes).
+- `title` (string): heading shown in the block. Default "Finish this runbook". Supports inline markdown.
+- `description` (string): text shown under the title. Supports inline markdown.
+- `command` (string): inline final check to run. Use either this or `path`, or neither for a block without a final check.
+- `path` (string): path to a final-check script, relative to the runbook. Use either this or `command`.
+- `inputsId` (string | string[]): ID of an [Inputs](/authoring/blocks/inputs/) block to get template variables from. Can be a single ID or an array of IDs. When multiple IDs are provided, variables are merged in order, and later IDs override earlier ones.
+- `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
+- `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
+- `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block whose credentials the final check needs. GitHub only. The Finish button is disabled until authentication completes. Prefer `gitAuthId`.
+- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
+- `successMessage` (string): message shown once the runbook is finished. Default "You finished this runbook!". Supports inline markdown.
+- `warnMessage` (string): message shown when the final check exits with code 2. Default "Warning". Supports inline markdown.
+- `failMessage` (string): message shown when the final check fails. Default "The final check failed. Check the logs, fix the problem, and run it again.". Supports inline markdown.
+- `runningMessage` (string): message shown while the final check runs. Default "Running the final check...". Supports inline markdown.
+- `timeoutMs` (number): maximum time, in milliseconds, the final check may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes).
+- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must finish with a success or a warning before the runbook can be finished. See [Run order](/authoring/blocks/command/#run-order).
+- `exclusive` (boolean): whether the final check runs alone. Defaults to `false`. While it runs, no Command or Check block can start, and it can't start while one is running. See [Run order](/authoring/blocks/command/#run-order).
 
-### Next Steps
+### Next steps
 
 The content between `<Finish>` and `</Finish>` is the author's next steps. It is hidden until the runbook is finished, then shown inside the block. It can hold any markdown: paragraphs, lists, links and code blocks.
 
 Unlike `<Check>` and `<Command>`, a `<Finish>` can't hold a nested `<Inputs>`, because its content only appears once the runbook is finished. Use `inputsId` to reference an Inputs block elsewhere in the runbook instead.
 
-## The Celebration
+## The celebration
 
 When the runbook is finished, confetti bursts from the bottom corners of the window for about three seconds.
 
 - It never blocks the page: clicks go straight through it.
 - Press **Escape**, or click anywhere, to clear it at once.
 - It is skipped when the operating system is set to reduce motion (`prefers-reduced-motion`). The block still turns green and shows the next steps.
-- It happens each time the block goes from not finished to finished, including a successful re-run of the final check. It doesn't replay when the runbook is reopened: like `<Check>` and `<Command>`, the finished state isn't saved.
+- It happens each time the block goes from not finished to finished, including a successful re-run of the final check. It doesn't replay when a session is resumed: the block comes back finished, without the confetti.
 
-A runbook can have more than one `<Finish>`, for example one at the end of each alternative path.
+A runbook can have more than one `<Finish>`, for example one at the end of each alternative path. Finishing any of them finishes the session.
 
-## Instruction Mode
+## Instruction mode
 
-In [instruction mode](/intro/instruction-mode/), a `<Finish>` shows its title, the final check (if it has one) as a command to run by hand, and the next steps, which are always visible since nothing is gated. Ticking **Mark as done** celebrates.
+In [instruction mode](/intro/instruction-mode/), a `<Finish>` shows its title, the final check (if it has one) as a command to run by hand, and the next steps, which are always visible since nothing is gated. Ticking **Mark as done** celebrates and marks the session finished.
 
 ## Testing
 
 In a [runbook test](/authoring/testing/#testing-finish-blocks), a `<Finish>` with a final check runs it like a `<Check>`: exit code 0 is `success`, 2 is `warn`, and anything else is `fail`. A `<Finish>` without one runs nothing, and its step succeeds.
 
-:::tip[See It in Action]
+:::tip[See it in action]
 The [finish feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/finish) shows a `<Finish>` whose final check depends on an earlier block.
 :::

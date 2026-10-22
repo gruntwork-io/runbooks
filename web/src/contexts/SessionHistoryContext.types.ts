@@ -13,12 +13,18 @@ export interface SessionHistory {
    * after it, as JSON.
    */
   record: (blockId: string, kind: SessionEventKind, payload: unknown) => void
+  /**
+   * Mark the session finished: a <Finish> block finished its runbook. Opening
+   * the runbook again starts a new session.
+   */
+  finish: () => void
 }
 
 /** The history of a block rendered outside a session: nothing saved, nothing kept. */
 export const noSessionHistory: SessionHistory = {
   saved: () => undefined,
   record: () => {},
+  finish: () => {},
 }
 
 export const SessionHistoryContext = createContext<SessionHistory>(noSessionHistory)

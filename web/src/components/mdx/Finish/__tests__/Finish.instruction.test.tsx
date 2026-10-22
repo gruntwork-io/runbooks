@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, within } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
+import { SessionHistoryContext } from "@/contexts/SessionHistoryContext.types"
 import Finish from "../Finish"
 import { celebrate } from "../celebrate"
 
@@ -55,12 +56,16 @@ vi.mock("@/contexts/useInstructionMode", () => ({
 
 vi.mock("../celebrate", () => ({ celebrate: vi.fn() }))
 
+const history = { saved: vi.fn(), record: vi.fn(), finish: vi.fn() }
+
 function renderFinish(props: Partial<React.ComponentProps<typeof Finish>> = {}) {
   return render(
     <TestWrapper>
-      <Finish id="finish" {...props}>
-        <p>Next: tell your team.</p>
-      </Finish>
+      <SessionHistoryContext.Provider value={history}>
+        <Finish id="finish" {...props}>
+          <p>Next: tell your team.</p>
+        </Finish>
+      </SessionHistoryContext.Provider>
     </TestWrapper>,
   )
 }
@@ -69,6 +74,7 @@ describe("Finish — instruction mode", () => {
   beforeEach(() => {
     mockExecution = { ...baseExecution, execute: vi.fn(), cancel: vi.fn() }
     vi.mocked(celebrate).mockClear()
+    history.finish.mockClear()
     localStorage.clear()
   })
 
@@ -90,14 +96,16 @@ describe("Finish — instruction mode", () => {
     expect(screen.getByText("Next: tell your team.")).toBeInTheDocument()
   })
 
-  it("celebrates when marked done, not when un-marked, and never runs anything", () => {
+  it("celebrates and marks the session finished when marked done, not when un-marked, and never runs anything", () => {
     renderFinish()
 
     fireEvent.click(screen.getByRole("button", { name: /mark step as done/i }))
     expect(celebrate).toHaveBeenCalledOnce()
+    expect(history.finish).toHaveBeenCalledOnce()
 
     fireEvent.click(screen.getByRole("button", { name: /mark step as not done/i }))
     expect(celebrate).toHaveBeenCalledOnce()
+    expect(history.finish).toHaveBeenCalledOnce()
     expect(mockExecution.execute).not.toHaveBeenCalled()
   })
 })

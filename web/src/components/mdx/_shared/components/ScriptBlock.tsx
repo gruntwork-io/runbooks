@@ -33,6 +33,8 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useTelemetry } from "@/contexts/useTelemetry"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { runEnded } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
 import type { ComponentType, ExecutionStatus } from "../types"
@@ -223,9 +225,27 @@ export function ScriptBlock({
   })
 
   // With no script to run (a <Finish> without a final check), the Run button
-  // completes the block right here: nothing reaches IPC.
+  // completes the block right here: nothing reaches IPC. The session's history
+  // keeps that as a run that succeeded, which useScriptExecution restores like
+  // any other run, so the block starts completed when the session resumes.
+  const history = useSessionHistory()
   const scriptless = !!variant.scriptOptional && !command && !path
-  const [scriptlessDone, setScriptlessDone] = useState(false)
+  const [scriptlessDone, setScriptlessDone] = useState(execStatus === "success")
+  const completeScriptless = () => {
+    setScriptlessDone(true)
+    history.record(
+      id,
+      "run",
+      runEnded({
+        logs: [],
+        status: "success",
+        exitCode: null,
+        error: null,
+        outputs: null,
+        logFilePath: null,
+      }),
+    )
+  }
   const status: ExecutionStatus = scriptless ? (scriptlessDone ? "success" : "pending") : execStatus
 
   // Call onComplete on each transition into success: a first run or a re-run,
@@ -729,7 +749,7 @@ export function ScriptBlock({
                 variant="outline"
                 size="sm"
                 disabled={isRunDisabled}
-                onClick={() => (scriptless ? setScriptlessDone(true) : handleExecute())}
+                onClick={() => (scriptless ? completeScriptless() : handleExecute())}
               >
                 {variant.runLabel}
               </Button>

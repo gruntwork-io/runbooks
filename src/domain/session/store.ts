@@ -174,6 +174,16 @@ interface SessionEventRow {
 // between two sessions launched in the same millisecond.
 const MOST_RECENT_FIRST = "ORDER BY last_launched_at DESC, rowid DESC LIMIT 1"
 
+/**
+ * The condition, and its parameter, for the sessions of `runbook`: a remote
+ * runbook's by its URL, wherever its clone landed, and a local one's by path.
+ */
+function runbookMatch(runbook: RunbookSource): [string, string] {
+  return runbook.remoteSource === undefined
+    ? ["remote_source IS NULL AND runbook_path = ?", runbook.path]
+    : ["remote_source = ?", runbook.remoteSource]
+}
+
 export class SessionStore {
   private constructor(private readonly db: SqlDatabase) {}
 
@@ -256,11 +266,25 @@ export class SessionStore {
   latestForRunbook(
     runbook: RunbookSource,
   ): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
-    return runbook.remoteSource === undefined
-      ? this.selectOne(`WHERE remote_source IS NULL AND runbook_path = ? ${MOST_RECENT_FIRST}`, [
-          runbook.path,
-        ])
-      : this.selectOne(`WHERE remote_source = ? ${MOST_RECENT_FIRST}`, [runbook.remoteSource])
+    const [match, param] = runbookMatch(runbook)
+    return this.selectOne(`WHERE ${match} ${MOST_RECENT_FIRST}`, [param])
+  }
+
+  /**
+   * The most recently launched session of `runbook` that isn't finished, among
+   * those launched since the runbook was last finished in one of its sessions.
+   * Undefined when it was never finished.
+   */
+  latestUnfinishedSinceFinish(
+    runbook: RunbookSource,
+  ): Effect.Effect<SessionRecord | undefined, SessionStoreError> {
+    const [match, param] = runbookMatch(runbook)
+    return this.selectOne(
+      `WHERE ${match} AND finished_at IS NULL
+         AND last_launched_at >= (SELECT MAX(finished_at) FROM sessions WHERE ${match})
+       ${MOST_RECENT_FIRST}`,
+      [param, param],
+    )
   }
 
   /** The session most recently launched from `launchDir`. */

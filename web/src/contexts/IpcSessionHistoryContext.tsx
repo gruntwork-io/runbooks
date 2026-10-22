@@ -14,7 +14,8 @@ interface IpcSessionHistoryProviderProps {
 
 /**
  * Gives the runbook's blocks their session's history: each event a block
- * records goes to the main process, which saves it.
+ * records goes to the main process, which saves it, and so does a <Finish>
+ * block marking the session finished.
  *
  * The provider also keeps every block's latest state itself, starting from
  * `blockStates`. A block that remounts while the session is open (a
@@ -48,6 +49,12 @@ export function IpcSessionHistoryProvider({
             `Could not save the ${kind} of block "${blockId}" to the session's history:`,
             errorMessage(err),
           )
+        })
+      },
+      finish: () => {
+        if (sessionId === undefined) return
+        api.invoke("session:finish", { sessionId }).catch((err) => {
+          console.warn("Could not mark the session finished:", errorMessage(err))
         })
       },
     }),

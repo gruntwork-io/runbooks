@@ -21,7 +21,6 @@ import {
 } from "../ui/dropdown-menu"
 import { CopyIconButton } from "./CopyIconButton"
 import { SessionName } from "./SessionName"
-import { SessionsDialog } from "./SessionsDialog"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
@@ -37,6 +36,8 @@ interface HeaderProps {
   /** Called with the session's new name after the user renames it */
   onSessionRenamed: (name: string) => void
   onOpenCommandPalette: () => void
+  /** Called by the menu's Switch Session… item, once the menu has closed */
+  onOpenSessions: () => void
   onCloseRunbook: () => void
 }
 
@@ -55,6 +56,7 @@ interface HeaderProps {
  * @param props.sessionDir - The session's directory
  * @param props.onSessionRenamed - Called with the new name after a rename
  * @param props.onOpenCommandPalette - Called by the menu's Command Palette… item
+ * @param props.onOpenSessions - Called by the menu's Switch Session… item
  * @param props.onCloseRunbook - Called by the menu's Close Runbook item
  */
 export function Header({
@@ -62,11 +64,11 @@ export function Header({
   sessionDir,
   onSessionRenamed,
   onOpenCommandPalette,
+  onOpenSessions,
   onCloseRunbook,
 }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isRenaming, setIsRenaming] = useState(false)
-  const [isSessionsOpen, setIsSessionsOpen] = useState(false)
   // Set by the menu's Rename Session and Switch Session items. What they open
   // opens once the menu has closed: opened sooner, it would lose the focus to
   // the closing menu, and a name field that loses focus cancels the rename.
@@ -92,9 +94,6 @@ export function Header({
     })
     return cleanup
   }, [api, hasRunbookOpen])
-
-  // The native "Switch Session…" menu item.
-  useEffect(() => api.on("menu:switch-session", () => setIsSessionsOpen(true)), [api])
 
   const handleResetSession = () => {
     api.invoke("native:reset-session").catch((err: unknown) => {
@@ -165,7 +164,7 @@ export function Header({
                 // Keep the focus off the Menu button: what opens takes it.
                 event.preventDefault()
                 if (open === "rename") setIsRenaming(true)
-                else setIsSessionsOpen(true)
+                else onOpenSessions()
               }}
             >
               {/* First, as the visible way to learn the shortcut: on Windows
@@ -236,8 +235,6 @@ export function Header({
           </DropdownMenu>
         </div>
       </header>
-
-      <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
     </>
   )
 }

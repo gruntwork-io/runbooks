@@ -1,7 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { TestWrapper } from "@/test/test-utils"
+import { SessionHistoryContext } from "@/contexts/SessionHistoryContext.types"
+import { restoreRun } from "@/lib/sessionHistory"
 import Finish from "../Finish"
 import { celebrate } from "../celebrate"
 
@@ -60,6 +62,11 @@ vi.mock("@/contexts/useLogs", () => ({
 // jsdom has no canvas; the celebration itself is covered by celebrate.test.ts.
 vi.mock("../celebrate", () => ({ celebrate: vi.fn() }))
 
+// The session's history: where the block saves a run without a script, and
+// marks the session finished. The mocked useScriptExecution stands in for
+// what it restores (its `status`).
+let history: { saved: Mock; record: Mock; finish: Mock }
+
 function setStatus(status: string) {
   mockScriptExecution = { ...mockScriptExecution, status }
 }
@@ -67,9 +74,11 @@ function setStatus(status: string) {
 function finish(props: Partial<React.ComponentProps<typeof Finish>> = {}) {
   return (
     <TestWrapper>
-      <Finish id="finish" {...props}>
-        <p>Next: tell your team.</p>
-      </Finish>
+      <SessionHistoryContext.Provider value={history}>
+        <Finish id="finish" {...props}>
+          <p>Next: tell your team.</p>
+        </Finish>
+      </SessionHistoryContext.Provider>
     </TestWrapper>
   )
 }
@@ -78,6 +87,7 @@ describe("Finish", () => {
   beforeEach(() => {
     mockScriptExecution = { ...defaultScriptExecution, execute: vi.fn(), cancel: vi.fn() }
     lastScriptExecutionProps = null
+    history = { saved: vi.fn(), record: vi.fn(), finish: vi.fn() }
     vi.mocked(celebrate).mockClear()
   })
 
@@ -111,6 +121,31 @@ describe("Finish", () => {
       expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled()
     })
 
+    it("marks the session finished, and saves the block as finished in its history", async () => {
+      render(finish())
+
+      await userEvent.click(screen.getByRole("button", { name: "Finish" }))
+
+      expect(history.finish).toHaveBeenCalledOnce()
+      expect(history.record).toHaveBeenCalledOnce()
+      const [blockId, kind, payload] = history.record.mock.calls[0]!
+      expect([blockId, kind]).toEqual(["finish", "run"])
+      // What useScriptExecution restores the block from when the session resumes.
+      expect(restoreRun(payload)).toMatchObject({ status: "success", logs: [], error: null })
+    })
+
+    it("starts finished when its history says it was, without celebrating or finishing again", () => {
+      setStatus("success")
+      render(finish())
+
+      expect(screen.getByTestId("icon-success")).toBeInTheDocument()
+      expect(screen.getByText("Next: tell your team.")).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled()
+      expect(celebrate).not.toHaveBeenCalled()
+      expect(history.finish).not.toHaveBeenCalled()
+      expect(history.record).not.toHaveBeenCalled()
+    })
+
     it("uses the author's title and messages", async () => {
       render(finish({ title: "All done", successMessage: "Nice work!" }))
 
@@ -132,9 +167,12 @@ describe("Finish", () => {
 
       expect(mockScriptExecution.execute).toHaveBeenCalledOnce()
       expect(celebrate).not.toHaveBeenCalled()
+      expect(history.finish).not.toHaveBeenCalled()
+      // useScriptExecution saves the check's runs.
+      expect(history.record).not.toHaveBeenCalled()
     })
 
-    it("celebrates and shows the next steps once the check passes", () => {
+    it("celebrates, shows the next steps and marks the session finished once the check passes", () => {
       const { rerender } = render(finish({ command: "test -f done.txt" }))
       setStatus("running")
       rerender(finish({ command: "test -f done.txt" }))
@@ -147,6 +185,7 @@ describe("Finish", () => {
       expect(screen.getByText("You finished this runbook!")).toBeInTheDocument()
       expect(screen.getByText("Next: tell your team.")).toBeInTheDocument()
       expect(celebrate).toHaveBeenCalledOnce()
+      expect(history.finish).toHaveBeenCalledOnce()
     })
 
     it.each([
@@ -165,6 +204,7 @@ describe("Finish", () => {
         expect(screen.getByText(message)).toBeInTheDocument()
         expect(screen.queryByText("Next: tell your team.")).toBeNull()
         expect(celebrate).not.toHaveBeenCalled()
+        expect(history.finish).not.toHaveBeenCalled()
       },
     )
 
@@ -182,12 +222,13 @@ describe("Finish", () => {
       expect(celebrate).toHaveBeenCalledTimes(2)
     })
 
-    it("doesn't celebrate a block that mounts already finished", () => {
+    it("doesn't celebrate or finish the session again for a block that mounts already finished", () => {
       setStatus("success")
       render(finish({ command: "test -f done.txt" }))
 
       expect(screen.getByText("Next: tell your team.")).toBeInTheDocument()
       expect(celebrate).not.toHaveBeenCalled()
+      expect(history.finish).not.toHaveBeenCalled()
     })
 
     it("asks for an inputsId, not a nested <Inputs>, when the check needs input values", () => {
