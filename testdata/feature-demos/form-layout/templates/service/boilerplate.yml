@@ -1,0 +1,55 @@
+x-sections:
+  - name: Advanced Settings
+    collapsed: true
+
+variables:
+  - name: Port
+    type: int
+    description: The port the service listens on
+    default: 8080
+    order: 2
+
+  - name: ServiceName
+    type: string
+    description: Declared after Port, but its lower order puts it first
+    default: web
+    order: 1
+
+  # Shown, but nobody filling in the form can change it.
+  - name: Team
+    type: string
+    description: The team that owns every service this runbook creates
+    default: platform
+    order: 3
+    x-locked: true
+
+  - name: Replicas
+    type: int
+    description: How many copies of the service to run
+    default: 2
+    x-section: Advanced Settings
+
+  - name: LogLevel
+    type: enum
+    description: How much the service logs
+    options:
+      - debug
+      - info
+      - warn
+      - error
+    default: info
+    x-section: Advanced Settings
+
+  # Left out of the form: the Detect Git Provider script works it out.
+  - name: GitProvider
+    type: enum
+    options:
+      - github
+      - gitlab
+    default: "{{ .outputs.detect_provider.provider }}"
+    x-hidden: true
+
+  - name: ManagedBy
+    type: string
+    default: runbooks
+    x-hidden: true

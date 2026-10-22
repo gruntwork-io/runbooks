@@ -1,0 +1,7 @@
+name: {{ .ServiceName }}
+port: {{ .Port }}
+replicas: {{ .Replicas }}
+log_level: {{ .LogLevel }}
+team: {{ .Team }}
+git_provider: {{ .GitProvider }}
+managed_by: {{ .ManagedBy }}

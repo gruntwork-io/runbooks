@@ -6,7 +6,8 @@ import type { BoilerplateVariable } from "./boilerplateVariable"
 // YAML property: x-section
 export interface Section {
   name: string // Section name ("" for unnamed/default section)
-  variables: string[] // Variable names in this section (in declaration order)
+  variables: string[] // Variable names in this section (in form order: by `order`, then declaration)
+  collapsed?: boolean // Folded until opened (YAML: x-sections)
 }
 
 // OutputDependency represents a reference to another block's output found in a template file.

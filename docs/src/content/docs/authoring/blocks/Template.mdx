@@ -74,6 +74,8 @@ The Template displays a form with all variables defined in its `boilerplate.yml`
 <Template id="vpc-setup" path="templates/vpc" />
 ```
 
+The `boilerplate.yml` also lays the form out: [`order`](/authoring/boilerplate/#field-order) places fields, [`x-section`](/authoring/boilerplate/#x-section) and [`x-sections`](/authoring/boilerplate/#x-sections) group them under headings that can fold, and [`x-locked`](/authoring/boilerplate/#x-locked) and [`x-hidden`](/authoring/boilerplate/#x-hidden) show a field read-only or leave it out, for values the runbook sets itself.
+
 ### Using `inputsId`
 
 Import variables from a separate Inputs block:
@@ -128,7 +130,7 @@ variables:
 
 ## Variable categories
 
-A Template has its own `boilerplate.yml` and can also import variables via `inputsId`, so a variable can be defined on either side or both. Variables only the Template defines are editable. Variables only the imported block defines are passed to the template without appearing in the form. Variables defined in both places are read-only in the Template form. See [When variables overlap](/authoring/inputs-and-outputs/#when-variables-overlap).
+A Template has its own `boilerplate.yml` and can also import variables via `inputsId`, so a variable can be defined on either side or both. Variables only the Template defines are editable, unless its `boilerplate.yml` [locks](/authoring/boilerplate/#x-locked) or [hides](/authoring/boilerplate/#x-hidden) them. Variables only the imported block defines are passed to the template without appearing in the form. Variables defined in both places are read-only in the Template form. See [When variables overlap](/authoring/inputs-and-outputs/#when-variables-overlap).
 
 ## Template file syntax
 

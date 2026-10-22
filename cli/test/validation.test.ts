@@ -324,6 +324,27 @@ variables:
     expect(ok).toHaveLength(0)
   })
 
+  it("leaves a linked enum value to the render, which resolves it to an option", () => {
+    const p = writeRunbook(`
+<Inputs id="i1">
+\`\`\`yaml
+variables:
+  - name: provider
+    type: enum
+    options: [github, gitlab]
+    default: "{{ .outputs.git_auth.GIT_PROVIDER }}"
+    x-hidden: true
+\`\`\`
+</Inputs>
+`)
+    const v = new InputValidator(p)
+    v.init()
+    expect(
+      v.validateInputValues({ "i1.provider": "{{ .outputs.git_auth.GIT_PROVIDER }}" }),
+    ).toEqual([])
+    expect(v.validateInputValues({ "i1.provider": "bitbucket" })).toHaveLength(1)
+  })
+
   // The app's Inputs block rejects these: MDX turns unfenced YAML on its own
   // lines into paragraphs and lists, with or without a wrapper element.
   it.each([

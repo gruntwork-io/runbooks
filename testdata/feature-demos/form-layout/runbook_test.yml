@@ -1,0 +1,37 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+# The app resolves linked defaults (like GitProvider's) when it renders. The
+# test CLI's simplified renderer inserts them unresolved, so these tests check
+# the script's output instead of the provider in service.yml.
+tests:
+  - name: every-value-renders
+    description: |
+      The template renders every value: the locked Team, the hidden
+      ManagedBy, and the fields of the folded Advanced Settings section.
+    assertions:
+      - type: file_exists
+        path: service.yml
+      - type: file_contains
+        path: service.yml
+        contains: "name: web"
+      - type: file_contains
+        path: service.yml
+        contains: "team: platform"
+      - type: file_contains
+        path: service.yml
+        contains: "managed_by: runbooks"
+      - type: file_contains
+        path: service.yml
+        contains: "replicas: 2"
+      - type: file_contains
+        path: service.yml
+        contains: "log_level: info"
+      - type: output_equals
+        block: detect-provider
+        output: provider
+        value: github

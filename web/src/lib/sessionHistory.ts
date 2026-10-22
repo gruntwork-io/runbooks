@@ -28,9 +28,18 @@ export function parseSavedForm(payload: unknown): SavedForm | undefined {
   return parsed.success ? parsed.data : undefined
 }
 
-/** The value the saved form has for a variable, or undefined when it has none. */
-export function savedFormValue(saved: SavedForm | undefined, name: string): unknown {
-  return saved !== undefined && Object.hasOwn(saved.values, name) ? saved.values[name] : undefined
+/**
+ * The value the saved form has for a variable, or undefined when it has none.
+ * A locked variable has none: nobody could change it, so it starts from what
+ * the runbook says now, which may not be what it said when the form was saved.
+ */
+export function savedFormValue(
+  saved: SavedForm | undefined,
+  variable: { name: string; locked?: boolean | undefined },
+): unknown {
+  return saved !== undefined && !variable.locked && Object.hasOwn(saved.values, variable.name)
+    ? saved.values[variable.name]
+    : undefined
 }
 
 // ---------------------------------------------------------------------------

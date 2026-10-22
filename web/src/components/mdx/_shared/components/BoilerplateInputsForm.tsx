@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect, useContext } from "react"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { BoilerplateVariable } from "@/types/boilerplateVariable"
-import type { BoilerplateConfig } from "@/types/boilerplateConfig"
+import type { BoilerplateConfig, Section } from "@/types/boilerplateConfig"
 import { formatVariableLabel } from "../lib/formatVariableLabel"
 import { FormControl } from "./FormControls"
 import { useFormState } from "../hooks/useFormState"
@@ -20,11 +21,16 @@ const NO_VALUES: Record<string, unknown> = {}
 
 const quoted = (blockIds: string[]) => blockIds.map((blockId) => `"${blockId}"`).join(", ")
 
-/** The error on a field whose value uses outputs of blocks that aren't on the page. */
-function missingBlockMessage(blockIds: string[]): string {
-  return blockIds.length === 1
-    ? `Uses an output of block ${quoted(blockIds)}, but no block on this page has that id, so it can't be filled in. Enter a value instead.`
-    : `Uses outputs of blocks ${quoted(blockIds)}, but no blocks on this page have those ids, so it can't be filled in. Enter a value instead.`
+/**
+ * The error on a field whose value uses outputs of blocks that aren't on the
+ * page. A locked field can't take another value, so it isn't asked for one.
+ */
+function missingBlockMessage(blockIds: string[], locked: boolean): string {
+  const message =
+    blockIds.length === 1
+      ? `Uses an output of block ${quoted(blockIds)}, but no block on this page has that id, so it can't be filled in.`
+      : `Uses outputs of blocks ${quoted(blockIds)}, but no blocks on this page have those ids, so it can't be filled in.`
+  return locked ? message : `${message} Enter a value instead.`
 }
 
 /** The page-level report of a form's fields that use outputs of blocks that aren't on the page. */
@@ -42,7 +48,9 @@ function missingBlocksReport(missingByField: Record<string, string[]>): string |
  *
  * This component renders a form with appropriate input controls based on the
  * boilerplate variable types. It handles form state, validation, and submission.
- * Variables can be grouped into sections using the x-section YAML property.
+ * Variables can be grouped into sections using the x-section YAML property,
+ * which x-sections can fold. An x-locked variable is shown read-only, and an
+ * x-hidden one isn't shown at all unless it has an error.
  *
  * @param props - Form configuration object containing:
  *   - `id`: Unique identifier for the form
@@ -107,7 +115,11 @@ interface VariableFieldProps {
   error?: string | undefined
   onChange: (value: unknown) => void
   onBlur?: (() => void) | undefined
-  disabled?: boolean | undefined
+  /**
+   * Why the field can't be changed here, when it can't: its value comes from
+   * the block it's imported from ("inherited"), or the template locks it.
+   */
+  readOnly?: "inherited" | "locked" | undefined
 }
 
 const VariableField: React.FC<VariableFieldProps> = ({
@@ -118,9 +130,10 @@ const VariableField: React.FC<VariableFieldProps> = ({
   error,
   onChange,
   onBlur,
-  disabled,
+  readOnly,
 }) => {
   const isBooleanType = variable.type === "bool"
+  const disabled = readOnly !== undefined
 
   return (
     <div className="space-y-1" data-testid={`field-${variable.name}`}>
@@ -137,8 +150,8 @@ const VariableField: React.FC<VariableFieldProps> = ({
         >
           {formatVariableLabel(variable.name)}
           {variable.required && !disabled && <span className="text-muted-foreground ml-1">*</span>}
-          {disabled && (
-            <span className="text-muted-foreground ml-2 text-sm font-normal">(inherited)</span>
+          {readOnly && (
+            <span className="text-muted-foreground ml-2 text-sm font-normal">({readOnly})</span>
           )}
         </label>
 
@@ -151,6 +164,7 @@ const VariableField: React.FC<VariableFieldProps> = ({
           onBlur={onBlur}
           id={id}
           disabled={disabled}
+          readOnlyLabel={readOnly}
         />
 
         {variable.description && (
@@ -159,7 +173,8 @@ const VariableField: React.FC<VariableFieldProps> = ({
           </p>
         )}
 
-        {error && !disabled && (
+        {/* The block an inherited field is imported from shows its error */}
+        {error && readOnly !== "inherited" && (
           <p className={`text-sm text-destructive ${isBooleanType ? "w-full" : ""}`}>{error}</p>
         )}
       </div>
@@ -223,9 +238,10 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   )
 
   // A value that uses an output of a block that isn't on the page can never be
-  // filled in, so someone has to replace it. Its field shows the error from the
-  // start, not once touched, and the form stays invalid (and red) until then.
-  // An inherited field is left to the block it comes from, which shows it.
+  // filled in, so someone has to replace it (for a locked field, the runbook's
+  // author). Its field shows the error from the start, not once touched, and
+  // the form stays invalid (and red) until then. An inherited field is left to
+  // the block it comes from, which shows it.
   const outputStatus = useOutputDependencyStatus()
   const missingByField: Record<string, string[]> = {}
   const missingBlockErrors: Record<string, string> = {}
@@ -234,7 +250,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     const { missing } = outputStatus(formData[variable.name])
     if (missing.length === 0) continue
     missingByField[variable.name] = missing
-    missingBlockErrors[variable.name] = missingBlockMessage(missing)
+    missingBlockErrors[variable.name] = missingBlockMessage(missing, variable.locked === true)
   }
   const hasMissingBlocks = Object.keys(missingBlockErrors).length > 0
   const shownErrors = { ...visibleErrors, ...missingBlockErrors }
@@ -285,8 +301,38 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
     return new Map(boilerplateConfig.variables.map((v) => [v.name, v]))
   }, [boilerplateConfig])
 
-  // Determine if we should use section-based rendering
-  const hasSections = boilerplateConfig?.sections && boilerplateConfig.sections.length > 0
+  // The form's sections, in order. A config without any (one built in code)
+  // shows its variables as one unnamed section.
+  const sections: Section[] =
+    boilerplateConfig?.sections && boilerplateConfig.sections.length > 0
+      ? boilerplateConfig.sections
+      : [{ name: "", variables: (boilerplateConfig?.variables ?? NO_VARIABLES).map((v) => v.name) }]
+
+  // A hidden field stays out of the form unless it has an error to show: the
+  // form never fails on something nobody can see. It shows locked, as it is.
+  const shownVariables = (section: Section): BoilerplateVariable[] =>
+    section.variables.flatMap((name) => {
+      const variable = variablesByName.get(name)
+      return variable && (!variable.hidden || shownErrors[name] !== undefined) ? [variable] : []
+    })
+
+  // The collapsed sections that are open. One with an error opens, and stays
+  // open once the error is fixed rather than folding away mid-edit.
+  const [openSections, setOpenSections] = useState<ReadonlySet<string>>(() => new Set())
+  const sectionsWithErrors = sections.filter(
+    (section) =>
+      section.collapsed && shownVariables(section).some((v) => shownErrors[v.name] !== undefined),
+  )
+  if (sectionsWithErrors.some((section) => !openSections.has(section.name))) {
+    setOpenSections(new Set([...openSections, ...sectionsWithErrors.map((s) => s.name)]))
+  }
+  const toggleSection = (name: string) => {
+    setOpenSections((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(name)) next.add(name)
+      return next
+    })
+  }
 
   /**
    * Handles form input changes
@@ -331,79 +377,72 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
   }
 
   /**
-   * Renders variables for a given section
+   * Renders a variable's field
    */
-  const renderSectionVariables = (variableNames: string[]) => {
-    return variableNames.map((varName) => {
-      const variable = variablesByName.get(varName)
-      if (!variable) return null
-      const isDisabled = sharedVarNames.has(variable.name)
-      return (
-        <VariableField
-          key={variable.name}
-          id={id}
-          variable={variable}
-          value={formData[variable.name]}
-          resolvedValue={resolvedValues[variable.name]}
-          error={shownErrors[variable.name]}
-          onChange={(value) => handleInputChange(variable.name, value)}
-          onBlur={() => handleFieldBlur(variable.name)}
-          disabled={isDisabled}
-        />
-      )
-    })
-  }
+  const renderField = (variable: BoilerplateVariable) => (
+    <VariableField
+      key={variable.name}
+      id={id}
+      variable={variable}
+      value={formData[variable.name]}
+      resolvedValue={resolvedValues[variable.name]}
+      error={shownErrors[variable.name]}
+      onChange={(value) => handleInputChange(variable.name, value)}
+      onBlur={() => handleFieldBlur(variable.name)}
+      readOnly={
+        sharedVarNames.has(variable.name) ? "inherited" : variable.locked ? "locked" : undefined
+      }
+    />
+  )
 
   /**
-   * Renders all variables grouped by sections
+   * Renders a section's fields under its heading, which folds a collapsed section
    */
-  const renderWithSections = () => {
-    if (!boilerplateConfig?.sections) return null
+  const renderSection = (section: Section) => {
+    const variables = shownVariables(section)
+    if (variables.length === 0) return null
 
-    return boilerplateConfig.sections.map((section) => {
-      if (section.variables.length === 0) return null
-
-      // For unnamed section (empty string), don't render a header
-      if (section.name === "") {
-        return (
-          <div key="__unsectioned__" className="space-y-5">
-            {renderSectionVariables(section.variables)}
-          </div>
-        )
-      }
-
-      // For named sections, render with a header
+    // For unnamed section (empty string), don't render a header
+    if (section.name === "") {
       return (
-        <div key={section.name} className="space-y-4">
-          <h3 className="text-lg font-semibold text-foreground pt-5 pb-1 border-b border-border">
-            {section.name}
-          </h3>
-          <div className="space-y-5">{renderSectionVariables(section.variables)}</div>
+        <div key="__unsectioned__" className="space-y-5">
+          {variables.map(renderField)}
         </div>
       )
-    })
-  }
+    }
 
-  /**
-   * Renders all variables without sections (fallback for configs without sections)
-   */
-  const renderWithoutSections = () => {
-    return boilerplateConfig!.variables.map((variable: BoilerplateVariable) => {
-      const isDisabled = sharedVarNames.has(variable.name)
+    const headingClasses = "text-lg font-semibold text-foreground pt-5 pb-1 border-b border-border"
+    const fields = <div className="space-y-5">{variables.map(renderField)}</div>
+    if (!section.collapsed) {
       return (
-        <VariableField
-          key={variable.name}
-          id={id}
-          variable={variable}
-          value={formData[variable.name]}
-          resolvedValue={resolvedValues[variable.name]}
-          error={shownErrors[variable.name]}
-          onChange={(value) => handleInputChange(variable.name, value)}
-          onBlur={() => handleFieldBlur(variable.name)}
-          disabled={isDisabled}
-        />
+        <div key={section.name} className="space-y-4">
+          <h3 className={headingClasses}>{section.name}</h3>
+          {fields}
+        </div>
       )
-    })
+    }
+
+    const open = openSections.has(section.name)
+    return (
+      <div key={section.name} className="space-y-4">
+        <h3 className={headingClasses}>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => toggleSection(section.name)}
+            className="flex w-full items-center gap-1.5 text-left cursor-pointer"
+          >
+            {open ? (
+              <ChevronDown className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-4 text-muted-foreground" />
+            )}
+            {section.name}
+          </button>
+        </h3>
+        {open && fields}
+      </div>
+    )
   }
 
   const shouldShowSubmitButton = variant !== "embedded" && showSubmitButton
@@ -440,9 +479,7 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="space-y-5">
-          {hasSections ? renderWithSections() : renderWithoutSections()}
-        </div>
+        <div className="space-y-5">{sections.map(renderSection)}</div>
 
         {shouldShowSubmitButton && (
           <div className="pt-4 border-t border-border">

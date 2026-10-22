@@ -118,11 +118,14 @@ export function useInputRegistration({
   }, [formState])
 
   const initialData = useMemo(() => {
-    if (saved === undefined) return defaults
+    if (saved === undefined || !formState) return defaults
     return Object.fromEntries(
-      Object.entries(defaults).map(([name, value]) => [name, savedFormValue(saved, name) ?? value]),
+      formState.variables.map((variable) => [
+        variable.name,
+        savedFormValue(saved, variable) ?? defaults[variable.name],
+      ]),
     )
-  }, [defaults, saved])
+  }, [defaults, saved, formState])
 
   // The form takes its starting values from the variables' defaults (see
   // useFormState: `initialData` is still empty when the form mounts).
@@ -131,7 +134,7 @@ export function useInputRegistration({
     return {
       ...boilerplateConfig,
       variables: boilerplateConfig.variables.map((variable) => {
-        const value = savedFormValue(saved, variable.name)
+        const value = savedFormValue(saved, variable)
         return value === undefined || value === null ? variable : { ...variable, default: value }
       }),
     }

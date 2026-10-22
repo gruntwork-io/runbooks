@@ -24,11 +24,18 @@ const config: BoilerplateConfig = {
   outputDependencies: [],
 }
 
-// Cleared by a test whose config is still loading when the block mounts.
-const loaded = vi.hoisted(() => ({ config: true }))
+// The same config with region locked (x-locked): the runbook sets its value.
+const lockedConfig: BoilerplateConfig = {
+  ...config,
+  variables: config.variables.map((v) => (v.name === "region" ? { ...v, locked: true } : v)),
+}
+
+// Cleared by a test whose config is still loading when the block mounts, and
+// set by one whose region is locked.
+const loaded = vi.hoisted(() => ({ config: true, locked: false }))
 vi.mock("@/hooks/useApiGetBoilerplateConfig", () => ({
   useApiGetBoilerplateConfig: () => ({
-    data: loaded.config ? config : null,
+    data: loaded.config ? (loaded.locked ? lockedConfig : config) : null,
     isLoading: !loaded.config,
     error: null,
     refetch: vi.fn(),
@@ -92,6 +99,7 @@ describe("Inputs in a session", () => {
     invoke.mockClear()
     runbook = undefined
     loaded.config = true
+    loaded.locked = false
   })
 
   it("registers the values it was left with as it mounts, falsy ones included", () => {
@@ -171,6 +179,21 @@ describe("Inputs in a session", () => {
 
     expect(field("region")).toHaveValue("eu-west-1")
     expect(field("count")).toHaveValue(3)
+  })
+
+  it("starts a locked variable from the runbook's value, not the one it was left with", async () => {
+    loaded.locked = true
+    render(
+      <Session saved={{ values: { region: "eu-west-1", count: 5 }, submitted: true }}>
+        <Inputs id="test-inputs" path="boilerplate.yml" />
+      </Session>,
+    )
+
+    // The runbook may have changed it since: nobody could have
+    expect(field("region")).toHaveValue("us-east-1")
+    expect(field("region")).toBeDisabled()
+    expect(field("count")).toHaveValue(5)
+    await waitFor(() => expect(registered()).toEqual({ ...DEFAULTS, count: 5 }))
   })
 
   it("adds nothing to the history until the user changes the form, then every change and the submit", async () => {

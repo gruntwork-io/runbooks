@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import type { ComponentProps } from "react"
 import { BoilerplateInputsForm } from "../BoilerplateInputsForm"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
-import { BoilerplateValidationType } from "@/types/boilerplateVariable"
+import { BoilerplateValidationType, type BoilerplateVariable } from "@/types/boilerplateVariable"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
 import { RunbookStateStub } from "@/test/test-utils"
@@ -153,6 +153,188 @@ describe("BoilerplateInputsForm template-valued defaults", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Generate" }))
     expect(onGenerate).toHaveBeenCalledWith(expect.objectContaining({ BucketName: "" }))
+  })
+})
+
+// A locked field (x-locked) takes its value from the runbook: the form shows it
+// but nobody can change it. A hidden one (x-hidden) isn't shown at all.
+describe("BoilerplateInputsForm locked and hidden fields", () => {
+  const required = [{ type: BoilerplateValidationType.Required }]
+  const curatedConfig: BoilerplateConfig = {
+    variables: [
+      { name: "Region", type: "string", description: "", default: "us-east-1" },
+      {
+        name: "Provider",
+        type: "enum",
+        description: "",
+        options: ["github", "gitlab"],
+        default: "github",
+        locked: true,
+      },
+      { name: "Tags", type: "map", description: "", default: { Team: "DevOps" }, locked: true },
+      {
+        name: "RepoOwner",
+        type: "string",
+        description: "",
+        default: "acme",
+        locked: true,
+        hidden: true,
+      },
+    ],
+  }
+
+  it("shows a locked field read-only, without asking for it", () => {
+    renderForm({
+      boilerplateConfig: {
+        variables: [
+          { ...curatedConfig.variables[1]!, required: true, validations: required },
+          curatedConfig.variables[2]!,
+        ],
+      },
+    })
+
+    const provider = screen.getByTestId("field-Provider")
+    expect(provider).toHaveTextContent("(locked)")
+    expect(provider).not.toHaveTextContent("*")
+    expect(provider.querySelector("select")).toBeDisabled()
+    // A list or map says why it can't be changed in its header too
+    expect(screen.getByTestId("field-Tags")).toHaveTextContent("1 entry(locked)")
+    expect(screen.queryByPlaceholderText("Key")).toBeNull()
+  })
+
+  it("sends the runbook's values for locked and hidden fields", () => {
+    const { onGenerate } = renderForm({ boilerplateConfig: curatedConfig })
+
+    expect(screen.queryByTestId("field-RepoOwner")).toBeNull()
+    expect(screen.queryByText("Repo Owner")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({
+      Region: "us-east-1",
+      Provider: "github",
+      Tags: { Team: "DevOps" },
+      RepoOwner: "acme",
+    })
+  })
+
+  it("shows a hidden field, locked, when it has an error, so the form never fails on something unseen", () => {
+    const { onGenerate } = renderForm({
+      boilerplateConfig: {
+        variables: [
+          curatedConfig.variables[0]!,
+          {
+            name: "RepoOwner",
+            type: "string",
+            description: "",
+            required: true,
+            validations: required,
+            locked: true,
+            hidden: true,
+          },
+        ],
+      },
+    })
+    expect(screen.queryByTestId("field-RepoOwner")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+
+    expect(onGenerate).not.toHaveBeenCalled()
+    const owner = screen.getByTestId("field-RepoOwner")
+    expect(owner).toHaveTextContent("(locked)")
+    expect(owner).toHaveTextContent("Repo Owner is required")
+    expect(owner.querySelector("input")).toBeDisabled()
+    expect(screen.getByText(/There is/)).toHaveTextContent("There is 1 validation error above")
+  })
+
+  it("shows a field the block imports as inherited, even when the template locks it", () => {
+    renderForm({
+      boilerplateConfig: curatedConfig,
+      sharedVarNames: new Set(["Provider"]),
+      liveVarValues: { Provider: "gitlab" },
+    })
+
+    expect(screen.getByTestId("field-Provider")).toHaveTextContent("(inherited)")
+    expect(screen.getByTestId("field-Provider")).not.toHaveTextContent("(locked)")
+  })
+})
+
+// x-sections can fold a section (collapsed: true): it starts closed, with its
+// fields' values still in the form.
+describe("BoilerplateInputsForm collapsed sections", () => {
+  const sectionedConfig = (owner: Partial<BoilerplateVariable> = {}): BoilerplateConfig => ({
+    variables: [
+      { name: "Name", type: "string", description: "", default: "app" },
+      { name: "Memory", type: "string", description: "", default: "128", sectionName: "Advanced" },
+      {
+        name: "Owner",
+        type: "string",
+        description: "",
+        default: "ops",
+        sectionName: "Advanced",
+        ...owner,
+      },
+      {
+        name: "Secret",
+        type: "string",
+        description: "",
+        default: "x",
+        sectionName: "Internal",
+        locked: true,
+        hidden: true,
+      },
+    ],
+    sections: [
+      { name: "", variables: ["Name"] },
+      { name: "Advanced", variables: ["Memory", "Owner"], collapsed: true },
+      { name: "Internal", variables: ["Secret"] },
+    ],
+  })
+  const toggle = () => screen.getByRole("button", { name: "Advanced" })
+
+  it("starts folded and opens and closes from its heading, keeping its values", () => {
+    const { onGenerate } = renderForm({ boilerplateConfig: sectionedConfig() })
+
+    expect(toggle()).toHaveAttribute("aria-expanded", "false")
+    expect(screen.queryByTestId("field-Memory")).toBeNull()
+
+    fireEvent.click(toggle())
+    expect(toggle()).toHaveAttribute("aria-expanded", "true")
+    fireEvent.change(screen.getByLabelText("Memory"), { target: { value: "256" } })
+
+    fireEvent.click(toggle())
+    expect(screen.queryByTestId("field-Memory")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(onGenerate).toHaveBeenCalledWith({
+      Name: "app",
+      Memory: "256",
+      Owner: "ops",
+      Secret: "x",
+    })
+  })
+
+  it("opens to show an error in it, and stays open once it's fixed", () => {
+    renderForm({
+      boilerplateConfig: sectionedConfig({
+        default: undefined,
+        required: true,
+        validations: [{ type: BoilerplateValidationType.Required }],
+      }),
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }))
+    expect(toggle()).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByTestId("field-Owner")).toHaveTextContent("Owner is required")
+
+    fireEvent.change(screen.getByLabelText(/^Owner/), { target: { value: "platform" } })
+    expect(screen.queryByText("Owner is required")).toBeNull()
+    expect(toggle()).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("leaves out a section whose fields are all hidden", () => {
+    renderForm({ boilerplateConfig: sectionedConfig() })
+
+    expect(screen.queryByText("Internal")).toBeNull()
   })
 })
 
@@ -432,13 +614,13 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
     return null
   }
 
-  function renderOnPage(blockIds: string[]) {
+  function renderOnPage(blockIds: string[], boilerplateConfig = accountConfig) {
     const onGenerate = vi.fn()
     const form = (
       <BoilerplateInputsForm
         id="tpl"
         blockType="Template"
-        boilerplateConfig={accountConfig}
+        boilerplateConfig={boilerplateConfig}
         onGenerate={onGenerate}
         enableAutoRender={false}
         variant="standard"
@@ -513,6 +695,35 @@ describe("BoilerplateInputsForm linked default using a block that isn't on the p
 
     removeForm()
     expect(reported).toEqual([])
+  })
+
+  it("shows a hidden field that uses it, locked, without asking for another value", async () => {
+    const { block } = renderOnPage(["tpl"], {
+      variables: [
+        {
+          name: "Provider",
+          type: "enum",
+          description: "",
+          options: ["github", "gitlab"],
+          default: "{{ .outputs.git_auth.GIT_PROVIDER }}",
+          locked: true,
+          hidden: true,
+        },
+      ],
+    })
+
+    expect(
+      await screen.findByText(
+        'Uses an output of block "git_auth", but no block on this page has that id, so it can\'t be filled in.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId("field-Provider")).toHaveTextContent("(locked)")
+    expect(block().className).toContain("bg-destructive-muted")
+    expect(reported).toEqual([
+      expect.objectContaining({
+        message: 'Provider uses an output of block "git_auth", which isn\'t on this page.',
+      }),
+    ])
   })
 
   it("is only waiting, not an error, when the block is on the page", async () => {

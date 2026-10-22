@@ -1,0 +1,32 @@
+# Laying Out a Form
+
+A `boilerplate.yml` decides more than which fields a form has. It also decides where each field goes, which fields stay folded away until someone needs them, and which values the runbook sets by itself:
+
+- `order` places a field. Fields appear lowest `order` first, and a field without one counts as `0`.
+- `x-section` groups fields under a heading. A top-level `x-sections` list can fold a section with `collapsed: true`.
+- `x-locked: true` shows a field read-only. Nobody filling in the form can change it.
+- `x-hidden: true` leaves a field out of the form. The template still gets its value.
+
+## Detect the Git provider
+
+A real runbook would read the provider from the `GIT_PROVIDER` output of a `<GitAuth>` block. This script stands in for one.
+
+<Command
+  id="detect-provider"
+  path="scripts/detect-provider.sh"
+  title="Detect Git Provider"
+  description="Outputs the Git provider as provider"
+/>
+
+## The form
+
+This template's `boilerplate.yml`:
+
+- Declares `Port` before `ServiceName`, but gives `ServiceName` a lower `order`, so it comes first.
+- Folds **Advanced Settings** until you open it.
+- Locks `Team`, which shows but can't be changed.
+- Hides `GitProvider`, which comes from the script above, and `ManagedBy`.
+
+Generate it and look at `service.yml`. It has every value, the hidden ones included.
+
+<Template id="service" path="templates/service" />
