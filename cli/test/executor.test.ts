@@ -911,6 +911,182 @@ describe("TestExecutor — Finish block", () => {
 })
 
 // ---------------------------------------------------------------------------
+// <Prerequisites>: looks its tools up on the test's PATH and reads their
+// versions, as the app does, but never reads PATH again from a login shell.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — Prerequisites block", () => {
+  let tmp: string
+  let bin: string
+
+  const makeExecutor = async (mdx: string) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, mdx)
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  /** A runbook whose <Prerequisites id="tools"> checks `toolList`, followed by `after`. */
+  const runbook = (toolList: string, after = "") =>
+    `# Tools\n\n<Prerequisites id="tools">\n\`\`\`yaml\n${toolList}\`\`\`\n</Prerequisites>\n${after}`
+
+  /** An executable in `dir` that prints `output`. */
+  const fakeTool = (dir: string, name: string, output: string) => {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, name), `#!/bin/sh\necho "${output}"\n`, { mode: 0o755 })
+  }
+
+  // Only the fake tools and the system's, so no tool on this machine's PATH
+  // changes the results.
+  const env = () => ({ PATH: `${bin}:/usr/bin:/bin` })
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-prereqs-"))
+    bin = path.join(tmp, "bin")
+    fakeTool(bin, "fake-tofu", "OpenTofu v1.8.2")
+    fakeTool(bin, "fake-git", "fake-git version 2.40.1")
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("succeeds when every tool is found, and publishes where each is and the versions it read", async () => {
+    const executor = await makeExecutor(
+      runbook(
+        'tools:\n  - fake-git\n  - name: fake-tofu\n    version: ">= 1.6"\n',
+        `\n<Command id="use-tofu" command='echo "tofu {{ .outputs.tools.fake_tofu_version }}"' />\n`,
+      ),
+    )
+
+    const result = executor.runTest({ name: "found", env: env() })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus, s.exitCode])).toEqual([
+      ["prerequisites:tools", "success", 0],
+      ["command:use-tofu", "success", 0],
+    ])
+    // A version is read only for a tool with a constraint (or versionArgs).
+    expect(revealOutputs(result.stepResults[0]!.outputs)).toEqual({
+      fake_git_path: path.join(bin, "fake-git"),
+      fake_tofu_path: path.join(bin, "fake-tofu"),
+      fake_tofu_version: "1.8.2",
+    })
+    expect(result.stepResults[0]?.logs).toContain(
+      "[INFO]  fake-tofu 1.8.2 (needs >= 1.6): found at",
+    )
+    expect(result.stepResults[1]?.logs).toContain("tofu 1.8.2")
+  })
+
+  it("fails when a required tool is missing or too old, and publishes no outputs", async () => {
+    fakeTool(bin, "old-tool", "old-tool 0.9.0")
+    const executor = await makeExecutor(
+      runbook(
+        'tools:\n  - fake-git\n  - name: old-tool\n    version: ">= 1.0"\n  - no-such-tool-x9\n',
+        `\n<Command id="use-git" command='echo "{{ .outputs.tools.fake_git_path }}"' />\n` +
+          `\n<Command id="after" dependsOn="tools" command="true" />\n`,
+      ),
+    )
+
+    const result = executor.runTest({
+      name: "missing",
+      env: env(),
+      steps: [
+        { block: "tools", expect: "fail" },
+        { block: "use-git", expect: "blocked", missing_outputs: ["outputs.tools.fake_git_path"] },
+        { block: "after", expect: "blocked" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    const [check] = result.stepResults
+    expect(check).toMatchObject({ actualStatus: "fail", exitCode: 1, outputs: {} })
+    expect(check?.logs).toContain(
+      "[ERROR] old-tool 0.9.0 at " +
+        path.join(bin, "old-tool") +
+        " doesn't meet the version requirement >= 1.0.",
+    )
+    expect(check?.logs).toContain("[ERROR] no-such-tool-x9: not found on PATH.")
+    expect(check?.logs).toContain("[ERROR] Tools to install or update: old-tool, no-such-tool-x9.")
+  })
+
+  it("warns when only an optional tool is missing, and lets the blocks that depend on it run", async () => {
+    const executor = await makeExecutor(
+      runbook(
+        "tools:\n  - fake-git\n  - name: no-such-tool-x9\n    optional: true\n",
+        `\n<Command id="after" dependsOn="tools" command="true" />\n`,
+      ),
+    )
+
+    const result = executor.runTest({
+      name: "optional",
+      env: env(),
+      steps: [
+        { block: "tools", expect: "warn" },
+        { block: "after", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults[0]).toMatchObject({ actualStatus: "warn", exitCode: 2 })
+    expect(revealOutputs(result.stepResults[0]!.outputs)).toEqual({
+      fake_git_path: path.join(bin, "fake-git"),
+      no_such_tool_x9_path: "",
+    })
+  })
+
+  it("finds a tool once an earlier block has put it on PATH", async () => {
+    const late = path.join(tmp, "late")
+    fakeTool(late, "late-tool-x9", "late-tool-x9 2.0.0")
+    const executor = await makeExecutor(
+      runbook(
+        'tools:\n  - name: late-tool-x9\n    version: ">= 2"\n',
+        `\n<Command id="install" command='export PATH="${late}:$PATH"' />\n`,
+      ),
+    )
+
+    // No test env: it would override the PATH the install block exports.
+    const result = executor.runTest({
+      name: "check-again",
+      steps: [
+        { block: "tools", expect: "fail" },
+        { block: "install", expect: "success" },
+        { block: "tools", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(revealOutputs(result.stepResults[2]!.outputs)).toEqual({
+      late_tool_x9_path: path.join(late, "late-tool-x9"),
+      late_tool_x9_version: "2.0.0",
+    })
+  })
+
+  it("reports a config error for a block without an id, or with an invalid tool list", async () => {
+    const noId = await makeExecutor(
+      '# No id\n\n<Prerequisites title="Tools">\n```yaml\ntools: [fake-git]\n```\n</Prerequisites>\n',
+    )
+    expect(noId.runTest({ name: "no-id" }).stepResults[0]).toMatchObject({
+      actualStatus: "config_error",
+      error: "The 'id' prop is required",
+    })
+
+    const invalid = await makeExecutor(
+      runbook("tools:\n  - name: fake-tofu\n    version: latest\n"),
+    )
+    expect(invalid.runTest({ name: "invalid" }).stepResults[0]).toMatchObject({
+      actualStatus: "config_error",
+      error:
+        'The tool list is invalid: "fake-tofu": "latest" isn\'t a version condition such as ">= 1.6" or "~> 1.6".',
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // files_generated counts the files the named block wrote this test case, not
 // whatever happens to be in the output dir.
 // ---------------------------------------------------------------------------
