@@ -100,10 +100,18 @@ function parseToolList(id: string, children: ReactNode): ParsedToolList {
   }
 }
 
-/** Shell commands that show whether each tool is installed, and its version where the block reads it. */
+/**
+ * Shell commands that show whether each tool is installed, and its version
+ * where the block reads it. An `anyOf` list's are joined with `||`, so its
+ * line succeeds when any of its tools is installed.
+ */
 function checkCommands(spec: PrerequisitesSpec): string {
-  return spec.tools
-    .map((tool) => (tool.versionArgs ? versionCommand(tool) : `command -v ${tool.name}`))
+  return spec.requirements
+    .map(({ tools }) =>
+      tools
+        .map((tool) => (tool.versionArgs ? versionCommand(tool) : `command -v ${tool.name}`))
+        .join(" || "),
+    )
     .join("\n")
 }
 
@@ -206,7 +214,7 @@ function Prerequisites({
         description={description}
         note={
           <div className="space-y-3">
-            <ToolList tools={spec.tools} results={[]} showAllInstallHints />
+            <ToolList requirements={spec.requirements} results={[]} showAllInstallHints />
             <div>To check them, run:</div>
             <CodeBlock>
               <code className="language-bash whitespace-pre-wrap">{checkCommands(spec)}</code>
@@ -262,7 +270,7 @@ function Prerequisites({
             </div>
           )}
 
-          <ToolList tools={spec.tools} results={results} />
+          <ToolList requirements={spec.requirements} results={results} />
 
           <div className="border-b border-border"></div>
 

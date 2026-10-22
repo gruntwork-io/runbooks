@@ -273,6 +273,73 @@ describe("Prerequisites", () => {
     })
   })
 
+  describe("an anyOf list", () => {
+    const LISTS = `tools:
+  - git
+  - anyOf:
+      - name: gh
+        install: Run \`brew install gh\`.
+      - name: glab
+        install: Run \`brew install glab\`.
+    description: Opens the pull or merge request.
+`
+    const anyOf = () => screen.getByTestId("any-of-gh-glab")
+    /** The red mark of a tool the runbook needs and the check didn't find. */
+    const failMark = (name: string) => row(name).querySelector("svg.text-destructive")
+
+    async function check(status: "success" | "fail", outputs: Record<string, string>) {
+      await userEvent.click(screen.getByRole("button", { name: "Check" }))
+      await act(async () => endRun(finished(status, outputs)))
+    }
+
+    it("lists its tools under one heading", () => {
+      renderBlock({ toolList: LISTS })
+
+      expect(anyOf()).toHaveAttribute("data-status", "unchecked")
+      expect(within(anyOf()).getByText("Any one of these")).toBeInTheDocument()
+      expect(within(anyOf()).getByText("Opens the pull or merge request.")).toBeInTheDocument()
+      expect(within(anyOf()).getByTestId("tool-gh")).toHaveAttribute("data-status", "unchecked")
+      expect(within(anyOf()).getByTestId("tool-glab")).toHaveAttribute("data-status", "unchecked")
+    })
+
+    it("is met by one of its tools, and doesn't mark the others as problems", async () => {
+      renderBlock({ toolList: LISTS })
+
+      await check("success", { git_path: "/usr/bin/git", gh_path: "", glab_path: "/bin/glab" })
+
+      expect(anyOf()).toHaveAttribute("data-status", "met")
+      expect(row("glab")).toHaveAttribute("data-status", "found")
+      expect(row("gh")).toHaveAttribute("data-status", "missing")
+      expect(row("gh")).toHaveTextContent("Not found on PATH.")
+      expect(failMark("gh")).toBeNull()
+      expect(screen.queryByText("brew install gh")).toBeNull()
+    })
+
+    it("marks each of its tools, with its install hint, when none is found", async () => {
+      renderBlock({ toolList: LISTS })
+
+      await check("fail", { git_path: "/usr/bin/git", gh_path: "", glab_path: "" })
+
+      expect(anyOf()).toHaveAttribute("data-status", "unmet")
+      for (const name of ["gh", "glab"]) {
+        expect(failMark(name)).not.toBeNull()
+        expect(within(row(name)).getByText(`brew install ${name}`)).toBeInTheDocument()
+      }
+    })
+
+    it("is checked in instruction mode by one line that succeeds when any of its tools is installed", () => {
+      mockInstructionMode = true
+      renderBlock({ toolList: LISTS })
+
+      const instruction = screen.getByTestId("instruction-tools")
+      expect(within(instruction).getByText("Any one of these")).toBeVisible()
+      expect(within(instruction).getByText("brew install glab")).toBeVisible()
+      expect(instruction.querySelector("code.language-bash")?.textContent).toBe(
+        "command -v git\ncommand -v gh || command -v glab",
+      )
+    })
+  })
+
   describe("in instruction mode", () => {
     beforeEach(() => {
       mockInstructionMode = true

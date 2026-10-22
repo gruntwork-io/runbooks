@@ -190,6 +190,58 @@ tools:
 
       expect(reads).toBe(0)
     })
+
+    it("doesn't read PATH again for a tool another of its anyOf list stands in for", async () => {
+      let reads = 0
+      const counted = Effect.sync(() => reads++).pipe(Effect.andThen(fresh([lateBinDir])))
+
+      const { results, log } = await run(
+        checkPrerequisites(spec("tools:\n  - anyOf: [fake-tofu, late-tool]\n"), session(), counted),
+      )
+
+      expect(reads).toBe(0)
+      expect(results.map((result) => result.status)).toEqual(["found", "missing"])
+      expect(log).toContainEqual({
+        level: "INFO",
+        text: "late-tool: not found on PATH. fake-tofu is installed instead.",
+      })
+    })
+
+    it("reads PATH again when no tool of an anyOf list is found, and reads the version of the one found there", async () => {
+      const { results, log } = await run(
+        checkPrerequisites(
+          spec(
+            'tools:\n  - anyOf:\n      - no-such-tool\n      - name: late-tool\n        version: ">= 2"\n',
+          ),
+          session(),
+          fresh([lateBinDir]),
+        ),
+      )
+
+      expect(results.map((result) => [result.status, result.version])).toEqual([
+        ["missing", null],
+        ["found", "2.0.0"],
+      ])
+      expect(log[0]).toEqual({
+        level: "INFO",
+        text: `no-such-tool, late-tool weren't on PATH, so Runbooks read PATH again from your login shell (/bin/fake) and added ${lateBinDir}.`,
+      })
+    })
+
+    it("reads PATH again for an anyOf list whose only tool on PATH is too old", async () => {
+      const { results, log } = await run(
+        checkPrerequisites(
+          spec(
+            'tools:\n  - anyOf:\n      - name: fake-tofu\n        version: ">= 2"\n      - late-tool\n',
+          ),
+          session(),
+          fresh([lateBinDir]),
+        ),
+      )
+
+      expect(results.map((result) => result.status)).toEqual(["wrong_version", "found"])
+      expect(log[0]!.text).toStartWith("late-tool wasn't on PATH, so Runbooks read PATH again")
+    })
   })
 })
 

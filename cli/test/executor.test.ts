@@ -979,6 +979,37 @@ describe("TestExecutor — Prerequisites block", () => {
     expect(result.stepResults[1]?.logs).toContain("tofu 1.8.2")
   })
 
+  it("needs only one tool of an anyOf list, and publishes each tool's outputs", async () => {
+    const executor = await makeExecutor(
+      runbook(
+        "tools:\n  - anyOf: [no-such-tool-x9, fake-git]\n" +
+          "  - anyOf: [no-such-tool-y9, no-such-tool-z9]\n    optional: true\n",
+      ),
+    )
+
+    const result = executor.runTest({
+      name: "any-of",
+      env: env(),
+      steps: [{ block: "tools", expect: "warn" }],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(revealOutputs(result.stepResults[0]!.outputs)).toEqual({
+      no_such_tool_x9_path: "",
+      fake_git_path: path.join(bin, "fake-git"),
+      no_such_tool_y9_path: "",
+      no_such_tool_z9_path: "",
+    })
+    const logs = result.stepResults[0]?.logs
+    expect(logs).toContain(
+      "[INFO]  no-such-tool-x9: not found on PATH. fake-git is installed instead.",
+    )
+    expect(logs).toContain(
+      "Optional tools to install or update: no-such-tool-y9 or no-such-tool-z9.",
+    )
+  })
+
   it("fails when a required tool is missing or too old, and publishes no outputs", async () => {
     fakeTool(bin, "old-tool", "old-tool 0.9.0")
     const executor = await makeExecutor(

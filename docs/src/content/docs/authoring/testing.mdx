@@ -683,7 +683,7 @@ tests:
 
 ## Testing Prerequisites blocks
 
-A step for a `<Prerequisites>` block looks for its tools and reads their versions as the app does, on the PATH the test runs with: the environment `runbooks test` started with, the test's `env`, and what earlier steps exported. The step's status is the check's: `success` when every tool is found, `warn` when only optional tools aren't, and `fail` when a required one isn't. A step that succeeds or warns publishes the block's [outputs](/authoring/blocks/prerequisites/#outputs).
+A step for a `<Prerequisites>` block looks for its tools and reads their versions as the app does, on the PATH the test runs with: the environment `runbooks test` started with, the test's `env`, and what earlier steps exported. The step's status is the check's: `success` when every tool is found (one tool of an [`anyOf` list](/authoring/blocks/prerequisites/#alternatives) is enough), `warn` when only optional ones aren't, and `fail` when a required one isn't. A step that succeeds or warns publishes the block's [outputs](/authoring/blocks/prerequisites/#outputs).
 
 Unlike the app, the test doesn't run your login shell to read PATH again when a tool is missing. To test a check that a runbook's install step makes pass, run the block before and after that step:
 

@@ -47,7 +47,7 @@ A [Check](/authoring/blocks/check/) can test anything, but you write the script,
 
 ### The tool list
 
-The block's content is a YAML code fence with a `tools:` list, and nothing else. Each entry is a tool's name, or a map with these keys:
+The block's content is a YAML code fence with a `tools:` list, and nothing else. Each entry is a tool's name, a map with these keys, or an [`anyOf` list](#alternatives) of tools any one of which will do:
 
 | Key | Description |
 |-----|-------------|
@@ -60,12 +60,50 @@ The block's content is a YAML code fence with a `tools:` list, and nothing else.
 
 A mistake in the list, such as a key that isn't one of these or a version constraint Runbooks can't read, is a configuration error, which the block shows in place of the tools.
 
+### Alternatives
+
+When any one of several tools will do, list them under `anyOf`. A runbook that opens a pull request with `gh` on GitHub, or a merge request with `glab` on GitLab, needs only the one for the user's Git host:
+
+```yaml
+tools:
+  - git
+  - anyOf:
+      - name: gh
+        install: "[Install the GitHub CLI](https://cli.github.com/)"
+      - name: glab
+        install: "[Install the GitLab CLI](https://gitlab.com/gitlab-org/cli#installation)"
+    description: Opens the pull request on GitHub, or the merge request on GitLab.
+```
+
+The block shows the tools under one heading. The check meets the list when it finds one of them, at the right version if that tool has a `version`. The others don't need to be installed: they get a gray mark and no install hint. When it finds none of them, it marks each one, with its install hint.
+
+Each tool under `anyOf` is a name or a map with the keys above, except `optional`. The `anyOf` entry itself has:
+
+| Key | Description |
+|-----|-------------|
+| `anyOf` | Required. The tools, two or more. |
+| `description` | What the runbook uses the tools for. Supports inline markdown. |
+| `optional` | `true` when the runbook can do without all of them. A list none of whose tools is found then makes the check warn. Default `false`. |
+
+Each tool in the list publishes its own [outputs](#outputs), so a later block can tell which one is installed from the `<tool>_path` that isn't empty:
+
+```mdx
+<Command
+  id="open-pr"
+  command={`if [ -n "{{ .outputs.tools.gh_path }}" ]; then
+  gh pr create --fill
+else
+  glab mr create --fill
+fi`}
+/>
+```
+
 ## How the check works
 
 When the user clicks **Check**, Runbooks:
 
 1. Looks for each tool on PATH, with the session's environment and working directory, the way a script finds a command (`type -P` in bash). Only an executable file counts, not a shell function or alias.
-2. If a tool isn't found, reads PATH again from your login shell and looks for the missing tools once more. See [Tools installed after Runbooks started](#tools-installed-after-runbooks-started).
+2. If a tool the runbook needs isn't found, reads PATH again from your login shell and looks for the missing tools once more. A tool of an `anyOf` list doesn't count when the check found another of its tools. See [Tools installed after Runbooks started](#tools-installed-after-runbooks-started).
 3. Runs each tool it found that has a `version` or `versionArgs`, with its version arguments, and reads the first version number in what the tool prints, on stdout or stderr. A version number is two or more numbers joined by dots, such as `1.8.2`. Each tool gets 15 seconds.
 4. Compares each version with the tool's constraint.
 
@@ -96,11 +134,11 @@ A tool is one of:
 - **Wrong version**: on PATH, at a version that doesn't meet its constraint.
 - **Unknown version**: on PATH, but the check couldn't read a version to compare with its `version`: the tool printed no version number, or didn't finish within 15 seconds. The log says which.
 
-The block succeeds when every tool is found, and warns when only optional tools aren't. A required tool that isn't found fails it.
+The block succeeds when every tool is found, counting an `anyOf` list as found when one of its tools is. It warns when only optional tools or lists aren't found. A required one that isn't found fails it.
 
 ## Tools installed after Runbooks started
 
-Runbooks gets PATH once, when it starts. An installer usually adds its directory to PATH in a shell profile, such as `~/.zshrc`, which only a new shell reads. So when a check can't find a tool, Runbooks first runs your login shell to read PATH again, as it does when it [starts from the Dock](/security/shell-execution-context/#starting-environment), and adds the directories that PATH has and Runbooks' doesn't. Then it looks for the missing tools again. The log names the directories it added.
+Runbooks gets PATH once, when it starts. An installer usually adds its directory to PATH in a shell profile, such as `~/.zshrc`, which only a new shell reads. So when a check can't find a tool the runbook needs, Runbooks first runs your login shell to read PATH again, as it does when it [starts from the Dock](/security/shell-execution-context/#starting-environment), and adds the directories that PATH has and Runbooks' doesn't. Then it looks for the missing tools again. The log names the directories it added.
 
 The directories go on the end of PATH, for the open session and for the sessions opened after it, so the blocks that run next find the tools too. Runbooks never removes or reorders a directory, and it changes no other variable. It does this however Runbooks was started, from a terminal too.
 
@@ -137,7 +175,7 @@ A Prerequisites block can't start while an `exclusive` block runs. See [Run orde
 
 ## Instruction mode
 
-In [instruction mode](/intro/instruction-mode/), the block lists the tools with their version constraints and every install hint, and shows commands that check them: the version command of each tool the block reads a version of, and `command -v <name>` for the others.
+In [instruction mode](/intro/instruction-mode/), the block lists the tools with their version constraints and every install hint, and shows commands that check them: the version command of each tool the block reads a version of, and `command -v <name>` for the others. An `anyOf` list's commands are on one line, joined with `||`, so the line succeeds when any of its tools is installed.
 
 ## Testing
 

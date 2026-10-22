@@ -9,7 +9,7 @@
  *     - name: tofu
  *       version: ">= 1.6"
  *       install: "[Install OpenTofu](https://opentofu.org/docs/intro/install/)"
- *     - name: gh
+ *     - anyOf: [gh, glab]
  *       optional: true
  */
 import YAML from "yaml"
@@ -32,13 +32,33 @@ export interface PrerequisiteTool {
   readonly versionArgs?: readonly string[] | undefined
   /** Markdown that says how to install the tool, shown when it's missing or the wrong version. */
   readonly install?: string | undefined
-  /** Whether the runbook can do without the tool: missing, it's a warning, not a failure. */
+  /**
+   * Whether the runbook can do without the tool: missing, it's a warning, not
+   * a failure. A tool in an `anyOf` list is optional when the list is.
+   */
   readonly optional: boolean
   /** The start of the tool's output names: `<outputKey>_path` and `<outputKey>_version`. */
   readonly outputKey: string
 }
 
+/**
+ * Something the runbook needs: a tool, or an `anyOf` list of tools any one of
+ * which will do, such as `gh` or `glab` for a runbook that works with GitHub
+ * or GitLab.
+ */
+export interface Requirement {
+  /** The tool, or the `anyOf` list's tools, in order. */
+  readonly tools: readonly PrerequisiteTool[]
+  /** Markdown that says what the runbook uses an `anyOf` list's tools for. A tool has its own. */
+  readonly description?: string | undefined
+  /** Whether the runbook can do without it: unmet, it's a warning, not a failure. */
+  readonly optional: boolean
+}
+
 export interface PrerequisitesSpec {
+  /** What the runbook needs, in order. */
+  readonly requirements: readonly Requirement[]
+  /** Every tool the check looks for: each requirement's, in order. */
   readonly tools: readonly PrerequisiteTool[]
 }
 
@@ -52,6 +72,8 @@ export const DEFAULT_VERSION_ARGS: readonly string[] = ["--version"]
 const TOOL_NAME = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/
 
 const TOOL_KEYS = ["name", "description", "version", "versionArgs", "install", "optional"]
+
+const ANY_OF_KEYS = ["anyOf", "description", "optional"]
 
 /**
  * A code fence: three or more backticks or tildes, an optional info string,
@@ -114,44 +136,111 @@ export function parsePrerequisitesSpec(yamlText: string): ParsedSpec {
     return { ok: false, error: "`tools:` must be a list with at least one tool." }
   }
 
+  const requirements: Requirement[] = []
   const tools: PrerequisiteTool[] = []
   // The name of the tool that has each output key, to refuse a second one
   const nameByOutputKey = new Map<string, string>()
   for (const [i, entry] of (doc.tools as unknown[]).entries()) {
-    const parsed = parseTool(entry, i)
+    const parsed = parseRequirement(entry, i)
     if (!parsed.ok) return parsed
-    const { tool } = parsed
 
-    const other = nameByOutputKey.get(tool.outputKey)
-    if (other === tool.name) {
-      return { ok: false, error: `"${tool.name}" is listed twice.` }
-    }
-    if (other !== undefined) {
-      return {
-        ok: false,
-        error: `"${other}" and "${tool.name}" would publish the same outputs (${tool.outputKey}_path). List only one of them.`,
+    for (const tool of parsed.requirement.tools) {
+      const other = nameByOutputKey.get(tool.outputKey)
+      if (other === tool.name) {
+        return { ok: false, error: `"${tool.name}" is listed twice.` }
       }
+      if (other !== undefined) {
+        return {
+          ok: false,
+          error: `"${other}" and "${tool.name}" would publish the same outputs (${tool.outputKey}_path). List only one of them.`,
+        }
+      }
+      nameByOutputKey.set(tool.outputKey, tool.name)
+      tools.push(tool)
     }
-    nameByOutputKey.set(tool.outputKey, tool.name)
-    tools.push(tool)
+    requirements.push(parsed.requirement)
   }
-  return { ok: true, spec: { tools } }
+  return { ok: true, spec: { requirements, tools } }
 }
 
-function parseTool(
+/** The `tools:` list's entry at `index`: a tool, or an `anyOf` list of tools. */
+function parseRequirement(
   entry: unknown,
   index: number,
+): { ok: true; requirement: Requirement } | { ok: false; error: string } {
+  const where = `Tool ${index + 1}`
+  if (!isRecord(entry) || !("anyOf" in entry)) {
+    const parsed = parseTool(entry, where)
+    if (!parsed.ok) return parsed
+    return { ok: true, requirement: { tools: [parsed.tool], optional: parsed.tool.optional } }
+  }
+
+  if ("name" in entry) {
+    return {
+      ok: false,
+      error: `${where} has both a \`name\` and an \`anyOf\` list. Give each tool in the list its own name.`,
+    }
+  }
+  const unknownKey = Object.keys(entry).find((key) => !ANY_OF_KEYS.includes(key))
+  if (unknownKey !== undefined) {
+    return {
+      ok: false,
+      error: `${where} has an unknown key "${unknownKey}". An \`anyOf\` list can have ${ANY_OF_KEYS.join(", ")}, and the other keys go on its tools.`,
+    }
+  }
+  const { anyOf, description, optional } = entry
+  if (!Array.isArray(anyOf) || anyOf.length < 2) {
+    return {
+      ok: false,
+      error: `${where}: \`anyOf\` must be a list of two or more tools, any one of which will do.`,
+    }
+  }
+  if (description !== undefined && typeof description !== "string") {
+    return { ok: false, error: `${where}: \`description\` must be text.` }
+  }
+  if (optional !== undefined && typeof optional !== "boolean") {
+    return { ok: false, error: `${where}: \`optional\` must be true or false.` }
+  }
+
+  const tools: PrerequisiteTool[] = []
+  for (const [i, alternative] of (anyOf as unknown[]).entries()) {
+    const alternativeWhere = `${where}'s \`anyOf\` item ${i + 1}`
+    if (isRecord(alternative) && "anyOf" in alternative) {
+      return { ok: false, error: `${alternativeWhere} is an \`anyOf\` list. They can't be nested.` }
+    }
+    const parsed = parseTool(alternative, alternativeWhere, optional === true)
+    if (!parsed.ok) return parsed
+    tools.push(parsed.tool)
+  }
+  return {
+    ok: true,
+    requirement: {
+      tools,
+      description: description as string | undefined,
+      optional: optional === true,
+    },
+  }
+}
+
+/**
+ * A tool, named in errors as `where`. One in an `anyOf` list gets the list's
+ * `listOptional`, and can't say whether it's optional itself.
+ */
+function parseTool(
+  entry: unknown,
+  where: string,
+  listOptional?: boolean,
 ): { ok: true; tool: PrerequisiteTool } | { ok: false; error: string } {
   const fields = typeof entry === "string" ? { name: entry } : entry
   if (!isRecord(fields)) {
-    return { ok: false, error: `Tool ${index + 1} must be a name, or a map with a \`name\`.` }
+    return { ok: false, error: `${where} must be a name, or a map with a \`name\`.` }
   }
 
   const { name } = fields
   if (typeof name !== "string" || name === "") {
     return {
       ok: false,
-      error: `Tool ${index + 1} needs a \`name\`: the command to look for on PATH.`,
+      error: `${where} needs a \`name\`: the command to look for on PATH.`,
     }
   }
   if (!TOOL_NAME.test(name)) {
@@ -172,6 +261,12 @@ function parseTool(
   for (const [key, value] of Object.entries({ description, install })) {
     if (value !== undefined && typeof value !== "string") {
       return { ok: false, error: `"${name}": \`${key}\` must be text.` }
+    }
+  }
+  if (optional !== undefined && listOptional !== undefined) {
+    return {
+      ok: false,
+      error: `"${name}": set \`optional\` on its \`anyOf\` list, which is optional or required as a whole.`,
     }
   }
   if (optional !== undefined && typeof optional !== "boolean") {
@@ -219,7 +314,7 @@ function parseTool(
       constraint,
       versionArgs: args,
       install: install as string | undefined,
-      optional: optional === true,
+      optional: listOptional ?? optional === true,
       outputKey: toolOutputKey(name),
     },
   }
