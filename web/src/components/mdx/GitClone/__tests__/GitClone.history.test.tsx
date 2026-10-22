@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { ReactNode } from "react"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import type { SavedBlockState } from "../../../../../../src/domain/session/history"
@@ -128,6 +128,7 @@ function Session({ saved, children }: { saved?: unknown; children: ReactNode }) 
       <TestWrapper>
         {children}
         <OutputsProbe />
+        <RunbookProgressProbe />
       </TestWrapper>
     </IpcSessionHistoryProvider>
   )
@@ -223,6 +224,21 @@ describe("GitClone in a session", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(screen.getByTestId("test-clone").className).toContain("bg-success-muted")
   })
+
+  it.each([
+    { ref: "main", progress: "1/1" },
+    { ref: "feature-x", progress: "0/1" },
+  ])(
+    "counts as a step of the runbook, $progress done when the repository is on $ref",
+    async ({ ref, progress }) => {
+      mockIpc(async () => ({ ...CHECKOUT, ref }))
+      renderGitClone(SAVED_CLONE)
+      await waitFor(() => expect(localRepoCalls()).toHaveLength(1))
+      await settle()
+
+      expect(screen.getByTestId("runbook-progress")).toHaveTextContent(progress)
+    },
+  )
 
   it("drops the branch warning when the user starts over", async () => {
     mockIpc(async () => ({ ...CHECKOUT, ref: "feature-x" }))

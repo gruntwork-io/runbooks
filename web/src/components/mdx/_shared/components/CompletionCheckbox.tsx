@@ -1,9 +1,11 @@
 import { Square, CheckSquare } from "lucide-react"
+import { useProgressStep } from "../hooks/useProgressStep"
 
 /**
  * A click-to-confirm checkbox for instruction-mode blocks: the user ticks it
  * once they've performed the step by hand, and the block highlights green (the
  * container styling is applied by the parent via the same `completed` state).
+ * Each one is a step of the runbook's progress bar, done once ticked.
  */
 export function CompletionCheckbox({
   completed,
@@ -12,6 +14,8 @@ export function CompletionCheckbox({
   completed: boolean
   onToggle: () => void
 }) {
+  useProgressStep(completed)
+
   return (
     <button
       type="button"

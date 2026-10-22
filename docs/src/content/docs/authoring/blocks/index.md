@@ -59,3 +59,26 @@ Each ID must be unique within a runbook. IDs that differ only in hyphens versus 
 Runbook tests use IDs too: each step in `runbook_test.yml` names the block it runs by its ID. See [Testing](/authoring/testing/#block-ids).
 
 In Runbooks, most blocks show a small **ID** badge in their top-right corner. `<TemplateInline>` doesn't, and neither does an `<Inputs>` block nested inside another block. Hover over the badge (or Tab to it) to see the block's ID, and click it to copy the ID to your clipboard.
+
+## Progress
+
+The title bar shows how far through the runbook the user is: a bar along its bottom edge fills in, and a count next to the session name, such as "2 of 5 steps done", says how many steps are done. A window narrower than 1024 pixels shows only the bar.
+
+Each block the user acts on is a step. It is done once the block shows it's done, and stops being done if the block goes back:
+
+| Block | Done when |
+|-------|-----------|
+| `<Command>` | Its last run succeeded. |
+| `<Check>` | Its last run succeeded, or ended with a warning, which also lets the blocks that depend on it run. |
+| `<Prerequisites>` | Its last check found every required tool. A missing optional tool doesn't matter. |
+| `<Finish>` | The runbook is finished. A final check that ends with a warning leaves it unfinished. |
+| `<Inputs>` | Its form was submitted, and is green. |
+| `<Template>` | Its files were generated, and its form is green. |
+| `<AwsAuth>`, `<GoogleAuth>`, `<GitAuth>`, `<GitHubAuth>` and `<GitLabAuth>` | It is signed in, and green: credentials that expire within five minutes turn it red. |
+| `<GitClone>` | It cloned or found its repository, which is still on the session's branch. |
+| `<GitPullRequest>`, `<GitHubPullRequest>` and `<GitLabMergeRequest>` | It opened its pull or merge request. |
+| `<DirPicker>` | It has a path. |
+
+`<TemplateInline>`, `<Admonition>` and `<Iframe>` aren't steps, as there is nothing in them for the user to do. Neither is an `<Inputs>` nested in a `<Command>` or `<Check>`, which is part of that block, nor a block that shows a configuration error, such as a duplicate ID, in its place.
+
+A [resumed session](/commands/sessions/#resuming-a-session) brings the blocks back as the user left them, so their steps are done as they were. In [instruction mode](/intro/instruction-mode/#tracking-your-progress), a step is done once the user marks it as done.

@@ -30,6 +30,10 @@ Runbooks can get long. Press **Cmd+F** on macOS, or **Ctrl+F** on Windows and Li
 Press **Cmd+K** on macOS, or **Ctrl+K** on Windows and Linux, to open the command palette, then type to filter. It holds everything in the **Menu** and the application menus: open or close a runbook, show the generated files, download logs, switch the theme or [instruction mode](/intro/instruction-mode/), open the docs, and copy the app's version for a bug report. **Jump to section** lists the runbook's headings, so you can move to any part of a long runbook without scrolling, and typing a heading's name offers it directly. Whatever you type, the last row is **Find "…" in page**, which opens the find bar on that text. Press **Backspace** in an empty search to go back to the commands, and **Esc** to close.
 :::
 
+:::tip[Progress]
+The bar along the bottom of the title bar fills in as you work through the runbook, and the count next to the session name says how many of its steps are done. Each block you act on is a step, such as a Check that passed or an account you signed in to. See [Progress](/authoring/blocks/#progress) for when each block counts as done.
+:::
+
 ![Runbooks Example Screenshot 2](../../../assets/screenshots/intro/runbooks-example-2.webp)
 
 Next come pre-flight checks that confirm the user's machine has the right tools installed, in this case the `mise` tool version manager. When the user clicks "Check", Runbooks runs the command `mise --version && mise self-update --yes` on their machine.

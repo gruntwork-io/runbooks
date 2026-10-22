@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { useEffect, type ReactNode } from "react"
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -197,6 +197,7 @@ function renderBlock(
             prefilledBranchName="runbook/1"
             {...props}
           />
+          <RunbookProgressProbe />
         </TestWrapper>
       </IpcSessionHistoryProvider>
     </ApiProvider>
@@ -232,6 +233,17 @@ describe("GitPullRequest in a session", () => {
     await settle()
     expect(recorded("pull-request")).toEqual([])
     expect(recorded("inputs")).toEqual([])
+  })
+
+  it("counts as a step of the runbook, done while it shows the request it opened", async () => {
+    renderBlock([{ blockId: "pr", kind: "pull-request", payload: CREATED }])
+    expect(await screen.findByText(`Opened ${PR_URL}`)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1"))
+
+    fireEvent.click(screen.getByRole("button", { name: "Create another" }))
+
+    expect(await screen.findByRole("button", { name: "Submit" })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1"))
   })
 
   it("records a request it opens", async () => {

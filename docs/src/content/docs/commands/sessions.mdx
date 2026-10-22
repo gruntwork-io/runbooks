@@ -16,7 +16,7 @@ Runbooks saves the session after every change, so quitting the app keeps it.
 
 ## Session names
 
-Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and nothing else about the runbook, neither its path nor its URL. The window title starts with the name too.
+Every session has a name made of an adjective and a noun, such as `elegant-elephant`. The title bar shows the name and [how far through the runbook you are](/authoring/blocks/#progress), but nothing that says which runbook it is, neither its path nor its URL. The window title starts with the name too.
 
 The copy button before the name copies it. The folder button after the name copies the path of the session's directory. It is the session's directory for every runbook, including a remote one, whose temporary clone it does not point to.
 
@@ -45,7 +45,7 @@ Opening a runbook resumes its most recent session, unless you [finished the runb
 
 A notice at the top of the runbook names the session it resumed and says when you last used it. Click **Start new session** in it to [reset the session](#resetting-a-session) instead. A session with nothing in its history gets no notice: there is nothing of it to come back.
 
-The blocks come back as you left them. Each shows what the session's history has for it at once. A block whose state depends on something outside the app then checks it in the background, and starts over, saying why, if it no longer holds:
+The blocks come back as you left them, and so does the runbook's [progress](/authoring/blocks/#progress). Each block shows what the session's history has for it at once. A block whose state depends on something outside the app then checks it in the background, and starts over, saying why, if it no longer holds:
 
 | Block | What comes back | What is checked |
 |-------|-----------------|-----------------|

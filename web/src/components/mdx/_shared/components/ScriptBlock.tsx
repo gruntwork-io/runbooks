@@ -25,6 +25,7 @@ import {
   Instruction,
 } from "@/components/mdx/_shared"
 import { DuplicateIdError } from "./DuplicateIdError"
+import { ProgressStep } from "./ProgressStep"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
 import { useRunSequencing } from "../hooks/useRunSequencing"
 import { isRunBlocked } from "@/lib/blockRuns"
@@ -82,6 +83,12 @@ export interface ScriptBlockVariant {
   scriptOptional?: boolean
   /** Whether a nested <Inputs> child can supply the script's values. Defaults to true. */
   inlineInputs?: boolean
+  /**
+   * Whether a warning (exit code 2) leaves the block done in the runbook's
+   * progress, as it lets a block that `dependsOn` it run. Defaults to true;
+   * a Finish whose final check warns hasn't finished.
+   */
+  warnIsDone?: boolean
 }
 
 export interface ScriptBlockProps {
@@ -247,6 +254,7 @@ export function ScriptBlock({
     )
   }
   const status: ExecutionStatus = scriptless ? (scriptlessDone ? "success" : "pending") : execStatus
+  const done = status === "success" || (status === "warn" && variant.warnIsDone !== false)
 
   // Call onComplete on each transition into success: a first run or a re-run,
   // but never a block that mounts already succeeded.
@@ -526,6 +534,8 @@ export function ScriptBlock({
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
     >
+      <ProgressStep done={done} />
+
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

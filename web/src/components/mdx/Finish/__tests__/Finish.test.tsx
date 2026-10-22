@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { SessionHistoryContext } from "@/contexts/SessionHistoryContext.types"
 import { restoreRun } from "@/lib/sessionHistory"
 import Finish from "../Finish"
@@ -79,6 +79,7 @@ function finish(props: Partial<React.ComponentProps<typeof Finish>> = {}) {
           <p>Next: tell your team.</p>
         </Finish>
       </SessionHistoryContext.Provider>
+      <RunbookProgressProbe />
     </TestWrapper>
   )
 }
@@ -119,6 +120,15 @@ describe("Finish", () => {
       expect(celebrate).toHaveBeenCalledOnce()
       expect(mockScriptExecution.execute).not.toHaveBeenCalled()
       expect(screen.getByRole("button", { name: "Finish" })).toBeDisabled()
+    })
+
+    it("counts as a step of the runbook, done once finished", async () => {
+      render(finish())
+      expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+
+      await userEvent.click(screen.getByRole("button", { name: "Finish" }))
+
+      expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
     })
 
     it("marks the session finished, and saves the block as finished in its history", async () => {
@@ -205,6 +215,20 @@ describe("Finish", () => {
         expect(screen.queryByText("Next: tell your team.")).toBeNull()
         expect(celebrate).not.toHaveBeenCalled()
         expect(history.finish).not.toHaveBeenCalled()
+      },
+    )
+
+    it.each([
+      { status: "success", progress: "1/1" },
+      // Unlike a Check's warning, the final check's leaves the runbook unfinished.
+      { status: "warn", progress: "0/1" },
+      { status: "fail", progress: "0/1" },
+    ])(
+      "counts as a step of the runbook, $progress done when the check ends in $status",
+      ({ status, progress }) => {
+        setStatus(status)
+        render(finish({ command: "test -f done.txt" }))
+        expect(screen.getByTestId("runbook-progress")).toHaveTextContent(progress)
       },
     )
 

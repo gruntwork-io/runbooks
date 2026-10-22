@@ -23,8 +23,10 @@ import { CopyIconButton } from "./CopyIconButton"
 import { SessionName } from "./SessionName"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
+import { RunbookProgressBar, RunbookProgressCount } from "./RunbookProgress"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
 import { useApi } from "@/contexts/ApiContext"
+import { useRunbookProgress } from "@/contexts/useRunbookProgress"
 import { useTheme } from "@/contexts/useTheme"
 import { formatShortcut, isMac } from "@/lib/platform"
 
@@ -87,6 +89,10 @@ export function Header({
 
   const hasRunbookOpen = sessionName !== undefined
 
+  // The open runbook's steps: the blocks that show whether they are done
+  const progress = useRunbookProgress()
+  const hasSteps = progress.total > 0
+
   // The native "Rename Session…" menu item.
   useEffect(() => {
     const cleanup = api.on("menu:rename-session", () => {
@@ -142,6 +148,11 @@ export function Header({
               label="Copy session directory"
               copiedLabel="Session directory copied"
             />
+          )}
+          {hasSteps && (
+            <div className="hidden lg:flex items-center ml-1.5 pl-3 border-l border-border">
+              <RunbookProgressCount progress={progress} />
+            </div>
           )}
         </div>
         <div
@@ -234,6 +245,7 @@ export function Header({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        {hasSteps && <RunbookProgressBar progress={progress} />}
       </header>
     </>
   )

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
 import type { ReactNode } from "react"
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -61,6 +61,7 @@ function renderInSession(answer: Answer, block: ReactNode, saved?: SavedGitAuth)
         <IpcSessionHistoryProvider sessionId="s1" blockStates={blockStates}>
           {block}
           <OutputsProbe id="git" />
+          <RunbookProgressProbe />
         </IpcSessionHistoryProvider>
       </ApiProvider>
     </TestWrapper>,
@@ -331,6 +332,18 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(screen.getByText(/Authenticated to GitHub/)).toBeInTheDocument()
     expect(publishedOutputs()).toMatchObject({ __AUTHENTICATED: "true" })
     expect(recorded()).toEqual([])
+  })
+
+  it("starts as a step of the runbook that's done, until the sign-in turns out to be stale", async () => {
+    renderInSession(
+      githubAnswers(() => ({ valid: true, user: { login: "mallory" } })),
+      <GitAuth id="git" />,
+      SAVED_GITHUB,
+    )
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+
+    expect(await screen.findByText(/now belongs to mallory, not octo/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1"))
   })
 
   it("goes back to sign-in when the session's credential now belongs to someone else", async () => {

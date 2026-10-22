@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import Command from "../Command"
 import { Inputs } from "@/components/mdx/Inputs"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -94,6 +94,8 @@ describe("Command — instruction mode", () => {
   beforeEach(() => {
     mockExecution = { ...baseExecution }
     mockEnabled = true
+    // Where a step's "Mark as done" is kept
+    localStorage.clear()
   })
 
   it("renders a copyable command and no Run button when the flag is on", () => {
@@ -187,6 +189,20 @@ describe("Command — instruction mode", () => {
     await waitFor(() => expect(screen.queryByTestId("instruction-test-cmd")).toBeNull())
     expect(envField()).toHaveValue("prod")
     expect(screen.getByTestId("registered-env")).toHaveTextContent("prod")
+  })
+
+  it("counts as a step of the runbook, done once marked as done", () => {
+    render(
+      <TestWrapper>
+        <Command id="test-cmd" command="echo hello" />
+        <RunbookProgressProbe />
+      </TestWrapper>,
+    )
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark step as done" }))
+
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
   })
 
   it("renders the interactive Run button when the flag is off", () => {
