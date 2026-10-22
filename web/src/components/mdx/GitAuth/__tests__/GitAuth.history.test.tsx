@@ -343,7 +343,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
 
     expect(await screen.findByText(/now belongs to mallory, not octo/)).toBeInTheDocument()
-    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1"))
   })
 
   it("goes back to sign-in when the session's credential now belongs to someone else", async () => {

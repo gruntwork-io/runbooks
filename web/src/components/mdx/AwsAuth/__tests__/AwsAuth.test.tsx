@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { ReactNode } from "react"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
@@ -256,7 +256,7 @@ describe("AwsAuth — detection", () => {
 
     fireEvent.click(useCredentials)
     expect(await screen.findByText("✓ Authenticated to AWS")).toBeInTheDocument()
-    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1"))
 
     fireEvent.click(screen.getByRole("button", { name: "Re-authenticate" }))
     expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")

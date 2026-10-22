@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import Command from "../Command"
@@ -501,7 +501,8 @@ describe("Command", () => {
       </TestWrapper>,
     )
     expect(await screen.findAllByText("Duplicate Component ID:")).toHaveLength(2)
-    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0")
+    // Each duplicate counted until it found the other, and stops a render later.
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0"))
   })
 
   // --- Template resolution ---

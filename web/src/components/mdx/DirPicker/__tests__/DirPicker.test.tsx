@@ -205,6 +205,17 @@ describe("DirPicker", () => {
     ).toBeNull()
   })
 
+  it("isn't a step of the runbook while it has neither a rootDir nor a gitCloneId", () => {
+    render(
+      <Harness api={makeApi().api}>
+        <DirPicker id="dp" dirLabels={["Env", "Region"]} />
+      </Harness>,
+    )
+
+    expect(screen.getByText(/requires either a/)).toBeInTheDocument()
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0")
+  })
+
   it("renders without waiting state when rootDir is provided", async () => {
     await renderPicker()
 

@@ -230,7 +230,7 @@ describe("GoogleAuth — service account tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Authenticate" }))
 
     expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
-    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1"))
   })
 
   it("turns red when the access token expires within minutes, and signs in again on request", async () => {

@@ -238,12 +238,12 @@ describe("GitPullRequest in a session", () => {
   it("counts as a step of the runbook, done while it shows the request it opened", async () => {
     renderBlock([{ blockId: "pr", kind: "pull-request", payload: CREATED }])
     expect(await screen.findByText(`Opened ${PR_URL}`)).toBeInTheDocument()
-    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1"))
 
     fireEvent.click(screen.getByRole("button", { name: "Create another" }))
 
     expect(await screen.findByRole("button", { name: "Submit" })).toBeInTheDocument()
-    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+    await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1"))
   })
 
   it("records a request it opens", async () => {
