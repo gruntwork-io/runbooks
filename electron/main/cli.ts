@@ -25,10 +25,10 @@ export interface CliConfig {
 
 /**
  * Value-taking flags from the old Go CLI that this app does not support. The
- * working directory starts as the folder that contains the runbook (and then
- * follows any `cd` a script makes), and generated files always go inside that
- * folder. We still recognize these flags so their value is skipped instead of
- * being taken as the runbook path.
+ * working directory starts as the session's own directory (and then follows
+ * any `cd` a script makes), and generated files always go inside that
+ * directory. We still recognize these flags so their value is skipped instead
+ * of being taken as the runbook path.
  */
 const UNSUPPORTED_VALUE_FLAGS = new Set(["--working-dir", "--output-path"])
 
@@ -93,7 +93,7 @@ export function parseCliArgs(
       if (arg === flagName && next !== undefined && !next.startsWith("-")) i++
       log.warn(
         `${flagName} is no longer supported and was ignored: the working directory starts ` +
-          "in the runbook's folder, and generated files are written inside that folder.",
+          "in the session's own directory, and generated files are written inside it.",
       )
     } else if (isRemoteSource(arg)) {
       // Treat a bare positional source as a remote runbook. This runs before

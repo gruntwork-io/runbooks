@@ -140,3 +140,36 @@ export function secondInstanceLaunchDirectory(
   const forwarded = (additionalData as { cwd?: unknown } | null | undefined)?.cwd
   return typeof forwarded === "string" && path.isAbsolute(forwarded) ? forwarded : workingDirectory
 }
+
+/** The directories the OS starts the app in when it isn't run from a terminal. */
+export interface DesktopLaunchDirectories {
+  home: string
+  /** The folder of the app's executable. */
+  appDir: string
+}
+
+function desktopLaunchDirectories(): DesktopLaunchDirectories {
+  return { home: os.homedir(), appDir: path.dirname(process.execPath) }
+}
+
+/**
+ * `launchDir` when it says where the user was working: `runbooks` was run in
+ * a terminal there. Sessions remember this directory, and a later `runbooks`
+ * run there with no arguments resumes the latest of them.
+ *
+ * Undefined when `launchDir` is where a launch from the dock, a file manager
+ * or a shortcut starts the app: a filesystem root (macOS), the home directory
+ * (Linux desktops) or the app's own folder (a Windows shortcut). Those launches
+ * resume the most recent session of all.
+ */
+export function launchDirContext(
+  launchDir: string,
+  desktop: DesktopLaunchDirectories = desktopLaunchDirectories(),
+): string | undefined {
+  const dir = path.resolve(launchDir)
+  const isDesktopLaunch =
+    dir === path.parse(dir).root ||
+    dir === path.resolve(desktop.home) ||
+    dir === path.resolve(desktop.appDir)
+  return isDesktopLaunch ? undefined : dir
+}

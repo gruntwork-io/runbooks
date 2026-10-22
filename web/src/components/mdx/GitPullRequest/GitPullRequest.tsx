@@ -6,7 +6,7 @@ import {
   Trash2,
   GitPullRequest as GitPullRequestIcon,
 } from "lucide-react"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   ViewLogs,
   ViewOutputs,
@@ -41,6 +41,13 @@ import {
   hostFromRepoUrl,
 } from "@/components/mdx/_shared/lib/gitProvider"
 import { useGitFileChanges } from "@/hooks/useGitFileChanges"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import {
+  parseSavedForm,
+  parseSavedPullRequest,
+  type SavedForm,
+  type SavedPullRequest,
+} from "@/lib/sessionHistory"
 import { PR_PROVIDERS } from "./providers"
 import { useGitPullRequest } from "./hooks/useGitPullRequest"
 import { PRForm } from "./components/PRForm"
@@ -183,10 +190,24 @@ function GitPullRequestInteractive({
     trackBlockRender(__registryType)
   }, [id, trackBlockRender, __registryType])
 
+  // The request the block opened, and the form fields the user edited, from
+  // the session's history
+  const history = useSessionHistory()
+  const [restoredRequest] = useState(() => {
+    const saved = parseSavedPullRequest(history.saved(id, "pull-request"))
+    return saved?.status === "created" ? saved : undefined
+  })
+  const [savedFields] = useState(() => parseSavedForm(history.saved(id, "inputs"))?.values ?? {})
+  const savedText = (name: string) => {
+    const value = savedFields[name]
+    return typeof value === "string" ? value : undefined
+  }
+
   const {
     status,
     logs,
     prResult,
+    prOutputs,
     errorMessage,
     errorCode,
     conflictBranchName,
@@ -201,7 +222,28 @@ function GitPullRequestInteractive({
     fetchLabels,
     cancel,
     reset,
-  } = useGitPullRequest({ id, cfg, authId, authDerivedProvider })
+  } = useGitPullRequest({
+    id,
+    cfg,
+    authId,
+    authDerivedProvider,
+    restored: restoredRequest && {
+      result: restoredRequest.result,
+      outputs: restoredRequest.outputs,
+    },
+  })
+
+  // Keep the opened request in the session's history, and record nothing when
+  // it is what the history already has.
+  const lastSavedRequestRef = useRef(restoredRequest && JSON.stringify(restoredRequest))
+  useEffect(() => {
+    if (status !== "success" || !prResult || !prOutputs) return
+    const saved = parseSavedPullRequest({ status: "created", result: prResult, outputs: prOutputs })
+    const json = JSON.stringify(saved)
+    if (json === lastSavedRequestRef.current) return
+    lastSavedRequestRef.current = json
+    history.record(id, "pull-request", saved)
+  }, [history, id, status, prResult, prOutputs])
 
   // Workspace changes for diff summary
   const { changes: workspaceChanges } = useGitFileChanges()
@@ -253,20 +295,47 @@ function GitPullRequestInteractive({
     resolvedCommitMessage ||
     (runbookName ? `Changes from runbook "${runbookName}"` : "Changes from runbook")
 
-  // Form state
-  const [prTitle, setPRTitle] = useState(resolvedTitle)
-  const [prDescription, setPRDescription] = useState(resolvedDescription)
-  const [branchName, setBranchName] = useState(
-    () => resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`,
+  // Form state. A field the user edited starts from what they typed.
+  const [prTitle, setPRTitle] = useState(savedText("title") ?? resolvedTitle)
+  const [prDescription, setPRDescription] = useState(
+    savedText("description") ?? resolvedDescription,
   )
-  const [commitMessage, setCommitMessage] = useState(defaultCommitMessage)
-  const [selectedLabels, setSelectedLabels] = useState<string[]>(prefilledPullRequestLabels)
+  const [branchName, setBranchName] = useState(
+    () =>
+      savedText("branchName") ?? (resolvedBranchName || `runbook/${Math.floor(Date.now() / 1000)}`),
+  )
+  const [commitMessage, setCommitMessage] = useState(
+    savedText("commitMessage") ?? defaultCommitMessage,
+  )
+  const [selectedLabels, setSelectedLabels] = useState<string[]>(() => {
+    const saved = savedFields.labels
+    return Array.isArray(saved) && saved.every((label) => typeof label === "string")
+      ? saved
+      : prefilledPullRequestLabels
+  })
 
   // Track if user has manually edited each field
-  const [userEditedTitle, setUserEditedTitle] = useState(false)
-  const [userEditedDescription, setUserEditedDescription] = useState(false)
-  const [userEditedBranch, setUserEditedBranch] = useState(false)
-  const [userEditedCommitMessage, setUserEditedCommitMessage] = useState(false)
+  const [userEditedTitle, setUserEditedTitle] = useState(savedText("title") !== undefined)
+  const [userEditedDescription, setUserEditedDescription] = useState(
+    savedText("description") !== undefined,
+  )
+  const [userEditedBranch, setUserEditedBranch] = useState(savedText("branchName") !== undefined)
+  const [userEditedCommitMessage, setUserEditedCommitMessage] = useState(
+    savedText("commitMessage") !== undefined,
+  )
+
+  // The fields the user edited, as the session's history keeps them
+  const editedFieldsRef = useRef<Record<string, unknown>>(savedFields)
+  const recordEdit = useCallback(
+    (fields: Record<string, unknown>) => {
+      editedFieldsRef.current = { ...editedFieldsRef.current, ...fields }
+      history.record(id, "inputs", {
+        values: editedFieldsRef.current,
+        submitted: false,
+      } satisfies SavedForm)
+    },
+    [history, id],
+  )
 
   // Update form state during render when resolved values change, unless the
   // user has edited the field
@@ -403,7 +472,15 @@ function GitPullRequestInteractive({
     setUserEditedDescription(false)
     setUserEditedBranch(false)
     setUserEditedCommitMessage(false)
+    // The next request starts from a blank form, and from no request.
+    editedFieldsRef.current = {}
+    history.record(id, "inputs", { values: {}, submitted: false } satisfies SavedForm)
+    const none: SavedPullRequest = { status: "none" }
+    lastSavedRequestRef.current = JSON.stringify(none)
+    history.record(id, "pull-request", none)
   }, [
+    history,
+    id,
     reset,
     resolvedTitle,
     resolvedDescription,
@@ -569,25 +646,32 @@ function GitPullRequestInteractive({
               setPRTitle={(v) => {
                 setPRTitle(v)
                 setUserEditedTitle(true)
+                recordEdit({ title: v })
               }}
               prDescription={prDescription}
               setPRDescription={(v) => {
                 setPRDescription(v)
                 setUserEditedDescription(true)
+                recordEdit({ description: v })
               }}
               branchName={branchName}
               setBranchName={(v) => {
                 setBranchName(v)
                 setUserEditedBranch(true)
+                recordEdit({ branchName: v })
               }}
               commitMessage={commitMessage}
               setCommitMessage={(v) => {
                 setCommitMessage(v)
                 setUserEditedCommitMessage(true)
+                recordEdit({ commitMessage: v })
               }}
               defaultCommitMessage={defaultCommitMessage}
               selectedLabels={selectedLabels}
-              setSelectedLabels={setSelectedLabels}
+              setSelectedLabels={(next) => {
+                setSelectedLabels(next)
+                recordEdit({ labels: next })
+              }}
               availableLabels={labels}
               labelsLoading={labelsLoading}
               status={effectiveStatus}

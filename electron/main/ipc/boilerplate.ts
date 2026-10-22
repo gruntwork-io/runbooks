@@ -27,6 +27,7 @@ import {
   warmDisabledResult,
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { buildFileTree } from "../../../src/domain/workspace/file-tree.ts"
+import { hashTemplateDir } from "../../../src/domain/boilerplate/templateHash.ts"
 import {
   buildManifestFromDirectoryWithContent,
   computeDiff,
@@ -217,6 +218,7 @@ export function registerBoilerplateHandlers(): void {
               }
             }
           }
+          config.contentHash = yield* hashTemplateDir(templateDir)
         }
 
         return config

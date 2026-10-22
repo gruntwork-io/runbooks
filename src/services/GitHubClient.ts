@@ -12,6 +12,12 @@ export interface GitHubTokenValidation {
   readonly user: GitHubUser
   /** Scopes parsed from the X-OAuth-Scopes response header. Undefined for fine-grained PATs and GitHub App tokens. */
   readonly scopes?: string[] | undefined
+  /**
+   * When the token expires, as an ISO timestamp, from the
+   * GitHub-Authentication-Token-Expiration response header. Undefined for a
+   * token that doesn't expire.
+   */
+  readonly expiresAt?: string | undefined
 }
 
 export interface DeviceFlowStart {
