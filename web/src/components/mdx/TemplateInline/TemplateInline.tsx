@@ -15,6 +15,7 @@ import type { File, FileTreeNode } from "@/components/artifacts/code/FileTree"
 import type { AppError } from "@/types/error"
 import { useIpc } from "@/hooks/useIpc"
 import { useFileTreeUpdater } from "../_shared/hooks/useFileTreeUpdater"
+import { useRenderHistory } from "../_shared/hooks/useRenderHistory"
 import { computeChangeKey } from "@/lib/changeDetection"
 import { CodeFile } from "@/components/artifacts/code/CodeFile"
 import { AlertTriangle } from "lucide-react"
@@ -137,6 +138,9 @@ function TemplateInline({
   // Track last rendered change key to avoid duplicate renders
   const lastRenderedKeyRef = useRef<string | null>(null)
 
+  // What this block last wrote, from the session's history
+  const { hasWriteBeforeMount, isUnchangedSinceMount, noteWritten } = useRenderHistory(id)
+
   // API hook — lazy mode skips auto-fetch on mount; we use debouncedRequest explicitly
   const { data, error, isLoading, debouncedRequest } = useIpc<RenderInlineResult>(
     "boilerplate:render-inline",
@@ -258,12 +262,30 @@ function TemplateInline({
     // blockId lets main clean up the file this block wrote at its previous
     // outputPath when the path changes (e.g. it follows a DirPicker output):
     // removed if the block created it, put back if it was already there.
-    debouncedRequest?.({
+    const request = (write: boolean) => ({
       templateFiles,
       inputs: payload,
-      generateFile: effectiveGenerateFile,
+      generateFile: write,
       ...(target ? { target } : {}),
       blockId: id,
+    })
+    if (!effectiveGenerateFile) {
+      debouncedRequest?.(request(false))
+      return
+    }
+    const written = JSON.stringify([templateFiles, payload, target ?? null])
+    if (!hasWriteBeforeMount()) {
+      debouncedRequest?.(request(true))
+      noteWritten(written)
+      return
+    }
+    // A resumed block whose file would come out as it was written before only
+    // shows it: writing it again would undo changes made to the file since.
+    void isUnchangedSinceMount(written).then((unchanged) => {
+      // A newer render has taken this one's place.
+      if (lastRenderedKeyRef.current !== key) return
+      debouncedRequest?.(request(!unchanged))
+      if (!unchanged) noteWritten(written)
     })
   }, [
     id,
@@ -279,6 +301,9 @@ function TemplateInline({
     target,
     debouncedRequest,
     isDuplicate,
+    hasWriteBeforeMount,
+    isUnchangedSinceMount,
+    noteWritten,
   ])
 
   if (data && !hasRendered) {

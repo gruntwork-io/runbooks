@@ -10,6 +10,7 @@ import {
   AlertDialogTitle,
 } from "../../ui/alert-dialog"
 import { useApiGeneratedFilesDelete } from "../../../hooks/useApiGeneratedFilesDelete"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { dismissGeneratedFilesAlert } from "./utils"
 
 /**
@@ -42,6 +43,7 @@ export function GeneratedFilesAlert({
 }: GeneratedFilesAlertProps) {
   const [dontAskAgain, setDontAskAgain] = useState(false)
   const { deleteFiles, isDeleting, deleteError, deleteSuccess } = useApiGeneratedFilesDelete()
+  const displayPath = useDisplayPath()
 
   const handleKeepFiles = () => {
     if (dontAskAgain) {
@@ -68,7 +70,7 @@ export function GeneratedFilesAlert({
         <AlertDialogContent data-testid="delete-files-alert">
           <AlertDialogHeader>
             <AlertDialogTitle>Files Deleted Successfully</AlertDialogTitle>
-            <AlertDialogDescription>{deleteSuccess.message}</AlertDialogDescription>
+            <AlertDialogDescription>{displayPath(deleteSuccess.message)}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={handleKeepFiles}>Close</AlertDialogAction>
@@ -85,9 +87,11 @@ export function GeneratedFilesAlert({
           <AlertDialogHeader>
             <AlertDialogTitle>Failed to Delete Files</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteError.message}
+              {displayPath(deleteError.message)}
               {deleteError.details && (
-                <div className="mt-2 text-sm text-muted-foreground">{deleteError.details}</div>
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {displayPath(deleteError.details)}
+                </div>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -107,8 +111,11 @@ export function GeneratedFilesAlert({
           <AlertDialogDescription>
             There {fileCount === 1 ? "is" : "are"} {fileCount} file{fileCount === 1 ? "" : "s"} in{" "}
             the{" "}
-            <code className="px-1 py-0.5 bg-muted rounded text-sm break-all">
-              {absoluteOutputPath}/
+            <code
+              className="px-1 py-0.5 bg-muted rounded text-sm break-all"
+              title={absoluteOutputPath}
+            >
+              {displayPath(absoluteOutputPath)}/
             </code>{" "}
             directory. {fileCount === 1 ? "This" : "These"} may conflict with the files you generate
             from the current runbook. Would you like to delete the existing file

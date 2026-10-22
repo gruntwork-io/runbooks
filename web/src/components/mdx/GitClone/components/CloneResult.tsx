@@ -1,6 +1,7 @@
 import { CheckCircle, AlertTriangle, FolderOpen, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 import type { CloneResult, GitCloneSource } from "../types"
 
 interface CloneResultDisplayProps {
@@ -56,6 +57,7 @@ export function CloneResultDisplay({
   onCloneAgain,
 }: CloneResultDisplayProps) {
   const { didCopy, copy } = useCopyToClipboard(2000)
+  const displayPath = useDisplayPath()
   const isLocal = source === "local"
   const t = warn ? TONES.warning : TONES.success
 
@@ -95,17 +97,15 @@ export function CloneResultDisplay({
           </div>
         )}
 
-        {/* Show the short relative path; hovering reveals the absolute path,
-            and the copy button copies it, since that is what gets pasted into
-            a terminal or editor. A checkout outside the working directory has
-            no relative form: the domain layer returns the absolute path for
-            both, so it is shown once as-is. */}
+        {/* Show the path shortened; hovering reveals the absolute path, and
+            the copy button copies it, since that is what gets pasted into a
+            terminal or editor. */}
         <div className="flex items-center gap-1.5">
           <span className={`shrink-0 ${t.label}`}>
             {isLocal ? "Repository path:" : "Local path:"}
           </span>
           <code className={t.code} title={result.absolutePath}>
-            {result.relativePath}
+            {displayPath(result.absolutePath)}
           </code>
           <button
             type="button"

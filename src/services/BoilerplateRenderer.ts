@@ -31,7 +31,7 @@ export interface BoilerplateRendererShape {
   ) => Effect.Effect<void, RenderError>
 }
 
-export class BoilerplateRenderer extends Context.Tag("BoilerplateRenderer")<
+export class BoilerplateRenderer extends Context.Service<
   BoilerplateRenderer,
   BoilerplateRendererShape
->() {}
+>()("BoilerplateRenderer") {}

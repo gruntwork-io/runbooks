@@ -74,6 +74,8 @@ describe("GitClone", () => {
 
   it("forwards githubAuthId to the hook", () => {
     renderGitClone({ githubAuthId: "gh-auth" })
-    expect(useGitClone).toHaveBeenCalledWith({ id: "test-clone", githubAuthId: "gh-auth" })
+    expect(useGitClone).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "test-clone", githubAuthId: "gh-auth" }),
+    )
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { Chunk, Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { createScriptWatcher, createWatcher } from "./watcher.ts"
 import { FileSystem, type FileChangeEvent, type WatchOptions } from "./services/FileSystem.ts"
 import { makeTestFileSystem } from "./test-utils/TestFileSystem.ts"
@@ -35,7 +35,6 @@ const collect = (
   return Effect.runPromise(
     createWatcher(runbookPath, platform).pipe(
       Effect.flatMap(Stream.runCollect),
-      Effect.map(Chunk.toArray),
       Effect.provide(fs.layer),
     ),
   ).then((emitted) => ({ emitted, watched: fs.watched }))
@@ -114,7 +113,6 @@ describe("createScriptWatcher", () => {
     return Effect.runPromise(
       createScriptWatcher(scriptPaths, platform).pipe(
         Effect.flatMap(Stream.runCollect),
-        Effect.map(Chunk.toArray),
         Effect.provide(fs.layer),
       ),
     ).then((emitted) => ({ emitted, watched: fs.watched }))

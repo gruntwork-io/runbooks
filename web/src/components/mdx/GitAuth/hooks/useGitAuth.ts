@@ -3,8 +3,10 @@ import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
 import { normalizeBlockId } from "@/lib/utils"
-import { revealOutputs, sensitiveOutput } from "@/lib/outputValues"
+import { decodeOutputs, encodeOutputs, revealOutputs, sensitiveOutput } from "@/lib/outputValues"
 import { omitUndefined } from "@/lib/omitUndefined"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedGitAuth, type SavedGitAuth } from "@/lib/sessionHistory"
 import type {
   GitAuthMethod,
   GitAuthStatus,
@@ -43,6 +45,13 @@ interface UseGitAuthOptions {
   defaultTab?: string | undefined
   /** An authored host that pins the instance/GitHub host and hides the picker. */
   host?: string | undefined
+  /**
+   * The sign-in to start from, from the session's history: it must be for
+   * `provider`. The block shows it and publishes its outputs at once, then
+   * validates the session's credential for its host, and goes back to
+   * sign-in if that no longer works.
+   */
+  restored?: Extract<SavedGitAuth, { status: "signed-in" }> | undefined
 }
 
 // Module-level so the default keeps one identity across renders: the
@@ -69,6 +78,7 @@ const DETECTION_DISABLED_HINT = "This runbook doesn't use existing credentials �
  */
 type CredentialDetails = {
   scopes?: string[] | undefined
+  expiresAt?: string | undefined
   tokenType?: GitTokenType | undefined
   meta?: GitSuccessMeta | null | undefined
   divergenceHint?: string | undefined
@@ -81,12 +91,14 @@ type CredentialDetails = {
  */
 function blockCredentialDetails(result: {
   scopes?: string[] | undefined
+  expiresAt?: string | undefined
   tokenType?: GitTokenType | undefined
   validatedVia?: "direct" | "cli" | undefined
   sessionEnvWarning?: string | undefined
 }): CredentialDetails {
   return {
     scopes: result.scopes,
+    expiresAt: result.expiresAt,
     tokenType: result.tokenType,
     sessionEnvWarning: result.sessionEnvWarning,
     meta: result.validatedVia ? { validatedVia: result.validatedVia } : null,
@@ -126,6 +138,18 @@ type DetectionOutcome =
  * of "which instance" in sync with the URL the token is actually validated
  * against on the backend (which normalizes the same way).
  */
+/**
+ * Whether to warn about a missing required scope: the token's scopes are
+ * known (an unknown or empty list can't show one is missing) and none of
+ * them is one the provider accepts.
+ */
+function warnsMissingScope(provider: ProviderConfig, scopes: string[] | undefined): boolean {
+  if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
+  if (!scopes || scopes.length === 0) return false
+  const acceptable = provider.success.acceptableScopes ?? [provider.success.requiredScope]
+  return !scopes.some((scope) => acceptable.includes(scope))
+}
+
 function hostFromInstanceUrl(raw: string): string | undefined {
   const trimmed = raw.trim()
   if (!trimmed) return undefined
@@ -146,7 +170,12 @@ export function useGitAuth({
   detectCredentials = DEFAULT_DETECT_CREDENTIALS,
   host: authoredHost,
   defaultTab,
+  restored: restoredOption,
 }: UseGitAuthOptions) {
+  // Taken once, and only for the provider it was saved for
+  const [restored] = useState(() =>
+    restoredOption?.provider === provider.id ? restoredOption : undefined,
+  )
   // A GitHub host is normalized like main does (so `https://GHES.corp/` and
   // `ghes.corp` agree). An unparseable one is kept raw: main refuses it rather
   // than falling back to github.com, and GitAuth reports it as a config error.
@@ -158,6 +187,7 @@ export function useGitAuth({
   const api = useApi()
   const { registerOutputs, blockOutputs } = useRunbookContext()
   const { isReady: sessionReady } = useSession()
+  const history = useSessionHistory()
 
   // Core auth state. The starting tab is the author's `defaultTab` when the
   // provider offers it; otherwise the provider's own default (GitHub → OAuth,
@@ -166,18 +196,29 @@ export function useGitAuth({
   const [authMethod, setAuthMethod] = useState<GitAuthMethod>(() =>
     resolveDefaultAuthMethod(provider, defaultTab),
   )
-  const [authStatus, setAuthStatus] = useState<GitAuthStatus>("pending")
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [userInfo, setUserInfo] = useState<GitUserInfo | null>(null)
-
-  // Detection state
-  const [detectionStatus, setDetectionStatus] = useState<GitDetectionStatus>(
-    detectCredentials === false ? "done" : "pending",
+  const [authStatus, setAuthStatus] = useState<GitAuthStatus>(
+    restored ? "authenticated" : "pending",
   )
-  const [detectionSource, setDetectionSource] = useState<GitDetectionSource>(null)
-  const [detectedScopes, setDetectedScopes] = useState<string[] | null>(null)
-  const [detectedTokenType, setDetectedTokenType] = useState<GitTokenType | null>(null)
-  const [missingScope, setMissingScope] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [userInfo, setUserInfo] = useState<GitUserInfo | null>(() =>
+    restored ? omitUndefined(restored.user) : null,
+  )
+
+  // Detection state. A restored sign-in needs no detection.
+  const [detectionStatus, setDetectionStatus] = useState<GitDetectionStatus>(
+    detectCredentials === false || restored ? "done" : "pending",
+  )
+  const [detectionSource, setDetectionSource] = useState<GitDetectionSource>(
+    restored?.source ?? null,
+  )
+  const [detectedScopes, setDetectedScopes] = useState<string[] | null>(restored?.scopes ?? null)
+  const [expiresAt, setExpiresAt] = useState(restored?.expiresAt)
+  const [detectedTokenType, setDetectedTokenType] = useState<GitTokenType | null>(
+    restored?.tokenType ?? null,
+  )
+  const [missingScope, setMissingScope] = useState(() =>
+    restored ? warnsMissingScope(provider, restored.scopes ?? undefined) : false,
+  )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
   const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const [unreachableInfo, setUnreachableInfo] = useState<GitUnreachableInfo | null>(null)
@@ -187,7 +228,9 @@ export function useGitAuth({
   // both-set-and-differ env hint, shown on the success card.
   const [divergenceHint, setDivergenceHint] = useState<string | null>(null)
   const [cliStatus, setCliStatus] = useState<VcsCliStatusResult | null>(null)
-  const [successMeta, setSuccessMeta] = useState<GitSuccessMeta | null>(null)
+  const [successMeta, setSuccessMeta] = useState<GitSuccessMeta | null>(() =>
+    restored?.meta ? omitUndefined(restored.meta) : null,
+  )
   // set when another block's auth replaced this provider's single
   // session credential with a different host (vcs:session-changed).
   const [sessionStale, setSessionStale] = useState(false)
@@ -196,7 +239,7 @@ export function useGitAuth({
   // re-armed explicitly (Check again, Retry, Reload, a host pick or a
   // provider switch). State, not a ref, because it gates focusRedetectArmed.
   const [redetectSuppressed, setRedetectSuppressed] = useState(false)
-  const detectionAttemptedRef = useRef(false)
+  const detectionAttemptedRef = useRef(restored !== undefined)
   // Bumped to invalidate in-flight detection loops; checked after every await.
   const detectionRunRef = useRef(0)
 
@@ -213,7 +256,12 @@ export function useGitAuth({
     if (hostsEnumerable) return enumeratedHosts
     return host ? [{ host, sources: [], hasCredential: false }] : []
   }, [hostsEnumerable, enumeratedHosts, host])
-  const [selectedHost, setSelectedHost] = useState<string>(host ?? provider.defaultHost)
+  const [selectedHost, setSelectedHost] = useState<string>(
+    host ??
+      (restored?.provider === provider.id && !restored.instanceUrl
+        ? restored.host
+        : provider.defaultHost),
+  )
   // A provider switch must not carry the other provider's host (a GitLab host
   // would read as a GitHub Enterprise host) — reset it during render, before
   // anything derives from it, until enumeration picks the new provider's host.
@@ -239,8 +287,9 @@ export function useGitAuth({
   const [hostsReadyFor, setHostsReadyFor] = useState<string | null>(null)
   const hostsReady = !hostsEnumerable || hostsReadyFor === hostsKey
   // True once the user explicitly picks a host, so a config reload preserves it
-  // instead of snapping back to glab's default.
-  const userPickedHostRef = useRef(false)
+  // instead of snapping back to glab's default. A restored sign-in's host
+  // counts as picked.
+  const userPickedHostRef = useRef(restored !== undefined)
 
   // For block-based detection, track which block we're waiting for
   const [waitingForBlockId, setWaitingForBlockId] = useState<string | null>(null)
@@ -262,7 +311,9 @@ export function useGitAuth({
   // GitLab self-hosted instance URL, seeded from the prop and editable in the
   // PAT form. Only meaningful for the GitLab provider; sent with the token so
   // validation/detection targets the right instance (empty → gitlab.com).
-  const [gitlabInstanceUrl, setGitlabInstanceUrl] = useState(instanceUrl ?? "")
+  const [gitlabInstanceUrl, setGitlabInstanceUrl] = useState(
+    restored ? restored.instanceUrl : (instanceUrl ?? ""),
+  )
   // Bumped when "Other instance…" is picked; the block focuses the
   // instance-URL field on each bump.
   const [instanceFieldFocusNonce, setInstanceFieldFocusNonce] = useState(0)
@@ -322,12 +373,7 @@ export function useGitAuth({
   // The warning's copy lives in the provider config
   // (`provider.success.scopeWarningDetail`) and is rendered by AuthSuccess.
   const shouldWarnMissingScope = useCallback(
-    (scopes: string[] | undefined): boolean => {
-      if (!provider.success.showScopeWarning || !provider.success.requiredScope) return false
-      if (!scopes || scopes.length === 0) return false
-      const acceptable = provider.success.acceptableScopes ?? [provider.success.requiredScope]
-      return !scopes.some((scope) => acceptable.includes(scope))
-    },
+    (scopes: string[] | undefined): boolean => warnsMissingScope(provider, scopes),
     [provider],
   )
 
@@ -460,6 +506,7 @@ export function useGitAuth({
     (details: CredentialDetails) => {
       const scopes = details.scopes && details.scopes.length > 0 ? details.scopes : null
       setDetectedScopes(scopes)
+      setExpiresAt(details.expiresAt)
       setMissingScope(shouldWarnMissingScope(details.scopes))
       setDetectedTokenType(details.tokenType ?? null)
       setSuccessMeta(details.meta ?? null)
@@ -509,6 +556,7 @@ export function useGitAuth({
       valid: boolean
       user?: GitUserInfo | undefined
       scopes?: string[] | undefined
+      expiresAt?: string | undefined
       tokenType?: GitTokenType | undefined
       error?: string | undefined
       errorKind?: GitErrorKind | undefined
@@ -530,6 +578,7 @@ export function useGitAuth({
           valid: data.valid,
           user: data.user as GitUserInfo | undefined,
           scopes: data.scopes,
+          expiresAt: data.expiresAt,
           tokenType: data.tokenType as GitTokenType | undefined,
           error: data.error,
           errorKind: data.errorKind as GitErrorKind | undefined,
@@ -555,6 +604,7 @@ export function useGitAuth({
       success: boolean
       user?: GitUserInfo | undefined
       scopes?: string[] | undefined
+      expiresAt?: string | undefined
       tokenType?: GitTokenType | undefined
       error?: string | undefined
       foundButInvalid?: boolean | undefined
@@ -607,6 +657,7 @@ export function useGitAuth({
           success: true,
           user: data.user as GitUserInfo | undefined,
           scopes: data.scopes,
+          expiresAt: data.expiresAt,
           tokenType: data.tokenType as GitTokenType | undefined,
           divergenceHint: data.divergenceHint,
           envVar: data.envVar,
@@ -628,6 +679,7 @@ export function useGitAuth({
     success: boolean
     user?: GitUserInfo | undefined
     scopes?: string[] | undefined
+    expiresAt?: string | undefined
     tokenType?: GitTokenType | undefined
     error?: string | undefined
     foundButInvalid?: boolean | undefined
@@ -680,6 +732,7 @@ export function useGitAuth({
         success: true,
         user: data.user,
         scopes: data.scopes,
+        expiresAt: data.expiresAt,
         tokenType: data.tokenType,
         host: data.host,
         source: data.source,
@@ -765,7 +818,15 @@ export function useGitAuth({
         if (cancelled) return
         // the enumerate result is the annotated merged union (objects);
         // membership checks compare against hosts.map(h => h.host).
-        const hosts = (data.hosts ?? []) as GitHostEntry[]
+        const enumerated = (data.hosts ?? []) as GitHostEntry[]
+        // A restored sign-in's host stays pickable even when nothing else
+        // names it any more, while the block shows that sign-in's provider.
+        const restoredHost =
+          restored?.provider === provider.id && !restored.instanceUrl ? restored.host : undefined
+        const hosts =
+          restoredHost && !enumerated.some((h) => h.host === restoredHost)
+            ? [...enumerated, { host: restoredHost, sources: [], hasCredential: true }]
+            : enumerated
         const hostNames = hosts.map((h) => h.host)
         setEnumeratedHosts(hosts)
         // Honor the default (persisted pick > env > CLI config > the
@@ -788,7 +849,7 @@ export function useGitAuth({
     return () => {
       cancelled = true
     }
-  }, [api, hostSelectable, provider, sessionReady, hostsKey])
+  }, [api, hostSelectable, provider, sessionReady, hostsKey, restored])
 
   // Walk the detection sources in order, stopping at the first success. A
   // {block} source whose block has not run yet pauses the walk (the author's
@@ -836,6 +897,7 @@ export function useGitAuth({
               user: result.user,
               details: {
                 scopes: result.scopes,
+                expiresAt: result.expiresAt,
                 tokenType: result.tokenType,
                 divergenceHint: result.divergenceHint,
                 sessionEnvWarning: result.sessionEnvWarning,
@@ -875,6 +937,7 @@ export function useGitAuth({
               user: result.user,
               details: {
                 scopes: result.scopes,
+                expiresAt: result.expiresAt,
                 tokenType: result.tokenType,
                 sessionEnvWarning: result.sessionEnvWarning,
                 meta: { source: result.source ?? "cli", validatedVia: result.validatedVia },
@@ -1093,6 +1156,7 @@ export function useGitAuth({
     // fine-grained PATs and GitLab tokens may report none.
     applyCredentialDetails({
       scopes: validation.scopes,
+      expiresAt: validation.expiresAt,
       tokenType: validation.tokenType,
       sessionEnvWarning: validation.sessionEnvWarning,
       meta: validation.validatedVia ? { validatedVia: validation.validatedVia } : null,
@@ -1160,6 +1224,7 @@ export function useGitAuth({
             setUserInfo(user)
             applyCredentialDetails({
               scopes: data.scopes,
+              expiresAt: data.expiresAt,
               tokenType: data.tokenType as GitTokenType | undefined,
               sessionEnvWarning: data.sessionEnvWarning,
             })
@@ -1256,6 +1321,7 @@ export function useGitAuth({
     setUserInfo(null)
     setDetectionSource(null)
     setDetectedScopes(null)
+    setExpiresAt(undefined)
     setDetectedTokenType(null)
     setMissingScope(false)
     setDetectionWarning(null)
@@ -1462,6 +1528,91 @@ export function useGitAuth({
     return () => window.removeEventListener("focus", onFocus)
   }, [focusRedetectArmed, retryUnreachable])
 
+  // A restored sign-in is published at once, and then checked: the session's
+  // history says the credential worked when the session was last open, not
+  // that it still does (a token can be revoked or expire, and another block
+  // can have replaced the provider's single session credential). The check
+  // validates the session's own credential for the host, so no token crosses
+  // IPC. An unreachable host says nothing
+  // about the credential, so it leaves the sign-in as it is.
+  const [restoredAtMount] = useState(restored)
+  useEffect(() => {
+    if (restoredAtMount === undefined) return
+    registerOutputs(id, decodeOutputs(restoredAtMount.outputs))
+    // Any sign-in, reset or re-detection since bumps one of these.
+    const runId = detectionRunRef.current
+    const submit = patSubmitRef.current
+    const flow = oauthFlowRef.current
+    const current = () =>
+      detectionRunRef.current === runId &&
+      patSubmitRef.current === submit &&
+      oauthFlowRef.current === flow
+    void validateToken(undefined, { useSessionToken: true }).then((check) => {
+      if (!current()) return
+      if (!check.valid && check.errorKind) return
+      const login = restoredAtMount.user.login
+      if (check.valid && check.user?.login === login) return
+      clearRegisteredOutputs(provider.id)
+      clearDetectionState()
+      setAuthStatus("failed")
+      setErrorMessage(
+        check.valid
+          ? `The session's ${provider.label} credential now belongs to ${check.user?.login ?? "another user"}, not ${login}. Sign in again.`
+          : `The sign-in saved with this session no longer works (${check.error ?? "the credential was refused"}). Sign in again.`,
+      )
+    })
+    // Runs once, for the sign-in the block mounted with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restoredAtMount])
+
+  // Keep the block's sign-in in the session's history: what it signed in as
+  // and the outputs it published, or that it signed out. Nothing is recorded
+  // for the sign-in the block was restored with.
+  const ownOutputs = blockOutputs[normalizeBlockId(id)]?.values
+  const lastSavedAuthRef = useRef(restored ? JSON.stringify(restored) : undefined)
+  useEffect(() => {
+    let saved: SavedGitAuth | undefined
+    if (authStatus === "authenticated") {
+      if (!userInfo || ownOutputs?.__AUTHENTICATED !== "true") return
+      saved = parseSavedGitAuth({
+        status: "signed-in",
+        block: "git",
+        provider: provider.id,
+        host: effectiveHost ?? provider.defaultHost,
+        instanceUrl: gitlabInstanceUrl,
+        user: userInfo,
+        source: detectionSource,
+        scopes: detectedScopes,
+        expiresAt,
+        tokenType: detectedTokenType,
+        meta: successMeta,
+        outputs: encodeOutputs(ownOutputs),
+      })
+    } else if (lastSavedAuthRef.current !== undefined) {
+      // The card left a sign-in: its outputs went with it.
+      saved = { status: "signed-out" }
+    }
+    if (saved === undefined) return
+    const json = JSON.stringify(saved)
+    if (json === lastSavedAuthRef.current) return
+    lastSavedAuthRef.current = saved.status === "signed-in" ? json : undefined
+    history.record(id, "auth", saved)
+  }, [
+    history,
+    id,
+    provider,
+    authStatus,
+    userInfo,
+    ownOutputs,
+    effectiveHost,
+    gitlabInstanceUrl,
+    detectionSource,
+    detectedScopes,
+    expiresAt,
+    detectedTokenType,
+    successMeta,
+  ])
+
   const oauthUnavailableReason =
     provider.supportsOAuth &&
     unreachableInfo &&
@@ -1505,6 +1656,7 @@ export function useGitAuth({
     detectionStatus,
     detectionSource,
     detectedScopes,
+    expiresAt,
     detectedTokenType,
     missingScope,
     detectionWarning,

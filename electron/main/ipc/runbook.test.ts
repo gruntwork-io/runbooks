@@ -29,13 +29,29 @@ const fakeWindow = {
 }
 await mock.module("../window.ts", () => ({ getMainWindow: () => fakeWindow }))
 
-const { registerRunbookHandlers } = await import("./runbook.ts")
+const {
+  registerRunbookHandlers,
+  expectLaunch,
+  isSessionOpen,
+  markRunbookClosed,
+  resetToNewSession,
+} = await import("./runbook.ts")
 const { closeRunbook, stopWatchers } = await import("./watch.ts")
 const runtimeModule = await import("./runtime.ts")
 const { setRunbookConfig, setExecutableRegistry, sessionManager } = runtimeModule
+const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
+type TestSessionPersistence = ReturnType<typeof installTestSessionPersistence>
 
-type RunbookGetResult = { path: string; isWatchMode?: boolean }
-/** Call runbook:get as the renderer does; `extra` adds fields such as `reload`. */
+type RunbookGetResult = {
+  path: string
+  isWatchMode?: boolean
+  sessionId: string
+  sessionName: string
+  sessionDir: string
+  sessionResumedFrom?: string
+  blockStates: unknown[]
+}
+/** Call runbook:get as the renderer does; `extra` adds fields such as `remoteSource`. */
 const getRunbook = (runbookPath: string, extra?: Record<string, unknown>) =>
   handlers.get("runbook:get")!(undefined, {
     path: runbookPath,
@@ -144,8 +160,10 @@ describe("runbook IPC handlers", () => {
     let tmp: string
     let dirA: string
     let dirB: string
+    let sessions: TestSessionPersistence
 
     beforeEach(() => {
+      sessions = installTestSessionPersistence()
       tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runbook-ipc-")))
       dirA = path.join(tmp, "a")
       dirB = path.join(tmp, "b")
@@ -160,8 +178,10 @@ describe("runbook IPC handlers", () => {
 
     afterEach(async () => {
       await stopWatchers()
+      markRunbookClosed()
       sessionManager.deleteSession()
       setExecutableRegistry(null)
+      sessions.cleanup()
       fs.rmSync(tmp, { recursive: true, force: true })
     })
 
@@ -265,10 +285,12 @@ describe("runbook IPC handlers", () => {
 
     describe("a load that a newer one overtakes", () => {
       // A same-path reload awaits resolving the path (call 1), reading the
-      // file (call 2), and building the registry (call 3).
+      // file (call 2), building the registry (call 3), and reading the
+      // session's history (call 4).
       for (const [awaiting, heldCall] of [
         ["resolving its path", 1],
         ["building its registry", 3],
+        ["reading the session's history", 4],
       ] as const) {
         it(
           `leaves the runbook opened after it in place (held while ${awaiting})`,
@@ -276,9 +298,9 @@ describe("runbook IPC handlers", () => {
             setRunbookConfig({ ...originalRunbookConfig, isWatchMode: true })
             const a = await getRunbook(dirA)
 
-            // A watch-mode reload of A that is still running when B is opened
+            // A reload of A that is still running when B is opened
             const hold = holdRunPromiseCall(heldCall)
-            const reloadA = getRunbook(dirA, { reload: "watch" })
+            const reloadA = getRunbook(dirA)
             await hold.held
             const b = await getRunbook(dirB)
             const registryB = runtimeModule.executableRegistry
@@ -337,6 +359,50 @@ describe("runbook IPC handlers", () => {
           WATCH_TEST_TIMEOUT_MS,
         )
       }
+
+      it("ends on the newer runbook's session when the older load is still starting its own", async () => {
+        // Call 3 of opening A starts its session.
+        const hold = holdRunPromiseCall(3)
+        const openA = getRunbook(dirA)
+        await hold.held
+        const openB = getRunbook(dirB)
+        // B can't finish before A's session has started, so there is nothing
+        // to await: give it time to get as far as it can.
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200)
+        })
+        hold.release()
+
+        expect<unknown>(await openA).toEqual({ superseded: true })
+        const b = await openB
+        expect(sessionManager.getRunbookPath()).toBe(b.path)
+        expect(sessions.persistence.currentSession()?.id).toBe(b.sessionId)
+        expect(runtimeModule.runbookConfig.localPath).toBe(b.path)
+      })
+
+      it("starts no session for a load overtaken while it waits for its turn", async () => {
+        // Call 3 of opening B starts its session, in B's turn.
+        const hold = holdRunPromiseCall(3)
+        const openB = getRunbook(dirB)
+        await hold.held
+        // A reads its file and queues for a turn behind B's.
+        const openA = getRunbook(dirA)
+        await new Promise((resolve) => {
+          setTimeout(resolve, 200)
+        })
+        // B again, overtaking A before A's turn comes.
+        const reopenB = getRunbook(dirB)
+        hold.release()
+
+        expect<unknown>(await openA).toEqual({ superseded: true })
+        expect<unknown>(await openB).toEqual({ superseded: true })
+        const b = await reopenB
+        expect(sessions.persistence.currentSession()?.id).toBe(b.sessionId)
+        const runbookA = { path: path.join(dirA, "runbook.mdx"), remoteSource: undefined }
+        expect(
+          await runtimeModule.runtime.runPromise(sessions.store.latestForRunbook(runbookA)),
+        ).toBeUndefined()
+      })
     })
 
     describe("session working dir", () => {
@@ -355,21 +421,340 @@ describe("runbook IPC handlers", () => {
           }),
         )
 
-      it("keeps a block's cd across a watch-mode reload, and resets it on a re-open", async () => {
-        await getRunbook(dirA)
-        const sub = path.join(dirA, "sub")
-        fs.mkdirSync(sub)
-        await cdInSession(dirA, sub)
+      it("starts in the session's own directory, not the runbook's folder", async () => {
+        const result = await getRunbook(dirA)
 
-        await getRunbook(dirA, { reload: "watch" })
+        const sessionDir = path.join(sessions.dirsRoot, result.sessionId)
+        expect(await workingDir()).toBe(sessionDir)
+        expect(fs.statSync(sessionDir).isDirectory()).toBe(true)
+        expect(result.sessionDir).toBe(sessionDir)
+      })
+
+      it("keeps a block's cd when the runbook is loaded again, as after a restart", async () => {
+        const { sessionId } = await getRunbook(dirA)
+        const sessionDir = path.join(sessions.dirsRoot, sessionId)
+        const sub = path.join(sessionDir, "sub")
+        fs.mkdirSync(sub)
+        await cdInSession(sessionDir, sub)
+
+        // A watch-mode reload, or a re-open after a close
+        const reloaded = await getRunbook(dirA)
         expect(await workingDir()).toBe(sub)
+        // The session's directory is where it started, wherever a block has moved to.
+        expect(reloaded.sessionDir).toBe(sessionDir)
         // resetSession goes back to where the session started, not the cd.
         await runtimeModule.runtime.runPromise(sessionManager.resetSession())
-        expect(await workingDir()).toBe(dirA)
+        expect(await workingDir()).toBe(sessionDir)
+      })
+    })
 
-        await cdInSession(dirA, sub)
+    describe("saved sessions", () => {
+      const sessionEnv = async () =>
+        (await runtimeModule.runtime.runPromise(sessionManager.getExecContext())).env
+
+      /** What quitting and starting the app again leaves: the database, and no live session. */
+      const restartApp = () => {
+        markRunbookClosed()
+        sessionManager.deleteSession()
+      }
+
+      it("resumes a runbook's session after a restart, env and working dir included", async () => {
+        const first = await getRunbook(dirA)
+        const sub = path.join(sessions.dirsRoot, first.sessionId, "sub")
+        fs.mkdirSync(sub)
+        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+        const start = await runtimeModule.runtime.runPromise(sessionManager.getExecContext())
+        await runtimeModule.runtime.runPromise(
+          sessionManager.applyCapturedEnv({
+            before: start.env,
+            after: start.env,
+            startWorkDir: start.workDir,
+            pwd: sub,
+            generation: start.generation,
+          }),
+        )
+        restartApp()
+
+        const second = await getRunbook(dirA)
+
+        expect(second.sessionId).toBe(first.sessionId)
+        expect(first.sessionName).toMatch(/^[a-z]+-[a-z]+$/)
+        expect(second.sessionName).toBe(first.sessionName)
+        expect((await sessionEnv()).FROM_BLOCK).toBe("1")
+        expect(
+          (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir,
+        ).toBe(sub)
+      })
+
+      it("keeps one session per runbook when switching between them", async () => {
+        const a = await getRunbook(dirA)
+        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_A: "1" }))
+
+        const b = await getRunbook(dirB)
+        expect(b.sessionId).not.toBe(a.sessionId)
+        expect((await sessionEnv()).FROM_A).toBeUndefined()
+
+        expect((await getRunbook(dirA)).sessionId).toBe(a.sessionId)
+        expect((await sessionEnv()).FROM_A).toBe("1")
+      })
+
+      it("registers a resumed session's tokens for log redaction", async () => {
+        const { redactSecrets } = await import("../../../src/domain/vcs/redact.ts")
+        const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
         await getRunbook(dirA)
-        expect(await workingDir()).toBe(dirA)
+        // Straight into the session, as a script's `export` would: nothing
+        // registered this value in this run.
+        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: token }))
+        expect(redactSecrets(`token ${token}`)).toContain(token)
+        restartApp()
+
+        await getRunbook(dirA)
+
+        expect(redactSecrets(`token ${token}`)).not.toContain(token)
+      })
+
+      it("binds a resumed session's git credentials to the hosts they were bound to", async () => {
+        const { vcsSessionMeta, saveVcsSessionMeta } = runtimeModule
+        await getRunbook(dirA)
+        vcsSessionMeta.set("github", { host: "ghe.example.com", source: "oauth" })
+        saveVcsSessionMeta()
+
+        await getRunbook(dirB)
+        expect(vcsSessionMeta.size).toBe(0)
+        restartApp()
+
+        await getRunbook(dirA)
+        expect(Object.fromEntries(vcsSessionMeta)).toEqual({
+          github: { host: "ghe.example.com", source: "oauth" },
+        })
+      })
+
+      it("returns what the session's history says each block was left as", async () => {
+        const form = { values: { region: "us-east-1" }, submitted: true }
+        const record = (sessionId: string, payload: unknown) =>
+          runtimeModule.runtime.runPromise(
+            sessions.persistence.recordEvent(sessionId, {
+              blockId: "config",
+              kind: "inputs",
+              payload,
+            }),
+          )
+        const first = await getRunbook(dirA)
+        expect(first.blockStates).toEqual([])
+        await record(first.sessionId, form)
+
+        // Opening the runbook again, as after a close, reads the history as it is now.
+        const saved = [{ blockId: "config", kind: "inputs", payload: form }]
+        expect((await getRunbook(dirA)).blockStates).toEqual(saved)
+        restartApp()
+        expect((await getRunbook(dirA)).blockStates).toEqual(saved)
+
+        // Another runbook has a session, and so a history, of its own.
+        expect((await getRunbook(dirB)).blockStates).toEqual([])
+
+        // A reset session starts with none, and the next load resumes that one.
+        await getRunbook(dirA)
+        resetToNewSession()
+        const reset = await getRunbook(dirA)
+        expect(reset.blockStates).toEqual([])
+        await record(reset.sessionId, { values: { region: "eu-west-1" }, submitted: false })
+        restartApp()
+        expect((await getRunbook(dirA)).blockStates).toEqual([
+          {
+            blockId: "config",
+            kind: "inputs",
+            payload: { values: { region: "eu-west-1" }, submitted: false },
+          },
+        ])
+      })
+
+      it("says when a resumed session was last used, on the load that resumed it only", async () => {
+        const first = await getRunbook(dirA)
+        expect(first.sessionResumedFrom).toBeUndefined()
+        // A reload in the same session resumes nothing.
+        expect((await getRunbook(dirA)).sessionResumedFrom).toBeUndefined()
+        await new Promise((resolve) => {
+          setTimeout(resolve, 5)
+        })
+        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+        const [listed] = await runtimeModule.runtime.runPromise(sessions.persistence.listSessions())
+        restartApp()
+
+        const resumed = await getRunbook(dirA)
+
+        expect(resumed.sessionId).toBe(first.sessionId)
+        expect(resumed.sessionResumedFrom).toBe(listed!.lastUsedAt)
+        expect((await getRunbook(dirA)).sessionResumedFrom).toBeUndefined()
+
+        resetToNewSession()
+        expect((await getRunbook(dirA)).sessionResumedFrom).toBeUndefined()
+      })
+
+      it("opens the runbook with its blocks as new when the history can't be read", async () => {
+        const { sessionId } = await getRunbook(dirA)
+        const { Effect } = await import("effect")
+        const { SessionStoreError } = await import("../../../src/errors/index.ts")
+        const read = spyOn(sessions.store, "latestEvents").mockReturnValue(
+          Effect.fail(new SessionStoreError({ message: "disk I/O error" })),
+        )
+
+        try {
+          const result = await getRunbook(dirA)
+
+          expect(result.sessionId).toBe(sessionId)
+          expect(result.blockStates).toEqual([])
+        } finally {
+          read.mockRestore()
+        }
+      })
+
+      describe("resetToNewSession", () => {
+        it("reloads the open runbook under a new, empty session", async () => {
+          const first = await getRunbook(dirA, { remoteSource: "https://example.com/acme/a" })
+          await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+
+          const from = sent.length
+          resetToNewSession()
+          // The renderer answers file:open-runbook by loading that runbook.
+          const reopen = sent.slice(from).find((m) => m.channel === "file:open-runbook")!
+          expect(reopen.payload).toEqual({
+            path: first.path,
+            remoteSource: "https://example.com/acme/a",
+          })
+          const second = await getRunbook(first.path, {
+            remoteSource: "https://example.com/acme/a",
+          })
+
+          expect(second.sessionId).not.toBe(first.sessionId)
+          expect(second.sessionName).not.toBe(first.sessionName)
+          expect((await sessionEnv()).FROM_BLOCK).toBeUndefined()
+          expect(
+            (await runtimeModule.runtime.runPromise(sessionManager.getSession())).workingDir,
+          ).toBe(path.join(sessions.dirsRoot, second.sessionId))
+          // One request starts one session: the next load of the runbook keeps it.
+          expect((await getRunbook(first.path)).sessionId).toBe(second.sessionId)
+        })
+
+        it("is the session the runbook resumes after a restart", async () => {
+          const first = await getRunbook(dirA)
+          resetToNewSession()
+          const second = await getRunbook(first.path)
+          restartApp()
+
+          expect((await getRunbook(dirA)).sessionId).toBe(second.sessionId)
+        })
+
+        it("does nothing while no runbook is open", async () => {
+          await getRunbook(dirA)
+          closeRunbook()
+
+          const from = sent.length
+          resetToNewSession()
+
+          expect(sent.slice(from)).toEqual([])
+        })
+      })
+
+      describe("expectLaunch", () => {
+        const launchDirOf = (id: string) =>
+          runtimeModule.runtime.runPromise(sessions.store.get(id)).then((s) => s?.launchDir)
+
+        it("records the directory a runbook was launched from", async () => {
+          expectLaunch({ source: dirA, launchDir: "/home/me/project", sessionId: undefined })
+
+          const a = await getRunbook(dirA)
+
+          expect(await launchDirOf(a.sessionId)).toBe("/home/me/project")
+        })
+
+        it("applies only to the runbook that was launched", async () => {
+          expectLaunch({ source: dirA, launchDir: "/home/me/project", sessionId: undefined })
+
+          const b = await getRunbook(dirB)
+          expect(await launchDirOf(b.sessionId)).toBeUndefined()
+
+          const a = await getRunbook(dirA)
+          expect(await launchDirOf(a.sessionId)).toBe("/home/me/project")
+        })
+
+        it("matches a remote runbook by its URL", async () => {
+          const url = "https://github.com/acme/runbooks//a"
+          expectLaunch({ source: url, launchDir: "/home/me/project", sessionId: undefined })
+
+          const a = await getRunbook(dirA, { remoteSource: url })
+
+          expect(await launchDirOf(a.sessionId)).toBe("/home/me/project")
+        })
+
+        it("resumes the named session instead of the runbook's latest", async () => {
+          const older = await getRunbook(dirA)
+          resetToNewSession()
+          const newer = await getRunbook(older.path)
+          expect(newer.sessionId).not.toBe(older.sessionId)
+
+          // `runbooks` run in the directory the older session was launched from.
+          expectLaunch({ source: older.path, launchDir: "/older", sessionId: older.sessionId })
+          const resumed = await getRunbook(older.path)
+
+          expect(resumed.sessionId).toBe(older.sessionId)
+          expect(await launchDirOf(older.sessionId)).toBe("/older")
+        })
+
+        it("moves the open runbook's session to the directory it was launched from again", async () => {
+          expectLaunch({ source: dirA, launchDir: "/first", sessionId: undefined })
+          const a = await getRunbook(dirA)
+          await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ KEPT: "1" }))
+
+          expectLaunch({ source: dirA, launchDir: "/second", sessionId: undefined })
+          const again = await getRunbook(dirA)
+
+          expect(again.sessionId).toBe(a.sessionId)
+          expect((await sessionEnv()).KEPT).toBe("1")
+          expect(await launchDirOf(a.sessionId)).toBe("/second")
+        })
+
+        it("keeps the open session as it is when the launch names it", async () => {
+          const a = await getRunbook(dirA)
+          const manifest = { templateId: "t", outputDir: "/out", files: [], timestamp: 0 }
+          runtimeModule.manifestStore.set("t", manifest as never)
+
+          expectLaunch({ source: dirA, launchDir: "/again", sessionId: a.sessionId })
+          const again = await getRunbook(dirA)
+
+          expect(again.sessionId).toBe(a.sessionId)
+          // Nothing a session switch resets was reset.
+          expect(runtimeModule.manifestStore.get("t")).toBe(manifest as never)
+          expect(await launchDirOf(a.sessionId)).toBe("/again")
+          runtimeModule.manifestStore.clear()
+        })
+
+        it("applies to one load: the next load of the runbook keeps the session it has", async () => {
+          const older = await getRunbook(dirA)
+          resetToNewSession()
+          const newer = await getRunbook(older.path)
+          expectLaunch({ source: older.path, launchDir: "/older", sessionId: older.sessionId })
+          expect((await getRunbook(older.path)).sessionId).toBe(older.sessionId)
+
+          resetToNewSession()
+          const newest = await getRunbook(older.path)
+          // A watch-mode reload, after the launch was used up.
+          const reloaded = await getRunbook(older.path)
+
+          expect(newest.sessionId).not.toBe(newer.sessionId)
+          expect(reloaded.sessionId).toBe(newest.sessionId)
+        })
+      })
+
+      describe("isSessionOpen", () => {
+        it("is true for the loaded runbook's session until the runbook is closed", async () => {
+          const a = await getRunbook(dirA)
+          expect(isSessionOpen(a.sessionId)).toBe(true)
+          expect(isSessionOpen("another-session")).toBe(false)
+
+          closeRunbook()
+
+          expect(isSessionOpen(a.sessionId)).toBe(false)
+        })
       })
     })
 
@@ -567,6 +952,21 @@ describe("runbook IPC handlers", () => {
         expect(runtimeModule.executableRegistry).not.toBe(registryB)
         expect(greetHash()).not.toBe(frozenHash)
         expect(registryUpdatesSince(from)).toBe(1)
+      })
+
+      it("with --disable-live-file-reload, keeps the registry when the runbook starts a new session", async () => {
+        setRunbookConfig({ ...originalRunbookConfig, disableLiveFileReload: true })
+        const first = await getRunbook(dirA)
+        const frozen = runtimeModule.executableRegistry
+        fs.writeFileSync(path.join(dirA, "runbook.mdx"), runbookWith("echo a-edited"))
+
+        resetToNewSession()
+        const from = sent.length
+        const second = await getRunbook(first.path)
+
+        expect(second.sessionId).not.toBe(first.sessionId)
+        expect(runtimeModule.executableRegistry).toBe(frozen)
+        expect(registryUpdatesSince(from)).toBe(0)
       })
 
       it("with --disable-live-file-reload, a load that overtakes a switch doesn't keep the previous runbook's registry", async () => {

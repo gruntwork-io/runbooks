@@ -92,7 +92,8 @@ function Inputs({
   // applies to any remount under the same RunbookContext, not just a toggle
   // (a reload, or another runbook reusing the id), so it is limited to the
   // embedded variant, the only one a toggle remounts. A standalone Inputs
-  // always starts from its own defaults.
+  // starts from its own defaults. On top of either come the values the
+  // session's history has for this block (see useInputRegistration).
   const { blockInputs } = useRunbookContext()
   const [registeredValues] = useState(() =>
     variant === "embedded" ? blockInputs[id]?.values : undefined,
@@ -122,6 +123,7 @@ function Inputs({
     isDuplicate,
     isNormalizedCollision,
     collidingId,
+    formConfig,
     initialData,
     hasSubmitted,
     handleAutoUpdate,
@@ -132,6 +134,7 @@ function Inputs({
     boilerplateConfig: boilerplateConfigWithPrefilledVariables,
     validationError,
     extraError: inlineContentError,
+    alwaysSubmitted: variant === "embedded",
   })
 
   // For embedded variant, automatically submit when form is ready
@@ -176,7 +179,7 @@ function Inputs({
       <BoilerplateInputsForm
         id={id}
         blockType="Inputs"
-        boilerplateConfig={boilerplateConfigWithPrefilledVariables}
+        boilerplateConfig={formConfig}
         initialData={initialData}
         onAutoRender={handleAutoUpdate}
         onGenerate={handleSubmit}

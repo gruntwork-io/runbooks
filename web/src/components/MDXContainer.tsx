@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react"
-import type { Ref } from "react"
+import type { ReactNode, Ref } from "react"
 import { evaluate } from "@mdx-js/mdx"
 import * as runtime from "react/jsx-runtime"
 import remarkGfm from "remark-gfm"
@@ -55,6 +55,8 @@ interface MDXContainerProps {
   runbookFilePath?: string | undefined
   remoteSource?: string | undefined
   assetHost?: string | undefined
+  /** Shown at the top of the runbook, where it scrolls away with it and covers nothing */
+  banner?: ReactNode
   ref?: Ref<HTMLDivElement> | undefined
 }
 
@@ -64,6 +66,7 @@ function MDXContainer({
   runbookFilePath,
   remoteSource,
   assetHost,
+  banner,
   className,
   ref,
 }: MDXContainerProps) {
@@ -138,6 +141,7 @@ function MDXContainer({
           assetHost={assetHost}
         >
           <CustomMDXComponentErrorBoundary onError={setError}>
+            {banner && <div className="mb-4">{banner}</div>}
             {/* Security banner displayed at the top of every runbook */}
             <div className="mb-4">
               <Admonition

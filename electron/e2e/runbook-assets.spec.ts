@@ -25,6 +25,7 @@ import * as path from "path"
 import * as fs from "fs"
 import * as os from "os"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -144,7 +145,12 @@ test.describe("Runbook assets", () => {
   async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
     const app = await electron.launch({
       // --user-data-dir isolates the single-instance lock and trust state.
-      args: [MAIN_ENTRY, `--user-data-dir=${path.join(tmpDir, "user-data")}`, runbookDir],
+      args: [
+        MAIN_ENTRY,
+        MOCK_KEYCHAIN,
+        `--user-data-dir=${path.join(tmpDir, "user-data")}`,
+        runbookDir,
+      ],
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",

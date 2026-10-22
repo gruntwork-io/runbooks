@@ -126,11 +126,7 @@ export function runBoilerplateCli(
         const tExec = Date.now()
         // Drain output (the spawner collects lines and emits them once the
         // process exits; stderr lines carry user-facing error detail).
-        const lines = yield* Stream.runCollect(proc.output).pipe(
-          Effect.catchAll(() =>
-            Effect.succeed<Iterable<{ line: string; source: "stdout" | "stderr" }>>([]),
-          ),
-        )
+        const lines = yield* Stream.runCollect(proc.output)
         const stdout: string[] = []
         const stderr: string[] = []
         for (const l of lines) {
@@ -138,7 +134,7 @@ export function runBoilerplateCli(
           else stderr.push(l.line)
         }
 
-        const code = yield* proc.exitCode.pipe(Effect.catchAll(() => Effect.succeed(1)))
+        const code = yield* proc.exitCode
         const dExec = Date.now() - tExec
         console.log("[boilerplate subprocess] timing(ms)", {
           command: label,
@@ -149,14 +145,12 @@ export function runBoilerplateCli(
         })
         if (code !== 0) {
           const stderrText = stderr.join("\n").trim()
-          return yield* Effect.fail(
-            new RenderError({
-              message:
-                stderrText.length > 0
-                  ? `${label} exited with code ${code}: ${stderrText}`
-                  : `${label} exited with code ${code}`,
-            }),
-          )
+          return yield* new RenderError({
+            message:
+              stderrText.length > 0
+                ? `${label} exited with code ${code}: ${stderrText}`
+                : `${label} exited with code ${code}`,
+          })
         }
         return { stdout, stderr }
       })
