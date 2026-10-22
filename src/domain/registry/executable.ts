@@ -6,6 +6,9 @@
  * maintains an in-memory registry of all executables. Only registered
  * executables can be run via the API, preventing arbitrary command
  * invocation.
+ *
+ * The runbook is parsed as the renderer parses it (src/mdx.ts), so each block
+ * registers under the id the renderer gives it, with the script it shows.
  */
 
 import { Effect } from "effect"
@@ -15,7 +18,7 @@ import * as path from "node:path"
 import { FileSystem } from "../../services/FileSystem.js"
 import { computeContentHash } from "../workspace/file.js"
 import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
-import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../mdx.js"
+import { parseMdx, stringProp, type MdxElement, type Props } from "../../mdx.ts"
 import { extractToolList } from "../prerequisites/spec.ts"
 import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
@@ -29,70 +32,6 @@ import type { Executable, ExecutableType, ScriptFileChange } from "../../types.j
  * renderer completes it without running anything.
  */
 const SCRIPT_COMPONENT_TYPES = ["Command", "Check", "Finish"] as const
-
-// ---------------------------------------------------------------------------
-// Regex helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Build a regex that matches both self-closing and container MDX components:
- *   <Type ... /> or <Type ...>...</Type>
- *
- * The props pattern handles characters inside quoted attribute values including
- * double-quoted, single-quoted, and JSX expression values with template
- * literals.
- */
-export function getComponentRegex(componentType: string): RegExp {
-  const propsPattern = `(?:"[^"]*"|'[^']*'|\\{\`[^\`]*\`\\}|\\{"[^"]*"\\}|\\{'[^']*'\\}|[^>])*?`
-  const pattern = `<${componentType}\\s+(${propsPattern})(?:/>|>([\\s\\S]*?)</${componentType}>)`
-  return new RegExp(pattern, "g")
-}
-
-/**
- * Matches one `name=value` prop. Each match consumes the whole value, so text
- * inside a value (e.g. `--external-id="..."` in a command) is never read as a
- * prop name. Values in other forms (`timeout={300}`, bare `usePty`) are skipped.
- */
-const PROP_REGEX =
-  /(?:^|\s)([A-Za-z_$][\w$-]*)=(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\}|\{(true|false)\})/g
-
-/**
- * Extract a prop value from an MDX component props string.
- *
- * Handles formats:
- *   prop="value"  prop='value'  prop={`value`}  prop={"value"}  prop={'value'}
- *   prop={true}  prop={false}
- */
-export function extractProp(props: string, propName: string): string {
-  for (const match of props.matchAll(PROP_REGEX)) {
-    if (match[1] !== propName) continue
-    for (let i = 2; i < match.length; i++) {
-      if (match[i] !== undefined) return match[i]!
-    }
-  }
-
-  return ""
-}
-
-/**
- * Extract a prop whose value is a literal array of strings, such as
- * `outputs={["region", 'zone']}`. Returns undefined when the prop is absent
- * or its array holds anything other than quoted strings.
- */
-export function extractStringArrayProp(props: string, propName: string): string[] | undefined {
-  const match = new RegExp(`(?:^|\\s)${propName}=\\{\\s*\\[([^\\]]*)\\]\\s*\\}`).exec(props)
-  if (!match) return undefined
-  const body = match[1]!
-  const items: string[] = []
-  const item = /\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)\s*(,|$)/y
-  while (item.lastIndex < body.length && body.slice(item.lastIndex).trim() !== "") {
-    const found = item.exec(body)
-    if (!found) return undefined
-    items.push(found[1] ?? found[2] ?? found[3]!)
-    if (found[4] === "") break
-  }
-  return items
-}
 
 // ---------------------------------------------------------------------------
 // ID computation
@@ -112,12 +51,13 @@ export function computeExecutableId(componentId: string, content: string): strin
 
 /**
  * Compute a deterministic component ID when no explicit `id` prop is provided.
- * Uses SHA-256 of the component type and props, prefixed with the type.
+ * Uses SHA-256 of the component type and its props as written, prefixed with
+ * the type.
  */
-export function computeComponentId(componentType: string, props: string): string {
+export function computeComponentId(componentType: string, propsSource: string): string {
   const hash = crypto
     .createHash("sha256")
-    .update(componentType + props)
+    .update(componentType + propsSource)
     .digest("hex")
   return `${componentType}_${hash.slice(0, 8)}`
 }
@@ -140,27 +80,13 @@ function extractTemplateVars(content: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// String unescaping
-// ---------------------------------------------------------------------------
-
-/** Unescape common MDX/HTML entities. */
-function unescapeString(s: string): string {
-  return s
-    .replaceAll("&quot;", '"')
-    .replaceAll("&apos;", "'")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">")
-    .replaceAll("&amp;", "&")
-}
-
-// ---------------------------------------------------------------------------
 // Parsed component (internal)
 // ---------------------------------------------------------------------------
 
 export interface ParsedComponent {
   id: string
   type: string
-  props: string
+  props: Props
   content: string
   hasExplicitId: boolean
   /** Offset of the component's opening tag in the MDX source. */
@@ -168,28 +94,22 @@ export interface ParsedComponent {
 }
 
 /**
- * Parse all components of a given type from MDX content, skipping those inside
- * fenced code blocks (documentation examples).
+ * The components of a given type among a runbook's elements (parseMdx), in
+ * document order. A documentation example in a code fence is text, not a
+ * component. Of components that share an id, the first one wins.
  */
-export function parseComponents(content: string, componentType: string): ParsedComponent[] {
-  const re = getComponentRegex(componentType)
-  const codeBlockRanges = findFencedCodeBlockRanges(content)
-
+export function findComponents(
+  elements: readonly MdxElement[],
+  componentType: string,
+): ParsedComponent[] {
   const components: ParsedComponent[] = []
   const seen = new Set<string>()
 
-  let match: RegExpExecArray | null
-  while ((match = re.exec(content)) !== null) {
-    // Skip components inside fenced code blocks
-    if (isInsideFencedCodeBlock(match.index, codeBlockRanges)) {
-      continue
-    }
+  for (const element of elements) {
+    if (element.name !== componentType) continue
 
-    const props = match[1] ?? ""
-    const componentContent = match[2] ?? ""
-
-    const explicitId = extractProp(props, "id")
-    const id = explicitId || computeComponentId(componentType, props)
+    const explicitId = stringProp(element.props, "id")
+    const id = explicitId || computeComponentId(componentType, element.propsSource)
 
     if (seen.has(id)) continue
     seen.add(id)
@@ -197,10 +117,10 @@ export function parseComponents(content: string, componentType: string): ParsedC
     components.push({
       id,
       type: componentType,
-      props,
-      content: componentContent,
+      props: element.props,
+      content: element.content,
       hasExplicitId: explicitId !== "",
-      index: match.index,
+      index: element.index,
     })
   }
 
@@ -252,12 +172,20 @@ export class ExecutableRegistry {
       const content = contentOverride ?? (yield* fs.readFile(runbookPath))
       const runbookDir = path.dirname(runbookPath)
 
+      // The renderer can't show a runbook that isn't valid MDX, so none of
+      // its blocks can run.
+      const parsed = parseMdx(content)
+      if (!parsed.ok) {
+        this.warnings.push(`The runbook is not valid MDX: ${parsed.error}`)
+        return
+      }
+
       for (const componentType of SCRIPT_COMPONENT_TYPES) {
-        const components = parseComponents(content, componentType)
+        const components = findComponents(parsed.elements, componentType)
 
         for (const comp of components) {
-          const commandProp = extractProp(comp.props, "command")
-          const pathProp = extractProp(comp.props, "path")
+          const commandProp = stringProp(comp.props, "command")
+          const pathProp = stringProp(comp.props, "path")
 
           if (commandProp) {
             this.registerInlineEntry(comp.id, componentType, commandProp)
@@ -269,7 +197,7 @@ export class ExecutableRegistry {
 
       // Registered like a script, so exec:run only checks the tools a
       // runbook lists. The tool list can make it run each tool.
-      for (const comp of parseComponents(content, "Prerequisites")) {
+      for (const comp of findComponents(parsed.elements, "Prerequisites")) {
         const toolList = extractToolList(comp.content)
         if (toolList !== null) this.registerToolListEntry(comp.id, toolList)
       }
@@ -278,8 +206,8 @@ export class ExecutableRegistry {
 
   /**
    * Register a <Prerequisites> block's tool list. Unlike a `command` prop,
-   * it's code-fence text, which MDX never entity-escapes, so it's kept as
-   * written.
+   * it's code-fence text, whose character references MDX never decodes, so
+   * it's kept as written.
    */
   private registerToolListEntry(componentId: string, toolList: string): void {
     const entryId = computeExecutableId(componentId, toolList)
@@ -310,8 +238,6 @@ export class ExecutableRegistry {
     componentType: string,
     scriptContent: string,
   ): void {
-    scriptContent = unescapeString(scriptContent)
-
     const entryId = computeExecutableId(componentId, scriptContent)
 
     if (this.entries.has(entryId)) {
