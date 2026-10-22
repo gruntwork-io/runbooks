@@ -120,6 +120,8 @@ export interface GoogleAccountInfo {
   accountType?: "service_account" | "user"
   credentialType?: GoogleCredentialType
   scopes?: string[]
+  /** When a bare access token expires, as an ISO timestamp. Other credentials refresh. */
+  expiresAt?: string
   /** Absolute path of the credentials file backing this session. Not a secret. */
   credentialsPath?: string
 }

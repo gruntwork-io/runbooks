@@ -115,6 +115,8 @@ export interface BoilerplateConfig {
   sections: Section[]
   outputDependencies: OutputDependency[]
   skipFiles: SkipFileRule[]
+  /** A hash of the template directory's files, when the config came from one (see hashTemplateDir) */
+  contentHash?: string
 }
 
 // ---------------------------------------------------------------------------

@@ -78,6 +78,15 @@ function setupExecEnvVars(
 // ---------------------------------------------------------------------------
 
 /**
+ * The name of a run's log file: when it started, sortable, plus a random
+ * suffix so two runs started in the same millisecond get files of their own.
+ */
+function logFileName(startedAt: Date): string {
+  const stamp = startedAt.toISOString().replace(/[:.]/g, "-")
+  return `${stamp}-${Math.random().toString(36).slice(2, 8)}.log`
+}
+
+/**
  * Determine exit status from exit code.
  * Exit code 0 = success, code 2 = warn, anything else = fail.
  * Timeout is always fail with exit code -1.
@@ -109,7 +118,9 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
  *  - Providing the session execution context (env, workDir)
  *  - Consuming the returned Stream and relaying events to the client (SSE, IPC, etc.)
  *
- * Temp files are cleaned up automatically via Effect Scope finalizers.
+ * The run's full log is written to a new file in `logsDir`, created if it is
+ * missing, and kept after the run. Temp files are cleaned up automatically
+ * via Effect Scope finalizers.
  */
 export const executeScript = (
   scriptContent: string,
@@ -118,6 +129,7 @@ export const executeScript = (
   sessionContext: SessionExecContext,
   workTreePath: string,
   outputPath: string,
+  logsDir: string,
 ) =>
   Effect.gen(function* () {
     log.debug("step 1: getting services")
@@ -145,7 +157,7 @@ export const executeScript = (
     // The script's log files: RUNBOOK_LOG, which the log_* helpers append to,
     // and one per level (RUNBOOK_INFO_LOG, ...). Anything the script runs can
     // append to them too, and the spawner follows them into the log stream
-    // and exec.log. Once the run ends they're deleted, and the helpers fall
+    // and the run's log file. Once the run ends they're deleted, and the helpers fall
     // back to stderr.
     const logChannelDir = yield* fs.mkdtemp("runbook-log-channels-")
     yield* Effect.addFinalizer(() =>
@@ -157,14 +169,11 @@ export const executeScript = (
     }
 
     log.debug("step 3b: creating log file")
-    // Create a durable log file for this execution. The spawner appends every
-    // output line here as it runs, so the file can be tailed externally
-    // and inspected after the fact. NOTE: unlike the dirs above, we intentionally
-    // do NOT register a cleanup finalizer — the file must outlive the execution
-    // so the user can open it from the surfaced path. These live under the OS
-    // temp dir, which the OS reclaims on its own schedule.
-    const logsDir = yield* fs.mkdtemp("runbook-logs-")
-    const logFilePath = `${logsDir}/exec.log`
+    // The spawner appends every output line here as it runs, so the file can
+    // be tailed while the script runs and opened after it. Unlike the dirs
+    // above, it has no cleanup finalizer: it outlives the run.
+    yield* fs.mkdir(logsDir, { recursive: true })
+    const logFilePath = `${logsDir}/${logFileName(new Date())}`
     yield* fs.writeFile(logFilePath, "")
 
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
@@ -248,12 +257,12 @@ export const executeScript = (
     // sees it. The kill also ends `output`, which unblocks the log drain.
     const timedOutRef = yield* Ref.make(false)
     yield* process.exitCode.pipe(
-      Effect.timeoutFail({
+      Effect.timeoutOrElse({
         duration: effectiveTimeoutMs,
-        onTimeout: () => new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs }),
+        orElse: () => Effect.fail(new ExecTimeoutError({ timeoutMs: effectiveTimeoutMs })),
       }),
       Effect.catchTag("ExecTimeoutError", () =>
-        Ref.set(timedOutRef, true).pipe(Effect.zipRight(process.kill)),
+        Ref.set(timedOutRef, true).pipe(Effect.andThen(process.kill)),
       ),
       Effect.forkScoped,
     )
@@ -274,7 +283,7 @@ export const executeScript = (
 
     // Build completion events as an Effect that runs after logs drain.
     // We return logStream and completionEffect separately because
-    // Stream.concat is unreliable within forkDaemon + Effect.scoped —
+    // Stream.concat is unreliable within forkDetach + Effect.scoped —
     // the second stream's unwrap never executes after the first ends.
     const completionEffect = Effect.gen(function* () {
       const exitCode = yield* process.exitCode
@@ -321,7 +330,7 @@ export const executeScript = (
 
       if (isSuccessOrWarn) {
         const capturedFiles: CapturedFile[] = yield* captureFilesFromDir(filesDir, outputPath).pipe(
-          Effect.catchAll(() => Effect.succeed([] as CapturedFile[])),
+          Effect.catch(() => Effect.succeed([] as CapturedFile[])),
         )
 
         if (capturedFiles.length > 0) {
@@ -330,7 +339,7 @@ export const executeScript = (
           // captured files. A failed walk must not fail a successful run; the
           // event then carries no tree and the panel keeps what it had.
           const built = yield* buildFileTree(outputPath).pipe(
-            Effect.catchAll(() => Effect.succeed(null)),
+            Effect.catch(() => Effect.succeed(null)),
           )
           events.push({
             _tag: "files_captured",

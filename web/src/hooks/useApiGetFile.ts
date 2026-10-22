@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { useIpc } from "./useIpc"
 import type { UseIpcReturn } from "./useIpc"
+import type { SavedBlockState } from "../../../src/domain/session/history"
 
 // API response wrapper for hooks that specifically request file data
 export interface GetFileReturn {
@@ -15,6 +16,16 @@ export interface GetFileReturn {
   remoteSource?: string
   /** The host of the runbook's runbook-asset:// URLs (runbook:get only) */
   assetHost?: string
+  /** The session the runbook was opened in (runbook:get only) */
+  sessionId?: string
+  /** The name the title bar shows that session as, e.g. `elegant-elephant` (runbook:get only) */
+  sessionName?: string
+  /** That session's own directory, where its scripts start and its files are written (runbook:get only) */
+  sessionDir?: string
+  /** When that session was last used, on the load that resumed it (runbook:get only) */
+  sessionResumedFrom?: string
+  /** What that session's history says each block was left as (runbook:get only) */
+  blockStates?: SavedBlockState[]
 }
 
 export function useGetFile(path: string, shouldFetch: boolean = true): UseIpcReturn<GetFileReturn> {

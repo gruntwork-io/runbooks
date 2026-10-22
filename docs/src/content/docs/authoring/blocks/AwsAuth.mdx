@@ -298,11 +298,14 @@ echo "AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' <<< "$CREDS")" >> "$R
 echo "sensitive:AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' <<< "$CREDS")" >> "$RUNBOOK_OUTPUT"
 echo "sensitive:AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' <<< "$CREDS")" >> "$RUNBOOK_OUTPUT"
 echo "AWS_REGION=us-west-2" >> "$RUNBOOK_OUTPUT"  # Optional: override region
+echo "AWS_CREDENTIAL_EXPIRATION=$(jq -r '.Credentials.Expiration' <<< "$CREDS")" >> "$RUNBOOK_OUTPUT"  # Optional
 ```
 
 The `sensitive:` prefix masks the secret key and session token in the Command's **View Outputs**. AwsAuth still reads them as `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. See [Sensitive outputs](/authoring/inputs-and-outputs/#sensitive-outputs).
 
 The `AWS_REGION` output is optional. If not provided, the AwsAuth block's `defaultRegion` prop is used.
+
+The `AWS_CREDENTIAL_EXPIRATION` output is optional too. With it, the block warns before the credentials expire, as [Expiring credentials](#expiring-credentials) describes. AwsAuth reads `AWS_CREDENTIAL_EXPIRATION` from the environment as well, with the source's prefix if it has one.
 
 When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers the result. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate, for example because temporary credentials have expired, the block shows the error and registers nothing.
 
@@ -316,6 +319,16 @@ When a user clicks "Use Different Credentials":
 2. The user must authenticate manually before any commands can access AWS
 
 Credentials for the wrong account, such as production when the user expected development, were not registered, so no script runs with them.
+
+## Expiring credentials
+
+Temporary credentials expire. AwsAuth knows when for:
+
+- an AWS SSO sign-in
+- a local profile with temporary credentials, such as one that assumes a role
+- credentials from the environment or from a Command's outputs that come with `AWS_CREDENTIAL_EXPIRATION`, the variable the AWS SDKs read
+
+Five minutes before the credentials expire, the block turns red, says when they expire, and offers **Sign in again**. Once they have expired, the block says so. It stays signed in until you sign in again, so a script that runs in the meantime gets the expired credentials. Keys entered on the **Static Credentials** tab come with no expiry, so the block never warns about them.
 
 ## Security
 
@@ -340,7 +353,7 @@ AWS operations often take effect immediately and can't be undone. They create re
 ### Credential handling
 
 - Authentication happens between your machine and AWS. Credentials are not sent to Gruntwork or any other server unless a script in your runbook sends them.
-- Credentials are stored only in your local Runbooks session and are not written to disk.
+- Credentials are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
 - Credentials are validated with STS GetCallerIdentity before they are registered to the session.
 
 ## Detailed example

@@ -37,6 +37,8 @@ export interface DetectionResult {
   readonly source?: "env" | "cli" | "config"
   readonly user?: VcsUserInfo | undefined
   readonly scopes?: string[] | undefined
+  /** When a valid token expires, as an ISO timestamp; undefined when it doesn't or isn't known. */
+  readonly expiresAt?: string | undefined
   readonly warnings: string[]
   readonly errorKind?: VcsTransportErrorKind
   /** HTTP status of a failed validation (renderer distinguishes 401/403). */
@@ -157,7 +159,6 @@ export interface VcsCredentialsShape {
   readonly markTransportDegraded: (host: string, code: string) => Effect.Effect<void>
 }
 
-export class VcsCredentials extends Context.Tag("VcsCredentials")<
-  VcsCredentials,
-  VcsCredentialsShape
->() {}
+export class VcsCredentials extends Context.Service<VcsCredentials, VcsCredentialsShape>()(
+  "VcsCredentials",
+) {}

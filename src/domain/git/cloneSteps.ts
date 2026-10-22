@@ -8,7 +8,7 @@
  * checks out the files directly inside each parent directory of the path,
  * including the repository root, so the result is not the subdirectory alone.
  */
-import { Either } from "effect"
+import { Result } from "effect"
 import { GitError } from "../../errors/index.ts"
 import { gitCloneArgs } from "./clone-args.ts"
 
@@ -42,11 +42,11 @@ export interface CloneStep {
  */
 export function normalizeRepoPath(
   repoPath: string | undefined,
-): Either.Either<string | undefined, GitError> {
+): Result.Result<string | undefined, GitError> {
   const trimmed = (repoPath ?? "").trim()
   const slashed = trimmed.replace(/\\/g, "/")
   if (/^(?:\/|[A-Za-z]:)/.test(slashed) || slashed.split("/").includes("..")) {
-    return Either.left(
+    return Result.fail(
       new GitError({
         command: "git sparse-checkout",
         stderr: `invalid repo path "${trimmed}": use a directory inside the repository, relative to its root`,
@@ -55,7 +55,7 @@ export function normalizeRepoPath(
     )
   }
   const normalized = slashed.replace(/^(?:\.\/+)+/, "").replace(/\/+$/, "")
-  return Either.right(normalized === "" || normalized === "." ? undefined : normalized)
+  return Result.succeed(normalized === "" || normalized === "." ? undefined : normalized)
 }
 
 /**
@@ -72,8 +72,8 @@ export function buildCloneSteps(
   url: string,
   dest: string,
   options: CloneStepOptions = {},
-): Either.Either<CloneStep[], GitError> {
-  return Either.map(normalizeRepoPath(options.repoPath), (repoPath) => {
+): Result.Result<CloneStep[], GitError> {
+  return Result.map(normalizeRepoPath(options.repoPath), (repoPath) => {
     // gitCloneArgs ends option parsing with `--`, so an option-like URL or
     // destination is never read as an option.
     const ref = options.ref

@@ -48,6 +48,7 @@ beforeEach(() => {
         secretAccessKey: "role-secret",
         sessionToken: "role-token",
         region: params.region,
+        expiresAt: "2026-10-03T13:00:00.000Z",
       }),
     validateCredentials: () => Effect.succeed(IDENTITY),
   }
@@ -78,7 +79,7 @@ describe("aws:sso-poll", () => {
     expect(regions).toEqual([SSO_REGION, SSO_REGION])
   })
 
-  it("replies success with the identity and keys for a pinned account and role", async () => {
+  it("replies success with the identity, keys and expiry for a pinned account and role", async () => {
     const reply = await handleSsoPoll({ ...POLL, accountId: "111111111111", roleName: "Admin" })
 
     expect(reply).toEqual({
@@ -87,6 +88,7 @@ describe("aws:sso-poll", () => {
       accessKeyId: "ASIA_ROLE",
       secretAccessKey: "role-secret",
       sessionToken: "role-token",
+      expiresAt: "2026-10-03T13:00:00.000Z",
     })
   })
 

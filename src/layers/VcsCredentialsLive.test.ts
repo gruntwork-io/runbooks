@@ -1,6 +1,6 @@
 import { describe, it, expect, setSystemTime, afterEach, spyOn } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
-import { VcsCredentials } from "../services/VcsCredentials.ts"
+import { VcsCredentials, type VcsCredentialsShape } from "../services/VcsCredentials.ts"
 import { VcsCredentialsLive } from "./VcsCredentialsLive.ts"
 import { GitHubApiError, GitLabApiError, VcsCliError } from "../errors/index.ts"
 import { makeTestEnvironment } from "../test-utils/TestEnvironment.ts"
@@ -40,7 +40,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
   // A ManagedRuntime memoizes the layer, so the service instance — and its
   // caches — persist across `use` calls, matching production.
   const runtime = ManagedRuntime.make(layer)
-  const use = <A, E>(f: (vcs: VcsCredentials["Type"]) => Effect.Effect<A, E>) =>
+  const use = <A, E>(f: (vcs: VcsCredentialsShape) => Effect.Effect<A, E>) =>
     runtime.runPromise(Effect.flatMap(VcsCredentials, f))
   return { use, calls: spawner.calls }
 }
@@ -332,10 +332,10 @@ describe("VcsCredentialsLive — probe gating", () => {
       }),
     })
     const result = await harness.use((vcs) =>
-      Effect.either(vcs.validateViaCli("gitlab", "git.corp.example", "glpat-secret", "cli")),
+      Effect.result(vcs.validateViaCli("gitlab", "git.corp.example", "glpat-secret", "cli")),
     )
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") expect(result.right.user.login).toBe("tanuki")
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") expect(result.success.user.login).toBe("tanuki")
 
     const apiCall = harness.calls.find((c) => c.command === "glab" && c.args[0] === "api")
     expect(apiCall).toBeDefined()
@@ -355,9 +355,9 @@ describe("VcsCredentialsLive — probe gating", () => {
       respond: respondWith({ "glab version": () => glabVersion }),
     })
     const result = await harness.use((vcs) =>
-      Effect.either(vcs.validateViaCli("gitlab", "gitlab.com", OAUTH_TOKEN, "env")),
+      Effect.result(vcs.validateViaCli("gitlab", "gitlab.com", OAUTH_TOKEN, "env")),
     )
-    expect(result._tag).toBe("Left")
+    expect(result._tag).toBe("Failure")
     // No glab api/auth spawn happened — only (at most) the version probe.
     expect(
       harness.calls.filter((c) => c.command === "glab" && c.args[0] !== "version"),
@@ -375,9 +375,9 @@ describe("VcsCredentialsLive — probe gating", () => {
       }),
     })
     const result = await harness.use((vcs) =>
-      Effect.either(vcs.validateViaCli("gitlab", "gitlab.com", OAUTH_TOKEN, "cli")),
+      Effect.result(vcs.validateViaCli("gitlab", "gitlab.com", OAUTH_TOKEN, "cli")),
     )
-    expect(result._tag).toBe("Right")
+    expect(result._tag).toBe("Success")
     const statusCall = harness.calls.find((c) => c.command === "glab" && c.args[0] === "auth")
     expect(statusCall).toBeDefined()
     expect(statusCall!.args).toEqual(["auth", "status", "--hostname", "gitlab.com"])
@@ -402,12 +402,12 @@ describe("VcsCredentialsLive — probe gating", () => {
       }),
     })
     const result = await harness.use((vcs) =>
-      Effect.either(vcs.validateViaCli("github", "github.com", "ghp_candidate", "manual")),
+      Effect.result(vcs.validateViaCli("github", "github.com", "ghp_candidate", "manual")),
     )
-    expect(result._tag).toBe("Right")
-    if (result._tag === "Right") {
-      expect(result.right.user.login).toBe("octocat")
-      expect(result.right.scopes).toEqual(["repo", "read:org"])
+    expect(result._tag).toBe("Success")
+    if (result._tag === "Success") {
+      expect(result.success.user.login).toBe("octocat")
+      expect(result.success.scopes).toEqual(["repo", "read:org"])
     }
     const apiCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "api")
     // --hostname pins the probe to github.com so GH_HOST can never retarget
@@ -423,12 +423,12 @@ describe("VcsCredentialsLive — probe gating", () => {
     // Not installed.
     const noGh = makeHarness({ respond: () => "ENOENT" })
     const notInstalled = await noGh.use((vcs) =>
-      Effect.either(vcs.validateViaCli("github", "github.com", "ghp_x", "manual")),
+      Effect.result(vcs.validateViaCli("github", "github.com", "ghp_x", "manual")),
     )
-    expect(notInstalled._tag).toBe("Left")
-    if (notInstalled._tag === "Left") {
-      expect(notInstalled.left).toBeInstanceOf(VcsCliError)
-      expect(notInstalled.left.kind).toBe("not-installed")
+    expect(notInstalled._tag).toBe("Failure")
+    if (notInstalled._tag === "Failure") {
+      expect(notInstalled.failure).toBeInstanceOf(VcsCliError)
+      expect(notInstalled.failure.kind).toBe("not-installed")
     }
 
     // Below the version floor (gh ≥ 2.26.0).
@@ -441,9 +441,9 @@ describe("VcsCredentialsLive — probe gating", () => {
       }),
     })
     const belowFloor = await oldGh.use((vcs) =>
-      Effect.either(vcs.validateViaCli("github", "github.com", "ghp_x", "manual")),
+      Effect.result(vcs.validateViaCli("github", "github.com", "ghp_x", "manual")),
     )
-    expect(belowFloor._tag).toBe("Left")
+    expect(belowFloor._tag).toBe("Failure")
 
     // API failure (e.g. stderr `API call failed` after a CLI upgrade).
     const apiFail = makeHarness({
@@ -456,10 +456,10 @@ describe("VcsCredentialsLive — probe gating", () => {
       }),
     })
     const api = await apiFail.use((vcs) =>
-      Effect.either(vcs.validateViaCli("github", "github.com", "ghp_x", "manual")),
+      Effect.result(vcs.validateViaCli("github", "github.com", "ghp_x", "manual")),
     )
-    expect(api._tag).toBe("Left")
-    if (api._tag === "Left") expect(api.left.kind).toBe("api")
+    expect(api._tag).toBe("Failure")
+    if (api._tag === "Failure") expect(api.failure.kind).toBe("api")
   })
 })
 
@@ -1055,9 +1055,9 @@ describe("VcsCredentialsLive — GitHub enterprise hosts", () => {
         respond: apiOk,
       })
       const result = await harness.use((vcs) =>
-        Effect.either(vcs.validateViaCli("github", GHES, "ghp_cand", "manual")),
+        Effect.result(vcs.validateViaCli("github", GHES, "ghp_cand", "manual")),
       )
-      expect(result._tag).toBe("Right")
+      expect(result._tag).toBe("Success")
       const apiCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "api")!
       expect(apiCall.args).toEqual(["api", "user", "-i", "--hostname", GHES])
       expect(apiCall.env!.GH_ENTERPRISE_TOKEN).toBe("ghp_cand")
@@ -1069,7 +1069,7 @@ describe("VcsCredentialsLive — GitHub enterprise hosts", () => {
     it("ghe.com: pins the tenant and uses GH_TOKEN", async () => {
       const harness = makeHarness({ env: { GH_ENTERPRISE_TOKEN: "ambient_e" }, respond: apiOk })
       await harness.use((vcs) =>
-        Effect.either(vcs.validateViaCli("github", GHEC, "ghp_cand", "manual")),
+        Effect.result(vcs.validateViaCli("github", GHEC, "ghp_cand", "manual")),
       )
       const apiCall = harness.calls.find((c) => c.command === "gh" && c.args[0] === "api")!
       expect(apiCall.args).toEqual(["api", "user", "-i", "--hostname", GHEC])
@@ -1080,10 +1080,10 @@ describe("VcsCredentialsLive — GitHub enterprise hosts", () => {
     it("an unparseable host fails without spawning gh api", async () => {
       const harness = makeHarness({ respond: apiOk })
       const result = await harness.use((vcs) =>
-        Effect.either(vcs.validateViaCli("github", "ftp://ghes.example.com", "ghp_cand", "manual")),
+        Effect.result(vcs.validateViaCli("github", "ftp://ghes.example.com", "ghp_cand", "manual")),
       )
-      expect(result._tag).toBe("Left")
-      if (result._tag === "Left") expect(result.left.kind).toBe("api")
+      expect(result._tag).toBe("Failure")
+      if (result._tag === "Failure") expect(result.failure.kind).toBe("api")
       expect(harness.calls.filter((c) => c.command === "gh" && c.args[0] === "api")).toHaveLength(0)
     })
   })

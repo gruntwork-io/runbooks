@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { Cause, Effect, Either, Exit, Fiber, Layer, TestClock, TestContext } from "effect"
+import { Cause, Effect, Result, Exit, Fiber, Layer } from "effect"
+import { TestClock } from "effect/testing"
 import { BundleProducer } from "../services/BundleProducer.ts"
 import type { OutputLine } from "../services/ProcessSpawner.ts"
 import { makeControlledSpawner } from "../test-utils/TestSpawner.ts"
@@ -101,7 +102,7 @@ describe("NodeBundleProducer", () => {
     // Interrupt-only, so boilerplate:render reports the render as superseded
     // rather than as a failure.
     const exit = await Effect.runPromise(Fiber.await(waiting))
-    expect(Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)).toBe(true)
+    expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true)
 
     // The next get starts a fresh build from the new path.
     const next = Effect.runFork(producer.get("vpc", DB))
@@ -132,7 +133,7 @@ describe("NodeBundleProducer", () => {
     // falls back to cold) and the hung subprocess is killed.
     const result = await Effect.runPromise(
       Effect.gen(function* () {
-        const hung = yield* Effect.fork(Effect.either(producer.get("vpc", VPC)))
+        const hung = yield* Effect.forkChild(Effect.result(producer.get("vpc", VPC)))
         yield* Effect.promise(() => until(() => spawner.processes.length === 1))
         // Let the daemon's timeout register its sleep with the TestClock.
         yield* Effect.promise(settle)
@@ -140,12 +141,12 @@ describe("NodeBundleProducer", () => {
 
         yield* TestClock.adjust(BUNDLE_BUILD_TIMEOUT)
         return yield* Fiber.join(hung)
-      }).pipe(Effect.provide(TestContext.TestContext)),
+      }).pipe(Effect.provide(TestClock.layer())),
     )
 
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe("boilerplate inputs map timed out after 3m")
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe("boilerplate inputs map timed out after 3m")
     }
     expect(spawner.processes[0]!.killed()).toBe(true)
 
@@ -159,13 +160,13 @@ describe("NodeBundleProducer", () => {
   it("does not cache a failed build, so the next get retries", async () => {
     const { spawner, producer } = ctx
 
-    const failed = Effect.runPromise(Effect.either(producer.get("vpc", VPC)))
+    const failed = Effect.runPromise(Effect.result(producer.get("vpc", VPC)))
     await until(() => spawner.processes.length === 1)
     spawner.processes[0]!.finish(1, [{ line: "template not found", source: "stderr" }])
     const result = await failed
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left.message).toBe(
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure.message).toBe(
         "boilerplate inputs map exited with code 1: template not found",
       )
     }

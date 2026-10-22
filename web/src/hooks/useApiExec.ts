@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { z } from "zod"
 import { createAppError, type AppError } from "@/types/error"
 import { FileTreeNodeArraySchema } from "@/components/artifacts/code/FileTree.types"
@@ -70,6 +70,15 @@ export interface UseApiExecOptions {
    * which includes every failed run. A stopped run doesn't call it.
    */
   onFinished?: (outputs: OutputValues) => void
+  /** The state to start from: the block's last run, when the session's history has one. */
+  initialState?: ExecState | undefined
+  /** Callback invoked when a run starts */
+  onRunStarted?: () => void
+  /**
+   * Callback invoked once a run is over, however it ended (finished, stopped,
+   * or failed to start), with the state it left behind.
+   */
+  onRunEnded?: (state: ExecState) => void
 }
 
 export interface UseApiExecReturn {
@@ -109,14 +118,28 @@ function isEventOf(executionId: string, data: unknown): boolean {
  */
 export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
   const api = useApi()
-  const [state, setState] = useState<ExecState>({
-    logs: [],
-    status: "pending",
-    exitCode: null,
-    error: null,
-    outputs: null,
-    logFilePath: null,
-  })
+  const [state, setState] = useState<ExecState>(
+    () =>
+      options?.initialState ?? {
+        logs: [],
+        status: "pending",
+        exitCode: null,
+        error: null,
+        outputs: null,
+        logFilePath: null,
+      },
+  )
+
+  // Bumped when a run is over and its listeners are detached. The effect
+  // below then reports `state` from a render that has every event of the run
+  // applied, which a callback invoked where the run ends would not have.
+  const [endedRuns, setEndedRuns] = useState(0)
+  const reportedRunsRef = useRef(0)
+  useEffect(() => {
+    if (endedRuns === reportedRunsRef.current) return
+    reportedRunsRef.current = endedRuns
+    options?.onRunEnded?.(state)
+  }, [endedRuns, state, options])
 
   const cleanupRef = useRef<(() => void) | null>(null)
   const executionGenRef = useRef(0)
@@ -210,6 +233,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         outputs: null,
         logFilePath: null,
       })
+      options?.onRunStarted?.()
 
       // Subscribe to IPC streaming events before starting execution.
       const unsubs: (() => void)[] = []
@@ -300,6 +324,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           if (generation === executionGenRef.current) {
             cleanup()
             cleanupRef.current = null
+            setEndedRuns((n) => n + 1)
           }
         }, 0)
       } catch (error) {
@@ -319,6 +344,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           // Clean up listeners on error (no more events expected)
           cleanup()
           cleanupRef.current = null
+          setEndedRuns((n) => n + 1)
           options?.onFinished?.({})
         }
       }

@@ -72,7 +72,6 @@ export interface BundleProducerShape {
   readonly invalidate: (templateId: string) => Effect.Effect<void>
 }
 
-export class BundleProducer extends Context.Tag("BundleProducer")<
-  BundleProducer,
-  BundleProducerShape
->() {}
+export class BundleProducer extends Context.Service<BundleProducer, BundleProducerShape>()(
+  "BundleProducer",
+) {}

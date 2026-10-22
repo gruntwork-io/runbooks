@@ -11,6 +11,8 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { GoogleAuthInstruction } from "./GoogleAuthInstruction"
 
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
+import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import type { AppError } from "@/types/error"
 import type { GoogleAuthProps } from "./types"
@@ -118,6 +120,9 @@ function GoogleAuthInteractive({
     defaultTab,
   })
 
+  const expiresAt = auth.authStatus === "authenticated" ? auth.accountInfo?.expiresAt : undefined
+  const expiry = useCredentialExpiry(expiresAt)
+
   // Track block render on mount
   useEffect(() => {
     trackBlockRender("GoogleAuth")
@@ -218,8 +223,10 @@ function GoogleAuthInteractive({
     )
   }
 
-  const statusClasses = getStatusClasses(auth.authStatus)
-  const iconClasses = getStatusIconClasses(auth.authStatus)
+  // An access token that has expired, or is about to, shows as a failed sign-in.
+  const shownStatus = expiry === "expiring" || expiry === "expired" ? "failed" : auth.authStatus
+  const statusClasses = getStatusClasses(shownStatus)
+  const iconClasses = getStatusIconClasses(shownStatus)
 
   // GCP has no account -> role two-step, so AwsAuth's two selection states
   // collapse into one: the tabs hide only while a project is being picked.
@@ -240,7 +247,7 @@ function GoogleAuthInteractive({
       <div className="flex items-start gap-4 @container">
         <div className="border-r border-info/30 pr-3 mr-0 self-stretch">
           <StatusIcon
-            status={auth.authStatus}
+            status={shownStatus}
             className={`size-6 ${iconClasses} ${auth.authStatus === "authenticating" ? "animate-spin" : ""}`}
           />
         </div>
@@ -309,6 +316,13 @@ function GoogleAuthInteractive({
               detectionSource={auth.detectedCredentials?.source}
               onChangeProject={auth.handleChangeProject}
               onReAuthenticate={auth.handleManualAuth}
+            />
+          )}
+          {expiry && expiresAt && (
+            <CredentialExpiryNotice
+              expiresAt={expiresAt}
+              expiry={expiry}
+              onSignInAgain={auth.handleManualAuth}
             />
           )}
 

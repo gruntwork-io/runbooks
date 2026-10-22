@@ -4,6 +4,8 @@ import { InlineMarkdown, BlockIdLabel } from "@/components/mdx/_shared"
 import { CompletionCheckbox } from "@/components/mdx/_shared/components/CompletionCheckbox"
 import { useBlockCompletion } from "@/components/mdx/_shared/hooks/useBlockCompletion"
 import { useRunbookContext, useTemplateContext } from "@/contexts/useRunbook"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { parseSavedForm, type SavedForm } from "@/lib/sessionHistory"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { DirPickerProps } from "./types"
 
@@ -48,7 +50,17 @@ export function DirPickerInstruction({
     [pathLabelDescription, templateCtx],
   )
 
-  const [path, setPath] = useState("")
+  // The same path in the session's history as the interactive block's, so a
+  // switch of mode carries it over.
+  const history = useSessionHistory()
+  const [path, setPathState] = useState(() => {
+    const saved = parseSavedForm(history.saved(id, "inputs"))?.values.path
+    return typeof saved === "string" ? saved : ""
+  })
+  const setPath = (next: string) => {
+    setPathState(next)
+    history.record(id, "inputs", { values: { path: next }, submitted: true } satisfies SavedForm)
+  }
   const inputId = `dirpicker-path-${id}`
 
   const { completed, toggle } = useBlockCompletion(id)

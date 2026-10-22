@@ -79,7 +79,7 @@ just fmt
 # Unused files, exports and dependencies (knip)
 just knip
 
-# Type checking (tsc -b)
+# Type checking (bun check)
 just typecheck
 
 # lint, fmt-check, knip and typecheck together
@@ -95,7 +95,7 @@ If your checkout has a `web/node_modules` or `cli/node_modules` with packages in
 - `just dev`, `just dev-runbook`, `just build`, `just typecheck`, `just compile-test-cli`, `just test-backend`, `just test-web`, `just test-integration` and `just test-e2e-run`, and every recipe that depends on one of them, such as `just package` and `just test`.
 - `bun run dev`, `bun run build`, `bun run preview`, `bun run typecheck`, `bun run test`, `bun run test:backend`, `bun run test:web`, `bun run test:watch`, `bun run test:coverage`, `bun run test:integration`, `bun run test:e2e` and `bun run test:electron-e2e`. Running `electron-vite` directly, or `vitest` or Playwright on the tests in `web/`, is covered too, because their config files (`electron.vite.config.ts`, `web/vitest.config.ts` and `web/playwright.config.ts`) run the check.
 
-Running `tsc`, `bun test` or `bun cli/index.ts` directly skips the check. `bun scripts/no-nested-node-modules.ts` runs it on its own.
+Running `bun check`, `bun test` or `bun cli/index.ts` directly skips the check. `bun scripts/no-nested-node-modules.ts` runs it on its own.
 
 The section a package goes in decides whether it ships inside the packaged app:
 

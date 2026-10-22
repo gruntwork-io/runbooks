@@ -536,7 +536,7 @@ fi
 
 While a command runs, its output streams into the collapsible **View Logs** panel under the block. The panel's toolbar offers:
 
-- **Copy log file path.** Every run also writes its output to a log file on disk, which you can open or tail with other tools.
+- **Copy log file path.** Every run also writes its output to a log file in the [session's directory](/commands/sessions/#where-sessions-are-stored), which you can open or tail with other tools.
 - **Copy prompt for LLM.** Copies a ready-to-paste prompt for an AI assistant. It names the block's ID, the runbook file and the log file, and ends with an instruction that matches the block's status. When the block has failed, for example, it asks the assistant to analyze the failure and suggest a fix. The prompt points at the log file rather than including the logs, so it works best with assistants that can read local files, such as Claude Code or Cursor.
 - **Wrap** long lines, **copy** the logs as plain text, or **download** them as raw (`.log`) or structured (`.json`) logs.
 - **Maximize** the logs to fill the screen.

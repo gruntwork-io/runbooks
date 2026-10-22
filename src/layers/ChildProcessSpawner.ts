@@ -12,7 +12,7 @@ import {
 } from "node:fs"
 import * as readline from "node:readline"
 import { StringDecoder } from "node:string_decoder"
-import { Effect, Layer, Option, Stream } from "effect"
+import { Cause, Effect, Layer, Stream } from "effect"
 import { ProcessSpawner } from "../services/ProcessSpawner.ts"
 import type {
   ProcessSpawnerShape,
@@ -106,12 +106,12 @@ export function openFileTail(path: string, onLine: (line: string) => void): File
 
 const impl: ProcessSpawnerShape = {
   spawn: (command: string, args: string[], options?: SpawnOptions) =>
-    // Effect.async, not Effect.try: Node reports a missing binary (ENOENT)
+    // Effect.callback, not Effect.try: Node reports a missing binary (ENOENT)
     // asynchronously via the child's "error" event — cpSpawn itself returns
     // normally. The effect resolves only on the "spawn"/"error" race, so a
     // missing binary FAILS the spawn effect (as every test spawner already
     // simulates) instead of masquerading as a successful spawn that exited 1.
-    Effect.async<SpawnedProcess, SpawnError>((resume) => {
+    Effect.callback<SpawnedProcess, SpawnError>((resume) => {
       try {
         const needsStdin = Boolean(options?.stdin)
         const proc = cpSpawn(command, args, {
@@ -152,11 +152,10 @@ const impl: ProcessSpawnerShape = {
         }
 
         // Lines are collected into an array and the `output` stream tails that
-        // array live (see below). We deliberately avoid Stream.async /
-        // Stream.asyncPush: emit.end() called from a Node.js event callback does
-        // not reliably terminate the stream within Effect's runtime after
-        // multiple sequential invocations. Polling a plain array with a
-        // controlled "closed" flag sidesteps that entirely.
+        // array live (see below). We deliberately avoid Stream.callback:
+        // under Effect 3, ending the stream from a Node.js event callback did not
+        // reliably terminate it after multiple sequential invocations. Polling a
+        // plain array with a controlled "closed" flag sidesteps that entirely.
         const collectedLines: OutputLine[] = []
         let streamClosed = false
         // Set when the direct child has closed (exited and its stdio ended).
@@ -224,18 +223,18 @@ const impl: ProcessSpawnerShape = {
         // line; when none are pending it polls until more arrive, and once the
         // process has closed it drains any remaining lines and then ends.
         let cursor = 0
-        const pullLine: Effect.Effect<OutputLine, Option.Option<never>> = Effect.gen(function* () {
+        const pullLine: Effect.Effect<OutputLine, Cause.Done> = Effect.gen(function* () {
           while (true) {
             if (cursor < collectedLines.length) {
               return collectedLines[cursor++]!
             }
             if (streamClosed) {
-              return yield* Effect.fail(Option.none<never>())
+              return yield* Cause.done()
             }
             yield* Effect.sleep("50 millis")
           }
         })
-        const output: Stream.Stream<OutputLine> = Stream.repeatEffectOption(pullLine)
+        const output: Stream.Stream<OutputLine> = Stream.fromEffectRepeat(pullLine)
 
         const exitCode: Effect.Effect<number> = Effect.tryPromise({
           try: () => exitPromise,
@@ -280,7 +279,7 @@ const impl: ProcessSpawnerShape = {
         })
 
         const spawned: SpawnedProcess = { output, exitCode, kill }
-        // Whichever fires first wins; Effect.async ignores later resumes, so a
+        // Whichever fires first wins; Effect.callback ignores later resumes, so a
         // post-spawn "error" event is handled by exitPromise above instead.
         proc.once("spawn", () => resume(Effect.succeed(spawned)))
         proc.once("error", (err) => resume(Effect.fail(new SpawnError({ command, cause: err }))))

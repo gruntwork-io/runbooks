@@ -156,15 +156,16 @@ describe("client wrappers", () => {
   })
 
   it("readApplicationDefaultCredentials delegates to the client", async () => {
+    const adc: AdcInfo = { path: "/home/user/.config/gcloud/adc.json", type: "authorized_user" }
     const layer = makeTestGoogleClient({
-      readApplicationDefaultCredentials: () => Effect.succeed(undefined),
+      readApplicationDefaultCredentials: () => Effect.succeed(adc),
     })
 
     const result = await Effect.runPromise(
       readApplicationDefaultCredentials().pipe(Effect.provide(layer)),
     )
 
-    expect(result).toBeUndefined()
+    expect(result).toEqual(adc)
   })
 
   it("pollOAuthFlow delegates to the client", async () => {

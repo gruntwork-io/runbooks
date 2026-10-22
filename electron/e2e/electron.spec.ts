@@ -13,8 +13,11 @@
  *   bunx playwright test --config electron/e2e/playwright.config.ts
  */
 import { test, expect, _electron as electron } from "@playwright/test"
+import * as fs from "fs"
+import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -23,9 +26,22 @@ const MAIN_ENTRY = path.join(ROOT, "dist/main/index.js")
 const SAMPLE_RUNBOOK = path.join(ROOT, "testdata/sample-runbooks/demo1")
 
 test.describe("Electron App", () => {
+  // A throwaway profile per test. The app saves a session for every runbook it
+  // opens and resumes the last one when launched with no arguments, so a
+  // shared profile would turn the welcome screen into an earlier test's runbook.
+  let userDataDir: string
+
+  test.beforeEach(() => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-electron-e2e-"))
+  })
+
+  test.afterEach(() => {
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+  })
+
   test("launches and shows a window", async () => {
     const app = await electron.launch({
-      args: [MAIN_ENTRY],
+      args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`],
       env: {
         ...process.env,
         // Disable auto-updater in tests
@@ -54,7 +70,7 @@ test.describe("Electron App", () => {
 
   test("shows welcome screen when no runbook specified", async () => {
     const app = await electron.launch({
-      args: [MAIN_ENTRY],
+      args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`],
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
@@ -77,7 +93,7 @@ test.describe("Electron App", () => {
 
   test("loads a runbook when path is passed as argument", async () => {
     const app = await electron.launch({
-      args: [MAIN_ENTRY, SAMPLE_RUNBOOK],
+      args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, SAMPLE_RUNBOOK],
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
@@ -102,7 +118,7 @@ test.describe("Electron App", () => {
 
   test("only allows one instance (single instance lock)", async () => {
     const app1 = await electron.launch({
-      args: [MAIN_ENTRY],
+      args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`],
       env: {
         ...process.env,
         ELECTRON_NO_UPDATER: "1",
