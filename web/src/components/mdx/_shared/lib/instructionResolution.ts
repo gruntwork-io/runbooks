@@ -54,10 +54,10 @@ export interface ManualFieldSpec {
  * NOT collected — those come from the still-functional Inputs forms (§6.5.1).
  */
 export function detectManualFields(command: string | string[] | undefined): ManualFieldSpec[] {
-  // One split across every command: an output any of them reads unguarded is
+  // Each command is its own template: an output any of them reads unguarded is
   // required.
   const { outputs } = splitDependencies(
-    normalizeCommandList(command).flatMap((text) => extractTemplateDependenciesFromString(text)),
+    extractTemplateDependenciesFromString(...normalizeCommandList(command)),
   )
   return outputs.map((dep) => ({
     id: dep.fullPath,
