@@ -10,6 +10,7 @@ import { runtime, sessionManager, manifestStore } from "./runtime.ts"
 import {
   parseBoilerplateConfig,
   extractOutputDependencies,
+  extractTemplateOutputDependencies,
 } from "../../../src/domain/boilerplate/config.ts"
 import {
   flattenVariables,
@@ -190,35 +191,17 @@ export function registerBoilerplateHandlers(): void {
 
         const config = yield* parseBoilerplateConfig(yamlContent)
 
-        // Extract output dependencies from the boilerplate.yml itself.
-        // Variable defaults often reference `{{ .outputs.blockId.X }}`, and
-        // those deps must gate the Generate button just like refs in
-        // template files do.
-        const yamlDeps = extractOutputDependencies(yamlContent)
-        for (const dep of yamlDeps) {
-          if (!config.outputDependencies.some((d) => d.fullPath === dep.fullPath)) {
-            config.outputDependencies.push(dep)
-          }
-        }
-
-        // Extract output dependencies from template files if we have a path
+        // Output references gate the Generate button. Inline content has
+        // only the boilerplate.yml to scan; a template on disk has its files too.
         if (resolvedTemplatePath) {
-          const fs = yield* FileSystem
           const templateDir = resolvedTemplatePath.replace(/\/[^/]+$/, "")
-          const entries = yield* Effect.result(fs.readdir(templateDir))
-
-          if (entries._tag === "Success") {
-            for (const entry of entries.success) {
-              if (entry === "boilerplate.yml" || entry === "boilerplate.yaml") continue
-              const filePath = `${templateDir}/${entry}`
-              const content = yield* Effect.result(fs.readFile(filePath))
-              if (content._tag === "Success") {
-                const deps = extractOutputDependencies(content.success)
-                config.outputDependencies.push(...deps)
-              }
-            }
-          }
+          config.outputDependencies = yield* extractTemplateOutputDependencies(
+            templateDir,
+            yamlContent,
+          )
           config.contentHash = yield* hashTemplateDir(templateDir)
+        } else {
+          config.outputDependencies = extractOutputDependencies(yamlContent)
         }
 
         return config
