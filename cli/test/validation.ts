@@ -17,6 +17,12 @@ import {
   type ParsedComponent,
 } from "../../src/domain/registry/executable.ts"
 import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../src/mdx.ts"
+import {
+  TOOL_LIST_FENCE_HINT,
+  extractToolList,
+  hasTextOutsideToolList,
+  parsePrerequisitesSpec,
+} from "../../src/domain/prerequisites/spec.ts"
 import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
 import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import { errorMessage } from "../../src/errors/message.ts"
@@ -96,6 +102,7 @@ export class InputValidator {
     components.push(...this.parseRunBlocks(content, "Check"))
     components.push(...this.parseRunBlocks(content, "Command"))
     components.push(...this.parseRunBlocks(content, "Finish"))
+    components.push(...this.parseRunBlocks(content, "Prerequisites"))
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
     for (const authType of AUTH_BLOCK_TYPES) {
@@ -537,9 +544,35 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
         })
       }
       break
+
+    case "Prerequisites": {
+      if (!comp.hasExplicitId) {
+        errors.push({
+          componentType: comp.type,
+          componentId: comp.id,
+          message: "The 'id' prop is required",
+        })
+      }
+      const problem = toolListProblem(comp.content)
+      if (problem) errors.push({ componentType: comp.type, componentId: comp.id, message: problem })
+      break
+    }
   }
 
   return errors
+}
+
+/**
+ * What a <Prerequisites> block shows about its tool list, or null when the
+ * list is valid (parseToolList in the block's component).
+ */
+function toolListProblem(content: string): string | null {
+  const toolList = extractToolList(content)
+  if (toolList === null || hasTextOutsideToolList(content)) {
+    return `The block needs its tool list in a code fence. ${TOOL_LIST_FENCE_HINT}`
+  }
+  const parsed = parsePrerequisitesSpec(toolList)
+  return parsed.ok ? null : `The tool list is invalid: ${parsed.error}`
 }
 
 // ---------------------------------------------------------------------------

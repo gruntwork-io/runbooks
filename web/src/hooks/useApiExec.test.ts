@@ -251,7 +251,7 @@ describe("useApiExec state machine", () => {
 
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
     expect(onFinished).toHaveBeenCalledTimes(1)
-    expect(onFinished).toHaveBeenCalledWith({})
+    expect(onFinished).toHaveBeenCalledWith({}, "fail")
   })
 
   // ---------------------------------------------------------------------------
@@ -306,7 +306,7 @@ describe("useApiExec state machine", () => {
     expect(second.result.current.state.logs.map((l) => l.line)).toEqual(["second: a"])
     expect(second.result.current.state.logFilePath).toBe("/logs/second.log")
     expect(second.result.current.state.status).toBe("warn")
-    expect(onSecondFinished).toHaveBeenCalledWith({ id: "2" })
+    expect(onSecondFinished).toHaveBeenCalledWith({ id: "2" }, "warn")
 
     await act(async () => {
       mock.resolveInvokeNth(0, finished("success", 0))
@@ -458,7 +458,7 @@ describe("useApiExec state machine", () => {
 
     expect(result.current.state.outputs).toEqual({ account_id: "123", region: "us-west-2" })
     expect(onFinished).toHaveBeenCalledTimes(1)
-    expect(onFinished).toHaveBeenCalledWith({ account_id: "123", region: "us-west-2" })
+    expect(onFinished).toHaveBeenCalledWith({ account_id: "123", region: "us-west-2" }, "success")
   })
 
   it("outputs: a run that published none finishes with empty outputs", async () => {
@@ -475,7 +475,7 @@ describe("useApiExec state machine", () => {
     await waitFor(() => expect(result.current.state.status).toBe("fail"))
     expect(result.current.state.outputs).toBeNull()
     expect(onFinished).toHaveBeenCalledTimes(1)
-    expect(onFinished).toHaveBeenCalledWith({})
+    expect(onFinished).toHaveBeenCalledWith({}, "fail")
   })
 
   it("outputs: a stopped run reports none", async () => {
@@ -518,7 +518,7 @@ describe("useApiExec state machine", () => {
     expect(JSON.stringify(outputs)).not.toContain("topsecret")
     // Downstream blocks get the same wrapped outputs, and read the real value
     // through revealOutput
-    expect(onFinished).toHaveBeenCalledWith(outputs)
+    expect(onFinished).toHaveBeenCalledWith(outputs, "success")
     expect(revealOutputs(outputs)).toEqual({
       AWS_SECRET_ACCESS_KEY: "topsecret",
       region: "us-west-2",

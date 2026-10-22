@@ -194,6 +194,11 @@ export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
   readonly timeoutMs: number
 }> {}
 
+/** PATH couldn't be read again from where the app first got it. `message` says why, in words fit to show the user. */
+export class PathRefreshError extends Data.TaggedError("PathRefreshError")<{
+  readonly message: string
+}> {}
+
 // Registry
 export class ExecutableNotFoundError extends Data.TaggedError("ExecutableNotFoundError")<{
   readonly id: string

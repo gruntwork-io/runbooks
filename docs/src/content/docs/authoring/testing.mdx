@@ -681,6 +681,25 @@ tests:
         expect: fail
 ```
 
+## Testing Prerequisites blocks
+
+A step for a `<Prerequisites>` block looks for its tools and reads their versions as the app does, on the PATH the test runs with: the environment `runbooks test` started with, the test's `env`, and what earlier steps exported. The step's status is the check's: `success` when every tool is found, `warn` when only optional tools aren't, and `fail` when a required one isn't. A step that succeeds or warns publishes the block's [outputs](/authoring/blocks/prerequisites/#outputs).
+
+Unlike the app, the test doesn't run your login shell to read PATH again when a tool is missing. To test a check that a runbook's install step makes pass, run the block before and after that step:
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: install-then-check-again
+    steps:
+      - block: tools
+        expect: fail
+      - block: install-tool
+        expect: success
+      - block: tools
+        expect: success
+```
+
 ## Testing Iframe blocks
 
 Tests can't run the page an [`<Iframe>`](/authoring/blocks/iframe/) block shows, so a step for the block stands in for the page: its `set_outputs` become the block's outputs, as if the page had set them. Only an `<Iframe>` with an `id` can be a step.

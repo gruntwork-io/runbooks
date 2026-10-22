@@ -1,0 +1,40 @@
+version: 1
+
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+  parallelizable: true
+
+tests:
+  - name: install-then-check-again
+    description: |
+      The first check fails: the demo tool isn't installed. Once the install
+      block has put it on PATH, checking again finds it. The optional tool is
+      still missing, so the check warns, which lets the last block read its
+      outputs.
+    steps:
+      - block: tools
+        expect: fail
+      - block: install-demo-tool
+        expect: success
+      - block: tools
+        expect: warn
+        assertions:
+          - type: output_equals
+            block: tools
+            output: runbooks_demo_tool_version
+            value: "1.2.3"
+      - block: show-tool-paths
+        expect: success
+
+  - name: failed-check-publishes-no-outputs
+    description: |
+      A check that fails publishes no outputs, so the block that reads them
+      waits for them.
+    steps:
+      - block: tools
+        expect: fail
+      - block: show-tool-paths
+        expect: blocked
+        missing_outputs:
+          - outputs.tools.git_path

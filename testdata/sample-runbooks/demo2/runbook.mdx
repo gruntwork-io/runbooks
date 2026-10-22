@@ -14,14 +14,17 @@ Before we get started, let's make sure your local system is ready to go.
 
 <Admonition type="info" title="Pre-flight checks" description="Let's make sure your local system is ready to go." />
 
-<Check 
-    id="check-gh-install" 
-    path="checks/gh-install.sh" 
-    title="Check if the GitHub CLI is installed"
-    description="`gh` is the [GitHub CLI tool](https://cli.github.com/) that makes it easy to interact with GitHub from the command line. We'll use it create repos and pull requests."
-    successMessage="`gh` is installed and ready to go!"
-    failMessage="`gh` is not installed. Please install it to continue!"
-/>
+<Prerequisites id="check-tools">
+```yaml
+tools:
+  - name: gh
+    description: "The [GitHub CLI tool](https://cli.github.com/) that makes it easy to interact with GitHub from the command line. We'll use it to create repos and pull requests."
+    install: "[Install the GitHub CLI](https://cli.github.com/)"
+  - name: mise
+    description: "An open source CLI tool that makes it easy to install all required tools for your IaC repos from the command line. Learn more at [mise.jdx.dev](https://mise.jdx.dev/)."
+    install: "[Install mise](https://mise.jdx.dev/getting-started.html)"
+```
+</Prerequisites>
 
 <Command 
     id="install-gh-latest-version"
@@ -30,14 +33,6 @@ Before we get started, let's make sure your local system is ready to go.
     description="Let's make sure you have the latest version of `gh` installed!"
     successMessage="`gh` is up to date!"
     failMessage="Failed to upgrade `gh` to the latest version."
-/>
-
-<Check id="check-mise-install" 
-    path="checks/mise-install.sh" 
-    title="Check if `mise` is installed"
-    description="Mise is an open source CLI tool that makes it easy to install all required tools for your IaC repos from the command line. Learn more at https://mise.jdx.dev/."
-    successMessage="`mise` is installed and ready to go!"
-    failMessage="Mise is not installed. Please [install it](https://mise.jdx.dev/getting-started.html) to continue!"
 />
 
 ## Create the repo

@@ -28,11 +28,9 @@ tests:
     steps:
       # Only exercise the two Template blocks. Skip environment checks,
       # GitHub-dependent commands, and unrelated blocks.
-      - block: check-gh-install
+      - block: check-tools
         expect: skip
       - block: install-gh-latest-version
-        expect: skip
-      - block: check-mise-install
         expect: skip
       - block: create-infrastructure-live-root-repo
         expect: skip
@@ -83,11 +81,9 @@ tests:
       # required — supply a placeholder so validation doesn't reject the case.
       mise-config-inputs.TerragruntVersion: "latest"
     steps:
-      - block: check-gh-install
+      - block: check-tools
         expect: skip
       - block: install-gh-latest-version
-        expect: skip
-      - block: check-mise-install
         expect: skip
       - block: create-infrastructure-live-root-repo
         expect: skip

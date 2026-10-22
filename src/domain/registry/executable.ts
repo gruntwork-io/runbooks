@@ -2,7 +2,8 @@
  * Executable registry.
  *
  * Scans a runbook MDX file for executable components (Command, Check and
- * Finish) and maintains an in-memory registry of all executables. Only registered
+ * Finish, and Prerequisites, whose tool list runs in place of a script) and
+ * maintains an in-memory registry of all executables. Only registered
  * executables can be run via the API, preventing arbitrary command
  * invocation.
  */
@@ -15,6 +16,7 @@ import { FileSystem } from "../../services/FileSystem.js"
 import { computeContentHash } from "../workspace/file.js"
 import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
 import { findFencedCodeBlockRanges, isInsideFencedCodeBlock } from "../../mdx.js"
+import { extractToolList } from "../prerequisites/spec.ts"
 import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -240,7 +242,8 @@ export class ExecutableRegistry {
 
   /**
    * Parse the runbook MDX content and register every Command, Check and
-   * Finish that has a script (a `command` or `path` prop).
+   * Finish that has a script (a `command` or `path` prop), and every
+   * Prerequisites block's tool list.
    */
   parseAndRegister(runbookPath: string, contentOverride?: string) {
     return Effect.gen({ self: this }, function* () {
@@ -263,6 +266,38 @@ export class ExecutableRegistry {
           }
         }
       }
+
+      // Registered like a script, so exec:run only checks the tools a
+      // runbook lists. The tool list can make it run each tool.
+      for (const comp of parseComponents(content, "Prerequisites")) {
+        const toolList = extractToolList(comp.content)
+        if (toolList !== null) this.registerToolListEntry(comp.id, toolList)
+      }
+    })
+  }
+
+  /**
+   * Register a <Prerequisites> block's tool list. Unlike a `command` prop,
+   * it's code-fence text, which MDX never entity-escapes, so it's kept as
+   * written.
+   */
+  private registerToolListEntry(componentId: string, toolList: string): void {
+    const entryId = computeExecutableId(componentId, toolList)
+
+    if (this.entries.has(entryId)) {
+      this.warnings.push(getDuplicateWarning("Prerequisites", componentId))
+      return
+    }
+
+    this.entries.set(entryId, {
+      id: entryId,
+      type: "inline",
+      componentId,
+      componentType: "prerequisites",
+      content: toolList,
+      contentHash: computeContentHash(toolList),
+      language: "yaml",
+      templateVars: [],
     })
   }
 

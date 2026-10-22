@@ -36,7 +36,27 @@ import {
   RUNBOOK_LOG_CHANNEL,
   logChannelFiles,
   orderLogChannelLines,
+  tagLogLine,
 } from "../../src/domain/exec/logChannels.ts"
+import { extractToolList, parsePrerequisitesSpec } from "../../src/domain/prerequisites/spec.ts"
+import {
+  LOOKUP_TIMEOUT_MS,
+  PROBE_TIMEOUT_MS,
+  lookupArgs,
+  parseLookupOutput,
+  probeArgs,
+} from "../../src/domain/prerequisites/lookup.ts"
+import {
+  checkLog,
+  checkTool,
+  lookupFailedLog,
+  prerequisitesOutputs,
+  prerequisitesStatus,
+  statusExitCode,
+  type LogEntry,
+  type PrerequisitesStatus,
+  type RunFailure,
+} from "../../src/domain/prerequisites/results.ts"
 import {
   maskOutput,
   maskOutputs,
@@ -651,7 +671,12 @@ export class TestExecutor {
   }
 
   private getConfigErrorForBlock(block: ParsedComponent, registryWarnings: string[]): string {
-    if (block.type === "Check" || block.type === "Command" || block.type === "Finish") {
+    if (
+      block.type === "Check" ||
+      block.type === "Command" ||
+      block.type === "Finish" ||
+      block.type === "Prerequisites"
+    ) {
       const warning = registryWarnings.find((w) => w.includes(`id="${block.id}"`))
       if (warning) return warning
     }
@@ -773,6 +798,9 @@ export class TestExecutor {
           return result
         }
         return this.runCheckOrCommand(block, step, start)
+
+      case "Prerequisites":
+        return this.runPrerequisites(block, step, start)
 
       case "GitHubAuth":
         return this.runGitAuth(block, step, start, "github")
@@ -1038,6 +1066,97 @@ export class TestExecutor {
           } catch {}
       }
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Prerequisites block
+  // -----------------------------------------------------------------------
+
+  /**
+   * Check a <Prerequisites> block's tools as the app does: bash looks each one
+   * up on the session's PATH, and runs the ones whose version the block
+   * reads. Unlike the app, a missing tool doesn't make it read PATH again: a
+   * test has the PATH it was started with.
+   */
+  private runPrerequisites(block: ParsedComponent, step: TestStep, start: number): StepResult {
+    const result = makeStepResult(`${lowercaseFirst(block.type)}:${block.id}`, step.expect)
+
+    // Validation reports a block without a valid tool list before any block runs.
+    const toolList = extractToolList(block.content)
+    const parsed = toolList === null ? null : parsePrerequisitesSpec(toolList)
+    if (!parsed?.ok) {
+      result.passed = false
+      result.actualStatus = "error"
+      result.error = parsed ? parsed.error : "The block has no tool list"
+      result.duration = Date.now() - start
+      return result
+    }
+
+    const env = this.sessionEnvWithTestEnv()
+    const bash = (args: string[], timeoutMs: number) => {
+      const proc = spawnSync("bash", args, {
+        cwd: this.sessionWorkDir,
+        env,
+        timeout: timeoutMs,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      let failure: RunFailure | null = null
+      if (proc.error) {
+        failure =
+          (proc.error as NodeJS.ErrnoException).code === "ETIMEDOUT"
+            ? { reason: "timeout", timeoutMs }
+            : { reason: "error", cause: proc.error }
+      }
+      return { output: proc.stdout ?? "", exitCode: proc.status ?? -1, failure }
+    }
+
+    const { tools } = parsed.spec
+    let status: PrerequisitesStatus = "fail"
+    let log: LogEntry[]
+    const lookup = bash(lookupArgs(tools.map((tool) => tool.name)), LOOKUP_TIMEOUT_MS)
+    if (lookup.failure) {
+      log = [lookupFailedLog(lookup.failure)]
+    } else {
+      const paths = parseLookupOutput(lookup.output.split("\n"))
+      const checked = tools.map((tool) => {
+        const toolPath = paths.get(tool.name) ?? null
+        if (!toolPath || !tool.versionArgs) return checkTool(tool, toolPath, null)
+        const probe = bash(probeArgs(toolPath, tool.versionArgs), PROBE_TIMEOUT_MS)
+        return checkTool(
+          tool,
+          toolPath,
+          probe.failure ?? { output: probe.output, exitCode: probe.exitCode },
+        )
+      })
+      const toolResults = checked.map((checkedTool) => checkedTool.result)
+      status = prerequisitesStatus(toolResults)
+      log = checkLog(checked)
+      // As in the app, only a check that passes or warns publishes its outputs.
+      if (status !== "fail") result.outputs = prerequisitesOutputs(toolResults)
+    }
+
+    const at = new Date()
+    const logs = log.map(({ level, text }) => `${tagLogLine(text, level, at)}\n`).join("")
+    result.actualStatus = status
+    result.exitCode = statusExitCode(status)
+    result.logs = logs
+
+    if (status === "fail") {
+      this.passedScripts.delete(normalizeBlockId(block.id))
+      this.blockOutputs.delete(block.id)
+    } else {
+      this.passedScripts.add(normalizeBlockId(block.id))
+      this.blockOutputs.set(block.id, new Map(Object.entries(result.outputs)))
+    }
+
+    if (this.options.verbose) {
+      this.printBlockOutput(block.id, logs, result.outputs, status, result.error)
+    }
+
+    result.passed = this.matchesExpectedStatus(step.expect, status)
+    result.duration = Date.now() - start
+    return result
   }
 
   /**

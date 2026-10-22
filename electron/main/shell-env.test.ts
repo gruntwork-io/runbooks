@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as nodePath from "node:path"
-import { isTerminalLaunch, parseEnvDump, populateShellEnv } from "./shell-env.ts"
+import {
+  isTerminalLaunch,
+  parseEnvDump,
+  populateShellEnv,
+  readLoginShellPath,
+} from "./shell-env.ts"
 
 const MARKER = "__RUNBOOKS_SHELL_ENV_MARKER__"
 
@@ -112,5 +117,77 @@ describe.skipIf(process.platform === "win32")("populateShellEnv", () => {
 
     expect(process.env.GITLAB_HOST).toBe("gitlab.from-rc")
     expect(process.env.SHLVL).toBe("7")
+  })
+})
+
+describe.skipIf(process.platform === "win32")("readLoginShellPath", () => {
+  let tmpDir = ""
+  let savedEnv: NodeJS.ProcessEnv = {}
+
+  /** Make $SHELL a script that runs `rcLines`, as an rc file would, then the capture script. */
+  function fakeShell(rcLines: string[]): string {
+    const shell = nodePath.join(tmpDir, "fake-shell")
+    fs.writeFileSync(shell, ["#!/bin/sh", ...rcLines, 'exec /bin/sh -c "$2"', ""].join("\n"), {
+      mode: 0o755,
+    })
+    process.env.SHELL = shell
+    return shell
+  }
+
+  beforeEach(() => {
+    savedEnv = { ...process.env }
+    tmpDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "runbooks-shell-path-"))
+  })
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) delete process.env[key]
+    }
+    Object.assign(process.env, savedEnv)
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("reads the PATH the login shell's rc files set, even on a terminal launch", async () => {
+    const shell = fakeShell(["echo 'rc-file noise'", 'export PATH="/from/rc:$PATH"'])
+    process.env.TERM = "xterm-256color"
+
+    const { shell: used, path } = await readLoginShellPath()
+
+    expect(used).toBe(shell)
+    expect(path.split(":")[0]).toBe("/from/rc")
+  })
+
+  it("leaves process.env alone", async () => {
+    fakeShell(['export PATH="/from/rc:$PATH"', "export GITLAB_HOST=gitlab.from-rc"])
+    const before = { ...process.env }
+
+    await readLoginShellPath()
+
+    expect(process.env).toEqual(before)
+  })
+
+  it("returns soon after the shell exits, though a background job holds its stdout open", async () => {
+    fakeShell(["(sleep 5) &", 'export PATH="/from/rc:$PATH"'])
+    const start = Date.now()
+
+    const { path } = await readLoginShellPath()
+
+    expect(path.startsWith("/from/rc:")).toBe(true)
+    expect(Date.now() - start).toBeLessThan(4000)
+  })
+
+  it("rejects, saying why, when SHELL isn't set or the shell prints no env", async () => {
+    delete process.env.SHELL
+    await expect(readLoginShellPath()).rejects.toThrow(
+      "SHELL isn't set, so there's no login shell to read PATH from.",
+    )
+
+    process.env.SHELL = nodePath.join(tmpDir, "no-such-shell")
+    await expect(readLoginShellPath()).rejects.toThrow(/^Couldn't run .*no-such-shell/)
+
+    const shell = nodePath.join(tmpDir, "quiet-shell")
+    fs.writeFileSync(shell, "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+    process.env.SHELL = shell
+    await expect(readLoginShellPath()).rejects.toThrow(`${shell} printed no PATH.`)
   })
 })

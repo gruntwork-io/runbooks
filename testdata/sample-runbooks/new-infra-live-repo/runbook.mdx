@@ -21,16 +21,19 @@ The repo will be ready for you to add AWS accounts and deploy modules once your 
   description="Authenticate to GitHub to create a repository and push the scaffolded files."
 />
 
-### Install mise
+### Check the tools
 
-<Check
-  id="check-mise"
-  command="mise --version && mise self-update --yes;"
-  title="Check mise Installation"
-  description="Verify that `mise` is installed and up to date."
-  successMessage="mise is installed and up to date!"
-  failMessage="mise is not installed. Install it from https://mise.jdx.dev/getting-started.html"
-/>
+<Prerequisites id="check-tools">
+```yaml
+tools:
+  - name: gh
+    description: "Creates the repository and looks up the latest OpenTofu and Terragrunt versions."
+    install: "[Install the GitHub CLI](https://cli.github.com/)"
+  - name: mise
+    description: "Installs the OpenTofu and Terragrunt versions the new repo pins."
+    install: "[Install mise](https://mise.jdx.dev/getting-started.html)"
+```
+</Prerequisites>
 
 ## Create the Repository
 

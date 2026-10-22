@@ -43,7 +43,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
 - `runningMessage` (string): message shown while running. Default "Running...". Supports inline markdown.
 - `timeoutMs` (number): maximum time, in milliseconds, the script may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). Raise it for scripts that run longer, for example `timeoutMs={7200000}` for a 2-hour deployment, or lower it so a hung script fails sooner. [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
-- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must succeed before this block can run. A Check that ends with a warning counts too. See [Run order](#run-order).
+- `dependsOn` (string | string[]): ID of a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block, or an array of IDs, that must succeed before this block can run. A Check or Prerequisites block that ends with a warning counts too. See [Run order](#run-order).
 - `exclusive` (boolean): whether this block runs alone. Defaults to `false`. While it runs, no other Command or Check block can start, and it can't start while another one is running. See [Run order](#run-order).
 
 ### Inline content
@@ -371,7 +371,7 @@ Command and Check blocks can run at the same time. A block's Run button is disab
 
 A block that is waiting names the blocks it is waiting for. Click a name to scroll to that block. For a block that is running, there is also a button to stop it.
 
-Each ID in `dependsOn` must name a Command or Check block in the runbook. Runbooks doesn't report an ID that names another kind of block, or no block at all. The block just keeps waiting for it.
+Each ID in `dependsOn` must name a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block in the runbook. Runbooks doesn't report an ID that names another kind of block, or no block at all. The block just keeps waiting for it.
 
 #### Background processes
 

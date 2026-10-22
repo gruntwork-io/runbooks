@@ -85,7 +85,7 @@ A finished session keeps its directory, files and history, but Runbooks doesn't 
 - `failMessage` (string): message shown when the final check fails. Default "The final check failed. Check the logs, fix the problem, and run it again.". Supports inline markdown.
 - `runningMessage` (string): message shown while the final check runs. Default "Running the final check...". Supports inline markdown.
 - `timeoutMs` (number): maximum time, in milliseconds, the final check may run before it is killed and the block is marked as failed. Defaults to `3600000` (60 minutes). [Runbook tests](/authoring/testing/) ignore it and apply the test's `timeout` setting instead.
-- `dependsOn` (string | string[]): ID of a Command or Check block, or an array of IDs, that must succeed before the runbook can be finished. A Check that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
+- `dependsOn` (string | string[]): ID of a Command, Check or [Prerequisites](/authoring/blocks/prerequisites/) block, or an array of IDs, that must succeed before the runbook can be finished. A Check or Prerequisites block that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `exclusive` (boolean): whether the final check runs alone. Defaults to `false`. While it runs, no Command or Check block can start, and it can't start while one is running. See [Run order](/authoring/blocks/command/#run-order).
 
 ### Next steps

@@ -4,17 +4,25 @@
  * Runs a script via the executeScript Effect and streams its logs to the
  * renderer process via event.sender.send(). The handler returns the final
  * status and the script's outputs together when execution completes.
+ *
+ * A <Prerequisites> block runs through here too: its registry entry holds a
+ * tool list, which executePrerequisites checks in place of a script.
  */
+import * as nodePath from "node:path"
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, executableRegistry } from "./runtime.ts"
 import { resolveGeneratedDir, resolveRunLogsDir } from "./path-guard.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
-import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
+import { executePrerequisites } from "../../../src/domain/prerequisites/check.ts"
+import { appendPathEntries, filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
 import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
+import { PathRefreshError } from "../../../src/errors/index.ts"
+import { errorMessage } from "../../../src/errors/message.ts"
 import type { IpcEventMap } from "../../shared/channels.ts"
+import { readLoginShellPath } from "../shell-env.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
@@ -62,6 +70,27 @@ export async function cancelAllExecutions(): Promise<void> {
   await Promise.allSettled(pending.map((e) => e.done))
 }
 
+/**
+ * Read PATH again from the user's login shell, for a <Prerequisites> check
+ * that can't find a tool. Its directories go on the end of process.env's PATH,
+ * which sessions opened later start from, and of the live session's (unless
+ * `generation` no longer names it), skipping those already there.
+ */
+const refreshPath = (generation: number) =>
+  Effect.gen(function* () {
+    const login = yield* Effect.tryPromise({
+      try: () => readLoginShellPath(),
+      catch: (err) => new PathRefreshError({ message: errorMessage(err) }),
+    })
+    const entries = login.path.split(nodePath.delimiter)
+    const { path, added } = appendPathEntries(process.env.PATH ?? "", entries, nodePath.delimiter)
+    process.env.PATH = path
+    if (added.length > 0) log.info(`Added to PATH from ${login.shell}:`, added.join(", "))
+    // The session is gone only if a different runbook opened mid-check.
+    yield* sessionManager.appendToPath(entries, nodePath.delimiter, generation).pipe(Effect.ignore)
+    return { source: `your login shell (${login.shell})`, entries }
+  })
+
 export function registerExecHandlers(): void {
   ipcMain.handle("exec:run", async (event, params: ExecRequest) => {
     log.debug("handler called for:", params.executableId)
@@ -101,12 +130,13 @@ export function registerExecHandlers(): void {
 
             const executableId = params.executableId ?? ""
             const executable = yield* executableRegistry.getExecutable(executableId)
+            const isPrerequisites = executable.componentType === "prerequisites"
 
             // Render template variables using the Go template engine. Values
             // go in verbatim and a template error fails the run (see
             // renderScriptForExec).
             let scriptContent = executable.content
-            if (params.templateVarValues) {
+            if (params.templateVarValues && !isPrerequisites) {
               scriptContent = yield* renderScriptForExec(
                 scriptContent,
                 params.templateVarValues as Record<string, unknown>,
@@ -117,16 +147,24 @@ export function registerExecHandlers(): void {
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
             const logsDir = yield* resolveRunLogsDir(executable.componentId)
 
-            // Execute the script — returns log stream + completion effect
-            const { logStream, completionEffect, logFilePath } = yield* executeScript(
-              scriptContent,
-              executable.language,
-              params,
-              context,
-              workTreePath,
-              outputPath,
-              logsDir,
-            )
+            // Execute the script, or check the tools — returns log stream +
+            // completion effect
+            const { logStream, completionEffect, logFilePath } = isPrerequisites
+              ? yield* executePrerequisites(
+                  scriptContent,
+                  context,
+                  logsDir,
+                  refreshPath(context.generation),
+                )
+              : yield* executeScript(
+                  scriptContent,
+                  executable.language,
+                  params,
+                  context,
+                  workTreePath,
+                  outputPath,
+                  logsDir,
+                )
 
             // Surface the on-disk log path up front so the UI can offer it
             // (e.g. a "copy log path" action) while the script is still running.

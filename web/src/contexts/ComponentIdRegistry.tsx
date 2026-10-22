@@ -15,6 +15,7 @@ export type BlockComponentType =
   | "Command"
   | "Check"
   | "Finish"
+  | "Prerequisites"
   | "Inputs"
   | "Template"
   | "TemplateInline"
