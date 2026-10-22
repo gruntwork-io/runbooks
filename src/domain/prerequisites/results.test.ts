@@ -1,13 +1,17 @@
 import { describe, it, expect } from "bun:test"
-import { parsePrerequisitesSpec, type PrerequisitesSpec } from "./spec.ts"
+import { parsePrerequisitesSpec, type PrerequisiteTool, type PrerequisitesSpec } from "./spec.ts"
 import {
+  checkLog,
+  checkTool,
   describeResult,
   evaluateTool,
+  foundInstead,
   prerequisitesOutputs,
   prerequisitesStatus,
   resultsFromOutputs,
   statusExitCode,
   summarize,
+  unmetRequirements,
   versionCommand,
   type ToolResult,
 } from "./results.ts"
@@ -61,20 +65,36 @@ describe("evaluateTool", () => {
 
 describe("prerequisitesStatus", () => {
   it("succeeds when every tool is found", () => {
-    const results = [evaluateTool(GIT, "/g", null), evaluateTool(GH, "/gh", "2.40.1")]
-    expect(prerequisitesStatus(results)).toBe("success")
+    const results = [
+      evaluateTool(GIT, "/g", null),
+      evaluateTool(TOFU, "/t", "1.8"),
+      evaluateTool(GH, "/gh", "2.40.1"),
+    ]
+    expect(prerequisitesStatus(SPEC, results)).toBe("success")
   })
 
   it("warns when only an optional tool isn't found", () => {
-    const results = [evaluateTool(GIT, "/g", null), evaluateTool(GH, null, null)]
-    expect(prerequisitesStatus(results)).toBe("warn")
+    const results = [
+      evaluateTool(GIT, "/g", null),
+      evaluateTool(TOFU, "/t", "1.8"),
+      evaluateTool(GH, null, null),
+    ]
+    expect(prerequisitesStatus(SPEC, results)).toBe("warn")
   })
 
   it("fails when a required tool isn't found, at the right version", () => {
-    expect(prerequisitesStatus([evaluateTool(TOFU, "/t", "1.0")])).toBe("fail")
-    expect(prerequisitesStatus([evaluateTool(GIT, null, null), evaluateTool(GH, null, null)])).toBe(
-      "fail",
-    )
+    const tooOld = [
+      evaluateTool(GIT, "/g", null),
+      evaluateTool(TOFU, "/t", "1.0"),
+      evaluateTool(GH, "/gh", null),
+    ]
+    expect(prerequisitesStatus(SPEC, tooOld)).toBe("fail")
+    const missing = [
+      evaluateTool(GIT, null, null),
+      evaluateTool(TOFU, "/t", "1.8"),
+      evaluateTool(GH, null, null),
+    ]
+    expect(prerequisitesStatus(SPEC, missing)).toBe("fail")
   })
 
   it("maps to a script's exit codes", () => {
@@ -153,21 +173,135 @@ describe("describeResult", () => {
 
 describe("summarize", () => {
   it("sums up the run", () => {
-    expect(summarize([evaluateTool(GIT, "/g", null)])).toEqual({
+    const one = parse("tools:\n  - git\n")
+    expect(summarize(one, [evaluateTool(one.tools[0]!, "/g", null)])).toEqual({
       level: "INFO",
       text: "git is installed.",
     })
-    expect(summarize([evaluateTool(GIT, "/g", null), evaluateTool(TOFU, "/t", "1.8")])).toEqual({
+    const git = evaluateTool(GIT, "/g", null)
+    const tofu = evaluateTool(TOFU, "/t", "1.8")
+    expect(summarize(SPEC, [git, tofu, evaluateTool(GH, "/gh", null)])).toEqual({
       level: "INFO",
-      text: "All 2 tools are installed.",
+      text: "All 3 tools are installed.",
     })
-    expect(summarize([evaluateTool(GIT, "/g", null), evaluateTool(GH, null, null)])).toEqual({
+    expect(summarize(SPEC, [git, tofu, evaluateTool(GH, null, null)])).toEqual({
       level: "WARN",
       text: "The required tools are installed. Optional tools to install or update: gh.",
     })
-    expect(summarize([evaluateTool(TOFU, "/t", "1.0"), evaluateTool(GH, null, null)])).toEqual({
+    expect(
+      summarize(SPEC, [git, evaluateTool(TOFU, "/t", "1.0"), evaluateTool(GH, null, null)]),
+    ).toEqual({
       level: "ERROR",
       text: "Tools to install or update: tofu, gh (optional).",
+    })
+  })
+})
+
+describe("an anyOf list", () => {
+  const LISTS = parse(`
+tools:
+  - git
+  - anyOf:
+      - gh
+      - name: glab
+        version: ">= 1.40"
+    description: Opens the pull or merge request.
+  - anyOf: [tofu, terraform]
+    optional: true
+`)
+  const [L_GIT, L_GH, L_GLAB, L_TOFU, L_TERRAFORM] = LISTS.tools as [
+    PrerequisiteTool,
+    PrerequisiteTool,
+    PrerequisiteTool,
+    PrerequisiteTool,
+    PrerequisiteTool,
+  ]
+  const results = (
+    gh: string | null,
+    glab: [string | null, string | null],
+    tofu: string | null,
+    terraform: string | null,
+  ) => [
+    evaluateTool(L_GIT, "/g", null),
+    evaluateTool(L_GH, gh, null),
+    evaluateTool(L_GLAB, ...glab),
+    evaluateTool(L_TOFU, tofu, null),
+    evaluateTool(L_TERRAFORM, terraform, null),
+  ]
+
+  it("is met by any one of its tools, and counts as one tool", () => {
+    const glabMissing = results("/gh", [null, null], null, "/tf")
+    expect(prerequisitesStatus(LISTS, glabMissing)).toBe("success")
+    expect(unmetRequirements(LISTS, glabMissing)).toEqual([])
+    expect(summarize(LISTS, glabMissing)).toEqual({
+      level: "INFO",
+      text: "All 3 tools are installed.",
+    })
+
+    const ghMissing = results(null, ["/glab", "1.46.1"], "/tofu", null)
+    expect(prerequisitesStatus(LISTS, ghMissing)).toBe("success")
+  })
+
+  it("fails when it's required and none of its tools is found, and warns when it's optional", () => {
+    const glabTooOld = results(null, ["/glab", "1.30.0"], "/tofu", null)
+    expect(prerequisitesStatus(LISTS, glabTooOld)).toBe("fail")
+    expect(unmetRequirements(LISTS, glabTooOld)).toEqual([LISTS.requirements[1]!])
+    expect(summarize(LISTS, glabTooOld)).toEqual({
+      level: "ERROR",
+      text: "Tools to install or update: gh or glab.",
+    })
+
+    const noTofu = results("/gh", [null, null], null, null)
+    expect(prerequisitesStatus(LISTS, noTofu)).toBe("warn")
+    expect(summarize(LISTS, noTofu)).toEqual({
+      level: "WARN",
+      text: "The required tools are installed. Optional tools to install or update: tofu or terraform.",
+    })
+
+    expect(summarize(LISTS, results(null, [null, null], null, null))).toEqual({
+      level: "ERROR",
+      text: "Tools to install or update: gh or glab, tofu or terraform (optional).",
+    })
+  })
+
+  it("logs a tool another of its list stands in for as information", () => {
+    const checked = [
+      checkTool(L_GIT, "/g", null),
+      checkTool(L_GH, "/gh", null),
+      checkTool(L_GLAB, "/glab", { output: "glab: no version here", exitCode: 0 }),
+      checkTool(L_TOFU, null, null),
+      checkTool(L_TERRAFORM, null, null),
+    ]
+    const all = checked.map(({ result }) => result)
+    expect(foundInstead(LISTS, all[2]!, all)).toBe(L_GH)
+    expect(foundInstead(LISTS, all[1]!, all)).toBeNull()
+    expect(foundInstead(LISTS, all[3]!, all)).toBeNull()
+
+    expect(checkLog(LISTS, checked)).toEqual([
+      { level: "INFO", text: "git: found at /g" },
+      { level: "INFO", text: "gh: found at /gh" },
+      {
+        level: "INFO",
+        text: 'glab at /glab: "glab --version" printed no version number to check against >= 1.40. gh is installed instead.',
+      },
+      { level: "INFO", text: '"glab --version" printed: glab: no version here' },
+      { level: "WARN", text: "tofu: not found on PATH. This tool is optional." },
+      { level: "WARN", text: "terraform: not found on PATH. This tool is optional." },
+      {
+        level: "WARN",
+        text: "The required tools are installed. Optional tools to install or update: tofu or terraform.",
+      },
+    ])
+  })
+
+  it("publishes each of its tools' outputs", () => {
+    expect(prerequisitesOutputs(results("/gh", ["/glab", "1.46.1"], null, null))).toEqual({
+      git_path: "/g",
+      gh_path: "/gh",
+      glab_path: "/glab",
+      glab_version: "1.46.1",
+      tofu_path: "",
+      terraform_path: "",
     })
   })
 })

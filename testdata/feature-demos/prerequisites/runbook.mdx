@@ -4,7 +4,7 @@ This runbook demonstrates the `<Prerequisites>` block, which checks that the too
 
 ## 1. Check the tools
 
-Click **Check**. `bash` and `git` are on almost every machine, so the check finds them. Nothing has installed `runbooks-demo-tool` yet, so the check fails, and the block says how to install it. The optional tool is never installed: it only makes the check warn.
+Click **Check**. `bash` and `git` are on almost every machine, so the check finds them. Nothing has installed `runbooks-demo-tool` yet, so the check fails, and the block says how to install it. The runbook also needs one of two stand-ins for the GitHub and GitLab CLIs, and neither is installed yet. The optional tool is never installed: it only makes the check warn.
 
 <Prerequisites id="tools" description="The tools the rest of this runbook uses.">
 ```yaml
@@ -16,24 +16,31 @@ tools:
   - name: runbooks-demo-tool
     description: A stand-in for a tool you'd install. The next block makes it.
     version: ">= 1.0"
-    install: Run **Install the demo tool** below, then click **Check again**.
+    install: Run **Install the demo tools** below, then click **Check again**.
+  - anyOf:
+      - name: runbooks-demo-gh
+        install: Nothing in this runbook installs it.
+      - name: runbooks-demo-glab
+        install: Run **Install the demo tools** below, then click **Check again**.
+    description: Stand-ins for `gh` and `glab`. A runbook that works with GitHub or GitLab needs only the CLI for your Git host.
   - name: runbooks-optional-demo-tool
     description: A tool the runbook can do without.
     optional: true
 ```
 </Prerequisites>
 
-## 2. Install the missing tool
+## 2. Install the missing tools
 
-This block writes a small `runbooks-demo-tool` script to `bin/` in the working directory, and puts that directory on PATH for the blocks that run after it. Run it, then click **Check again** above: the check finds the tool without a restart.
+This block writes small `runbooks-demo-tool` and `runbooks-demo-glab` scripts to `bin/` in the working directory, and puts that directory on PATH for the blocks that run after it. Run it, then click **Check again** above: the check finds both without a restart. One tool of the `anyOf` list is enough, so `runbooks-demo-gh` isn't needed.
 
 <Command
-    id="install-demo-tool"
-    title="Install the demo tool"
+    id="install-demo-tools"
+    title="Install the demo tools"
     command={`mkdir -p bin
 echo '#!/bin/sh' > bin/runbooks-demo-tool
 echo 'echo "runbooks-demo-tool 1.2.3"' >> bin/runbooks-demo-tool
-chmod +x bin/runbooks-demo-tool
+echo '#!/bin/sh' > bin/runbooks-demo-glab
+chmod +x bin/runbooks-demo-tool bin/runbooks-demo-glab
 export PATH="$PWD/bin:$PATH"`}
     successMessage="Installed. Click **Check again** above."
 />
@@ -46,4 +53,14 @@ A check that passes, or only warns, publishes each tool's path and the versions 
     id="show-tool-paths"
     title="Show where the tools are"
     command='echo "git {{ .outputs.tools.git_version }} is at {{ .outputs.tools.git_path }}, and runbooks-demo-tool is at {{ .outputs.tools.runbooks_demo_tool_path }}."'
+/>
+
+The path of an `anyOf` list's tool that isn't installed is empty, so a block can use whichever tool is:
+
+<Command
+    id="pick-git-cli"
+    title="Use the Git host CLI that's installed"
+    command={`if [ -n "{{ .outputs.tools.runbooks_demo_gh_path }}" ]; then cli=gh; else cli=glab; fi
+echo "A real runbook would run $cli here."
+echo "cli=$cli" >> "$RUNBOOK_OUTPUT"`}
 />

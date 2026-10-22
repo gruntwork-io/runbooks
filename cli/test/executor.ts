@@ -1130,8 +1130,8 @@ export class TestExecutor {
         )
       })
       const toolResults = checked.map((checkedTool) => checkedTool.result)
-      status = prerequisitesStatus(toolResults)
-      log = checkLog(checked)
+      status = prerequisitesStatus(parsed.spec, toolResults)
+      log = checkLog(parsed.spec, checked)
       // As in the app, only a check that passes or warns publishes its outputs.
       if (status !== "fail") result.outputs = prerequisitesOutputs(toolResults)
     }

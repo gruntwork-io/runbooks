@@ -7,7 +7,7 @@
  */
 import { errorMessage } from "../../errors/message.ts"
 import type { LogLevel } from "../exec/logChannels.ts"
-import type { PrerequisiteTool, PrerequisitesSpec } from "./spec.ts"
+import type { PrerequisiteTool, PrerequisitesSpec, Requirement } from "./spec.ts"
 import { extractVersion, parseVersion, satisfiesConstraint } from "./version.ts"
 
 /**
@@ -27,7 +27,10 @@ export interface ToolResult {
   readonly version: string | null
 }
 
-/** The block's status: a required tool that isn't found fails it, an optional one makes it a warning. */
+/**
+ * The block's status: a required tool (or `anyOf` list) that isn't found
+ * fails it, an optional one makes it a warning.
+ */
 export type PrerequisitesStatus = "success" | "warn" | "fail"
 
 export interface LogEntry {
@@ -115,14 +118,50 @@ function describeRunFailure(failure: RunFailure): string {
 }
 
 /** A check's log: each tool's result and its note, in order, then the summary. */
-export function checkLog(checked: readonly CheckedTool[]): LogEntry[] {
+export function checkLog(spec: PrerequisitesSpec, checked: readonly CheckedTool[]): LogEntry[] {
+  const results = checked.map(({ result }) => result)
   const log: LogEntry[] = []
   for (const { result, note } of checked) {
-    log.push(describeResult(result))
-    if (note) log.push({ level: result.status === "found" ? "INFO" : "WARN", text: note })
+    const instead = foundInstead(spec, result, results)
+    log.push(describeResult(result, instead))
+    if (note) {
+      log.push({ level: result.status === "found" || instead ? "INFO" : "WARN", text: note })
+    }
   }
-  log.push(summarize(checked.map(({ result }) => result)))
+  log.push(summarize(spec, results))
   return log
+}
+
+/** The names of the tools the check found. */
+function foundNames(results: readonly ToolResult[]): Set<string> {
+  return new Set(results.filter((result) => result.status === "found").map(({ tool }) => tool.name))
+}
+
+/** The requirements the check didn't meet: it found none of their tools. */
+export function unmetRequirements(
+  spec: PrerequisitesSpec,
+  results: readonly ToolResult[],
+): Requirement[] {
+  const found = foundNames(results)
+  return spec.requirements.filter(({ tools }) => !tools.some((tool) => found.has(tool.name)))
+}
+
+/**
+ * The tool the check found in place of `result`'s, when it didn't find that
+ * one but found another of its `anyOf` list: `gh`, for a `glab` that isn't
+ * installed. Null otherwise.
+ */
+export function foundInstead(
+  spec: PrerequisitesSpec,
+  result: ToolResult,
+  results: readonly ToolResult[],
+): PrerequisiteTool | null {
+  if (result.status === "found") return null
+  const found = foundNames(results)
+  const requirement = spec.requirements.find(({ tools }) =>
+    tools.some((tool) => tool.name === result.tool.name),
+  )
+  return requirement?.tools.find((tool) => found.has(tool.name)) ?? null
 }
 
 /** The log line of a check that couldn't look for its tools on PATH. */
@@ -133,10 +172,13 @@ export function lookupFailedLog(failure: RunFailure): LogEntry {
   }
 }
 
-export function prerequisitesStatus(results: readonly ToolResult[]): PrerequisitesStatus {
-  const notFound = results.filter((result) => result.status !== "found")
-  if (notFound.some((result) => !result.tool.optional)) return "fail"
-  return notFound.length > 0 ? "warn" : "success"
+export function prerequisitesStatus(
+  spec: PrerequisitesSpec,
+  results: readonly ToolResult[],
+): PrerequisitesStatus {
+  const unmet = unmetRequirements(spec, results)
+  if (unmet.some((requirement) => !requirement.optional)) return "fail"
+  return unmet.length > 0 ? "warn" : "success"
 }
 
 /** The exit code a run with this status reports, as a script's would. */
@@ -186,59 +228,77 @@ function shellQuote(arg: string): string {
   return /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`
 }
 
-/** A log line for one tool's result, and its level. */
-export function describeResult(result: ToolResult): LogEntry {
+/**
+ * A log line for one tool's result, and its level. `instead` is the tool of
+ * its `anyOf` list that was found in its place, if any: then the runbook
+ * doesn't need it, and its problem is only information.
+ */
+export function describeResult(
+  result: ToolResult,
+  instead: PrerequisiteTool | null = null,
+): LogEntry {
   const { tool, status, path, version } = result
   const name = version ? `${tool.name} ${version}` : tool.name
   const needs = tool.version ? ` (needs ${tool.version})` : ""
-  const failLevel: LogLevel = tool.optional ? "WARN" : "ERROR"
-  const optional = tool.optional ? " This tool is optional." : ""
+  const failLevel: LogLevel = instead ? "INFO" : tool.optional ? "WARN" : "ERROR"
+  const after = instead
+    ? ` ${instead.name} is installed instead.`
+    : tool.optional
+      ? " This tool is optional."
+      : ""
   switch (status) {
     case "found":
       return { level: "INFO", text: `${name}${needs}: found at ${path}` }
     case "missing":
-      return { level: failLevel, text: `${tool.name}: not found on PATH.${optional}` }
+      return { level: failLevel, text: `${tool.name}: not found on PATH.${after}` }
     case "wrong_version":
       return {
         level: failLevel,
-        text: `${name} at ${path} doesn't meet the version requirement ${tool.version}.${optional}`,
+        text: `${name} at ${path} doesn't meet the version requirement ${tool.version}.${after}`,
       }
     case "unknown_version":
       return {
         level: failLevel,
-        text: `${tool.name} at ${path}: "${versionCommand(tool)}" printed no version number to check against ${tool.version}.${optional}`,
+        text: `${tool.name} at ${path}: "${versionCommand(tool)}" printed no version number to check against ${tool.version}.${after}`,
       }
   }
 }
 
 /** The run's last log line, which sums up its results. */
-export function summarize(results: readonly ToolResult[]): LogEntry {
-  switch (prerequisitesStatus(results)) {
-    case "success":
-      return {
-        level: "INFO",
-        text:
-          results.length === 1
-            ? `${results[0]!.tool.name} is installed.`
-            : `All ${results.length} tools are installed.`,
+export function summarize(spec: PrerequisitesSpec, results: readonly ToolResult[]): LogEntry {
+  const unmet = unmetRequirements(spec, results)
+  switch (prerequisitesStatus(spec, results)) {
+    case "success": {
+      const [only, ...others] = spec.requirements
+      if (only && others.length === 0) {
+        const found = foundNames(results)
+        const tool = only.tools.find(({ name }) => found.has(name)) ?? only.tools[0]!
+        return { level: "INFO", text: `${tool.name} is installed.` }
       }
+      return { level: "INFO", text: `All ${spec.requirements.length} tools are installed.` }
+    }
     case "warn":
       return {
         level: "WARN",
-        text: `The required tools are installed. Optional tools to install or update: ${notFoundNames(results, false)}.`,
+        text: `The required tools are installed. Optional tools to install or update: ${requirementNames(unmet, false)}.`,
       }
     case "fail":
       return {
         level: "ERROR",
-        text: `Tools to install or update: ${notFoundNames(results, true)}.`,
+        text: `Tools to install or update: ${requirementNames(unmet, true)}.`,
       }
   }
 }
 
-/** The tools that weren't found, each optional one marked when `markOptional`. */
-function notFoundNames(results: readonly ToolResult[], markOptional: boolean): string {
-  return results
-    .filter((result) => result.status !== "found")
-    .map(({ tool }) => (markOptional && tool.optional ? `${tool.name} (optional)` : tool.name))
+/**
+ * The requirements as a list of tools: an `anyOf` list's joined with "or",
+ * and each optional one marked when `markOptional`.
+ */
+function requirementNames(requirements: readonly Requirement[], markOptional: boolean): string {
+  return requirements
+    .map((requirement) => {
+      const names = requirement.tools.map(({ name }) => name).join(" or ")
+      return markOptional && requirement.optional ? `${names} (optional)` : names
+    })
     .join(", ")
 }

@@ -8,14 +8,15 @@ settings:
 tests:
   - name: install-then-check-again
     description: |
-      The first check fails: the demo tool isn't installed. Once the install
-      block has put it on PATH, checking again finds it. The optional tool is
-      still missing, so the check warns, which lets the last block read its
-      outputs.
+      The first check fails: the demo tool isn't installed, and neither is
+      either tool of the anyOf list. Once the install block has put the demo
+      tool and one of the list's tools on PATH, checking again finds them.
+      The optional tool is still missing, so the check warns, which lets the
+      last blocks read its outputs.
     steps:
       - block: tools
         expect: fail
-      - block: install-demo-tool
+      - block: install-demo-tools
         expect: success
       - block: tools
         expect: warn
@@ -24,8 +25,22 @@ tests:
             block: tools
             output: runbooks_demo_tool_version
             value: "1.2.3"
+          - type: output_exists
+            block: tools
+            output: runbooks_demo_glab_path
+          - type: output_equals
+            block: tools
+            output: runbooks_demo_gh_path
+            value: ""
       - block: show-tool-paths
         expect: success
+      - block: pick-git-cli
+        expect: success
+        assertions:
+          - type: output_equals
+            block: pick-git-cli
+            output: cli
+            value: glab
 
   - name: failed-check-publishes-no-outputs
     description: |

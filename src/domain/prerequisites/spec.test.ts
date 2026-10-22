@@ -140,6 +140,91 @@ tools:
       '"docker-compose" and "docker_compose" would publish the same outputs (docker_compose_path). List only one of them.',
     )
   })
+
+  it("reads each tool as a requirement of its own", () => {
+    const spec = parse("tools:\n  - git\n  - name: gh\n    optional: true\n")
+    expect(spec.requirements).toEqual([
+      { tools: [spec.tools[0]!], optional: false },
+      { tools: [spec.tools[1]!], optional: true },
+    ])
+  })
+
+  describe("an anyOf list", () => {
+    it("is one requirement, whose tools are checked with the others", () => {
+      const spec = parse(`
+tools:
+  - git
+  - anyOf:
+      - gh
+      - name: glab
+        version: ">= 1.40"
+        install: "[Install the GitLab CLI](https://gitlab.com/gitlab-org/cli)"
+    description: Opens the pull or merge request.
+`)
+      expect(spec.tools.map((tool) => tool.name)).toEqual(["git", "gh", "glab"])
+      const [, ghOrGlab] = spec.requirements
+      expect(ghOrGlab).toEqual({
+        tools: [spec.tools[1]!, spec.tools[2]!],
+        description: "Opens the pull or merge request.",
+        optional: false,
+      })
+      expect(spec.tools[2]).toMatchObject({
+        name: "glab",
+        version: ">= 1.40",
+        versionArgs: DEFAULT_VERSION_ARGS,
+        install: "[Install the GitLab CLI](https://gitlab.com/gitlab-org/cli)",
+        optional: false,
+        outputKey: "glab",
+      })
+    })
+
+    it("makes its tools optional when it is", () => {
+      const spec = parse("tools:\n  - anyOf: [tofu, terraform]\n    optional: true\n")
+      expect(spec.requirements[0]!.optional).toBe(true)
+      expect(spec.tools.map((tool) => tool.optional)).toEqual([true, true])
+    })
+
+    it("needs two or more tools, and only its own keys", () => {
+      for (const anyOf of ["[gh]", "gh", "[]"]) {
+        expect(errorFor(`tools:\n  - anyOf: ${anyOf}\n`)).toBe(
+          "Tool 1: `anyOf` must be a list of two or more tools, any one of which will do.",
+        )
+      }
+      expect(
+        errorFor("tools:\n  - git\n  - anyOf: [gh, glab]\n    install: brew install gh\n"),
+      ).toBe(
+        'Tool 2 has an unknown key "install". An `anyOf` list can have anyOf, description, optional, and the other keys go on its tools.',
+      )
+      expect(errorFor("tools:\n  - name: gh\n    anyOf: [gh, glab]\n")).toBe(
+        "Tool 1 has both a `name` and an `anyOf` list. Give each tool in the list its own name.",
+      )
+      expect(errorFor("tools:\n  - anyOf: [gh, glab]\n    optional: maybe\n")).toBe(
+        "Tool 1: `optional` must be true or false.",
+      )
+      expect(errorFor("tools:\n  - anyOf: [gh, glab]\n    description: [a, list]\n")).toBe(
+        "Tool 1: `description` must be text.",
+      )
+    })
+
+    it("refuses an optional tool in it, a nested list, and a tool without a name", () => {
+      expect(
+        errorFor("tools:\n  - anyOf:\n      - gh\n      - name: glab\n        optional: true\n"),
+      ).toBe(
+        '"glab": set `optional` on its `anyOf` list, which is optional or required as a whole.',
+      )
+      expect(errorFor("tools:\n  - anyOf:\n      - gh\n      - anyOf: [glab, tea]\n")).toBe(
+        "Tool 1's `anyOf` item 2 is an `anyOf` list. They can't be nested.",
+      )
+      expect(errorFor("tools:\n  - anyOf:\n      - gh\n      - version: '1'\n")).toBe(
+        "Tool 1's `anyOf` item 2 needs a `name`: the command to look for on PATH.",
+      )
+    })
+
+    it("refuses a tool that's also listed elsewhere", () => {
+      expect(errorFor("tools:\n  - gh\n  - anyOf: [gh, glab]\n")).toBe('"gh" is listed twice.')
+      expect(errorFor("tools:\n  - anyOf: [glab, glab]\n")).toBe('"glab" is listed twice.')
+    })
+  })
 })
 
 describe("toolOutputKey", () => {
