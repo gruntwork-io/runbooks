@@ -7,4 +7,4 @@ export interface TelemetryShape {
   readonly isEnabled: () => Effect.Effect<boolean>
 }
 
-export class Telemetry extends Context.Tag("Telemetry")<Telemetry, TelemetryShape>() {}
+export class Telemetry extends Context.Service<Telemetry, TelemetryShape>()("Telemetry") {}

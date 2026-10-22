@@ -1,23 +1,25 @@
 /**
  * IPC handler for script execution with streaming.
  *
- * Runs a script via the executeScript Effect, then forwards events to the
+ * Runs a script via the executeScript Effect and streams its logs to the
  * renderer process via event.sender.send(). The handler returns the final
- * status when execution completes.
+ * status and the script's outputs together when execution completes.
  */
 import { Effect, Stream } from "effect"
 import { ipcMain } from "electron"
 import { runtime, sessionManager, executableRegistry } from "./runtime.ts"
-import { resolveGeneratedDir } from "./path-guard.ts"
+import { resolveGeneratedDir, resolveRunLogsDir } from "./path-guard.ts"
 import { executeScript } from "../../../src/domain/exec/executor.ts"
 import { filterCapturedEnv } from "../../../src/domain/session/manager.ts"
 import { renderScriptForExec } from "../../../src/domain/exec/render.ts"
 import type { ExecRequest, ExecStatusEvent } from "../../../src/types.ts"
-import { encodeOutputs } from "../../../src/domain/exec/outputValues.ts"
+import { encodeOutputs, type OutputValues } from "../../../src/domain/exec/outputValues.ts"
 import type { IpcEventMap } from "../../shared/channels.ts"
 import { makeLogger } from "../logger.ts"
 
 const log = makeLogger("ipc:exec")
+
+type ExecEventChannel = Extract<keyof IpcEventMap, `exec:${string}`>
 
 // ---------------------------------------------------------------------------
 // Active execution tracking for cancellation support
@@ -43,10 +45,16 @@ function abortExecution(id: string): boolean {
   return true
 }
 
+/** Whether a script is running. exec:run runs one at a time. */
+export function isExecutionRunning(): boolean {
+  return activeExecutions.size > 0
+}
+
 /**
  * Cancel every running execution and wait until each has been interrupted,
  * i.e. its kill finalizer has sent SIGTERM to the script's process group.
- * Called on quit: scripts run detached, so nothing else stops them.
+ * Called on quit and before switching sessions: scripts run detached, so
+ * nothing else stops them.
  */
 export async function cancelAllExecutions(): Promise<void> {
   const pending = [...activeExecutions.values()]
@@ -57,25 +65,30 @@ export async function cancelAllExecutions(): Promise<void> {
 export function registerExecHandlers(): void {
   ipcMain.handle("exec:run", async (event, params: ExecRequest) => {
     log.debug("handler called for:", params.executableId)
-    // Only one execution runs at a time: cancel (interrupt + kill) any others.
-    for (const { controller } of activeExecutions.values()) controller.abort()
-    activeExecutions.clear()
-
     const executionId = params.executionId ?? `main-${++execSeq}`
+    // The entry below would replace a run still registered under this id and
+    // leave it unreachable by Stop and by quit.
+    abortExecution(executionId)
     const abortController = new AbortController()
     mostRecentExecutionId = executionId
 
+    // Every event names its run, since several runs stream to one renderer.
+    // Interruption takes effect at the fiber's next yield point, so an aborted
+    // run can still reach a send.
+    const send = (channel: ExecEventChannel, payload: object) => {
+      if (abortController.signal.aborted) return
+      event.sender.send(channel, { ...payload, executionId })
+    }
+
     try {
-      // Run execution directly (no forkDaemon). The IPC handler awaits
-      // the result, which is exactly the same as forkDaemon + Fiber.await
+      // Run execution directly (no forkDetach). The IPC handler awaits
+      // the result, which is exactly the same as forkDetach + Fiber.await
       // but without the scope/fiber lifecycle issues that caused hangs.
       //
       // The abort signal is passed to runPromise: when exec:cancel aborts it,
       // Effect interrupts this fiber, which closes the scope and runs the
       // process.kill finalizer (executor.ts) — that's what actually stops the
-      // running child (and its process group). The signal.aborted checks below
-      // are a belt-and-suspenders guard against a stray send in the small
-      // window before interruption takes effect at the next yield point.
+      // running child (and its process group).
       const run = runtime.runPromise(
         Effect.scoped(
           Effect.gen(function* () {
@@ -102,6 +115,7 @@ export function registerExecHandlers(): void {
 
             const workTreePath = sessionManager.getActiveWorkTreePath()
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
+            const logsDir = yield* resolveRunLogsDir(executable.componentId)
 
             // Execute the script — returns log stream + completion effect
             const { logStream, completionEffect, logFilePath } = yield* executeScript(
@@ -111,27 +125,25 @@ export function registerExecHandlers(): void {
               context,
               workTreePath,
               outputPath,
+              logsDir,
             )
 
             // Surface the on-disk log path up front so the UI can offer it
             // (e.g. a "copy log path" action) while the script is still running.
-            if (!abortController.signal.aborted) {
-              event.sender.send("exec:log-file", { path: logFilePath })
-            }
+            send("exec:log-file", { path: logFilePath })
 
             // Phase 1: Stream log events to renderer in real-time
             log.debug("Phase 1: starting log stream drain")
             yield* Stream.runForEach(logStream, (logEvent) =>
               Effect.sync(() => {
-                if (!abortController.signal.aborted) {
-                  event.sender.send("exec:log", logEvent.event)
-                }
+                send("exec:log", logEvent.event)
               }),
             )
             log.debug("Phase 1 complete, starting Phase 2")
 
             // Phase 2: After logs drain, run completion
             let finalStatus: ExecStatusEvent | null = null
+            let outputs: OutputValues = {}
             const completionEvents = yield* completionEffect
             log.debug("Phase 2 complete, got", completionEvents.length, "events")
 
@@ -139,21 +151,16 @@ export function registerExecHandlers(): void {
               if (abortController.signal.aborted) break
               switch (execEvent._tag) {
                 case "log":
-                  event.sender.send("exec:log", execEvent.event)
+                  send("exec:log", execEvent.event)
                   break
                 case "status":
                   finalStatus = execEvent.event
-                  event.sender.send("exec:status", execEvent.event)
                   break
-                case "outputs": {
-                  const payload: IpcEventMap["exec:outputs"] = {
-                    outputs: encodeOutputs(execEvent.event.outputs),
-                  }
-                  event.sender.send("exec:outputs", payload)
+                case "outputs":
+                  outputs = execEvent.event.outputs
                   break
-                }
                 case "files_captured":
-                  event.sender.send("exec:files-captured", execEvent.event)
+                  send("exec:files-captured", execEvent.event)
                   break
                 case "env_captured": {
                   // Applied as a delta against the env the script started
@@ -180,7 +187,11 @@ export function registerExecHandlers(): void {
             }
 
             log.debug("execution complete, status:", finalStatus?.status)
-            return { status: finalStatus }
+            if (!finalStatus) return { status: null }
+            // The status and the outputs go back in one reply. Sent as
+            // separate events, the renderer can see a finished run before its
+            // outputs and take it for a run that published none.
+            return { status: finalStatus, outputs: encodeOutputs(outputs) }
           }),
         ),
         { signal: abortController.signal },

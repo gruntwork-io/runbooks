@@ -13,6 +13,7 @@ import {
 } from "../../../src/services/WarmRenderDispatcher.ts"
 import { DEFAULT_GENERATED_DIR } from "../../../src/domain/files/generated.ts"
 import { WasmError } from "../../../src/errors/index.ts"
+import { hashTemplateDir } from "../../../src/domain/boilerplate/templateHash.ts"
 
 // boilerplate.ts registers its handlers on electron's ipcMain. Capture them so
 // the real boilerplate:render handler can be called directly.
@@ -267,5 +268,52 @@ describe("boilerplate:resolve-inputs", () => {
     })
 
     expect(result).toEqual({ inputs: { DbUrl: "postgres://app:{{ .DbPassword }}@db" } })
+  })
+})
+
+describe("boilerplate:variables", () => {
+  let tmp: string
+  let originalRunbookConfig: typeof runtimeModule.runbookConfig
+
+  const variables = (params: Record<string, unknown>) =>
+    handlers.get("boilerplate:variables")!(null, params) as Promise<{ contentHash?: string }>
+
+  beforeEach(async () => {
+    originalRunbookConfig = runtimeModule.runbookConfig
+    tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "boilerplate-variables-ipc-")))
+    fs.mkdirSync(path.join(tmp, "templates", "app"), { recursive: true })
+    fs.writeFileSync(path.join(tmp, "templates", "app", "boilerplate.yml"), "variables: []\n")
+    fs.writeFileSync(path.join(tmp, "templates", "app", "main.tf"), "# v1\n")
+    const runbookPath = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(runbookPath, "# Test\n")
+    setRunbookConfig({ ...originalRunbookConfig, localPath: runbookPath, isWatchMode: false })
+    await runtime.runPromise(sessionManager.createSession(tmp, runbookPath))
+  })
+
+  afterEach(() => {
+    sessionManager.deleteSession()
+    setRunbookConfig(originalRunbookConfig)
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("hashes the template's files, so a change to one shows", async () => {
+    const before = (await variables({ templatePath: "templates/app" })).contentHash
+    expect(before).toBe(
+      await Effect.runPromise(
+        hashTemplateDir(path.join(tmp, "templates", "app")).pipe(
+          Effect.provide(NodeFileSystemLive),
+        ),
+      ),
+    )
+
+    fs.writeFileSync(path.join(tmp, "templates", "app", "main.tf"), "# v2\n")
+
+    expect((await variables({ templatePath: "templates/app" })).contentHash).not.toBe(before)
+  })
+
+  it("has no hash for inline boilerplate, which has no files", async () => {
+    const config = await variables({ boilerplateContent: "variables: []\n" })
+
+    expect(config.contentHash).toBeUndefined()
   })
 })

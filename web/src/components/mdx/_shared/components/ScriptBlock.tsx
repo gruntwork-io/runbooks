@@ -1,7 +1,15 @@
 import { XCircle, Square, AlertTriangle } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Admonition } from "@/components/mdx/Admonition"
-import { useState, useMemo, cloneElement, isValidElement, useRef, useEffect } from "react"
+import {
+  useState,
+  useMemo,
+  useCallback,
+  cloneElement,
+  isValidElement,
+  useRef,
+  useEffect,
+} from "react"
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,11 +20,14 @@ import {
   InlineMarkdown,
   UnmetDependenciesWarning,
   UnmetAuthDependencyWarning,
+  RunBlockedWarning,
   BlockIdLabel,
   Instruction,
 } from "@/components/mdx/_shared"
 import { DuplicateIdError } from "./DuplicateIdError"
 import { ScriptChangeNotice } from "./ScriptChangeNotice"
+import { useRunSequencing } from "../hooks/useRunSequencing"
+import { isRunBlocked } from "@/lib/blockRuns"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -89,6 +100,10 @@ export interface ScriptBlockProps {
   usePty?: boolean | undefined
   /** Per-execution timeout in milliseconds. When omitted, the executor's default timeout (60 minutes) applies. */
   timeoutMs?: number | undefined
+  /** IDs of Command or Check blocks that must have run successfully, and not be running, before this block can run. */
+  dependsOn?: string | string[] | undefined
+  /** Whether this block must run alone. While it runs no other Command or Check block can start, and it can't start while another one is running. */
+  exclusive?: boolean | undefined
   /** Distinguishes the Command vs Check presentation. */
   variant: ScriptBlockVariant
 }
@@ -117,6 +132,8 @@ export function ScriptBlock({
   children,
   usePty,
   timeoutMs,
+  dependsOn,
+  exclusive = false,
   variant,
 }: ScriptBlockProps) {
   const validationError = useMemo((): AppError | null => {
@@ -151,6 +168,7 @@ export function ScriptBlock({
     unmetInputDependencies,
     hasAllInputDependencies,
     inlineInputsId,
+    outputDependencyBlockIds,
     unmetOutputDependencies,
     hasAllOutputDependencies,
     unmetAwsAuthDependency,
@@ -187,6 +205,24 @@ export function ScriptBlock({
     componentType: variant.componentType,
     usePty,
     timeoutMs,
+  })
+
+  const blockRef = useRef<HTMLDivElement>(null)
+  const revealSelf = useCallback(() => {
+    blockRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [])
+  const {
+    blockers: runBlockers,
+    stopRun,
+    revealBlock,
+  } = useRunSequencing({
+    blockId: id,
+    status,
+    exclusive,
+    dependsOn,
+    outputDependencyIds: outputDependencyBlockIds,
+    stop: cancel,
+    reveal: revealSelf,
   })
 
   // Clone children and add variant="embedded" prop if it's an Inputs component
@@ -417,11 +453,13 @@ export function ScriptBlock({
     !hasAllOutputDependencies ||
     !hasAwsAuthDependency ||
     !hasGitHubAuthDependency ||
-    !hasGoogleAuthDependency
+    !hasGoogleAuthDependency ||
+    isRunBlocked(runBlockers)
 
   // Main render
   return (
     <div
+      ref={blockRef}
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
     >
@@ -608,6 +646,14 @@ export function ScriptBlock({
               hint="Authenticate with the referenced GoogleAuth block first."
             />
           )}
+
+          <RunBlockedWarning
+            blockType={variant.componentType}
+            exclusive={exclusive}
+            blockers={runBlockers}
+            onStop={stopRun}
+            onReveal={revealBlock}
+          />
 
           {renderError && hasAllOutputDependencies && (
             <div className="mb-3 text-sm text-destructive flex items-start gap-2">

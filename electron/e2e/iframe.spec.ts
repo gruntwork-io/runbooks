@@ -34,6 +34,7 @@ import type { AddressInfo } from "net"
 import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import { readFromMain, runInMain } from "./main-process.ts"
 import { guestUrls, inGuest } from "./webview-guests.ts"
 
@@ -139,13 +140,14 @@ async function launch(name = "runbook"): Promise<{ app: ElectronApplication; pag
     // --user-data-dir isolates the single-instance lock and trust state.
     args: [
       MAIN_ENTRY,
+      MOCK_KEYCHAIN,
       `--user-data-dir=${path.join(tmpDir, "user-data")}`,
       path.join(tmpDir, name),
     ],
     env: {
       ...process.env,
       ELECTRON_NO_UPDATER: "1",
-      RUNBOOKS_NO_TELEMETRY: "1",
+      RUNBOOKS_TELEMETRY_DISABLE: "1",
     },
   })
   const page = await app.firstWindow()
@@ -281,12 +283,24 @@ test.describe("Iframe block", () => {
       await expect(page.locator("#secret")).toHaveValue("hunter2")
       expect(await inGuest(app, grabber, `document.getElementById("grab").value`)).toBe("")
 
-      // A click into the page does give it the keyboard.
-      await page.locator("webview[title=Grabber]").click()
-      await page.keyboard.type("ok", { delay: 60 })
-      await expect
-        .poll(() => inGuest(app, grabber, `document.getElementById("grab").value`))
-        .toBe("ok")
+      // A click into the page does move focus out of the app and into it.
+      // Typing can't check this: keys Playwright types after its click
+      // reaches the page arrive nowhere. Its click doesn't always take
+      // either, so click until one does.
+      const frame = page.locator("webview[title=Grabber]")
+      await expect(async () => {
+        await frame.click()
+        await expect
+          .poll(
+            () =>
+              page.evaluate(() => ({
+                focused: document.activeElement?.getAttribute("title"),
+                inApp: document.hasFocus(),
+              })),
+            { timeout: 1_000 },
+          )
+          .toEqual({ focused: "Grabber", inApp: false })
+      }).toPass({ timeout: 30_000 })
     } finally {
       await app.close()
     }

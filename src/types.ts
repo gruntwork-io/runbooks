@@ -115,6 +115,8 @@ export interface BoilerplateConfig {
   sections: Section[]
   outputDependencies: OutputDependency[]
   skipFiles: SkipFileRule[]
+  /** A hash of the template directory's files, when the config came from one (see hashTemplateDir) */
+  contentHash?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -200,10 +202,10 @@ export interface ExecRequest {
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
   timeoutMs?: number
   /**
-   * Renderer-generated unique id for this execution. The renderer holds onto it
-   * so a later `exec:cancel` can target *this specific* run (rather than whatever
-   * happens to be active), and the main process registers the run's
-   * AbortController under it. Omitted by callers that don't support cancellation.
+   * Renderer-generated unique id for this execution. The main process puts it
+   * on every event the run sends and registers the run's AbortController under
+   * it, so the renderer can match events to runs and `exec:cancel` can stop
+   * this one. Omitted by callers that don't support cancellation.
    */
   executionId?: string
 }

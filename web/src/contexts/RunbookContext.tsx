@@ -47,6 +47,7 @@ import { normalizeBlockId } from "@/lib/utils"
 import { flattenBlockOutputs } from "@/lib/templateUtils"
 import type { TemplateContext } from "@/lib/templateUtils"
 import type { OutputValue as BlockOutputValue, OutputValues } from "@/lib/outputValues"
+import { BlockRunsProvider } from "./BlockRunsContext"
 
 /**
  * Data stored for each registered Inputs block.
@@ -396,7 +397,11 @@ export function RunbookContextProvider({
     ],
   )
 
-  return <RunbookContext.Provider value={contextValue}>{children}</RunbookContext.Provider>
+  return (
+    <RunbookContext.Provider value={contextValue}>
+      <BlockRunsProvider>{children}</BlockRunsProvider>
+    </RunbookContext.Provider>
+  )
 }
 
 // Hooks are in a separate file to satisfy react-refresh requirements

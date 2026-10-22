@@ -122,7 +122,24 @@ async function validateInstallationToken(
       login: ownerLogin ? `${ownerLogin}[bot]` : "github-app[bot]",
       name: "GitHub App Installation",
     },
+    expiresAt: tokenExpiration(resp),
   }
+}
+
+/**
+ * When the request's token expires, from the
+ * GitHub-Authentication-Token-Expiration header ("2026-11-30 21:04:01 UTC",
+ * or with a "+0000" style offset), as an ISO timestamp. Undefined when the
+ * header is missing or unreadable.
+ */
+function tokenExpiration(resp: Response): string | undefined {
+  const header = resp.headers.get("github-authentication-token-expiration")
+  const match = header?.trim().match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/)
+  if (!match) return undefined
+  const [, date, time, zone] = match
+  const offset = zone === "UTC" ? "Z" : `${zone!.slice(0, 3)}:${zone!.slice(3)}`
+  const at = new Date(`${date}T${time}${offset}`)
+  return Number.isNaN(at.getTime()) ? undefined : at.toISOString()
 }
 
 async function validateUserToken(token: string, apiBase: string): Promise<GitHubTokenValidation> {
@@ -149,6 +166,7 @@ async function validateUserToken(token: string, apiBase: string): Promise<GitHub
       email: data.email,
     },
     scopes,
+    expiresAt: tokenExpiration(resp),
   }
 }
 

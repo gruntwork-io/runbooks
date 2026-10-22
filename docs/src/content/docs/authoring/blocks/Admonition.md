@@ -2,9 +2,9 @@
 title: <Admonition>
 ---
 
-The `<Admonition>` block creates callout boxes to highlight important information, warnings, notes, or tips. It helps draw the user's attention to critical information in your runbook.
+The `<Admonition>` block renders a callout box for a note, tip, warning, or danger message.
 
-## Basic Usage
+## Basic usage
 
 ```mdx
 <Admonition 
@@ -16,24 +16,23 @@ The `<Admonition>` block creates callout boxes to highlight important informatio
 
 ## Props
 
-### Required Props
+### Required props
 
-- `type` (string) - Type of admonition: `"note"`, `"info"`, `"warning"`, or `"danger"`
+- `type` (string): `"note"`, `"info"`, `"warning"`, or `"danger"`
 
-### Optional Props
+### Optional props
 
-- `title` (string) - Title for the callout box (defaults based on type). Supports inline markdown (bold, italic, links, code).
-- `description` (string) - Content/message to display. Supports inline markdown.
-- `closable` (boolean) - Whether users can close the admonition (default: false)
-- `confirmationText` (string) - If provided, shows a confirmation button with this label that users must click to dismiss the admonition
-- `allowPermanentHide` (boolean) - When true with confirmationText, adds a "Don't show me this again" checkbox
-- `storageKey` (string) - Unique key for localStorage (required with allowPermanentHide)
+- `title` (string): title for the callout box. Defaults based on type. Supports inline markdown (bold, italic, links, code).
+- `description` (string): the message to display. Supports inline markdown.
+- `inputsId` (string | string[]): ID of one or more [Inputs](/authoring/blocks/inputs/) blocks. `title`, `description`, and `confirmationText` resolve `{{ .inputs.VarName }}` expressions against those inputs, so a callout can name the value the user entered.
+- `closable` (boolean): whether users can close the admonition. Default `false`.
+- `confirmationText` (string): if set, shows a confirmation button with this label that users must click to dismiss the admonition.
+- `allowPermanentHide` (boolean): with `confirmationText`, adds a "Don't show me this again" checkbox.
+- `storageKey` (string): unique key for localStorage. Required with `allowPermanentHide`.
 
 ## Types
 
-### Note (Gray)
-
-For general information or notes:
+### Note (gray)
 
 ```mdx
 <Admonition 
@@ -43,9 +42,7 @@ For general information or notes:
 />
 ```
 
-### Info (Blue)
-
-For helpful information or tips:
+### Info (blue)
 
 ```mdx
 <Admonition 
@@ -55,9 +52,7 @@ For helpful information or tips:
 />
 ```
 
-### Warning (Yellow)
-
-For warnings or cautions:
+### Warning (yellow)
 
 ```mdx
 <Admonition 
@@ -67,9 +62,7 @@ For warnings or cautions:
 />
 ```
 
-### Danger (Red)
-
-For critical warnings or errors:
+### Danger (red)
 
 ```mdx
 <Admonition 
@@ -81,13 +74,13 @@ For critical warnings or errors:
 
 ## Inline content
 
-Instead of using the `description` prop, you can provide richer content inline:
+You can pass the content as children in place of the `description` prop:
 
 ```mdx
 <Admonition type="info" title="Prerequisites">
-Before proceeding, ensure you have:
+Before proceeding, you need:
 - AWS CLI installed
-- Terraform v1.0+
+- OpenTofu v1.6+
 - Valid AWS credentials configured
 </Admonition>
 ```
@@ -96,13 +89,11 @@ The content supports inline markdown:
 
 ```mdx
 <Admonition type="warning" title="Important">
-Make sure to review the [deployment guide](https://example.com/guide) before running these commands. **Do not** run this in production without testing first!
+Review the [deployment guide](https://example.com/guide) before running these commands. **Do not** run this in production without testing first.
 </Admonition>
 ```
 
-## Closable Admonitions
-
-Allow users to dismiss the admonition:
+## Closable admonitions
 
 ```mdx
 <Admonition 
@@ -113,7 +104,7 @@ Allow users to dismiss the admonition:
 />
 ```
 
-## Confirmation Button
+## Confirmation button
 
 Require users to acknowledge before dismissing:
 
@@ -126,9 +117,9 @@ Require users to acknowledge before dismissing:
 />
 ```
 
-## Don't Show Again
+## Don't show again
 
-Allow users to permanently hide the admonition:
+Let users hide the admonition permanently:
 
 ```mdx
 <Admonition 

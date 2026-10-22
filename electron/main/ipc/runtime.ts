@@ -10,8 +10,10 @@ import { AppLive } from "../../../src/layers/AppLayer.ts"
 import { gitlabSessionTokenHost } from "../../../src/domain/gitlab/auth.ts"
 import { githubSessionCredential } from "../../../src/domain/github/auth.ts"
 import { SessionManager } from "../../../src/domain/session/manager.ts"
+import type { SessionPersistence } from "../../../src/domain/session/persistence.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
 import { FileManifestStore, getManifestStore } from "../../../src/domain/files/manifest.ts"
+import { MissingSessionCredentialError } from "../../../src/errors/index.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
 
 // ---------------------------------------------------------------------------
@@ -27,6 +29,16 @@ export const runtime = ManagedRuntime.make(AppLive)
 /** Singleton session manager -- one session per app instance. */
 export const sessionManager = new SessionManager()
 
+/**
+ * Starts and saves the session manager's sessions. Set once at startup, when
+ * the userData directory is known (session-storage.ts).
+ */
+export let sessionPersistence: SessionPersistence | null = null
+
+export function setSessionPersistence(persistence: SessionPersistence): void {
+  sessionPersistence = persistence
+}
+
 /** Which git platform a token belongs to. The auth block establishes this. */
 export type GitProvider = "github" | "gitlab"
 
@@ -38,6 +50,14 @@ export type GitProvider = "github" | "gitlab"
  * and support diagnostics. Never holds tokens.
  */
 export const vcsSessionMeta = new Map<GitProvider, { host: string; source?: string | undefined }>()
+
+/**
+ * Save vcsSessionMeta with the current session, so resuming it binds each
+ * credential to its host again. Call after every change to the map.
+ */
+export function saveVcsSessionMeta(): void {
+  sessionPersistence?.saveVcsBindings(Object.fromEntries(vcsSessionMeta))
+}
 
 /**
  * Resolve the GitHub session credential for `host` (undefined = the
@@ -60,6 +80,10 @@ export const getGitHubSessionCredential = <E>(host: string | undefined, onMissin
     return credential
   })
 
+/** The `onMissing` for callers that discard the failure and go on without a session credential. */
+export const noSessionCredential = () =>
+  new MissingSessionCredentialError({ message: "no session credential" })
+
 /**
  * Resolve an auth token for a git PROVIDER from the current session's
  * environment.
@@ -79,7 +103,7 @@ export const getGitHubSessionCredential = <E>(host: string | undefined, onMissin
  * block does. Callers that send the token to a host they know (a clone URL,
  * a repo's origin) should use getSessionTokenForHost instead. Callers supply
  * `onMissing` so each can fail with the error type its pipeline expects (a
- * typed GitError for git handlers, a plain Error for API handlers).
+ * GitError for git handlers, a MissingSessionCredentialError for API handlers).
  */
 export const getSessionTokenForProvider = <E>(provider: GitProvider, onMissing: () => E) =>
   Effect.gen(function* () {

@@ -13,7 +13,13 @@
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
-import { runtime, sessionManager, vcsSessionMeta, getGitHubSessionCredential } from "./runtime.ts"
+import {
+  runtime,
+  sessionManager,
+  vcsSessionMeta,
+  getGitHubSessionCredential,
+  noSessionCredential,
+} from "./runtime.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
   validateToken,
@@ -50,6 +56,7 @@ import {
   setLastSelectedGitHubHost,
 } from "../recent-hosts.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
+import { MissingSessionCredentialError } from "../../../src/errors/index.ts"
 
 type HostSource = "gh" | "env" | "session" | "recent"
 
@@ -68,8 +75,8 @@ const invalidHostError = (raw?: string | null) =>
 
 /**
  * The session's GitHub credential for `host` (undefined = the session's
- * GitHub host), failing with a plain Error (the message these handlers
- * surface). The session env is populated by the github:* detection/validation
+ * GitHub host), failing with a MissingSessionCredentialError whose message
+ * these handlers surface. The session env is populated by the github:* detection/validation
  * handlers and is the single source of truth for "which token do API calls
  * use" — the renderer never sees the token directly.
  */
@@ -77,11 +84,11 @@ const getSessionCredential = (host?: string) =>
   getGitHubSessionCredential(
     host,
     () =>
-      new Error(
-        host
+      new MissingSessionCredentialError({
+        message: host
           ? `No GitHub token for ${tryNormalizeGitHubHost(host) ?? host} available in session`
           : "No GitHub token available in session",
-      ),
+      }),
   )
 
 /**
@@ -205,7 +212,7 @@ export function registerGitHubHandlers(): void {
       // Session mode validates the session credential FOR THIS HOST only.
       const token = params.useSessionToken
         ? await runtime.runPromise(
-            getGitHubSessionCredential(host, () => new Error("none")).pipe(
+            getGitHubSessionCredential(host, noSessionCredential).pipe(
               Effect.map((credential) => credential.token),
               Effect.orElseSucceed(() => undefined),
             ),
@@ -245,6 +252,7 @@ export function registerGitHubHandlers(): void {
           host,
           user: result.user,
           scopes: result.scopes,
+          ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
           tokenType,
           outcome: "valid" as const,
           ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),
@@ -294,7 +302,9 @@ export function registerGitHubHandlers(): void {
 
         registerSecret(result.token)
         const tokenType = detectTokenType(result.token)
-        const { user, scopes } = await runtime.runPromise(validateToken(result.token, host))
+        const { user, scopes, expiresAt } = await runtime.runPromise(
+          validateToken(result.token, host),
+        )
 
         const sessionEnvWarning = await writeGitHubSession(
           generation,
@@ -311,6 +321,7 @@ export function registerGitHubHandlers(): void {
           status: "complete" as const,
           user,
           scopes,
+          ...(expiresAt ? { expiresAt } : {}),
           tokenType,
           ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }

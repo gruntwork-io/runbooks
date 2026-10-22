@@ -478,6 +478,55 @@ describe("TestExecutor — explicit steps", () => {
     expect(skipped.stepResults[1]?.actualStatus).toBe("blocked")
   })
 
+  const DEPENDS_ON_RUNBOOK = [
+    "# Depends on",
+    "",
+    `<Command id="log-in" command="exit $LOGIN_EXIT" />`,
+    "",
+    `<Command id="deploy" dependsOn="log-in" command="echo deploy" />`,
+    "",
+  ].join("\n")
+
+  it("blocks a block until the block its dependsOn names has succeeded", async () => {
+    const executor = await makeExecutor(DEPENDS_ON_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "depends-on",
+      env: { LOGIN_EXIT: "0" },
+      steps: [
+        { block: "deploy", expect: "blocked" },
+        { block: "log-in", expect: "success" },
+        { block: "deploy", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["command:deploy", "blocked"],
+      ["command:log-in", "success"],
+      ["command:deploy", "success"],
+    ])
+    expect(result.stepResults[0]?.error).toBe(
+      'Block depends on "log-in" which hasn\'t run successfully',
+    )
+  })
+
+  it("blocks a block whose dependsOn block failed", async () => {
+    const executor = await makeExecutor(DEPENDS_ON_RUNBOOK)
+
+    const result = executor.runTest({
+      name: "depends-on-failed",
+      env: { LOGIN_EXIT: "1" },
+      steps: [
+        { block: "log-in", expect: "fail" },
+        { block: "deploy", expect: "success" },
+      ],
+    })
+
+    expect(result.status).toBe("failed")
+    expect(result.stepResults[1]?.actualStatus).toBe("blocked")
+  })
+
   it("skips a block whose auth block hasn't run when the step expects skip", async () => {
     const executor = await makeExecutor(
       `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,

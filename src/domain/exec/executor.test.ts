@@ -53,9 +53,9 @@ async function collectEvents(
         { env, workDir },
         workTreePath,
         outputPath,
+        "/logs/block",
       )
-      const logChunk = yield* Stream.runCollect(logStream)
-      const logEvents = Array.from(logChunk)
+      const logEvents = yield* Stream.runCollect(logStream)
       // Run completion to get remaining events
       const completionEvents = yield* completionEffect
       return [...logEvents, ...completionEvents]
@@ -174,6 +174,7 @@ describe("executeScript — missing Google credential file", () => {
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
           "",
           "/output",
+          "/logs/block",
         )
         const logEvents = Array.from(yield* Stream.runCollect(logStream))
         return [...logEvents, ...(yield* completionEffect)]
@@ -265,6 +266,7 @@ describe("executeScript — log files", () => {
             { env: { PATH: "/usr/bin" }, workDir: "/work" },
             "",
             "/output",
+            "/logs/block",
           )
           const logs = Array.from(yield* Stream.runCollect(logStream))
           return [...logs, ...(yield* completionEffect)]
@@ -350,6 +352,7 @@ describe("executeScript — captured files", () => {
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
           "",
           "/output",
+          "/logs/block",
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect
@@ -422,6 +425,7 @@ describe("executeScript — outputs", () => {
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
           "",
           "/output",
+          "/logs/block",
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect

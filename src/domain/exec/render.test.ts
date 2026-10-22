@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Either, Layer } from "effect"
+import { Effect, Result, Layer } from "effect"
 import * as nodeFs from "node:fs"
 import * as nodePath from "node:path"
 import { renderScriptForExec } from "./render.ts"
@@ -107,14 +107,14 @@ const testLayer = Layer.merge(
 
 function render(script: string, vars: Record<string, unknown>) {
   return Effect.runPromise(
-    Effect.either(renderScriptForExec(script, vars)).pipe(Effect.provide(testLayer)),
+    Effect.result(renderScriptForExec(script, vars)).pipe(Effect.provide(testLayer)),
   )
 }
 
 async function renderOk(script: string, vars: Record<string, unknown>): Promise<string> {
   const result = await render(script, vars)
-  if (Either.isLeft(result)) throw result.left
-  return result.right
+  if (Result.isFailure(result)) throw result.failure
+  return result.success
 }
 
 // ---------------------------------------------------------------------------
@@ -200,10 +200,10 @@ describe("renderScriptForExec", () => {
   // exec with a broken template: the UI only gates Run on .inputs/.outputs.
   it("fails with the template error instead of returning a marker as the script", async () => {
     const result = await render("docker ps --format '{{.Names}}'", { inputs: {} })
-    expect(Either.isLeft(result)).toBe(true)
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(RenderError)
-      expect(result.left.message).toContain('map has no entry for key "Names"')
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(RenderError)
+      expect(result.failure.message).toContain('map has no entry for key "Names"')
     }
   })
 })

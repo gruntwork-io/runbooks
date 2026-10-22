@@ -19,7 +19,9 @@ import {
   sessionManager,
   getGitLabSessionBoundHost,
   getGitLabSessionTokenForOrigin,
+  noSessionCredential,
 } from "./runtime.ts"
+import { MissingSessionCredentialError } from "../../../src/errors/index.ts"
 import { GitLabClient } from "../../../src/services/GitLabClient.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
@@ -185,7 +187,7 @@ export function registerGitLabHandlers(): void {
       // it may be an auto-detected env or CLI token.
       const token = params.useSessionToken
         ? await runtime.runPromise(
-            getGitLabSessionTokenForOrigin(baseUrl, () => new Error("none")).pipe(
+            getGitLabSessionTokenForOrigin(baseUrl, noSessionCredential).pipe(
               Effect.orElseSucceed(() => undefined),
             ),
           )
@@ -233,6 +235,7 @@ export function registerGitLabHandlers(): void {
           host,
           user: result.user,
           scopes: result.scopes,
+          ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
           tokenType,
           outcome: "valid" as const,
           ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),
@@ -357,13 +360,18 @@ export function registerGitLabHandlers(): void {
           params.host ?? (yield* getGitLabSessionBoundHost()),
         )
         if (!baseUrl) {
-          return yield* Effect.fail(new Error("No GitLab instance to list labels from"))
+          return yield* new MissingSessionCredentialError({
+            message: "No GitLab instance to list labels from",
+          })
         }
         // The session token goes only to the host it is bound to (port
         // included), over https.
         const token = yield* getGitLabSessionTokenForOrigin(
           baseUrl,
-          () => new Error("No GitLab token for this host available in session"),
+          () =>
+            new MissingSessionCredentialError({
+              message: "No GitLab token for this host available in session",
+            }),
         )
         const client = yield* GitLabClient
         return yield* client.listLabels(token, params.owner, params.repo, baseUrl)

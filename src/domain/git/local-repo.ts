@@ -9,7 +9,7 @@
  * `<DirPicker>` — behave identically either way.
  */
 import path from "path"
-import { Effect, Stream, Chunk } from "effect"
+import { Effect, Stream } from "effect"
 import { GitClient } from "../../services/GitClient.ts"
 import type { GitInfo } from "../../services/GitClient.ts"
 import { FileSystem } from "../../services/FileSystem.ts"
@@ -65,51 +65,45 @@ export const inspectLocalRepo = (
   Effect.gen(function* () {
     const trimmed = dir.trim()
     if (!trimmed) {
-      return yield* Effect.fail(
-        new GitError({
-          command: "git rev-parse --show-toplevel",
-          stderr: "No repository directory selected.",
-          exitCode: 1,
-        }),
-      )
+      return yield* new GitError({
+        command: "git rev-parse --show-toplevel",
+        stderr: "No repository directory selected.",
+        exitCode: 1,
+      })
     }
 
     const selected = resolveLocalRepoPath(trimmed, workingDir)
     const fs = yield* FileSystem
 
     const stat = yield* fs.stat(selected).pipe(
-      Effect.catchAll(() =>
-        Effect.fail(
+      Effect.mapError(
+        () =>
           new GitError({
             command: "stat",
             stderr: `Directory not found: ${selected}`,
             exitCode: 1,
           }),
-        ),
       ),
     )
     if (!stat.isDirectory) {
-      return yield* Effect.fail(
-        new GitError({
-          command: "stat",
-          stderr: `Not a directory: ${selected}`,
-          exitCode: 1,
-        }),
-      )
+      return yield* new GitError({
+        command: "stat",
+        stderr: `Not a directory: ${selected}`,
+        exitCode: 1,
+      })
     }
 
     // Resolve the work tree root, so picking a subdirectory of a checkout
     // still registers the repository itself.
     const git = yield* GitClient
     const root = yield* git.getRepoRoot(selected).pipe(
-      Effect.catchAll(() =>
-        Effect.fail(
+      Effect.mapError(
+        () =>
           new GitError({
             command: "git rev-parse --show-toplevel",
             stderr: `Not a git repository: ${selected}`,
             exitCode: 1,
           }),
-        ),
       ),
     )
     const absolutePath = root ? path.resolve(root) : selected
@@ -118,7 +112,7 @@ export const inspectLocalRepo = (
     // lookup as best-effort so an empty checkout is still selectable.
     const info = yield* git
       .getInfo(absolutePath)
-      .pipe(Effect.catchAll(() => Effect.succeed({ branch: "", refType: "branch" } as GitInfo)))
+      .pipe(Effect.catch(() => Effect.succeed({ branch: "", refType: "branch" } as GitInfo)))
 
     // getInfo only knows about `origin`. A checkout can legitimately name its
     // remote something else — a fork whose upstream is the interesting one, or
@@ -165,7 +159,7 @@ const firstRemoteUrl = (repoPath: string) =>
     if (firstName === undefined) return undefined
     const urls = yield* readGitLines(repoPath, ["remote", "get-url", firstName])
     return urls[0]
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))
 
 /**
  * Run a short git query and return its stdout lines, or none if it failed.
@@ -181,7 +175,7 @@ const readGitLines = (repoPath: string, args: string[]) =>
     const proc = yield* spawner.spawn("git", args, { cwd: repoPath, env: gitSpawnEnv() })
 
     return yield* Effect.gen(function* () {
-      const lines = Chunk.toArray(yield* Stream.runCollect(proc.output))
+      const lines = (yield* Stream.runCollect(proc.output))
         .filter((l) => l.source === "stdout")
         .map((l) => l.line.trim())
         .filter(Boolean)

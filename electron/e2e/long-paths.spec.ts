@@ -34,6 +34,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
+import { MOCK_KEYCHAIN } from "./launch.ts"
 import { resizeMainWindow } from "./main-process.ts"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -129,7 +130,7 @@ test.beforeAll(async () => {
     GIT_COMMITTER_NAME: "Runbooks E2E",
     GIT_COMMITTER_EMAIL: "e2e@example.com",
     ELECTRON_NO_UPDATER: "1",
-    RUNBOOKS_NO_TELEMETRY: "1",
+    RUNBOOKS_TELEMETRY_DISABLE: "1",
     // Skip populateShellEnv so the sandboxed HOME and git env survive.
     TERM_PROGRAM: "runbooks-e2e",
   })
@@ -145,7 +146,7 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(runbookDir, "checks", "ok.sh"), "#!/bin/bash\nexit 0\n")
 
   app = await electron.launch({
-    args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`, runbookDir],
+    args: [MAIN_ENTRY, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, runbookDir],
     env: env as Record<string, string>,
   })
   page = await app.firstWindow()

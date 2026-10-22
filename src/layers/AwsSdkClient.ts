@@ -51,6 +51,17 @@ function describeSsoTokenError(err: unknown): string {
 }
 
 /**
+ * Whether `err` is AWS refusing the request: the SDK sets
+ * `$metadata.httpStatusCode` only on an error AWS answered with, and a 5xx is
+ * AWS failing, not the request.
+ */
+function judgedByAws(err: unknown): boolean {
+  const status = (err as { $metadata?: { httpStatusCode?: unknown } } | null)?.$metadata
+    ?.httpStatusCode
+  return typeof status === "number" && status < 500
+}
+
+/**
  * Every profile in the shared config and credentials files, read the way the
  * SDK's own credential providers read them: `[profile x]` in config and `[x]`
  * in credentials are one profile with both files' keys merged, dotted names
@@ -105,6 +116,7 @@ const impl: AwsClientShape = {
         new AwsAuthError({
           message: `Failed to validate credentials: ${errorMessage(err)}`,
           cause: err,
+          unreachable: !judgedByAws(err),
         }),
     }),
 
@@ -139,6 +151,7 @@ const impl: AwsClientShape = {
           secretAccessKey: resolved.secretAccessKey,
           sessionToken: resolved.sessionToken,
           region,
+          expiresAt: resolved.expiration?.toISOString(),
         }
       },
       catch: (err) =>
@@ -234,6 +247,11 @@ const impl: AwsClientShape = {
           secretAccessKey: roleCreds.secretAccessKey!,
           sessionToken: roleCreds.sessionToken,
           region: params.region,
+          // Milliseconds since the epoch.
+          expiresAt:
+            roleCreds.expiration === undefined
+              ? undefined
+              : new Date(roleCreds.expiration).toISOString(),
         }
       },
       catch: (err) =>

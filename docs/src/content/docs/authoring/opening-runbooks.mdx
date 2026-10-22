@@ -2,18 +2,13 @@
 title: Opening Runbooks
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+See the [open command reference](/commands/open/) for the full list of flags and supported URL formats.
 
-Runbooks can be opened by launching the desktop app or via the command line.
+## Ways to open a runbook
 
-See the [opening a runbook reference](/commands/open/) for the full list of flags and supported URL formats.
-
-## Opening a Runbook
-
-There are two ways to open a runbook:
-
-1. **Double-click** a `.mdx` file in Finder (macOS file association opens it in the Runbooks desktop app).
-2. **Use the command line** to open a runbook from a local path or remote URL:
+1. Double-click a `.mdx` file. The desktop app registers the `.mdx` file association on macOS and Windows.
+2. Paste a local path or remote URL into **Open from URL** in the desktop app.
+3. Use the command line:
 
 ```bash
 # Local
@@ -26,4 +21,4 @@ runbooks open https://github.com/org/repo/tree/main/runbooks/deploy-rds
 runbooks open github.com/org/repo//runbooks/deploy-rds?ref=v1.0
 ```
 
-For remote sources, Runbooks clones the repository that holds the runbook and opens the runbook in the desktop app. The whole repository is cloned, so a runbook can use files outside its own directory. You can also paste any of these sources into **Open from URL** in the desktop app.
+For remote sources, Runbooks clones the repository that holds the runbook and opens the runbook in the desktop app. The whole repository is cloned, so a runbook can use files outside its own directory.

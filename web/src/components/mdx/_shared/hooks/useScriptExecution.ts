@@ -4,7 +4,9 @@ import { useApi } from "@/contexts/ApiContext"
 import { useGetFile } from "@/hooks/useApiGetFile"
 import { useRunbookContext, useAllOutputs, type TemplateValue } from "@/contexts/useRunbook"
 import { useApiExec } from "@/hooks/useApiExec"
-import type { FilesCapturedEvent, LogEntry } from "@/hooks/useApiExec"
+import type { ExecState, FilesCapturedEvent, LogEntry } from "@/hooks/useApiExec"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
+import { restoreRun, runEnded, runStarted } from "@/lib/sessionHistory"
 import { useExecutableRegistry } from "@/hooks/useExecutableRegistry"
 import { useGeneratedFiles } from "@/hooks/useGeneratedFiles"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
@@ -195,6 +197,8 @@ interface UseScriptExecutionReturn {
   inlineInputsId: string | null
 
   // Output dependencies
+  /** Ids of the blocks whose outputs the script references */
+  outputDependencyBlockIds: string[]
   unmetOutputDependencies: BlockOutput[]
   hasAllOutputDependencies: boolean
 
@@ -280,6 +284,9 @@ export function useScriptExecution({
   // Get runbook context for registering outputs and getting template context
   const { registerOutputs, getTemplateContext } = useRunbookContext()
 
+  // Get the session's history, which keeps this block's runs
+  const history = useSessionHistory()
+
   // Callback to handle files captured from command execution
   const handleFilesCaptured = useCallback(
     (event: FilesCapturedEvent) => {
@@ -299,10 +306,13 @@ export function useScriptExecution({
     [updateGeneratedFileTree, invalidateGitFileTree],
   )
 
-  // Callback to handle outputs captured from script execution
-  const handleOutputsCaptured = useCallback(
+  // Publishes a finished run's outputs for other blocks to read. This is the
+  // only place a run writes them. A run that published none registers an
+  // empty map, which withdraws the outputs of the run before it and tells
+  // downstream watchers (e.g. AwsAuth block-based detection) "ran but produced
+  // no outputs" (an empty entry) apart from "hasn't run yet" (no entry).
+  const handleFinished = useCallback(
     (outputValues: OutputValues) => {
-      // Register outputs in the runbook context so other blocks can access them
       registerOutputs(componentId, outputValues)
     },
     [componentId, registerOutputs],
@@ -433,6 +443,11 @@ export function useScriptExecution({
     unmetInputDeps: unmetInputDependencies,
     unmetOutputDeps: unmetOutputDependencies,
   } = useTemplateDependencies(allDeps, allInputsIds.length > 0 ? allInputsIds : undefined)
+
+  const outputDependencyBlockIds = useMemo(
+    () => [...new Set(outputDeps.map((dep) => dep.blockId))],
+    [outputDeps],
+  )
   const hasAllInputDependencies = unmetInputDependencies.length === 0
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0
 
@@ -569,15 +584,42 @@ export function useScriptExecution({
   const sourceCode =
     !discardsRender(renderMode) && renderedScript !== null ? renderedScript : rawScriptContent
 
+  // The block's last run, from the session's history. The block starts from
+  // it, and its outputs go back in the runbook context for the blocks that
+  // read them. A run that ended without outputs registers an empty map, as
+  // handleFinished did when it ended.
+  const [restoredRun] = useState(() => restoreRun(history.saved(componentId, "run")))
+  useEffect(() => {
+    const ended =
+      restoredRun?.status === "success" ||
+      restoredRun?.status === "warn" ||
+      restoredRun?.status === "fail"
+    if (ended) registerOutputs(componentId, restoredRun.outputs ?? {})
+  }, [restoredRun, componentId, registerOutputs])
+
+  const handleRunStarted = useCallback(() => {
+    history.record(componentId, "run", runStarted())
+  }, [history, componentId])
+
+  const handleRunEnded = useCallback(
+    (state: ExecState) => {
+      history.record(componentId, "run", runEnded(state))
+    },
+    [history, componentId],
+  )
+
   // Files written to $GENERATED_FILES are auto-captured after successful execution:
-  // onFilesCaptured updates the file tree, onOutputsCaptured registers outputs.
+  // onFilesCaptured updates the file tree, onFinished registers outputs.
   const {
     state: execState,
     execute: executeScript,
     cancel: cancelExec,
   } = useApiExec({
     onFilesCaptured: handleFilesCaptured,
-    onOutputsCaptured: handleOutputsCaptured,
+    onFinished: handleFinished,
+    initialState: restoredRun,
+    onRunStarted: handleRunStarted,
+    onRunEnded: handleRunEnded,
   })
 
   // Map exec state to our status type, handling warn status for Check components
@@ -596,17 +638,6 @@ export function useScriptExecution({
   useEffect(() => {
     registerLogs(componentId, logs)
   }, [componentId, logs, registerLogs])
-
-  // When execution finishes without producing outputs, register an empty outputs map.
-  // This lets downstream watchers (e.g. AwsAuth block-based detection) distinguish
-  // "block hasn't run yet" (no entry in blockOutputs) from "block ran but produced
-  // no outputs" (entry exists with empty values).
-  useEffect(() => {
-    const isTerminal = status === "success" || status === "fail" || status === "warn"
-    if (isTerminal && outputs === null) {
-      registerOutputs(componentId, {})
-    }
-  }, [status, outputs, componentId, registerOutputs])
 
   // Trigger immediate changelog refresh when execution completes successfully.
   // Scripts may write directly to $REPO_FILES without using $GENERATED_FILES,
@@ -846,6 +877,7 @@ export function useScriptExecution({
     inlineInputsId,
 
     // Output dependencies
+    outputDependencyBlockIds,
     unmetOutputDependencies,
     hasAllOutputDependencies,
 

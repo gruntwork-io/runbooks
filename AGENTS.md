@@ -27,6 +27,7 @@
 | **knip** | ts-prune | Unused files, exports and dependencies (`knip.json`) |
 | **electron-vite** | manual vite | Builds main, preload, renderer |
 | **Effect** | raw promises | Services, layers, typed errors, streams |
+| **React Compiler** | `useMemo` / `useCallback` | Memoizes components at build time (`scripts/vite-react.ts`); oxlint's `react-compiler` rules keep them compilable |
 | **OpenTofu** | Terraform | IaC examples |
 
 Add shadcn/ui components: `bunx shadcn@latest add <name>` (from the repo root)
@@ -46,7 +47,7 @@ just test-runbooks    # CLI integration tests
 just lint             # oxlint
 just fmt              # oxfmt (fmt-check in CI)
 just knip             # Unused files, exports and dependencies
-just typecheck        # tsc -b
+just typecheck        # bun check
 ```
 
 ## Conventions
@@ -60,10 +61,8 @@ just typecheck        # tsc -b
 - Domain: `src/domain/<module>/` (camelCase files)
 
 ### Effect Patterns
-- External operations return `Effect<A, E, R>`, never raw Promises in domain code
-- Errors use `Data.TaggedError` subclasses
-- Resource cleanup via `Scope` (`acquireRelease` / `addFinalizer`)
-- Tests swap layers for mock implementations
+
+Read [node_modules/effect/AGENTS.md](node_modules/effect/AGENTS.md) before interacting with any Effect code.
 
 ### Error Reporting in MDX Components
 `reportError()` is for **configuration errors only** (duplicate IDs, missing props, invalid configs) — not runtime errors (auth failures, network errors). Runtime errors display inline within the component.

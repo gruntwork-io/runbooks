@@ -131,4 +131,4 @@ export const resolveSshCommand = (cwd?: string) =>
       .join("\n")
       .trim()
     return exitCode === 0 && value ? value : undefined
-  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+  }).pipe(Effect.orElseSucceed(() => undefined))

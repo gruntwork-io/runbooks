@@ -96,6 +96,7 @@ interface DirectValidation {
   readonly ok: boolean
   readonly user?: VcsUserInfo
   readonly scopes?: string[] | undefined
+  readonly expiresAt?: string | undefined
   readonly status?: number
   readonly kind?: DetectionResult["errorKind"]
   readonly message?: string
@@ -117,6 +118,7 @@ const toDetection = (
       ...base,
       user: validation.user,
       scopes: validation.scopes,
+      expiresAt: validation.expiresAt,
       warnings: [],
       validatedVia: "direct",
     }
@@ -239,8 +241,13 @@ export const VcsCredentialsLive = Layer.effect(
 
     const validateGitHubDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
       githubClient.validateToken(token, host).pipe(
-        Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
-        Effect.catchAll((err: GitHubApiError) =>
+        Effect.map((v): DirectValidation => ({
+          ok: true,
+          user: v.user,
+          scopes: v.scopes,
+          expiresAt: v.expiresAt,
+        })),
+        Effect.catch((err: GitHubApiError) =>
           Effect.succeed<DirectValidation>({
             ok: false,
             status: err.status,
@@ -252,8 +259,13 @@ export const VcsCredentialsLive = Layer.effect(
 
     const validateGitLabDirect = (token: string, host: string): Effect.Effect<DirectValidation> =>
       gitlabClient.validateToken(token, normalizeGitLabBaseUrl(host)).pipe(
-        Effect.map((v): DirectValidation => ({ ok: true, user: v.user, scopes: v.scopes })),
-        Effect.catchAll((err: GitLabApiError) =>
+        Effect.map((v): DirectValidation => ({
+          ok: true,
+          user: v.user,
+          scopes: v.scopes,
+          expiresAt: v.expiresAt,
+        })),
+        Effect.catch((err: GitLabApiError) =>
           Effect.succeed<DirectValidation>({
             ok: false,
             status: err.status,
@@ -541,21 +553,17 @@ export const VcsCredentialsLive = Layer.effect(
       Effect.gen(function* () {
         const status = yield* cliStatus()
         if (!status.gh.installed) {
-          return yield* Effect.fail(new VcsCliError({ kind: "not-installed", stderr: "" }))
+          return yield* new VcsCliError({ kind: "not-installed", stderr: "" })
         }
         if (!status.gh.meetsFloor) {
-          return yield* Effect.fail(
-            new VcsCliError({
-              kind: "api",
-              stderr: `gh ${status.gh.version ?? "?"} is below the supported floor`,
-            }),
-          )
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: `gh ${status.gh.version ?? "?"} is below the supported floor`,
+          })
         }
         const target = tryNormalizeGitHubHost(host)
         if (!target) {
-          return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: `invalid GitHub host: ${host}` }),
-          )
+          return yield* new VcsCliError({ kind: "api", stderr: `invalid GitHub host: ${host}` })
         }
         // Pin gh to validate exactly the candidate (env-over-stored-creds is
         // documented gh behavior); token via CHILD ENV only, never argv. gh
@@ -573,15 +581,14 @@ export const VcsCredentialsLive = Layer.effect(
         // the candidate token — at a different host.
         const result = yield* runCli("gh", ["api", "user", "-i", "--hostname", target], childEnv)
         if (result.exitCode !== 0) {
-          return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }),
-          )
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: redactSecrets(result.stderr.join("\n")),
+          })
         }
         const parsed = parseGhApiUser(result.stdout.join("\n"))
         if (!parsed) {
-          return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: "unparseable gh api output" }),
-          )
+          return yield* new VcsCliError({ kind: "api", stderr: "unparseable gh api output" })
         }
         return parsed
       })
@@ -594,15 +601,13 @@ export const VcsCredentialsLive = Layer.effect(
       Effect.gen(function* () {
         const status = yield* cliStatus()
         if (!status.glab.installed) {
-          return yield* Effect.fail(new VcsCliError({ kind: "not-installed", stderr: "" }))
+          return yield* new VcsCliError({ kind: "not-installed", stderr: "" })
         }
         if (!status.glab.meetsFloor) {
-          return yield* Effect.fail(
-            new VcsCliError({
-              kind: "api",
-              stderr: `glab ${status.glab.version ?? "?"} is below the supported floor`,
-            }),
-          )
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: `glab ${status.glab.version ?? "?"} is below the supported floor`,
+          })
         }
 
         if (isGitLabOAuthShaped(token)) {
@@ -612,12 +617,10 @@ export const VcsCredentialsLive = Layer.effect(
           // When glab's stored credential IS the candidate, `glab auth status`
           // (exit code + stderr, no token env) is the probe.
           if (source !== "cli" && source !== "config") {
-            return yield* Effect.fail(
-              new VcsCliError({
-                kind: "api",
-                stderr: "env-sourced OAuth-shaped tokens are direct-fetch-only",
-              }),
-            )
+            return yield* new VcsCliError({
+              kind: "api",
+              stderr: "env-sourced OAuth-shaped tokens are direct-fetch-only",
+            })
           }
           const authStatus = yield* run(glabAuthStatusForHost(host))
           if (authStatus === "ok") {
@@ -625,11 +628,9 @@ export const VcsCredentialsLive = Layer.effect(
             return { user: { login: "glab" } }
           }
           if (authStatus === "not-logged-in") {
-            return yield* Effect.fail(
-              new VcsCliError({ kind: "not-authenticated", stderr: "No token found" }),
-            )
+            return yield* new VcsCliError({ kind: "not-authenticated", stderr: "No token found" })
           }
-          return yield* Effect.fail(new VcsCliError({ kind: "api", stderr: "API call failed" }))
+          return yield* new VcsCliError({ kind: "api", stderr: "API call failed" })
         }
 
         // glpat--shaped: candidate via child env (GITLAB_TOKEN — others are
@@ -648,31 +649,31 @@ export const VcsCredentialsLive = Layer.effect(
           ),
         )
         if (result.exitCode !== 0) {
-          return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: redactSecrets(result.stderr.join("\n")) }),
-          )
+          return yield* new VcsCliError({
+            kind: "api",
+            stderr: redactSecrets(result.stderr.join("\n")),
+          })
         }
-        try {
-          const data = JSON.parse(result.stdout.join("\n")) as {
-            username?: string
-            name?: string
-            avatar_url?: string
-            email?: string
-          }
-          if (!data.username) throw new Error("no username")
-          return {
-            user: {
-              login: data.username,
-              name: data.name ?? undefined,
-              avatarUrl: data.avatar_url,
-              email: data.email ?? undefined,
-            },
-          }
-        } catch {
-          return yield* Effect.fail(
-            new VcsCliError({ kind: "api", stderr: "unparseable glab api output" }),
-          )
-        }
+        return yield* Effect.try({
+          try: () => {
+            const data = JSON.parse(result.stdout.join("\n")) as {
+              username?: string
+              name?: string
+              avatar_url?: string
+              email?: string
+            }
+            if (!data.username) throw new Error("no username")
+            return {
+              user: {
+                login: data.username,
+                name: data.name ?? undefined,
+                avatarUrl: data.avatar_url,
+                email: data.email ?? undefined,
+              },
+            }
+          },
+          catch: () => new VcsCliError({ kind: "api", stderr: "unparseable glab api output" }),
+        })
       })
 
     const validateViaCli = (

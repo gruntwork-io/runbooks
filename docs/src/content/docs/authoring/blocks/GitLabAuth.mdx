@@ -7,14 +7,14 @@ import { Aside } from '@astrojs/starlight/components';
 The `<GitLabAuth>` block authenticates to GitLab.
 
 <Aside type="tip">
-`<GitLabAuth>` is a GitLab-locked alias of the generic [`<GitAuth>`](/authoring/blocks/gitauth/) block — it is equivalent to `<GitAuth provider="gitlab" hideProviderSelect />`. Use [`<GitAuth>`](/authoring/blocks/gitauth/) directly if you want a provider dropdown so users can pick GitHub or GitLab.
+`<GitLabAuth>` is a GitLab-locked alias of the generic [`<GitAuth>`](/authoring/blocks/gitauth/) block, equivalent to `<GitAuth provider="gitlab" hideProviderSelect />`. Use [`<GitAuth>`](/authoring/blocks/gitauth/) directly if you want a provider dropdown so users can pick GitHub or GitLab.
 </Aside>
 
-It automatically detects whether the user is already authenticated by checking the `GITLAB_TOKEN` environment variable or the GitLab CLI (`glab auth token`, falling back to glab's `config.yml` when `glab auth token` returns nothing — for example when the `glab` binary is not on `PATH`). Users can also authenticate manually with a Personal Access Token. Once authenticated, the `GITLAB_TOKEN`/`GITLAB_USER` credentials are available to subsequent [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
+It detects an existing login from the `GITLAB_TOKEN` environment variable or the GitLab CLI. Users can also authenticate manually with a Personal Access Token. Once authenticated, the `GITLAB_TOKEN`/`GITLAB_USER` credentials are available to subsequent [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/), and [GitClone](/authoring/blocks/gitclone/) blocks.
 
 GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab app), so authentication is via PAT, the `glab` CLI, or the `GITLAB_TOKEN` environment variable.
 
-### Basic Usage
+### Basic usage
 
 ```mdx
 <GitLabAuth
@@ -31,14 +31,16 @@ GitLab has no OAuth device flow here (there is no registered Gruntwork GitLab ap
 />
 ```
 
-By default, Runbooks automatically detects and uses credentials from, in order:
+By default, Runbooks detects and uses credentials from, in order:
 
 1. The `GITLAB_TOKEN` environment variable
-2. The GitLab CLI (`glab auth token`). `glab auth login` does not export an environment variable — it writes the token to glab's `config.yml`, which Runbooks also reads directly when `glab auth token` returns nothing (for example when the `glab` binary is not on `PATH`).
+2. The GitLab CLI (`glab auth token`). `glab auth login` writes the token to glab's `config.yml`, which Runbooks reads directly when `glab auth token` returns nothing, for example when the `glab` binary is not on `PATH`.
 
 If no credentials are detected, the user authenticates manually with a Personal Access Token. Set `detectCredentials={false}` to always require one, even when the user is logged in with `glab`. See [Disabling detection](/authoring/blocks/gitauth/#disabling-detection).
 
-Runbooks only sends an environment token (prefixed or not) over HTTPS, and a `glab` token only to the host glab stored it for, over HTTPS unless glab itself uses HTTP for that host (`api_protocol: http`), so for a plain `http://` instance such a token is skipped and the user pastes a Personal Access Token instead. The block can authenticate to a plain `http://` instance, but [GitClone](/authoring/blocks/gitclone/), [GitLabMergeRequest](/authoring/blocks/gitlabmergerequest/) and its label lookup only send the session token over HTTPS, so there the token is only available to [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts as `GITLAB_TOKEN`.
+Runbooks sends an environment token, prefixed or not, only over HTTPS. A `glab` token goes only to the host glab stored it for, and only over HTTPS unless glab itself uses HTTP for that host (`api_protocol: http`). For a plain `http://` instance the environment token is skipped, and so is the `glab` token unless glab uses HTTP for that host. The user then pastes a Personal Access Token.
+
+The block can authenticate to a plain `http://` instance. [GitClone](/authoring/blocks/gitclone/) and [GitLabMergeRequest](/authoring/blocks/gitlabmergerequest/), including its label lookup, send the session token only over HTTPS. On such an instance the token is available only to [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts as `GITLAB_TOKEN`.
 
 ### Prefixed environment variables
 
@@ -61,10 +63,10 @@ On success the token is saved to the session as `GITLAB_TOKEN`, as with any othe
 
 ## Props
 
-`<GitLabAuth>` accepts the same props as [`<GitAuth>`](/authoring/blocks/gitauth/#props) except `provider` and `hideProviderSelect` (which are fixed to `gitlab` and `true`). The most common are `id` (required), `title`, `description`, `detectCredentials`, and `inputsId`. For a self-managed GitLab instance, add `host` or `instanceUrl`; see [Self-managed GitLab](/authoring/blocks/gitauth/#self-managed-gitlab).
+`<GitLabAuth>` accepts the same props as [`<GitAuth>`](/authoring/blocks/gitauth/#props) except `provider` and `hideProviderSelect` (which are fixed to `gitlab` and `true`). The most common are `id` (required), `title`, `description`, `detectCredentials`, and `inputsId`. `title` defaults to `GitLab Authentication`. For a self-managed GitLab instance, add `host` or `instanceUrl`; see [Self-managed GitLab](/authoring/blocks/gitauth/#self-managed-gitlab).
 
 ## Downstream references
 
-Reference the block from other blocks with `gitAuthId` (provider-agnostic). The `githubAuthId` prop is GitHub-only and cannot reference a GitLab block. See [`<GitAuth>` → Explicit block references](/authoring/blocks/gitauth/#explicit-block-references).
+Reference the block from other blocks with `gitAuthId` (provider-agnostic). The `githubAuthId` prop is GitHub-only and cannot reference a GitLab block. See [Explicit block references](/authoring/blocks/gitauth/#explicit-block-references).
 
 For full details on detection, scopes, and security, see the [`<GitAuth>`](/authoring/blocks/gitauth/) documentation.

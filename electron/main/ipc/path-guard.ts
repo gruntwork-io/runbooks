@@ -29,16 +29,15 @@ function resolveAgainstRunbook(p: string): string {
 }
 
 /**
- * Validate that a path is within the session working directory, a registered
- * worktree, or the runbook directory. Relative paths are resolved against the
- * runbook directory. Returns the resolved absolute path.
+ * Validate that a path is within the session working directory, the
+ * session's own directory, a registered worktree, or the runbook directory.
+ * Relative paths are resolved against the runbook directory. Returns the
+ * resolved absolute path.
  */
 export const validateSessionPath = (p: string) =>
   Effect.gen(function* () {
     if (!p) {
-      return yield* Effect.fail(
-        new PathTraversalError({ path: p, message: "path must not be empty" }),
-      )
+      return yield* new PathTraversalError({ path: p, message: "path must not be empty" })
     }
 
     const resolved = resolveAgainstRunbook(p)
@@ -63,18 +62,23 @@ export const validateSessionPath = (p: string) =>
       return resolved
     }
 
+    // Allow paths contained within the session's own directory, which holds
+    // its generated files: a script's `cd` moves the working directory away
+    // from it.
+    if (yield* Effect.promise(() => isContainedInReal(resolved, session.initialWorkDir))) {
+      return resolved
+    }
+
     // Allow paths contained within the runbook directory
     const runbookDir = runbookConfig.localPath ? path.dirname(runbookConfig.localPath) : null
     if (runbookDir && (yield* Effect.promise(() => isContainedInReal(resolved, runbookDir)))) {
       return resolved
     }
 
-    return yield* Effect.fail(
-      new PathTraversalError({
-        path: p,
-        message: `path is outside session working directory and registered worktrees`,
-      }),
-    )
+    return yield* new PathTraversalError({
+      path: p,
+      message: `path is outside session working directory and registered worktrees`,
+    })
   })
 
 /**
@@ -146,8 +150,7 @@ export function runbookAssetHost(
  * on the symlink-resolved path, so a symlinked file
  * (assets/k.png -> ~/.ssh/id_ed25519) can't serve a file from outside
  * assets/. Nothing is served when assets/ is itself a symlink, because
- * `assets -> .` would make the whole runbook directory, generated files
- * included, count as assets/.
+ * `assets -> .` would make the whole runbook directory count as assets/.
  */
 export async function resolveRunbookAssetPath(
   requestUrl: string,
@@ -178,7 +181,7 @@ export async function resolveRunbookAssetPath(
  * here so they agree on one directory.
  *
  * A relative `outputPath` resolves against the session's `initialWorkDir` (the
- * realpath'd runbook directory), never the live `workingDir`: that follows a
+ * session's own directory), never the live `workingDir`: that follows a
  * script's `cd`, which would scatter output across whatever directories the
  * runbook's scripts happened to leave the session in.
  *
@@ -192,4 +195,16 @@ export const resolveGeneratedDir = (outputPath: string = DEFAULT_GENERATED_DIR) 
     const baseDir = session.initialWorkDir
     const absolutePath = yield* resolveToAbsolutePath(baseDir, outputPath)
     return { baseDir, outputPath, absolutePath }
+  })
+
+/**
+ * The directory the runs of block `blockId` write their logs to:
+ * `.runbooks/logs/<block id>` in the session's own directory, so the logs
+ * last as long as the session and go when it is deleted. A block id that
+ * isn't a plain file name has its other characters replaced.
+ */
+export const resolveRunLogsDir = (blockId: string) =>
+  Effect.map(sessionManager.getSession(), (session) => {
+    const name = blockId.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+$/, "_") || "_"
+    return path.join(session.initialWorkDir, ".runbooks", "logs", name)
   })

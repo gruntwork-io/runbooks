@@ -4,9 +4,9 @@ title: <DirPicker>
 
 import { FileTree } from '@astrojs/starlight/components';
 
-The `<DirPicker>` block provides a cascading set of dropdowns for selecting a path. 
+The `<DirPicker>` block renders a cascading set of dropdowns for selecting a directory path.
 
-For example, if the user git cloned a repository with the following directory structure:
+For example, if the user cloned a repository with this directory structure:
 
 <FileTree>
 
@@ -20,7 +20,7 @@ For example, if the user git cloned a repository with the following directory st
 
 </FileTree>
 
-The DirPicker block could be configured with the following props:
+The DirPicker block could be configured with these props:
 
 ```mdx
 <DirPicker
@@ -34,17 +34,17 @@ Users then get a form with one dropdown for each directory level.
 
 ![DirPicker block with Account and Region dropdowns and an editable Target Path field](../../../../assets/screenshots/blocks/dir-picker-form.webp)
 
-The options available in the dropdowns are the immediate subdirectories of the current directory. For example, if the user selects "dev" in the first dropdown, the options in the second dropdown will be "region-1" and "region-2".
+The options in each dropdown are the immediate subdirectories of the directory selected above it. If the user selects "dev" in the first dropdown, the second offers "region-1" and "region-2".
 
-Users can also type a path directly into an auto-populated and editable text input below the dropdowns (called "Target Path" in the above screenshot).
+Users can also type a path directly into the editable text input below the dropdowns, labelled "Target Path" in the screenshot above.
 
-The selected path is registered as a block output, making it available to downstream `<TemplateInline>` blocks via the `{{ .outputs.<id>.PATH }}` syntax.
-  
-### Basic Usage
+The selected path is registered as a block output, available to later `<TemplateInline>` blocks as `{{ .outputs.<id>.PATH }}`.
 
-DirPicker needs a root directory to browse. You can provide one in two ways:
+### Basic usage
 
-**Option 1: `rootDir`** — pass an explicit directory path:
+DirPicker needs a root directory to browse. You can provide one in two ways.
+
+With `rootDir`, pass an explicit directory path:
 
 ```mdx
 <DirPicker
@@ -56,7 +56,7 @@ DirPicker needs a root directory to browse. You can provide one in two ways:
 />
 ```
 
-**Option 2: `gitCloneId`** — reference a `<GitClone>` block. DirPicker waits for the clone to complete, then uses the cloned repository as its root directory:
+With `gitCloneId`, reference a `<GitClone>` block. DirPicker waits for the clone to complete, then uses the cloned repository as its root directory:
 
 ```mdx
 <GitClone id="clone-repo" title="Clone Repository" />
@@ -74,22 +74,23 @@ At least one of `rootDir` or `gitCloneId` must be provided. If both are set, `ro
 
 ### Use cases
 
-We built the DirPicker block specifically for the developer self-service use case.
+We built the DirPicker block for developer self-service.
 
-For example, suppose a developer who doesn't know infrastructure-as-code very well wants to deploy a new application to a specific AWS account. They could use the DirPicker block to get a guided UI that helps them select the account, region, and application name, and then the block generates exactly the right path.
+Suppose a developer who doesn't know infrastructure-as-code well wants to deploy a new application to a specific AWS account. The DirPicker block gives them a guided UI for picking the account, region, and application name, and produces the right path.
 
-More generally, the DirPicker block can be used to help users select any path when the meaning of the levels of a directory hierarchy is known in advance.
+More generally, the block helps users select any path when the meaning of each directory level is known in advance.
 
 ### Props
 
 | Prop | Type | Required | Description |
 |------|------|----------|-------------|
-| `id` | `string` | Yes | Unique block identifier. Used by downstream blocks to reference outputs. |
+| `id` | `string` | Yes | Unique block identifier. Later blocks use it to reference outputs. |
 | `rootDir` | `string` | No* | Absolute path to the root directory to browse. When set, the block uses this path directly. |
 | `gitCloneId` | `string` | No* | ID of a `<GitClone>` block. DirPicker waits for the clone to complete, then uses the cloned repository as its root directory. |
+| `inputsId` | `string \| string[]` | No | ID of one or more `<Inputs>` blocks, for `{{ .inputs.* }}` expressions in props. |
 | `title` | `string` | No | Display title. Supports inline markdown. Defaults to "Select Directory". |
 | `description` | `string` | No | Description text below the title. Supports inline markdown. Defaults to "Choose a target directory". |
-| `dirLabels` | `string[]` | Yes | Ordered labels for each directory level (e.g., `['Account', 'Region']`). Also caps the number of dropdowns to `dirLabels.length` unless `dirLabelsExtra` is true. |
+| `dirLabels` | `string[]` | No | Ordered labels for each directory level (for example `['Account', 'Region']`). Also caps the number of dropdowns at `dirLabels.length` unless `dirLabelsExtra` is true. When omitted, depth is unbounded and every level is labelled "Level N". |
 | `dirLabelsExtra` | `boolean` | No | When `true`, allow navigating deeper than `dirLabels.length`. Extra levels are labelled "Level N". Defaults to `false`. |
 | `pathLabel` | `string` | No | Label for the editable path text input. Defaults to "Target Path". |
 | `pathLabelDescription` | `string` | No | Description text shown below the path label. Supports inline markdown. |
@@ -100,15 +101,15 @@ More generally, the DirPicker block can be used to help users select any path wh
 
 | Output | Description |
 |--------|-------------|
-| `PATH` | The composed directory path (relative to the workspace root). Updated on every dropdown selection or manual edit. When the path is empty (the first dropdown is reset to its placeholder or the text input is cleared), `PATH` is removed, so blocks that reference it wait until a path is chosen again. The same happens when the `<GitClone>` block's clone path changes: the dropdowns and the path start over from the new root. |
+| `PATH` | The selected path, relative to the root directory, with the dropdown selections joined by `/`. Updated on every dropdown selection or manual edit. When the path is empty (the first dropdown is reset to its placeholder or the text input is cleared), `PATH` is removed, so blocks that reference it wait until a path is chosen again. The same happens when the `<GitClone>` block's clone path changes: the dropdowns and the path start over from the new root. |
 
-### Directory-Level Labels
+### Directory-level labels
 
-The required `dirLabels` prop assigns meaningful names to each cascading directory level. Each entry in the array labels the corresponding depth of the directory tree. Each dropdown shows a labelled header (e.g. "Account") and its placeholder reads "Select account...".
+`dirLabels` names each cascading directory level. Each entry labels the corresponding depth of the tree: the dropdown shows a header such as "Account" and its placeholder reads "Select account...".
 
-If the user drills deeper than the number of labels provided and the block is configured with `dirLabelsExtra={true}`, extra levels fall back to "Level N".
+Without `dirLabels`, every dropdown is labelled "Level N" and the user can drill as deep as the tree goes. With `dirLabels`, the number of dropdowns is capped at the number of labels unless `dirLabelsExtra={true}`, in which case deeper levels are labelled "Level N".
 
-### Using Outputs in Templates
+### Using outputs in templates
 
 The DirPicker outputs `PATH`, which can be referenced in a `<TemplateInline>` block's `outputPath` prop:
 
@@ -122,14 +123,14 @@ The DirPicker outputs `PATH`, which can be referenced in a `<TemplateInline>` bl
 >
 ```
 
-The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected. When the user picks or types a different directory, the block cleans up the file it wrote for the earlier selection. If the block created that file, it is removed. If the earlier directory already had a `terragrunt.hcl`, for example because it is an existing unit, that file is put back the way it was, not removed. A file edited since the block wrote it is left as it is.
+The `outputPath` resolves `{{ .outputs.*.* }}` expressions client-side using block outputs, so the file is written to the directory the user selected. When the user picks or types a different directory, the block cleans up the file it wrote for the earlier selection. If the block created that file, it is removed. If the earlier directory already had a `terragrunt.hcl`, for example because it is an existing unit, that file is put back the way it was. A file edited since the block wrote it is left as it is.
 
-### How It Works
+### How it works
 
 1. DirPicker resolves its root directory from `rootDir` (if set) or by reading the `clone_path` output of the referenced `<GitClone>` block once the clone completes.
 2. It lists the immediate subdirectories of the root directory to fill the first dropdown.
 3. Each dropdown selection triggers a fetch for the next level's subdirectories, building a cascading drill-down.
-4. An editable text input below the dropdowns shows the composed path. Users can edit this directly for full control.
+4. An editable text input below the dropdowns shows the composed path. Users can edit it directly.
 5. On every change (dropdown or manual edit), the block registers `PATH` as an output. Clearing the path removes the output.
 
 Hidden directories (those starting with `.`) are excluded from the dropdown options.

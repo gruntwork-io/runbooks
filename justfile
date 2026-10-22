@@ -1,6 +1,6 @@
 # Pinned version of gruntwork-io/boilerplate to bundle.
 # Bump and re-run `just fetch-boilerplate` to pick up a new release.
-boilerplate_version := "v0.16.0"
+boilerplate_version := "v0.17.0"
 
 # Default recipe: show available commands
 default:
@@ -33,7 +33,7 @@ dev: _no-nested-node-modules _electron-binary fetch-boilerplate
     mise x node -- npx electron-vite dev
 
 # Start Electron app pointing at a specific runbook
-dev-runbook path="testdata/my-first-runbook": _no-nested-node-modules _electron-binary fetch-boilerplate
+dev-runbook path="testdata/sample-runbooks/my-first-runbook": _no-nested-node-modules _electron-binary fetch-boilerplate
     mise x node -- npx electron-vite dev -- --runbook {{path}}
 
 # --- Build ---
@@ -312,11 +312,11 @@ fmt-check:
 knip:
     mise x bun -- bun run knip
 
-# Type check with TypeScript compiler. The root tsconfig.json has no files of
-# its own, only project references, so it needs build mode (-b) to check them;
-# a plain `tsc --noEmit` checks nothing. Same check as `bun run typecheck` and CI.
+# Type check with `bun check`. The root tsconfig.json has no files of its own,
+# so `bun check` checks the projects it references. Same check as
+# `bun run typecheck` and CI.
 typecheck: _no-nested-node-modules
-    mise x bun -- bunx tsc -b
+    mise x bun -- bun check
 
 # Run all checks (lint + format check + unused code + typecheck)
 check: lint fmt-check knip typecheck

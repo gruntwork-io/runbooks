@@ -32,6 +32,16 @@
  */
 import { activeCredentialFor, type ActiveGoogleCredential } from "./google-credential-registry.ts"
 
+/**
+ * The session env vars that name a credentials file. A file this app wrote is
+ * deleted at quit (cleanupGoogleCredentialFiles), so a session resumed in a
+ * later run drops the ones whose file is gone.
+ */
+export const GOOGLE_CREDENTIAL_FILE_ENV_VARS = [
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+] as const
+
 interface SessionEnvInput {
   readonly credentialsPath?: string | undefined
   /** §8.4 only: a bearer the environment ALREADY contained. We never mint one. */

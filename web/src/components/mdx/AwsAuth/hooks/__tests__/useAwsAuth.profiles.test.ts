@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, waitFor } from "@testing-library/react"
 import { ApiProvider } from "@/contexts/ApiContext"
@@ -27,7 +27,7 @@ vi.mock("@/contexts/useSession", () => ({
 type Api = Parameters<typeof ApiProvider>[0]["api"]
 
 let profilesReply: () => Promise<{ profiles: ProfileInfo[] }>
-let invoke: ReturnType<typeof vi.fn>
+let invoke: Mock<(channel: string, args?: unknown) => Promise<unknown>>
 
 beforeEach(() => {
   registerOutputs.mockClear()
@@ -115,7 +115,9 @@ describe("useAwsAuth — profile region", () => {
     const base = invoke.getMockImplementation()!
     invoke.mockImplementation(async (channel: string, args?: unknown) => {
       const reply = await base(channel, args)
-      return channel === "aws:profile-auth" ? { ...reply, region: "us-gov-east-1" } : reply
+      return channel === "aws:profile-auth"
+        ? { ...(reply as object), region: "us-gov-east-1" }
+        : reply
     })
     const { result } = renderAwsAuth()
     await act(() => result.current.loadAwsProfiles())

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, cleanup } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
@@ -60,7 +60,7 @@ function fakeRenderInline(args: unknown) {
   return { renderedFiles: { "script.sh": { content } } }
 }
 
-let invoke: ReturnType<typeof vi.fn>
+let invoke: Mock<(channel: string, args?: unknown) => Promise<unknown>>
 let api: RunbooksAPI
 const originalApi = window.api
 
@@ -83,18 +83,43 @@ afterEach(() => {
 
 type Props = Omit<Parameters<typeof useScriptExecution>[0], "componentId" | "componentType">
 
+function Providers({ children }: { children: ReactNode }) {
+  return createElement(ApiProvider, { api }, createElement(RunbookContextProvider, null, children))
+}
+
 function renderScriptExecution(props: Props) {
   return renderHook(
     (p: Props) => ({
       exec: useScriptExecution({ componentId: "target", componentType: "command", ...p }),
       runbook: useRunbookContext(),
     }),
-    {
-      initialProps: props,
-      wrapper: ({ children }: { children: ReactNode }) =>
-        createElement(ApiProvider, { api }, createElement(RunbookContextProvider, null, children)),
-    },
+    { initialProps: props, wrapper: Providers },
   )
+}
+
+type EncodedOutputs = Record<string, { value: string; sensitive: boolean }>
+
+/** Holds each exec:run open, so a test can end the latest one with a result. */
+function holdRuns() {
+  const pending: ((result: unknown) => void)[] = []
+  invoke.mockImplementation(async (channel: string, args?: unknown) => {
+    if (channel === "boilerplate:render-inline") return fakeRenderInline(args)
+    if (channel === "exec:run") {
+      return new Promise((resolve) => {
+        pending.push(resolve)
+      })
+    }
+    return {}
+  })
+  const settle = (result: unknown) =>
+    act(async () => {
+      pending.at(-1)!(result)
+    })
+  return {
+    finish: (status: "success" | "fail", exitCode: number, outputs: EncodedOutputs = {}) =>
+      settle({ status: { status, exitCode }, outputs }),
+    stop: () => settle({ status: null, cancelled: true }),
+  }
 }
 
 function renderWithOutputs(props: Props, outputs: Record<string, OutputValues>) {
@@ -276,21 +301,15 @@ describe("useScriptExecution — template dependencies", () => {
 })
 
 describe("useScriptExecution — outputs", () => {
-  it("keeps a sensitive output wrapped, for display and for downstream blocks", () => {
-    // Record what the run subscribes to, so the test can send its events
-    const handlers = new Map<string, (data: unknown) => void>()
-    vi.mocked(api.on).mockImplementation(((channel: string, handler: (data: unknown) => void) => {
-      handlers.set(channel, handler)
-      return () => handlers.delete(channel)
-    }) as unknown as RunbooksAPI["on"])
+  it("keeps a sensitive output wrapped, for display and for downstream blocks", async () => {
+    const runs = holdRuns()
     const { result } = renderScriptExecution({ command: "mint-token" })
 
     act(() => result.current.exec.execute())
-    act(() =>
-      handlers.get("exec:outputs")?.({
-        outputs: { TOKEN: { value: "x", sensitive: true }, user: { value: "u", sensitive: false } },
-      }),
-    )
+    await runs.finish("success", 0, {
+      TOKEN: { value: "x", sensitive: true },
+      user: { value: "u", sensitive: false },
+    })
 
     // ViewOutputs gets the wrapped value, so it masks it
     const shown = result.current.exec.outputs ?? {}
@@ -300,6 +319,61 @@ describe("useScriptExecution — outputs", () => {
     const registered = result.current.runbook.blockOutputs.target?.values ?? {}
     expect(isSensitiveOutput(registered.TOKEN!)).toBe(true)
     expect(revealOutputs(registered)).toEqual({ TOKEN: "x", user: "u" })
+  })
+
+  it("publishes a finished run's outputs in the render that shows it succeeded", async () => {
+    const runs = holdRuns()
+    // What downstream blocks read in each render where the block shows success.
+    // An empty map there leaves them "Waiting for outputs" from a block that
+    // shows success and lists those outputs.
+    const publishedOnSuccess: unknown[] = []
+    const { result } = renderHook(
+      () => {
+        const exec = useScriptExecution({
+          componentId: "target",
+          componentType: "command",
+          command: "create-accounts",
+        })
+        const runbook = useRunbookContext()
+        if (exec.status === "success") publishedOnSuccess.push(runbook.blockOutputs.target?.values)
+        return { exec, runbook }
+      },
+      { wrapper: Providers },
+    )
+
+    act(() => result.current.exec.execute())
+    await runs.finish("success", 0, { AccountId: { value: "1", sensitive: false } })
+
+    expect(result.current.exec.outputs).toEqual({ AccountId: "1" })
+    expect(publishedOnSuccess.length).toBeGreaterThan(0)
+    for (const published of publishedOnSuccess) {
+      expect(published).toEqual({ AccountId: "1" })
+    }
+  })
+
+  it("withdraws its outputs when a later run finishes without any", async () => {
+    const runs = holdRuns()
+    const { result } = renderScriptExecution({ command: "create-accounts" })
+    act(() => result.current.exec.execute())
+    await runs.finish("success", 0, { AccountId: { value: "1", sensitive: false } })
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
+
+    act(() => result.current.exec.execute())
+    await runs.finish("fail", 1)
+
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({})
+  })
+
+  it("keeps its outputs when a later run is stopped", async () => {
+    const runs = holdRuns()
+    const { result } = renderScriptExecution({ command: "create-accounts" })
+    act(() => result.current.exec.execute())
+    await runs.finish("success", 0, { AccountId: { value: "1", sensitive: false } })
+
+    act(() => result.current.exec.execute())
+    await runs.stop()
+
+    expect(result.current.runbook.blockOutputs.target?.values).toEqual({ AccountId: "1" })
   })
 })
 

@@ -13,6 +13,7 @@ export {
   maskOutput,
   revealOutputs,
   maskOutputs,
+  encodeOutputs,
   decodeOutputs,
   type OutputValue,
   type OutputValues,

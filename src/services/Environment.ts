@@ -5,4 +5,4 @@ export interface EnvironmentShape {
   readonly getAll: () => Effect.Effect<Record<string, string>>
 }
 
-export class Environment extends Context.Tag("Environment")<Environment, EnvironmentShape>() {}
+export class Environment extends Context.Service<Environment, EnvironmentShape>()("Environment") {}

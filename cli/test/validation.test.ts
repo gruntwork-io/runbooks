@@ -5,6 +5,7 @@ import * as os from "node:os"
 import {
   InputValidator,
   parseAuthDependencies,
+  parseRunDependencies,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
 } from "./validation.ts"
@@ -141,6 +142,37 @@ describe("parseTemplateBlocks", () => {
 \`\`\`
 `)
     expect(parseTemplateBlocks(p).get("vpc")?.templatePath).toBe("./tpls/real")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseRunDependencies
+// ---------------------------------------------------------------------------
+
+describe("parseRunDependencies", () => {
+  it("reads a single id and a list of ids from dependsOn", () => {
+    const p = writeRunbook(`
+<Command id="login" command="true" />
+<Check id="preflight" command="true" dependsOn="login" />
+<Command id="deploy" command="true" dependsOn={["login", 'preflight']} />
+`)
+
+    const deps = parseRunDependencies(p)
+
+    expect([...deps]).toEqual([
+      ["preflight", ["login"]],
+      ["deploy", ["login", "preflight"]],
+    ])
+  })
+
+  it("ignores a block inside a fenced code block", () => {
+    const p = writeRunbook(`
+\`\`\`mdx
+<Command id="example" command="true" dependsOn="login" />
+\`\`\`
+`)
+
+    expect(parseRunDependencies(p).size).toBe(0)
   })
 })
 

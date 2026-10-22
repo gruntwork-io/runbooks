@@ -40,6 +40,11 @@ export interface GoogleIdentity {
   /** Display name — best-effort enrichment, undefined when the caller cannot read the project. */
   readonly projectName?: string | undefined
   readonly scopes?: readonly string[]
+  /**
+   * When a bare access token expires, as an ISO timestamp. Undefined for the
+   * other credential types: google-auth-library refreshes their tokens.
+   */
+  readonly expiresAt?: string | undefined
 }
 
 /**
@@ -190,4 +195,6 @@ export interface GoogleClientShape {
   ) => Effect.Effect<GoogleProjectAccess, GoogleAuthError>
 }
 
-export class GoogleClient extends Context.Tag("GoogleClient")<GoogleClient, GoogleClientShape>() {}
+export class GoogleClient extends Context.Service<GoogleClient, GoogleClientShape>()(
+  "GoogleClient",
+) {}
