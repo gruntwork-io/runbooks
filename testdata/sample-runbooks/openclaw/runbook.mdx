@@ -66,14 +66,14 @@ Authenticate to GitHub so the runbook can clone repos, create pull requests, and
 
 Verify that mise is installed. If not, install it from [mise.jdx.dev](https://mise.jdx.dev/getting-started.html).
 
-<Check
-  id="check-mise"
-  command="mise --version && mise self-update --yes;"
-  title="Check mise Installation"
-  description="We recommend `mise` as a tool version manager that can install and manage Terragrunt, OpenTofu, and other tools. This checks that mise is installed and up to date."
-  successMessage="mise is installed and up to date!"
-  failMessage="mise is not installed. Install it from https://mise.jdx.dev/getting-started.html"
-/>
+<Prerequisites id="check-mise" title="Check mise Installation">
+```yaml
+tools:
+  - name: mise
+    description: "We recommend `mise` as a tool version manager that can install and manage Terragrunt, OpenTofu, and other tools."
+    install: "[Install mise](https://mise.jdx.dev/getting-started.html)"
+```
+</Prerequisites>
 
 ### Install Required Tools
 
@@ -96,14 +96,29 @@ The Session Manager plugin for the AWS CLI is required to connect to the EC2 ins
 brew install --cask session-manager-plugin
 ```
 
-<Check
-  id="check-ssm-plugin"
-  command="session-manager-plugin --version"
-  title="Check Session Manager Plugin"
-  description="Verify that the AWS Session Manager plugin is installed."
-  successMessage="Session Manager plugin is installed!"
-  failMessage="Session Manager plugin is not installed. See https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html"
-/>
+### Check the required tools
+
+<Prerequisites id="check-tools" title="Check the required tools">
+```yaml
+tools:
+  - name: terragrunt
+    install: "Run **Install Required Tools via mise** above."
+  - name: tofu
+    install: "Run **Install Required Tools via mise** above."
+  - name: aws
+    install: "Run **Install Required Tools via mise** above."
+  - name: session-manager-plugin
+    description: "Connects to the EC2 instance."
+    install: "[Install the Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), or on macOS run `brew install --cask session-manager-plugin`."
+  - name: gh
+    description: "Creates the catalog release and checks the pull requests."
+    install: "[Install the GitHub CLI](https://cli.github.com/)"
+  - name: granted
+    description: "Makes it easier to assume AWS roles."
+    optional: true
+    install: "Run **Install Required Tools via mise** above."
+```
+</Prerequisites>
 
 ## infra-catalog: Generate the OpenTofu Module
 

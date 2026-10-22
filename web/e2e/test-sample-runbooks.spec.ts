@@ -93,10 +93,13 @@ test.describe("sample-runbooks/demo2", () => {
     // Verify the title rendered.
     await expect(page.locator("h1")).toContainText("Create the infrastructure-live-root repo")
 
-    // Check that gh is installed
-    const ghCheck = page.getByTestId("check-gh-install")
-    await ghCheck.getByRole("button", { name: "Check" }).click()
-    await expect(ghCheck.getByTestId("icon-success")).toBeVisible({ timeout: 5_000 })
+    // Check that gh is installed. The block checks mise too, so look at gh's
+    // row rather than the block's status.
+    const toolsCheck = page.getByTestId("check-tools")
+    await toolsCheck.getByRole("button", { name: "Check" }).click()
+    await expect(toolsCheck.getByTestId("tool-gh")).toHaveAttribute("data-status", "found", {
+      timeout: 15_000,
+    })
 
     // Fill in the GitHub Org Name
     const createRepoBlock = page.getByTestId("create-infrastructure-live-root-repo")
@@ -477,9 +480,10 @@ test.describe("sample-runbooks/homepage-demo", () => {
     await expect(page.getByRole("heading", { name: "Configure your service" })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Deploy", exact: true })).toBeVisible()
 
-    // Verify the Check block rendered with a Check button.
+    // Verify the Prerequisites block rendered its tool list with a Check button.
     const checkBlock = page.getByTestId("check-prereqs")
     await expect(checkBlock).toBeVisible()
+    await expect(checkBlock.getByTestId("tool-git")).toHaveAttribute("data-status", "unchecked")
     await expect(checkBlock.getByRole("button", { name: "Check" })).toBeVisible()
 
     // Verify the Inputs block rendered with defaults.
@@ -511,10 +515,11 @@ test.describe("sample-runbooks/homepage-demo", () => {
 
     await trustRunbook(page)
 
-    // Run the Check block and verify success.
+    // Check the tools and verify that git was found.
     const checkBlock = page.getByTestId("check-prereqs")
     await checkBlock.getByRole("button", { name: "Check" }).click()
     await expect(checkBlock.getByTestId("icon-success")).toBeVisible({ timeout: 15_000 })
+    await expect(checkBlock.getByTestId("tool-git")).toHaveAttribute("data-status", "found")
 
     // Submit the inputs so the Command block becomes enabled.
     const inputsBlock = page.getByTestId("service-config")

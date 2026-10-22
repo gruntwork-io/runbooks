@@ -6,14 +6,14 @@ This runbook guides you through deploying a new microservice to your infrastruct
 
 Before we begin, let's verify your local environment is ready.
 
-<Check
-    id="check-prereqs"
-    path="checks/git-version.sh"
-    title="Check Git Installation"
-    description="Verify that Git is installed on your machine."
-    successMessage="Git is installed and ready!"
-    failMessage="Git is not installed. Install it from https://git-scm.com"
-/>
+<Prerequisites id="check-prereqs">
+```yaml
+tools:
+  - name: git
+    version: ">= 2.0"
+    install: "[Install Git](https://git-scm.com/downloads)"
+```
+</Prerequisites>
 
 ## Configure your service
 
