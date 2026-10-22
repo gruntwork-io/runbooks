@@ -17,6 +17,7 @@ import { RunbookContextProvider } from "@/contexts/RunbookContext"
 import { Check } from "@/components/mdx/Check"
 import { Command } from "@/components/mdx/Command"
 import { Finish } from "@/components/mdx/Finish"
+import { Prerequisites } from "@/components/mdx/Prerequisites"
 import { Admonition } from "@/components/mdx/Admonition"
 import { Iframe } from "@/components/mdx/Iframe"
 import { AwsAuth } from "@/components/mdx/AwsAuth"
@@ -346,6 +347,7 @@ export const MDX_COMPONENTS = {
   Check,
   Command,
   Finish,
+  Prerequisites,
   // Authentication components
   AwsAuth,
   GoogleAuth,

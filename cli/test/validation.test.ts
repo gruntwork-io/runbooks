@@ -284,6 +284,62 @@ describe("InputValidator", () => {
     expect(err?.message).toContain("The 'id' prop is required")
   })
 
+  describe("a <Prerequisites> block", () => {
+    const configErrors = (content: string) => {
+      const v = new InputValidator(writeRunbook(content))
+      v.init()
+      return v.getConfigErrors().filter((e) => e.componentType === "Prerequisites")
+    }
+
+    it("is a step with a valid tool list, and no config error", () => {
+      const v = new InputValidator(
+        writeRunbook(
+          '<Prerequisites id="tools">\n```yaml\ntools:\n  - git\n```\n</Prerequisites>\n',
+        ),
+      )
+      v.init()
+      expect(v.getConfigErrors()).toEqual([])
+      expect(v.getComponents().map((c) => [c.type, c.id])).toEqual([["Prerequisites", "tools"]])
+    })
+
+    it("has the config error the block shows without a code fence, or with text beside it", () => {
+      const fenceError =
+        "The block needs its tool list in a code fence. Put a YAML code fence (```yaml ... ```) with a `tools:` list inside the block, and nothing else."
+      expect(configErrors('<Prerequisites id="tools" />')).toEqual([
+        { componentType: "Prerequisites", componentId: "tools", message: fenceError },
+      ])
+      expect(
+        configErrors('<Prerequisites id="tools">\n\ntools: [git]\n\n</Prerequisites>'),
+      ).toEqual([{ componentType: "Prerequisites", componentId: "tools", message: fenceError }])
+      expect(
+        configErrors(
+          '<Prerequisites id="tools">\n\nYou need:\n\n```yaml\ntools: [git]\n```\n</Prerequisites>',
+        ),
+      ).toEqual([{ componentType: "Prerequisites", componentId: "tools", message: fenceError }])
+    })
+
+    it("has the parser's error for an invalid tool list", () => {
+      expect(
+        configErrors(
+          '<Prerequisites id="tools">\n```yaml\ntools:\n  - git\n  - git\n```\n</Prerequisites>',
+        ),
+      ).toEqual([
+        {
+          componentType: "Prerequisites",
+          componentId: "tools",
+          message: 'The tool list is invalid: "git" is listed twice.',
+        },
+      ])
+    })
+
+    it("needs an id", () => {
+      const errors = configErrors(
+        '<Prerequisites title="Tools">\n```yaml\ntools: [git]\n```\n</Prerequisites>',
+      )
+      expect(errors.map((e) => e.message)).toEqual(["The 'id' prop is required"])
+    })
+  })
+
   it("ignores unknown blocks inside fenced code", () => {
     const p = writeRunbook('```mdx\n<MysteryBlock id="x" />\n```\n')
     const v = new InputValidator(p)

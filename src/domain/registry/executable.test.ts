@@ -401,6 +401,50 @@ describe("ExecutableRegistry", () => {
     ])
   })
 
+  it("registers a <Prerequisites> block's tool list as written, for exec:run to check", async () => {
+    const mdx = [
+      '<Prerequisites id="tools" title="Tools">',
+      "```yaml",
+      "tools:",
+      "  - name: tofu",
+      '    version: ">= 1.6"',
+      "    install: Run `brew install opentofu` &amp; check again.",
+      "```",
+      "</Prerequisites>",
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const [entry] = Object.values(registry.getAllExecutables())
+    expect(entry).toMatchObject({
+      componentId: "tools",
+      componentType: "prerequisites",
+      type: "inline",
+      language: "yaml",
+      templateVars: [],
+    })
+    // Not unescaped like a `command` prop: the fence's text is what the user wrote.
+    expect(registry.getExecutableSync(entry!.id)?.content).toBe(
+      'tools:\n  - name: tofu\n    version: ">= 1.6"\n    install: Run `brew install opentofu` &amp; check again.\n',
+    )
+    expect(registry.getWarnings()).toEqual([])
+  })
+
+  it("registers nothing for a <Prerequisites> block without a tool list", async () => {
+    const mdx =
+      '<Prerequisites id="tools">\n\ntools: [git]\n\n</Prerequisites>\n<Prerequisites id="empty" />'
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(registry.getAllExecutables()).toEqual({})
+  })
+
   describe("a script file that changes after it was registered", () => {
     const SCRIPT = "/rb/scripts/deploy.sh"
 

@@ -1,0 +1,146 @@
+---
+title: <Prerequisites>
+---
+
+The `<Prerequisites>` block lists the tools a runbook needs and checks that each one is installed: on PATH, and at the version the runbook asks for. It marks each tool that is missing or out of date and says how to install it. Once the user has installed it, they click **Check again**, and Runbooks finds the tool without a restart.
+
+Put it near the top of the runbook, before the blocks that use the tools.
+
+## Basic usage
+
+````mdx
+<Prerequisites id="tools">
+```yaml
+tools:
+  - git
+  - name: tofu
+    version: ">= 1.6"
+    install: "[Install OpenTofu](https://opentofu.org/docs/intro/install/)"
+  - name: gh
+    description: Opens the pull request at the end of the runbook.
+    optional: true
+    install: Run `brew install gh`.
+```
+</Prerequisites>
+````
+
+The block lists the tools. When the user clicks **Check**, each tool gets a green mark when it's installed at the right version, and a red one when it isn't, with its install hint. A missing optional tool gets a yellow mark and makes the check warn instead of fail.
+
+## vs. Check
+
+A [Check](/authoring/blocks/check/) can test anything, but you write the script, including the version comparison and the message for each tool. A Prerequisites block takes a list of tools and does the rest: it finds each one as a script would, compares versions, shows each tool's result and install hint, and reads PATH again when a tool is missing, so a tool installed while Runbooks is open is found.
+
+## Props
+
+### Required props
+
+- `id` (string): unique identifier for this block
+
+### Optional props
+
+- `title` (string): display title. Default "Tools this runbook needs". Supports inline markdown.
+- `description` (string): longer description, shown under the title. Supports inline markdown.
+- `successMessage` (string): message shown when every tool is installed. Default "The tools this runbook needs are installed." Supports inline markdown.
+- `warnMessage` (string): message shown when only optional tools are missing or out of date. Default "The required tools are installed. Some optional ones are missing or out of date." Supports inline markdown.
+- `failMessage` (string): message shown when a required tool is missing or out of date. Default "Install or update the tools marked below, then check again." Supports inline markdown.
+- `runningMessage` (string): message shown while the check runs. Default "Checking the tools...". Supports inline markdown.
+
+### The tool list
+
+The block's content is a YAML code fence with a `tools:` list, and nothing else. Each entry is a tool's name, or a map with these keys:
+
+| Key | Description |
+|-----|-------------|
+| `name` | Required. The command to look for on PATH, such as `tofu`. It starts with a letter or digit, and has only letters, digits, `.`, `_`, `+` and `-`, so it can't be a path. |
+| `description` | What the runbook uses the tool for. Supports inline markdown. |
+| `version` | The versions the runbook works with, such as `">= 1.6"`. See [Version constraints](#version-constraints). Quote it: YAML reads an unquoted `1.10` as the number 1.1. |
+| `versionArgs` | The arguments that make the tool print its version, as a list such as `[version, --client]`, or a string that is split at spaces. Defaults to `--version` for a tool with a `version`. Give it to a tool without a `version` to publish the version it prints. |
+| `install` | How to install the tool, shown when it's missing or out of date. Supports inline markdown, such as a link or a command in backticks. |
+| `optional` | `true` for a tool the runbook can do without. A missing or outdated optional tool makes the check warn. Default `false`. |
+
+A mistake in the list, such as a key that isn't one of these or a version constraint Runbooks can't read, is a configuration error, which the block shows in place of the tools.
+
+## How the check works
+
+When the user clicks **Check**, Runbooks:
+
+1. Looks for each tool on PATH, with the session's environment and working directory, the way a script finds a command (`type -P` in bash). Only an executable file counts, not a shell function or alias.
+2. If a tool isn't found, reads PATH again from your login shell and looks for the missing tools once more. See [Tools installed after Runbooks started](#tools-installed-after-runbooks-started).
+3. Runs each tool it found that has a `version` or `versionArgs`, with its version arguments, and reads the first version number in what the tool prints, on stdout or stderr. A version number is two or more numbers joined by dots, such as `1.8.2`. Each tool gets 15 seconds.
+4. Compares each version with the tool's constraint.
+
+The check runs only when the user clicks **Check**. Opening the runbook runs nothing, and neither does resuming its [session](/commands/sessions/): the block shows the last check's result. While the check runs, **Stop** stops it.
+
+**View Logs** shows a line for each tool: where it found the tool and the version it read, or what went wrong. When a tool printed no version number, the log quotes the first line it printed.
+
+### Version constraints
+
+`version` takes the syntax of OpenTofu's `required_version`:
+
+| Constraint | Versions |
+|------------|----------|
+| `1.6.0` or `= 1.6.0` | Exactly 1.6.0 |
+| `!= 1.6.0` | Any but 1.6.0 |
+| `> 1.6`, `>= 1.6`, `< 2.0`, `<= 2.0` | Newer or older than the version |
+| `~> 1.6` | 1.6 or newer, up to but not including 2.0: only the last number given can go up |
+| `~> 1.6.2` | 1.6.2 or newer, up to but not including 1.7 |
+
+Separate conditions with commas to require all of them, as in `">= 1.6, < 2.0"`. Versions compare number by number, and a missing number counts as 0, so `1.6` is the same version as `1.6.0`. Only the numbers count: a tool that prints `1.7.0-beta1` is at version 1.7.0, and a constraint can't name a pre-release.
+
+### Status
+
+A tool is one of:
+
+- **Found**: on PATH, at a version that meets its constraint if it has one.
+- **Missing**: not on PATH.
+- **Wrong version**: on PATH, at a version that doesn't meet its constraint.
+- **Unknown version**: on PATH, but the check couldn't read a version to compare with its `version`: the tool printed no version number, or didn't finish within 15 seconds. The log says which.
+
+The block succeeds when every tool is found, and warns when only optional tools aren't. A required tool that isn't found fails it.
+
+## Tools installed after Runbooks started
+
+Runbooks gets PATH once, when it starts. An installer usually adds its directory to PATH in a shell profile, such as `~/.zshrc`, which only a new shell reads. So when a check can't find a tool, Runbooks first runs your login shell to read PATH again, as it does when it [starts from the Dock](/security/shell-execution-context/#starting-environment), and adds the directories that PATH has and Runbooks' doesn't. Then it looks for the missing tools again. The log names the directories it added.
+
+The directories go on the end of PATH, for the open session and for the sessions opened after it, so the blocks that run next find the tools too. Runbooks never removes or reorders a directory, and it changes no other variable. It does this however Runbooks was started, from a terminal too.
+
+On Windows, Runbooks can't read PATH again yet. The log says so: restart Runbooks to pick up a changed PATH.
+
+## Outputs
+
+A check that succeeds or warns publishes outputs for later blocks:
+
+| Output | Value |
+|--------|-------|
+| `<tool>_path` | Where the tool is, or empty when it isn't on PATH |
+| `<tool>_version` | The version the check read, or empty when it couldn't read one. Only for a tool with a `version` or `versionArgs` that is on PATH. |
+
+`<tool>` is the tool's name with each character that isn't a letter, a digit or `_` turned into `_`, so `session-manager-plugin` publishes `session_manager_plugin_path`. A name that starts with a digit gets a `_` in front. Two tools whose names come out the same, such as `docker-compose` and `docker_compose`, are a configuration error.
+
+```mdx
+<Command id="show-tofu" command='echo "Using tofu {{ .outputs.tools.tofu_version }}"' />
+```
+
+A check that fails publishes no outputs, so the blocks that read them wait, as they do for a failed Check. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).
+
+An optional tool that is missing has no `<tool>_version` output, so a block that reads one waits until the tool is installed. To read it only when it's there, check for it first, as [Outputs a block emits only sometimes](/authoring/inputs-and-outputs/#outputs-a-block-emits-only-sometimes) shows.
+
+## Run order
+
+Other blocks can name a Prerequisites block in `dependsOn`, so they can't run until its check succeeds or warns:
+
+```mdx
+<Command id="deploy" dependsOn="tools" command="tofu apply" />
+```
+
+A Prerequisites block can't start while an `exclusive` block runs. See [Run order](/authoring/blocks/command/#run-order).
+
+## Instruction mode
+
+In [instruction mode](/intro/instruction-mode/), the block lists the tools with their version constraints and every install hint, and shows commands that check them: the version command of each tool the block reads a version of, and `command -v <name>` for the others.
+
+## Testing
+
+`runbooks test` checks the tools the same way, on the PATH the test runs with, but it doesn't read PATH again for a missing tool. See [Testing Prerequisites blocks](/authoring/testing/#testing-prerequisites-blocks).
+
+The [prerequisites feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/prerequisites) checks for a tool that a later block installs, and its test checks it before and after.

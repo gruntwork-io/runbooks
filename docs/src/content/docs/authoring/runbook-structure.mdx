@@ -19,15 +19,16 @@ Introduction paragraph explaining what this runbook does.
 
 ## Pre-flight checks
 
-Make sure the user is set up for success.
+Make sure the user has the tools the runbook needs.
 
-<Check 
-    id="pre-flight-checks" 
-    command="tool --version"
-    title="Check if required tool is installed"
-    successMessage="Tool is installed!"
-    failMessage="Please install the tool first"
-/>
+<Prerequisites id="pre-flight-checks">
+```yaml
+tools:
+  - name: tool
+    version: ">= 1.0"
+    install: "[Install the tool](https://example.com/install)"
+```
+</Prerequisites>
 
 ## Execute actions
 

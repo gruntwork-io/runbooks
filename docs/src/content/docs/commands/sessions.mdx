@@ -52,6 +52,7 @@ The blocks come back as you left them. Each shows what the session's history has
 | [\<Inputs\>](/authoring/blocks/inputs/) | The values you typed. A form you had submitted is still submitted. | |
 | [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) | The last run: its status, logs and outputs. A block that reads another block's output runs without that block running again. | |
 | [\<Finish\>](/authoring/blocks/finish/) | Whether you finished the runbook, with the last run of its final check if it has one. It doesn't celebrate again. | |
+| [\<Prerequisites\>](/authoring/blocks/prerequisites/) | The last check: what it found for each tool, its logs and its outputs. It doesn't check again. | |
 | [\<Template\>](/authoring/blocks/template/) | The values you typed, and whether you had generated its files. | |
 | [\<GitClone\>](/authoring/blocks/gitclone/) | The repository you cloned or selected, with its outputs. | That it is still a git repository on disk. |
 | [\<DirPicker\>](/authoring/blocks/dirpicker/) | The path, with a dropdown selection for each of its directories that is still there. | |
@@ -126,7 +127,7 @@ The session you switch to counts as launched again. Launching Runbooks from the 
 Runbooks adds an entry to the session's history each time you act on a block:
 
 - You change a value in a form, submit the form, or generate its files. The entry has the form's values. Changes to one form that follow each other are one entry, so the history has the form as you left it and not every keystroke. The same goes for a \<DirPicker\> path and the fields of a \<GitPullRequest\> form.
-- A \<Command\> or \<Check\> script, or the final check of a \<Finish\> block, starts, and it ends. The entry for the end has the status, the exit code, the outputs, and the newest 500 lines of the log, up to 64 KiB of text, and the path of the full log. Outputs larger than 512 KiB in total are left out. The resumed block says so, and the blocks that read them wait until it runs again.
+- A \<Command\> or \<Check\> script, the final check of a \<Finish\> block, or the check of a \<Prerequisites\> block, starts, and it ends. The entry for the end has the status, the exit code, the outputs, and the newest 500 lines of the log, up to 64 KiB of text, and the path of the full log. Outputs larger than 512 KiB in total are left out. The resumed block says so, and the blocks that read them wait until it runs again.
 - You click **Finish** on a \<Finish\> block without a final check. The entry is a run that succeeded, with no log.
 - A \<Template\> or \<TemplateInline\> writes its files. The entry has a hash of what it wrote, not the files.
 - A \<GitClone\> block gets a repository, or you start it over.

@@ -46,9 +46,12 @@ function createLogEntry(line: string, timestamp?: string): LogEntry {
   }
 }
 
+/** How a run that wasn't stopped ended. */
+export type FinishedStatus = "success" | "warn" | "fail"
+
 export interface ExecState {
   logs: LogEntry[]
-  status: "pending" | "running" | "success" | "warn" | "fail"
+  status: "pending" | "running" | FinishedStatus
   exitCode: number | null
   error: AppError | null
   /** The script's outputs. Sensitive ones are `Redacted`. */
@@ -66,10 +69,11 @@ export interface UseApiExecOptions {
   onFilesCaptured?: (event: FilesCapturedEvent) => void
   /**
    * Called once for each run that ends as success, warn or fail, with the
-   * outputs the script published. They are empty when it published none,
-   * which includes every failed run. A stopped run doesn't call it.
+   * outputs the run published and how it ended. A script's outputs are empty
+   * when it published none, which includes every failed run. A stopped run
+   * doesn't call it.
    */
-  onFinished?: (outputs: OutputValues) => void
+  onFinished?: (outputs: OutputValues, status: FinishedStatus) => void
   /** The state to start from: the block's last run, when the session's history has one. */
   initialState?: ExecState | undefined
   /** Callback invoked when a run starts */
@@ -291,14 +295,15 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           // waiting for its outputs.
           if (result.status) {
             const finalStatus = result.status
+            const status = finalStatus.status as FinishedStatus
             const outputs = decodeOutputs(result.outputs)
             setState((prev) => ({
               ...prev,
-              status: finalStatus.status as ExecState["status"],
+              status,
               exitCode: finalStatus.exitCode,
               outputs: Object.keys(outputs).length > 0 ? outputs : null,
             }))
-            options?.onFinished?.(outputs)
+            options?.onFinished?.(outputs, status)
           } else {
             // No status means the main process aborted the run and resolved it
             // as { status: null, cancelled: true }. cancel() has already logged
@@ -345,7 +350,7 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
           cleanup()
           cleanupRef.current = null
           setEndedRuns((n) => n + 1)
-          options?.onFinished?.({})
+          options?.onFinished?.({}, "fail")
         }
       }
     },

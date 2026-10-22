@@ -73,6 +73,21 @@ function setupExecEnvVars(
   return result
 }
 
+/**
+ * The env a run gets from the session's: the session's own, with the app's
+ * PATH when the session has none (a script unset it), so the run can still
+ * find bash and its tools.
+ */
+export const withSystemPath = (sessionEnv: Record<string, string>) =>
+  Effect.gen(function* () {
+    const env = { ...sessionEnv }
+    if (!env["PATH"]) {
+      const systemPath = yield* (yield* Environment).get("PATH")
+      if (systemPath) env["PATH"] = systemPath
+    }
+    return env
+  })
+
 // ---------------------------------------------------------------------------
 // Exit Status
 // ---------------------------------------------------------------------------
@@ -81,7 +96,7 @@ function setupExecEnvVars(
  * The name of a run's log file: when it started, sortable, plus a random
  * suffix so two runs started in the same millisecond get files of their own.
  */
-function logFileName(startedAt: Date): string {
+export function logFileName(startedAt: Date): string {
   const stamp = startedAt.toISOString().replace(/[:.]/g, "-")
   return `${stamp}-${Math.random().toString(36).slice(2, 8)}.log`
 }
@@ -135,7 +150,6 @@ export const executeScript = (
     log.debug("step 1: getting services")
     const fs = yield* FileSystem
     const spawner = yield* ProcessSpawner
-    const env = yield* Environment
 
     log.debug("step 2: creating output temp dir")
     // Create temp file for block outputs (RUNBOOK_OUTPUT)
@@ -183,15 +197,7 @@ export const executeScript = (
     const scriptSetup: ScriptSetup = yield* prepareScript(scriptContent, language)
 
     // Build the execution environment
-    let execEnv: Record<string, string> = { ...sessionContext.env }
-
-    // Ensure PATH is available
-    if (!execEnv["PATH"]) {
-      const systemPath = yield* env.get("PATH")
-      if (systemPath) {
-        execEnv["PATH"] = systemPath
-      }
-    }
+    let execEnv: Record<string, string> = yield* withSystemPath(sessionContext.env)
 
     // Apply per-request env var overrides
     if (request.envVarsOverride && Object.keys(request.envVarsOverride).length > 0) {

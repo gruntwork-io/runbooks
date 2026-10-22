@@ -1,0 +1,49 @@
+# Prerequisites Demo
+
+This runbook demonstrates the `<Prerequisites>` block, which checks that the tools a runbook needs are installed, at the versions it needs.
+
+## 1. Check the tools
+
+Click **Check**. `bash` and `git` are on almost every machine, so the check finds them. Nothing has installed `runbooks-demo-tool` yet, so the check fails, and the block says how to install it. The optional tool is never installed: it only makes the check warn.
+
+<Prerequisites id="tools" description="The tools the rest of this runbook uses.">
+```yaml
+tools:
+  - bash
+  - name: git
+    version: ">= 2.0"
+    install: "[Install Git](https://git-scm.com/downloads)"
+  - name: runbooks-demo-tool
+    description: A stand-in for a tool you'd install. The next block makes it.
+    version: ">= 1.0"
+    install: Run **Install the demo tool** below, then click **Check again**.
+  - name: runbooks-optional-demo-tool
+    description: A tool the runbook can do without.
+    optional: true
+```
+</Prerequisites>
+
+## 2. Install the missing tool
+
+This block writes a small `runbooks-demo-tool` script to `bin/` in the working directory, and puts that directory on PATH for the blocks that run after it. Run it, then click **Check again** above: the check finds the tool without a restart.
+
+<Command
+    id="install-demo-tool"
+    title="Install the demo tool"
+    command={`mkdir -p bin
+echo '#!/bin/sh' > bin/runbooks-demo-tool
+echo 'echo "runbooks-demo-tool 1.2.3"' >> bin/runbooks-demo-tool
+chmod +x bin/runbooks-demo-tool
+export PATH="$PWD/bin:$PATH"`}
+    successMessage="Installed. Click **Check again** above."
+/>
+
+## 3. Use what the check found
+
+A check that passes, or only warns, publishes each tool's path and the versions it read as outputs. This block waits for them.
+
+<Command
+    id="show-tool-paths"
+    title="Show where the tools are"
+    command='echo "git {{ .outputs.tools.git_version }} is at {{ .outputs.tools.git_path }}, and runbooks-demo-tool is at {{ .outputs.tools.runbooks_demo_tool_path }}."'
+/>

@@ -173,6 +173,8 @@ Runbooks sets `$RUNBOOK_OUTPUT` before the script runs, and reads the file when 
 
 Other blocks publish outputs of their own, which their pages list: the auth blocks, such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and [`<GitAuth>`](/authoring/blocks/gitauth/), [`<GitClone>`](/authoring/blocks/gitclone/), [`<GitPullRequest>`](/authoring/blocks/gitpullrequest/) and its wrappers, [`<DirPicker>`](/authoring/blocks/dirpicker/), and an [`<Iframe>`](/authoring/blocks/iframe/) whose local page sets outputs.
 
+A [`<Prerequisites>`](/authoring/blocks/prerequisites/) block publishes where it found each tool and the versions it read, such as `{{ .outputs.<block_id>.tofu_version }}`. See [Outputs](/authoring/blocks/prerequisites/#outputs).
+
 ### Sensitive outputs
 
 When an output holds a credential, such as a secret key, token or password, write `sensitive:` before its key:

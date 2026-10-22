@@ -85,6 +85,8 @@ On Windows, Runbooks uses the environment it was started with.
 
 A [resumed session](/commands/sessions/#resuming-a-session) starts from that same environment, and then gets back the variables its scripts and auth blocks had set or unset when it was last open.
 
+When a [\<Prerequisites\>](/authoring/blocks/prerequisites/) block can't find a tool, Runbooks runs your login shell again, on macOS and Linux, to read `PATH`. It adds the directories that `PATH` has and the session's doesn't to the end of the session's `PATH`, and of the environment later sessions start from. See [Tools installed after Runbooks started](/authoring/blocks/prerequisites/#tools-installed-after-runbooks-started).
+
 Scripts start in the [session's directory](/commands/sessions/), not in the folder that contains the runbook. A script that changes directory moves later scripts with it, as [How script changes are applied](#how-script-changes-are-applied) describes.
 
 ### How script changes are applied

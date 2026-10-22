@@ -18,7 +18,7 @@ The renderer sends two events.
 | `app_loaded` | The app window loads | None |
 | `runbook_loaded` | Half a second after the blocks of a runbook finish rendering | `block_counts`, the number of blocks of each type in the runbook (such as `Command: 3`), and `total_blocks` |
 
-Block counts cover Command, Check, Inputs, Template, TemplateInline, DirPicker, GitClone, the auth blocks and the pull request blocks. Admonition and Iframe blocks are not counted.
+Block counts cover Command, Check, Finish, Prerequisites, Inputs, Template, TemplateInline, DirPicker, GitClone, the auth blocks and the pull request blocks. Admonition and Iframe blocks are not counted.
 
 Every event also has these properties:
 

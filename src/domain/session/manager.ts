@@ -135,6 +135,27 @@ export function diffEnv(before: Record<string, string>, after: Record<string, st
   return { set, unset }
 }
 
+/**
+ * `path` (a PATH value, entries separated by `delimiter`) with each of
+ * `entries` it doesn't have added to its end, in order, and the entries that
+ * were added. Entries already on it keep their place, so the tools a PATH
+ * finds stay the ones it found.
+ */
+export function appendPathEntries(
+  path: string,
+  entries: readonly string[],
+  delimiter: string,
+): { path: string; added: string[] } {
+  const present = new Set(path.split(delimiter))
+  const added: string[] = []
+  for (const entry of entries) {
+    if (entry === "" || present.has(entry)) continue
+    present.add(entry)
+    added.push(entry)
+  }
+  return { path: [path, ...added].filter((part) => part !== "").join(delimiter), added }
+}
+
 // ---------------------------------------------------------------------------
 // SessionManager
 // ---------------------------------------------------------------------------
@@ -455,6 +476,39 @@ export class SessionManager {
       }
       this.session.lastActivity = new Date()
       this.notifyChange(this.session)
+    })
+  }
+
+  /**
+   * Add `entries` (directories, such as those on the user's login-shell PATH)
+   * to the end of the session's PATH, skipping those already on it. Returns
+   * the entries added to the PATH scripts run with.
+   *
+   * The entries go on the PATH the session started with too. The session is
+   * saved as its changes to that env (diffEnv), so adding them to the live
+   * PATH alone would save PATH as a change, and resuming the session would
+   * keep that PATH instead of the next launch's. Added to both, PATH is saved
+   * as a change only if a script changed it.
+   *
+   * `generation` works as for `appendToEnv`.
+   */
+  appendToPath(entries: readonly string[], delimiter: string, generation?: number) {
+    return Effect.gen({ self: this }, function* () {
+      if (this.session === null) {
+        return yield* new SessionError({ message: "no active session" })
+      }
+      if (this.isStale(generation)) return []
+
+      const { initialEnv, env } = this.session
+      initialEnv.set(
+        "PATH",
+        appendPathEntries(initialEnv.get("PATH") ?? "", entries, delimiter).path,
+      )
+      const { path, added } = appendPathEntries(env.get("PATH") ?? "", entries, delimiter)
+      env.set("PATH", path)
+      this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
+      return added
     })
   }
 

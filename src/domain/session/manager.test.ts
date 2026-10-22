@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from "bun:test"
 import { Effect } from "effect"
-import { SessionManager, diffEnv, filterCapturedEnv, type SessionState } from "./manager.ts"
+import {
+  SessionManager,
+  appendPathEntries,
+  diffEnv,
+  filterCapturedEnv,
+  type SessionState,
+} from "./manager.ts"
 import { makeTestEnvironment } from "../../test-utils/TestEnvironment.ts"
 import type { SessionExecSnapshot } from "../../types.ts"
 
@@ -96,6 +102,36 @@ describe("diffEnv", () => {
       ["constructor", "2"],
     ])
     expect(diffEnv(withProtoNames, {}).unset).toEqual(["__proto__", "constructor"])
+  })
+})
+
+describe("appendPathEntries", () => {
+  it("adds the entries the PATH lacks to its end, in order, and keeps the rest in place", () => {
+    expect(appendPathEntries("/usr/bin:/bin", ["/opt/bin", "/bin", "/usr/local/bin"], ":")).toEqual(
+      { path: "/usr/bin:/bin:/opt/bin:/usr/local/bin", added: ["/opt/bin", "/usr/local/bin"] },
+    )
+  })
+
+  it("adds an entry once, even when it's listed twice, and skips empty entries", () => {
+    expect(appendPathEntries("/usr/bin", ["", "/opt/bin", "/opt/bin"], ":")).toEqual({
+      path: "/usr/bin:/opt/bin",
+      added: ["/opt/bin"],
+    })
+  })
+
+  it("leaves the PATH as written when it has every entry, empty entries and all", () => {
+    expect(appendPathEntries("/usr/bin::/bin", ["/bin", "/usr/bin"], ":")).toEqual({
+      path: "/usr/bin::/bin",
+      added: [],
+    })
+  })
+
+  it("builds a PATH from the entries alone when there is none", () => {
+    expect(appendPathEntries("", ["/a", "/b"], ":")).toEqual({ path: "/a:/b", added: ["/a", "/b"] })
+  })
+
+  it("splits and joins on the delimiter it's given", () => {
+    expect(appendPathEntries("C:\\bin", ["C:\\tools"], ";").path).toBe("C:\\bin;C:\\tools")
   })
 })
 
@@ -562,6 +598,65 @@ describe("SessionManager", () => {
 
     it("fails when no session", async () => {
       await expect(run(mgr.appendToEnv({ X: "1" }))).rejects.toThrow()
+    })
+  })
+
+  describe("appendToPath", () => {
+    it("adds the directories the session's PATH lacks to its end, and returns them", async () => {
+      await run(mgr.createSession("/work"), { PATH: "/usr/bin:/bin" })
+
+      const added = await run(mgr.appendToPath(["/bin", "/opt/bin"], ":"))
+
+      expect(added).toEqual(["/opt/bin"])
+      expect((await run(mgr.getExecContext())).env.PATH).toBe("/usr/bin:/bin:/opt/bin")
+    })
+
+    it("adds them to the env the session started from too, so the saved changes leave PATH out", async () => {
+      await run(mgr.createSession("/work"), { PATH: "/usr/bin" })
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.appendToPath(["/opt/bin"], ":"))
+
+      expect(states.at(-1)?.env).toEqual({ set: {}, unset: [] })
+      // Resetting goes back to the env the session started from, which has them.
+      await run(mgr.resetSession())
+      expect((await run(mgr.getExecContext())).env.PATH).toBe("/usr/bin:/opt/bin")
+    })
+
+    it("keeps a PATH a script changed as a saved change, with the directories added", async () => {
+      await run(mgr.createSession("/work"), { PATH: "/usr/bin" })
+      await run(
+        mgr.applyCapturedEnv({
+          before: { PATH: "/usr/bin" },
+          after: { PATH: "/home/me/.local/bin:/usr/bin" },
+          startWorkDir: "/work",
+          pwd: "/work",
+          generation: mgr.getGeneration(),
+        }),
+      )
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.appendToPath(["/opt/bin"], ":"))
+
+      expect(states.at(-1)?.env).toEqual({
+        set: { PATH: "/home/me/.local/bin:/usr/bin:/opt/bin" },
+        unset: [],
+      })
+    })
+
+    it("is a no-op for a session that has been replaced", async () => {
+      await run(mgr.createSession("/old"), { PATH: "/usr/bin" })
+      const previous = mgr.getGeneration()
+      await run(mgr.createSession("/new"), { PATH: "/usr/bin" })
+
+      expect(await run(mgr.appendToPath(["/opt/bin"], ":", previous))).toEqual([])
+      expect((await run(mgr.getExecContext())).env.PATH).toBe("/usr/bin")
+    })
+
+    it("fails when no session", async () => {
+      await expect(run(mgr.appendToPath(["/opt/bin"], ":"))).rejects.toThrow()
     })
   })
 

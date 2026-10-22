@@ -21,6 +21,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 
 - [`<Command>`](/authoring/blocks/command) runs a shell command or script that changes state, such as a deployment.
 - [`<Check>`](/authoring/blocks/check) runs a shell command or script that reports whether the user's system is in the expected state.
+- [`<Prerequisites>`](/authoring/blocks/prerequisites) checks that the tools the runbook needs are installed, at the versions it needs, and says how to install the ones that aren't.
 - [`<Finish>`](/authoring/blocks/finish) marks the end of the runbook. It can run a final check, then shows your next steps.
 
 ### Authenticate
