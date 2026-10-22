@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { useEffect, type ReactNode } from "react"
 import DirPicker from "../DirPicker"
 import type { DirPickerProps } from "../types"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
@@ -100,6 +100,7 @@ function Harness({ api, children }: { api: RunbooksAPI; children: ReactNode }) {
       <TestWrapper>
         {children}
         <PublishedOutputs />
+        <RunbookProgressProbe />
       </TestWrapper>
     </ApiProvider>
   )
@@ -319,6 +320,17 @@ describe("DirPicker — PATH output", () => {
     fireEvent.change(pathInput(), { target: { value: "custom/path" } })
 
     await waitFor(() => expect(publishedValues()).toEqual({ PATH: "custom/path" }))
+  })
+
+  it("counts as a step of the runbook, done while it has a path", async () => {
+    await renderPicker()
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+
+    await select(0, "prod")
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+
+    await select(0, "")
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
   })
 
   it("removes PATH when the root dropdown is reset to its placeholder", async () => {

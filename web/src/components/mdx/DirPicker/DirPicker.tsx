@@ -8,6 +8,7 @@ import { useTemplateContext } from "@/contexts/useRunbook"
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { useDirPicker } from "./hooks/useDirPicker"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { DirPickerInstruction } from "./DirPickerInstruction"
 import type { AppError } from "@/types/error"
@@ -150,6 +151,9 @@ function DirPickerInteractive({
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
     >
+      {/* Done once it has a path for the blocks that use it */}
+      <ProgressStep done={manualPath !== ""} />
+
       {/* ID label */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

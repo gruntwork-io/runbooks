@@ -17,6 +17,7 @@ import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
 import { CredentialExpiryNotice } from "@/components/mdx/_shared/components/CredentialExpiryNotice"
 import { useCredentialExpiry } from "@/components/mdx/_shared/hooks/useCredentialExpiry"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
+import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import type { AppError } from "@/types/error"
 import type { AwsAuthProps } from "./types"
 import { useAwsAuth } from "./hooks/useAwsAuth"
@@ -176,6 +177,8 @@ function AwsAuthInteractive({
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
     >
+      <ProgressStep done={shownStatus === "authenticated"} />
+
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

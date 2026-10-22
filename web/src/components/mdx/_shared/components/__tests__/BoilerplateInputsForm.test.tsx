@@ -1,12 +1,13 @@
 import { describe, it, expect, vi } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
-import type { ComponentProps } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import { BoilerplateInputsForm } from "../BoilerplateInputsForm"
 import type { BoilerplateConfig } from "@/types/boilerplateConfig"
 import { BoilerplateValidationType, type BoilerplateVariable } from "@/types/boilerplateVariable"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
 import type { RunbookContextType } from "@/contexts/RunbookContext"
-import { RunbookStateStub } from "@/test/test-utils"
+import { RunbookProgressProbe, RunbookStateStub } from "@/test/test-utils"
+import { RunbookProgressProvider } from "@/contexts/RunbookProgressContext"
 import { ComponentIdRegistryProvider, useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
@@ -66,6 +67,54 @@ describe("BoilerplateInputsForm success state", () => {
     expect(block().className).not.toContain("bg-success-muted")
     expect(screen.queryByText("Up to date")).toBeNull()
     expect(screen.getByText(/Generation failed/)).toBeInTheDocument()
+  })
+})
+
+// A form with its own Generate or Submit button is a step of the runbook. An
+// embedded one is part of the block it's in, which counts for itself.
+describe("BoilerplateInputsForm progress", () => {
+  function ProgressPage({ children }: { children: ReactNode }) {
+    return (
+      <RunbookProgressProvider>
+        {children}
+        <RunbookProgressProbe />
+      </RunbookProgressProvider>
+    )
+  }
+
+  function form(props: Partial<ComponentProps<typeof BoilerplateInputsForm>> = {}) {
+    return (
+      <BoilerplateInputsForm
+        id="tpl"
+        blockType="Template"
+        boilerplateConfig={config}
+        onGenerate={vi.fn()}
+        enableAutoRender={false}
+        variant="standard"
+        {...props}
+      />
+    )
+  }
+
+  it("is a step, done while it shows its success styling", () => {
+    const { rerender } = render(form({ hasGeneratedSuccessfully: false }), {
+      wrapper: ProgressPage,
+    })
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+
+    rerender(form({ hasGeneratedSuccessfully: true }))
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+
+    rerender(form({ hasGeneratedSuccessfully: true, hasRenderError: true }))
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+  })
+
+  it.each([
+    { name: "an embedded form", props: { variant: "embedded" as const } },
+    { name: "a form without its own button", props: { showSubmitButton: false } },
+  ])("isn't a step for $name", ({ props }) => {
+    render(form({ hasGeneratedSuccessfully: true, ...props }), { wrapper: ProgressPage })
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0")
   })
 })
 

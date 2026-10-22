@@ -31,6 +31,7 @@ import { useTemplateDependencies } from "@/components/mdx/_shared/hooks/useTempl
 import { resolveTemplateReferences } from "@/lib/templateUtils"
 import { UnmetDependenciesWarning } from "@/components/mdx/_shared/components/UnmetDependenciesWarning"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useInstructionMode } from "@/contexts/useInstructionMode"
 import { GitCloneInstruction } from "./GitCloneInstruction"
 import type { AppError } from "@/types/error"
@@ -570,6 +571,8 @@ function GitCloneInteractive({
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${statusClasses} mb-5 p-4`}
     >
+      <ProgressStep done={cloneStatus === "success" && !refMismatch} />
+
       {/* ID label - positioned at top right */}
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />

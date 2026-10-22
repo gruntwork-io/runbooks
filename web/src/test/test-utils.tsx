@@ -8,6 +8,8 @@ import {
 } from "@/contexts/RunbookContext"
 import { ComponentIdRegistryProvider } from "@/contexts/ComponentIdRegistry"
 import { ErrorReportingProvider } from "@/contexts/ErrorReportingContext"
+import { RunbookProgressProvider } from "@/contexts/RunbookProgressContext"
+import { useRunbookProgress } from "@/contexts/useRunbookProgress"
 import { TelemetryContext, defaultContextValue } from "@/contexts/TelemetryContext.types"
 
 /**
@@ -36,7 +38,7 @@ export function TestWrapper({
                 remoteSource={remoteSource}
                 assetHost={assetHost}
               >
-                {children}
+                <RunbookProgressProvider>{children}</RunbookProgressProvider>
               </RunbookContextProvider>
             </ComponentIdRegistryProvider>
           </ErrorReportingProvider>
@@ -44,6 +46,15 @@ export function TestWrapper({
       </InstructionModeProvider>
     </ThemeProvider>
   )
+}
+
+/**
+ * Shows the runbook's progress as "done/total", for a test of the steps a
+ * block counts. Render it next to the block, inside a TestWrapper.
+ */
+export function RunbookProgressProbe() {
+  const { done, total } = useRunbookProgress()
+  return <span data-testid="runbook-progress">{`${done}/${total}`}</span>
 }
 
 /**

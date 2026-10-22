@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { ReactNode } from "react"
 import { render, screen, fireEvent } from "@testing-library/react"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 
@@ -35,6 +35,7 @@ function renderBlock(children: ReactNode) {
   return render(
     <TestWrapper>
       <ApiProvider api={currentApi}>{children}</ApiProvider>
+      <RunbookProgressProbe />
     </TestWrapper>,
   )
 }
@@ -225,10 +226,40 @@ describe("AwsAuth — detection", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("✓ Authenticated to AWS")).toBeInTheDocument()
     expect(screen.getByTestId("test-aws")).toHaveClass("bg-destructive-muted")
+    // Red, so not a step that's done
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
     expect(screen.getByRole("button", { name: "Static Credentials" })).toBeInTheDocument()
     expect(screen.queryByText(/These credentials/)).toBeNull()
+  })
+
+  it("counts as a step of the runbook, done while it shows it's signed in", async () => {
+    installApi((channel) => {
+      if (channel === "aws:env-credentials") return { found: true, valid: true, ...IDENTITY }
+      if (channel === "aws:env-credentials-confirm") {
+        return {
+          valid: true,
+          ...IDENTITY,
+          accessKeyId: "AKIA_ENV",
+          secretAccessKey: "env-secret",
+          region: "us-east-1",
+        }
+      }
+      if (channel === "session:set-env") return { ok: true }
+      if (channel === "aws:check-region") return { enabled: true }
+      throw new Error(`unexpected channel ${channel}`)
+    })
+    renderBlock(<AwsAuth id="test-aws" />)
+    const useCredentials = await screen.findByRole("button", { name: "Use These Credentials" })
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+
+    fireEvent.click(useCredentials)
+    expect(await screen.findByText("✓ Authenticated to AWS")).toBeInTheDocument()
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+
+    fireEvent.click(screen.getByRole("button", { name: "Re-authenticate" }))
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
   })
 
   it("stays green for credentials that expire hours from now", async () => {

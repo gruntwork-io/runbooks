@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import Check from "../Check"
 
 // Mock useScriptExecution
@@ -156,6 +156,27 @@ describe("Check", () => {
     renderCheck()
     expect(screen.getByTestId("icon-fail")).toBeInTheDocument()
   })
+
+  it.each([
+    { status: "pending", progress: "0/1" },
+    { status: "running", progress: "0/1" },
+    { status: "success", progress: "1/1" },
+    // A warning lets a block that dependsOn the check run, so it's done too.
+    { status: "warn", progress: "1/1" },
+    { status: "fail", progress: "0/1" },
+  ])(
+    "counts as a step of the runbook, $progress done when it is $status",
+    ({ status, progress }) => {
+      mockScriptExecution = { ...defaultScriptExecution, status, execute: vi.fn(), cancel: vi.fn() }
+      render(
+        <TestWrapper>
+          <Check id="test-check" title="Test Check" command="exit 0" />
+          <RunbookProgressProbe />
+        </TestWrapper>,
+      )
+      expect(screen.getByTestId("runbook-progress")).toHaveTextContent(progress)
+    },
+  )
 
   // --- Status messages ---
 

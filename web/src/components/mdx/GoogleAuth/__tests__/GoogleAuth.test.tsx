@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { ReactNode } from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
 
 /**
@@ -56,6 +56,7 @@ function renderBlock(children: ReactNode) {
   return render(
     <TestWrapper>
       <ApiProvider api={currentApi}>{children}</ApiProvider>
+      <RunbookProgressProbe />
     </TestWrapper>,
   )
 }
@@ -206,6 +207,32 @@ describe("GoogleAuth — service account tab", () => {
     })
   })
 
+  it("counts as a step of the runbook, done once it shows it's signed in", async () => {
+    installApi((channel) => {
+      if (channel === "google:env-credentials") return { found: false }
+      if (channel === "google:validate-credentials") {
+        return {
+          valid: true,
+          account: { principal: "sa@key-project.iam.gserviceaccount.com" },
+          projectId: "proj-x",
+          credentialType: "service_account",
+        }
+      }
+      if (channel === "google:check-project") return { enabled: true }
+      return {}
+    })
+    renderBlock(<GoogleAuth id="gcp" project="proj-x" />)
+
+    fireEvent.change(await screen.findByLabelText("Service account key JSON"), {
+      target: { value: SA_KEY },
+    })
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+    fireEvent.click(screen.getByRole("button", { name: "Authenticate" }))
+
+    expect(await screen.findByText("✓ Authenticated to Google Cloud")).toBeInTheDocument()
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+  })
+
   it("turns red when the access token expires within minutes, and signs in again on request", async () => {
     installApi((channel) => {
       if (channel === "google:env-credentials") return { found: false }
@@ -235,6 +262,8 @@ describe("GoogleAuth — service account tab", () => {
       await screen.findByText("These credentials expire in less than 5 minutes"),
     ).toBeInTheDocument()
     expect(screen.getByTestId("gcp")).toHaveClass("bg-destructive-muted")
+    // Red, so not a step that's done
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
     expect(screen.queryByText("✓ Authenticated to Google Cloud")).toBeNull()

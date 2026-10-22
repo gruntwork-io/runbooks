@@ -6,7 +6,7 @@ import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useAllOutputs } from "@/contexts/useRunbook"
 import { revealOutputs } from "@/lib/outputValues"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import type { SavedBlockState } from "../../../../../../src/domain/session/history"
 import Prerequisites from "../Prerequisites"
 
@@ -120,6 +120,7 @@ function renderBlock({
           </Prerequisites>
           <PublishedOutputs />
           <ReportedErrors />
+          <RunbookProgressProbe />
         </TestWrapper>
       </IpcSessionHistoryProvider>
     </ApiProvider>,
@@ -216,6 +217,30 @@ describe("Prerequisites", () => {
     expect(published()).toEqual({})
   })
 
+  it("counts as a step of the runbook, done while only optional tools are missing", async () => {
+    renderBlock()
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+
+    await userEvent.click(screen.getByRole("button", { name: "Check" }))
+    await act(async () =>
+      endRun(
+        finished("warn", {
+          git_path: "/usr/bin/git",
+          tofu_path: "/bin/tofu",
+          tofu_version: "1.8.2",
+          gh_path: "",
+        }),
+      ),
+    )
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("1/1")
+
+    await userEvent.click(screen.getByRole("button", { name: "Check again" }))
+    await act(async () =>
+      endRun(finished("fail", { git_path: "", tofu_path: "/bin/tofu", tofu_version: "1.8.2" })),
+    )
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1")
+  })
+
   it("starts from the last run in the session's history, without checking again", () => {
     const saved = {
       status: "fail",
@@ -270,6 +295,11 @@ describe("Prerequisites", () => {
       expect(error).toHaveTextContent('The <Prerequisites id="tools"> tool list is invalid')
       expect(error).toHaveTextContent('"tofu" has an unknown key "versions".')
       expect(reportedErrors()).toEqual(['The <Prerequisites id="tools"> tool list is invalid'])
+    })
+
+    it("leaves the block out of the runbook's steps", () => {
+      renderBlock({ toolList: null })
+      expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0")
     })
   })
 

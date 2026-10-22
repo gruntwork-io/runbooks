@@ -13,6 +13,7 @@ import { markKeystroke } from "@/lib/renderPerf"
 import { FormStatus } from "./FormStatus"
 import { UnmetDependenciesWarning } from "./UnmetDependenciesWarning"
 import { BlockIdLabel } from "./BlockIdLabel"
+import { ProgressStep } from "./ProgressStep"
 import type { BlockOutput } from "@/lib/templateUtils"
 import { ErrorReportingContext } from "@/contexts/ErrorReportingContext.types"
 
@@ -471,6 +472,10 @@ export const BoilerplateInputsForm: React.FC<BoilerplateInputsFormProps> = ({
 
   return (
     <div className={containerClasses}>
+      {/* A form with its own Generate or Submit button is a step of the
+          runbook, done while it shows its success styling */}
+      {shouldShowSubmitButton && <ProgressStep done={showSuccess} />}
+
       {/* ID label in top-right corner for standard variant */}
       {variant === "standard" && (
         <div className="absolute top-2 right-3">

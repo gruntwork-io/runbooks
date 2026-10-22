@@ -27,6 +27,7 @@ const FINISH_VARIANT: ScriptBlockVariant = {
   scriptOptional: true,
   // Children are the next steps, shown once finished, so they can't be an <Inputs>.
   inlineInputs: false,
+  warnIsDone: false,
   statusStyles: makeStatusStyles<ExecutionStatus>({
     container: {
       success: "bg-success-muted border-success/30",

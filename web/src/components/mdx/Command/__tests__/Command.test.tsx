@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { TestWrapper } from "@/test/test-utils"
+import { RunbookProgressProbe, TestWrapper } from "@/test/test-utils"
 import Command from "../Command"
 import { sensitiveOutput, type OutputValues } from "@/lib/outputValues"
 
@@ -471,6 +471,37 @@ describe("Command", () => {
     expect(screen.getByText("TOKEN")).toBeInTheDocument()
     expect(screen.queryByText("topsecret")).toBeNull()
     expect(screen.getByText("demo")).toBeInTheDocument()
+  })
+
+  // --- Progress ---
+
+  it.each(["pending", "running", "success", "fail"])(
+    "counts as a step of the runbook, done only once it succeeds (%s)",
+    (status) => {
+      mockScriptExecution = { ...defaultScriptExecution, status, execute: vi.fn(), cancel: vi.fn() }
+      render(
+        <TestWrapper>
+          <Command id="test-cmd" command='echo "hello"' />
+          <RunbookProgressProbe />
+        </TestWrapper>,
+      )
+      expect(screen.getByTestId("runbook-progress")).toHaveTextContent(
+        status === "success" ? "1/1" : "0/1",
+      )
+    },
+  )
+
+  it("doesn't count as a step while a configuration error shows in its place", async () => {
+    render(
+      <TestWrapper>
+        <Command id="deploy" command="echo one" />
+        <Command id="deploy" command="echo two" />
+        <Command id="" command="echo three" />
+        <RunbookProgressProbe />
+      </TestWrapper>,
+    )
+    expect(await screen.findAllByText("Duplicate Component ID:")).toHaveLength(2)
+    expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/0")
   })
 
   // --- Template resolution ---

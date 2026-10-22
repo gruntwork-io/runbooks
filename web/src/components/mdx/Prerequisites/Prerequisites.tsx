@@ -13,6 +13,7 @@ import {
 import { CodeBlock } from "@/components/mdx/_shared/components/CodeBlock"
 import { DuplicateIdError } from "@/components/mdx/_shared/components/DuplicateIdError"
 import { ErrorDisplay } from "@/components/mdx/_shared/components/ErrorDisplay"
+import { ProgressStep } from "@/components/mdx/_shared/components/ProgressStep"
 import { useRunSequencing } from "@/components/mdx/_shared/hooks/useRunSequencing"
 import { extractYamlFromChildren } from "@/components/mdx/_shared/lib/extractYamlFromChildren"
 import { makeStatusStyles } from "@/components/mdx/_shared/lib/statusStyles"
@@ -242,6 +243,9 @@ function Prerequisites({
       data-testid={id}
       className={`runbook-block relative rounded-sm border ${STATUS_STYLES.getStatusClasses(status)} mb-5 p-4`}
     >
+      {/* A warning means only optional tools are missing */}
+      <ProgressStep done={status === "success" || status === "warn"} />
+
       <div className="absolute top-3 right-3 z-20">
         <BlockIdLabel id={id} size="large" />
       </div>
