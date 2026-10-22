@@ -41,7 +41,7 @@ Renaming changes only what the session is called. Its directory, files and envir
 
 ## Resuming a session
 
-Opening a runbook resumes its most recent session. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were. That holds for a runbook you close and open again without quitting the app, too.
+Opening a runbook resumes its most recent session, unless you [finished the runbook](#finishing-a-session) in it. Scripts run with the environment variables and working directory the earlier run left, and the session's files are where they were. That holds for a runbook you close and open again without quitting the app, too.
 
 A notice at the top of the runbook names the session it resumed and says when you last used it. Click **Start new session** in it to [reset the session](#resetting-a-session) instead. A session with nothing in its history gets no notice: there is nothing of it to come back.
 
@@ -51,6 +51,7 @@ The blocks come back as you left them. Each shows what the session's history has
 |-------|-----------------|-----------------|
 | [\<Inputs\>](/authoring/blocks/inputs/) | The values you typed. A form you had submitted is still submitted. | |
 | [\<Command\>](/authoring/blocks/command/) and [\<Check\>](/authoring/blocks/check/) | The last run: its status, logs and outputs. A block that reads another block's output runs without that block running again. | |
+| [\<Finish\>](/authoring/blocks/finish/) | Whether you finished the runbook, with the last run of its final check if it has one. It doesn't celebrate again. | |
 | [\<Template\>](/authoring/blocks/template/) | The values you typed, and whether you had generated its files. | |
 | [\<GitClone\>](/authoring/blocks/gitclone/) | The repository you cloned or selected, with its outputs. | That it is still a git repository on disk. |
 | [\<DirPicker\>](/authoring/blocks/dirpicker/) | The path, with a dropdown selection for each of its directories that is still there. | |
@@ -83,6 +84,8 @@ Which session opens depends on how you launch Runbooks:
 | `runbooks` with no arguments, in a terminal | The session last launched from the terminal's current directory. If there is none, the welcome screen. |
 | The dock, the Start menu, or a desktop shortcut | The most recent session. If there is none, the welcome screen. |
 
+A session you finished the runbook in is never what opens: its runbook opens in another session, as [Finishing a session](#finishing-a-session) describes.
+
 Runbooks records the directory you ran `runbooks open SOURCE` from, which is how `runbooks` alone finds the session later. Your home directory counts as no directory: `runbooks` run there opens the most recent session.
 
 A [remote runbook](/commands/open/#remote-sources) is cloned again every time it opens, and resumes the session of the source you opened it with.
@@ -97,22 +100,33 @@ A reset replaces the session with a new one, so the name in the title bar change
 
 Nothing is deleted. The session that was replaced keeps its directory, files and history on disk. [Switch to it](#switching-sessions) to pick it up again, or [delete it](#deleting-sessions).
 
+## Finishing a session
+
+A runbook can end with a [\<Finish\>](/authoring/blocks/finish/) block. When you click **Finish**, and its final check passes if it has one, you have finished the runbook, and Runbooks marks the session finished. In [instruction mode](/intro/instruction-mode/), ticking **Mark as done** on the \<Finish\> block does the same. A session is marked finished once: finishing the runbook again in it, or a later failed final check, changes nothing.
+
+Runbooks doesn't resume a finished session on its own. The next time you open its runbook, in the running app or after a restart, the runbook opens in a new session. A notice at the top of the runbook names the finished session, with a **Switch session…** button to go back to it or to another session.
+
+A finished session keeps its directory, files and history, and **Switch Session…** lists it with a **Finished** label. Switching to it opens it as you left it, the \<Finish\> block finished too, and the notice that it was resumed says when you finished it. A [watch mode](/commands/watch/) reload keeps it open.
+
+Switching to a finished session doesn't make it the one the runbook opens in: it stays finished. If you started another session of the runbook after you last finished it, opening the runbook again resumes the most recent of those that isn't finished. Otherwise it starts a new session.
+
 ## Switching sessions
 
-Choose **File > Switch Session…**, or **Switch Session…** in the app's menu, to see the saved sessions. They are grouped by runbook, the open runbook first, and each shows when it was last used and how many scripts it ran. Type in the filter box to narrow the list by session name or runbook.
+Choose **File > Switch Session…**, or **Switch Session…** in the app's menu, to see the saved sessions. They are grouped by runbook, the open runbook first, and each shows when it was last used and how many scripts it ran. A session you [finished the runbook in](#finishing-a-session) has a **Finished** label. Type in the filter box to narrow the list by session name or runbook.
 
 Click a session to open its runbook in it. Its blocks, environment and working directory come back as [Resuming a session](#resuming-a-session) describes. A remote runbook is cloned again first. A session whose local runbook file has been deleted is listed but can't be opened.
 
 Only one script runs at a time. If one is running, Runbooks asks before switching, since the switch stops it.
 
-The session you switch to counts as launched again. Launching Runbooks from the dock resumes it next, and so does `runbooks` run in the directory it was last launched from.
+The session you switch to counts as launched again. Launching Runbooks from the dock resumes it next, and so does `runbooks` run in the directory it was last launched from, unless it is a finished session.
 
 ## The session's history
 
 Runbooks adds an entry to the session's history each time you act on a block:
 
 - You change a value in a form, submit the form, or generate its files. The entry has the form's values. Changes to one form that follow each other are one entry, so the history has the form as you left it and not every keystroke. The same goes for a \<DirPicker\> path and the fields of a \<GitPullRequest\> form.
-- A \<Command\> or \<Check\> script starts, and it ends. The entry for the end has the status, the exit code, the outputs, and the newest 500 lines of the log, up to 64 KiB of text, and the path of the full log. Outputs larger than 512 KiB in total are left out. The resumed block says so, and the blocks that read them wait until it runs again.
+- A \<Command\> or \<Check\> script, or the final check of a \<Finish\> block, starts, and it ends. The entry for the end has the status, the exit code, the outputs, and the newest 500 lines of the log, up to 64 KiB of text, and the path of the full log. Outputs larger than 512 KiB in total are left out. The resumed block says so, and the blocks that read them wait until it runs again.
+- You click **Finish** on a \<Finish\> block without a final check. The entry is a run that succeeded, with no log.
 - A \<Template\> or \<TemplateInline\> writes its files. The entry has a hash of what it wrote, not the files.
 - A \<GitClone\> block gets a repository, or you start it over.
 - A \<GitPullRequest\> block opens a pull or merge request, or you set it aside to open another.
@@ -150,7 +164,7 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
 
 Every \<Command\> and \<Check\> run writes its full log to `.runbooks/logs` in the session's directory, in a directory named after the block's `id`. **Copy log file path** on a block copies the path of its last run's log, in a resumed session too. Runbooks keeps the logs as long as the session.
 
-The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
+The database records each session's name, its runbook, its directory, its working directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, when you finished its runbook, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
 
 ```bash
 sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"

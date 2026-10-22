@@ -5,7 +5,9 @@
  * of its own under `dirsRoot`. That directory is where the session's scripts
  * start, where GitClone blocks clone to, and where generated files are
  * written. Opening a runbook resumes its most recently launched session, or
- * creates one when it has none.
+ * creates one when it has none, or when that session is finished: its runbook
+ * was finished in it (a <Finish> block). A session started since the runbook
+ * was last finished, and not finished itself, is resumed in its place.
  */
 import { randomUUIDv7 } from "node:crypto"
 import path from "node:path"
@@ -85,6 +87,13 @@ export interface OpenedSession {
   vcsBindings: VcsBindings
   /** When a resumed session was last used before this open; undefined for a new session. */
   resumedFrom: string | undefined
+  /** When the session was marked finished (finishSession); undefined while it isn't. */
+  finishedAt: string | undefined
+  /**
+   * The runbook's most recent session, when it was finished and this new
+   * session was started in its place. Undefined for every other open.
+   */
+  previousFinished: { name: string; finishedAt: string } | undefined
 }
 
 export class SessionPersistence {
@@ -175,7 +184,7 @@ export class SessionPersistence {
   open(request: OpenSessionRequest) {
     return Effect.gen({ self: this }, function* () {
       const { store, manager } = this.options
-      const saved = yield* this.findSaved(request)
+      const { saved, finished } = yield* this.findSaved(request)
       const now = new Date()
 
       let opened: OpenedSession
@@ -211,7 +220,18 @@ export class SessionPersistence {
           finishedAt: undefined,
         })
         yield* manager.createSession(dir, request.runbook.path)
-        opened = { id, name, dir, vcsBindings: {}, resumedFrom: undefined }
+        opened = {
+          id,
+          name,
+          dir,
+          vcsBindings: {},
+          resumedFrom: undefined,
+          finishedAt: undefined,
+          previousFinished:
+            finished?.finishedAt !== undefined
+              ? { name: finished.name, finishedAt: finished.finishedAt }
+              : undefined,
+        }
       } else {
         const dir = yield* this.ensureDir(saved.dir)
         yield* manager.resumeSession({
@@ -235,6 +255,8 @@ export class SessionPersistence {
             saved.lastActivityAt > saved.lastLaunchedAt
               ? saved.lastActivityAt
               : saved.lastLaunchedAt,
+          finishedAt: saved.finishedAt,
+          previousFinished: undefined,
         }
       }
 
@@ -260,17 +282,20 @@ export class SessionPersistence {
   }
 
   /**
-   * Mark the current session finished: opening its runbook again starts a new
-   * session, though the session itself can still be resumed by name. Marking
-   * it again keeps the first time.
+   * Mark session `sessionId` finished: its runbook was finished in it.
+   * Opening the runbook again starts a new session, though this one can still
+   * be switched to. A session already finished keeps its first time.
    *
-   * Fails with a SessionNotFoundError when no session is open.
+   * Does nothing when that session is not the current one: a block of a
+   * session that has since been replaced reported it.
    */
-  finishCurrent() {
+  finishSession(sessionId: string) {
     return Effect.gen({ self: this }, function* () {
       const current = this.current
-      if (current === undefined) return yield* new SessionNotFoundError()
-      yield* this.options.store.markFinished(current.id, new Date().toISOString())
+      if (current?.id !== sessionId || current.finishedAt !== undefined) return
+      const finishedAt = new Date().toISOString()
+      yield* this.options.store.markFinished(current.id, finishedAt)
+      this.current = { ...current, finishedAt }
     })
   }
 
@@ -396,15 +421,27 @@ export class SessionPersistence {
     })
   }
 
+  /**
+   * The saved session `request` resumes (`saved`), undefined when it gets a
+   * new one. `finished` is the runbook's most recent session when that is
+   * finished and the request gets a new one in its place.
+   */
   private findSaved(request: OpenSessionRequest) {
     return Effect.gen({ self: this }, function* () {
-      if (request.startNew) return undefined
+      const { store } = this.options
+      if (request.startNew) return { saved: undefined, finished: undefined }
       if (request.sessionId !== undefined) {
-        const session = yield* this.options.store.get(request.sessionId)
-        if (session !== undefined) return session
+        const session = yield* store.get(request.sessionId)
+        if (session !== undefined) return { saved: session, finished: undefined }
       }
-      const latest = yield* this.options.store.latestForRunbook(request.runbook)
-      return latest?.finishedAt === undefined ? latest : undefined
+      const latest = yield* store.latestForRunbook(request.runbook)
+      if (latest?.finishedAt === undefined) return { saved: latest, finished: undefined }
+      // A finished session is the latest when the user went back to it after
+      // starting another, which is still the one in progress.
+      const inProgress = yield* store.latestUnfinishedSinceFinish(request.runbook)
+      return inProgress !== undefined
+        ? { saved: inProgress, finished: undefined }
+        : { saved: undefined, finished: latest }
     })
   }
 

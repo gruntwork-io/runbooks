@@ -665,11 +665,17 @@ describe("SessionPersistence", () => {
     })
   })
 
-  describe("finishCurrent", () => {
+  describe("finishSession", () => {
+    /** Wait past the current millisecond, so the next step's timestamps are later. */
+    const later = () =>
+      new Promise((resolve) => {
+        setTimeout(resolve, 5)
+      })
+
     it("starts a new session the next time the runbook opens", async () => {
       const first = startApp()
       const finished = await first.open()
-      await run(first.persistence.finishCurrent())
+      await run(first.persistence.finishSession(finished.id))
       first.quit()
 
       const second = startApp()
@@ -684,18 +690,91 @@ describe("SessionPersistence", () => {
       expect((await second.open()).id).toBe(next.id)
     })
 
-    it("still resumes the finished session when a launch names it", async () => {
+    it("says which finished session a new one was started in place of", async () => {
       const app = startApp()
       const finished = await app.open()
-      await run(app.persistence.finishCurrent())
+      await run(app.persistence.finishSession(finished.id))
+      const finishedAt = app.persistence.currentSession()?.finishedAt
 
-      expect((await app.open({ sessionId: finished.id })).id).toBe(finished.id)
+      const next = await app.open()
+
+      expect(finishedAt).toBeDefined()
+      expect(next).toMatchObject({
+        resumedFrom: undefined,
+        finishedAt: undefined,
+        previousFinished: { name: finished.name, finishedAt },
+      })
+      // Only the open that skipped it says so.
+      expect((await app.open()).previousFinished).toBeUndefined()
+      expect((await app.open({ startNew: true })).previousFinished).toBeUndefined()
     })
 
-    it("fails while no session is open", async () => {
-      const result = await run(Effect.result(startApp().persistence.finishCurrent()))
+    it("records the time on the open session, and keeps the first one", async () => {
+      const app = startApp()
+      const session = await app.open()
+      expect(session.finishedAt).toBeUndefined()
 
-      expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "SessionNotFoundError" } })
+      await run(app.persistence.finishSession(session.id))
+      const first = app.persistence.currentSession()?.finishedAt
+      await run(app.persistence.finishSession(session.id))
+
+      expect(first).toBeDefined()
+      expect(app.persistence.currentSession()?.finishedAt).toBe(first)
+      expect(Effect.runSync(app.store.get(session.id))?.finishedAt).toBe(first)
+    })
+
+    it("resumes the session started since, after the user went back to the finished one", async () => {
+      const app = startApp()
+      const finished = await app.open()
+      await run(app.persistence.finishSession(finished.id))
+      const inProgress = await app.open()
+      expect(inProgress.id).not.toBe(finished.id)
+      // Switching back to the finished session makes it the latest launched.
+      await later()
+      await app.open({ sessionId: finished.id })
+      expect(Effect.runSync(app.store.latestForRunbook(LOCAL))?.id).toBe(finished.id)
+
+      const reopened = await app.open()
+
+      expect(reopened).toMatchObject({ id: inProgress.id, previousFinished: undefined })
+      expect(reopened.resumedFrom).toBeDefined()
+    })
+
+    it("starts a new session rather than resume one left before the runbook was finished", async () => {
+      const app = startApp()
+      const abandoned = await app.open()
+      const finished = await app.open({ startNew: true })
+      await later()
+      await run(app.persistence.finishSession(finished.id))
+
+      const next = await app.open()
+
+      expect([abandoned.id, finished.id]).not.toContain(next.id)
+      expect(next.previousFinished?.name).toBe(finished.name)
+    })
+
+    it("still resumes the finished session when a launch names it, as finished", async () => {
+      const app = startApp()
+      const finished = await app.open()
+      await run(app.persistence.finishSession(finished.id))
+      const finishedAt = app.persistence.currentSession()?.finishedAt
+
+      const resumed = await app.open({ sessionId: finished.id })
+
+      expect(resumed).toMatchObject({ id: finished.id, finishedAt, previousFinished: undefined })
+    })
+
+    it("ignores a session that is not the open one", async () => {
+      const app = startApp()
+      const replaced = await app.open()
+      const current = await app.open({ startNew: true })
+
+      await run(app.persistence.finishSession(replaced.id))
+      await run(startApp().persistence.finishSession(current.id))
+
+      expect(Effect.runSync(app.store.get(replaced.id))?.finishedAt).toBeUndefined()
+      expect(Effect.runSync(app.store.get(current.id))?.finishedAt).toBeUndefined()
+      expect(app.persistence.currentSession()?.finishedAt).toBeUndefined()
     })
   })
 

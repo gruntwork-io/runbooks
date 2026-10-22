@@ -24,11 +24,11 @@ A `runbook.mdx` file is compiled and rendered inside the Runbooks app, so Runboo
 
 You can still use `{...}` for literal values: strings, numbers (including a leading `-` or `+`), booleans, `null`, regex literals, template strings without `${...}` substitutions, and arrays or objects made only of those. For example, `detectCredentials={['env']}` and `detectCredentials={[{ env: { prefix: 'PROD_' } }, 'env']}` are allowed, and so are `{/* comments */}`.
 
-So opening a runbook, from your machine or from a remote URL, runs no code of its own. The scripts in `<Command>` and `<Check>` blocks run when you click Run.
+So opening a runbook, from your machine or from a remote URL, runs no code of its own. The scripts in `<Command>` and `<Check>` blocks run when you click Run, and a `<Finish>` block's final check when you click Finish.
 
 ## Executable registry
 
-When a runbook opens, the main process reads `runbook.mdx`, finds every `<Check>` and `<Command>`, and stores each script (the `command` prop, or the file named by `path`) in an in-memory registry under a unique executable ID, along with the block ID and its template variables.
+When a runbook opens, the main process reads `runbook.mdx`, finds every `<Check>` and `<Command>`, and every `<Finish>` with a final check, and stores each script (the `command` prop, or the file named by `path`) in an in-memory registry under a unique executable ID, along with the block ID and its template variables.
 
 When you click Run, the renderer sends an execution request with the executable ID, the template variable values, environment variable overrides from the auth blocks the block references, and a timeout. It never sends script content. The main process looks the ID up in the registry, renders the stored script with the given variables, and runs it. A request for an ID that is not in the registry is refused, so a manipulated IPC message cannot pick a script the runbook did not contain. The registry holds the scripts the runbook had when it was loaded, and any script file you [reloaded yourself](#reloading-a-changed-script-file) after reviewing a change. Template values are inserted into the script verbatim and environment overrides are applied as sent, so a manipulated request can change what the stored script does, though not which script runs.
 

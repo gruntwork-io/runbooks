@@ -624,6 +624,21 @@ tests:
         expect: skip
 ```
 
+## Testing Finish blocks
+
+A `<Finish>` with a final check (`command` or `path`) runs it like a `<Check>`: exit code 0 is `success`, 2 is `warn`, and anything else is `fail`. A `<Finish>` without a final check has nothing to run, so its step succeeds straight away. Either way, the test can't see the celebration.
+
+```yaml
+# runbook_test.yml
+tests:
+  - name: final-check-fails-without-setup
+    steps:
+      - block: setup
+        expect: skip
+      - block: finish
+        expect: fail
+```
+
 ## Testing Iframe blocks
 
 Tests can't run the page an [`<Iframe>`](/authoring/blocks/iframe/) block shows, so a step for the block stands in for the page: its `set_outputs` become the block's outputs, as if the page had set them. Only an `<Iframe>` with an `id` can be a step.

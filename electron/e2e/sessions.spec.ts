@@ -4,7 +4,8 @@
  * Launches the real app on a throwaway runbook and profile, quits it, and
  * launches it again: a session's directory, environment and working directory
  * come back, `runbooks` with no arguments resumes the session last launched
- * from that directory, and File > Reset Session starts over.
+ * from that directory, File > Reset Session starts over, and so does the next
+ * launch after the runbook was finished in its session.
  *
  * Prerequisites: run `electron-vite build` first (expects ./dist/main/index.js).
  *
@@ -178,6 +179,20 @@ test.describe("Saved sessions", () => {
     const name = page.getByTestId("session-name")
     await expect(name).toHaveText(/^[a-z]+-[a-z]+$/)
     return name.innerText()
+  }
+
+  /** Open the Sessions dialog from the header's menu. */
+  async function openSessions(page: Page) {
+    await page.getByRole("button", { name: "Menu" }).click()
+    await page.getByRole("menuitem", { name: "Switch Session…" }).click()
+    const dialog = page.getByRole("dialog", { name: "Sessions" })
+    await expect(dialog).toBeVisible()
+    return dialog
+  }
+
+  /** A session's row in the Sessions dialog, which switches to it. */
+  function sessionButton(dialog: ReturnType<Page["getByRole"]>, name: string) {
+    return dialog.getByRole("button", { name: new RegExp(`^${name}`) })
   }
 
   test("runs scripts in a directory of the session's own, and resumes it on the next launch", async () => {
@@ -541,19 +556,8 @@ test.describe("Saved sessions", () => {
       const secondName = await sessionName(page)
       const secondDir = await showSession(page, "unset")
 
-      /** Open the Sessions dialog from the header's menu. */
-      const openSessions = async () => {
-        await page.getByRole("button", { name: "Menu" }).click()
-        await page.getByRole("menuitem", { name: "Switch Session…" }).click()
-        const dialog = page.getByRole("dialog", { name: "Sessions" })
-        await expect(dialog).toBeVisible()
-        return dialog
-      }
-      const sessionButton = (dialog: ReturnType<Page["getByRole"]>, name: string) =>
-        dialog.getByRole("button", { name: new RegExp(`^${name}`) })
-
       // Back to the first session: its env and its directory come back.
-      let dialog = await openSessions()
+      let dialog = await openSessions(page)
       await expect(sessionButton(dialog, secondName)).toBeDisabled()
       await sessionButton(dialog, firstName).click()
       await expect(page.getByTestId("session-name")).toHaveText(firstName)
@@ -563,7 +567,7 @@ test.describe("Saved sessions", () => {
       const wait = page.locator('[data-testid="wait"]')
       await wait.getByRole("button", { name: "Run" }).click()
       await expect(wait.getByText("waiting", { exact: true })).toBeVisible({ timeout: 30_000 })
-      dialog = await openSessions()
+      dialog = await openSessions(page)
       await sessionButton(dialog, secondName).click()
       const confirm = page.getByRole("alertdialog")
       await expect(confirm).toContainText("Stop the running script?")
@@ -572,7 +576,7 @@ test.describe("Saved sessions", () => {
       expect(await showSession(page, "unset")).toBe(secondDir)
 
       // Delete the first session: it leaves the list, and its directory goes to the trash.
-      dialog = await openSessions()
+      dialog = await openSessions(page)
       await dialog.getByRole("button", { name: `Delete ${firstName}` }).click()
       await dialog.getByRole("button", { name: "Delete", exact: true }).click()
       await expect(sessionButton(dialog, firstName)).toHaveCount(0)
@@ -581,6 +585,76 @@ test.describe("Saved sessions", () => {
       expect(fs.existsSync(secondDir)).toBe(true)
     } finally {
       await app.close()
+    }
+  })
+
+  test("finishing the runbook ends its session: the next launch starts a new one, which can switch back", async () => {
+    fs.appendFileSync(
+      path.join(runbookDir, "runbook.mdx"),
+      `\n<Finish id="finish">\n\nNext: tell your team.\n\n</Finish>\n`,
+    )
+    const finishBlock = (page: Page) => page.locator('[data-testid="finish"]')
+
+    const first = await launch(terminalDir("project"), [runbookDir])
+    let finishedName: string
+    let finishedDir: string
+    try {
+      await expectRunbook(first.page)
+      finishedName = await sessionName(first.page)
+      finishedDir = await showSession(first.page, "unset")
+
+      const finish = finishBlock(first.page)
+      await expect(finish.getByText("Next: tell your team.")).toHaveCount(0)
+      await finish.getByRole("button", { name: "Finish" }).click()
+      await expect(finish.locator('[data-testid="icon-success"]')).toBeVisible()
+      await expect(finish.getByText("Next: tell your team.")).toBeVisible()
+
+      // The Sessions dialog has the session as finished.
+      const dialog = await openSessions(first.page)
+      await expect(sessionButton(dialog, finishedName)).toContainText("Finished")
+    } finally {
+      await first.app.close()
+    }
+
+    const second = await launch(terminalDir("project"), [runbookDir])
+    let newName: string
+    try {
+      await expectRunbook(second.page)
+      newName = await sessionName(second.page)
+      expect(newName).not.toBe(finishedName)
+      await expect(second.page.getByText(`New session ${newName}`)).toBeVisible()
+      await expect(
+        second.page.getByText(`You finished this runbook in session ${finishedName} (`),
+      ).toBeVisible()
+      // The blocks start over, in the new session's own directory.
+      await expect(finishBlock(second.page).locator('[data-testid="icon-success"]')).toHaveCount(0)
+      expect(await showSession(second.page, "unset")).not.toBe(finishedDir)
+
+      // Back to the finished session from the notice: its blocks are as they were left.
+      await second.page.getByRole("button", { name: "Switch session…", exact: true }).click()
+      const dialog = second.page.getByRole("dialog", { name: "Sessions" })
+      await expect(sessionButton(dialog, finishedName)).toContainText("Finished")
+      await sessionButton(dialog, finishedName).click()
+      await expect(second.page.getByTestId("session-name")).toHaveText(finishedName)
+      await expect(second.page.getByText(`Resumed session ${finishedName}`)).toBeVisible()
+      await expect(second.page.getByText(/You finished this runbook in it/)).toBeVisible()
+      const finish = finishBlock(second.page)
+      await expect(finish.locator('[data-testid="icon-success"]')).toBeVisible()
+      await expect(finish.getByText("Next: tell your team.")).toBeVisible()
+      await expect(finish.getByRole("button", { name: "Finish" })).toBeDisabled()
+    } finally {
+      await second.app.close()
+    }
+
+    // Going back to look at the finished session doesn't make it what the
+    // next launch replaces: that launch continues the session started since.
+    const third = await launch(terminalDir("project"), [runbookDir])
+    try {
+      await expectRunbook(third.page)
+      expect(await sessionName(third.page)).toBe(newName)
+      await expect(third.page.getByText(`Resumed session ${newName}`)).toBeVisible()
+    } finally {
+      await third.app.close()
     }
   })
 })

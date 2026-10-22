@@ -50,7 +50,7 @@ const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
 // Auth block dependency types
 // ---------------------------------------------------------------------------
 
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "GitClone", ...PR_BLOCK_TYPES] as const
+const AUTH_DEPENDENT_TYPES = ["Check", "Command", "Finish", "GitClone", ...PR_BLOCK_TYPES] as const
 
 const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
   GitHubAuth: "githubAuthId",
@@ -94,6 +94,7 @@ export class InputValidator {
     components.push(...this.parseInputsBlocks(content, runbookDir))
     components.push(...this.parseRunBlocks(content, "Check"))
     components.push(...this.parseRunBlocks(content, "Command"))
+    components.push(...this.parseRunBlocks(content, "Finish"))
     components.push(...this.parseTemplateBlocks(content, runbookDir))
     components.push(...this.parseTemplateInlineBlocks(content))
     for (const authType of AUTH_BLOCK_TYPES) {
@@ -355,11 +356,11 @@ export function parseAuthDependencies(runbookPath: string): Map<string, AuthDepe
 // Run dependency parsing
 // ---------------------------------------------------------------------------
 
-const RUN_DEPENDENT_TYPES = ["Check", "Command"] as const
+const RUN_DEPENDENT_TYPES = ["Check", "Command", "Finish"] as const
 
 /**
- * The ids each Check and Command block names in its `dependsOn` prop, by block
- * id. A block without the prop has no entry.
+ * The ids each Check, Command and Finish block names in its `dependsOn` prop,
+ * by block id. A block without the prop has no entry.
  */
 export function parseRunDependencies(runbookPath: string): Map<string, string[]> {
   const content = fs.readFileSync(runbookPath, "utf-8")
@@ -526,6 +527,7 @@ function validateComponent(comp: ParsedComponent): ConfigError[] {
 
     case "Check":
     case "Command":
+    case "Finish":
       if (!comp.hasExplicitId) {
         errors.push({
           componentType: comp.type,

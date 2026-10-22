@@ -43,10 +43,15 @@ export function registerSessionHandlers(): void {
     return { name: await runtime.runPromise(persistence.renameCurrent(requested)) }
   })
 
-  ipcMain.handle("session:finish", async () => {
+  // A <Finish> block finished the runbook. A block of a session that has
+  // since been replaced is ignored (see SessionPersistence.finishSession).
+  ipcMain.handle("session:finish", async (_event, params?: { sessionId?: unknown }) => {
     const persistence = sessionPersistence
     if (!persistence) throw new Error("session persistence is not initialized")
-    await runtime.runPromise(persistence.finishCurrent())
+    if (typeof params?.sessionId !== "string") {
+      throw new Error("finishing a session needs the id of the session")
+    }
+    await runtime.runPromise(persistence.finishSession(params.sessionId))
     return { ok: true as const }
   })
 

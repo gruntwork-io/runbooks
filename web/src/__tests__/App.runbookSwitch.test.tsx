@@ -59,8 +59,15 @@ interface ApiOptions {
   /**
    * Runbook file paths whose first session is a saved one: its first load
    * resumes it, last used at `from`, with a history unless `history` is false.
+   * `finishedAt` is when the runbook was finished in it, if it was.
    */
-  resumed?: Record<string, { from: string; history?: boolean }>
+  resumed?: Record<string, { from: string; history?: boolean; finishedAt?: string }>
+  /**
+   * Runbook file paths whose first session is a new one that replaces the
+   * finished session given here, as main starts for a runbook finished in its
+   * last session.
+   */
+  replacesFinished?: Record<string, { name: string; finishedAt: string }>
 }
 
 /**
@@ -74,11 +81,13 @@ function makeApi({
   deleteFails = false,
   watchMode = false,
   resumed = {},
+  replacesFinished = {},
 }: ApiOptions = {}) {
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   let current: RunbookFixture | null = null
-  // Like main, only the load that resumes a session says it was resumed.
-  const resumedOnce = new Set<string>()
+  // Like main, only the load that resumes a session says it was resumed, and
+  // only the load that replaces a finished one names it.
+  const loadedOnce = new Set<string>()
   // How many times each runbook was given a new session (see newSession).
   const sessionCounts = new Map<string, number>()
 
@@ -100,8 +109,11 @@ function makeApi({
           current = fixture
           const sessionCount = sessionCounts.get(fixture.path) ?? 0
           const resume = sessionCount === 0 ? resumed[fixture.path] : undefined
-          const resumes = resume !== undefined && !resumedOnce.has(fixture.path)
-          resumedOnce.add(fixture.path)
+          const firstLoad = !loadedOnce.has(fixture.path)
+          loadedOnce.add(fixture.path)
+          const resumes = resume !== undefined && firstLoad
+          const replaced =
+            sessionCount === 0 && firstLoad ? replacesFinished[fixture.path] : undefined
           return {
             path: fixture.path,
             content: fixture.content,
@@ -115,6 +127,8 @@ function makeApi({
             sessionName: SESSION_NAMES[sessionCount],
             sessionDir: `/sessions/dirs/session-${sessionCount}`,
             ...(resumes ? { sessionResumedFrom: resume.from } : {}),
+            ...(resume?.finishedAt !== undefined ? { sessionFinishedAt: resume.finishedAt } : {}),
+            ...(replaced ? { finishedSession: replaced } : {}),
             blockStates:
               resume !== undefined && resume.history !== false
                 ? [{ blockId: "region", kind: "inputs", payload: { values: {}, submitted: false } }]
@@ -637,6 +651,74 @@ describe("App resumed sessions", () => {
 
     expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
   })
+
+  it("says when the runbook was finished in the resumed session", async () => {
+    const { emit } = renderApp({
+      resumed: { "/work/a/runbook.mdx": { from: TWO_DAYS_AGO, finishedAt: TWO_DAYS_AGO } },
+    })
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    expect(await screen.findByText("Resumed session elegant-elephant")).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /You finished this runbook in it \(2 days ago\), so opening the runbook again won't resume it\.$/,
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
+describe("App sessions replacing a finished one", () => {
+  const YESTERDAY = new Date(Date.now() - 25 * 60 * 60_000).toISOString()
+  const REPLACES_FINISHED = {
+    "/work/a/runbook.mdx": { name: "quiet-heron", finishedAt: YESTERDAY },
+  }
+
+  beforeEach(() => localStorage.clear())
+  afterEach(() => {
+    window.api = originalApi
+  })
+
+  it("says the runbook opened in a new session because it was finished in the last one, until dismissed", async () => {
+    const { emit } = renderApp({ replacesFinished: REPLACES_FINISHED })
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    const notice = await screen.findByText("New session elegant-elephant")
+    expect(
+      screen.getByText(
+        /^You finished this runbook in session quiet-heron \(yesterday\), so it opened in a new one\./,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Resumed session/)).not.toBeInTheDocument()
+
+    // Opening the runbook again keeps the new session, and the notice with it.
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(notice).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }))
+    expect(screen.queryByText(/New session/)).not.toBeInTheDocument()
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(screen.queryByText(/New session/)).not.toBeInTheDocument()
+  })
+
+  it("opens the saved sessions from the notice", async () => {
+    const { emit, invoke } = renderApp({ replacesFinished: REPLACES_FINISHED })
+    await openRunbook(emit, "/work/a", "Runbook A")
+
+    fireEvent.click(await screen.findByRole("button", { name: "Switch session…" }))
+
+    expect(await screen.findByRole("dialog", { name: "Sessions" })).toBeInTheDocument()
+    await waitFor(() => expect(callsTo(invoke, "session:list")).toHaveLength(1))
+  })
+
+  it("goes away when another runbook opens", async () => {
+    const { emit } = renderApp({ replacesFinished: REPLACES_FINISHED })
+    await openRunbook(emit, "/work/a", "Runbook A")
+    expect(await screen.findByText("New session elegant-elephant")).toBeInTheDocument()
+
+    await openRunbook(emit, "/work/b", "Runbook B")
+
+    expect(screen.queryByText(/New session/)).not.toBeInTheDocument()
+  })
 })
 
 describe("App runbook context", () => {
@@ -749,14 +831,22 @@ describe("App watch mode", () => {
     await fileChanged(emit, "/work/a/runbook.mdx")
 
     await waitFor(() => expect(callsTo(invoke, "runbook:get").length).toBe(callsBefore + 1))
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({ path: "/work/a" })
+    // A reload, which keeps a finished session where an open replaces it.
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({
+      path: "/work/a",
+      reload: true,
+    })
 
     // After a later open of the same runbook, saves reload it as before.
     await emit("file:open-runbook", { path: "/work/a" })
     await waitFor(() => expect(callsTo(invoke, "runbook:get").length).toBe(callsBefore + 2))
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).not.toHaveProperty("reload")
     await fileChanged(emit, "/work/a/runbook.mdx")
     await waitFor(() => expect(callsTo(invoke, "runbook:get").length).toBe(callsBefore + 3))
-    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({ path: "/work/a" })
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({
+      path: "/work/a",
+      reload: true,
+    })
   })
 
   it("reloads the displayed runbook, not a failed open, and keeps a dismissed error dismissed", async () => {
@@ -770,6 +860,7 @@ describe("App watch mode", () => {
     await fileChanged(emit, "/work/a/runbook.mdx")
 
     await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a/runbook.mdx")).toBe(1))
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({ reload: true })
     // Every save used to re-send the failed open and raise its banner again.
     expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(1)
     expect(
@@ -781,5 +872,11 @@ describe("App watch mode", () => {
     await fileChanged(emit, "/work/a/runbook.mdx")
     await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a/runbook.mdx")).toBe(2))
     expect(runbookGetCallsFor(invoke, "/work/empty")).toBe(1)
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).toMatchObject({ reload: true })
+
+    // An open after them is an open again (the first was the test's own).
+    await emit("file:open-runbook", { path: "/work/a" })
+    await waitFor(() => expect(runbookGetCallsFor(invoke, "/work/a")).toBe(2))
+    expect(callsTo(invoke, "runbook:get").at(-1)?.[1]).not.toHaveProperty("reload")
   })
 })

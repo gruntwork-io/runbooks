@@ -6,17 +6,21 @@ interface SessionResumedNoticeProps {
   sessionName: string
   /** When the session was last used before it was resumed, as an ISO timestamp */
   resumedFrom: string
+  /** When the runbook was finished in the session, if it was, as an ISO timestamp */
+  finishedAt?: string | undefined
   onStartNew: () => void
   onDismiss: () => void
 }
 
 /**
  * Tells the user that opening the runbook resumed one of its saved sessions,
- * and offers to start a new one instead.
+ * and offers to start a new one instead. A finished session is only resumed
+ * when the user picks it.
  */
 export function SessionResumedNotice({
   sessionName,
   resumedFrom,
+  finishedAt,
   onStartNew,
   onDismiss,
 }: SessionResumedNoticeProps) {
@@ -31,6 +35,8 @@ export function SessionResumedNotice({
         <p className="m-0 mt-0.5 text-muted-foreground">
           Last used {formatTimeAgo(resumedFrom)}. Its blocks, files and environment are as you left
           them.
+          {finishedAt !== undefined &&
+            ` You finished this runbook in it (${formatTimeAgo(finishedAt)}), so opening the runbook again won't resume it.`}
         </p>
       </div>
       <Button variant="outline" size="sm" className="shrink-0" onClick={onStartNew}>

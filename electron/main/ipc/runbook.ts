@@ -144,7 +144,10 @@ function registerSessionSecrets(): Effect.Effect<void, SessionNotFoundError> {
 export function registerRunbookHandlers(): void {
   ipcMain.handle(
     "runbook:get",
-    async (_event, params?: { path?: string; watchMode?: boolean; remoteSource?: string }) => {
+    async (
+      _event,
+      params?: { path?: string; watchMode?: boolean; remoteSource?: string; reload?: boolean },
+    ) => {
       const generation = ++loadGeneration
       const superseded = () => generation !== loadGeneration
 
@@ -201,6 +204,12 @@ export function registerRunbookHandlers(): void {
         const startNew = newSessionFor === runbookPath
         const resumesOtherSession =
           launch?.sessionId !== undefined && launch.sessionId !== persistence.currentSession()?.id
+        // A runbook finished in its session opens in a new one. A watch-mode
+        // reload is not an open: it keeps the session it shows.
+        const reopensFinished =
+          sameRunbook &&
+          params.reload !== true &&
+          persistence.currentSession()?.finishedAt !== undefined
 
         // A different runbook than the one the live session belongs to
         // (including "no session yet") replaces the session, with the one
@@ -211,12 +220,12 @@ export function registerRunbookHandlers(): void {
         // unrelated runbook in the same running app, so REPO_FILES / worktree
         // templates resolve to another runbook's checkout. So does File >
         // Reset Session, and a launch that resumes another of this runbook's
-        // sessions.
+        // sessions, and opening a runbook again after it was finished.
         // Reloading the SAME runbook (watch mode, re-opening the same file)
         // must NOT do this — it would wipe env vars a script exported mid-run.
         // It keeps the session as it is, working dir included, as the blocks
         // resume from the session's history.
-        const switched = !sameRunbook || startNew || resumesOtherSession
+        const switched = !sameRunbook || startNew || resumesOtherSession || reopensFinished
         if (switched) {
           // The previous runbook's executables must not stay runnable (or be
           // kept as this runbook's frozen registry below) if building this
@@ -348,6 +357,10 @@ export function registerRunbookHandlers(): void {
         sessionDir: session.dir,
         ...(turn.switched && session.resumedFrom !== undefined
           ? { sessionResumedFrom: session.resumedFrom }
+          : {}),
+        ...(session.finishedAt !== undefined ? { sessionFinishedAt: session.finishedAt } : {}),
+        ...(turn.switched && session.previousFinished !== undefined
+          ? { finishedSession: session.previousFinished }
           : {}),
         blockStates,
       }

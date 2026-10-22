@@ -43,6 +43,7 @@ banner at the top of every runbook says that nothing runs automatically.
 | Block | Interactive | Instruction mode |
 |---|---|---|
 | Command, Check | Run button. The app executes the script. | "Run this command:" or "Run this check:" with the resolved command in a copy block. A nested `<Inputs>` stays a form above the command. File-backed scripts keep the source viewer. |
+| Finish | Finish button. Runs the optional final check, then celebrates and shows the next steps. | "Run this final check:" with the final check in a copy block, if the block has one, and the next steps, always shown. Ticking **Mark as done** celebrates and [marks the session finished](/commands/sessions/#finishing-a-session). |
 | AwsAuth | SSO, profile, or key UI. Captures credentials. | "Log into AWS in the `<account>` account", with the configured SSO details. No capture. |
 | GoogleAuth | Service account key, Google sign-in, or gcloud config UI. Captures credentials. | "Log into Google Cloud in the `<project>` project", noting the region, gcloud configuration, scopes, and the `gcloud auth application-default login` command. No capture. |
 | GitAuth, GitHubAuth, GitLabAuth | OAuth or token entry. Holds a token. | "Log into GitHub" or "Log into GitLab", noting the scopes the block needs. For GitLab it also names `glab auth login`. No capture. |

@@ -10,6 +10,8 @@ import { FindBar, type FindBarHandle } from "./components/layout/FindBar"
 import { ErrorSummaryBanner } from "./components/layout/ErrorSummaryBanner"
 import { RunbookOpenError } from "./components/layout/RunbookOpenError"
 import { SessionResumedNotice } from "./components/layout/SessionResumedNotice"
+import { FinishedSessionNotice } from "./components/layout/FinishedSessionNotice"
+import { SessionsDialog } from "./components/layout/SessionsDialog"
 import MDXContainer from "./components/MDXContainer"
 import { ArtifactsContainer } from "./components/layout/ArtifactsContainer"
 import { ViewContainerToggle } from "./components/layout/ViewContainerToggle"
@@ -64,6 +66,7 @@ function App() {
   const [alertDismissedThisSession, setAlertDismissedThisSession] = useState(false)
   const [isUrlModalOpen, setIsUrlModalOpen] = useState(false)
   const [isPaletteOpen, setIsPaletteOpen] = useState(false)
+  const [isSessionsOpen, setIsSessionsOpen] = useState(false)
   // The failed-open error the user dismissed from the inline banner. A new
   // failure is a new error object, so it shows the banner again.
   const [dismissedOpenError, setDismissedOpenError] = useState<AppError | null>(null)
@@ -89,6 +92,10 @@ function App() {
     })
     return cleanup
   }, [api])
+
+  // The native "Switch Session…" menu item. The header menu's item and the
+  // notice that a finished runbook opened in a new session open it too.
+  useEffect(() => api.on("menu:switch-session", () => setIsSessionsOpen(true)), [api])
 
   // View > Command Palette… (Cmd/Ctrl+K). The native accelerator is the only
   // binding, as with Find…, so the shortcut toggles the palette the same way
@@ -295,24 +302,42 @@ function App() {
     document.title = sessionName ? `${sessionName} - ${APP_TITLE}` : APP_TITLE
   }, [sessionName])
 
-  // Says that opening the runbook resumed a saved session with history. Only
-  // the load that resumed it says when it was last used, so the notice is kept
-  // through later reloads in that session, until dismissed.
+  // Says that opening the runbook resumed a saved session with history, or
+  // started a new session in place of the one the runbook was finished in.
+  // Only the load that resumed or replaced a session says so, so each notice
+  // is kept through later reloads in that session, until dismissed.
   const [resumeNotice, setResumeNotice] = useState<{
     sessionKey: string
     resumedFrom: string
+    finishedAt: string | undefined
+  } | null>(null)
+  const [finishedNotice, setFinishedNotice] = useState<{
+    sessionKey: string
+    finishedSession: { name: string; finishedAt: string }
   } | null>(null)
   const [prevRunbookData, setPrevRunbookData] = useState(getRunbookResult.data)
   if (getRunbookResult.data !== prevRunbookData) {
     setPrevRunbookData(getRunbookResult.data)
     const resumedFrom = getRunbookResult.data?.sessionResumedFrom
     if (loadedSessionKey && resumedFrom && resumesBlocks) {
-      setResumeNotice({ sessionKey: loadedSessionKey, resumedFrom })
+      setResumeNotice({
+        sessionKey: loadedSessionKey,
+        resumedFrom,
+        finishedAt: getRunbookResult.data?.sessionFinishedAt,
+      })
+    }
+    const finishedSession = getRunbookResult.data?.finishedSession
+    if (loadedSessionKey && finishedSession) {
+      setFinishedNotice({ sessionKey: loadedSessionKey, finishedSession })
     }
   }
   const shownResumeNotice =
     resumeNotice !== null && resumeNotice.sessionKey === loadedSessionKey && sessionName
       ? { ...resumeNotice, sessionName }
+      : null
+  const shownFinishedNotice =
+    finishedNotice !== null && finishedNotice.sessionKey === loadedSessionKey && sessionName
+      ? { ...finishedNotice, sessionName }
       : null
   const handleStartNewSession = () => {
     setResumeNotice(null)
@@ -374,6 +399,7 @@ function App() {
           sessionDir={getRunbookResult.data?.sessionDir}
           onSessionRenamed={(name) => setRenamed({ sessionId: loadedSessionId, name })}
           onOpenCommandPalette={() => setIsPaletteOpen(true)}
+          onOpenSessions={() => setIsSessionsOpen(true)}
           onCloseRunbook={handleCloseRunbook}
         />
 
@@ -479,13 +505,23 @@ function App() {
                       remoteSource={getRunbookResult.data?.remoteSource}
                       assetHost={getRunbookResult.data?.assetHost}
                       banner={
-                        shownResumeNotice && (
+                        shownResumeNotice ? (
                           <SessionResumedNotice
                             sessionName={shownResumeNotice.sessionName}
                             resumedFrom={shownResumeNotice.resumedFrom}
+                            finishedAt={shownResumeNotice.finishedAt}
                             onStartNew={handleStartNewSession}
                             onDismiss={() => setResumeNotice(null)}
                           />
+                        ) : (
+                          shownFinishedNotice && (
+                            <FinishedSessionNotice
+                              sessionName={shownFinishedNotice.sessionName}
+                              finishedSession={shownFinishedNotice.finishedSession}
+                              onSwitchSession={() => setIsSessionsOpen(true)}
+                              onDismiss={() => setFinishedNotice(null)}
+                            />
+                          )
                         )
                       }
                       className="p-6 lg:p-8 w-full h-full max-h-[calc(100vh-9.5rem)] lg:max-h-full"
@@ -564,6 +600,9 @@ function App() {
 
       {/* Edit > Find… (Cmd/Ctrl+F), also opened by the palette's Find in page */}
       <FindBar ref={findBarRef} />
+
+      {/* File > Switch Session… */}
+      <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
 
       {/* View > Command Palette… (Cmd/Ctrl+K) */}
       <CommandPalette

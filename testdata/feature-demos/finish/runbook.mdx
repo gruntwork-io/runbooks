@@ -1,0 +1,33 @@
+# Finish Demo
+
+This runbook demonstrates the `<Finish>` block, which marks the end of a runbook.
+
+When you click **Finish**, it runs an optional final check. If the check passes, the runbook is finished: the block celebrates with confetti and shows the next steps. If it fails, fix the problem and click **Finish** again.
+
+## 1. Set Up
+
+This block exports `DEMO_READY=true`. The environment carries forward to later blocks, so the final check below can see it.
+
+<Command
+    id="setup"
+    command="export DEMO_READY=true && echo 'Setup complete.'"
+    title="Get ready to finish"
+    successMessage="Ready!"
+/>
+
+## 2. Finish
+
+The final check passes only once the setup block has run. Try clicking **Finish** before running it to see a failed check.
+
+<Finish
+    id="finish"
+    command='test "$DEMO_READY" = true'
+    description="Checks that the setup block has run."
+>
+
+### Next steps
+
+- Read the [`<Finish>` docs](https://runbooks.gruntwork.io/authoring/blocks/finish/) to add one to your own runbook.
+- Leave out `command` and `path` for a Finish with no final check: clicking it finishes the runbook straight away.
+
+</Finish>

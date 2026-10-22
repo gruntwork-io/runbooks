@@ -13,6 +13,7 @@ Blocks are the interactive components of a `runbook.mdx` file. Write them as JSX
 - [Check](/authoring/blocks/check)
 - [Command](/authoring/blocks/command)
 - [DirPicker](/authoring/blocks/dirpicker)
+- [Finish](/authoring/blocks/finish)
 - [GitAuth](/authoring/blocks/gitauth)
 - [GitClone](/authoring/blocks/gitclone)
 - [GitHubAuth](/authoring/blocks/githubauth)

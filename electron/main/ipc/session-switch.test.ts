@@ -43,14 +43,21 @@ const remoteModule = await import("../remote.ts")
 const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
 const { sessionManager, setExecutableRegistry, setRunbookConfig } = runtimeModule
 
-type Loaded = { path: string; sessionId: string; sessionName: string }
+type Loaded = {
+  path: string
+  sessionId: string
+  sessionName: string
+  sessionFinishedAt?: string
+  finishedSession?: { name: string; finishedAt: string }
+}
 type Listed = { id: string; isCurrent: boolean; runbookMissing: boolean; finishedAt?: string }
 
 const invoke = (channel: string, params?: unknown) => handlers.get(channel)!(undefined, params)
-const getRunbook = (runbookPath: string, remoteSource?: string) =>
+const getRunbook = (runbookPath: string, remoteSource?: string, extra?: { reload: true }) =>
   invoke("runbook:get", {
     path: runbookPath,
     ...(remoteSource ? { remoteSource } : {}),
+    ...extra,
   }) as Promise<Loaded>
 const switchTo = (id: string, stopRunningScript?: boolean) =>
   invoke("session:switch", { id, ...(stopRunningScript ? { stopRunningScript } : {}) })
@@ -271,19 +278,69 @@ describe("switching and deleting saved sessions", () => {
     it("marks the open session finished: the runbook's next open starts a new one", async () => {
       const a = await getRunbook(dirA)
 
-      expect(await invoke("session:finish")).toEqual({ ok: true })
+      expect(await invoke("session:finish", { sessionId: a.sessionId })).toEqual({ ok: true })
 
-      expect((await list()).find((s) => s.id === a.sessionId)).toMatchObject({
-        finishedAt: expect.any(String),
-      })
+      const finishedAt = (await list()).find((s) => s.id === a.sessionId)?.finishedAt
+      expect(finishedAt).toEqual(expect.any(String))
       // A restart, then the runbook is opened again.
       markRunbookClosed()
       sessionManager.deleteSession()
       const next = await getRunbook(dirA)
       expect(next.sessionId).not.toBe(a.sessionId)
-      // Switching to the finished session still opens it.
+      expect(next.finishedSession).toEqual({ name: a.sessionName, finishedAt: finishedAt! })
+      expect(next.sessionFinishedAt).toBeUndefined()
+      // Switching to the finished session still opens it, finished.
       expect(await switchTo(a.sessionId)).toEqual({ status: "switched" })
-      expect((await getRunbook(a.path)).sessionId).toBe(a.sessionId)
+      const resumed = await getRunbook(a.path)
+      expect(resumed.sessionId).toBe(a.sessionId)
+      expect(resumed.sessionFinishedAt).toBe(finishedAt)
+      expect(resumed.finishedSession).toBeUndefined()
+    })
+
+    it("starts a new session when the runbook is opened again in the running app", async () => {
+      const a = await getRunbook(dirA)
+      await invoke("session:finish", { sessionId: a.sessionId })
+
+      // A watch-mode reload keeps the finished session it shows.
+      const reloaded = await getRunbook(dirA, undefined, { reload: true })
+      expect(reloaded.sessionId).toBe(a.sessionId)
+      expect(reloaded.sessionFinishedAt).toEqual(expect.any(String))
+      expect(reloaded.finishedSession).toBeUndefined()
+
+      // Opening it again while it shows starts a new session.
+      const reopened = await getRunbook(dirA)
+      expect(reopened.sessionId).not.toBe(a.sessionId)
+      expect(reopened.finishedSession).toEqual({
+        name: a.sessionName,
+        finishedAt: reloaded.sessionFinishedAt!,
+      })
+      // The new session is the one the runbook resumes from then on.
+      const again = await getRunbook(dirA)
+      expect(again.sessionId).toBe(reopened.sessionId)
+      expect(again.finishedSession).toBeUndefined()
+
+      // So does opening it after Close Runbook.
+      await invoke("session:finish", { sessionId: again.sessionId })
+      markRunbookClosed()
+      const afterClose = await getRunbook(dirA)
+      expect(afterClose.sessionId).not.toBe(again.sessionId)
+      expect(afterClose.finishedSession?.name).toBe(again.sessionName)
+    })
+
+    it("leaves a session that is no longer the open one as it is", async () => {
+      const a = await getRunbook(dirA)
+      const b = await getRunbook(dirB)
+
+      expect(await invoke("session:finish", { sessionId: a.sessionId })).toEqual({ ok: true })
+
+      expect((await list()).map((s) => s.finishedAt)).toEqual([undefined, undefined])
+      expect((await getRunbook(dirB)).sessionId).toBe(b.sessionId)
+    })
+
+    it("rejects a request with no session id", async () => {
+      await expect(invoke("session:finish")).rejects.toThrow(
+        "finishing a session needs the id of the session",
+      )
     })
   })
 

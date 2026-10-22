@@ -24,6 +24,13 @@ export interface GetFileReturn {
   sessionDir?: string
   /** When that session was last used, on the load that resumed it (runbook:get only) */
   sessionResumedFrom?: string
+  /** When that session was marked finished, if it was (runbook:get only) */
+  sessionFinishedAt?: string
+  /**
+   * The runbook's most recent session, on the load that started a new session
+   * in its place because it was finished (runbook:get only)
+   */
+  finishedSession?: { name: string; finishedAt: string }
   /** What that session's history says each block was left as (runbook:get only) */
   blockStates?: SavedBlockState[]
 }

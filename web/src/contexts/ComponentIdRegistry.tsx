@@ -14,6 +14,7 @@ import { normalizeBlockId } from "../lib/utils"
 export type BlockComponentType =
   | "Command"
   | "Check"
+  | "Finish"
   | "Inputs"
   | "Template"
   | "TemplateInline"

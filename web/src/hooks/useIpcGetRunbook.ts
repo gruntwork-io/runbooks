@@ -21,7 +21,9 @@ export interface UseIpcGetRunbookReturn extends UseIpcReturn<GetFileReturn> {
   /**
    * Reload after a watch-mode change. Without a path, silently re-sends the
    * current request; with one, makes that runbook (the displayed one, after a
-   * failed open) the current request, so later reloads re-send it too.
+   * failed open) the current request, so later reloads re-send it too. Either
+   * way runbook:get is told it is a reload, which keeps the session open even
+   * when it is finished: an open of the runbook starts a new one in its place.
    */
   reloadForWatch: (path?: string, remoteSource?: string) => void
 }
@@ -51,12 +53,16 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // main answers with a new sessionId, as it does for Reset Session.
   const [openNonce, setOpenNonce] = useState(0)
   const [isClosed, setIsClosed] = useState(false)
+  // Whether the current request is a watch-mode reload of the displayed
+  // runbook rather than an open (see reloadForWatch). Every open clears it.
+  const [isReload, setIsReload] = useState(false)
 
   const openRunbook = useCallback((path: string, source?: string) => {
     setRunbookPath(path)
     setRemoteSource(source)
     setOpenNonce((n) => n + 1)
     setIsClosed(false)
+    setIsReload(false)
   }, [])
 
   // Fetch CLI config on mount to get the initial runbook path. Main sends no
@@ -96,7 +102,9 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   // Call runbook:get with the path once we have it
   const result = useIpc<GetFileReturn>(
     "runbook:get",
-    runbookPath ? { path: runbookPath, remoteSource, openNonce } : undefined,
+    runbookPath
+      ? { path: runbookPath, remoteSource, openNonce, ...(isReload ? { reload: true } : {}) }
+      : undefined,
     { disabled: !runbookPath },
   )
 
@@ -104,9 +112,10 @@ export function useIpcGetRunbook(): UseIpcGetRunbookReturn {
   const reloadForWatch = useCallback(
     (path?: string, source?: string) => {
       if (path === undefined) {
-        silentRefetch()
+        silentRefetch({ reload: true })
       } else {
         openRunbook(path, source)
+        setIsReload(true)
       }
     },
     [silentRefetch, openRunbook],

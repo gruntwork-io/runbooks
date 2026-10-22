@@ -84,11 +84,41 @@ describe("IpcSessionHistoryProvider", () => {
     expect(JSON.stringify(warn.mock.calls)).not.toContain("hunter2")
   })
 
+  it("marks the session finished in the main process", () => {
+    const invoke = vi.fn(async () => ({ ok: true }))
+    const { result } = renderHistory(invoke as unknown as RunbooksAPI["invoke"], {
+      sessionId: "s1",
+      blockStates: [],
+    })
+
+    result.current.finish()
+
+    expect(invoke).toHaveBeenCalledWith("session:finish", { sessionId: "s1" })
+  })
+
+  it("says in the console when the session can't be marked finished", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const invoke = vi.fn(async () => {
+      throw new Error("failed to mark a session finished: disk full")
+    })
+    const { result } = renderHistory(invoke as unknown as RunbooksAPI["invoke"], {
+      sessionId: "s1",
+      blockStates: [],
+    })
+
+    result.current.finish()
+
+    await waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+    expect(warn.mock.calls[0]![0]).toBe("Could not mark the session finished:")
+    expect(JSON.stringify(warn.mock.calls)).toContain("disk full")
+  })
+
   it("sends nothing while no session is loaded", () => {
     const invoke = vi.fn()
     const { result } = renderHistory(invoke, { sessionId: undefined, blockStates: undefined })
 
     result.current.record("config", "inputs", FORM)
+    result.current.finish()
 
     expect(invoke).not.toHaveBeenCalled()
   })

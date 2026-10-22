@@ -285,6 +285,59 @@ describe("SessionStore", () => {
     })
   })
 
+  describe("latestUnfinishedSinceFinish", () => {
+    const LOCAL = { path: "/repo/runbook.mdx", remoteSource: undefined }
+    /** A session of the runbook at /repo, launched last on day `day` of January. */
+    const launchedOn = (id: string, day: number, overrides: Partial<SessionRecord> = {}) =>
+      run(
+        store.insert(record({ id, lastLaunchedAt: `2026-01-0${day}T00:00:00.000Z`, ...overrides })),
+      )
+
+    it("returns the latest unfinished session launched since the runbook was last finished", () => {
+      launchedOn("abandoned", 1)
+      launchedOn("finished", 4)
+      run(store.markFinished("finished", "2026-01-02T00:00:00.000Z"))
+      launchedOn("older", 3)
+      launchedOn("in-progress", 3, { lastLaunchedAt: "2026-01-03T12:00:00.000Z" })
+      launchedOn("other-runbook", 5, { path: "/other/runbook.mdx" })
+
+      expect(run(store.latestUnfinishedSinceFinish(LOCAL))?.id).toBe("in-progress")
+    })
+
+    it("counts from the runbook's last finish, in whichever session it was", () => {
+      launchedOn("first", 4)
+      run(store.markFinished("first", "2026-01-01T00:00:00.000Z"))
+      launchedOn("between", 2)
+      launchedOn("second", 3)
+      run(store.markFinished("second", "2026-01-03T00:00:00.000Z"))
+
+      expect(run(store.latestUnfinishedSinceFinish(LOCAL))).toBeUndefined()
+    })
+
+    it("is undefined for a runbook that was never finished", () => {
+      launchedOn("in-progress", 1)
+
+      expect(run(store.latestUnfinishedSinceFinish(LOCAL))).toBeUndefined()
+    })
+
+    it("finds a remote runbook's sessions by its URL", () => {
+      const url = "https://github.com/acme/runbooks//deploy"
+      launchedOn("finished", 3, { remoteSource: url, path: "/tmp/clone-1/runbook.mdx" })
+      run(store.markFinished("finished", "2026-01-01T00:00:00.000Z"))
+      launchedOn("in-progress", 2, { remoteSource: url, path: "/tmp/clone-2/runbook.mdx" })
+      launchedOn("local", 2)
+
+      expect(
+        run(
+          store.latestUnfinishedSinceFinish({
+            path: "/tmp/clone-3/runbook.mdx",
+            remoteSource: url,
+          }),
+        )?.id,
+      ).toBe("in-progress")
+    })
+  })
+
   describe("latestForLaunchDir", () => {
     it("returns the session most recently launched from that directory", () => {
       run(
