@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest"
 import { createElement, type ReactNode } from "react"
 import { renderHook, act, cleanup } from "@testing-library/react"
 import { ApiProvider, type RunbooksAPI } from "@/contexts/ApiContext"
@@ -60,7 +60,7 @@ function fakeRenderInline(args: unknown) {
   return { renderedFiles: { "script.sh": { content } } }
 }
 
-let invoke: ReturnType<typeof vi.fn>
+let invoke: Mock<(channel: string, args?: unknown) => Promise<unknown>>
 let api: RunbooksAPI
 const originalApi = window.api
 

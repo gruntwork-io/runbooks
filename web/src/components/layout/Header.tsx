@@ -1,18 +1,16 @@
-import { useState, useEffect, type ComponentType, type ComponentPropsWithRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ChevronDown,
   Download,
-  Check,
   FolderOpen,
-  Copy,
+  History,
+  Pencil,
+  RotateCcw,
   SquareTerminal,
   X,
-  type LucideProps,
 } from "lucide-react"
 import logoDarkAlpha from "@/assets/runbooks-logo-dark-alpha.svg"
 import logoLightAlpha from "@/assets/runbooks-logo-light-alpha.svg"
-import { useCopyToClipboard } from "@/hooks/useCopyToClipboard"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,73 +19,59 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu"
+import { CopyIconButton } from "./CopyIconButton"
+import { SessionName } from "./SessionName"
+import { SessionsDialog } from "./SessionsDialog"
 import { ThemeToggle } from "./ThemeToggle"
 import { InstructionModeToggle } from "./InstructionModeToggle"
 import { useDownloadLogs } from "@/hooks/useDownloadLogs"
 import { useApi } from "@/contexts/ApiContext"
 import { useTheme } from "@/contexts/useTheme"
 import { formatShortcut, isMac } from "@/lib/platform"
-import { getDirectoryPath } from "@/lib/utils"
-
-function CopyButton({
-  onClick,
-  didCopy,
-  icon: Icon,
-  size,
-  className,
-  ref,
-  ...props
-}: {
-  didCopy: boolean
-  icon: ComponentType<LucideProps>
-  size: string
-} & ComponentPropsWithRef<"button">) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex-shrink-0 rounded transition-colors cursor-pointer ${className ?? ""}`}
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      aria-label="Copy local path"
-      {...props}
-      ref={ref}
-    >
-      {didCopy ? (
-        <Check className={`${size} text-success`} />
-      ) : (
-        <Icon className={`${size} text-muted-foreground`} />
-      )}
-    </button>
-  )
-}
 
 interface HeaderProps {
-  pathName: string
-  /** The local filesystem path (may differ from pathName when viewing a remote runbook) */
-  localPath?: string | undefined
+  /** The open runbook's session name, e.g. `elegant-elephant`. Undefined while no runbook is open. */
+  sessionName?: string | undefined
+  /** The absolute path of that session's own directory */
+  sessionDir?: string | undefined
+  /** Called with the session's new name after the user renames it */
+  onSessionRenamed: (name: string) => void
   onOpenCommandPalette: () => void
   onCloseRunbook: () => void
 }
 
 /**
- * A fixed header component that displays the branding and current file path.
+ * A fixed header component that displays the branding and the open runbook's
+ * session name, which the user can rename here, with a button that copies the
+ * path of the session's directory. It is the app's title bar: the window has
+ * no native one.
  *
- * The header uses a responsive design where mobile devices show only the file path
- * centered, while desktop devices show the full layout with branding and navigation.
- *
- * When viewing a remote runbook, pathName will be the remote URL while localPath
- * will be the temp directory path. A copy button is shown to copy the local path.
+ * The header uses a responsive design where mobile devices show only the
+ * session name and its button, while desktop devices show the full layout
+ * with branding and navigation.
  *
  * @param props - The component props
- * @param props.pathName - The display string (remote URL or local path) for the header
- * @param props.localPath - The local filesystem path (for copy button when remote)
+ * @param props.sessionName - The session name
+ * @param props.sessionDir - The session's directory
+ * @param props.onSessionRenamed - Called with the new name after a rename
  * @param props.onOpenCommandPalette - Called by the menu's Command Palette… item
  * @param props.onCloseRunbook - Called by the menu's Close Runbook item
  */
-export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbook }: HeaderProps) {
+export function Header({
+  sessionName,
+  sessionDir,
+  onSessionRenamed,
+  onOpenCommandPalette,
+  onCloseRunbook,
+}: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [isSessionsOpen, setIsSessionsOpen] = useState(false)
+  // Set by the menu's Rename Session and Switch Session items. What they open
+  // opens once the menu has closed: opened sooner, it would lose the focus to
+  // the closing menu, and a name field that loses focus cancels the rename.
+  const afterMenuClose = useRef<"rename" | "sessions" | null>(null)
   const { hasLogs, downloadRaw, downloadJson } = useDownloadLogs()
-  const { didCopy, copy } = useCopyToClipboard()
   const api = useApi()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === "dark"
@@ -99,7 +83,24 @@ export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbo
     return cleanup
   }, [api])
 
-  const hasRunbookOpen = Boolean(pathName)
+  const hasRunbookOpen = sessionName !== undefined
+
+  // The native "Rename Session…" menu item.
+  useEffect(() => {
+    const cleanup = api.on("menu:rename-session", () => {
+      if (hasRunbookOpen) setIsRenaming(true)
+    })
+    return cleanup
+  }, [api, hasRunbookOpen])
+
+  // The native "Switch Session…" menu item.
+  useEffect(() => api.on("menu:switch-session", () => setIsSessionsOpen(true)), [api])
+
+  const handleResetSession = () => {
+    api.invoke("native:reset-session").catch((err: unknown) => {
+      console.error("Failed to reset the session:", err)
+    })
+  }
 
   // On Windows/Linux, Electron draws min/max/close controls via titleBarOverlay
   // in the top-right (~140px wide). Shift the Menu further from the edge on
@@ -107,15 +108,11 @@ export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbo
   // right-5 position since its traffic lights live top-left.
   const menuRightClass = isMac ? "md:right-5" : "md:right-40"
 
-  // Show the copy-local-path button when we have a local path that differs from the display name
-  // (i.e., when viewing a remote runbook)
-  const isRemote = localPath && localPath !== pathName
-  const localDir = getDirectoryPath(localPath) || localPath
-
   return (
     <>
       {/* data-find-ignore: find in page skips the header's always-visible
-          runbook path, which would otherwise be every search's first match. */}
+          session name, which would otherwise be the first match of every
+          search for one of its words. */}
       <header
         className="w-full border-b border-border p-4 text-muted-foreground font-semibold flex fixed top-0 left-0 right-0 z-10 bg-bg-default min-h-16 select-none"
         style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
@@ -130,51 +127,22 @@ export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbo
           />
         </div>
         <div className="flex-1 flex items-center gap-1.5 justify-end md:justify-center min-w-0 ml-24 mr-4 md:mx-48">
-          <div
-            className="hidden md:block text-sm text-muted-foreground font-mono font-normal truncate max-w-full"
-            title={pathName}
-            dir="rtl"
-          >
-            {"\u200E"}
-            {pathName}
-            {"\u200E"}
-          </div>
-          <div
-            className="md:hidden text-xs text-muted-foreground font-mono font-normal truncate max-w-full"
-            title={pathName}
-            dir="rtl"
-          >
-            {"\u200E"}
-            {pathName}
-            {"\u200E"}
-          </div>
-          {isRemote && (
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <CopyButton
-                    onClick={() => copy(localDir || "")}
-                    didCopy={didCopy}
-                    icon={FolderOpen}
-                    size="size-3.5"
-                    className="p-1 hover:bg-accent"
-                  />
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-sm">
-                  <p className="text-xs font-medium mb-1">Local path:</p>
-                  <div className="flex items-start gap-1.5">
-                    <p className="text-xs text-muted-foreground font-mono break-all">{localDir}</p>
-                    <CopyButton
-                      onClick={() => copy(localDir || "")}
-                      didCopy={didCopy}
-                      icon={Copy}
-                      size="size-3"
-                      className="p-0.5 hover:bg-white/10"
-                    />
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          {sessionName !== undefined && (
+            <SessionName
+              name={sessionName}
+              isRenaming={isRenaming}
+              onRenamingChange={setIsRenaming}
+              onRenamed={onSessionRenamed}
+            />
+          )}
+          {/* The session's own directory, where its scripts start and its files are */}
+          {sessionDir !== undefined && (
+            <CopyIconButton
+              value={sessionDir}
+              icon={FolderOpen}
+              label="Copy session directory"
+              copiedLabel="Session directory copied"
+            />
           )}
         </div>
         <div
@@ -188,7 +156,18 @@ export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbo
               Menu
               <ChevronDown className="size-4" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent
+              align="end"
+              onCloseAutoFocus={(event) => {
+                const open = afterMenuClose.current
+                if (open === null) return
+                afterMenuClose.current = null
+                // Keep the focus off the Menu button: what opens takes it.
+                event.preventDefault()
+                if (open === "rename") setIsRenaming(true)
+                else setIsSessionsOpen(true)
+              }}
+            >
               {/* First, as the visible way to learn the shortcut: on Windows
                   and Linux the native menu bar is hidden, so this is the only
                   place the palette is mentioned on screen. */}
@@ -216,6 +195,32 @@ export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbo
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
+                onClick={() => {
+                  afterMenuClose.current = "sessions"
+                }}
+              >
+                <History className="size-4" />
+                Switch Session…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  afterMenuClose.current = "rename"
+                }}
+                disabled={!hasRunbookOpen}
+                className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
+              >
+                <Pencil className="size-4" />
+                Rename Session
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleResetSession}
+                disabled={!hasRunbookOpen}
+                className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
+              >
+                <RotateCcw className="size-4" />
+                Reset Session
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={onCloseRunbook}
                 disabled={!hasRunbookOpen}
                 className={!hasRunbookOpen ? "opacity-50 cursor-not-allowed" : ""}
@@ -231,6 +236,8 @@ export function Header({ pathName, localPath, onOpenCommandPalette, onCloseRunbo
           </DropdownMenu>
         </div>
       </header>
+
+      <SessionsDialog open={isSessionsOpen} onOpenChange={setIsSessionsOpen} />
     </>
   )
 }

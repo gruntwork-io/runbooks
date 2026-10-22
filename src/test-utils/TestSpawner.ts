@@ -96,7 +96,7 @@ export const makeControlledSpawner = (opts: { deferSpawn?: boolean } = {}) => {
     spawn: (command, args) =>
       // Like ChildProcessSpawner, the spawn effect has no canceler: an
       // interrupted caller stops waiting, but the child is already running.
-      Effect.async<SpawnedProcess>((resume) => {
+      Effect.callback<SpawnedProcess>((resume) => {
         let killed = false
         let finish!: (result: { exitCode: number; lines: OutputLine[] }) => void
         const exited = new Promise<{ exitCode: number; lines: OutputLine[] }>((resolve) => {

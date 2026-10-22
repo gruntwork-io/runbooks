@@ -112,4 +112,6 @@ export interface AwsCredentials {
   secretAccessKey: string
   sessionToken?: string
   region: string
+  /** When temporary credentials expire, as an ISO timestamp */
+  expiresAt?: string
 }

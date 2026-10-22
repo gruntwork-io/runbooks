@@ -4,7 +4,7 @@
  * Parses boilerplate.yml directly using the `yaml` npm package.
  */
 
-import { Chunk, Effect, Stream } from "effect"
+import { Effect, Stream } from "effect"
 import YAML from "yaml"
 
 import { BoilerplateConfigError } from "../../errors/index.js"
@@ -257,15 +257,14 @@ export function parseBoilerplateConfig(
   yamlContent: string,
 ): Effect.Effect<BoilerplateConfig, BoilerplateConfigError> {
   return Effect.gen(function* () {
-    let raw: RawConfig
-    try {
-      raw = YAML.parse(yamlContent) as RawConfig
-    } catch (err) {
-      return yield* new BoilerplateConfigError({
-        message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
-        cause: err,
-      })
-    }
+    const raw = yield* Effect.try({
+      try: () => YAML.parse(yamlContent) as RawConfig,
+      catch: (err) =>
+        new BoilerplateConfigError({
+          message: `Failed to parse boilerplate YAML: ${errorMessage(err)}`,
+          cause: err,
+        }),
+    })
 
     if (!raw || !raw.variables) {
       return {
@@ -404,15 +403,15 @@ export function extractTemplateOutputDependencies(templateDir: string, boilerpla
   return Effect.gen(function* () {
     const fs = yield* FileSystem
 
-    const walked = yield* fs.walk(templateDir).pipe(Stream.runCollect, Effect.either)
-    if (walked._tag === "Left") {
+    const walked = yield* fs.walk(templateDir).pipe(Stream.runCollect, Effect.result)
+    if (walked._tag === "Failure") {
       console.warn(
-        `[boilerplate config] can't scan ${templateDir} for output references: ${errorMessage(walked.left.cause)}`,
+        `[boilerplate config] can't scan ${templateDir} for output references: ${errorMessage(walked.failure.cause)}`,
       )
       return extractOutputDependencies(boilerplateYaml)
     }
 
-    const entries = Chunk.toReadonlyArray(walked.right)
+    const entries = walked.success
     // Not filtered with isFile: a symlink is neither, and reading follows it
     // like boilerplate does. A link to a directory fails to read and is skipped.
     const contents = yield* Effect.forEach(

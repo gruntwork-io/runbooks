@@ -46,11 +46,11 @@ const inspectFailure = async (
     Effect.gen(function* () {
       const fs = yield* FileSystem
       for (const d of dirs) yield* fs.mkdir(d)
-      return yield* Effect.either(inspectLocalRepo(dir, WORKING_DIR))
+      return yield* Effect.result(inspectLocalRepo(dir, WORKING_DIR))
     }).pipe(Effect.provide(layer)),
   )
-  if (result._tag === "Right") throw new Error("expected inspectLocalRepo to fail")
-  return result.left.stderr
+  if (result._tag === "Success") throw new Error("expected inspectLocalRepo to fail")
+  return result.failure.stderr
 }
 
 describe("resolveLocalRepoPath", () => {

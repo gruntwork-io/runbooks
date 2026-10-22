@@ -3,11 +3,9 @@
  *
  * Electron serializes a rejected `ipcMain.handle` listener with
  * `error.toString()`. Many handlers return `runtime.runPromise(...)`, which
- * rejects with an Effect FiberFailure whose toString() is
- * "(FiberFailure) Tag: msg" followed by Cause.pretty's stack frames, and the
- * renderer shows that verbatim inline in blocks. A Data.TaggedError without a
- * `message` field (FileReadError, FileNotFoundError, ...) only says
- * "An error has occurred".
+ * rejects with the error the program failed with, and the renderer shows its
+ * toString() verbatim inline in blocks. A Data.TaggedError without a `message`
+ * field (FileReadError, FileNotFoundError, ...) only says its tag.
  *
  * installIpcErrorNormalization() fixes this for every handler in one place:
  * each rejection is rethrown as a plain Error whose message is the real
@@ -22,7 +20,7 @@
  * Only `import type` from electron, so this stays unit-testable without an
  * Electron runtime (same approach as open-runbook.ts).
  */
-import { Cause, Option, Runtime } from "effect"
+import { Cause, Option } from "effect"
 import type { IpcMain } from "electron"
 import type { GitError } from "../../../src/errors/index.ts"
 import { redactSecrets } from "../../../src/domain/vcs/redact.ts"
@@ -106,9 +104,9 @@ function describeUntagged(err: unknown): string {
  * frames belong in MAIN's log, not in the UI. Never returns an empty string.
  */
 export function describeCause(cause: Cause.Cause<unknown>): string {
-  const failure = Cause.failureOption(cause)
+  const failure = Cause.findErrorOption(cause)
   if (Option.isSome(failure)) return describeFailure(failure.value)
-  if (Cause.isInterruptedOnly(cause)) return "The operation was interrupted"
+  if (Cause.hasInterruptsOnly(cause)) return INTERRUPTED
   return describeFailure(Cause.squash(cause))
 }
 
@@ -116,20 +114,33 @@ export function describeCause(cause: Cause.Cause<unknown>): string {
  * Convert a handler rejection into a plain Error that serializes cleanly
  * across IPC. The original is kept as `cause`, so Electron's own
  * "Error occurred in handler for '<channel>'" log in MAIN still shows the full
- * FiberFailure; only `toString()` crosses to the renderer, and it ignores
- * `cause`.
+ * error; only `toString()` crosses to the renderer, and it ignores `cause`.
  *
  * The message goes through redactSecrets() (src/domain/vcs/redact.ts) as
  * defense in depth: git stderr or a handler's own message could otherwise
  * carry a token to the renderer.
  */
 export function toIpcError(err: unknown): Error {
-  // A FiberFailure's toString() is Cause.pretty, frames and all, so describe
-  // its Cause instead.
-  const message = Runtime.isFiberFailure(err)
-    ? describeCause(err[Runtime.FiberFailureCauseId])
-    : describeFailure(err)
+  const message = isInterruptRejection(err) ? INTERRUPTED : describeFailure(err)
   return new Error(redactSecrets(message), { cause: err })
+}
+
+/** What the user reads when an operation was interrupted rather than failed. */
+const INTERRUPTED = "The operation was interrupted"
+
+/**
+ * The message of the Error `runPromise` rejects with when the Cause holds
+ * only interruptions. Effect does not export it; ipc-error.test.ts rejects
+ * with a real interrupt, so a change of wording upstream fails there.
+ */
+const INTERRUPT_REJECTION_MESSAGE = "All fibers interrupted without error"
+
+/**
+ * Whether `err` is what `runPromise` rejects with for an interrupted program.
+ * The Cause is gone by then, so the message is all there is to go on.
+ */
+function isInterruptRejection(err: unknown): boolean {
+  return err instanceof Error && err.message === INTERRUPT_REJECTION_MESSAGE
 }
 
 /** The ipcMain objects installIpcErrorNormalization() has wrapped. */

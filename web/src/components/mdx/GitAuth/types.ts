@@ -112,6 +112,8 @@ export interface GitCliCredentialsResponse {
   valid?: boolean
   user?: GitUserInfo
   scopes?: string[]
+  /** When a valid token expires, as an ISO timestamp. */
+  expiresAt?: string
   tokenType?: GitTokenType
   error?: string
   /** HTTP status when validation failed (e.g. 401/403). Informational only: found-but-invalid is decided by `outcome`. */

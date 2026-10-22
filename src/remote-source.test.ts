@@ -13,9 +13,9 @@ function parse(url: string) {
 }
 
 function parseError(url: string): string {
-  const result = Effect.runSync(Effect.either(parseRemoteSource(url)))
-  if (result._tag === "Right") throw new Error(`expected ${url} to be rejected`)
-  return result.left.message
+  const result = Effect.runSync(Effect.result(parseRemoteSource(url)))
+  if (result._tag === "Success") throw new Error(`expected ${url} to be rejected`)
+  return result.failure.message
 }
 
 describe("isRemoteSource", () => {
@@ -599,11 +599,11 @@ describe("parseRemoteSource", () => {
       `github.com/owner?sshkey=${SSH_KEY}`,
       `git::https://git.example.com/?sshkey=${SSH_KEY}`,
     ])("keeps an sshkey out of the error's url field and message: %s", (input) => {
-      const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
-      if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
-      expect(result.left.url).toBe(redactSourceCredentials(input))
-      expect(result.left.url).toContain("sshkey=[REDACTED]")
-      expect(result.left.message).not.toContain(SSH_KEY)
+      const result = Effect.runSync(Effect.result(parseRemoteSource(input)))
+      if (result._tag === "Success") throw new Error(`expected ${input} to be rejected`)
+      expect(result.failure.url).toBe(redactSourceCredentials(input))
+      expect(result.failure.url).toContain("sshkey=[REDACTED]")
+      expect(result.failure.message).not.toContain(SSH_KEY)
     })
 
     it("rejects a git transport other than https, http or ssh", () => {
@@ -633,11 +633,11 @@ describe("parseRemoteSource", () => {
       `git::ssh:/git:${PASSWORD}@host/o/r.git`,
     ])("keeps credentials out of the error's url field and message: %s", (input) => {
       // The url field ends up in logs, like the message.
-      const result = Effect.runSync(Effect.either(parseRemoteSource(input)))
-      if (result._tag === "Right") throw new Error(`expected ${input} to be rejected`)
-      expect(result.left.url).not.toContain(PASSWORD)
-      expect(result.left.url).toBe(redactSourceCredentials(input))
-      expect(result.left.message).not.toContain(PASSWORD)
+      const result = Effect.runSync(Effect.result(parseRemoteSource(input)))
+      if (result._tag === "Success") throw new Error(`expected ${input} to be rejected`)
+      expect(result.failure.url).not.toContain(PASSWORD)
+      expect(result.failure.url).toBe(redactSourceCredentials(input))
+      expect(result.failure.message).not.toContain(PASSWORD)
     })
   })
 })
@@ -741,16 +741,16 @@ describe("resolveRef", () => {
     ])
 
     const result = await Effect.runPromise(
-      resolveRef(url, "feature/foo/runbooks/x").pipe(Effect.provide(spawner), Effect.either),
+      resolveRef(url, "feature/foo/runbooks/x").pipe(Effect.provide(spawner), Effect.result),
     )
 
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left._tag).toBe("GitError")
-      if (result.left._tag === "GitError") {
-        expect(result.left.exitCode).toBe(128)
-        expect(result.left.stderr).toContain("Could not resolve host")
-        expect(result.left.stderr).not.toContain("ghp_")
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure._tag).toBe("GitError")
+      if (result.failure._tag === "GitError") {
+        expect(result.failure.exitCode).toBe(128)
+        expect(result.failure.stderr).toContain("Could not resolve host")
+        expect(result.failure.stderr).not.toContain("ghp_")
       }
     }
   })
@@ -763,8 +763,8 @@ describe("resolveRef", () => {
 describe("parseRemoteSource — GitHub enterprise hosts", () => {
   const parseWith = (url: string, githubHosts?: string[]) =>
     Effect.runSync(parseRemoteSource(url, githubHosts ? { githubHosts } : {}))
-  const parseEither = (url: string, githubHosts?: string[]) =>
-    Effect.runSync(Effect.either(parseRemoteSource(url, githubHosts ? { githubHosts } : {})))
+  const parseResult = (url: string, githubHosts?: string[]) =>
+    Effect.runSync(Effect.result(parseRemoteSource(url, githubHosts ? { githubHosts } : {})))
 
   it("parses a GHES tree URL with that host and clone URL", () => {
     const result = parseWith("https://ghes.example.com/owner/repo/tree/main/path/to/dir")
@@ -816,8 +816,8 @@ describe("parseRemoteSource — GitHub enterprise hosts", () => {
   })
 
   it("plain GHES repo URL parses ONLY when its host is in githubHosts", () => {
-    expect(parseEither("https://ghes.example.com/o/r")._tag).toBe("Left")
-    expect(parseEither("https://ghes.example.com/o/r", ["other.example.com"])._tag).toBe("Left")
+    expect(parseResult("https://ghes.example.com/o/r")._tag).toBe("Failure")
+    expect(parseResult("https://ghes.example.com/o/r", ["other.example.com"])._tag).toBe("Failure")
     const result = parseWith("https://ghes.example.com/o/r", ["GHES.example.com"])
     expect(result).toEqual({
       host: "ghes.example.com",

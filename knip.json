@@ -17,8 +17,8 @@
     "web/src/components/ui/**": ["exports", "types"],
     "web/src/types/boilerplateVariable.ts": ["enumMembers"]
   },
-  "ignoreBinaries": ["script", "osascript"],
-  "ignoreDependencies": ["tailwindcss", "tw-animate-css", "babel-plugin-react-compiler"],
+  "ignoreBinaries": ["script", "osascript", "check"],
+  "ignoreDependencies": ["tailwindcss", "tw-animate-css"],
   "vitest": {
     "config": ["web/vitest.config.ts", "vitest.integration.config.ts"]
   },

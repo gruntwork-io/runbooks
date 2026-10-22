@@ -7,7 +7,8 @@
  */
 
 import { FolderGit2 } from "lucide-react"
-import { basename, cn } from "@/lib/utils"
+import { cn } from "@/lib/utils"
+import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { WorktreeSwitcherRow } from "./rows/WorktreeSwitcherRow"
 import { WorktreeStaticRow } from "./rows/WorktreeStaticRow"
 import { LocalPathRow } from "./rows/LocalPathRow"
@@ -35,6 +36,7 @@ export const RepositoryMetadataBar = ({
   onWorktreeSelect,
   className = "",
 }: RepositoryMetadataBarProps) => {
+  const displayPath = useDisplayPath()
   const hasSwitcher = workTrees.length >= 2 && onWorktreeSelect
 
   // No repo and no path: minimal state or nothing
@@ -80,7 +82,7 @@ export const RepositoryMetadataBar = ({
       {/* Row 2: Local path */}
       {localPath && (
         <LocalPathRow
-          displayText={`./${basename(localPath)}`}
+          displayText={displayPath(localPath)}
           copyPath={localPath}
           className={hasSwitcher || gitInfo ? "mt-1.5" : undefined}
         />

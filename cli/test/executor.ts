@@ -9,7 +9,7 @@ import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
 import { spawnSync, execFileSync } from "node:child_process"
-import { Either, ManagedRuntime } from "effect"
+import { Result, ManagedRuntime } from "effect"
 
 import { extractProp, extractStringArrayProp } from "../../src/domain/registry/executable.ts"
 import { ExecutableRegistry } from "../../src/domain/registry/executable.ts"
@@ -1641,10 +1641,10 @@ export class TestExecutor {
     // The same git commands the app runs, so a sparse clone (with or without
     // a ref) behaves identically here.
     const cloneSteps = buildCloneSteps(cloneURL, destPath, { ref, repoPath })
-    if (Either.isLeft(cloneSteps)) {
+    if (Result.isFailure(cloneSteps)) {
       result.passed = this.matchesExpectedStatus(step.expect, "fail")
       result.actualStatus = "fail"
-      result.error = cloneSteps.left.stderr
+      result.error = cloneSteps.failure.stderr
       result.duration = Date.now() - start
       return result
     }
@@ -1658,7 +1658,7 @@ export class TestExecutor {
         throw new Error(`Invalid ref "${ref}": a git ref cannot begin with "-"`)
       }
 
-      for (const gitStep of cloneSteps.right) {
+      for (const gitStep of cloneSteps.success) {
         // A repository with no commits has nothing to check out, as in the app.
         if (gitStep.skipIfNoCommits && !hasCommits(destPath, cloneEnv)) continue
         // Every step gets the clone's auth: a sparse clone is blobless, so its

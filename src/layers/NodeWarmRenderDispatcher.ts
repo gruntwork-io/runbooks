@@ -318,7 +318,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
               // If preparation fails (structural error / loader hiccup),
               // null the handle and fall through to the non-handle path.
               // We don't want a prepare failure to block all rendering.
-              Effect.catchAll((err) =>
+              Effect.catch((err) =>
                 Effect.sync(() => {
                   console.log(
                     "[WarmRenderDispatcher] prepareBundle failed, will use non-handle path",
@@ -354,7 +354,7 @@ export const NodeWarmRenderDispatcherLive = Layer.effect(
                 const handleResult = yield* wasm
                   .renderFilesWithHandle(handle, wasmPaths, varsJSON)
                   .pipe(
-                    Effect.catchAll((err) => {
+                    Effect.catch((err) => {
                       // Structural error means the handle was rejected
                       // (released, never existed, runtime reload). Drop
                       // it from our map so the NEXT render reprepares;

@@ -131,12 +131,12 @@ describe("custom-CA recovery through installSystemTrust", () => {
   })
 
   it("validateToken through the real GitLab layer fails with kind 'tls' — never a credential failure", async () => {
-    const result = await Effect.runPromise(Effect.either(validateAgainstFixture("glpat-fixture")))
-    expect(result._tag).toBe("Left")
-    if (result._tag === "Left") {
-      expect(result.left).toBeInstanceOf(GitLabApiError)
-      expect(result.left.status).toBe(0)
-      expect(result.left.kind).toBe("tls")
+    const result = await Effect.runPromise(Effect.result(validateAgainstFixture("glpat-fixture")))
+    expect(result._tag).toBe("Failure")
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(GitLabApiError)
+      expect(result.failure.status).toBe(0)
+      expect(result.failure.kind).toBe("tls")
     }
   })
 

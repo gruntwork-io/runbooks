@@ -9,9 +9,9 @@
  * service stays Bun-test-safe.
  */
 import { Effect, Exit } from "effect"
-import { runtime, sessionManager, vcsSessionMeta } from "./runtime.ts"
+import { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } from "./runtime.ts"
 import type { GitProvider } from "./runtime.ts"
-import { VcsCredentials } from "../../../src/services/VcsCredentials.ts"
+import { VcsCredentials, type VcsCredentialsShape } from "../../../src/services/VcsCredentials.ts"
 import type {
   DetectionResult,
   VcsCredentialSource,
@@ -29,6 +29,7 @@ import { errorMessage } from "../../../src/errors/message.ts"
  */
 export function recordSessionAuth(provider: GitProvider, host: string, source?: string): void {
   vcsSessionMeta.set(provider, { host, source })
+  saveVcsSessionMeta()
   getMainWindow()?.webContents.send("vcs:session-changed", { provider, host, source })
 }
 
@@ -66,7 +67,7 @@ export async function appendSessionEnvAndRecord(
   return undefined
 }
 
-export const withVcs = <A>(use: (vcs: VcsCredentials["Type"]) => Effect.Effect<A>): Promise<A> =>
+export const withVcs = <A>(use: (vcs: VcsCredentialsShape) => Effect.Effect<A>): Promise<A> =>
   runtime.runPromise(Effect.flatMap(VcsCredentials, use))
 
 /**
@@ -144,6 +145,7 @@ export const toDetectionIpcResult = (result: OrchestratedDetection, host?: strin
         ...common,
         user: result.user,
         scopes: result.scopes,
+        ...(result.expiresAt ? { expiresAt: result.expiresAt } : {}),
         ...(result.envVar ? { envVar: result.envVar } : {}),
         ...(result.divergenceHint ? { divergenceHint: result.divergenceHint } : {}),
         ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),

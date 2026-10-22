@@ -18,7 +18,7 @@ mockElectron({
 
 const { registerFileHandlers } = await import("./files.ts")
 const { registerExecHandlers } = await import("./exec.ts")
-const { resolveGeneratedDir } = await import("./path-guard.ts")
+const { resolveGeneratedDir, resolveRunLogsDir } = await import("./path-guard.ts")
 const runtimeModule = await import("./runtime.ts")
 const { runtime, sessionManager, setRunbookConfig, setExecutableRegistry } = runtimeModule
 const { ExecutableRegistry } = await import("../../../src/domain/registry/executable.ts")
@@ -139,5 +139,65 @@ describe("generated-files directory", () => {
     expect(deleted.deletedCount).toBe(1)
     expect(fs.readdirSync(generatedDir)).toEqual([])
     expect(fs.existsSync(path.join(elsewhereDir, DEFAULT_GENERATED_DIR, "not-ours.txt"))).toBe(true)
+  })
+
+  it("check returns the tree of the generated files, so a resumed session can show them", async () => {
+    fs.mkdirSync(path.join(generatedDir, "modules"), { recursive: true })
+    fs.writeFileSync(path.join(generatedDir, "main.tf"), "terraform {}\n")
+    fs.writeFileSync(path.join(generatedDir, "modules", "vpc.tf"), "module {}\n")
+
+    const checked = (await invoke("generated-files:check", {})) as {
+      hasFiles: boolean
+      fileCount: number
+      fileTree?: Array<{ name: string; type: string; children?: Array<{ name: string }> }>
+      totalFiles?: number
+      truncatedTree?: boolean
+    }
+
+    expect(checked).toMatchObject({ hasFiles: true, fileCount: 2, totalFiles: 2 })
+    expect(checked.truncatedTree).toBe(false)
+    expect(checked.fileTree?.map((node) => node.name)).toEqual(["modules", "main.tf"])
+    const modules = checked.fileTree?.find((node) => node.name === "modules")
+    expect(modules?.type).toBe("folder")
+    expect(modules?.children?.map((node) => node.name)).toEqual(["vpc.tf"])
+  })
+
+  it("check returns no tree when the generated directory has no files", async () => {
+    const checked = (await invoke("generated-files:check", {})) as Record<string, unknown>
+
+    expect(checked.hasFiles).toBe(false)
+    expect(checked.fileTree).toBeUndefined()
+  })
+
+  describe("run logs", () => {
+    it("writes each run's log under the session's directory, even after the script cd's away", async () => {
+      const first = execEvent()
+      await invoke("exec:run", first.event, { executableId })
+      const second = execEvent()
+      await invoke("exec:run", second.event, { executableId })
+
+      const logFiles = [first, second].map(
+        ({ sent }) =>
+          (sent.find((e) => e.channel === "exec:log-file")!.data as { path: string }).path,
+      )
+      const logsDir = path.join(runbookDir, ".runbooks", "logs", "capture-and-cd")
+      for (const file of logFiles) {
+        expect(path.dirname(file)).toBe(logsDir)
+        expect(fs.existsSync(file)).toBe(true)
+      }
+      expect(new Set(logFiles).size).toBe(2)
+    })
+
+    it("names the directory after the block id, with characters a file name can't have replaced", async () => {
+      const logsRoot = path.join(runbookDir, ".runbooks", "logs")
+      const resolve = (blockId: string) => runtime.runPromise(resolveRunLogsDir(blockId))
+
+      expect(await resolve("deploy-v1.2_prod")).toBe(path.join(logsRoot, "deploy-v1.2_prod"))
+      expect(await resolve("../../etc")).toBe(path.join(logsRoot, ".._.._etc"))
+      expect(await resolve("a b/c")).toBe(path.join(logsRoot, "a_b_c"))
+      expect(await resolve("..")).toBe(path.join(logsRoot, "_"))
+      expect(await resolve(".")).toBe(path.join(logsRoot, "_"))
+      expect(await resolve("")).toBe(path.join(logsRoot, "_"))
+    })
   })
 })

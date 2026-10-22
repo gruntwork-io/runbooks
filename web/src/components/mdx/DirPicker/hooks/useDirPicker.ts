@@ -2,8 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { useSession } from "@/contexts/useSession"
 import { useRunbookContext } from "@/contexts/useRunbook"
+import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { normalizeBlockId } from "@/lib/utils"
 import { revealOutput } from "@/lib/outputValues"
+import { parseSavedForm, type SavedForm } from "@/lib/sessionHistory"
+
+// How deep a path from the session's history is walked into dropdowns when
+// the block sets no level limit. Each level is one directory listing.
+const MAX_RESUMED_LEVELS = 32
 
 interface UseDirPickerOptions {
   id: string
@@ -48,6 +54,24 @@ export function useDirPicker({
   const [manualPath, setManualPath] = useState("")
   const [error, setError] = useState<string | null>(null)
 
+  // The path the session's history has for this block. The first listing of
+  // a root takes it back, with a dropdown selection for each of its
+  // directories that is still there. Cleared once taken.
+  const history = useSessionHistory()
+  const [savedPath] = useState(() => {
+    const path = parseSavedForm(history.saved(id, "inputs"))?.values.path
+    return typeof path === "string" && path !== "" ? path : undefined
+  })
+  const resumePathRef = useRef(savedPath)
+
+  // Every path the user picks or types is kept in the session's history.
+  const recordPath = useCallback(
+    (path: string) => {
+      history.record(id, "inputs", { values: { path }, submitted: true } satisfies SavedForm)
+    },
+    [history, id],
+  )
+
   // Track whether we've already initialized the root level
   const initializedRootRef = useRef<string | null>(null)
 
@@ -87,10 +111,29 @@ export function useDirPicker({
   )
 
   // Build the composed path from dropdown selections
-  const composedPath = useMemo(() => {
-    const parts = levels.map((l) => l.selected).filter(Boolean)
-    return parts.join("/")
-  }, [levels])
+  const composedPath = useMemo(() => composePath(levels), [levels])
+  // The composed path manualPath last followed (see the sync below)
+  const [prevComposedPath, setPrevComposedPath] = useState(composedPath)
+
+  // The dropdowns for `path` under the root's level: a selection for each of
+  // its directories that is still there, and a level below each.
+  const walkPath = useCallback(
+    async (rootLevel: DirLevel, path: string): Promise<DirLevel[]> => {
+      const walked = [rootLevel]
+      const segments = path.split("/").filter(Boolean)
+      for (const segment of segments.slice(0, maxLevels ?? MAX_RESUMED_LEVELS)) {
+        const level = walked.at(-1)!
+        if (!level.dirs.includes(segment)) break
+        walked[walked.length - 1] = { ...level, selected: segment }
+        if (maxLevels !== undefined && walked.length >= maxLevels) break
+        const listing = await fetchDirs(`${level.path}/${segment}`)
+        if (listing.error || listing.dirs.length === 0) break
+        walked.push({ path: `${level.path}/${segment}`, selected: "", dirs: listing.dirs })
+      }
+      return walked
+    },
+    [fetchDirs, maxLevels],
+  )
 
   // Initialize root level when workspace becomes ready, and start over when
   // the root changes or goes away. The path, typed or selected, was relative
@@ -119,19 +162,37 @@ export function useDirPicker({
     setManualPath("")
     const init = async () => {
       const listing = await fetchDirs(rootPath)
+      const current = () =>
+        selectVersionRef.current === version && initializedRootRef.current === rootPath
       // Discard if the root changed or went away while we were fetching
-      if (selectVersionRef.current !== version || initializedRootRef.current !== rootPath) return
+      if (!current()) return
       if (listing.error) setError(listing.error)
-      setLevels([{ path: rootPath, selected: "", dirs: listing.dirs }])
+      const rootLevel: DirLevel = { path: rootPath, selected: "", dirs: listing.dirs }
+      const resumePath = resumePathRef.current
+      resumePathRef.current = undefined
+      if (resumePath === undefined) {
+        setLevels([rootLevel])
+        return
+      }
+      const walked = await walkPath(rootLevel, resumePath)
+      if (!current()) return
+      setLevels(walked)
+      // The path stays as it was, typed parts included: the sync below would
+      // otherwise cut it down to the directories the dropdowns found.
+      setPrevComposedPath(composePath(walked))
+      setManualPath(resumePath)
     }
     void init()
-  }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs])
+  }, [isWorkspaceReady, rootPath, sessionReady, fetchDirs, walkPath])
 
   // Handle selection at a given dropdown level
   const selectDir = useCallback(
     async (levelIndex: number, dirName: string) => {
       setError(null)
       const version = ++selectVersionRef.current
+      recordPath(
+        composePath([...levels.slice(0, levelIndex), { path: "", selected: dirName, dirs: [] }]),
+      )
 
       setLevels((prev) => {
         // Trim levels after the current one and update selection
@@ -163,12 +224,20 @@ export function useDirPicker({
         setLevels((prev) => [...prev, { path: nextAbsPath, selected: "", dirs: listing.dirs }])
       }
     },
-    [rootPath, levels, fetchDirs, maxLevels],
+    [rootPath, levels, fetchDirs, maxLevels, recordPath],
+  )
+
+  // Manual edits only change the path shown; the effect below publishes it.
+  const setPath = useCallback(
+    (path: string) => {
+      setManualPath(path)
+      recordPath(path)
+    },
+    [recordPath],
   )
 
   // Sync manualPath with composed path from dropdowns whenever the
   // selections change
-  const [prevComposedPath, setPrevComposedPath] = useState(composedPath)
   if (prevComposedPath !== composedPath) {
     setPrevComposedPath(composedPath)
     setManualPath(composedPath)
@@ -207,7 +276,14 @@ export function useDirPicker({
     error,
     isWorkspaceReady,
     selectDir,
-    // Manual edits only change the path shown; the effect above publishes it.
-    setPath: setManualPath,
+    setPath,
   }
+}
+
+/** The path the dropdowns' selections make, relative to the root. */
+function composePath(levels: DirLevel[]): string {
+  return levels
+    .map((l) => l.selected)
+    .filter(Boolean)
+    .join("/")
 }
