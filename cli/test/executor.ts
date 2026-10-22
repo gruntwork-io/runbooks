@@ -761,11 +761,13 @@ export class TestExecutor {
         return this.runCheckOrCommand(block, step, start)
 
       // A <Finish> runs its final check like a <Check>. Without one there is
-      // nothing to run: finishing the runbook is the whole block, as in the app.
+      // nothing to run: finishing the runbook is the whole block, as in the app,
+      // where it also counts as a successful run for the blocks that depend on it.
       case "Finish":
         if (!extractProp(block.props, "command") && !extractProp(block.props, "path")) {
           result.actualStatus = "success"
           result.passed = this.matchesExpectedStatus(step.expect, "success")
+          this.passedScripts.add(normalizeBlockId(block.id))
           result.duration = Date.now() - start
           if (this.options.verbose) console.log("  (no final check to run)")
           return result

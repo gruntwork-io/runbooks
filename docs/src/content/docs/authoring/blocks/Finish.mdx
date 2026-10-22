@@ -2,7 +2,7 @@
 title: <Finish>
 ---
 
-The `<Finish>` block marks the end of a runbook. When the user clicks **Finish**, it can run a final check to confirm the runbook did its job. Once the runbook is finished, the block celebrates with a burst of confetti, shows your next steps, and marks the [session](/commands/sessions/) finished, so the next time the runbook opens it starts over in a new session.
+The `<Finish>` block marks the end of a runbook. When the user clicks **Finish**, it can run a final check to confirm the runbook did its job. Once the runbook is finished, the block celebrates with a burst of confetti, shows your next steps, and marks the [session](/commands/sessions/) finished, so Runbooks won't resume that session when the runbook opens again.
 
 Put it at the end of the runbook, after the last block the user runs.
 
@@ -61,7 +61,7 @@ The final check runs like any other script: it has the logging helpers, the sess
 
 Finishing the runbook also marks the session it runs in as finished. A final check that ends in a warning or a failure doesn't finish the runbook, so it leaves the session as it was.
 
-A finished session keeps its directory, files and history, but Runbooks doesn't resume it on its own again. The next time the runbook opens, in the running app or after a restart, it opens in a new session, with a notice that names the finished session and a **Switch session…** button to go back to it. Switching to the finished session shows the `<Finish>` block finished, without the confetti. See [Finishing a session](/commands/sessions/#finishing-a-session).
+A finished session keeps its directory, files and history, but Runbooks doesn't resume it on its own again. The next time the runbook opens, in the running app or after a restart, it opens in a new session, with a notice that names the finished session and a **Switch session…** button to go back to it. Switching to the finished session shows the `<Finish>` block finished, without the confetti. It doesn't make Runbooks resume the finished session: the next time the runbook opens, it resumes the session the user started after finishing, or starts a new one if there is none. See [Finishing a session](/commands/sessions/#finishing-a-session).
 
 ## Props
 

@@ -356,11 +356,11 @@ export function parseAuthDependencies(runbookPath: string): Map<string, AuthDepe
 // Run dependency parsing
 // ---------------------------------------------------------------------------
 
-const RUN_DEPENDENT_TYPES = ["Check", "Command"] as const
+const RUN_DEPENDENT_TYPES = ["Check", "Command", "Finish"] as const
 
 /**
- * The ids each Check and Command block names in its `dependsOn` prop, by block
- * id. A block without the prop has no entry.
+ * The ids each Check, Command and Finish block names in its `dependsOn` prop,
+ * by block id. A block without the prop has no entry.
  */
 export function parseRunDependencies(runbookPath: string): Map<string, string[]> {
   const content = fs.readFileSync(runbookPath, "utf-8")

@@ -13,7 +13,10 @@ tests:
 
   - name: final-check-fails-without-setup
     description: |
-      Without the setup block, DEMO_READY is unset and the final check fails.
+      Without the setup block, DEMO_READY is never set to true, so the final
+      check fails. The test empties it in case the shell running it sets it.
+    env:
+      DEMO_READY: ""
     steps:
       - block: setup
         expect: skip

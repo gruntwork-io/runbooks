@@ -839,6 +839,55 @@ describe("TestExecutor — Finish block", () => {
     expect(result.stepResults[1]?.actualStatus).toBe("blocked")
   })
 
+  it("is blocked until the block its dependsOn names has succeeded", async () => {
+    const executor = await makeExecutor(
+      [
+        "# Depends on",
+        "",
+        '<Command id="deploy" command="true" />',
+        "",
+        '<Finish id="finish" dependsOn={["deploy"]}>',
+        "",
+        "Next: tell your team.",
+        "",
+        "</Finish>",
+        "",
+      ].join("\n"),
+    )
+
+    const result = executor.runTest({
+      name: "depends-on",
+      steps: [
+        { block: "finish", expect: "blocked" },
+        { block: "deploy", expect: "success" },
+        { block: "finish", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["finish:finish", "blocked"],
+      ["command:deploy", "success"],
+      ["finish:finish", "success"],
+    ])
+  })
+
+  it("lets a block that depends on it run when it has no final check", async () => {
+    const executor = await makeExecutor(
+      `# After\n\n<Finish id="finish" />\n\n<Command id="clean-up" dependsOn="finish" command="true" />\n`,
+    )
+
+    const result = executor.runTest({ name: "after-finish" })
+
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe("passed")
+    expect(result.stepResults.map((s) => [s.block, s.actualStatus])).toEqual([
+      ["finish:finish", "success"],
+      ["command:clean-up", "success"],
+    ])
+  })
+
   it("reports a config error for a Finish without an id", async () => {
     const executor = await makeExecutor(`# No id\n\n<Finish command="exit 0" />\n`)
 
